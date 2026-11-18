@@ -1,22 +1,22 @@
 import { Button } from '../Button';
 import { TextInput } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
-import type { SourceInterval } from '../../api/open';
-import { INTERVALS, SOURCE_KINDS, selectedKind, type KnownSourceKind, type SourceFormState } from './sourceConfig';
-import { SourceConfigFields } from './SourceConfigFields';
-import type { SourceKindFormFrame } from './sourceFrames';
-import type { BusySource } from './sourceState';
-import type { SourcePanelActions } from './useSourcesPanelState';
-import '../SourcesPanel.css';
+import type { FeedInterval } from '../../api/open';
+import { INTERVALS, FEED_KINDS, selectedKind, type KnownFeedKind, type FeedFormState } from './feedConfig';
+import { FeedConfigFields } from './FeedConfigFields';
+import type { FeedKindFormFrame } from './feedFrames';
+import type { BusyFeed } from './feedState';
+import type { FeedPanelActions } from './useFeedsPanelState';
+import '../FeedsPanel.css';
 
-interface SourceEditorFormProps {
-  actions: SourcePanelActions;
-  busy: BusySource;
-  form: SourceFormState;
-  formFrame?: SourceKindFormFrame;
+interface FeedEditorFormProps {
+  actions: FeedPanelActions;
+  busy: BusyFeed;
+  form: FeedFormState;
+  formFrame?: FeedKindFormFrame;
 }
 
-export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEditorFormProps) {
+export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFormProps) {
   const kind = selectedKind(form);
   const Frame = formFrame;
 
@@ -28,9 +28,9 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
           aria-label="Feed type"
           data-testid="source-kind"
           value={form.kind}
-          onChange={(e) => actions.updateForm({ kind: e.target.value as KnownSourceKind })}
+          onChange={(e) => actions.updateForm({ kind: e.target.value as KnownFeedKind })}
         >
-          {SOURCE_KINDS.map((option) => (
+          {FEED_KINDS.map((option) => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </PanelSelect>
@@ -55,7 +55,7 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
         onChange={(e) => actions.updateForm({ url: e.target.value })}
       />
 
-      <SourceConfigFields form={form} onChange={actions.updateForm} />
+      <FeedConfigFields form={form} onChange={actions.updateForm} />
       {form.kind === 'courtlistener_docket' && <div className="panel-item-meta">RECAP PDFs stay link-only. Runtime tokens are not stored in feed config.</div>}
 
       <PanelSelect
@@ -63,7 +63,7 @@ export function SourceEditorForm({ actions, busy, form, formFrame }: SourceEdito
         aria-label="Polling cadence"
         data-testid="source-interval"
         value={form.cadence}
-        onChange={(e) => actions.updateForm({ cadence: e.target.value as SourceInterval })}
+        onChange={(e) => actions.updateForm({ cadence: e.target.value as FeedInterval })}
       >
         {INTERVALS.map((i) => (
           <option key={i.value} value={i.value}>{i.label}</option>

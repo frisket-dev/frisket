@@ -1,9 +1,9 @@
 // On manual feed/source creation -- through the Import workspace's Feed mode
 // OR the Sources panel's "Add source" affordance (both reach the exact same
-// FeedSourceForm; sources-panel-add-flow-v1 already pins that reuse) -- a
+// FeedImportForm; sources-panel-add-flow-v1 already pins that reuse) -- a
 // "Populate feed?" prompt opens immediately, offering the same run the
 // Sources panel's own "Poll now" affordance makes (source.poll ->
-// api.fetchSource). Run launches it; Not now dismisses with no run.
+// api.fetchFeed). Run launches it; Not now dismisses with no run.
 //
 // Deterministic + network-free: the source URL is http://localhost/..., which
 // the backend SSRF guard (frisket.ops.netguard) rejects synchronously (no DNS,
@@ -72,7 +72,7 @@ test('manual feed creation via the import dialog surfaces "Populate feed?" immed
   expect(created.last_status).toBe('never');
 });
 
-test('Run launches exactly the manual poll (source.poll on the new source)', async ({ page }) => {
+test('Run launches exactly the manual poll (source.poll on the new feed)', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('feed-populate-run'));
   const feedName = uniqueName('Populate-run feed');
   const blockedUrl = 'http://localhost/feed.xml';
@@ -120,7 +120,7 @@ test('Run launches exactly the manual poll (source.poll on the new source)', asy
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
 });
 
-test('the Sources panel\'s Add-source flow reaches the same Populate-feed prompt', async ({ page }) => {
+test('the Feeds panel\'s Add-feed flow reaches the same Populate-feed prompt', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('feed-populate-sources-panel'));
   const feedName = uniqueName('Populate-sources-panel feed');
   const blockedUrl = 'http://localhost/feed.xml';

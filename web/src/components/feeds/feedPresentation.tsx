@@ -1,9 +1,9 @@
 import { Globe2, ListVideo, Rss, Scale } from 'lucide-react';
-import type { SourceKind } from '../../api/open';
+import type { FeedKind } from '../../api/open';
 import { StatusChip, type StatusTone } from '../PanelPrimitives';
-import { statusLabel } from './sourceFormatting';
+import { statusLabel } from './feedFormatting';
 
-export function SourceKindIcon({ kind }: { kind: SourceKind }) {
+export function FeedKindIcon({ kind }: { kind: FeedKind }) {
   switch (kind) {
     case 'youtube_playlist':
     case 'youtube_channel':
@@ -17,7 +17,7 @@ export function SourceKindIcon({ kind }: { kind: SourceKind }) {
   }
 }
 
-export function SourceStatus({ value, testId }: { value: string | null | undefined; testId?: string }) {
+export function FeedStatus({ value, testId }: { value: string | null | undefined; testId?: string }) {
   const tones: Record<string, StatusTone> = {
     ok: 'success', healthy: 'success', error: 'error', failing: 'error', stale: 'warning',
   };

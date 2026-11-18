@@ -1,24 +1,24 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import type { FormEvent } from 'react';
-import type { SourceHealth, SourceInfo, SourceInput } from '../../api/open';
-import type { SourceApiPort } from '../../api/ports';
-import { buildSourceInput, type SourceFormState } from './sourceConfig';
-import { initialSourcesState, sourcesReducer, type BusySource } from './sourceState';
-import { useSourceHealth } from './useSourceHealth';
+import type { FeedHealth, FeedInfo, FeedInput } from '../../api/open';
+import type { FeedApiPort } from '../../api/ports';
+import { buildFeedInput, type FeedFormState } from './feedConfig';
+import { initialFeedsState, feedsReducer, type BusyFeed } from './feedState';
+import { useFeedHealth } from './useFeedHealth';
 import { errorMessage } from '../../hooks/errorMessage';
 
 const msg = (e: unknown): string => errorMessage(e);
 
-export function useSourcesPanelState(
-  sourceApi: SourceApiPort,
+export function useFeedsPanelState(
+  feedApi: FeedApiPort,
   onPolled?: (sheetId: number | null) => void,
 ) {
-  const [state, dispatch] = useReducer(sourcesReducer, undefined, initialSourcesState);
-  const { entries, load: loadHealth, poll, forget } = useSourceHealth(sourceApi);
+  const [state, dispatch] = useReducer(feedsReducer, undefined, initialFeedsState);
+  const { entries, load: loadHealth, poll, forget } = useFeedHealth(feedApi);
   const currentState = useRef(state);
   useEffect(() => { currentState.current = state; }, [state]);
-  const busyRequests = useRef(new Map<symbol, BusySource>());
-  const beginBusy = useCallback((busy: BusySource) => {
+  const busyRequests = useRef(new Map<symbol, BusyFeed>());
+  const beginBusy = useCallback((busy: BusyFeed) => {
     const request = Symbol();
     busyRequests.current.set(request, busy);
     dispatch({ type: 'set-busy', busy });
@@ -31,12 +31,12 @@ export function useSourcesPanelState(
 
   const refresh = useCallback(async () => {
     try {
-      const items = await sourceApi.listSources();
+      const items = await feedApi.listFeeds();
       dispatch({ type: 'sources-loaded', items });
     } catch (e) {
       dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [sourceApi]);
+  }, [feedApi]);
 
   useEffect(() => {
     void refresh();
@@ -52,12 +52,12 @@ export function useSourcesPanelState(
 
   const loadRuns = useCallback(async (id: number, reportError = true) => {
     try {
-      const detail = await sourceApi.getSource(id, 0, 20);
+      const detail = await feedApi.getFeed(id, 0, 20);
       dispatch({ type: 'source-detail-loaded', detail });
     } catch (e) {
       if (reportError) dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [sourceApi]);
+  }, [feedApi]);
 
   const refreshAfterMutation = useCallback(async (id: number | null) => {
     await refresh();
@@ -66,9 +66,9 @@ export function useSourcesPanelState(
 
   const submit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    let input: SourceInput;
+    let input: FeedInput;
     try {
-      input = buildSourceInput(state.form);
+      input = buildFeedInput(state.form);
     } catch (error) {
       dispatch({ type: 'set-error', error: msg(error) });
       return;
@@ -81,8 +81,8 @@ export function useSourcesPanelState(
     dispatch({ type: 'set-error', error: null });
     try {
       const saved = editingId == null
-        ? await sourceApi.createSource(input)
-        : await sourceApi.updateSource(editingId, input);
+        ? await feedApi.createFeed(input)
+        : await feedApi.updateFeed(editingId, input);
       dispatch({ type: 'saved-form', session, form, sourceId: saved.id });
       await refreshAfterMutation(saved.id);
     } catch (error) {
@@ -90,7 +90,7 @@ export function useSourcesPanelState(
     } finally {
       endBusy(request);
     }
-  }, [beginBusy, endBusy, refreshAfterMutation, sourceApi, state.editorSession, state.form]);
+  }, [beginBusy, endBusy, refreshAfterMutation, feedApi, state.editorSession, state.form]);
 
   const fetchNow = useCallback(async (id: number) => {
     const request = beginBusy(id);
@@ -110,15 +110,15 @@ export function useSourcesPanelState(
     }
   }, [beginBusy, endBusy, loadRuns, onPolled, poll]);
 
-  const patchSource = useCallback(async (id: number, patch: Partial<SourceInput>) => {
+  const patchFeed = useCallback(async (id: number, patch: Partial<FeedInput>) => {
     dispatch({ type: 'set-error', error: null });
     try {
-      await sourceApi.updateSource(id, patch);
+      await feedApi.updateFeed(id, patch);
       await refreshAfterMutation(id);
     } catch (e) {
       dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [refreshAfterMutation, sourceApi]);
+  }, [refreshAfterMutation, feedApi]);
 
   const remove = useCallback(async (id: number) => {
     if (state.armedDelete !== id) {
@@ -127,13 +127,13 @@ export function useSourcesPanelState(
     }
     dispatch({ type: 'arm-delete', id: null });
     try {
-      await sourceApi.deleteSource(id);
+      await feedApi.deleteFeed(id);
       forget(id);
       dispatch({ type: 'source-deleted', id });
     } catch (e) {
       dispatch({ type: 'set-error', error: msg(e) });
     }
-  }, [forget, sourceApi, state.armedDelete]);
+  }, [forget, feedApi, state.armedDelete]);
 
   const toggleRuns = useCallback(async (id: number) => {
     const open = !state.expanded[id];
@@ -150,18 +150,18 @@ export function useSourcesPanelState(
   return {
     state: {
       ...state,
-      health: Object.fromEntries<SourceHealth>(Object.entries(entries).flatMap(([id, entry]) => entry.health ? [[id, entry.health] as const] : [])),
+      health: Object.fromEntries<FeedHealth>(Object.entries(entries).flatMap(([id, entry]) => entry.health ? [[id, entry.health] as const] : [])),
       healthLoading: state.healthOpenId != null && Boolean(entries[state.healthOpenId]?.loading),
       healthError: state.healthOpenId == null ? null : entries[state.healthOpenId]?.error ?? null,
     },
     actions: {
       setAdding: (adding: boolean) => dispatch({ type: 'set-adding', adding }),
-      startEdit: (source: SourceInfo) => dispatch({ type: 'start-edit', source }),
-      updateForm: (patch: Partial<SourceFormState>) => dispatch({ type: 'update-form', patch }),
+      startEdit: (feed: FeedInfo) => dispatch({ type: 'start-edit', source: feed }),
+      updateForm: (patch: Partial<FeedFormState>) => dispatch({ type: 'update-form', patch }),
       submit,
       fetchNow,
-      changeSchedule: (id: number, value: string) => patchSource(id, { schedule: value || null }),
-      toggleEnabled: (id: number, enabled: boolean) => patchSource(id, { enabled }),
+      changeSchedule: (id: number, value: string) => patchFeed(id, { schedule: value || null }),
+      toggleEnabled: (id: number, enabled: boolean) => patchFeed(id, { enabled }),
       remove,
       toggleRuns,
       openHealth,
@@ -170,4 +170,4 @@ export function useSourcesPanelState(
   };
 }
 
-export type SourcePanelActions = ReturnType<typeof useSourcesPanelState>['actions'];
+export type FeedPanelActions = ReturnType<typeof useFeedsPanelState>['actions'];

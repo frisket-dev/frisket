@@ -1,11 +1,11 @@
 import { FormField, TextInput, TextArea } from '../FormControls';
-import type { SourceDefinitionDraft } from './sourceConfig';
-import '../SourcesPanel.css';
+import type { FeedDefinitionDraft } from './feedConfig';
+import '../FeedsPanel.css';
 
 /** Source-kind config authoring shared by import and editing. */
-export function SourceConfigFields({ form, onChange }: {
-  form: SourceDefinitionDraft;
-  onChange(patch: Partial<SourceDefinitionDraft>): void;
+export function FeedConfigFields({ form, onChange }: {
+  form: FeedDefinitionDraft;
+  onChange(patch: Partial<FeedDefinitionDraft>): void;
 }) {
   return (
     <>

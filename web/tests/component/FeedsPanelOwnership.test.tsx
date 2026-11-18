@@ -2,13 +2,13 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { SourceDetail, SourceInfo } from '../../src/api/open';
-import type { SourceApiPort } from '../../src/api/ports';
-import { SourcesPanel } from '../../src/components/SourcesPanel';
+import type { FeedDetail, FeedInfo } from '../../src/api/open';
+import type { FeedApiPort } from '../../src/api/ports';
+import { FeedsPanel } from '../../src/components/FeedsPanel';
 
 afterEach(cleanup);
 
-function source(overrides: Partial<SourceInfo> = {}): SourceInfo {
+function source(overrides: Partial<FeedInfo> = {}): FeedInfo {
   return {
     id: 7, name: 'Records', kind: 'rss', url: 'https://example.test/feed',
     config: { merge_strategy: 'append-new' }, sheetId: 2, schedule: '@hourly',
@@ -18,7 +18,7 @@ function source(overrides: Partial<SourceInfo> = {}): SourceInfo {
 }
 
 function setup(item = source()) {
-  const detail: SourceDetail = {
+  const detail: FeedDetail = {
     ...item,
     runs: [{ id: 8, status: 'error', newRows: 1, changedRows: 2, skippedRows: 3,
       revisions: 4, warningCount: 1, durationMs: 1000, costMicro: 0,
@@ -27,15 +27,15 @@ function setup(item = source()) {
       limit: 20, total: 23, hasMore: true, nextOffset: 20, latestRun: null, latestRunLoaded: false },
   };
   const api = {
-    listSources: vi.fn().mockResolvedValue([item]),
-    getSource: vi.fn().mockResolvedValue(detail),
-    createSource: vi.fn(), updateSource: vi.fn().mockResolvedValue(item),
-    deleteSource: vi.fn().mockResolvedValue(undefined),
-    getSourceHealth: vi.fn(), fetchSource: vi.fn().mockResolvedValue({ sheetId: 2 }),
-  } satisfies SourceApiPort;
+    listFeeds: vi.fn().mockResolvedValue([item]),
+    getFeed: vi.fn().mockResolvedValue(detail),
+    createFeed: vi.fn(), updateFeed: vi.fn().mockResolvedValue(item),
+    deleteFeed: vi.fn().mockResolvedValue(undefined),
+    getFeedHealth: vi.fn(), fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
+  } satisfies FeedApiPort;
   const onPolled = vi.fn();
-  render(<SourcesPanel sourceApi={api} onPolled={onPolled}
-    sourceKindFormFrame={({ sourceKind, children }) => <div data-testid={`kind-frame-${sourceKind}`}>{children}</div>} />);
+  render(<FeedsPanel feedApi={api} onPolled={onPolled}
+    feedKindFormFrame={({ sourceKind, children }) => <div data-testid={`kind-frame-${sourceKind}`}>{children}</div>} />);
   return { api, onPolled };
 }
 
@@ -52,8 +52,8 @@ it('redacts RSS credentials and query strings, and cancels edits without saving'
   fireEvent.change(screen.getByTestId('source-name'), { target: { value: 'Draft name' } });
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(screen.queryByTestId('source-form')).not.toBeInTheDocument();
-  expect(api.updateSource).not.toHaveBeenCalled();
-  expect(api.createSource).not.toHaveBeenCalled();
+  expect(api.updateFeed).not.toHaveBeenCalled();
+  expect(api.createFeed).not.toHaveBeenCalled();
   fireEvent.click(screen.getByTestId('source-edit-7'));
   expect(screen.getByTestId('source-name')).toHaveValue('Records');
 });
@@ -64,26 +64,26 @@ it('validates API edits before saving the versioned source config', async () => 
   fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'http://example.test/api' } });
   fireEvent.submit(screen.getByTestId('source-form'));
   expect(screen.getByTestId('sources-error')).toHaveTextContent('HTTPS');
-  expect(api.updateSource).not.toHaveBeenCalled();
+  expect(api.updateFeed).not.toHaveBeenCalled();
   fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api' } });
   fireEvent.click(screen.getByTestId('source-create'));
-  await waitFor(() => expect(api.updateSource).toHaveBeenCalledWith(7, expect.objectContaining({
+  await waitFor(() => expect(api.updateFeed).toHaveBeenCalledWith(7, expect.objectContaining({
     kind: 'api_list_dicts', url: 'https://example.test/api', schedule: '@hourly',
     config: { schema_version: 'frisket.source.api_list_dicts.v1', method: 'GET',
       url: 'https://example.test/api', list_path: '/items', schema_policy: 'additive', max_items: 12 },
   })));
-  expect(api.fetchSource).not.toHaveBeenCalled();
+  expect(api.fetchFeed).not.toHaveBeenCalled();
   await waitFor(() => expect(screen.queryByTestId('source-form')).not.toBeInTheDocument());
 });
 
 it('requires two clicks to delete and removes the confirmed source', async () => {
   const { api } = setup();
   fireEvent.click(await screen.findByTestId('source-delete-7'));
-  expect(api.deleteSource).not.toHaveBeenCalled();
+  expect(api.deleteFeed).not.toHaveBeenCalled();
   expect(screen.getByTestId('source-delete-7')).toHaveAccessibleName('Confirm delete Records');
   fireEvent.click(screen.getByTestId('source-delete-7'));
   await screen.findByTestId('sources-empty');
-  expect(api.deleteSource).toHaveBeenCalledExactlyOnceWith(7);
+  expect(api.deleteFeed).toHaveBeenCalledExactlyOnceWith(7);
 });
 
 it.each(['source-api-list-path', 'source-api-item-id-path', 'source-api-updated-at-path'])('rejects invalid pointers from editor field %s', async (field) => {
@@ -92,7 +92,7 @@ it.each(['source-api-list-path', 'source-api-item-id-path', 'source-api-updated-
   fireEvent.change(screen.getByTestId(field), { target: { value: '/bad~2escape' } });
   fireEvent.submit(screen.getByTestId('source-form'));
   expect(screen.getByTestId('sources-error')).toHaveTextContent('invalid ~ escape');
-  expect(api.updateSource).not.toHaveBeenCalled();
+  expect(api.updateFeed).not.toHaveBeenCalled();
 });
 
 it('preserves the max-entry config when editing a numeric docket', async () => {
@@ -102,19 +102,19 @@ it('preserves the max-entry config when editing a numeric docket', async () => {
   expect(screen.getByTestId('source-court-max-entries')).toHaveValue('4');
   fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '6' } });
   fireEvent.click(screen.getByTestId('source-create'));
-  await waitFor(() => expect(api.updateSource).toHaveBeenCalledWith(7, expect.objectContaining({
+  await waitFor(() => expect(api.updateFeed).toHaveBeenCalledWith(7, expect.objectContaining({
     url: null, config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 6 }),
   })));
 });
 
 it('refreshes run history after a failed poll and retains the unloaded-page notice', async () => {
   const { api, onPolled } = setup();
-  api.fetchSource.mockRejectedValueOnce(new Error('Connection refused'));
+  api.fetchFeed.mockRejectedValueOnce(new Error('Connection refused'));
   fireEvent.click(await screen.findByTestId('source-fetch-7'));
   expect(await screen.findByTestId('source-runs-page-note-7')).toHaveTextContent('23 total polls / older polls not loaded');
   expect(screen.getByTestId('source-runs-7')).toHaveTextContent('1 new / 2 changed / 4 revised / 3 skipped');
   expect(screen.getByTestId('source-runs-7')).toHaveTextContent('Redacted poll failure');
   expect(screen.getByTestId('sources-error')).toHaveTextContent('Poll failed: Connection refused');
-  expect(api.getSource).toHaveBeenCalledWith(7, 0, 20);
+  expect(api.getFeed).toHaveBeenCalledWith(7, 0, 20);
   expect(onPolled).not.toHaveBeenCalled();
 });

@@ -11,7 +11,7 @@ import {
   FIRST_PARTY_WORKBENCH_CONTRIBUTION_DESCRIPTORS, IMAGE_GALLERY_VIEW_DESCRIPTOR,
   isProjectionViewDescriptor, OCR_COMPARE_COMMAND_DESCRIPTOR, TRANSCRIBE_COMPARE_COMMAND_DESCRIPTOR,
   TRANSLATE_COMPARE_COMMAND_DESCRIPTOR, TOPIC_COMPARE_COMMAND_DESCRIPTOR,
-  OPEN_SOURCES_COMMAND_DESCRIPTOR, OPEN_SETTINGS_COMMAND_DESCRIPTOR,
+  OPEN_FEEDS_COMMAND_DESCRIPTOR, OPEN_SETTINGS_COMMAND_DESCRIPTOR,
   normalizePlacement, type WorkbenchHostId, type WorkbenchViewDescriptor,
 } from '../workbench/descriptors';
 import type { WorkbenchHostContext } from '../workbench/hostContext';
@@ -156,7 +156,7 @@ export function useWorkspaceContributionController({
       firstPartyCommandEntry(
         { type: 'sources.open' },
         commandContext,
-        OPEN_SOURCES_COMMAND_DESCRIPTOR,
+        OPEN_FEEDS_COMMAND_DESCRIPTOR,
       ),
       firstPartyCommandEntry(
         { type: 'settings.open' },

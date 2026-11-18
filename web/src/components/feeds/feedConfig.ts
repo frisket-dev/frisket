@@ -1,16 +1,16 @@
-import type { SourceConfig, SourceInfo, SourceInput, SourceInterval, SourceKind } from '../../api/open';
+import type { FeedConfig, FeedInfo, FeedInput, FeedInterval, FeedKind } from '../../api/open';
 
 // Cadence presets - the only schedule strings the backend interval parser
 // (jobs/sources.py::_schedule_interval) accepts, so the picker cannot produce an
 // invalid cron. '' = manual / on-demand (a null schedule server-side).
-export const INTERVALS: { value: SourceInterval; label: string }[] = [
+export const INTERVALS: { value: FeedInterval; label: string }[] = [
   { value: '', label: 'Manual' },
   { value: '@hourly', label: 'Hourly' },
   { value: '0 */6 * * *', label: 'Every 6 hours' },
   { value: '@daily', label: 'Daily' },
 ];
 
-export type KnownSourceKind =
+export type KnownFeedKind =
   | 'rss'
   | 'youtube_playlist'
   | 'youtube_channel'
@@ -18,8 +18,8 @@ export type KnownSourceKind =
   | 'api_list_dicts'
   | 'courtlistener_docket';
 
-export const SOURCE_KINDS: Array<{
-  value: KnownSourceKind;
+export const FEED_KINDS: Array<{
+  value: KnownFeedKind;
   label: string;
   urlLabel: string;
   placeholder: string;
@@ -62,15 +62,15 @@ export const SOURCE_KINDS: Array<{
   },
 ];
 
-const SUPPORTED_KIND_VALUES = new Set<KnownSourceKind>(
-  SOURCE_KINDS.map((kind) => kind.value),
+const SUPPORTED_KIND_VALUES = new Set<KnownFeedKind>(
+  FEED_KINDS.map((kind) => kind.value),
 );
 
-export interface SourceDefinitionDraft {
+export interface FeedDefinitionDraft {
   name: string;
-  kind: KnownSourceKind;
+  kind: KnownFeedKind;
   url: string;
-  cadence: SourceInterval;
+  cadence: FeedInterval;
   apiListPath: string;
   apiItemIdPath: string;
   apiUpdatedAtPath: string;
@@ -83,12 +83,12 @@ export interface SourceDefinitionDraft {
   courtMaxEntries: string;
 }
 
-export interface SourceFormState extends SourceDefinitionDraft {
+export interface FeedFormState extends FeedDefinitionDraft {
   adding: boolean;
   editingId: number | null;
 }
 
-export const emptySourceDefinition = (cadence: SourceInterval): SourceDefinitionDraft => ({
+export const emptyFeedDefinition = (cadence: FeedInterval): FeedDefinitionDraft => ({
   name: '',
   kind: 'rss',
   url: '',
@@ -105,13 +105,13 @@ export const emptySourceDefinition = (cadence: SourceInterval): SourceDefinition
   courtMaxEntries: '',
 });
 
-export const emptyForm = (): SourceFormState => ({
-  ...emptySourceDefinition('@hourly'), adding: false, editingId: null,
+export const emptyForm = (): FeedFormState => ({
+  ...emptyFeedDefinition('@hourly'), adding: false, editingId: null,
 });
 
-function normalizeKind(kind: SourceKind): KnownSourceKind {
-  return SUPPORTED_KIND_VALUES.has(kind as KnownSourceKind)
-    ? kind as KnownSourceKind
+function normalizeKind(kind: FeedKind): KnownFeedKind {
+  return SUPPORTED_KIND_VALUES.has(kind as KnownFeedKind)
+    ? kind as KnownFeedKind
     : 'rss';
 }
 
@@ -138,7 +138,7 @@ function configBoolean(
   return typeof value === 'boolean' ? value : fallback;
 }
 
-function sourceConfigObject(config: SourceConfig) {
+function feedConfigObject(config: FeedConfig) {
   return typeof config === 'object' && config !== null && !Array.isArray(config)
     ? config
     : {};
@@ -170,23 +170,23 @@ function editableUrl(value: string | null | undefined): string {
   return value;
 }
 
-export function sourceToForm(source: SourceInfo): SourceFormState {
-  const kind = normalizeKind(source.kind);
-  const config = sourceConfigObject(source.config);
+export function feedToForm(feed: FeedInfo): FeedFormState {
+  const kind = normalizeKind(feed.kind);
+  const config = feedConfigObject(feed.config);
   const keywords = Array.isArray(config.keywords)
     ? config.keywords.filter((item): item is string => typeof item === 'string').join(', ')
     : '';
-  const sourceRef = source.url
+  const feedRef = feed.url
     ?? configString(config, ['playlist_id', 'playlist_url', 'channel_handle', 'channel_id', 'channel_url', 'profile_url', 'docket_url', 'docket_id', 'url']);
-  const visibleRef = kind === 'rss' && urlHasSensitiveParts(sourceRef) ? '' : (sourceRef ?? '');
+  const visibleRef = kind === 'rss' && urlHasSensitiveParts(feedRef) ? '' : (feedRef ?? '');
   return {
     ...emptyForm(),
     adding: true,
-    editingId: source.id,
-    name: source.name,
+    editingId: feed.id,
+    name: feed.name,
     kind,
     url: kind === 'rss' ? editableUrl(visibleRef) : visibleRef,
-    cadence: (source.schedule ?? '') as SourceInterval,
+    cadence: (feed.schedule ?? '') as FeedInterval,
     apiListPath: configString(config, ['list_path']) || '/',
     apiItemIdPath: configString(config, ['item_id_path']),
     apiUpdatedAtPath: configString(config, ['updated_at_path']),
@@ -231,7 +231,7 @@ function jsonPointerError(value: string, field: string): string | null {
   return null;
 }
 
-export function sourceDefinitionError(form: SourceDefinitionDraft): string | null {
+export function feedDefinitionError(form: FeedDefinitionDraft): string | null {
   if (form.kind !== 'api_list_dicts') return null;
   if (form.url.trim() && !apiUrlIsHttps(form.url.trim())) return 'API list feeds require HTTPS';
   return jsonPointerError(form.apiListPath, 'Response list path')
@@ -239,15 +239,15 @@ export function sourceDefinitionError(form: SourceDefinitionDraft): string | nul
     ?? (form.apiUpdatedAtPath.trim() ? jsonPointerError(form.apiUpdatedAtPath, 'Updated-at path') : null);
 }
 
-export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
+export function buildFeedInput(form: FeedDefinitionDraft): FeedInput {
   const name = form.name.trim();
   const url = form.url.trim();
   if (!name) throw new Error('Feed name is required');
-  if (!url) throw new Error(`${sourceKindLabel(form.kind)} requires a feed reference`);
-  const validationError = sourceDefinitionError(form);
+  if (!url) throw new Error(`${feedKindLabel(form.kind)} requires a feed reference`);
+  const validationError = feedDefinitionError(form);
   if (validationError) throw new Error(validationError);
 
-  const base: SourceInput = {
+  const base: FeedInput = {
     name,
     kind: form.kind,
     url,
@@ -325,24 +325,24 @@ export function buildSourceInput(form: SourceDefinitionDraft): SourceInput {
   }
 }
 
-export function sourceKindLabel(kind: SourceKind): string {
-  return SOURCE_KINDS.find((candidate) => candidate.value === kind)?.label
+export function feedKindLabel(kind: FeedKind): string {
+  return FEED_KINDS.find((candidate) => candidate.value === kind)?.label
     ?? String(kind).replaceAll('_', ' ');
 }
 
-export function sourceConfigSummary(source: SourceInfo): string {
-  const config = sourceConfigObject(source.config);
-  switch (source.kind) {
+export function feedConfigSummary(feed: FeedInfo): string {
+  const config = feedConfigObject(feed.config);
+  switch (feed.kind) {
     case 'youtube_playlist':
-      return `playlist ${configString(config, ['playlist_id', 'playlist_url']) || redactedUrl(source.url) || ''}`.trim();
+      return `playlist ${configString(config, ['playlist_id', 'playlist_url']) || redactedUrl(feed.url) || ''}`.trim();
     case 'youtube_channel':
-      return `channel ${configString(config, ['channel_handle', 'channel_id', 'channel_url']) || redactedUrl(source.url) || ''}`.trim();
+      return `channel ${configString(config, ['channel_handle', 'channel_id', 'channel_url']) || redactedUrl(feed.url) || ''}`.trim();
     case 'tiktok_profile':
-      return `profile ${configString(config, ['profile_url']) || redactedUrl(source.url) || ''}`.trim();
+      return `profile ${configString(config, ['profile_url']) || redactedUrl(feed.url) || ''}`.trim();
     case 'api_list_dicts':
       return `list path ${configString(config, ['list_path']) || '/'}`;
     case 'courtlistener_docket': {
-      const docket = configString(config, ['docket_id', 'docket_url']) || redactedUrl(source.url) || '';
+      const docket = configString(config, ['docket_id', 'docket_url']) || redactedUrl(feed.url) || '';
       const keywords = Array.isArray(config.keywords) && config.keywords.length > 0
         ? `, ${config.keywords.length} terms`
         : '';
@@ -353,6 +353,6 @@ export function sourceConfigSummary(source: SourceInfo): string {
   }
 }
 
-export function selectedKind(form: Pick<SourceDefinitionDraft, 'kind'>) {
-  return SOURCE_KINDS.find((kind) => kind.value === form.kind) ?? SOURCE_KINDS[0];
+export function selectedKind(form: Pick<FeedDefinitionDraft, 'kind'>) {
+  return FEED_KINDS.find((kind) => kind.value === form.kind) ?? FEED_KINDS[0];
 }

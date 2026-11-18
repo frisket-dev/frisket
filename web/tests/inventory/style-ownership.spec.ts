@@ -30,7 +30,7 @@ test('shared controls retain their styling when feature CSS loads first or last'
     'components/ProjectAskDock.css', 'workspace/WorkspaceToolbar.css',
     'components/importWorkspace/ImportWorkspaceShared.css',
     'components/project-ask/AskResearch.css', 'components/importWorkspace/tableImport/TableImportFlow.css',
-    'components/SourcesPanel.css', 'components/ActivityProgress.css', 'components/StatusBar.css',
+    'components/FeedsPanel.css', 'components/ActivityProgress.css', 'components/StatusBar.css',
     'components/HomeScreen.css', 'components/action-panel/OutputFieldsEditor.css',
   ]);
   const markup = `

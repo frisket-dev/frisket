@@ -2,13 +2,13 @@
 import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { SourceHealthMainView } from '../../src/components/sources/SourceHealthMainView';
-import type { SourceHealth } from '../../src/api/types';
-import type { SourceApiPort } from '../../src/api/ports';
+import { FeedHealthMainView } from '../../src/components/feeds/FeedHealthMainView';
+import type { FeedHealth } from '../../src/api/types';
+import type { FeedApiPort } from '../../src/api/ports';
 
 afterEach(cleanup);
 
-const health: SourceHealth = {
+const health: FeedHealth = {
     schemaVersion: 'frisket.source_health.v1',
     source: { id: 4, name: 'Records', kind: 'rss', url: null, enabled: false, schedule: null, sheetId: 2, createdAt: null, redactions: ['token'] },
     summary: { status: 'failing', lastSuccessAt: null, lastFailureAt: null, consecutiveFailures: 2,
@@ -23,13 +23,13 @@ const health: SourceHealth = {
     alerts: [{ message: 'Attention needed' }], warnings: [{ message: 'Incomplete metadata' }],
   };
 it('keeps summaries, run details, jobs, warnings and poll behavior in shared source-health content', async () => {
-  const sourceApi: SourceApiPort = {
-    listSources: vi.fn(), getSource: vi.fn(), createSource: vi.fn(), updateSource: vi.fn(), deleteSource: vi.fn(),
-    getSourceHealth: vi.fn().mockResolvedValue(health),
-    fetchSource: vi.fn().mockResolvedValue({ sheetId: 2 }),
+  const feedApi: FeedApiPort = {
+    listFeeds: vi.fn(), getFeed: vi.fn(), createFeed: vi.fn(), updateFeed: vi.fn(), deleteFeed: vi.fn(),
+    getFeedHealth: vi.fn().mockResolvedValue(health),
+    fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
   };
   const polled = vi.fn();
-  render(<SourceHealthMainView sourceApi={sourceApi} sourceId={4} onClose={vi.fn()} onPolled={polled} />);
+  render(<FeedHealthMainView feedApi={feedApi} sourceId={4} onClose={vi.fn()} onPolled={polled} />);
   expect(await screen.findByTestId('source-health-status-4')).toHaveTextContent('failing');
   expect(screen.getByTestId('source-health-deltas-4')).toHaveTextContent('+4 new');
   expect(screen.getByTestId('source-health-runs-4')).toHaveTextContent('Fetch failed');
@@ -38,20 +38,20 @@ it('keeps summaries, run details, jobs, warnings and poll behavior in shared sou
   expect(screen.getByTestId('source-health-redactions-4')).toHaveTextContent('token / cursor page 2');
   fireEvent.click(screen.getByRole('button', { name: 'Poll now' }));
   await waitFor(() => expect(polled).toHaveBeenCalledWith(2));
-  expect(sourceApi.fetchSource).toHaveBeenCalledWith(4);
+  expect(feedApi.fetchFeed).toHaveBeenCalledWith(4);
 });
 
 it('ignores an earlier source health response after changing sources', async () => {
-  let resolvePrevious!: (value: SourceHealth) => void;
-  const previous = new Promise<SourceHealth>((resolve) => { resolvePrevious = resolve; });
+  let resolvePrevious!: (value: FeedHealth) => void;
+  const previous = new Promise<FeedHealth>((resolve) => { resolvePrevious = resolve; });
   const next = { ...health, source: { ...health.source, id: 5, name: 'Next records' } };
-  const sourceApi: SourceApiPort = {
-    listSources: vi.fn(), getSource: vi.fn(), createSource: vi.fn(), updateSource: vi.fn(), deleteSource: vi.fn(),
-    getSourceHealth: vi.fn().mockReturnValueOnce(previous).mockResolvedValue(next), fetchSource: vi.fn(),
+  const feedApi: FeedApiPort = {
+    listFeeds: vi.fn(), getFeed: vi.fn(), createFeed: vi.fn(), updateFeed: vi.fn(), deleteFeed: vi.fn(),
+    getFeedHealth: vi.fn().mockReturnValueOnce(previous).mockResolvedValue(next), fetchFeed: vi.fn(),
   };
-  const props = { sourceApi, onClose: vi.fn() };
-  const view = render(<SourceHealthMainView {...props} sourceId={4} />);
-  view.rerender(<SourceHealthMainView {...props} sourceId={5} />);
+  const props = { feedApi, onClose: vi.fn() };
+  const view = render(<FeedHealthMainView {...props} sourceId={4} />);
+  view.rerender(<FeedHealthMainView {...props} sourceId={5} />);
   await screen.findByText('Next records');
   await act(async () => { resolvePrevious(health); await previous; });
   expect(screen.getByText('Next records')).toBeInTheDocument();

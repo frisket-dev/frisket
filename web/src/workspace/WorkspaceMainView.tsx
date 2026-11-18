@@ -5,13 +5,13 @@ import { WorkspaceActionCompareView } from './WorkspaceActionCompareView';
 import { CompareDiscardDialog } from '../workbench/CompareDiscardDialog';
 import { memo } from 'react';
 import { ImportDropzone } from '../components/importWorkspace/ImportDropzone';
-import { SourceHealthMainView } from '../components/sources/SourceHealthMainView';
-import { ResolvedWorkbenchLayoutRegion, SourceHealthMainViewFrame } from '../workbench/contributions';
+import { FeedHealthMainView } from '../components/feeds/FeedHealthMainView';
+import { ResolvedWorkbenchLayoutRegion, FeedHealthMainViewFrame } from '../workbench/contributions';
 import { OcrCompareTab } from '../workbench/OcrCompareTab';
 import { TranscribeCompareTab } from '../workbench/TranscribeCompareTab';
 import { TranslateCompareTab } from '../workbench/TranslateCompareTab';
 import { TopicSegmentationCompareTab } from '../workbench/TopicSegmentationCompareTab';
-import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
+import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, FEED_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
@@ -46,7 +46,7 @@ export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
     mapContributionId,
     resolvedRegion,
     routePanel,
-    sourceHealthHidden,
+    feedHealthHidden,
   } = useMainViewModel();
 
   return (
@@ -56,8 +56,8 @@ export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
       aria-label="Workbench main view"
       data-layout-state-schema="frisket.workbench.mainview_layout.v1"
       data-active-contribution-id={
-        routePanel?.kind === 'sourceHealth' && !sourceHealthHidden
-          ? SOURCE_HEALTH_CONTRIBUTION_ID
+        routePanel?.kind === 'sourceHealth' && !feedHealthHidden
+          ? FEED_HEALTH_CONTRIBUTION_ID
           : graphSplitShowing
             ? GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID
             : citationViewerState?.host === 'mainView' && !citationMainViewHidden
@@ -87,7 +87,7 @@ function WorkspaceMainViewBody() {
     activePreviewView,
     routePanel,
     sheet,
-    sourceHealthHidden,
+    feedHealthHidden,
     ocrCompareOpen,
     ocrCompareActive,
     transcribeCompareOpen,
@@ -107,7 +107,7 @@ function WorkspaceMainViewBody() {
         : activeMainViewPluginViewDescriptor ? 'plugin' : activeWorkView;
   const visibleView: WorkspaceTelemetryView = comparing ? 'compare'
     : activePreviewView?.result?.kind === 'table' ? 'preview'
-      : routePanel?.kind === 'sourceHealth' && !sourceHealthHidden ? 'source_health'
+      : routePanel?.kind === 'sourceHealth' && !feedHealthHidden ? 'source_health'
         : !sheet && !activePreviewView ? 'import'
           : activePromotedView?.kind ?? primaryView;
   useWorkspaceNavigationTelemetry({ projectId: project.id, view: visibleView });
@@ -115,8 +115,8 @@ function WorkspaceMainViewBody() {
   // Compare sessions are scratch state and must never be persisted.
   const body =
     activePreviewView?.result?.kind === 'table' ? <WorkspaceSheetMainView /> :
-    routePanel?.kind === 'sourceHealth' && !sourceHealthHidden ? (
-      <WorkspaceSourceHealthMainView />
+    routePanel?.kind === 'sourceHealth' && !feedHealthHidden ? (
+      <WorkspaceFeedHealthMainView />
     ) : sheet || activePreviewView ? (
       <WorkspaceSheetMainView />
     ) : (
@@ -254,7 +254,7 @@ function WorkspaceSheetMainView() {
   );
 }
 
-function WorkspaceSourceHealthMainView() {
+function WorkspaceFeedHealthMainView() {
   const { projectApi } = useWorkspaceStores();
   const {
     closeRoutePanel,
@@ -262,18 +262,18 @@ function WorkspaceSourceHealthMainView() {
     refreshSheets,
     routePanel,
     selectSheet,
-    sourceHealthHidden,
+    feedHealthHidden,
     invalidateProjectData,
   } = useMainViewModel();
 
-  if (routePanel?.kind !== 'sourceHealth' || sourceHealthHidden) {
+  if (routePanel?.kind !== 'sourceHealth' || feedHealthHidden) {
     return null;
   }
 
   return (
-            <SourceHealthMainViewFrame>
-              <SourceHealthMainView
-                sourceApi={projectApi}
+            <FeedHealthMainViewFrame>
+              <FeedHealthMainView
+                feedApi={projectApi}
                 key={routePanel.sourceId}
                 sourceId={Number(routePanel.sourceId)}
                 onClose={closeRoutePanel}
@@ -285,7 +285,7 @@ function WorkspaceSourceHealthMainView() {
                   invalidateProjectData();
                 }}
               />
-            </SourceHealthMainViewFrame>
+            </FeedHealthMainViewFrame>
   );
 }
 

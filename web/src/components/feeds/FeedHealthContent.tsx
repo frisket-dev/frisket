@@ -1,16 +1,16 @@
 import { Activity, AlertTriangle, ListChecks } from 'lucide-react';
-import type { SourceHealth } from '../../api/open';
+import type { FeedHealth } from '../../api/open';
 import { PanelEmpty, StatusChip } from '../PanelPrimitives';
-import { SourceStatus } from './sourcePresentation';
-import { formatWhen, formatDuration, runDeltaText } from './sourceFormatting';
-import '../SourcesPanel.css';
+import { FeedStatus } from './feedPresentation';
+import { formatWhen, formatDuration, runDeltaText } from './feedFormatting';
+import '../FeedsPanel.css';
 
-export function SourceHealthSummary({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
+export function FeedHealthSummary({ health, sourceId }: { health: FeedHealth; sourceId: number }) {
   return <>
 <div className="source-health-summary" data-testid={`source-health-summary-${sourceId}`}>
             <div>
               <span className="panel-item-meta">Status</span>
-              <SourceStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
+              <FeedStatus value={health.summary.status} testId={`source-health-status-${sourceId}`} />
             </div>
             <div>
               <span className="panel-item-meta">Last success</span>
@@ -41,7 +41,7 @@ export function SourceHealthSummary({ health, sourceId }: { health: SourceHealth
   </>;
 }
 
-export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; sourceId: number }) {
+export function FeedHealthChecks({ health, sourceId }: { health: FeedHealth; sourceId: number }) {
   return <>
 <div className="content-stack">
             <h4 className="control-row panel-item-title"><ListChecks size={12} aria-hidden /> Recent checks</h4>
@@ -51,7 +51,7 @@ export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; s
               ) : health.runs.map((run) => (
                 <li key={run.id} className="panel-card">
                   <div className="control-row panel-item-description">
-                    <SourceStatus value={run.status} />
+                    <FeedStatus value={run.status} />
                     <span>{runDeltaText(run)}</span>
                   </div>
                   <div className="control-row panel-item-meta">
@@ -76,7 +76,7 @@ export function SourceHealthRuns({ health, sourceId }: { health: SourceHealth; s
                 {health.downstreamJobs.map((job) => (
                   <li key={job.jobId} className="panel-card panel-item-description" data-layout="row">
                     <span>{job.kind}</span>
-                    <SourceStatus value={job.status} />
+                    <FeedStatus value={job.status} />
                     {job.errorSummary && <span className="panel-item-meta source-run-error">{job.errorSummary}</span>}
                   </li>
                 ))}

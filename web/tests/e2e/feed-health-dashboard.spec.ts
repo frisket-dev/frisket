@@ -24,13 +24,13 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 workspace, pid = sys.argv[1:3]
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:
-    source_store = SourceStore(project)
-    failing = source_store.add_source(
+    feed_store = FeedStore(project)
+    failing = feed_store.add_feed(
         "Failing API source",
         kind="api_list_dicts",
         url="https://example.gov/api/items",
@@ -45,7 +45,7 @@ try:
         schedule="@hourly",
         enabled=True,
     )
-    disabled = source_store.add_source(
+    disabled = feed_store.add_feed(
         "Disabled Court source",
         kind="courtlistener_docket",
         url="https://www.courtlistener.com/docket/123456/example/",
@@ -60,7 +60,7 @@ try:
         schedule="@daily",
         enabled=False,
     )
-    never = source_store.add_source(
+    never = feed_store.add_feed(
         "Never-run YouTube source",
         kind="youtube_channel",
         url="https://www.youtube.com/@fixturechannel",
@@ -75,9 +75,9 @@ try:
 
     # Sparse legacy run, then a success, then two failures so health can show
     # both missing-metadata warnings and consecutive failure state.
-    source_store.record_source_run(failing, status="ok", new_rows=1)
-    success = source_store.start_source_run(failing)
-    source_store.finish_source_run(
+    feed_store.record_feed_check(failing, status="ok", new_rows=1)
+    success = feed_store.start_feed_check(failing)
+    feed_store.finish_feed_check(
         success,
         status="ok",
         new_rows=3,
@@ -90,8 +90,8 @@ try:
         cost_micro=4200,
         summary={"materialized_rows": 3},
     )
-    first_failure = source_store.start_source_run(failing)
-    source_store.finish_source_run(
+    first_failure = feed_store.start_feed_check(failing)
+    feed_store.finish_feed_check(
         first_failure,
         status="error",
         error="provider failed token=SECRETabc",
@@ -99,8 +99,8 @@ try:
         warning_count=1,
         summary={"failed": True},
     )
-    second_failure = source_store.start_source_run(failing)
-    source_store.finish_source_run(
+    second_failure = feed_store.start_feed_check(failing)
+    feed_store.finish_feed_check(
         second_failure,
         status="error",
         error="provider failed authorization=Bearer SECRETdef",
@@ -120,7 +120,7 @@ finally:
   return JSON.parse(output) as SeededHealthSources;
 }
 
-test('source health drawer shows redacted status, deltas, costs, warnings, and retry', async ({
+test('feed health drawer shows redacted status, deltas, costs, warnings, and retry', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-source-health'));

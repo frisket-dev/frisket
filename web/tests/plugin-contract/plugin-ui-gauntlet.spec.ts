@@ -2084,7 +2084,7 @@ test('generated plugin detail tabs mount in entity and source detail with their 
   await expect(entityTab).toHaveAttribute('data-subject-kind', 'entity');
 
   // Source detail: create a source, open its detail drawer, click the plugin tab.
-  // Source creation re-homed into the Import workspace feed mode (SourcesPanel
+  // Source creation re-homed into the Import workspace feed mode (FeedsPanel
   // no longer owns a creation form — sources.spec.ts pins source-add-button
   // absent) and the panel itself lives in the Discover Sources tab
   // (workbench-ia-right-edge-v1; sidebar retired at inc 8).

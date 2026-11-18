@@ -1,6 +1,6 @@
 // Live-sources (RSS) management UI.
 //
-// Contract testids the SourcesPanel must expose:
+// Contract testids the FeedsPanel must expose:
 //   sources-panel           — the panel container (always open in its Discover tab)
 //   source-name             — Import Feed mode name input
 //   source-url              — Import Feed mode URL/reference input
@@ -37,7 +37,7 @@ async function sources(request: import('@playwright/test').APIRequestContext, pi
   return res.json();
 }
 
-test('an RSS source can be added, polled, edited, and deleted from the UI', async ({ page }) => {
+test('an RSS feed can be added, polled, edited, and deleted from the UI', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-sources'));
   const feedName = uniqueName('Test feed');
   // localhost is in netguard BLOCKED_HOSTS → rejected before any network I/O.
@@ -95,7 +95,7 @@ test('an RSS source can be added, polled, edited, and deleted from the UI', asyn
     await route.continue();
   });
 
-  // Add a source through the Import flow; SourcesPanel must not own a second
+  // Add a source through the Import flow; FeedsPanel must not own a second
   // independent creation form.
   await expect(page.getByTestId('source-add-button')).toHaveCount(0);
   await openImportWorkspace(page);

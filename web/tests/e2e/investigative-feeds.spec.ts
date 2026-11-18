@@ -53,20 +53,20 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 workspace, pid, raw_source_id, kind = sys.argv[1:5]
 source_id = int(raw_source_id)
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:
-    source_store = SourceStore(project)
-    source = source_store.get_source(source_id)
+    feed_store = FeedStore(project)
+    source = feed_store.get_feed(source_id)
     if source is None:
         raise SystemExit(f"missing source {source_id}")
     sheet_id = source["sheet_id"]
     if sheet_id is None:
         sheet_id = project.add_sheet(f"{source['name']} rows")
-        source_store.update_source(source_id, sheet_id=sheet_id)
+        feed_store.update_feed(source_id, sheet_id=sheet_id)
     columns = {row["name"]: row["id"] for row in project.columns(sheet_id)}
     column_types = {
         "source_item_id": "text",
@@ -87,7 +87,7 @@ try:
     for name, column_type in column_types.items():
         if name not in columns:
             columns[name] = project.add_column(sheet_id, name, column_type)
-    run_id = source_store.start_source_run(source_id)
+    run_id = feed_store.start_feed_check(source_id)
     if kind.startswith("youtube"):
         record = {
             "source_item_id": "youtube:video:video123",
@@ -123,7 +123,7 @@ try:
             "source_raw": {"provider": "fake-courtlistener"},
         }
     row_id = project.add_rows(sheet_id, [record], columns)[0]
-    source_store.finish_source_run(
+    feed_store.finish_feed_check(
         run_id,
         status="ok",
         new_rows=1,
@@ -195,7 +195,7 @@ async function createSource(
   return sourceByName(page, pid, name);
 }
 
-test('source forms preserve uncapped defaults and explicit source limits', async ({ page }) => {
+test('feed forms preserve uncapped defaults and explicit feed limits', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-source-limit-defaults'));
   const actionPosts: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
@@ -321,7 +321,7 @@ test('source forms preserve uncapped defaults and explicit source limits', async
   expect(boundedDocket.config.max_entries_per_poll).toBe(250);
 });
 
-test('Sources UI creates, edits, and polls RSS, YouTube, API, and CourtListener through source.poll', async ({
+test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener through source.poll', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-investigative-sources'));

@@ -2,9 +2,9 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { FeedSourceForm } from '../../src/components/importWorkspace/FeedSourceForm';
+import { FeedImportForm } from '../../src/components/importWorkspace/FeedImportForm';
 
-const api = vi.hoisted(() => ({ createSource: vi.fn(), fetchSource: vi.fn() }));
+const api = vi.hoisted(() => ({ createFeed: vi.fn(), fetchFeed: vi.fn() }));
 const refresh = vi.hoisted(() => vi.fn());
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ projectApi: api, job: { refresh }, chromePreferences: { projectId: 'feed-test' } }),
@@ -16,14 +16,14 @@ vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
 
 beforeEach(() => {
   vi.resetAllMocks();
-  api.createSource.mockResolvedValue({ id: 7, name: 'My feed' });
-  api.fetchSource.mockResolvedValue({ sheetId: 42 });
+  api.createFeed.mockResolvedValue({ id: 7, name: 'My feed' });
+  api.fetchFeed.mockResolvedValue({ sheetId: 42 });
 });
 afterEach(cleanup);
 
 function setup() {
   const props = { onCreated: vi.fn(), onImported: vi.fn(), onError: vi.fn(), onCancel: vi.fn() };
-  render(<FeedSourceForm {...props} />);
+  render(<FeedImportForm {...props} />);
   return props;
 }
 
@@ -41,10 +41,10 @@ describe('feed setup independent of the import workspace', () => {
     expect(screen.getByTestId('source-kind')).toHaveValue(kind);
     fireEvent.click(screen.getByTestId('source-create'));
     await screen.findByTestId('feed-populate-prompt');
-    expect(api.createSource).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       kind, schedule: null, enabled: true, config: expect.objectContaining(config),
     }));
-    expect(api.fetchSource).not.toHaveBeenCalled();
+    expect(api.fetchFeed).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('feed-populate-dismiss'));
     expect(props.onCreated).toHaveBeenCalledOnce();
     expect(props.onImported).not.toHaveBeenCalled();
@@ -58,7 +58,7 @@ describe('feed setup independent of the import workspace', () => {
     expect(screen.queryByTestId('source-youtube-max-pages')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('source-create'));
     await screen.findByTestId('feed-populate-prompt');
-    expect(api.createSource).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'tiktok_profile', config: { profile_url: '@example', max_items_per_poll: 25 },
     }));
     fireEvent.click(screen.getByTestId('feed-populate-run'));
@@ -75,12 +75,12 @@ describe('feed setup independent of the import workspace', () => {
     fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
     fireEvent.change(screen.getByTestId('source-api-list-path'), { target: { value: 'items' } });
     expect(screen.getByRole('alert')).toHaveTextContent('must start with /');
-    expect(api.createSource).not.toHaveBeenCalled();
+    expect(api.createFeed).not.toHaveBeenCalled();
   });
 
   it('offers retry after a failed populate, then opens the returned sheet', async () => {
     const props = setup();
-    api.fetchSource.mockRejectedValueOnce(new Error('temporary failure'));
+    api.fetchFeed.mockRejectedValueOnce(new Error('temporary failure'));
     fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
     fireEvent.click(screen.getByTestId('source-create'));
     await screen.findByTestId('feed-populate-prompt');
@@ -89,7 +89,7 @@ describe('feed setup independent of the import workspace', () => {
     expect(props.onCreated).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('feed-populate-run'));
     await waitFor(() => expect(props.onImported).toHaveBeenCalledWith(42));
-    expect(api.fetchSource).toHaveBeenLastCalledWith(7);
+    expect(api.fetchFeed).toHaveBeenLastCalledWith(7);
     expect(props.onCreated).toHaveBeenCalledOnce();
   });
 
@@ -99,7 +99,7 @@ describe('feed setup independent of the import workspace', () => {
     fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '7' } });
     fireEvent.click(screen.getByTestId('source-create'));
     await screen.findByTestId('feed-populate-prompt');
-    expect(api.createSource).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       url: null, name: 'CourtListener docket: 123', schedule: null,
       config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 7 }),
     }));
@@ -111,7 +111,7 @@ describe('feed setup independent of the import workspace', () => {
     fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '-2' } });
     fireEvent.click(screen.getByTestId('source-create'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Max entries must be a positive whole number');
-    expect(api.createSource).not.toHaveBeenCalled();
+    expect(api.createFeed).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -119,7 +119,7 @@ describe('feed setup independent of the import workspace', () => {
     ['source-kind', 'rss'],
     ['source-api-list-path', '/next'],
   ])('clears an earlier create error when correcting %s', async (field, value) => {
-    api.createSource.mockRejectedValueOnce(new Error('Create failed'));
+    api.createFeed.mockRejectedValueOnce(new Error('Create failed'));
     setup();
     fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api/items' } });
     fireEvent.click(screen.getByTestId('source-create'));

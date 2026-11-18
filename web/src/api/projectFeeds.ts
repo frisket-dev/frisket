@@ -3,14 +3,14 @@ import type { GeneratedActionParams } from '../generated/actionTypes';
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
   JsonValue,
-  SourceConfig,
-  SourceDetail,
-  SourceFetchResult,
-  SourceHealth,
-  SourceInfo,
-  SourceInput,
-  SourceRun,
-  SourceRunPage,
+  FeedConfig,
+  FeedDetail,
+  FeedFetchResult,
+  FeedHealth,
+  FeedInfo,
+  FeedInput,
+  FeedCheck,
+  FeedCheckPage,
 } from './types';
 import type { V1ActionSession } from './v1ActionSession';
 import { isRecord, sqliteTimestampToIso } from './wireValues';
@@ -22,7 +22,7 @@ type ProjectSourceDetailWire =
 type ProjectSourceHealthWire =
   HttpContractSuccessResponse<'tenant.get_source_health_ep.get'>;
 
-interface ProjectSourcesApiDependencies {
+interface ProjectFeedsApiDependencies {
   v1ActionSession: V1ActionSession;
 }
 
@@ -34,7 +34,7 @@ type SourceUpdateParams = GeneratedActionParams['source.update'];
 type SourceUpdatePatch = SourceUpdateParams['patch'];
 type SourceDeleteParams = GeneratedActionParams['source.delete'];
 
-const toSourceInfo = (w: ProjectSourceWire): SourceInfo => ({
+const toFeedInfo = (w: ProjectSourceWire): FeedInfo => ({
   id: w.id,
   name: w.name,
   kind: w.kind,
@@ -74,11 +74,11 @@ function jsonValueFromUnknown(value: unknown): JsonValue | undefined {
   return undefined;
 }
 
-function sourceConfigFromV1Ref(value: unknown): SourceConfig {
+function feedConfigFromV1Ref(value: unknown): FeedConfig {
   return jsonValueFromUnknown(value) ?? {};
 }
 
-function wireSourceFromV1Ref(ref: Record<string, unknown>): SourceInfo {
+function wireFeedFromV1Ref(ref: Record<string, unknown>): FeedInfo {
   const id = Number(ref.source_id);
   const name = typeof ref.name === 'string' ? ref.name : '';
   const kind = typeof ref.source_kind === 'string' ? ref.source_kind : '';
@@ -99,7 +99,7 @@ function wireSourceFromV1Ref(ref: Record<string, unknown>): SourceInfo {
     name,
     kind,
     url: typeof ref.url === 'string' ? ref.url : null,
-    config: sourceConfigFromV1Ref(ref.config),
+    config: feedConfigFromV1Ref(ref.config),
     sheetId,
     schedule: typeof ref.schedule === 'string' ? ref.schedule : null,
     enabled: typeof ref.enabled === 'boolean' ? ref.enabled : Boolean(ref.enabled),
@@ -109,7 +109,7 @@ function wireSourceFromV1Ref(ref: Record<string, unknown>): SourceInfo {
   };
 }
 
-const toSourceRun = (w: ProjectSourceRunWire): SourceRun => ({
+const toFeedCheck = (w: ProjectSourceRunWire): FeedCheck => ({
   id: w.id,
   status: w.status,
   newRows: w.new_rows ?? 0,
@@ -125,7 +125,7 @@ const toSourceRun = (w: ProjectSourceRunWire): SourceRun => ({
   finishedAt: w.finished_at ? sqliteTimestampToIso(w.finished_at) : null,
 });
 
-const toSourceRunPage = (w: ProjectSourceRunPageWire): SourceRunPage => ({
+const toFeedCheckPage = (w: ProjectSourceRunPageWire): FeedCheckPage => ({
   schemaVersion: 'frisket.source_runs_page.v1',
   order: 'desc',
   offset: w.offset ?? 0,
@@ -133,11 +133,11 @@ const toSourceRunPage = (w: ProjectSourceRunPageWire): SourceRunPage => ({
   total: w.total ?? 0,
   hasMore: Boolean(w.has_more),
   nextOffset: w.next_offset ?? null,
-  latestRun: w.latest_run ? toSourceRun(w.latest_run) : null,
+  latestRun: w.latest_run ? toFeedCheck(w.latest_run) : null,
   latestRunLoaded: Boolean(w.latest_run_loaded),
 });
 
-const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
+const toFeedHealth = (w: ProjectSourceHealthWire): FeedHealth => ({
   schemaVersion: w.schema_version,
   source: {
     id: w.source.id,
@@ -222,7 +222,7 @@ const toSourceHealth = (w: ProjectSourceHealthWire): SourceHealth => ({
   })),
 });
 
-function sourceConfigParam(
+function feedConfigParam(
   value: Record<string, unknown>,
 ): NonNullable<SourceCreateParams['config']> {
   const config = jsonValueFromUnknown(value);
@@ -232,34 +232,34 @@ function sourceConfigParam(
   return config;
 }
 
-function toSourceCreateParams(input: SourceInput): SourceCreateParams {
+function toSourceCreateParams(input: FeedInput): SourceCreateParams {
   return {
     name: input.name,
     kind: input.kind,
     ...(input.url !== undefined ? { url: input.url } : {}),
     ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
-    ...(input.config !== undefined ? { config: sourceConfigParam(input.config) } : {}),
+    ...(input.config !== undefined ? { config: feedConfigParam(input.config) } : {}),
   };
 }
 
 /** Drop undefined keys so a PATCH only carries the fields the form changed
  *  (the backend treats null as "clear", undefined as "leave alone"). */
-function toSourceUpdatePatch(input: Partial<SourceInput>): SourceUpdatePatch {
+function toSourceUpdatePatch(input: Partial<FeedInput>): SourceUpdatePatch {
   const out: SourceUpdatePatch = {};
   if (input.name !== undefined) out.name = input.name;
   if (input.kind !== undefined) out.kind = input.kind;
   if (input.url !== undefined) out.url = input.url;
   if (input.schedule !== undefined) out.schedule = input.schedule;
   if (input.enabled !== undefined) out.enabled = input.enabled;
-  if (input.config !== undefined) out.config = sourceConfigParam(input.config);
+  if (input.config !== undefined) out.config = feedConfigParam(input.config);
   return out;
 }
 
-export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesApiDependencies, projectId: string) {
+export function createProjectFeedsApi({   v1ActionSession, }: ProjectFeedsApiDependencies, projectId: string) {
   return {
     /** All configured sources for the project (empty when none). */
-    async listSources(options: RequestOptions = {}): Promise<SourceInfo[]> {
+    async listFeeds(options: RequestOptions = {}): Promise<FeedInfo[]> {
       const wire = await httpContract(
         'tenant.list_sources.get',
         {
@@ -267,20 +267,20 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
           signal: options.signal,
         },
       );
-      return wire.map(toSourceInfo);
+      return wire.map(toFeedInfo);
     },
 
     /** One source with its recent poll history. */
-    async getSource(
-      sourceId: number,
+    async getFeed(
+      feedId: number,
       runsOffset?: number | null,
       runsLimit = 50,
       options: RequestOptions = {},
-    ): Promise<SourceDetail> {
+    ): Promise<FeedDetail> {
       const wire = await httpContract(
         'tenant.get_source_ep.get',
         {
-          pathParams: { pid: projectId, source_id: sourceId },
+          pathParams: { pid: projectId, source_id: feedId },
           query: {
             runs_offset: runsOffset ?? undefined,
             runs_limit: runsLimit,
@@ -289,23 +289,23 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
         },
       );
       return {
-        ...toSourceInfo(wire),
-        runs: wire.runs.map(toSourceRun),
-        runsPage: toSourceRunPage(wire.runs_page),
+        ...toFeedInfo(wire),
+        runs: wire.runs.map(toFeedCheck),
+        runsPage: toFeedCheckPage(wire.runs_page),
       };
     },
 
     /** Redacted operational health for one source. */
-    async getSourceHealth(
-      sourceId: number,
+    async getFeedHealth(
+      feedId: number,
       runsOffset?: number | null,
       runsLimit = 20,
       options: RequestOptions = {},
-    ): Promise<SourceHealth> {
+    ): Promise<FeedHealth> {
       const wire = await httpContract(
         'tenant.get_source_health_ep.get',
         {
-          pathParams: { pid: projectId, source_id: sourceId },
+          pathParams: { pid: projectId, source_id: feedId },
           query: {
             runs_offset: runsOffset ?? undefined,
             runs_limit: runsLimit,
@@ -313,42 +313,42 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
           signal: options.signal,
         },
       );
-      return toSourceHealth(wire);
+      return toFeedHealth(wire);
     },
 
-    async createSource(input: SourceInput): Promise<SourceInfo> {
+    async createFeed(input: FeedInput): Promise<FeedInfo> {
       const params = toSourceCreateParams(input);
       const spec = v1ActionSession.registeredProjectActionSpec('source.create', params);
       return v1ActionSession.withV1ActionResult(spec, (out) => {
-        const sourceRef = (out.outputs ?? []).find((candidate) => (
+        const feedRef = (out.outputs ?? []).find((candidate) => (
           candidate.kind === 'source' && isRecord(candidate.ref)
         ))?.ref;
-        if (!isRecord(sourceRef)) {
+        if (!isRecord(feedRef)) {
           throw new ApiError(500, 'source.create did not return source output');
         }
-        return wireSourceFromV1Ref(sourceRef);
+        return wireFeedFromV1Ref(feedRef);
       }, { clearIdempotency: 'finally' });
     },
 
-    async updateSource(sourceId: number, patch: Partial<SourceInput>): Promise<SourceInfo> {
+    async updateFeed(feedId: number, patch: Partial<FeedInput>): Promise<FeedInfo> {
       const params: SourceUpdateParams = {
-        source_id: sourceId,
+        source_id: feedId,
         patch: toSourceUpdatePatch(patch),
       };
       const spec = v1ActionSession.registeredProjectActionSpec('source.update', params);
       return v1ActionSession.withV1ActionResult(spec, (out) => {
-        const sourceRef = (out.outputs ?? []).find((candidate) => (
+        const feedRef = (out.outputs ?? []).find((candidate) => (
           candidate.kind === 'source' && isRecord(candidate.ref)
         ))?.ref;
-        if (!isRecord(sourceRef)) {
+        if (!isRecord(feedRef)) {
           throw new ApiError(500, 'source.update did not return source output');
         }
-        return wireSourceFromV1Ref(sourceRef);
+        return wireFeedFromV1Ref(feedRef);
       }, { clearIdempotency: 'finally' });
     },
 
-    async deleteSource(sourceId: number): Promise<void> {
-      const params: SourceDeleteParams = { source_id: sourceId };
+    async deleteFeed(feedId: number): Promise<void> {
+      const params: SourceDeleteParams = { source_id: feedId };
       const spec = v1ActionSession.registeredProjectActionSpec('source.delete', params);
       await v1ActionSession.withV1ActionResult(
         spec,
@@ -359,12 +359,12 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
 
     /** Manual "fetch now" through generic source.poll. Rejects on ingest failure;
      *  the failed poll is still recorded in the source's run history. */
-    async fetchSource(sourceId: number): Promise<SourceFetchResult> {
-      if (!Number.isInteger(sourceId) || sourceId <= 0) {
-        throw new ApiError(400, `Source ${sourceId} is not a valid v1 source ref`);
+    async fetchFeed(feedId: number): Promise<FeedFetchResult> {
+      if (!Number.isInteger(feedId) || feedId <= 0) {
+        throw new ApiError(400, `Source ${feedId} is not a valid v1 source ref`);
       }
       const spec = v1ActionSession.registeredProjectActionSpec(
-        'source.poll', { source: sourceId },
+        'source.poll', { source: feedId },
       );
       return v1ActionSession.withV1ActionResult(spec, (out) => {
         if (out.status === 'queued' && out.job_id != null) {
@@ -373,19 +373,19 @@ export function createProjectSourcesApi({   v1ActionSession, }: ProjectSourcesAp
           return { jobId: out.job_id, sheetId: sheet, runId: null,
             newRows: 0, revisions: 0, skippedRows: 0, changedRows: 0, warningCount: 0 };
         }
-        const sourceRun = (out.outputs ?? []).find((candidate) => (
+        const feedCheck = (out.outputs ?? []).find((candidate) => (
           candidate.kind === 'source_run' && isRecord(candidate.ref)
         ))?.ref;
-        if (!isRecord(sourceRun)) {
+        if (!isRecord(feedCheck)) {
           throw new ApiError(500, 'source.poll did not return source run output');
         }
-        const runId = Number(sourceRun.source_run_id);
-        const newRows = Number(sourceRun.new_rows ?? 0);
-        const revisions = Number(sourceRun.revisions ?? 0);
-        const skippedRows = Number(sourceRun.skipped_rows ?? 0);
-        const changedRows = Number(sourceRun.changed_rows ?? 0);
-        const warningCount = Number(sourceRun.warning_count ?? 0);
-        const sheetId = sourceRun.sheet_id == null ? null : Number(sourceRun.sheet_id);
+        const runId = Number(feedCheck.source_run_id);
+        const newRows = Number(feedCheck.new_rows ?? 0);
+        const revisions = Number(feedCheck.revisions ?? 0);
+        const skippedRows = Number(feedCheck.skipped_rows ?? 0);
+        const changedRows = Number(feedCheck.changed_rows ?? 0);
+        const warningCount = Number(feedCheck.warning_count ?? 0);
+        const sheetId = feedCheck.sheet_id == null ? null : Number(feedCheck.sheet_id);
         if (
           !Number.isInteger(runId) ||
           !Number.isInteger(newRows) ||

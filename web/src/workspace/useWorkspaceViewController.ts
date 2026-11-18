@@ -18,7 +18,7 @@ import { documentMediaColumns } from '../workbench/documentMedia';
 import { IMAGE_GALLERY_VIEW_DESCRIPTOR, type WorkbenchViewDescriptor } from '../workbench/descriptors';
 import { resolvePluginViewAvailability } from '../workbench/pluginViewContext';
 import {
-  CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID,
+  CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, FEED_HEALTH_CONTRIBUTION_ID,
 } from './contributionIds';
 import type { PromotedView, WorkViewKind, useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -71,7 +71,7 @@ export function useWorkspaceViewController({
     mapContributionId !== null && isContributionHidden(mapContributionId);
   const graphNeighborhoodHidden = isContributionHidden(GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID);
   const citationMainViewHidden = isContributionHidden(CITATION_CONTRIBUTION_ID);
-  const sourceHealthHidden = isContributionHidden(SOURCE_HEALTH_CONTRIBUTION_ID);
+  const feedHealthHidden = isContributionHidden(FEED_HEALTH_CONTRIBUTION_ID);
   const mapColumn =
     sheet && openSplit?.kind === 'map' && openSplit.sheetId === sheet.id && mapViewDescriptor && !mapHidden
       ? sheet.columns.find((c) => c.id === openSplit.columnId && c.type === 'geo_point') ?? null
@@ -411,7 +411,7 @@ export function useWorkspaceViewController({
   );
 
   return useMemo(() => ({
-    mapHidden, graphNeighborhoodHidden, citationMainViewHidden, sourceHealthHidden, mapColumn,
+    mapHidden, graphNeighborhoodHidden, citationMainViewHidden, feedHealthHidden, mapColumn,
     imageGalleryAvailability, documentAvailable, extractAvailable, answersAvailable, mapAvailable,
     mapAvailabilityReason, mapAvailabilityStatus, annotatedTextColumnIds, answersCitedColumns,
     gridOnly, mapSplitShowing, graphSplitShowing, extractViewShowing, documentViewShowing,
@@ -428,7 +428,7 @@ export function useWorkspaceViewController({
     topicCompareSession, topicCompareCloseWarn, openTopicCompareTab, closeTopicCompareTab,
     setTopicCompareSession, setTopicCompareCloseWarn,
   }), [
-    mapHidden, graphNeighborhoodHidden, citationMainViewHidden, sourceHealthHidden, mapColumn,
+    mapHidden, graphNeighborhoodHidden, citationMainViewHidden, feedHealthHidden, mapColumn,
     imageGalleryAvailability, documentAvailable, extractAvailable, answersAvailable, mapAvailable,
     mapAvailabilityReason, mapAvailabilityStatus, annotatedTextColumnIds, answersCitedColumns,
     gridOnly, mapSplitShowing, graphSplitShowing, extractViewShowing, documentViewShowing,

@@ -180,23 +180,23 @@ function jsonResponse(
 }
 
 interface ProjectSourcesTransport {
-  listSources(options?: RequestOptions): Promise<Array<{ config: unknown }>>;
-  getSource(
+  listFeeds(options?: RequestOptions): Promise<Array<{ config: unknown }>>;
+  getFeed(
     id: number,
     offset?: number | null,
     limit?: number,
     options?: RequestOptions,
   ): Promise<{ runs: unknown[] }>;
-  getSourceHealth(
+  getFeedHealth(
     id: number,
     offset?: number | null,
     limit?: number,
     options?: RequestOptions,
   ): Promise<{ source: { redactions: string[] } }>;
-  createSource(input: unknown): Promise<{ id: number; config: unknown }>;
-  updateSource(id: number, patch: unknown): Promise<{ id: number }>;
-  deleteSource(id: number): Promise<void>;
-  fetchSource(id: number): Promise<{
+  createFeed(input: unknown): Promise<{ id: number; config: unknown }>;
+  updateFeed(id: number, patch: unknown): Promise<{ id: number }>;
+  deleteFeed(id: number): Promise<void>;
+  fetchFeed(id: number): Promise<{
     runId: number;
     newRows: number;
     revisions: number;
@@ -225,7 +225,7 @@ interface ProjectSourcesActionSession {
 }
 
 interface ProjectSourcesModule {
-  createProjectSourcesApi(
+  createProjectFeedsApi(
     dependencies: {
       v1ActionSession: ProjectSourcesActionSession;
     },
@@ -236,7 +236,7 @@ interface ProjectSourcesModule {
 async function projectSourcesModule(): Promise<
   ProjectSourcesModule | undefined
 > {
-  const path = "../../src/api/projectSources";
+  const path = "../../src/api/projectFeeds";
   return import(/* @vite-ignore */ path).catch(() => undefined) as Promise<
     ProjectSourcesModule | undefined
   >;
@@ -263,17 +263,17 @@ describe("project-source generated HTTP reads", () => {
         throw new Error('source reads must not post v1 actions');
       },
     };
-    const api = module.createProjectSourcesApi({
+    const api = module.createProjectFeedsApi({
       v1ActionSession: actionSession,
     }, "source-read-contract");
     expect(Object.keys(api).sort()).toEqual([
-      "createSource",
-      "deleteSource",
-      "fetchSource",
-      "getSource",
-      "getSourceHealth",
-      "listSources",
-      "updateSource",
+      "createFeed",
+      "deleteFeed",
+      "fetchFeed",
+      "getFeed",
+      "getFeedHealth",
+      "listFeeds",
+      "updateFeed",
     ]);
 
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
@@ -295,11 +295,11 @@ describe("project-source generated HTTP reads", () => {
     const signal = new AbortController().signal;
     const options = { signal };
 
-    const rawList = await api.listSources(options);
-    await api.getSource(7, null, 3, options);
-    await api.getSourceHealth(8, 4, 5, options);
-    await api.getSource(9, undefined, undefined, options);
-    await api.getSourceHealth(10, undefined, undefined, options);
+    const rawList = await api.listFeeds(options);
+    await api.getFeed(7, null, 3, options);
+    await api.getFeedHealth(8, 4, 5, options);
+    await api.getFeed(9, undefined, undefined, options);
+    await api.getFeedHealth(10, undefined, undefined, options);
 
     expect(rawList[0].config).toEqual({});
     expect(
@@ -396,11 +396,11 @@ describe("project-source generated HTTP reads", () => {
         return handler(result ?? {});
       },
     };
-    const api = module.createProjectSourcesApi({
+    const api = module.createProjectFeedsApi({
       v1ActionSession: actionSession,
     }, "source-action-contract");
 
-    await expect(api.createSource({
+    await expect(api.createFeed({
       name: "source-7",
       kind: "rss",
       url: "https://example.test/feed",
@@ -408,13 +408,13 @@ describe("project-source generated HTTP reads", () => {
       enabled: true,
       config: { nested: ["value"] },
     })).resolves.toMatchObject({ id: 7, config: { nested: ["value"] } });
-    await expect(api.updateSource(7, {
+    await expect(api.updateFeed(7, {
       name: "renamed-source",
       url: null,
       enabled: false,
     })).resolves.toMatchObject({ id: 7, name: "renamed-source" });
-    await expect(api.deleteSource(7)).resolves.toBeUndefined();
-    await expect(api.fetchSource(7)).resolves.toEqual({
+    await expect(api.deleteFeed(7)).resolves.toBeUndefined();
+    await expect(api.fetchFeed(7)).resolves.toEqual({
       runId: 8,
       newRows: 1,
       revisions: 4,
@@ -470,7 +470,7 @@ describe("project-source generated HTTP reads", () => {
       { clearIdempotency: "finally" },
       { clearIdempotency: "finally" },
     ]);
-    await expect(api.fetchSource(0)).rejects.toMatchObject({ status: 400 });
+    await expect(api.fetchFeed(0)).rejects.toMatchObject({ status: 400 });
   });
 
   it("posts source CRUD through the registered project action contract", async () => {
@@ -508,9 +508,9 @@ describe("project-source generated HTTP reads", () => {
     }));
     const api = real.createProjectApi("registered-source-project");
 
-    await api.createSource({ name: "source-7", kind: "rss" });
-    await api.updateSource(7, { name: "renamed-source" });
-    await api.deleteSource(7);
+    await api.createFeed({ name: "source-7", kind: "rss" });
+    await api.updateFeed(7, { name: "renamed-source" });
+    await api.deleteFeed(7);
 
     expect(bodies).toHaveLength(3);
     expect(bodies).toMatchObject([
@@ -556,12 +556,12 @@ describe("project-source generated HTTP reads", () => {
       vi.fn(async () => jsonResponse(responses.shift())),
     );
     const projectApi = real.createProjectApi("source-domain-mapping");
-    const listed = await projectApi.listSources();
-    const detail = await projectApi.getSource(7, 2, 3);
-    const health = await projectApi.getSourceHealth(7, 4, 5);
+    const listed = await projectApi.listFeeds();
+    const detail = await projectApi.getFeed(7, 2, 3);
+    const health = await projectApi.getFeedHealth(7, 4, 5);
     const mappedConfigs = [listed[0].config];
     for (let index = 1; index < configs.length; index += 1) {
-      mappedConfigs.push((await projectApi.listSources())[0].config);
+      mappedConfigs.push((await projectApi.listFeeds())[0].config);
     }
 
     expect(mappedConfigs).toEqual([
@@ -753,8 +753,8 @@ it("returns a queued feed's empty destination without waiting for its rows", asy
       status: 'queued', job_id: 42, outputs: [{ kind: 'sheet', sheet_id: 3 }],
     }),
   };
-  const api = module.createProjectSourcesApi({
+  const api = module.createProjectFeedsApi({
     v1ActionSession: session,
   }, 'feed');
-  await expect(api.fetchSource(7)).resolves.toMatchObject({ jobId: 42, sheetId: 3, runId: null, newRows: 0 });
+  await expect(api.fetchFeed(7)).resolves.toMatchObject({ jobId: 42, sheetId: 3, runId: null, newRows: 0 });
 });

@@ -1,49 +1,49 @@
 import type { ReactNode } from 'react';
 import { Plus } from 'lucide-react';
-import type { SourceApiPort } from '../api/ports';
+import type { FeedApiPort } from '../api/ports';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
 import { Button } from './Button';
 import { PanelError } from './PanelPrimitives';
-import { SourceEditorForm } from './sources/SourceEditorForm';
-import { SourceList } from './sources/SourceList';
-import { SourceHealthDrawer } from './sources/SourceHealthDrawer';
-import type { SourceDetailFrames, SourceKindFormFrame } from './sources/sourceFrames';
-import { useSourcesPanelState } from './sources/useSourcesPanelState';
-import './SourcesPanel.css';
+import { FeedEditorForm } from './feeds/FeedEditorForm';
+import { FeedList } from './feeds/FeedList';
+import { FeedHealthDrawer } from './feeds/FeedHealthDrawer';
+import type { FeedDetailFrames, FeedKindFormFrame } from './feeds/feedFrames';
+import { useFeedsPanelState } from './feeds/useFeedsPanelState';
+import './FeedsPanel.css';
 
-export interface SourcesPanelProps {
-  sourceApi: SourceApiPort;
+export interface FeedsPanelProps {
+  feedApi: FeedApiPort;
   /** Fired after a manual poll. sheetId is the source sheet, so the workspace can refresh/navigate. */
   onPolled?(sheetId: number | null): void;
-  onOpenSourceHealthMainView?(sourceId: number): void;
+  onOpenFeedHealthMainView?(feedId: number): void;
   /** Opens the EXISTING Import workspace dialog
    *  (its "Feed" mode owns source creation — sources.spec.ts pins that
-   *  SourcesPanel must not own a second creation form). Omitted -> no Add
+   *  FeedsPanel must not own a second creation form). Omitted -> no Add
    *  affordance renders, rather than a dead button. */
   onOpenImportDialog?(): void;
-  sourceKindFormFrame?: SourceKindFormFrame;
-  sourceDetailFrames?: SourceDetailFrames;
+  feedKindFormFrame?: FeedKindFormFrame;
+  feedDetailFrames?: FeedDetailFrames;
   /** Resolved sourceDetail contributions + the workspace dispatch for plugin
    *  detail tabs. */
-  sourceDetailContributions?: WorkbenchResolvedLayoutContribution[];
+  feedDetailContributions?: WorkbenchResolvedLayoutContribution[];
   renderPluginDetailTab?(
     contribution: WorkbenchResolvedLayoutContribution,
     subject: PluginDetailSubject,
   ): ReactNode;
 }
 
-export function SourcesPanel({
-  sourceApi,
+export function FeedsPanel({
+  feedApi,
   onPolled,
-  onOpenSourceHealthMainView,
+  onOpenFeedHealthMainView,
   onOpenImportDialog,
-  sourceKindFormFrame,
-  sourceDetailFrames,
-  sourceDetailContributions,
+  feedKindFormFrame,
+  feedDetailFrames,
+  feedDetailContributions,
   renderPluginDetailTab,
-}: SourcesPanelProps) {
-  const { state, actions } = useSourcesPanelState(sourceApi, onPolled);
+}: FeedsPanelProps) {
+  const { state, actions } = useFeedsPanelState(feedApi, onPolled);
   const {
     items,
     runs,
@@ -58,7 +58,7 @@ export function SourcesPanel({
     healthError,
     error,
   } = state;
-  const healthSource = healthOpenId == null ? null : items?.find((item) => item.id === healthOpenId) ?? null;
+  const healthFeed = healthOpenId == null ? null : items?.find((item) => item.id === healthOpenId) ?? null;
   const openHealth = healthOpenId == null ? null : health[healthOpenId] ?? null;
 
   return (
@@ -82,15 +82,15 @@ export function SourcesPanel({
         )}
 
         {form.editingId != null && (
-          <SourceEditorForm
+          <FeedEditorForm
             actions={actions}
             busy={busy}
             form={form}
-            formFrame={sourceKindFormFrame}
+            formFrame={feedKindFormFrame}
           />
         )}
 
-        <SourceList
+        <FeedList
           actions={actions}
           armedDelete={armedDelete}
           busy={busy}
@@ -100,17 +100,17 @@ export function SourcesPanel({
           runs={runs}
         />
 
-        <SourceHealthDrawer
+        <FeedHealthDrawer
           actions={actions}
           busy={busy}
           healthError={healthError}
           healthLoading={healthLoading}
           healthOpenId={healthOpenId}
-          healthSource={healthSource}
+          healthFeed={healthFeed}
           openHealth={openHealth}
-          onOpenSourceHealthMainView={onOpenSourceHealthMainView}
-          sourceDetailFrames={sourceDetailFrames}
-          sourceDetailContributions={sourceDetailContributions}
+          onOpenFeedHealthMainView={onOpenFeedHealthMainView}
+          feedDetailFrames={feedDetailFrames}
+          feedDetailContributions={feedDetailContributions}
           renderPluginDetailTab={renderPluginDetailTab}
         />
       </div>

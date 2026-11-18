@@ -1,27 +1,27 @@
 import { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
-import type { SourceApiPort } from '../../api/ports';
+import type { FeedApiPort } from '../../api/ports';
 import { Button } from '../Button';
 import { PanelEmpty, PanelError } from '../PanelPrimitives';
 import { WindowCloseButton } from '../WindowCloseButton';
-import { sourceKindLabel } from './sourceConfig';
-import { formatCost } from './sourceFormatting';
-import { SourceHealthSummary, SourceHealthRuns } from './SourceHealthContent';
-import '../SourcesPanel.css';
-import { useSourceHealth } from './useSourceHealth';
+import { feedKindLabel } from './feedConfig';
+import { formatCost } from './feedFormatting';
+import { FeedHealthSummary, FeedHealthChecks } from './FeedHealthContent';
+import '../FeedsPanel.css';
+import { useFeedHealth } from './useFeedHealth';
 
-export function SourceHealthMainView({
-  sourceApi,
+export function FeedHealthMainView({
+  feedApi,
   sourceId,
   onClose,
   onPolled,
 }: {
-  sourceApi: SourceApiPort;
+  feedApi: FeedApiPort;
   sourceId: number;
   onClose: () => void;
   onPolled?: (sheetId: number | null) => void;
 }) {
-  const { entries, load, poll } = useSourceHealth(sourceApi);
+  const { entries, load, poll } = useFeedHealth(feedApi);
   const entry = entries[sourceId];
   const health = entry?.health ?? null;
   const loading = entry?.loading ?? true;
@@ -37,7 +37,7 @@ export function SourceHealthMainView({
       <div className="control-row">
         <div className="panel-item-main">
           <div className="panel-item-title">{health?.source.name ?? 'Feed health'}</div>
-          {health && <div className="panel-item-meta">{sourceKindLabel(health.source.kind)}</div>}
+          {health && <div className="panel-item-meta">{feedKindLabel(health.source.kind)}</div>}
         </div>
         <WindowCloseButton size="compact" label="Close feed health" onClick={onClose} />
       </div>
@@ -49,7 +49,7 @@ export function SourceHealthMainView({
         <PanelEmpty>loading...</PanelEmpty>
       ) : health ? (
         <>
-          <SourceHealthSummary health={health} sourceId={sourceId} />
+          <FeedHealthSummary health={health} sourceId={sourceId} />
 
           <div className="control-row panel-item-meta">
             <Button
@@ -67,7 +67,7 @@ export function SourceHealthMainView({
             </span>
           </div>
 
-          <SourceHealthRuns health={health} sourceId={sourceId} />
+          <FeedHealthChecks health={health} sourceId={sourceId} />
         </>
       ) : null}
     </section>

@@ -1,27 +1,27 @@
 import { ChevronDown, ChevronRight, Eye, Pencil, RefreshCw, Trash2, X } from 'lucide-react';
-import type { SourceInfo, SourceRun, SourceRunPage } from '../../api/open';
+import type { FeedInfo, FeedCheck, FeedCheckPage } from '../../api/open';
 import { Button } from '../Button';
 import { IconButton } from '../IconButton';
 import { PanelEmpty } from '../PanelPrimitives';
 import { PanelSelect } from '../PanelSelect';
-import { INTERVALS, redactedUrl, sourceConfigSummary, sourceKindLabel } from './sourceConfig';
-import { SourceStatus, SourceKindIcon } from './sourcePresentation';
-import { formatWhen, runDeltaText } from './sourceFormatting';
-import type { BusySource } from './sourceState';
-import type { SourcePanelActions } from './useSourcesPanelState';
-import '../SourcesPanel.css';
+import { INTERVALS, redactedUrl, feedConfigSummary, feedKindLabel } from './feedConfig';
+import { FeedStatus, FeedKindIcon } from './feedPresentation';
+import { formatWhen, runDeltaText } from './feedFormatting';
+import type { BusyFeed } from './feedState';
+import type { FeedPanelActions } from './useFeedsPanelState';
+import '../FeedsPanel.css';
 
-interface SourceListProps {
-  actions: SourcePanelActions;
+interface FeedListProps {
+  actions: FeedPanelActions;
   armedDelete: number | null;
-  busy: BusySource;
+  busy: BusyFeed;
   expanded: Record<number, boolean>;
-  items: SourceInfo[] | null;
-  runPages: Record<number, SourceRunPage>;
-  runs: Record<number, SourceRun[]>;
+  items: FeedInfo[] | null;
+  runPages: Record<number, FeedCheckPage>;
+  runs: Record<number, FeedCheck[]>;
 }
 
-export function SourceList({ actions, armedDelete, busy, expanded, items, runPages, runs }: SourceListProps) {
+export function FeedList({ actions, armedDelete, busy, expanded, items, runPages, runs }: FeedListProps) {
   if (items === null) return <PanelEmpty>loading...</PanelEmpty>;
   if (items.length === 0) {
     return (
@@ -43,13 +43,13 @@ export function SourceList({ actions, armedDelete, busy, expanded, items, runPag
             data-testid={`source-item-${s.id}`}
           >
             <div className="control-row">
-              <span className="control-row panel-item-meta"><SourceKindIcon kind={s.kind} /></span>
+              <span className="control-row panel-item-meta"><FeedKindIcon kind={s.kind} /></span>
               <span className="panel-item-title panel-item-main" title={s.name}>{s.name}</span>
-              <SourceStatus value={status} testId={`source-status-${s.id}`} />
+              <FeedStatus value={status} testId={`source-status-${s.id}`} />
             </div>
             <div className="control-row panel-item-meta">
-              <strong data-testid={`source-kind-${s.id}`}>{sourceKindLabel(s.kind)}</strong>
-              <span>{sourceConfigSummary(s)}</span>
+              <strong data-testid={`source-kind-${s.id}`}>{feedKindLabel(s.kind)}</strong>
+              <span>{feedConfigSummary(s)}</span>
             </div>
             {s.url && (
               <div className="panel-item-meta" title={redactedUrl(s.url) ?? ''}>
@@ -144,7 +144,7 @@ export function SourceList({ actions, armedDelete, busy, expanded, items, runPag
                     {runs[s.id].map((r) => (
                       <li key={r.id} className="panel-list">
                         <div className="control-row panel-item-meta">
-                          <SourceStatus value={r.status} />
+                          <FeedStatus value={r.status} />
                           <span>{runDeltaText(r)}</span>
                           <span>{formatWhen(r.startedAt)}</span>
                         </div>

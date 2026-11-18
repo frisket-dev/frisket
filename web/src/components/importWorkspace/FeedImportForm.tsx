@@ -2,10 +2,10 @@ import '../PanelPrimitives.css';
 import '../Modal.css';
 import './ImportWorkspaceDialog.css';
 import './ImportModeRail.css';
-import '../SourcesPanel.css';
+import '../FeedsPanel.css';
 import { useRef, useState } from 'react';
 import { Globe2, ListVideo, RefreshCw, Rss, Scale } from 'lucide-react';
-import type { SourceInfo, SourceInterval } from '../../api/open';
+import type { FeedInfo, FeedInterval } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { durationBucket, failureCategory, sendProductTelemetry, type SourceKind } from '../../telemetry/productTelemetry';
 import { Button } from '../Button';
@@ -13,23 +13,23 @@ import { FormField, TextInput } from '../FormControls';
 import { PanelSelect } from '../PanelSelect';
 import { PanelFrame, PanelBody, PanelFooter } from '../PanelLayout';
 
-import { SourceConfigFields } from '../sources/SourceConfigFields';
-import { buildSourceInput, emptySourceDefinition, INTERVALS, SOURCE_KINDS,
-  selectedKind, sourceDefinitionError, sourceKindLabel, type KnownSourceKind as FeedSourceKind } from '../sources/sourceConfig';
+import { FeedConfigFields } from '../feeds/FeedConfigFields';
+import { buildFeedInput, emptyFeedDefinition, INTERVALS, FEED_KINDS,
+  selectedKind, feedDefinitionError, feedKindLabel, type KnownFeedKind } from '../feeds/feedConfig';
 import { errorMessage } from '../../hooks/errorMessage';
 
-function telemetrySourceKind(kind: FeedSourceKind): SourceKind {
+function telemetrySourceKind(kind: KnownFeedKind): SourceKind {
   if (kind === 'tiktok_profile') return 'other';
   if (kind === 'api_list_dicts') return 'api';
   if (kind === 'courtlistener_docket') return 'courtlistener';
   return kind;
 }
 
-function feedKindLabel(kind: FeedSourceKind): string {
-  return kind === 'rss' ? 'RSS' : sourceKindLabel(kind);
+function importFeedKindLabel(kind: KnownFeedKind): string {
+  return kind === 'rss' ? 'RSS' : feedKindLabel(kind);
 }
 
-function feedKindIcon(kind: FeedSourceKind) {
+function feedKindIcon(kind: KnownFeedKind) {
   switch (kind) {
     case 'youtube_playlist':
     case 'youtube_channel':
@@ -44,7 +44,7 @@ function feedKindIcon(kind: FeedSourceKind) {
   }
 }
 
-function detectFeedSourceKind(raw: string): FeedSourceKind {
+function detectFeedKind(raw: string): KnownFeedKind {
   const value = raw.trim();
   if (!value) return 'rss';
   if (/^[1-9][0-9]*$/.test(value)) return 'courtlistener_docket';
@@ -89,8 +89,8 @@ function detectFeedSourceKind(raw: string): FeedSourceKind {
   return 'rss';
 }
 
-function defaultFeedName(kind: FeedSourceKind, reference: string): string {
-  const label = feedKindLabel(kind);
+function defaultFeedName(kind: KnownFeedKind, reference: string): string {
+  const label = importFeedKindLabel(kind);
   const compact = reference
     .trim()
     .replace(/^https?:\/\//i, '')
@@ -100,12 +100,12 @@ function defaultFeedName(kind: FeedSourceKind, reference: string): string {
 }
 
 interface FeedPopulateState {
-  source: SourceInfo;
+  source: FeedInfo;
   busy: boolean;
   error: string | null;
 }
 
-export function FeedSourceForm({
+export function FeedImportForm({
   onCreated,
   onImported,
   onError,
@@ -118,7 +118,7 @@ export function FeedSourceForm({
 }) {
   const { projectApi: api, job, chromePreferences: { projectId } } = useWorkspaceStores();
   const [state, setState] = useState(() => ({
-    ...emptySourceDefinition(''), busy: false, error: null as string | null,
+    ...emptyFeedDefinition(''), busy: false, error: null as string | null,
   }));
   const updateForm = (patch: Partial<typeof state>) => setState((current) => ({
     ...current, ...patch,
@@ -128,7 +128,7 @@ export function FeedSourceForm({
   // A successful
   // create does NOT close the workspace — it swaps to a "Populate feed?"
   // prompt offering the same run this source's Sources-panel row would (Poll
-  // now -> api.fetchSource). No alertCheckLinkStore intent slot needed here: unlike
+  // now -> api.fetchFeed). No alertCheckLinkStore intent slot needed here: unlike
   // the notification -> AlertsPanel handoff (pendingAlertCheckLink), this
   // prompt and its onImported target live in the same always-mounted
   // component tree for the lifetime of the dialog — a direct prop (already
@@ -144,14 +144,14 @@ export function FeedSourceForm({
     error,
   } = state;
   const kindDefinition = selectedKind(state);
-  const validationError = sourceDefinitionError(state);
+  const validationError = feedDefinitionError(state);
 
   const create = async () => {
     if (!url.trim() || busy || validationError) return;
     updateForm({ busy: true, error: null });
     const startedAt = performance.now();
     try {
-      const created = await api.createSource(buildSourceInput({
+      const created = await api.createFeed(buildFeedInput({
         ...state, name: name.trim() || defaultFeedName(kind, url),
       }));
       window.dispatchEvent(new CustomEvent('frisket:sources-changed'));
@@ -186,8 +186,8 @@ export function FeedSourceForm({
     setPopulate({ ...populate, busy: true, error: null });
     try {
       // The exact fetch a Sources-panel "Poll now" click makes
-      // (SourcesPanel.tsx's fetchNow -> sourceApi.fetchSource).
-      const result = await api.fetchSource(populate.source.id);
+      // (FeedsPanel.tsx's fetchNow -> feedApi.fetchFeed).
+      const result = await api.fetchFeed(populate.source.id);
       void job.refresh();
       if (result.sheetId != null) onImported(result.sheetId);
       onCreated?.();
@@ -251,7 +251,7 @@ export function FeedSourceForm({
       <div className="import-mode-summary">
         {feedKindIcon(kind)}
         <strong>Feed</strong>
-        <span>{feedKindLabel(kind)}</span>
+        <span>{importFeedKindLabel(kind)}</span>
       </div>
       <FormField label="URL or reference" htmlFor="source-url-input">
         <TextInput
@@ -263,7 +263,7 @@ export function FeedSourceForm({
           value={url}
           onChange={(e) => {
             const next = e.target.value;
-            updateForm({ url: next, kind: kindTouchedRef.current ? kind : detectFeedSourceKind(next) });
+            updateForm({ url: next, kind: kindTouchedRef.current ? kind : detectFeedKind(next) });
           }}
         />
       </FormField>
@@ -276,11 +276,11 @@ export function FeedSourceForm({
           value={kind}
           onChange={(e) => {
             kindTouchedRef.current = true;
-            updateForm({ kind: e.target.value as FeedSourceKind });
+            updateForm({ kind: e.target.value as KnownFeedKind });
           }}
         >
-          {SOURCE_KINDS.map((option) => (
-            <option key={option.value} value={option.value}>{feedKindLabel(option.value)}</option>
+          {FEED_KINDS.map((option) => (
+            <option key={option.value} value={option.value}>{importFeedKindLabel(option.value)}</option>
           ))}
         </PanelSelect>
       </FormField>
@@ -296,7 +296,7 @@ export function FeedSourceForm({
         />
       </FormField>
 
-      <SourceConfigFields form={state} onChange={updateForm} />
+      <FeedConfigFields form={state} onChange={updateForm} />
 
       <FormField label="Update frequency" htmlFor="source-interval-input">
         <PanelSelect
@@ -305,7 +305,7 @@ export function FeedSourceForm({
           aria-label="Update frequency"
           data-testid="source-interval"
           value={cadence}
-          onChange={(e) => updateForm({ cadence: e.target.value as SourceInterval })}
+          onChange={(e) => updateForm({ cadence: e.target.value as FeedInterval })}
         >
           {INTERVALS.map((i) => (
             <option key={i.value} value={i.value}>{i.label}</option>

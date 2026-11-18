@@ -8,7 +8,7 @@ import { firstPartyComponentBinding } from './firstPartyComponents';
 import type {
   ColumnInspectorSectionDescriptor,
   RowInspectorSectionDescriptor,
-  SourceKindFormDescriptor,
+  FeedKindFormDescriptor,
   WorkbenchCommandDescriptor,
   WorkbenchContributionDescriptor,
   WorkbenchDataRequirement,
@@ -428,7 +428,7 @@ function inspectorSectionDescriptorFromManifest(
 function sourceKindFormDescriptorFromManifest(
   source: ManifestBindingSource,
   manifest: WorkbenchPluginDescriptorManifest,
-): SourceKindFormDescriptor | null {
+): FeedKindFormDescriptor | null {
   const base = parseDescriptorBase(source, manifest, { schemaVersion: SOURCE_KIND_FORM_SCHEMA_VERSION, kind: 'provider' });
   if (!base) return null;
   const accepts = Array.isArray(manifest.accepts)

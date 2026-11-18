@@ -2,15 +2,15 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FormEvent } from 'react';
-import type { SourceHealth, SourceInfo } from '../../src/api/open';
-import type { SourceApiPort } from '../../src/api/ports';
-import { useSourceHealth } from '../../src/components/sources/useSourceHealth';
-import { useSourcesPanelState } from '../../src/components/sources/useSourcesPanelState';
+import type { FeedHealth, FeedInfo } from '../../src/api/open';
+import type { FeedApiPort } from '../../src/api/ports';
+import { useFeedHealth } from '../../src/components/feeds/useFeedHealth';
+import { useFeedsPanelState } from '../../src/components/feeds/useFeedsPanelState';
 
 afterEach(cleanup);
-const source = (id = 7): SourceInfo => ({ id, name: `Source ${id}`, kind: 'rss', url: 'https://example.test/feed',
+const source = (id = 7): FeedInfo => ({ id, name: `Source ${id}`, kind: 'rss', url: 'https://example.test/feed',
   config: {}, schedule: '@hourly', enabled: true, sheetId: 2, lastCheckedAt: null, lastStatus: 'ok', newRowsTotal: 3 });
-const health = (id = 7): SourceHealth => ({ schemaVersion: 'frisket.source_health.v1',
+const health = (id = 7): FeedHealth => ({ schemaVersion: 'frisket.source_health.v1',
   source: { ...source(id), createdAt: null, redactions: [] },
   summary: { status: 'healthy', lastSuccessAt: null, lastFailureAt: null, consecutiveFailures: 0,
     newRowsTotal: 3, newRowsRecent: 0, changedRowsRecent: 0, skippedRowsRecent: 0, revisionsRecent: 0, recentRunCount: 0, lastCursorSummary: '' },
@@ -25,21 +25,21 @@ function deferred<T>() {
 }
 function api() {
   return {
-    listSources: vi.fn().mockResolvedValue([source(), source(8)]),
-    getSource: vi.fn().mockResolvedValue({ ...source(), runs: [], runsPage: health().runsPage }),
-    getSourceHealth: vi.fn().mockImplementation(async (id: number) => health(id)),
-    createSource: vi.fn().mockResolvedValue(source()), updateSource: vi.fn().mockResolvedValue(source()),
-    deleteSource: vi.fn().mockResolvedValue(undefined), fetchSource: vi.fn().mockResolvedValue({ sheetId: 2 }),
-  } satisfies SourceApiPort;
+    listFeeds: vi.fn().mockResolvedValue([source(), source(8)]),
+    getFeed: vi.fn().mockResolvedValue({ ...source(), runs: [], runsPage: health().runsPage }),
+    getFeedHealth: vi.fn().mockImplementation(async (id: number) => health(id)),
+    createFeed: vi.fn().mockResolvedValue(source()), updateFeed: vi.fn().mockResolvedValue(source()),
+    deleteFeed: vi.fn().mockResolvedValue(undefined), fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
+  } satisfies FeedApiPort;
 }
 const submitEvent = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
 
 describe('source health request ownership', () => {
   it.each(['success', 'failure'])('does not let late source A %s alter source B loading/error', async (outcome) => {
     const port = api();
-    const a = deferred<SourceHealth>(), b = deferred<SourceHealth>();
-    port.getSourceHealth.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const a = deferred<FeedHealth>(), b = deferred<FeedHealth>();
+    port.getFeedHealth.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { void result.current.actions.openHealth(7); });
     act(() => { void result.current.actions.openHealth(8); });
     expect(result.current.state.healthOpenId).toBe(8);
@@ -54,9 +54,9 @@ describe('source health request ownership', () => {
 
   it('accepts only the latest read for a source and retires a replaced API scope', async () => {
     const first = api(), second = api();
-    const old = deferred<SourceHealth>(), stale = deferred<SourceHealth>();
-    first.getSourceHealth.mockReturnValueOnce(old.promise).mockReturnValueOnce(stale.promise);
-    const { result, rerender } = renderHook(({ port }) => useSourceHealth(port), { initialProps: { port: first } });
+    const old = deferred<FeedHealth>(), stale = deferred<FeedHealth>();
+    first.getFeedHealth.mockReturnValueOnce(old.promise).mockReturnValueOnce(stale.promise);
+    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port), { initialProps: { port: first } });
     const retiredLoad = result.current.load;
     act(() => { void result.current.load(7); void result.current.load(7); });
     await act(async () => { old.resolve(health()); });
@@ -64,7 +64,7 @@ describe('source health request ownership', () => {
     rerender({ port: second });
     expect(result.current.entries[7]).toBeUndefined();
     await act(async () => { await retiredLoad(7); });
-    expect(first.getSourceHealth).toHaveBeenCalledTimes(2);
+    expect(first.getFeedHealth).toHaveBeenCalledTimes(2);
     await act(async () => { await result.current.load(7); });
     await act(async () => { stale.reject(new Error('retired scope')); });
     expect(result.current.entries[7]?.error).toBeNull();
@@ -73,56 +73,56 @@ describe('source health request ownership', () => {
 
   it('does not navigate or refresh retired source health when a poll completes after API replacement', async () => {
     const first = api(), second = api(), pending = deferred<{ sheetId: number | null }>();
-    first.fetchSource.mockReturnValueOnce(pending.promise);
-    const { result, rerender } = renderHook(({ port }) => useSourceHealth(port), { initialProps: { port: first } });
+    first.fetchFeed.mockReturnValueOnce(pending.promise);
+    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port), { initialProps: { port: first } });
     const onPolled = vi.fn(), afterPoll = vi.fn(async () => {});
     act(() => { void result.current.poll(7, { onPolled, afterPoll }); });
     rerender({ port: second });
     await act(async () => { pending.resolve({ sheetId: 2 }); });
     expect(onPolled).not.toHaveBeenCalled();
     expect(afterPoll).not.toHaveBeenCalled();
-    expect(first.getSourceHealth).not.toHaveBeenCalled();
-    expect(second.getSourceHealth).not.toHaveBeenCalled();
+    expect(first.getFeedHealth).not.toHaveBeenCalled();
+    expect(second.getFeedHealth).not.toHaveBeenCalled();
     expect(result.current.entries[7]).toBeUndefined();
   });
 
   it('reloads failed poll health/history, retains its error, and suppresses duplicate polls', async () => {
     const port = api(), pending = deferred<{ sheetId: number | null }>();
-    port.fetchSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourceHealth(port));
+    port.fetchFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedHealth(port));
     const afterPoll = vi.fn(async () => {}), onPolled = vi.fn();
     act(() => { void result.current.poll(7, { afterPoll, onPolled }); void result.current.poll(7, { afterPoll, onPolled }); });
-    expect(port.fetchSource).toHaveBeenCalledOnce();
+    expect(port.fetchFeed).toHaveBeenCalledOnce();
     await act(async () => { pending.reject(new Error('Offline')); });
     expect(result.current.entries[7]).toMatchObject({ busy: false, loading: false, error: 'Poll failed: Offline' });
-    expect(port.getSourceHealth).toHaveBeenCalledWith(7, 0, 20);
+    expect(port.getFeedHealth).toHaveBeenCalledWith(7, 0, 20);
     expect(afterPoll).toHaveBeenCalledOnce();
     expect(onPolled).not.toHaveBeenCalled();
   });
 
   it.each(['schedule', 'enabled'])('refreshes list/open health after a successful %s patch only', async (field) => {
     const port = api();
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port));
     await waitFor(() => expect(result.current.state.items).not.toBeNull());
     await act(async () => { await result.current.actions.openHealth(7); });
     const patch = () => field === 'schedule' ? result.current.actions.changeSchedule(7, '') : result.current.actions.toggleEnabled(7, false);
-    port.listSources.mockClear(); port.getSourceHealth.mockClear();
+    port.listFeeds.mockClear(); port.getFeedHealth.mockClear();
     await act(async () => { await patch(); });
-    expect(port.updateSource).toHaveBeenLastCalledWith(7, field === 'schedule' ? { schedule: null } : { enabled: false });
-    expect(port.listSources).toHaveBeenCalledOnce();
-    expect(port.getSourceHealth).toHaveBeenCalledExactlyOnceWith(7, 0, 20);
-    port.listSources.mockClear(); port.getSourceHealth.mockClear();
-    port.updateSource.mockRejectedValueOnce(new Error('Cannot patch'));
+    expect(port.updateFeed).toHaveBeenLastCalledWith(7, field === 'schedule' ? { schedule: null } : { enabled: false });
+    expect(port.listFeeds).toHaveBeenCalledOnce();
+    expect(port.getFeedHealth).toHaveBeenCalledExactlyOnceWith(7, 0, 20);
+    port.listFeeds.mockClear(); port.getFeedHealth.mockClear();
+    port.updateFeed.mockRejectedValueOnce(new Error('Cannot patch'));
     await act(async () => { await patch(); });
     expect(result.current.state.error).toBe('Cannot patch');
-    expect(port.listSources).not.toHaveBeenCalled();
-    expect(port.getSourceHealth).not.toHaveBeenCalled();
+    expect(port.listFeeds).not.toHaveBeenCalled();
+    expect(port.getFeedHealth).not.toHaveBeenCalled();
   });
 
   it('retires an old GET error after a successful patch and silent health refresh', async () => {
     const port = api();
-    port.getSourceHealth.mockRejectedValueOnce(new Error('Health read unavailable'));
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    port.getFeedHealth.mockRejectedValueOnce(new Error('Health read unavailable'));
+    const { result } = renderHook(() => useFeedsPanelState(port));
     await act(async () => { await result.current.actions.openHealth(7); });
     expect(result.current.state.healthError).toBe('Health read unavailable');
     await act(async () => { await result.current.actions.toggleEnabled(7, false); });
@@ -133,9 +133,9 @@ describe('source health request ownership', () => {
 
 describe('source editor draft-owned completion', () => {
   it('reports a failed save after typing in the same editor session', async () => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.updateSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.updateFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'Revised while saving' }); });
@@ -145,24 +145,24 @@ describe('source editor draft-owned completion', () => {
   });
 
   it('updates the created source instead of creating it again after in-session typing', async () => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.createSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.createFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'Updated new source' }); });
     await act(async () => { pending.resolve(source(101)); });
     expect(result.current.state.form).toMatchObject({ editingId: 101, name: 'Updated new source', adding: true });
     await act(async () => { await result.current.actions.submit(submitEvent); });
-    expect(port.createSource).toHaveBeenCalledOnce();
-    expect(port.updateSource).toHaveBeenCalledExactlyOnceWith(101, expect.objectContaining({ name: 'Updated new source' }));
+    expect(port.createFeed).toHaveBeenCalledOnce();
+    expect(port.updateFeed).toHaveBeenCalledExactlyOnceWith(101, expect.objectContaining({ name: 'Updated new source' }));
     expect(result.current.state.form.editingId).toBeNull();
   });
 
   it.each(['success', 'failure'])('ignores old %s after cancelling and reopening the same source', async (outcome) => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.updateSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.updateFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.startEdit(source()); });
@@ -172,9 +172,9 @@ describe('source editor draft-owned completion', () => {
   });
 
   it.each(['success', 'failure'])('does not attach an old create %s to a newly opened create session', async (outcome) => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.createSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.createFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'First create', url: 'https://example.test/feed' }); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'Second create', url: 'https://example.test/new' }); });
@@ -185,17 +185,17 @@ describe('source editor draft-owned completion', () => {
 
   it('closes an unchanged create draft after saving', async () => {
     const port = api();
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
     await act(async () => { await result.current.actions.submit(submitEvent); });
-    expect(port.createSource).toHaveBeenCalledOnce();
+    expect(port.createFeed).toHaveBeenCalledOnce();
     expect(result.current.state.form).toMatchObject({ editingId: null, adding: false, name: '' });
   });
 
   it.each(['success', 'failure'])('preserves draft B when save A completes with %s', async (outcome) => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.updateSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.updateFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.startEdit(source(8)); result.current.actions.updateForm({ name: 'Draft B' }); });
@@ -205,9 +205,9 @@ describe('source editor draft-owned completion', () => {
   });
 
   it('preserves typing during save and only clears the submitted revision', async () => {
-    const port = api(), pending = deferred<SourceInfo>();
-    port.updateSource.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), pending = deferred<FeedInfo>();
+    port.updateFeed.mockReturnValueOnce(pending.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'New typing' }); });
@@ -215,13 +215,13 @@ describe('source editor draft-owned completion', () => {
     expect(result.current.state.form.name).toBe('New typing');
     await act(async () => { await result.current.actions.submit(submitEvent); });
     expect(result.current.state.form.editingId).toBeNull();
-    expect(port.updateSource).toHaveBeenLastCalledWith(7, expect.objectContaining({ name: 'New typing' }));
+    expect(port.updateFeed).toHaveBeenLastCalledWith(7, expect.objectContaining({ name: 'New typing' }));
   });
 
   it('does not let save A clear pending save B or B’s error', async () => {
-    const port = api(), a = deferred<SourceInfo>(), b = deferred<SourceInfo>();
-    port.updateSource.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
-    const { result } = renderHook(() => useSourcesPanelState(port));
+    const port = api(), a = deferred<FeedInfo>(), b = deferred<FeedInfo>();
+    port.updateFeed.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+    const { result } = renderHook(() => useFeedsPanelState(port));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.startEdit(source(8)); });

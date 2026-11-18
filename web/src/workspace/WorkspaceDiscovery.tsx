@@ -4,10 +4,10 @@ import { AtSign, Bell, BellRing, BookOpen, Boxes, Database, Images, ListFilter, 
 import { canEditProject } from '../api/projectRole';
 import { DiscoverPanel, type DiscoverTabDescriptor } from '../workbench/DiscoverPanel';
 import { DISCOVER_TABS, type DiscoverTab } from './useWorkspaceChromeState';
-import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, SourcesWorkbenchPanel, ViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
+import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, FeedsWorkbenchPanel, ViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution, type WorkbenchResolvedLayoutRegion } from '../workbench/layout';
 import { PluginPanelHost } from '../workbench/PluginPanelHost';
-import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, VIEWS_CONTRIBUTION_ID, SOURCES_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
+import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, VIEWS_CONTRIBUTION_ID, FEEDS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -20,7 +20,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
   const {
     openView,
     leftSidebarPluginPanelDescriptors,
-    openSourceHealthMainView,
+    openFeedHealthMainView,
     project,
     refreshHistory,
     refreshSheets,
@@ -68,9 +68,9 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
       return <NotificationsWorkbenchPanel projectId={project.id} />;
     case 'frisket.core.panel.sources':
       return (
-        <SourcesWorkbenchPanel
-          sourceApi={projectApi}
-          sourceDetailContributions={
+        <FeedsWorkbenchPanel
+          feedApi={projectApi}
+          feedDetailContributions={
             resolveRegionContributions(resolvedWorkbenchLayout, 'sourceDetail').contributions
           }
           renderPluginDetailTab={renderPluginDetailTab}
@@ -82,7 +82,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
             void refreshHistory();
             invalidateProjectData();
           }}
-          onOpenSourceHealthMainView={openSourceHealthMainView}
+          onOpenFeedHealthMainView={openFeedHealthMainView}
         />
       );
     case 'frisket.investigative.panel.friendly_filters':
@@ -190,7 +190,7 @@ const NON_DISCOVER_LEFT_SIDEBAR_CONTRIBUTION_IDS = new Set<string>();
 const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
   Facets: [FRIENDLY_FILTERS_CONTRIBUTION_ID],
   Mentions: [MENTIONS_CONTRIBUTION_ID],
-  Sources: [SOURCES_CONTRIBUTION_ID],
+  Sources: [FEEDS_CONTRIBUTION_ID],
   Views: [VIEWS_CONTRIBUTION_ID],
   Watches: [ALERTS_CONTRIBUTION_ID],
   Embeddings: [EMBEDDINGS_CONTRIBUTION_ID],

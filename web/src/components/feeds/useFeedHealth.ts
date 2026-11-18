@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SourceHealth } from '../../api/open';
-import type { SourceApiPort } from '../../api/ports';
+import type { FeedHealth } from '../../api/open';
+import type { FeedApiPort } from '../../api/ports';
 import { errorMessage } from '../../hooks/errorMessage';
 
 interface HealthEntry {
-  health: SourceHealth | null;
+  health: FeedHealth | null;
   loading: boolean;
   readError: string | null;
   pollError: string | null;
@@ -15,9 +15,9 @@ const emptyEntry: HealthEntry = { health: null, loading: false, readError: null,
 const message = (error: unknown) => errorMessage(error);
 
 /** Each source owns its request status; only its latest health read can publish. */
-export function useSourceHealth(sourceApi: SourceApiPort) {
-  const [state, setState] = useState<{ api: SourceApiPort; entries: Record<number, HealthEntry> }>(() => ({ api: sourceApi, entries: {} }));
-  const scope = useMemo(() => ({ sourceApi, reads: new Map<number, symbol>(), polls: new Map<number, symbol>() }), [sourceApi]);
+export function useFeedHealth(feedApi: FeedApiPort) {
+  const [state, setState] = useState<{ api: FeedApiPort; entries: Record<number, HealthEntry> }>(() => ({ api: feedApi, entries: {} }));
+  const scope = useMemo(() => ({ feedApi, reads: new Map<number, symbol>(), polls: new Map<number, symbol>() }), [feedApi]);
   const activeScope = useRef<typeof scope | null>(null);
   useEffect(() => {
     activeScope.current = scope;
@@ -31,11 +31,11 @@ export function useSourceHealth(sourceApi: SourceApiPort) {
   const patch = useCallback((id: number, update: Partial<HealthEntry>) => {
     if (activeScope.current !== scope) return;
     setState((current) => ({
-      api: sourceApi,
-      entries: { ...(current.api === sourceApi ? current.entries : {}),
-        [id]: { ...((current.api === sourceApi ? current.entries[id] : null) ?? emptyEntry), ...update } },
+      api: feedApi,
+      entries: { ...(current.api === feedApi ? current.entries : {}),
+        [id]: { ...((current.api === feedApi ? current.entries[id] : null) ?? emptyEntry), ...update } },
     }));
-  }, [scope, sourceApi]);
+  }, [scope, feedApi]);
 
   const load = useCallback(async (id: number, reportError = true) => {
     if (activeScope.current !== scope) return;
@@ -44,12 +44,12 @@ export function useSourceHealth(sourceApi: SourceApiPort) {
     const isCurrent = () => activeScope.current === scope && scope.reads.get(id) === request;
     patch(id, { loading: true, ...(reportError ? { readError: null, pollError: null } : {}) });
     try {
-      const health = await sourceApi.getSourceHealth(id, 0, 20);
+      const health = await feedApi.getFeedHealth(id, 0, 20);
       if (isCurrent()) patch(id, { health, loading: false, readError: null });
     } catch (error) {
       if (isCurrent()) patch(id, { loading: false, ...(reportError ? { readError: message(error) } : {}) });
     }
-  }, [patch, scope, sourceApi]);
+  }, [patch, scope, feedApi]);
 
   const poll = useCallback(async (id: number, options: {
     onPolled?(sheetId: number | null): void;
@@ -63,7 +63,7 @@ export function useSourceHealth(sourceApi: SourceApiPort) {
     patch(id, { busy: true, readError: null, pollError: null });
     let problem: string | null = null;
     try {
-      const result = await sourceApi.fetchSource(id);
+      const result = await feedApi.fetchFeed(id);
       if (isCurrent()) options.onPolled?.(result.sheetId);
     } catch (error) {
       if (isCurrent()) {
@@ -79,7 +79,7 @@ export function useSourceHealth(sourceApi: SourceApiPort) {
       }
     }
     return problem;
-  }, [load, patch, scope, sourceApi]);
+  }, [load, patch, scope, feedApi]);
 
   const forget = useCallback((id: number) => {
     if (activeScope.current !== scope) return;
@@ -92,7 +92,7 @@ export function useSourceHealth(sourceApi: SourceApiPort) {
     });
   }, [scope]);
 
-  const entries = Object.fromEntries(Object.entries(state.api === sourceApi ? state.entries : {}).map(([id, entry]) =>
+  const entries = Object.fromEntries(Object.entries(state.api === feedApi ? state.entries : {}).map(([id, entry]) =>
     [id, { ...entry, error: entry.pollError ?? entry.readError }] as const));
   return { entries, load, poll, forget };
 }

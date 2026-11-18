@@ -2,9 +2,9 @@
 // that cannot add a source is a dead end.
 //
 // sources.spec.ts already pins that source creation itself lives in the
-// Import workspace dialog (FeedSourceForm's "Feed" mode: source-name/
+// Import workspace dialog (FeedImportForm's "Feed" mode: source-name/
 // source-url/source-interval/source-create, wired to the source.create v1
-// action) and that SourcesPanel must NOT own a second independent creation
+// action) and that FeedsPanel must NOT own a second independent creation
 // form (`source-add-button` pinned to count 0 there). So this spec proves the
 // missing piece only: a discoverable Add affordance INSIDE the Sources panel
 // that opens that SAME existing Import dialog (reuse, not reinvent) — not a
@@ -13,7 +13,7 @@
 import { expect, test } from '@playwright/test';
 import { createProject, openDiscoverTab, openImportWorkspace, uniqueName } from './helpers';
 
-test('the Sources panel has an Add affordance that opens the existing Import flow', async ({ page }) => {
+test('the Feeds panel has an Add affordance that opens the existing Import flow', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-sources-add-flow'));
   const feedName = uniqueName('Add-flow feed');
   // localhost is netguard-blocked -> rejected synchronously, no network I/O
@@ -33,7 +33,7 @@ test('the Sources panel has an Add affordance that opens the existing Import flo
   await expect(page.getByTestId('source-form')).toHaveCount(0);
 
   // Clicking Add opens the SAME Import workspace dialog the ribbon's Import
-  // command opens -- reuse, not a bespoke SourcesPanel dialog. It lands
+  // command opens -- reuse, not a bespoke FeedsPanel dialog. It lands
   // directly on the Feed step because Sources manages feeds, not the CSV
   // default that generic Import entry points still start on.
   await addButton.click();
@@ -80,7 +80,7 @@ test('the Sources panel has an Add affordance that opens the existing Import flo
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
 });
 
-test('the generic Import entry point preserves the last-selected mode; Sources Add always forces Feed', async ({
+test('the generic Import entry point preserves the last-selected mode; Feeds Add always forces Feed', async ({
   page,
 }) => {
   // sources-panel-add-flow-v1 fix follow-up: only the Sources "Add source"

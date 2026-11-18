@@ -141,7 +141,7 @@ export interface WorkbenchCommandDescriptor extends WorkbenchContributionDescrip
   handlerKey: string;
 }
 
-export interface SourceKindFormDescriptor extends WorkbenchContributionDescriptorBase {
+export interface FeedKindFormDescriptor extends WorkbenchContributionDescriptorBase {
   schemaVersion: 'frisket.source.kind.form.v1';
   kind: 'provider';
   accepts: string[];
@@ -160,7 +160,7 @@ export type WorkbenchContributionDescriptor =
   | RowInspectorSectionDescriptor
   | ColumnInspectorSectionDescriptor
   | WorkbenchCommandDescriptor
-  | SourceKindFormDescriptor
+  | FeedKindFormDescriptor
   | ActionFormDescriptor;
 
 export type WorkbenchResolvedPlacement = WorkbenchPlacement & {
@@ -275,7 +275,7 @@ export const MENTIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescripto
   'frisket.investigative.panel.mentions',
 );
 
-export const SOURCES_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
+export const FEEDS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.sources',
 );
 
@@ -295,7 +295,7 @@ export const EMBEDDINGS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescrip
   'frisket.embeddings.panel.indexes',
 );
 
-export const SOURCE_KIND_FORM_DESCRIPTORS: Record<string, SourceKindFormDescriptor> = {
+export const FEED_KIND_FORM_DESCRIPTORS: Record<string, FeedKindFormDescriptor> = {
   rss: firstPartyDescriptor('frisket.core.source_kind_form.rss'),
   api_list_dicts: firstPartyDescriptor('frisket.core.source_kind_form.api_list_dicts'),
 };
@@ -371,7 +371,7 @@ export const BOTTOM_DOCK_ERRORS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPart
   'frisket.core.panel.errors',
 );
 
-export const OPEN_SOURCES_COMMAND_DESCRIPTOR: WorkbenchCommandDescriptor = firstPartyDescriptor(
+export const OPEN_FEEDS_COMMAND_DESCRIPTOR: WorkbenchCommandDescriptor = firstPartyDescriptor(
   'frisket.core.command.open_sources',
 );
 
@@ -468,14 +468,14 @@ export const ENTITY_CONNECTIONS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = first
   'frisket.investigative.view.entity_connections',
 );
 
-export const SOURCE_SUMMARY_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
+export const FEED_SUMMARY_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
   'frisket.core.view.source_summary',
 );
 
-export const SOURCE_HEALTH_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
+export const FEED_HEALTH_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
   'frisket.core.view.source_health',
 );
 
-export const SOURCE_RUNS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
+export const FEED_CHECKS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
   'frisket.core.view.source_runs',
 );

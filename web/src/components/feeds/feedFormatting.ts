@@ -1,4 +1,4 @@
-import type { SourceRun } from '../../api/open';
+import type { FeedCheck } from '../../api/open';
 import { formatUsd } from '../../format';
 
 export function statusLabel(value: string | null | undefined): string {
@@ -26,7 +26,7 @@ export function formatCost(micro: number): string {
   return formatUsd(micro / 1_000_000);
 }
 
-export function runDeltaText(run: Pick<SourceRun, 'newRows' | 'changedRows' | 'skippedRows' | 'revisions'>): string {
+export function runDeltaText(run: Pick<FeedCheck, 'newRows' | 'changedRows' | 'skippedRows' | 'revisions'>): string {
   const parts: string[] = [];
   if (run.newRows) parts.push(`+${run.newRows} new`);
   if (run.changedRows) parts.push(`${run.changedRows} changed`);

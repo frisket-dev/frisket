@@ -1,24 +1,24 @@
 import { useEffect, useRef } from 'react';
 import { Database } from 'lucide-react';
 import { WindowCloseButton } from '../WindowCloseButton';
-import { SourcesPanel, type SourcesPanelProps } from '../SourcesPanel';
-import './SourcesConnectionsDialog.css';
+import { FeedsPanel, type FeedsPanelProps } from '../FeedsPanel';
+import './FeedsConnectionsDialog.css';
 
-interface SourcesConnectionsDialogProps extends SourcesPanelProps {
+interface FeedsConnectionsDialogProps extends FeedsPanelProps {
   open: boolean;
   onClose(): void;
 }
 
 /**
  * Focused project-level home for recurring sources and external connections.
- * The management body remains SourcesPanel, so modal and secondary Discover
+ * The management body remains FeedsPanel, so modal and secondary Discover
  * placements share one list/status/edit/poll/delete implementation.
  */
-export function SourcesConnectionsDialog({
+export function FeedsConnectionsDialog({
   open,
   onClose,
   ...panelProps
-}: SourcesConnectionsDialogProps) {
+}: FeedsConnectionsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -69,7 +69,7 @@ export function SourcesConnectionsDialog({
           />
         </header>
         <main className="sources-connections-content">
-          <SourcesPanel {...panelProps} />
+          <FeedsPanel {...panelProps} />
         </main>
       </section>
     </dialog>

@@ -6,7 +6,7 @@ async function openFromImport(page: import('@playwright/test').Page): Promise<vo
   await page.getByTestId('ribbon-command-sources').click();
 }
 
-test('Sources & connections opens an obvious focused management modal', async ({ page }) => {
+test('Feeds & connections opens an obvious focused management modal', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-sources-home'));
   await page.goto(`/p/${pid}`);
 
@@ -31,7 +31,7 @@ test('Sources & connections opens an obvious focused management modal', async ({
   await expect(page.getByTestId('sources-connections-close')).toBeFocused();
 });
 
-test('Add source reuses Import Feed and returns to the manager', async ({ page }) => {
+test('Add feed reuses Import Feed and returns to the manager', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-sources-home-add'));
   await page.goto(`/p/${pid}`);
   await openFromImport(page);

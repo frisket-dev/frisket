@@ -1,6 +1,6 @@
 // sources.open is dispatched from BOTH runActCommand's 'sources' case
 // (today: openSourcesDiscoverTab, no recordCommandAction) AND the ⌘K
-// palette's OPEN_SOURCES_COMMAND_DESCRIPTOR (today: openSourcesFromCommand-
+// palette's OPEN_FEEDS_COMMAND_DESCRIPTOR (today: openSourcesFromCommand-
 // Palette, WITH recordCommandAction — pinned green by
 // workbench-command-palette.spec.ts's 'Opened Sources' assertion). The
 // union gives both ONE command type, so ONE run() body is possible; the
