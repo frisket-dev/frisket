@@ -756,3 +756,89 @@ def test_land_wait_names_the_ejecting_check_and_flags_infrastructure(
     [view] = runner.ran("gh", "run", "view")
     assert runner.calls[view][0][3] == "41"
     assert _mutations(runner) == [QUEUE_MERGE]
+
+
+def test_blocked_merge_state_waits_when_the_pr_has_a_queue_entry():
+    queued = _pr(queue=True, merge_state="BLOCKED", entry=_entry(2))
+    assert land.merge_gate(queued) == "ok"
+    with pytest.raises(land.LandStop, match="branch protection"):
+        land.merge_gate(_pr(queue=True, merge_state="BLOCKED"))
+
+
+def test_land_wait_keeps_waiting_while_blocked_behind_another_queue_entry():
+    runner = _github(
+        _pr(queue=True, merge_state="BLOCKED", entry=_entry(2)),
+        _pr(queue=True, merge_state="BLOCKED", entry=_entry(1)),
+        _pr(queue=True, state="MERGED"),
+    )
+    assert _land(runner, wait=True) == 0
+    assert not runner.ran("gh", "pr", "merge")
+
+
+class _FlakyPolls:
+    """Fails the first graphql polls after the initial read with a gh error."""
+
+    def __init__(self, inner: FakeRunner, stderr: str, failures: int):
+        self.inner, self.stderr, self.failures = inner, stderr, failures
+        self.graphql_calls = 0
+
+    def __call__(self, args, *, cwd=None, check=True, env=None):
+        if list(args[:3]) == ["gh", "api", "graphql"]:
+            self.graphql_calls += 1
+            if self.graphql_calls > 2 and self.failures > 0:
+                self.failures -= 1
+                raise subprocess.CalledProcessError(1, args, "", self.stderr)
+        return self.inner(args, cwd=cwd, check=check, env=env)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def _polled(stderr: str, failures: int) -> tuple[_FlakyPolls, list[float]]:
+    pauses: list[float] = []
+    runner = _FlakyPolls(
+        _github(
+            _pr(queue=True),
+            _pr(queue=True, entry=_entry(1)),
+            _pr(queue=True, entry=_entry(1)),
+            _pr(queue=True, state="MERGED"),
+        ),
+        stderr,
+        failures,
+    )
+    return runner, pauses
+
+
+def _wait(runner, pauses: list[float]) -> int:
+    return land.Lander(
+        runner,
+        repo="owner/repo",
+        remote="origin",
+        dry_run=False,
+        number=7,
+        wait=True,
+        sleep=pauses.append,
+        poll_seconds=1,
+        timeout_seconds=50,
+    ).land()
+
+
+def test_land_wait_retries_a_transient_network_error_during_polling():
+    runner, pauses = _polled("error connecting to api.github.com", 2)
+    assert _wait(runner, pauses) == 0
+    assert pauses.count(land.RETRY_PAUSE_SECONDS) == 2
+
+
+def test_land_wait_gives_up_after_bounded_transient_retries():
+    runner, pauses = _polled("dial tcp: i/o timeout", 99)
+    with pytest.raises(land.LandStop, match="timeout"):
+        _wait(runner, pauses)
+    assert pauses.count(land.RETRY_PAUSE_SECONDS) == land.POLL_RETRIES - 1
+
+
+def test_land_wait_stops_at_once_on_a_real_api_error():
+    runner, pauses = _polled("HTTP 401: Bad credentials", 1)
+    with pytest.raises(land.LandStop, match="Bad credentials"):
+        _wait(runner, pauses)
+    assert land.RETRY_PAUSE_SECONDS not in pauses
+

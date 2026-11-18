@@ -26,6 +26,11 @@ otherwise:
 6. only then is the lane's worktree removed and its local branch deleted,
    and the remote branch is deleted (never for a PR that is not MERGED).
 
+A merge queue entry behind another one reports merge state BLOCKED; with an
+entry that is waiting, not a stop. While polling, a transient ``gh`` network
+failure is retried a few times before the wait gives up; any other ``gh``
+error stops at once.
+
 A PR that is already MERGED resumes at step 5; one already in the queue
 resumes at step 4. ``--dry-run`` performs the read-only checks and prints
 every mutating command instead of running it.
@@ -57,6 +62,24 @@ UPDATED = 3
 QUEUED = 4
 POLL_SECONDS = 30
 WAIT_TIMEOUT_SECONDS = 7200
+POLL_RETRIES = 5
+RETRY_PAUSE_SECONDS = 5
+# Lower-case fragments of a gh failure that a retry can fix. Auth and
+# not-found errors never match.
+TRANSIENT_GH_PATTERNS = (
+    "error connecting",
+    "connection reset",
+    "connection refused",
+    "connection timed out",
+    "timed out",
+    "timeout",
+    "temporary failure",
+    "no such host",
+    "unexpected eof",
+    "http 502",
+    "http 503",
+    "http 504",
+)
 PASSING_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 MERGEABLE_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
 # Log lines that mark a failed job as an infrastructure failure rather than
@@ -93,6 +116,10 @@ class LandStop(RuntimeError):
     def __init__(self, message: str, code: int = 1) -> None:
         super().__init__(message)
         self.code = code
+
+
+class TransientGhError(LandStop):
+    """A gh failure that looks like a network problem and may pass on retry."""
 
 
 def check_problems(pr: dict) -> tuple[list[str], list[str]]:
@@ -134,6 +161,8 @@ def bullets(lines: list[str]) -> str:
 def merge_gate(pr: dict) -> str:
     """``ok`` or ``behind``; raises LandStop for every other merge state."""
     mergeable, status = pr["mergeable"], pr["mergeStateStatus"]
+    if status == "BLOCKED" and pr.get("mergeQueueEntry") is not None:
+        return "ok"
     if mergeable == "UNKNOWN" or status == "UNKNOWN":
         raise LandStop("GitHub is still computing mergeability; re-run shortly")
     if mergeable != "MERGEABLE":
@@ -192,7 +221,22 @@ class Lander:
             return self.runner(list(args), cwd=cwd).stdout.strip()
         except subprocess.CalledProcessError as error:
             detail = (error.stderr or error.stdout or "").strip()
-            raise LandStop(f"{' '.join(args[:3])} failed: {detail}") from None
+            message = f"{' '.join(args[:3])} failed: {detail}"
+            if any(part in detail.lower() for part in TRANSIENT_GH_PATTERNS):
+                raise TransientGhError(message) from None
+            raise LandStop(message) from None
+
+    def poll_pull_request(self) -> dict:
+        """pull_request(), retried a bounded number of times on network errors."""
+        for attempt in range(POLL_RETRIES):
+            try:
+                return self.pull_request()
+            except TransientGhError as error:
+                if attempt == POLL_RETRIES - 1:
+                    raise
+                print(f"  transient gh error, retrying: {error}", file=sys.stderr)
+                self.sleep(RETRY_PAUSE_SECONDS)
+        raise AssertionError("unreachable")
 
     def mutate(self, args: Sequence[str], cwd: Optional[Path] = None) -> None:
         if "--admin" in args:
@@ -367,7 +411,7 @@ class Lander:
                 )
             self.sleep(self.poll_seconds)
             waited += self.poll_seconds
-            latest = self.pull_request()
+            latest = self.poll_pull_request()
             if latest["state"] == "MERGED":
                 return latest
             if latest["state"] == "CLOSED":
