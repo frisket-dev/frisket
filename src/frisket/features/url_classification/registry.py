@@ -1,7 +1,7 @@
 """The in-process URL matcher registry and ``classify_url``.
 
 Mirrors the feed checker registry shape (``frisket.sources.runtime``:
-``register_feed_checker`` / ``registered_source_kinds``) so the idiom is
+``register_feed_checker`` / ``registered_feed_kinds``) so the idiom is
 familiar and the plugin-registration path has a precedent.
 """
 

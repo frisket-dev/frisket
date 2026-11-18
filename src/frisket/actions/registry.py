@@ -99,7 +99,7 @@ from frisket.actions.review_replay import (
 )
 from frisket.actions.research import WEB_SEARCH
 from frisket.actions.resolve import COMBINE, FILL_MISSING, REPLACE, SUBSTITUTE
-from frisket.actions.sources import CHECK, CREATE, DELETE, UPDATE, POLL
+from frisket.actions.feeds import CHECK, CREATE, DELETE, UPDATE, POLL
 from frisket.actions.sheets import REFRESH
 from frisket.actions.runs import BACKFILL, REAPPLY, RETRY
 from frisket.actions.text import CLEAN_DATES, TEMPLATE

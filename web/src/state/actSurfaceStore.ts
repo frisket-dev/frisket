@@ -67,7 +67,7 @@ interface ActSurfaceState {
   /** Search-preparation batch reopened in the existing import workspace. */
   importPreparationBatchId: string | null;
   /** Session-only home for managing recurring sources/connections. */
-  sourcesConnectionsOpen: boolean;
+  feedsConnectionsOpen: boolean;
   addColumnPrompt: AddColumnPrompt | null;
 }
 
@@ -83,7 +83,7 @@ export function createActSurfaceState(): ActSurfaceState {
     importDialogTableRerunDraftId: null,
     importDialogFiles: null,
     importPreparationBatchId: null,
-    sourcesConnectionsOpen: false,
+    feedsConnectionsOpen: false,
     addColumnPrompt: null,
   };
 }
@@ -109,7 +109,7 @@ export function createActSurfaceStore(): {
   openImportPreparation(batchId: string): void;
   closeImportDialog(): void;
 
-  openSourcesConnections(): void;
+  openFeedsConnections(): void;
   closeSourcesConnections(): void;
 
   setAddColumnPrompt(prompt: AddColumnPrompt | null): void;
@@ -241,14 +241,14 @@ export function createActSurfaceStore(): {
       );
     },
 
-    openSourcesConnections() {
+    openFeedsConnections() {
       store.set((s) =>
-        s.sourcesConnectionsOpen ? s : { ...s, sourcesConnectionsOpen: true },
+        s.feedsConnectionsOpen ? s : { ...s, feedsConnectionsOpen: true },
       );
     },
     closeSourcesConnections() {
       store.set((s) =>
-        s.sourcesConnectionsOpen ? { ...s, sourcesConnectionsOpen: false } : s,
+        s.feedsConnectionsOpen ? { ...s, feedsConnectionsOpen: false } : s,
       );
     },
 

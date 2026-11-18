@@ -17,7 +17,7 @@ from frisket.ops.enclosures import ENCLOSURE_DOWNLOAD_KIND
 from frisket.contracts.plugin import PLUGIN_ID_RE, LoadedPluginManifest
 from frisket.engine.jobs import (
     RUN_PROJECT_KIND,
-    SOURCE_POLL_KIND,
+    FEED_POLL_KIND,
     HandlerRegistry,
     JobHandlerContext,
 )
@@ -670,7 +670,7 @@ def _register_builtin_job_handlers(registry: PluginRegistry) -> None:
     for kind, description in (
         (ECHO_KIND, "Test echo handler."),
         (RUN_PROJECT_KIND, "Execute a prepared project recipe run."),
-        (SOURCE_POLL_KIND, "Poll a scheduled project source."),
+        (FEED_POLL_KIND, "Poll a scheduled project source."),
         (ENCLOSURE_DOWNLOAD_KIND, "Download RSS/media enclosures."),
     ):
         registry.register_job_handler(

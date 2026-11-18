@@ -3973,9 +3973,9 @@ export interface ReviewRunStatusResult {
 
 /** Polling cadence presets — the only schedule strings the backend interval
  *  parser (jobs/sources.py::_schedule_interval) accepts. '' = manual/on-demand. */
-export type SourceInterval = '' | '@hourly' | '0 */6 * * *' | '@daily';
+export type FeedInterval = '' | '@hourly' | '0 */6 * * *' | '@daily';
 
-export type SourceKind =
+export type FeedKind =
   | 'rss'
   | 'youtube_playlist'
   | 'youtube_channel'
@@ -3986,15 +3986,15 @@ export type SourceKind =
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
-export type SourceConfig = Exclude<JsonValue, null>;
+export type FeedConfig = Exclude<JsonValue, null>;
 
-/** A configured source (mirrors the server `sources` row / _source_dict). */
-export interface SourceInfo {
+/** A configured source (mirrors the server `sources` row / _feed_dict). */
+export interface FeedInfo {
   id: number;
   name: string;
   kind: string; // 'rss' | 'url' | 'search' | 'api'
   url: string | null;
-  config: SourceConfig;
+  config: FeedConfig;
   sheetId: number | null;
   schedule: string | null; // null = manual
   enabled: boolean;
@@ -4004,7 +4004,7 @@ export interface SourceInfo {
 }
 
 /** One poll of a source (source_runs row). */
-export interface SourceRun {
+export interface FeedCheck {
   id: number;
   status: string; // 'ok' | 'error'
   newRows: number;
@@ -4020,21 +4020,21 @@ export interface SourceRun {
   finishedAt: string | null;
 }
 
-export interface SourceRunPage extends PageMeta {
+export interface FeedCheckPage extends PageMeta {
   schemaVersion: 'frisket.source_runs_page.v1';
   order: 'desc';
-  latestRun: SourceRun | null;
+  latestRun: FeedCheck | null;
   latestRunLoaded: boolean;
 }
 
 /** A source plus its recent poll history (GET /sources/{id}). */
-export interface SourceDetail extends SourceInfo {
-  runs: SourceRun[];
-  runsPage: SourceRunPage;
+export interface FeedDetail extends FeedInfo {
+  runs: FeedCheck[];
+  runsPage: FeedCheckPage;
 }
 
 /** Fields the add/edit form submits. */
-export interface SourceInput {
+export interface FeedInput {
   name: string;
   kind: string;
   url?: string | null;
@@ -4044,7 +4044,7 @@ export interface SourceInput {
 }
 
 /** Outcome of a manual "Fetch now". */
-export interface SourceFetchResult {
+export interface FeedFetchResult {
   jobId?: number;
   runId: number | null;
   newRows: number;
@@ -4055,7 +4055,7 @@ export interface SourceFetchResult {
   sheetId: number | null;
 }
 
-type SourceHealthStatus =
+type FeedHealthStatus =
   | 'healthy'
   | 'failing'
   | 'stale'
@@ -4063,8 +4063,8 @@ type SourceHealthStatus =
   | 'never_run'
   | (string & {});
 
-export interface SourceHealthSummary {
-  status: SourceHealthStatus;
+export interface FeedHealthSummary {
+  status: FeedHealthStatus;
   lastSuccessAt: string | null;
   lastFailureAt: string | null;
   consecutiveFailures: number;
@@ -4077,7 +4077,7 @@ export interface SourceHealthSummary {
   lastCursorSummary: string;
 }
 
-export interface SourceHealthRun extends SourceRun {
+export interface FeedHealthCheck extends FeedCheck {
   sourceId: number;
   opId: number | null;
   errorSummary: string | null;
@@ -4086,7 +4086,7 @@ export interface SourceHealthRun extends SourceRun {
   summaryPresent: boolean;
 }
 
-export interface SourceHealthJob {
+export interface FeedHealthJob {
   jobId: number | string;
   kind: string;
   status: string;
@@ -4101,13 +4101,13 @@ export interface SourceHealthJob {
   stalled: boolean;
 }
 
-export interface SourceHealthNotice {
+export interface FeedHealthNotice {
   code?: string;
   message: string;
   [key: string]: unknown;
 }
 
-export interface SourceHealth {
+export interface FeedHealth {
   schemaVersion: 'frisket.source_health.v1';
   source: {
     id: number;
@@ -4120,17 +4120,17 @@ export interface SourceHealth {
     createdAt: string | null;
     redactions: string[];
   };
-  summary: SourceHealthSummary;
-  runsPage: Omit<SourceRunPage, 'latestRun' | 'latestRunLoaded'>;
-  runs: SourceHealthRun[];
-  downstreamJobs: SourceHealthJob[];
+  summary: FeedHealthSummary;
+  runsPage: Omit<FeedCheckPage, 'latestRun' | 'latestRunLoaded'>;
+  runs: FeedHealthCheck[];
+  downstreamJobs: FeedHealthJob[];
   costs: {
     recentActualMicro: number;
     recentEstimatedMicro: number;
     basis: string;
   };
-  alerts: SourceHealthNotice[];
-  warnings: SourceHealthNotice[];
+  alerts: FeedHealthNotice[];
+  warnings: FeedHealthNotice[];
 }
 
 // ---------------------------------------------------------------------------

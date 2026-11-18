@@ -85,7 +85,7 @@ export interface ChromeHandle {
   openGraph(): void;
   /** = navigation.openMainViewContribution's inline body */
   openMainViewContribution(contributionId: string): void;
-  /** = openSourcesFromCommandPalette — the canonical body for BOTH the
+  /** = openFeedsFromCommandPalette — the canonical body for BOTH the
    *  palette entry AND runActCommand's 'sources' case (superset-body
    *  divergence, see registry.ts). */
   openSources(): void;

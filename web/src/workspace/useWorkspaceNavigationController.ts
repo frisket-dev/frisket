@@ -34,7 +34,7 @@ import { documentSimilarityLocation } from '../workbench/documentSimilarity';
 import type { PaletteActionItem, PaletteGotoItem } from '../workbench/WorkbenchCommandPalette';
 import type { PaletteSearchSeed } from '../workbench/usePaletteSearch';
 import { isSupportedWorkbenchVisibilityTarget, type WorkbenchVisibilityTarget } from '../workbench/visibility';
-import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
+import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, FEED_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import type { ChildFilter } from './workspaceState';
 import { OPEN_RUN_REVIEW_EVENT } from '../components/review/openRunReview';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
@@ -205,23 +205,23 @@ export function useWorkspaceNavigationController({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [commandPaletteOpen, openSearchPalette, closeCommandPaletteAndReset]);
 
-  const openSourcesConnections = useCallback(() => {
-    actSurface.openSourcesConnections();
+  const openFeedsConnections = useCallback(() => {
+    actSurface.openFeedsConnections();
     window.dispatchEvent(new Event('frisket:sources-changed'));
   }, [actSurface]);
 
-  const openSourcesFromCommandPalette = useCallback(() => {
-    openSourcesConnections();
+  const openFeedsFromCommandPalette = useCallback(() => {
+    openFeedsConnections();
     recordCommandAction('Opened Feeds');
     closeCommandPaletteAndReset();
-  }, [closeCommandPaletteAndReset, openSourcesConnections, recordCommandAction]);
+  }, [closeCommandPaletteAndReset, openFeedsConnections, recordCommandAction]);
 
   // Detached chrome requests the same focused manager through a window event.
   useEffect(() => {
-    const onOpenSources = () => openSourcesConnections();
-    window.addEventListener('frisket:open-sources', onOpenSources);
-    return () => window.removeEventListener('frisket:open-sources', onOpenSources);
-  }, [openSourcesConnections]);
+    const onOpenFeeds = () => openFeedsConnections();
+    window.addEventListener('frisket:open-sources', onOpenFeeds);
+    return () => window.removeEventListener('frisket:open-sources', onOpenFeeds);
+  }, [openFeedsConnections]);
 
   const hideWorkbenchContribution = useCallback(
     (target: WorkbenchVisibilityTarget) => {
@@ -458,9 +458,9 @@ export function useWorkspaceNavigationController({
     }
   }, [openMapPanel, sheet]);
 
-  const openSourceHealthMainView = useCallback(
+  const openFeedHealthMainView = useCallback(
     (sourceId: number) => {
-      if (isContributionHidden(SOURCE_HEALTH_CONTRIBUTION_ID)) {
+      if (isContributionHidden(FEED_HEALTH_CONTRIBUTION_ID)) {
         return;
       }
       writeRoute({
@@ -872,15 +872,15 @@ export function useWorkspaceNavigationController({
 
   return useMemo(() => ({
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
-    openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
-    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
+    openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
+    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
     openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   }), [
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
-    openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
-    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
+    openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
+    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
     openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,

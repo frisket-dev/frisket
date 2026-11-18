@@ -1220,12 +1220,12 @@ class TestRunAction:
         assert output["ref"]["source_id"] > 0
 
     def test_local_typed_source_check_returns_terminal_result(self, tmp_path) -> None:
-        from frisket.engine.store.sources import SourceStore
+        from frisket.engine.store.feeds import FeedStore
 
         root = tmp_path / "ws"
         root.mkdir()
         project = Project.create(root / "demo.frisket", name="demo")
-        source_id = SourceStore(project).add_source(
+        source_id = FeedStore(project).add_feed(
             name="Court feed",
             kind="courtlistener.custom",
             config={"query": {"court": "ca9"}},

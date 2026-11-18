@@ -177,7 +177,7 @@ from frisket.server.routes.sheet_features import (
 )
 from frisket.server.routes.sheet_grid import register_sheet_grid_routes
 from frisket.server.routes.spend import register_spend_routes
-from frisket.server.routes.sources import register_source_routes
+from frisket.server.routes.feeds import register_feed_routes
 from frisket.server.routes.views import register_view_routes
 from frisket.server.routes.alerts import register_alert_routes
 from frisket.server.routes.walkthroughs import register_walkthrough_routes
@@ -236,7 +236,7 @@ from frisket.server.services.projections import RuntimeProjectionService
 from frisket.server.services.sheet_export import SheetDatasetExportService
 from frisket.server.services.sheet_grid import SheetGridService
 from frisket.server.services.spend import SpendService
-from frisket.server.services.sources import SourceService
+from frisket.server.services.feeds import FeedService
 from frisket.server.services.views import ViewService
 from frisket.server.services.alerts import AlertService
 from frisket.server.services.work_log_exports import WorkLogExportService
@@ -1176,7 +1176,7 @@ def create_app(
     # digest emails. This is the CRUD + monitoring-state surface; a scheduler
     # polls each source on its cron and lands new rows through worker actions.
 
-    register_source_routes(app, service=SourceService(ws))
+    register_feed_routes(app, service=FeedService(ws))
 
     if model_pull_enabled is None:
         # The local composition always registers the pull handler; individual

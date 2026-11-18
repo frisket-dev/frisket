@@ -296,7 +296,7 @@
     },
     {
       "rule": "react-doctor/no-giant-component",
-      "file": "src/components/importWorkspace/FeedSourceForm.tsx"
+      "file": "src/components/importWorkspace/FeedImportForm.tsx"
     },
     {
       "rule": "react-doctor/no-giant-component",

@@ -7,7 +7,7 @@
 // feed-add-populate-prompt.spec.ts's sibling pattern. The shared
 // `finishImport` unifies the three previously-independent close-on-success
 // paths (confirmDraft here; the file-input/URL-submit upload callbacks are
-// covered by import-surfaces.spec.ts staying green — FeedSourceForm's own
+// covered by import-surfaces.spec.ts staying green — FeedImportForm's own
 // populate-prompt flow is untouched).
 
 import { expect, test, type Page } from '@playwright/test';

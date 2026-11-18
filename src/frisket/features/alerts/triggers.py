@@ -15,7 +15,7 @@ from frisket.features.alerts.service import (
 )
 
 
-class SourcePollMaterialization(TypedDict):
+class FeedPollMaterialization(TypedDict):
     kind: str
     project_id: str
     source_id: int
@@ -26,12 +26,12 @@ class SourcePollMaterialization(TypedDict):
     materialized_rows: int
 
 
-def source_poll_materialization_from_receipt(
+def feed_poll_materialization_from_receipt(
     project: Project,
     *,
     project_id: str,
     receipt_id: str,
-) -> SourcePollMaterialization | None:
+) -> FeedPollMaterialization | None:
     body = ReceiptStore(project).body_by_id(receipt_id)
     if body is None:
         return None
@@ -85,9 +85,9 @@ def source_poll_materialization_from_receipt(
 
 def trigger_source_materialized_alerts(
     project: Project,
-    materialization: SourcePollMaterialization,
+    materialization: FeedPollMaterialization,
     *,
-    enqueue_keyword_alerts: Callable[[list[Any], SourcePollMaterialization], None]
+    enqueue_keyword_alerts: Callable[[list[Any], FeedPollMaterialization], None]
     | None = None,
 ) -> list[dict[str, Any]]:
     if (
@@ -142,17 +142,17 @@ def trigger_source_materialized_alerts(
     return out
 
 
-def trigger_completed_source_poll_alerts(
+def trigger_completed_feed_poll_alerts(
     project: Project,
     *,
     project_id: str,
     receipt_id: str | None,
-    enqueue_keyword_alerts: Callable[[list[Any], SourcePollMaterialization], None]
+    enqueue_keyword_alerts: Callable[[list[Any], FeedPollMaterialization], None]
     | None = None,
 ) -> list[dict[str, Any]]:
     if not receipt_id:
         return []
-    materialization = source_poll_materialization_from_receipt(
+    materialization = feed_poll_materialization_from_receipt(
         project,
         project_id=project_id,
         receipt_id=receipt_id,
@@ -168,7 +168,7 @@ def trigger_completed_source_poll_alerts(
 
 def affected_enabled_alerts(
     project: Project,
-    materialization: SourcePollMaterialization,
+    materialization: FeedPollMaterialization,
 ) -> list[Any]:
     sheet_id = int(materialization["sheet_id"])
     out: list[Any] = []

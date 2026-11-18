@@ -70,8 +70,8 @@ src/frisket/engine/executor/pdf_packet_split_read.py::AdmittedPacketSplitReader 
 src/frisket/engine/executor/plugin_write_apply.py::apply_write_plan  test-only
 src/frisket/engine/executor/queue_policy.py::queue_policy_candidate_action_kinds  test-only
 src/frisket/engine/executor/queued_actions.py::QueuedV1ActionEntry.payload_keys  test-only
-src/frisket/engine/executor/source_poll_action.py::_json_object_len  unreferenced
-src/frisket/engine/executor/source_poll_action.py::_latest_source_run_after  unreferenced
+src/frisket/engine/executor/feed_poll_action.py::_json_object_len  unreferenced
+src/frisket/engine/executor/feed_poll_action.py::_latest_feed_check_after  unreferenced
 src/frisket/engine/executor/table_preview.py::preview_table  test-only
 src/frisket/engine/executor/temporal_finder_provenance.py::resolve_topic_analysis_receipt_ref  test-only
 src/frisket/engine/executor/temporal_materialization.py::child_sheet_action_outputs  unreferenced
@@ -185,8 +185,8 @@ src/frisket/server/services/sample_project.py::sample_articles_csv  unreferenced
 src/frisket/server/services/search_preparation.py::SearchPreparationService.batch_for_receipt  test-only
 src/frisket/server/services/search_preparation.py::SearchPreparationService.create_from_pdf_import  test-only
 src/frisket/server/services/search_preparation.py::SearchPreparationService.recover_pdf_import  frisket-cloud
-src/frisket/server/sources/runtime.py::registered_source_kinds  unreferenced
-src/frisket/server/sources/runtime.py::unregister_feed_checker  test-only
+src/frisket/server/feeds/runtime.py::registered_feed_kinds  unreferenced
+src/frisket/server/feeds/runtime.py::unregister_feed_checker  test-only
 src/frisket/table_import/conversion.py::convert_row  unreferenced
 src/frisket/table_import/reader.py::_RawRows  unreferenced
 src/frisket/team/bootstrap.py::init_identity_schema  frisket-cloud

@@ -15,7 +15,7 @@ from frisket.actions.core import (
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor import actions as executor_actions
 from frisket.engine.executor import mutation_action, operation_action
-from frisket.engine.executor import source_action, source_poll_action
+from frisket.engine.executor import feed_action, feed_poll_action
 from frisket.engine.executor import sheet_refresh_action
 from frisket.engine.executor import plugin_load_action
 from frisket.engine.executor import run_backfill_action
@@ -123,8 +123,8 @@ def test_every_project_action_has_exactly_one_host_owner() -> None:
     predicates = (
         mutation_action.supports_typed_mutation_action,
         operation_action.supports_typed_operation_action,
-        source_action.supports_typed_source_action,
-        source_poll_action.supports_typed_source_poll_action,
+        feed_action.supports_typed_feed_action,
+        feed_poll_action.supports_typed_feed_poll_action,
         sheet_refresh_action.supports_typed_sheet_refresh_action,
         lambda terminal: terminal.callable_host,
         exports.supports_typed_export_action,
@@ -170,8 +170,8 @@ def test_project_dispatch_rejects_invalid_owner_count(
     matches: str,
 ) -> None:
     monkeypatch.setattr(
-        source_action,
-        "supports_typed_source_action",
+        feed_action,
+        "supports_typed_feed_action",
         lambda _terminal: source_support,
     )
     monkeypatch.setattr(

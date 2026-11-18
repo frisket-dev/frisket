@@ -357,8 +357,8 @@ export function useWorkspaceModel({
   });
   const {
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
-    openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
-    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
+    openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
+    walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
     openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog,
@@ -544,7 +544,7 @@ export function useWorkspaceModel({
           const column = sheet?.columns.find((item) => item.id === columnId);
           if (column) openColumnPanel(column);
         },
-        openSource: (sourceId) => openSourceHealthMainView(Number(sourceId)),
+        openSource: (sourceId) => openFeedHealthMainView(Number(sourceId)),
         openActionRoute: (actionKind) => {
           if (actionKind) {
             runActionFromSurface(actionKind);
@@ -573,7 +573,7 @@ export function useWorkspaceModel({
           }
           if (contributionId === GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID) openGraphPanel();
         },
-        openSources: openSourcesFromCommandPalette,
+        openSources: openFeedsFromCommandPalette,
         openSettings: openSettingsFromCommandPalette,
       },
       scratch: {
@@ -617,8 +617,8 @@ export function useWorkspaceModel({
       openOcrCompareTab,
       openRowRef,
       openSettingsFromCommandPalette,
-      openSourceHealthMainView,
-      openSourcesFromCommandPalette,
+      openFeedHealthMainView,
+      openFeedsFromCommandPalette,
       openTranscribeCompareTab,
       openTranslateCompareTab,
       openTopicCompareTab,
@@ -694,7 +694,7 @@ export function useWorkspaceModel({
         await refreshReviewCount();
       },
       pollSource: async (sourceId) => {
-        openSourceHealthMainView(Number(sourceId));
+        openFeedHealthMainView(Number(sourceId));
       },
     },
     invalidation: {
@@ -736,7 +736,7 @@ export function useWorkspaceModel({
     dispatchCommand,
     citationViewerState?.linkId,
     openActionPanel,
-    openSourceHealthMainView,
+    openFeedHealthMainView,
     projectData,
     project,
     refreshReviewCount,
@@ -1303,7 +1303,7 @@ export function useWorkspaceModel({
     leftSidebarPluginPanelDescriptors,
     openCitationViewer: openCitationViewerForWorkspace,
     openRowRef,
-    openSourceHealthMainView,
+    openFeedHealthMainView,
     refreshHistory,
     invalidateProjectData: projectData.invalidate,
     setDiscoverOpen,

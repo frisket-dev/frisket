@@ -78,7 +78,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         embeddings,
         notifications_delivery,
         notifications_digest,
-        sources,
+        feeds,
         alerts,
     )
 
@@ -115,22 +115,22 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
     )
 
     monkeypatch.setattr(
-        sources,
+        feeds,
         "_enclosure_row_already_queued_or_downloaded",
         lambda *_args, **_kwargs: False,
     )
     monkeypatch.setattr(
-        sources,
+        feeds,
         "mark_enclosure_queued",
         lambda *_args, **_kwargs: None,
     )
-    assert sources.enqueue_enclosure_downloads(
+    assert feeds.enqueue_enclosure_downloads(
         queue,
         project=project,
         project_id=project_id,
         workspace_root=storage_root,
         storage_org_id=storage_org_id,
-        source={"config": {"download_enclosures": "queued"}},
+        feed={"config": {"download_enclosures": "queued"}},
         sheet_id=802,
         row_ids=[803],
     )
@@ -186,22 +186,22 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         == 1
     )
 
-    class FakeSourceStore:
+    class FakeFeedStore:
         def __init__(self, _project):
             pass
 
-        def sources(self):
+        def feeds(self):
             return [{"id": 806, "config": "{}"}]
 
-    monkeypatch.setattr(sources, "Project", FakeProject)
-    monkeypatch.setattr(sources, "SourceStore", FakeSourceStore)
-    monkeypatch.setattr(sources, "_source_due", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(feeds, "Project", FakeProject)
+    monkeypatch.setattr(feeds, "FeedStore", FakeFeedStore)
+    monkeypatch.setattr(feeds, "_feed_due", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(
-        sources,
-        "_source_stale_for_notification",
+        feeds,
+        "_feed_stale_for_notification",
         lambda *_args, **_kwargs: False,
     )
-    assert sources.enqueue_due_source_polls(
+    assert feeds.enqueue_due_feed_polls(
         workspace_root=storage_root,
         queue=queue,
         storage_org_id=storage_org_id,
@@ -263,8 +263,8 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
 
     assert {kind for kind, _payload in enqueued} >= {
         alerts.ALERT_EVALUATE_KIND,
-        sources.ENCLOSURE_DOWNLOAD_KIND,
-        sources.SOURCE_POLL_KIND,
+        feeds.ENCLOSURE_DOWNLOAD_KIND,
+        feeds.FEED_POLL_KIND,
         notifications_delivery.NOTIFICATION_DELIVER_KIND,
         notifications_digest.NOTIFICATION_DIGEST_KIND,
     }

@@ -57,7 +57,7 @@ export interface WorkspaceShellHandle {
   leftSidebarPluginPanelDescriptors: WorkspaceViewModel['leftSidebarPluginPanelDescriptors'];
   openCitationViewer: WorkspaceViewModel['openCitationViewer'];
   openRowRef: WorkspaceViewModel['openRowRef'];
-  openSourceHealthMainView: WorkspaceViewModel['openSourceHealthMainView'];
+  openFeedHealthMainView: WorkspaceViewModel['openFeedHealthMainView'];
   refreshHistory: WorkspaceViewModel['refreshHistory'];
   invalidateProjectData: WorkspaceViewModel['invalidateProjectData'];
 

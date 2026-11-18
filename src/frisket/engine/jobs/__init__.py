@@ -55,11 +55,11 @@ from .runs import (
     register_action_run_handler,
     register_project_run_handler,
 )
-from .sources import (
-    SOURCE_POLL_KIND,
+from .feeds import (
+    FEED_POLL_KIND,
     enqueue_enclosure_downloads,
-    enqueue_due_source_polls,
-    register_source_poll_handler,
+    enqueue_due_feed_polls,
+    register_feed_poll_handler,
 )
 from .notifications_delivery import (
     NOTIFICATION_DELIVER_KIND,
@@ -98,7 +98,7 @@ __all__ = [
     "ACTION_RUN_KIND",
     "QUEUE_DB_NAME",
     "RUN_PROJECT_KIND",
-    "SOURCE_POLL_KIND",
+    "FEED_POLL_KIND",
     "NOTIFICATION_DELIVER_KIND",
     "NOTIFICATION_DIGEST_KIND",
     "STATUSES",
@@ -136,7 +136,7 @@ __all__ = [
     "worker_heartbeats_table",
     "enqueue_enclosure_downloads",
     "enqueue_due_scheduled_refreshes",
-    "enqueue_due_source_polls",
+    "enqueue_due_feed_polls",
     "enqueue_source_append_refreshes",
     "find_scheduled_indexes",
     "find_on_source_append_indexes",
@@ -148,7 +148,7 @@ __all__ = [
     "ALERT_EVALUATE_KIND",
     "register_action_run_handler",
     "register_project_run_handler",
-    "register_source_poll_handler",
+    "register_feed_poll_handler",
     "enqueue_notification_delivery",
     "enqueue_notification_emit_result",
     "enqueue_due_notification_digests",

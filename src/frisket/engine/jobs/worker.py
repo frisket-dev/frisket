@@ -420,7 +420,7 @@ def register_production_handlers(
     from .notifications_delivery import register_notification_handlers
     from .notifications_digest import register_notification_digest_handlers
     from .runs import register_action_run_handler, register_project_run_handler
-    from .sources import register_source_poll_handler
+    from .feeds import register_feed_poll_handler
     from .alerts import register_alert_evaluate_handler
 
     # The deployment's price list, installed process-wide (see
@@ -557,7 +557,7 @@ def register_production_handlers(
         project_opener=project_opener,
         embedding_encoder=embedding_runtime,
     )
-    source_poll_registration = register_source_poll_handler(
+    feed_poll_registration = register_feed_poll_handler(
         registry,
         workspace_root=root,
         queue=queue,
@@ -620,7 +620,7 @@ def register_production_handlers(
             "project.run": project_run_registration,
             "action.run": action_run_registration,
             "watch.evaluate": alert_evaluate_registration,
-            "source.poll": source_poll_registration,
+            "source.poll": feed_poll_registration,
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,
             "search.index": search_index_registration,

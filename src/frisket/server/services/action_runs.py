@@ -58,14 +58,14 @@ from frisket.engine.store.receipts import (
     ReceiptStore,
     StoredReceipt,
 )
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.table_import_intake import (
     table_import_status,
     table_issue_groups,
 )
 from frisket.features.alerts.triggers import (
-    source_poll_materialization_from_receipt,
-    trigger_completed_source_poll_alerts,
+    feed_poll_materialization_from_receipt,
+    trigger_completed_feed_poll_alerts,
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_history import (
@@ -711,8 +711,8 @@ class ActionRunService:
         schedule_search = getattr(project, "_frisket_schedule_search_index", None)
         if callable(schedule_search):
             schedule_search()
-        self._enqueue_completed_v1_source_poll_enclosures(project, project_id, result)
-        self._trigger_completed_v1_source_poll_alerts(project, project_id, result)
+        self._enqueue_completed_v1_feed_poll_enclosures(project, project_id, result)
+        self._trigger_completed_v1_feed_poll_alerts(project, project_id, result)
         if self._workspace.require_explicit_provider_keys and any(
             error.details.get("resumable") is True for error in result.errors
         ):
@@ -1165,7 +1165,7 @@ class ActionRunService:
             "job_status": refreshed.status if refreshed is not None else "cancelled",
         }
 
-    def _enqueue_completed_v1_source_poll_enclosures(
+    def _enqueue_completed_v1_feed_poll_enclosures(
         self,
         project: Project,
         project_id: str,
@@ -1209,7 +1209,7 @@ class ActionRunService:
             sheet_id = int(enclosures.get("sheet_id") or source_run["sheet_id"])
         except (KeyError, TypeError, ValueError):
             return 0
-        source = SourceStore(project).get_source(source_id)
+        source = FeedStore(project).get_feed(source_id)
         if source is None:
             return 0
         source_data = dict(source)
@@ -1224,14 +1224,14 @@ class ActionRunService:
                 project_id=project_id,
                 workspace_root=self._workspace.root,
                 storage_org_id=self._workspace.queue_storage_organization_id,
-                source=source_data,
+                feed=source_data,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
                 prepare_for_search=self._workspace.edition != "cloud",
             )
         )
 
-    def _trigger_completed_v1_source_poll_alerts(
+    def _trigger_completed_v1_feed_poll_alerts(
         self,
         project: Project,
         project_id: str,
@@ -1239,7 +1239,7 @@ class ActionRunService:
     ) -> int:
         if result.status != "completed" or result.action.kind != "source.poll":
             return 0
-        materialization = source_poll_materialization_from_receipt(
+        materialization = feed_poll_materialization_from_receipt(
             project,
             project_id=project_id,
             receipt_id=result.receipt_id or "",
@@ -1264,7 +1264,7 @@ class ActionRunService:
         from frisket.engine.jobs.alerts import enqueue_keyword_alert_evaluations
 
         return len(
-            trigger_completed_source_poll_alerts(
+            trigger_completed_feed_poll_alerts(
                 project,
                 project_id=project_id,
                 receipt_id=result.receipt_id,

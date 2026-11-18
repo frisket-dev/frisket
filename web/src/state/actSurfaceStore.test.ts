@@ -90,13 +90,13 @@ describe('createActSurfaceStore', () => {
   });
 
   it('opens and closes the Sources & connections manager', () => {
-    const { store, openSourcesConnections, closeSourcesConnections } = createActSurfaceStore();
+    const { store, openFeedsConnections, closeSourcesConnections } = createActSurfaceStore();
 
-    expect(store.get().sourcesConnectionsOpen).toBe(false);
-    openSourcesConnections();
-    expect(store.get().sourcesConnectionsOpen).toBe(true);
+    expect(store.get().feedsConnectionsOpen).toBe(false);
+    openFeedsConnections();
+    expect(store.get().feedsConnectionsOpen).toBe(true);
     closeSourcesConnections();
-    expect(store.get().sourcesConnectionsOpen).toBe(false);
+    expect(store.get().feedsConnectionsOpen).toBe(false);
   });
 
   it('openAddColumnPromptAt (= the caret-menu simple entry) always sets position null', () => {

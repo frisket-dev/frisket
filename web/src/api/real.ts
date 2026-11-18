@@ -68,7 +68,7 @@ import { createLocalProvidersApi } from './localProviders';
 import { createOrganizationProvidersApi } from './organizationProviders';
 import { createOrganizationOperationsApi } from './organizationOperations';
 import { createProjectAttemptsApi } from './projectAttempts';
-import { createProjectSourcesApi } from './projectSources';
+import { createProjectFeedsApi } from './projectFeeds';
 import { createTeamLocalModelsApi } from './teamLocalModels';
 import { createViewsApi } from './viewsLenses';
 import { createAlertsApi } from './alerts';
@@ -353,7 +353,7 @@ export function createProjectApi(projectId: string) {
     createViewsApi(projectId),
     createColumnTypesApi(projectId),
     createProjectDataManagementApi(projectId),
-    createProjectSourcesApi({ v1ActionSession }, projectId),
+    createProjectFeedsApi({ v1ActionSession }, projectId),
     createSheetGridApi({
       columnRunInfo: (id, sheetId, column) => actionRuns.columnRunInfo(id, sheetId, column),
       v1ActionSession,

@@ -17,7 +17,7 @@ import { ConfirmDeleteRowsModal } from '../components/ConfirmDeleteRowsModal';
 import { GeneratedColumnCollisionModal } from '../components/GeneratedColumnCollisionModal';
 import { SupportContactNote } from '../components/SupportContactNote';
 import { remediateApiError } from '../errors/remediation';
-import { SourcesConnectionsDialog } from '../components/sources/SourcesConnectionsDialog';
+import { FeedsConnectionsDialog } from '../components/feeds/FeedsConnectionsDialog';
 import { CostGateWorkbenchViewFrame, CitationWorkbenchViewFrame, GeneratedColumnCollisionWorkbenchViewFrame, ProvenanceWorkbenchPanelFrame, ResolvedWorkbenchLayoutRegion, ReviewQueueWorkbenchViewFrame, RowDeleteConfirmWorkbenchViewFrame } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { PluginPeekHost } from '../workbench/PluginPeekHost';
@@ -40,7 +40,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   const projectionStatus = useSelector(overlayChrome.store, (s) => s.projectionStatus);
   const {
     invalidateProjectData,
-    openSourceHealthMainView,
+    openFeedHealthMainView,
     projectApi,
     refreshHistory,
     refreshSheets,
@@ -105,9 +105,9 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   if (citationViewerState?.host === 'modalOrPeek') visiblePanels.push('evidence');
   useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: visiblePanels });
   const actSurfaceHandle = useActSurfaceHandle();
-  const sourcesConnectionsOpen = useSelector(
+  const feedsConnectionsOpen = useSelector(
     actSurfaceHandle.store,
-    (state) => state.sourcesConnectionsOpen,
+    (state) => state.feedsConnectionsOpen,
   );
   const jobs = useJobsHandle();
   const run = useSelector(jobs.store, (state) => state.run);
@@ -187,9 +187,9 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           />
         )}
       </div>
-      <SourcesConnectionsDialog
-        open={sourcesConnectionsOpen}
-        sourceApi={projectApi}
+      <FeedsConnectionsDialog
+        open={feedsConnectionsOpen}
+        feedApi={projectApi}
         onClose={actSurfaceHandle.closeSourcesConnections}
         onOpenImportDialog={() => actSurfaceHandle.openImportDialog('feed')}
         onPolled={(sheetId) => {
@@ -199,11 +199,11 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           void refreshHistory();
           invalidateProjectData();
         }}
-        onOpenSourceHealthMainView={(sourceId) => {
+        onOpenFeedHealthMainView={(sourceId) => {
           actSurfaceHandle.closeSourcesConnections();
-          openSourceHealthMainView(sourceId);
+          openFeedHealthMainView(sourceId);
         }}
-        sourceDetailContributions={resolvedRegion('sourceDetail').contributions}
+        feedDetailContributions={resolvedRegion('sourceDetail').contributions}
         renderPluginDetailTab={renderPluginDetailTab}
       />
       {commandPaletteOpen && (

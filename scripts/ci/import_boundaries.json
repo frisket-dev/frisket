@@ -103,12 +103,12 @@
         "frisket.engine.executor.action_families.exports",
         "frisket.engine.executor.action_families.exports_column_tables",
         "frisket.engine.executor.collection_read",
-        "frisket.engine.executor.source_poll_action",
+        "frisket.engine.executor.feed_poll_action",
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",
         "frisket.engine.jobs.notifications_digest",
-        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.notifications_delivery",
         "frisket.engine.jobs.runs",
         "frisket.engine.store.credentials"
@@ -156,7 +156,7 @@
         "frisket.engine.executor.topic_sections_read",
         "frisket.engine.executor.collection_read",
         "frisket.engine.executor.action_families.imports",
-        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.alerts",
         "frisket.engine.store.media_download_candidates",
         "frisket.engine.store.alerts"

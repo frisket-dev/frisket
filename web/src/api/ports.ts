@@ -71,13 +71,13 @@ export type EmbeddingApiPort = Pick<
   getActionJob?: ProjectApi['getActionJob'];
 };
 
-export type SourceApiPort = Pick<
+export type FeedApiPort = Pick<
   ProjectApi,
-  | 'listSources'
-  | 'getSource'
-  | 'getSourceHealth'
-  | 'createSource'
-  | 'updateSource'
-  | 'deleteSource'
-  | 'fetchSource'
+  | 'listFeeds'
+  | 'getFeed'
+  | 'getFeedHealth'
+  | 'createFeed'
+  | 'updateFeed'
+  | 'deleteFeed'
+  | 'fetchFeed'
 >;

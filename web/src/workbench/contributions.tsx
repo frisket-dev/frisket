@@ -9,7 +9,7 @@ import { HistoryPanel, type HistoryPanelProps } from '../components/HistoryPanel
 import { MentionsPanel, type MentionsPanelProps } from '../components/MentionsPanel';
 import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { NotificationsPanel } from '../components/NotificationsPanel';
-import { SourcesPanel, type SourcesPanelProps } from '../components/SourcesPanel';
+import { FeedsPanel, type FeedsPanelProps } from '../components/FeedsPanel';
 import { AlertsPanel } from '../components/AlertsPanel';
 import { ViewsPanel, type ViewsPanelProps } from '../workspace/ViewsPanel';
 import {
@@ -38,11 +38,11 @@ import {
   ROW_DELETE_CONFIRM_VIEW_DESCRIPTOR,
   ROW_INSPECTOR_CITATIONS_SECTION_DESCRIPTOR,
   VIEWS_DESCRIPTOR,
-  SOURCES_DESCRIPTOR,
-  SOURCE_HEALTH_VIEW_DESCRIPTOR,
-  SOURCE_KIND_FORM_DESCRIPTORS,
-  SOURCE_RUNS_VIEW_DESCRIPTOR,
-  SOURCE_SUMMARY_VIEW_DESCRIPTOR,
+  FEEDS_DESCRIPTOR,
+  FEED_HEALTH_VIEW_DESCRIPTOR,
+  FEED_KIND_FORM_DESCRIPTORS,
+  FEED_CHECKS_VIEW_DESCRIPTOR,
+  FEED_SUMMARY_VIEW_DESCRIPTOR,
   ALERTS_DESCRIPTOR,
   actionFormDescriptor,
   normalizePlacement,
@@ -138,7 +138,7 @@ interface EmbeddingsWorkbenchPanelProps extends EmbeddingsPanelProps {
   host?: WorkbenchRegionId;
 }
 
-interface SourcesWorkbenchPanelProps extends SourcesPanelProps {
+interface FeedsWorkbenchPanelProps extends FeedsPanelProps {
   host?: WorkbenchRegionId;
 }
 
@@ -525,10 +525,10 @@ export function EntityDetailConnectionsTabFrame({ children }: { children: ReactN
   );
 }
 
-function SourceDetailSummaryTabFrame({ children }: { children: ReactNode }) {
+function FeedDetailSummaryTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={SOURCE_SUMMARY_VIEW_DESCRIPTOR}
+      descriptor={FEED_SUMMARY_VIEW_DESCRIPTOR}
       host="sourceDetail"
       className="source-detail-contribution-tab"
     >
@@ -537,10 +537,10 @@ function SourceDetailSummaryTabFrame({ children }: { children: ReactNode }) {
   );
 }
 
-function SourceDetailHealthTabFrame({ children }: { children: ReactNode }) {
+function FeedDetailHealthTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={SOURCE_HEALTH_VIEW_DESCRIPTOR}
+      descriptor={FEED_HEALTH_VIEW_DESCRIPTOR}
       host="sourceDetail"
       className="source-detail-contribution-tab"
     >
@@ -549,10 +549,10 @@ function SourceDetailHealthTabFrame({ children }: { children: ReactNode }) {
   );
 }
 
-export function SourceHealthMainViewFrame({ children }: { children: ReactNode }) {
+export function FeedHealthMainViewFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={SOURCE_HEALTH_VIEW_DESCRIPTOR}
+      descriptor={FEED_HEALTH_VIEW_DESCRIPTOR}
       host="mainView"
     >
       {children}
@@ -560,10 +560,10 @@ export function SourceHealthMainViewFrame({ children }: { children: ReactNode })
   );
 }
 
-function SourceDetailRunsTabFrame({ children }: { children: ReactNode }) {
+function FeedDetailChecksTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={SOURCE_RUNS_VIEW_DESCRIPTOR}
+      descriptor={FEED_CHECKS_VIEW_DESCRIPTOR}
       host="sourceDetail"
       className="source-detail-contribution-tab"
     >
@@ -577,14 +577,14 @@ function SourceDetailRunsTabFrame({ children }: { children: ReactNode }) {
 // per-launch form is wrapped by ActionWorkbenchFormFrame (below), not a
 // resident rightInspector frame.
 
-function SourceKindWorkbenchFormFrame({
+function FeedKindWorkbenchFormFrame({
   sourceKind,
   children,
 }: {
   sourceKind: string;
   children: ReactNode;
 }) {
-  const descriptor = SOURCE_KIND_FORM_DESCRIPTORS[sourceKind];
+  const descriptor = FEED_KIND_FORM_DESCRIPTORS[sourceKind];
   if (!descriptor) return <>{children}</>;
   return (
     <WorkbenchContributionFrame
@@ -783,16 +783,16 @@ export function EmbeddingsWorkbenchPanel({
   );
 }
 
-export function SourcesWorkbenchPanel({
+export function FeedsWorkbenchPanel({
   host = 'leftSidebar',
-  sourceApi,
+  feedApi,
   onPolled,
-  onOpenSourceHealthMainView,
+  onOpenFeedHealthMainView,
   onOpenImportDialog,
-  sourceDetailContributions,
+  feedDetailContributions,
   renderPluginDetailTab,
-}: SourcesWorkbenchPanelProps) {
-  const descriptor = SOURCES_DESCRIPTOR;
+}: FeedsWorkbenchPanelProps) {
+  const descriptor = FEEDS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
   // The panel's Add affordance reuses the EXISTING Import workspace dialog
   // (its "Feed" mode owns source creation) via the shared actSurface store --
@@ -808,18 +808,18 @@ export function SourcesWorkbenchPanel({
 
   return (
     <WorkbenchContributionFrame descriptor={descriptor} host={placement.host} className="">
-      <SourcesPanel
-        sourceApi={sourceApi}
+      <FeedsPanel
+        feedApi={feedApi}
         onPolled={onPolled}
-        onOpenSourceHealthMainView={onOpenSourceHealthMainView}
+        onOpenFeedHealthMainView={onOpenFeedHealthMainView}
         onOpenImportDialog={onOpenImportDialog ?? openImportDialogOnFeed}
-        sourceKindFormFrame={SourceKindWorkbenchFormFrame}
-        sourceDetailFrames={{
-          Summary: SourceDetailSummaryTabFrame,
-          Health: SourceDetailHealthTabFrame,
-          Runs: SourceDetailRunsTabFrame,
+        feedKindFormFrame={FeedKindWorkbenchFormFrame}
+        feedDetailFrames={{
+          Summary: FeedDetailSummaryTabFrame,
+          Health: FeedDetailHealthTabFrame,
+          Runs: FeedDetailChecksTabFrame,
         }}
-        sourceDetailContributions={sourceDetailContributions}
+        feedDetailContributions={feedDetailContributions}
         renderPluginDetailTab={renderPluginDetailTab}
       />
     </WorkbenchContributionFrame>

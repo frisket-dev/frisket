@@ -47,7 +47,7 @@ import {
   nerImportOffer,
   type NerImportOffer,
 } from '../nerImportPromptModel';
-import { FeedSourceForm } from './FeedSourceForm';
+import { FeedImportForm } from './FeedImportForm';
 import { BulkImportPlanPanel } from './BulkImportPlanPanel';
 import { MediaDownloadPrompt, NerExtractPrompt } from './ImportFollowupPrompts';
 import { ACCEPTS, FTM_ACCEPT, prepareFileSelection, logicalPathForImport, selectionExpandsArchives, bulkPlanValidationError, importSessionIsComplete, importSessionNeedsPreparationPlan, useImportUpload, type PreparedFileSelection, type FileImportCompletion, type SingleFileFormat } from './fileIntake';
@@ -150,7 +150,7 @@ function OpenImportWorkspaceSession({
   const railMode: ImportMode = mode === 'xlsx' ? 'csv' : mode === 'urls' ? 'files' : mode;
 
   // Sibling to
-  // FeedSourceForm's own `populate` state — local, not a store slot,
+  // FeedImportForm's own `populate` state — local, not a store slot,
   // for the same reason (no unmounted-target race: this prompt and its
   // onImported/onLaunchDownload targets live in the same always-mounted
   // component tree for the dialog's lifetime).
@@ -291,7 +291,7 @@ function OpenImportWorkspaceSession({
   // The ONE shared success
   // handler replacing the three independent close-on-success calls
   // (confirmDraft; the file-input onChange and URL-submit upload callbacks
-  // below — FeedSourceForm's own create()/populate flow is untouched, it
+  // below — FeedImportForm's own create()/populate flow is untouched, it
   // already holds the dialog open for its own "Populate feed?" prompt).
   // 1) reports the import up FIRST, unconditionally — every existing
   //    onImported consumer (the global sheets refresh) keeps working with
@@ -1055,7 +1055,7 @@ function OpenImportWorkspaceSession({
                   />
                 </>
               ) : mode === 'feed' ? (
-                <FeedSourceForm onCreated={onClose} onImported={onImported} onError={onError} onCancel={closeWorkspaceFromUser} />
+                <FeedImportForm onCreated={onClose} onImported={onImported} onError={onError} onCancel={closeWorkspaceFromUser} />
               ) : (
                 <>
                   <ImportDropArea title={mode === 'pdf_split' ? 'Drop PDFs here' : 'Drop files here'}

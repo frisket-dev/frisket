@@ -7,7 +7,7 @@ architecturally distinct open paths in that same process:
 
 * an HTTP route open (``Workspace.get`` via a real request),
 * a worker job handler open (a claimed ``source.poll`` job), and
-* a background scheduler-scan open (``enqueue_due_source_polls``).
+* a background scheduler-scan open (``enqueue_due_feed_polls``).
 
 Every ``frisket.store.Project`` construction across the modules that open
 projects is booby-trapped to fail the test loudly. The proof is mechanical:
@@ -39,7 +39,7 @@ _OPEN_SITE_MODULES = (
     "frisket.server.workspace",
     "frisket.engine.jobs.runs",
     "frisket.engine.jobs.enclosures",
-    "frisket.engine.jobs.sources",
+    "frisket.engine.jobs.feeds",
     "frisket.engine.jobs.embeddings",
     "frisket.engine.jobs.alerts",
     "frisket.engine.jobs.notifications_delivery",
@@ -139,12 +139,12 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         assert calls, "worker job open did not go through the opener"
         assert all(call == (key, bundle) for call in calls)
 
-        # (3) BACKGROUND SCHEDULER-SCAN OPEN — enqueue_due_source_polls, keyed
+        # (3) BACKGROUND SCHEDULER-SCAN OPEN — enqueue_due_feed_polls, keyed
         # by the root's declared storage organization, never the directory name.
-        from frisket.engine.jobs import enqueue_due_source_polls
+        from frisket.engine.jobs import enqueue_due_feed_polls
 
         calls.clear()
-        enqueue_due_source_polls(
+        enqueue_due_feed_polls(
             workspace_root=root,
             queue=queue,
             storage_org_id=_STORAGE_ORGANIZATION_ID,

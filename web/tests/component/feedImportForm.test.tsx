@@ -1,0 +1,130 @@
+// @vitest-environment jsdom
+import '@testing-library/jest-dom/vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FeedImportForm } from '../../src/components/importWorkspace/FeedImportForm';
+
+const api = vi.hoisted(() => ({ createFeed: vi.fn(), fetchFeed: vi.fn() }));
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock('../../src/bind/useWorkspaceStores', () => ({
+  useWorkspaceStores: () => ({ projectApi: api, job: { refresh }, chromePreferences: { projectId: 'feed-test' } }),
+}));
+vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
+  ...await original<typeof import('../../src/telemetry/productTelemetry')>(),
+  sendProductTelemetry: vi.fn(),
+}));
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  api.createFeed.mockResolvedValue({ id: 7, name: 'My feed' });
+  api.fetchFeed.mockResolvedValue({ sheetId: 42 });
+});
+afterEach(cleanup);
+
+function setup() {
+  const props = { onCreated: vi.fn(), onImported: vi.fn(), onError: vi.fn(), onCancel: vi.fn() };
+  render(<FeedImportForm {...props} />);
+  return props;
+}
+
+describe('feed setup independent of the import workspace', () => {
+  it.each([
+    ['rss', 'https://example.test/feed.xml', { merge_strategy: 'append-new' }],
+    ['youtube_playlist', 'https://www.youtube.com/playlist?list=PL123', { playlist_url: 'https://www.youtube.com/playlist?list=PL123' }],
+    ['youtube_channel', '@frisket', { channel_url: '@frisket' }],
+    ['tiktok_profile', 'https://www.tiktok.com/@frisket', { profile_url: 'https://www.tiktok.com/@frisket' }],
+    ['api_list_dicts', 'https://example.test/api/items', { method: 'GET', list_path: '/', schema_policy: 'additive' }],
+    ['courtlistener_docket', '123', { docket_id: 123, include_parties: true, include_documents: true }],
+  ])('creates %s without automatically polling it', async (kind, url, config) => {
+    const props = setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: url } });
+    expect(screen.getByTestId('source-kind')).toHaveValue(kind);
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
+      kind, schedule: null, enabled: true, config: expect.objectContaining(config),
+    }));
+    expect(api.fetchFeed).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('feed-populate-dismiss'));
+    expect(props.onCreated).toHaveBeenCalledOnce();
+    expect(props.onImported).not.toHaveBeenCalled();
+  });
+
+  it('supports TikTok handles, limits and the existing populate flow', async () => {
+    const props = setup();
+    fireEvent.change(screen.getByTestId('source-kind'), { target: { value: 'tiktok_profile' } });
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '@example' } });
+    fireEvent.change(screen.getByTestId('source-tiktok-max-items'), { target: { value: '25' } });
+    expect(screen.queryByTestId('source-youtube-max-pages')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'tiktok_profile', config: { profile_url: '@example', max_items_per_poll: 25 },
+    }));
+    fireEvent.click(screen.getByTestId('feed-populate-run'));
+    await waitFor(() => expect(props.onImported).toHaveBeenCalledWith(42));
+  });
+
+  it('keeps an explicit type selection and validates API inputs before submission', () => {
+    setup();
+    fireEvent.change(screen.getByTestId('source-kind'), { target: { value: 'api_list_dicts' } });
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'http://example.test/feed.xml' } });
+    expect(screen.getByTestId('source-kind')).toHaveValue('api_list_dicts');
+    expect(screen.getByRole('alert')).toHaveTextContent('HTTPS');
+    expect(screen.getByTestId('source-create')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
+    fireEvent.change(screen.getByTestId('source-api-list-path'), { target: { value: 'items' } });
+    expect(screen.getByRole('alert')).toHaveTextContent('must start with /');
+    expect(api.createFeed).not.toHaveBeenCalled();
+  });
+
+  it('offers retry after a failed populate, then opens the returned sheet', async () => {
+    const props = setup();
+    api.fetchFeed.mockRejectedValueOnce(new Error('temporary failure'));
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    fireEvent.click(screen.getByTestId('feed-populate-run'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('temporary failure');
+    expect(props.onCreated).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('feed-populate-run'));
+    await waitFor(() => expect(props.onImported).toHaveBeenCalledWith(42));
+    expect(api.fetchFeed).toHaveBeenLastCalledWith(7);
+    expect(props.onCreated).toHaveBeenCalledOnce();
+  });
+
+  it('keeps numeric-docket limits in the shared fields and serializer', async () => {
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '7' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    await screen.findByTestId('feed-populate-prompt');
+    expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
+      url: null, name: 'CourtListener docket: 123', schedule: null,
+      config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 7 }),
+    }));
+  });
+
+  it('rejects invalid numeric-docket limits instead of silently dropping them', async () => {
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '-2' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Max entries must be a positive whole number');
+    expect(api.createFeed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['source-url', 'https://example.test/api/next'],
+    ['source-kind', 'rss'],
+    ['source-api-list-path', '/next'],
+  ])('clears an earlier create error when correcting %s', async (field, value) => {
+    api.createFeed.mockRejectedValueOnce(new Error('Create failed'));
+    setup();
+    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api/items' } });
+    fireEvent.click(screen.getByTestId('source-create'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Create failed');
+    fireEvent.change(screen.getByTestId(field), { target: { value } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
