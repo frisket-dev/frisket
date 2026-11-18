@@ -388,14 +388,14 @@ def test_missing_url_records_failed_source_run_before_raising(project):
     """A malformed rss source is still a failed poll, not a lost exception."""
     src = _add_rss_source(project, url=None)
 
-    with pytest.raises(ingest.IngestError, match="RSS feed has no url"):
+    with pytest.raises(ingest.IngestError, match="rss source has no url"):
         ingest.ingest_rss(project, src, fetch=lambda u: _feed([]))
 
     runs = [dict(r) for r in FeedStore(project).feed_checks_page(src["id"])]
     assert len(runs) == 1
     assert runs[0]["status"] == "error"
     assert runs[0]["new_rows"] == 0
-    assert runs[0]["error"] == "RSS feed has no url"
+    assert runs[0]["error"] == "rss source has no url"
     row = FeedStore(project).get_feed(src["id"])
     assert row["last_status"] == "error"
     assert row["new_rows_total"] == 0

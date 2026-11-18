@@ -157,6 +157,9 @@
  "feed-add-populate-prompt.spec.ts": {
   "Run launches exactly the manual poll (source.poll on the new feed)": "stale-expectation"
  },
+ "feeds.spec.ts": {
+  "an RSS feed can be added, polled, edited, and deleted from the UI": "stale-expectation"
+ },
  "golden-ntsb.spec.ts": {
   "NTSB reports: PDFs → markdown → structured lat/lon extraction vs answer key": "stale-expectation"
  },
@@ -468,9 +471,6 @@
  "settings-workspace-ai-providers.spec.ts": {
   "ask model selector opens an authoritative dialog without an inline configuration pane": "stale-expectation",
   "workspace AI-providers settings page renders keys + ollama URL editor": "stale-expectation"
- },
- "feeds.spec.ts": {
-  "an RSS feed can be added, polled, edited, and deleted from the UI": "stale-expectation"
  },
  "substrate-render-counts.spec.ts": {
   "render-counts: open sheet -> apply filter -> open drawer -> toggle theme stays <= baseline per region": "stale-expectation"
