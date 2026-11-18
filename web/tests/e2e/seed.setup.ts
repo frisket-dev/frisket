@@ -1,8 +1,10 @@
 // Idempotent seeding: the read-only specs (search, review, ...) expect the
-// demo projects from scripts/e2e/seed_demo.py. Seeding makes real model calls
-// (~$0.25), so it runs ONCE into the persistent e2e workspace and is skipped
-// whenever the projects already exist. Either way the setup then opens each
-// seeded project and records which ones are unusable (absent, or created by an
+// demo projects from scripts/e2e/seed_demo.py. The seeder builds only the
+// projects the workspace lacks and publishes them to the persistent e2e
+// workspace. With FRISKET_CACHE_MODE=replay_strict it builds only the keyless
+// ones ("Local stories" from fixture replies, "People mentioned"); otherwise it
+// makes real model calls (~$0.25). Either way the setup then opens each seeded
+// project and records which ones are unusable (absent, or created by an
 // incompatible build), so the specs that need them fail at once with that
 // reason while every other spec still runs.
 import { execFileSync } from 'node:child_process';
@@ -14,7 +16,8 @@ import { testPython } from '../support/testPython';
 import { SEED_REMEDY, SEEDED_PROJECTS, type SeedStatus, writeSeedStatus } from './seedProjects';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const SEED_MARKER_PROJECT = 'People mentioned';
+const KEYLESS_ABSENT =
+  'absent: only a paid seed run builds it, and FRISKET_CACHE_MODE=replay_strict builds only the keyless projects';
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -22,19 +25,20 @@ function sleep(ms: number) {
   });
 }
 
-function workspaceHasSeed(workspace: string): boolean {
-  if (!fs.existsSync(workspace)) return false;
-  for (const entry of fs.readdirSync(workspace, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.endsWith('.frisket')) continue;
-    const manifestPath = path.join(workspace, entry.name, 'manifest.json');
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as { name?: string };
-      if (manifest.name === SEED_MARKER_PROJECT) return true;
-    } catch {
-      // Ignore partial project bundles; the seeder will repair an incomplete base.
-    }
+function isSeededProjectDir(dir: string): boolean {
+  if (!dir.endsWith('.frisket')) return false;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
+      name?: string;
+    };
+    return (SEEDED_PROJECTS as readonly string[]).includes(manifest.name ?? '');
+  } catch {
+    return false;
   }
-  return false;
+}
+
+function isRunLocalFile(name: string): boolean {
+  return name.startsWith('.queue.db') || name === '.seed-publish.lock' || name.startsWith('.frisket-e2e-');
 }
 
 async function acquireSeedPublishLock(lockPath: string): Promise<() => void> {
@@ -62,6 +66,8 @@ async function acquireSeedPublishLock(lockPath: string): Promise<() => void> {
   throw new Error(`Timed out waiting for e2e seed publish lock: ${lockPath}`);
 }
 
+// Copy the seeded projects (and workspace files) the base workspace lacks, so
+// the next isolated run starts from them. Existing base entries are kept.
 async function publishSeedToBaseWorkspace() {
   const workspace = process.env.FRISKET_E2E_WS;
   const baseWorkspace = process.env.FRISKET_E2E_BASE_WS;
@@ -70,15 +76,13 @@ async function publishSeedToBaseWorkspace() {
   fs.mkdirSync(baseWorkspace, { recursive: true });
   const release = await acquireSeedPublishLock(path.join(baseWorkspace, '.seed-publish.lock'));
   try {
-    if (workspaceHasSeed(baseWorkspace)) return;
-    fs.cpSync(workspace, baseWorkspace, {
-      recursive: true,
-      force: true,
-      filter: (src) => {
-        const basename = path.basename(src);
-        return !basename.startsWith('.queue.db') && basename !== '.seed-publish.lock';
-      },
-    });
+    for (const entry of fs.readdirSync(workspace, { withFileTypes: true })) {
+      const source = path.join(workspace, entry.name);
+      const target = path.join(baseWorkspace, entry.name);
+      if (fs.existsSync(target) || isRunLocalFile(entry.name)) continue;
+      if (entry.isDirectory() && !isSeededProjectDir(source)) continue;
+      fs.cpSync(source, target, { recursive: true });
+    }
   } finally {
     release();
   }
@@ -94,14 +98,17 @@ async function projectIds(request: APIRequestContext): Promise<Map<string, strin
   return ids;
 }
 
-// Runs the paid seeder; returns why the projects are missing when it cannot.
+// Runs the seeder for the projects the workspace lacks; returns why they are
+// still missing when it cannot build them.
 async function seed(): Promise<string | null> {
-  if (process.env.FRISKET_CACHE_MODE === 'replay_strict') {
-    return 'absent, and seeding makes live model calls, which FRISKET_CACHE_MODE=replay_strict forbids';
-  }
   const backendURL = process.env.FRISKET_E2E_BACKEND_URL ?? 'http://127.0.0.1:8000';
+  const keyless = process.env.FRISKET_CACHE_MODE === 'replay_strict';
+  const workspace = process.env.FRISKET_E2E_WS;
+  if (keyless && !workspace) return 'absent, and keyless seeding needs FRISKET_E2E_WS';
+  const args = ['scripts/e2e/seed_demo.py', backendURL];
+  if (keyless && workspace) args.push('--keyless', workspace);
   try {
-    execFileSync(testPython(), ['scripts/e2e/seed_demo.py', backendURL], {
+    execFileSync(testPython(), args, {
       cwd: path.resolve(here, '../../..'),
       stdio: 'inherit',
       timeout: 600_000,
@@ -110,7 +117,7 @@ async function seed(): Promise<string | null> {
     return `seeding failed (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`;
   }
   await publishSeedToBaseWorkspace();
-  return null;
+  return keyless ? KEYLESS_ABSENT : null;
 }
 
 async function openFailure(
@@ -130,9 +137,7 @@ setup('seed demo projects (once per workspace)', async ({ request }) => {
   setup.setTimeout(600_000); // first-ever seed: model runs + local transcription
   let ids = await projectIds(request);
   let whyAbsent: string | null = null;
-  // pin the LAST project the seeder creates, so a partially-failed seed
-  // retries instead of being mistaken for done
-  if (!ids.has(SEED_MARKER_PROJECT)) {
+  if (SEEDED_PROJECTS.some((name) => !ids.has(name))) {
     whyAbsent = await seed();
     ids = await projectIds(request);
   }

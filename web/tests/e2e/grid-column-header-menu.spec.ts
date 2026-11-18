@@ -1,14 +1,15 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { expect, test } from '@playwright/test';
 import {
   clickHeaderMenu,
   createProject,
+  gridReadSelection,
   importCsv,
   openProject,
   sheetColumns,
   uniqueName,
 } from './helpers';
-
-const descSort = [{ column: 'city', dir: 'desc' }];
 
 // The column ▾ caret menu (workbench-ia-action-drawer-v1): Sort asc/desc ·
 // Filter… (opens increment 6's inline filter row) · Actions on this column
@@ -34,12 +35,13 @@ test('grid column header caret menu sorts, filters via the inline row, lists col
   await expect(menu).toBeVisible();
   await expect(menu).toContainText('city');
 
+  const cityId = columns.find((column) => column.name === 'city')!.id;
   const descResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    const rawSort = url.searchParams.get('sort');
-    return rawSort !== null && JSON.stringify(JSON.parse(rawSort)) === JSON.stringify(descSort);
+    return isDeepStrictEqual(
+      gridReadSelection(new URL(res.url()), pid, sheetId)?.order,
+      [{ column_id: cityId, dir: 'desc' }],
+    );
   });
   await page.getByTestId('header-menu-sort-desc').click();
   const sorted = await (await descResponse).json();
@@ -67,9 +69,8 @@ test('grid column header caret menu sorts, filters via the inline row, lists col
   await expect(page.getByTestId('inline-filter-column')).toHaveValue('status');
   const filterResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    return url.searchParams.has('filter');
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return (selection?.filters.length ?? 0) > 0;
   });
   await page.getByTestId('inline-filter-input').fill('open');
   const filtered = await (await filterResponse).json();

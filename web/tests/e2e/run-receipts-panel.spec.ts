@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { createProject, openProject, runAndWait, sheetColumns, textPdf, uniqueName } from './helpers';
+import {
+  createProject,
+  openProject,
+  runAndWait,
+  sheetColumns,
+  textPdf,
+  typedActionRequest,
+  uniqueName,
+} from './helpers';
 import { ensureShotsDir, makeShoot, shotsDir } from './screenshotHelpers';
 
 // The settlement receipt's UI seat, driven against a LIVE backend.
@@ -46,18 +54,11 @@ test('a free local OCR run shows an honest no-charges receipt panel', async ({ p
   const columns = await sheetColumns(page.request, pid, sheetId);
   const mediaColumn = columns.find((column) => ['file', 'image'].includes(column.type))!;
 
-  const runId = await runAndWait(page.request, pid, {
-    schema_version: 'frisket.action.v2',
-    kind: 'media.ocr',
-    capabilities: ['project:write', 'model:complete'],
-    params: {
-      sheet_id: sheetId,
-      input_columns: [mediaColumn.name],
-      engine: 'rapidocr',
-      output_name: 'ocr_text',
-      confirmed: true,
-    },
-  });
+  const runId = await runAndWait(page.request, pid, typedActionRequest('media.ocr', {
+    sheetId,
+    params: { source: mediaColumn.name, engine: 'rapidocr' },
+    outputNames: { text: 'ocr_text' },
+  }));
 
   // The reader itself: the run's attempt receipt exists and settled to an
   // absence rather than a charge.

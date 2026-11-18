@@ -138,7 +138,7 @@ test('OCR and transcribe bind a typed media source column without LLM prompt/sch
   await expect.poll(() => optionLabels(page)).toEqual(['media (image)']);
   await expect(page.getByTestId('action-prompt')).toHaveCount(0);
   await expect(page.getByTestId('output-fields-label')).toHaveCount(0);
-  await page.getByTestId('run-button').click();
+  await page.getByTestId('generated-action-run').click();
   await expect.poll(() => posts.length).toBe(1);
   expect(posts[0].endpoint).toBe('v1');
   expect(posts[0].body.kind).toBe('media.ocr');

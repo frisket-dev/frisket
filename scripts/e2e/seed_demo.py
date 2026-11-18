@@ -2,21 +2,33 @@
 
 Usage:
     uv run python scripts/e2e/seed_demo.py http://localhost:8000 [session_cookie]
+    uv run python scripts/e2e/seed_demo.py http://localhost:8000 --keyless <workspace>
 
-Creates:
-  1. "Local stories" — classify demo (beats + justification), run live
-  2. "Tariff impacts" — countries; web_search → summarize → score chain
-  3. "Council audio" — packaged CC0 council excerpt → transcribe → summarize
+Creates each of these that the server does not already hold:
+  1. "Local stories" — classify demo (beats + justification)
+  2. "Council audio" — packaged CC0 council excerpt → transcribe → summarize
+  3. "Tariff impacts" — countries; web_search → summarize → score chain
+  4. "People mentioned" — fixture rows → derived People sheet, model-free
 Runs are REAL model calls (the server's keys); total cost well under $0.25.
+
+``--keyless`` builds only the projects that need no provider: "People
+mentioned", and "Local stories" with its classify replies taken from
+STORIES_REPLIES, stored in the project's response cache under the keys the
+run will look up (prime_replies.py) and replayed with the model routed to the
+project's own key, so the run succeeds under FRISKET_CACHE_MODE=replay_strict
+with no key at all. <workspace> is the server's workspace directory.
 """
 
 from __future__ import annotations
 
+import argparse
 import io
 import hashlib
 import json
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 import httpx
 
@@ -41,6 +53,106 @@ COUNCIL_AUDIO_PROJECT_NAME = "Council audio"
 COUNCIL_AUDIO_SAMPLE = SAMPLE_COUNCIL_AUDIO[0]
 
 MODEL = "gemini/gemini-3.5-flash-lite"
+
+STORIES_CLASSIFY = {
+    "model": MODEL,
+    "engine": "llm",
+    "source": ["snippet"],
+    "context": "Each row is a one-sentence local news story summary.",
+    "fields": [
+        {
+            "name": "beat",
+            "type": "category",
+            "labels": [
+                "corruption",
+                "transit",
+                "public_health",
+                "education",
+                "other",
+            ],
+            "description": "Which news beat does this story belong to?",
+        },
+        {
+            "name": "newsworthiness",
+            "type": "score",
+            "description": "0 = routine, 10 = drop-everything story",
+        },
+    ],
+    "include_justification": True,
+    "include_confidence": True,
+}
+
+
+def _story_reply(beat: str, why: str, score: int, weight: str, confidence: float):
+    return {
+        "beat": beat,
+        "beat_justification": why,
+        "newsworthiness": score,
+        "newsworthiness_justification": weight,
+        "beat_confidence": confidence,
+    }
+
+
+# Fixture answers for the keyless "Local stories", one per STORIES_CSV row in
+# order; they stand in for a model's classification and measure nothing.
+STORIES_REPLIES = [
+    _story_reply(
+        "corruption",
+        "A no-bid contract went to a relative of the mayor.",
+        9,
+        "Self-dealing by an elected official.",
+        0.95,
+    ),
+    _story_reply(
+        "transit",
+        "Ridership figures for the new light rail line.",
+        4,
+        "Good news, but routine.",
+        0.9,
+    ),
+    _story_reply(
+        "public_health",
+        "A delayed recall of contaminated food.",
+        8,
+        "An ongoing risk to the public.",
+        0.9,
+    ),
+    _story_reply(
+        "education",
+        "A school board vote on the math curriculum.",
+        4,
+        "A scheduled decision.",
+        0.85,
+    ),
+    _story_reply(
+        "corruption",
+        "The police chief suppressed public use-of-force records.",
+        10,
+        "Concealment of official misconduct.",
+        0.9,
+    ),
+    _story_reply(
+        "transit",
+        "Bus punctuality fell after schedule cuts.",
+        6,
+        "A measurable service decline.",
+        0.9,
+    ),
+    _story_reply(
+        "corruption",
+        "Auditors found untracked overtime spending.",
+        7,
+        "Unaccounted public money.",
+        0.8,
+    ),
+    _story_reply(
+        "public_health",
+        "Pharmacy closures leave a district without access.",
+        6,
+        "A gap in local health services.",
+        0.75,
+    ),
+]
 
 
 def action_key(kind: str, params: dict, row_scope: dict | None = None) -> str:
@@ -163,48 +275,37 @@ def run(client: httpx.Client, pid: str, spec: dict, label: str) -> int | None:
     return run_id
 
 
-def seed_stories(client: httpx.Client) -> None:
+def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) -> None:
+    """Store fixture replies for ``action`` in the project's response cache."""
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("prime_replies.py")),
+            str(workspace),
+            pid,
+        ],
+        input=json.dumps({"action": action, "replies": replies}),
+        text=True,
+        check=True,
+    )
+
+
+def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
     pid = client.post("/api/projects", json={"name": "Local stories"}).json()["id"]
     sheet = client.post(
         f"/api/projects/{pid}/import/csv",
         files={"file": ("stories.csv", STORIES_CSV, "text/csv")},
     ).json()["sheet_id"]
-    run(
-        client,
-        pid,
-        typed_action_request(
-            "map.classify",
-            sheet_id=sheet,
-            params={
-                "model": MODEL,
-                "engine": "llm",
-                "source": ["snippet"],
-                "context": "Each row is a one-sentence local news story summary.",
-                "fields": [
-                    {
-                        "name": "beat",
-                        "type": "category",
-                        "labels": [
-                            "corruption",
-                            "transit",
-                            "public_health",
-                            "education",
-                            "other",
-                        ],
-                        "description": "Which news beat does this story belong to?",
-                    },
-                    {
-                        "name": "newsworthiness",
-                        "type": "score",
-                        "description": "0 = routine, 10 = drop-everything story",
-                    },
-                ],
-                "include_justification": True,
-                "include_confidence": True,
-            },
-        ),
-        "classify stories",
+    action = typed_action_request(
+        "map.classify", sheet_id=sheet, params=STORIES_CLASSIFY
     )
+    if keyless_workspace is not None:
+        client.patch(
+            f"/api/projects/{pid}/model-routes",
+            json={"model_id": MODEL, "route": "own"},
+        ).raise_for_status()
+        prime_replies(keyless_workspace, pid, action, STORIES_REPLIES)
+    run(client, pid, action, "classify stories")
     print(f"✓ Local stories → {pid}")
 
 
@@ -323,23 +424,40 @@ def seed_audio(client: httpx.Client) -> None:
     print(f"✓ {COUNCIL_AUDIO_PROJECT_NAME} → {pid}")
 
 
+KEYLESS_PROJECTS = ("Local stories", "People mentioned")
+
+
 def main() -> None:
-    base = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("base", nargs="?", default="http://localhost:8000")
+    parser.add_argument("session_cookie", nargs="?")
+    parser.add_argument("basic_auth", nargs="?", help='"user:pass" for the Caddy fence')
+    parser.add_argument("--keyless", type=Path, metavar="WORKSPACE")
+    args = parser.parse_args()
     cookies = {}
-    if len(sys.argv) > 2:
-        cookies["frisket_session"] = sys.argv[2]
+    if args.session_cookie:
+        cookies["frisket_session"] = args.session_cookie
     auth = None
-    if len(sys.argv) > 3:  # basic auth "user:pass" for the Caddy fence
-        u, _, pw = sys.argv[3].partition(":")
+    if args.basic_auth:
+        u, _, pw = args.basic_auth.partition(":")
         auth = httpx.BasicAuth(u, pw)
-    with httpx.Client(base_url=base, cookies=cookies, timeout=180, auth=auth) as client:
+    seeders = {
+        "Local stories": lambda client: seed_stories(client, args.keyless),
+        COUNCIL_AUDIO_PROJECT_NAME: seed_audio,
+        "Tariff impacts": seed_tariff,
+        "People mentioned": seed_people_derive,
+    }
+    with httpx.Client(
+        base_url=args.base, cookies=cookies, timeout=180, auth=auth
+    ) as client:
         health = client.get("/api/health").json()
         print(f"server OK: {health}")
-        seed_stories(client)
-        seed_audio(client)
-        seed_tariff(client)
-        seed_people_derive(client)
-    print("all demo projects seeded")
+        present = {project["name"] for project in client.get("/api/projects").json()}
+        for name, seed in seeders.items():
+            if name in present or (args.keyless and name not in KEYLESS_PROJECTS):
+                continue
+            seed(client)
+    print("demo projects seeded")
 
 
 PORTRAITS = [

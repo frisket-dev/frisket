@@ -112,7 +112,7 @@ test('legacy footer renders scope line, Preview, and a Run-all split with select
   // Scope line + Preview + primary Run.
   await expect(drawer.getByTestId('row-scope-summary')).toContainText('All 2 rows will run');
   await expect(drawer.getByTestId('preview-button')).toBeVisible();
-  await expect(drawer.getByTestId('run-button')).toBeVisible();
+  await expect(drawer.getByTestId('generated-action-run')).toBeVisible();
 
   // Split dropdown: Run selected (disabled with no selection) + Re-run
   // failed/missing (disabled when the target column has no failures/gaps).

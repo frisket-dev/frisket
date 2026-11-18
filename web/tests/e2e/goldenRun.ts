@@ -45,7 +45,6 @@ export async function runViaUi(page: Page, pid: string): Promise<number> {
     .then(() => true)
     .catch(() => false);
   if (gateAppeared) {
-    await page.getByTestId('cost-gate-input').fill('confirm');
     const confirm = page.getByTestId('cost-gate-confirm');
     await expect(confirm).toBeEnabled({ timeout: 10_000 });
     await confirm.click();

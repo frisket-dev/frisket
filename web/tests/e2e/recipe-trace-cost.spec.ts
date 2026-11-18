@@ -15,7 +15,7 @@ test('model recipes capture trace without an opt-in control', async ({ page }) =
   await page.goto(`/p/${pid}`);
 
   await openAction(page, 'map.classify');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
   await expect(page.getByTestId('debug-trace-toggle')).toHaveCount(0);
 });
 

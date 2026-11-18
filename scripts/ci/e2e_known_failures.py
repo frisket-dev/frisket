@@ -18,12 +18,14 @@ It fails when
     that does not start).
 A test that passed only on retry counts as passing and is reported as flaky.
 
-Entries with the `seed` reason fail only because the demo projects the seed
-setup provides (web/tests/e2e/seed.setup.ts) are missing or unopenable, as on
-a runner with no seeded cache. The setup records which projects open in a
-`seed-status` annotation; `seed` entries are judged like any other only when
-that record says no seeded project opens. When some or all of them open, or
-the run has no record (``--no-deps``), they are reported but not judged.
+Entries with the `seed` reason fail only because a demo project the seed
+setup provides (web/tests/e2e/seed.setup.ts) is missing or unopenable, as on
+a runner that cannot build the paid-only ones. Such an entry names the
+projects its test opens, ``seed:<project>[,<project>...]``. The setup records
+which projects open in a `seed-status` annotation; a `seed` entry is judged
+like any other when that record says one of its projects does not open. When
+all of them open, or the run has no record (``--no-deps``), it is reported
+but not judged. An entry naming a project the record lacks is stale.
 The script never adds an entry: listing a failure is a hand edit that names
 its reason class. ``--report-only`` prints the same verdict and exits 0 unless
 the reports are incomplete, for runs whose list has not yet been reconciled
@@ -51,6 +53,7 @@ REASONS = (
     "environment",
     "unclassified",
 )
+SEED_PREFIX = "seed:"
 TITLE_JOIN = " › "
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -79,10 +82,22 @@ class Run:
     # seeded project name -> None when it opens, else why not; None if unrecorded
     seed_status: dict[str, str | None] | None = None
 
-    @property
-    def seed_absent(self) -> bool:
-        """True when the run recorded that no seeded project opens."""
-        return bool(self.seed_status) and all(self.seed_status.values())
+    def seed_missing(self, projects: list[str]) -> bool:
+        """True when the run recorded that one of ``projects`` does not open."""
+        status = self.seed_status or {}
+        return any(status.get(name) for name in projects)
+
+
+def reason_class(reason: str) -> str:
+    """The class a reason counts under: ``seed:<projects>`` is `seed`."""
+    return "seed" if reason.startswith(SEED_PREFIX) else reason
+
+
+def seed_projects(reason: str) -> list[str]:
+    """The projects a ``seed:`` reason names, else none."""
+    if not reason.startswith(SEED_PREFIX):
+        return []
+    return reason.removeprefix(SEED_PREFIX).split(",")
 
 
 @dataclass
@@ -189,10 +204,17 @@ def check_list(known: KnownList) -> list[str]:
         if list(titles) != sorted(titles):
             problems.append(f"{spec}: titles are not sorted")
         for title, reason in titles.items():
-            if reason not in REASONS:
+            where = f"{spec}{TITLE_JOIN}{title}"
+            if reason == "seed" or reason.startswith(SEED_PREFIX):
+                projects = seed_projects(reason)
+                if not projects or not all(p and p == p.strip() for p in projects):
+                    problems.append(
+                        f"{where}: a seed entry names the projects its test opens, "
+                        f"{SEED_PREFIX}<project>[,<project>...]"
+                    )
+            elif reason not in REASONS:
                 problems.append(
-                    f"{spec}{TITLE_JOIN}{title}: reason {reason!r} is not one of "
-                    + ", ".join(REASONS)
+                    f"{where}: reason {reason!r} is not one of " + ", ".join(REASONS)
                 )
     return problems
 
@@ -202,15 +224,34 @@ def classify(known: KnownList, run: Run, spec_root: Path = SPEC_ROOT) -> Verdict
         (s, t): reason for s, titles in known.items() for t, reason in titles.items()
     }
     present = entries.keys() & run.outcomes.keys()
-    unjudged = set()
-    if not run.seed_absent:
-        unjudged = {key for key in present if entries[key] == "seed"}
-    listed = entries.keys() - unjudged
+    stale = []
+    unknown = set()
+    if run.seed_status is not None:
+        for key in sorted(present):
+            missing = [
+                name
+                for name in seed_projects(entries[key])
+                if name not in run.seed_status
+            ]
+            if missing:
+                unknown.add(key)
+                stale.append(
+                    (
+                        key,
+                        f"names {', '.join(missing)}, which the seed setup does not record",
+                    )
+                )
+    unjudged = {
+        key
+        for key in present - unknown
+        if seed_projects(entries[key])
+        and not run.seed_missing(seed_projects(entries[key]))
+    }
+    listed = entries.keys() - unjudged - unknown
     failed = {key for key, outcome in run.outcomes.items() if outcome == "failed"}
     passing = {
         key for key, outcome in run.outcomes.items() if outcome in {"passed", "flaky"}
     }
-    stale = []
     for key in sorted(listed - run.outcomes.keys()):
         if not (spec_root / key[0]).is_file():
             stale.append((key, "its spec file no longer exists"))
@@ -244,7 +285,7 @@ def summary(known: KnownList, run: Run, verdict: Verdict, *, enforcing: bool) ->
     """Markdown verdict for a job summary or an issue body."""
     totals = Counter(run.outcomes.values())
     reasons = {
-        (spec, title): reason
+        (spec, title): reason_class(reason)
         for spec, titles in known.items()
         for title, reason in titles.items()
     }
@@ -288,8 +329,7 @@ def summary(known: KnownList, run: Run, verdict: Verdict, *, enforcing: bool) ->
         if run.seed_status is None:
             why = "the run has no seed-status record (the seed setup did not run)"
         else:
-            usable = sum(1 for reason in run.seed_status.values() if reason is None)
-            why = f"{usable} of {len(run.seed_status)} seeded projects open in this run"
+            why = "every project they name opens in this run"
         outcomes = Counter(outcome for _, outcome in verdict.seed_unjudged)
         lines.append(
             f"**Listed under `seed`, not judged: {len(verdict.seed_unjudged)}** ({why}; "

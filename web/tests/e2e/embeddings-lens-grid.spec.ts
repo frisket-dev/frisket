@@ -418,8 +418,8 @@ test('NER initialized from a lens submits complete exact membership, not its gri
 
   await openAction(page, 'map.ner');
   await selectActionSourceColumns(page, 'headline');
-  await expect(page.getByTestId('run-button')).toBeEnabled();
-  await page.getByTestId('run-button').click();
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
+  await page.getByTestId('generated-action-run').click();
   await runStarted;
 
   expect(postedAction?.kind).toBe('map.ner');

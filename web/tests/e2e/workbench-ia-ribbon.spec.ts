@@ -137,7 +137,7 @@ test('clicking a ribbon action opens the ActionPanel configure-first (no run POS
   // Configure-first: the panel opens pre-targeted at the OCR action…
   await expect(page).toHaveURL(new RegExp(`/p/${pid}/.*action/media\\.ocr`));
   await expect(page.getByTestId('action-panel')).toBeVisible();
-  await expect(page.getByTestId('run-button')).toBeVisible();
+  await expect(page.getByTestId('generated-action-run')).toBeVisible();
 
   // …and NOTHING ran. The click never POSTs /actions/v1/run.
   await page.waitForTimeout(400);

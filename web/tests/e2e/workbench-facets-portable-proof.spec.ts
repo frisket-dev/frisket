@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openDiscoverTab, openProject, uniqueName } from './helpers';
+import {
+  createProject,
+  gridReadSelection,
+  importCsv,
+  openDiscoverTab,
+  openProject,
+  sheetColumns,
+  uniqueName,
+} from './helpers';
 
 const TIPS_CSV = [
   'body,status,amount,filed',
@@ -23,6 +31,13 @@ const TIPS_CSV = [
 test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({ page, request }) => {
   const pid = await createProject(request, uniqueName('e2e-portable-facets'));
   const sheetId = await importCsv(request, pid, 'tips.csv', TIPS_CSV);
+  const amountId = (await sheetColumns(request, pid, sheetId)).find((column) => column.name === 'amount')!.id;
+  // The amount range a grid read applies, as its `between` condition.
+  const amountRange = (url: URL) => {
+    const filter = gridReadSelection(url, pid, sheetId)?.filters.find((item) => item.column_id === amountId);
+    const between = filter?.condition.between;
+    return between !== null && typeof between === 'object' && !Array.isArray(between) ? between : null;
+  };
   await openProject(page, pid, sheetId);
 
   const contributionTestId = 'workbench-contribution-frisket-investigative-panel-friendly-filters';
@@ -100,12 +115,7 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   const amountEnd = facets.getByTestId('facet-range-end-amount');
   const groupedDecimalResponse = page.waitForResponse((response) => {
     if (response.request().method() !== 'GET') return false;
-    const url = new URL(response.url());
-    if (!url.pathname.endsWith(`/projects/${pid}/sheets/${sheetId}/data`)) return false;
-    const raw = url.searchParams.get('filter');
-    if (!raw) return false;
-    const filter = JSON.parse(raw) as Record<string, { between?: { start: string; end: string } }>;
-    return filter.amount?.between?.start === '-1000000.25';
+    return amountRange(new URL(response.url()))?.start === '-1000000.25';
   });
   await amountStart.fill('-1,000,000.25');
   await groupedDecimalResponse;
@@ -114,12 +124,8 @@ test('FriendlyFiltersPanel renders and operates in the Discover panel', async ({
   await amountStart.fill('15');
   const finalRangeResponse = page.waitForResponse((response) => {
     if (response.request().method() !== 'GET') return false;
-    const url = new URL(response.url());
-    if (!url.pathname.endsWith(`/projects/${pid}/sheets/${sheetId}/data`)) return false;
-    const raw = url.searchParams.get('filter');
-    if (!raw) return false;
-    const filter = JSON.parse(raw) as Record<string, { between?: { start: string; end: string } }>;
-    return filter.amount?.between?.start === '15' && filter.amount.between.end === '60';
+    const range = amountRange(new URL(response.url()));
+    return range?.start === '15' && range.end === '60';
   });
   await amountEnd.fill('60');
   await finalRangeResponse;

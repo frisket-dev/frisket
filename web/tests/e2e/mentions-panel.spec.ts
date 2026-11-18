@@ -22,6 +22,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from '@
 import {
   clickRunButton,
   createProject,
+  gridReadSelection,
   importCsv,
   openAction,
   selectActionSourceColumns,
@@ -30,6 +31,7 @@ import {
   openToolbarOverflow,
   runAndWait,
   sheetColumns,
+  typedActionRequest,
   uniqueName,
 } from './helpers';
 import { testPython } from '../support/testPython';
@@ -61,18 +63,11 @@ async function extractEntities(
   sheetId: number,
   labels: string[],
 ): Promise<void> {
-  await runAndWait(request, pid, {
-    schema_version: 'frisket.action.v2',
-    kind: 'map.ner',
-    capabilities: ['project:write'],
-    params: {
-      sheet_id: sheetId,
-      input_columns: ['snippet'],
-      labels,
-      engine: 'spacy',
-      output_name: 'entities',
-    },
-  });
+  await runAndWait(request, pid, typedActionRequest('map.ner', {
+    sheetId,
+    params: { source: ['snippet'], labels, engine: 'spacy' },
+    outputNames: { entities: 'entities' },
+  }));
 }
 
 /** The row count the GRID lands on after `act()` applies a mention filter:
@@ -84,13 +79,9 @@ async function gridRowsAfter(
   act: () => Promise<void>,
 ): Promise<number> {
   const settled = page.waitForResponse((res) => {
-    if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      (url.searchParams.get('filter') ?? '').includes('entity_eq') &&
-      res.status() === 200
-    );
+    if (res.request().method() !== 'GET' || res.status() !== 200) return false;
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return selection?.filters.some((filter) => 'entity_eq' in filter.condition) ?? false;
   });
   await act();
   return ((await (await settled).json()) as { total: number }).total;
@@ -135,8 +126,8 @@ test('1 — Mentions CTA opens the map.ner drawer, and a real spaCy run fills th
   await shoot(page, '1-drawer');
 
   await expect(drawer).not.toContainText('Action unavailable');
-  await expect(page.getByTestId('action-form')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('run-button')).toBeEnabled();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
 
   // Engine spaCy, chosen explicitly through the picker.
   await page.getByTestId('engine-picker-button').click();
@@ -546,7 +537,7 @@ test('5 — a legacy entity column offers Rebuild and shows none of its old item
   await rebuild.click();
   await expect(page.getByTestId('action-panel')).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId('action-panel')).not.toContainText('Action unavailable');
-  await expect(page.getByTestId('action-form')).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('generated-action-form')).toBeVisible({ timeout: 20_000 });
 });
 
 // ---------------------------------------------------------------------------

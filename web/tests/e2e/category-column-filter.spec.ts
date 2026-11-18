@@ -1,8 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { expect, test } from '@playwright/test';
 import {
   clickCell,
   clickHeader,
   createProject,
+  gridReadSelection,
   importCsv,
   openDiscoverTab,
   openProject,
@@ -49,12 +52,8 @@ test('category promotion prioritizes facets and a category pill filters in one c
 
   const filteredResponse = page.waitForResponse((response) => {
     if (response.request().method() !== 'GET') return false;
-    const url = new URL(response.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    const filter = url.searchParams.get('filter');
-    return filter !== null && JSON.stringify(JSON.parse(filter)) === JSON.stringify({
-      status: { eq: 'active' },
-    });
+    const selection = gridReadSelection(new URL(response.url()), pid, sheetId);
+    return isDeepStrictEqual(selection?.filters, [{ column_id: status!.id, condition: { eq: 'active' } }]);
   });
   await clickCell(page, promotedColumns, 'status', 0);
   const filtered = await (await filteredResponse).json();

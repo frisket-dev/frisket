@@ -218,7 +218,7 @@ test('NER visibly refuses an unrepresentable selected-row scope before any run P
   }).waitFor({ state: 'visible', timeout: 5_000 })
     .then(() => 'refused' as const, () => 'no-refusal' as const);
 
-  await page.getByTestId('run-button').click();
+  await page.getByTestId('generated-action-run').click();
   expect(await Promise.race([visibleRefusal, runRequest])).toBe('refused');
   expect(postedRunCount).toBe(0);
 });

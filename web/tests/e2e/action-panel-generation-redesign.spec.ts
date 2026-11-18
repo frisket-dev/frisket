@@ -60,7 +60,7 @@ test('one failed catalog snapshot disables drawer, ribbon, and column launchers 
   const drawer = page.getByTestId('action-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer).toContainText(/catalog.*(?:unavailable|failed|invalid)/i);
-  await expectLauncherNotUsable(drawer.getByTestId('run-button'));
+  await expectLauncherNotUsable(drawer.getByTestId('generated-action-run'));
   await expectLauncherNotUsable(drawer.getByTestId('preview-button'));
 
   // Close the direct-route drawer without reloading the project. The ribbon

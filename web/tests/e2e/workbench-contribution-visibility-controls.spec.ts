@@ -6,11 +6,13 @@ import {
   importCsv,
   listSheets,
   openProject,
+  postAction,
   setColumnType,
   setHiddenContributions,
   sheetColumns,
   sheetData,
   solidTilePng,
+  typedActionRequest,
   uniqueName,
 } from './helpers';
 
@@ -392,26 +394,17 @@ async function seedJoinEdgeSheet(
     'population.csv',
     'code,pop\nNY,100\nCA,200\n',
   );
-  const spec = {
-    schema_version: 'frisket.action.v2',
-    kind: 'derive.join',
-    capabilities: ['project:write'],
+  const body = await postAction(request, pid, typedActionRequest('derive.join', {
+    sheetId: leftId,
+    sheetName: 'States x Population',
     params: {
-      left_sheet_id: leftId,
-      right_sheet_id: rightId,
+      right: { sheet_id: rightId },
       join_keys: [{ left_column: 'code', right_column: 'code' }],
       how: 'inner',
-      target_sheet_name: 'States x Population',
     },
-    idempotency_key: `e2e-derive.join@sha256:${Math.random().toString(16).slice(2)}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  const body = (await res.json()) as Record<string, unknown>;
-  expect(res.ok(), JSON.stringify(body)).toBeTruthy();
-  const output = (body.outputs as Array<Record<string, unknown>>).find(
-    (o) => o.kind === 'sheet',
-  );
-  return Number(output!.sheet_id);
+  }));
+  const output = body.outputs?.find((o) => o.kind === 'sheet');
+  return Number(output?.sheet_id);
 }
 
 test('first-party route-backed mainView panes honor hidden profile state', async ({ page }) => {

@@ -6,11 +6,14 @@ import {
   importCsv,
   openProject,
   openToolbarOverflow,
+  primeMapRowsReplies,
   runAndWait,
   sheetColumns,
+  typedActionRequest,
   uniqueName,
   type WireColumn,
 } from './helpers';
+import { prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 
 async function readStoredGroupLabel(
   page: Page,
@@ -57,29 +60,48 @@ test('native Glide AI column groups rename and hide support columns as layout st
     'stories.csv',
     'snippet\n"City hall awarded a paving contract after a closed-door meeting."\n"Transit riders complained about weekend cuts."\n',
   );
-  const runId = await runAndWait(page.request, pid, {
-    recipe: 'classify',
-    model: 'gemini/gemini-2.5-flash',
-    sheet_id: sheetId,
-    input_columns: ['snippet'],
-    context: 'Two short local news snippets.',
-    group_label: 'Angle scan',
-    fields: [
-      {
-        name: 'beat',
-        type: 'category',
-        labels: ['accountability', 'transit', 'other'],
-        description: 'best-fit beat',
-      },
-      {
-        name: 'urgency',
-        type: 'score',
-        description: 'news urgency from 0 to 10',
-      },
-    ],
-    include_confidence: true,
-    include_justification: true,
+  await prepareOwnModelReplay(page.request, pid);
+  const action = typedActionRequest('map.classify', {
+    sheetId,
+    params: {
+      source: ['snippet'],
+      engine: 'llm',
+      model: REPLAY_MODEL,
+      context: 'Two short local news snippets.',
+      fields: [
+        {
+          name: 'beat',
+          type: 'category',
+          labels: ['accountability', 'transit', 'other'],
+          description: 'best-fit beat',
+        },
+        {
+          name: 'urgency',
+          type: 'score',
+          description: 'news urgency from 0 to 10',
+        },
+      ],
+      include_confidence: true,
+      include_justification: true,
+    },
   });
+  primeMapRowsReplies(pid, action, [
+    {
+      beat: 'accountability',
+      beat_justification: 'A contract awarded after a closed-door meeting.',
+      urgency: 7,
+      urgency_justification: 'Possible procurement irregularity.',
+      beat_confidence: 0.9,
+    },
+    {
+      beat: 'transit',
+      beat_justification: 'Riders complaining about service cuts.',
+      urgency: 4,
+      urgency_justification: 'Routine service story.',
+      beat_confidence: 0.8,
+    },
+  ]);
+  const runId = await runAndWait(page.request, pid, action);
 
   const columns = await sheetColumns(page.request, pid, sheetId);
   await openProject(page, pid, sheetId);
@@ -89,19 +111,19 @@ test('native Glide AI column groups rename and hide support columns as layout st
   await expect(grid).toHaveAttribute('data-group-header-height', '28');
   await expect(grid).toHaveAttribute(
     'data-visible-column-names',
-    'snippet,beat,beat_justification,urgency,urgency_justification,beat_confidence',
+    'snippet,beat,urgency,beat_justification,urgency_justification,beat_confidence',
   );
   await expect(page.locator('.column-groups-bar')).toHaveCount(0);
 
   const storageKey = `frisket:column-groups:${pid}:${sheetId}`;
   await expect
     .poll(() => readStoredGroupLabel(page, storageKey, runId), { timeout: 10_000 })
-    .toBe('Angle scan');
+    .toBe('Classify rows');
 
   await openGroupMenu(page, columns, 'beat', 'beat_confidence');
   const menu = page.getByTestId('native-column-group-menu');
   await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Angle scan');
+  await expect(menu).toContainText('Classify rows');
   await expect(page.getByTestId('native-column-group-show-confidence')).toBeChecked();
   await expect(page.getByTestId('native-column-group-show-justification')).toBeChecked();
 
@@ -121,11 +143,12 @@ test('native Glide AI column groups rename and hide support columns as layout st
   await page.getByTestId('native-column-group-show-justification').uncheck();
   await expect(grid).toHaveAttribute('data-visible-column-names', 'snippet,beat,urgency');
 
-  expect((await sheetColumns(page.request, pid, sheetId)).map((column) => column.name)).toEqual([
+  const runColumns = await sheetColumns(page.request, pid, sheetId);
+  expect(runColumns.map((column) => column.name)).toEqual([
     'snippet',
     'beat',
-    'beat_justification',
     'urgency',
+    'beat_justification',
     'urgency_justification',
     'beat_confidence',
   ]);
@@ -154,11 +177,11 @@ test('native Glide AI column groups rename and hide support columns as layout st
   );
   await page.getByTestId('save-view-button').click();
   const view = await (await viewResponse).json();
-  expect(view.spec.column_groups).toEqual([
+  expect(view.spec.presentation.column_groups).toEqual([
     {
       run_id: runId,
       label: 'Triage signals',
-      columns: ['beat', 'beat_justification', 'urgency', 'urgency_justification', 'beat_confidence'],
+      columns: runColumns.slice(1).map((column) => column.id),
       show_confidence: false,
       show_justification: false,
     },

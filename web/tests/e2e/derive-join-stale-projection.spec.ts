@@ -104,7 +104,7 @@ test('refresh after a projection rename retains its stable id and posts the curr
   mutateColumn(pid, leftId, cityId, 'rename', 'municipality');
   await page.getByTestId('tabular-join-refresh-sheets').click();
   await expect(page.getByTestId('field-join_left_columns')).toContainText('municipality');
-  await expect(page.getByTestId('run-button')).toBeEnabled();
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
 
   const response = page.waitForResponse((candidate) =>
     candidate.url().includes(`/api/projects/${pid}/actions/v1/run`)
@@ -130,11 +130,11 @@ test('refresh after projection deletion fails closed until explicit replacement 
 
   mutateColumn(pid, leftId, cityId, 'delete');
   await page.getByTestId('tabular-join-refresh-sheets').click();
-  await expect(page.getByTestId('run-button')).toBeDisabled();
+  await expect(page.getByTestId('generated-action-run')).toBeDisabled();
   await expect(page.getByTestId('run-disabled-reason')).toContainText(
     /(?:city|projection).*(?:missing|deleted|repair)/i,
   );
-  await page.getByTestId('run-button').click({ force: true });
+  await page.getByTestId('generated-action-run').click({ force: true });
   await expect.poll(() => posted.length).toBe(0);
 
   await page.getByTestId('field-join_left_columns').click();
@@ -144,7 +144,7 @@ test('refresh after projection deletion fails closed until explicit replacement 
     .filter({ hasText: /^state/ })
     .click();
   await page.getByTestId('field-join_how').click();
-  await expect(page.getByTestId('run-button')).toBeEnabled();
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
 
   const response = page.waitForResponse((candidate) =>
     candidate.url().includes(`/api/projects/${pid}/actions/v1/run`)

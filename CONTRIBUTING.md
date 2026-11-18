@@ -382,11 +382,14 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   replay from the committed response cache or fail. Without it some specs make
   cheap real calls.
 - About 50 tests read four demo projects (`scripts/e2e/seed_demo.py`) from a
-  cache in `~/.frisket/e2e-ws`. The `seed` setup opens each one first and
-  records which are absent or unopenable (a cache from an older schema); the
-  specs that need them then fail at once with that reason. Building the cache
-  makes real model calls (about $0.25): delete the directory and run once with
-  model keys and without `replay_strict`.
+  cache in `~/.frisket/e2e-ws`. The `seed` setup builds the ones the cache
+  lacks, then opens each one and records which are absent or unopenable (a
+  cache from an older schema); the specs that need them then fail at once
+  with that reason. Under `replay_strict` it builds only the keyless ones:
+  "People mentioned", and "Local stories" from fixture classify replies stored
+  in the project's response cache (`scripts/e2e/prime_replies.py`). "Council
+  audio" and "Tariff impacts" need one run with model keys and without
+  `replay_strict` (about $0.25). Delete a project from the cache to rebuild it.
 - A full run takes 50 to 80 minutes at the default two workers
   (`FRISKET_E2E_WORKERS`). Add `--reporter=line,json,./playwright/playwright.checklog-reporter.mjs`
   with `PLAYWRIGHT_JSON_OUTPUT_NAME=<file>` to judge it as below.
@@ -403,15 +406,18 @@ night closes it. Expect roughly 100 to 130 runner-minutes a night.
 `scripts/ci/e2e_known_failures.json` lists the tests known to fail: spec file
 (relative to `web/tests/e2e`) to test title (describe titles and the test
 title joined by ` › `) to a reason class, `seed`, `retired-request`,
-`stale-expectation`, `environment` or `unclassified`. The list only shrinks.
+`stale-expectation`, `environment` or `unclassified` (`seed` entries name
+their projects, below). The list only shrinks.
 The script fails on a failure the list does not name, on a listed test that
 now passes (delete it, or run with `--update`, which only removes entries and
 refuses while a new failure is unlisted), and on an entry whose spec file or
 title no longer exists (rename it by hand when the test was renamed). A test
 that passes on retry counts as passing and is reported as flaky. Adding an
 entry is a hand edit naming its reason; fix the test instead when you can.
-`seed` entries are judged only when the seed setup found none of the demo
-projects, as on CI; with a seeded cache they are reported, not judged.
+A `seed` entry names the demo projects its test opens
+(`seed:Council audio,Local stories`) and is judged only when the seed setup
+found one of them unusable, as on CI for the paid-only ones; when all of them
+open it is reported, not judged.
 
 The list is reconciled with the Linux runner and the nightly enforces it
 (`E2E_KNOWN_FAILURES_ENFORCE: "true"` in `nightly-e2e.yml`). A local run on
