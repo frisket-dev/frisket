@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from tests.http_test_helpers import connected_client_receive
 
 
 def test_project_blob_missing_digest_keeps_plain_404_detail(client) -> None:
@@ -79,16 +80,26 @@ def test_blob_response_releases_materialization_when_transfer_is_cancelled(
         SimpleNamespace(path=path, media_type="text/plain", close=close)
     )
 
-    async def send(_message):
-        raise asyncio.CancelledError()
+    sending = asyncio.Event()
 
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(_message):
+        sending.set()
+        await asyncio.Event().wait()
+
+    async def cancel_during_transfer():
+        transfer = asyncio.ensure_future(
+            response(
+                {"type": "http", "method": "GET", "headers": []},
+                connected_client_receive(),
+                send,
+            )
+        )
+        await sending.wait()
+        transfer.cancel()
+        await transfer
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(
-            response({"type": "http", "method": "GET", "headers": []}, receive, send)
-        )
+        asyncio.run(cancel_during_transfer())
     close.assert_called_once()
 
 

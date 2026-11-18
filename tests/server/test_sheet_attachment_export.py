@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from frisket.engine.store.media_blobs import media_cell
+from tests.http_test_helpers import connected_client_receive
 
 
 def _seed(client: TestClient, filename: str = "../../clip.mp3"):
@@ -231,12 +232,13 @@ def test_archive_is_removed_when_download_disconnects(replay_client):
         if message["type"] == "http.response.body":
             raise ConnectionError("client disconnected")
 
-    async def receive():
-        return {"type": "http.disconnect"}
-
     with pytest.raises(ConnectionError, match="client disconnected"):
         asyncio.run(
-            response({"type": "http", "method": "GET", "headers": []}, receive, send)
+            response(
+                {"type": "http", "method": "GET", "headers": []},
+                connected_client_receive(),
+                send,
+            )
         )
     assert not export.path.exists()
     assert not export.path.parent.exists()

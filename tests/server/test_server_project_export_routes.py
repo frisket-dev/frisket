@@ -18,6 +18,7 @@ from frisket.server.services.project_exports import (
     ProjectExportError,
     ProjectExportService,
 )
+from tests.http_test_helpers import connected_client_receive
 
 
 def _tar(content: bytes) -> tarfile.TarFile:
@@ -209,8 +210,7 @@ def test_project_export_removes_download_on_completion_or_disconnect(
             if disconnect:
                 raise ConnectionError("client disconnected")
 
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
+    receive = connected_client_receive()
 
     scope = {
         "type": "http",

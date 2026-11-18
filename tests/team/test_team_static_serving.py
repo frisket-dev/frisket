@@ -33,6 +33,7 @@ from frisket.server import static_serving
 from frisket.team.app import TeamConfig, create_team_app
 from frisket.team.config import team_config_from_env
 from tests.team_setup_helpers import claim_server
+from tests.http_test_helpers import connected_client_receive
 
 
 async def _raw_asgi_get(app: Any, path: str) -> tuple[int, bytes]:
@@ -50,8 +51,7 @@ async def _raw_asgi_get(app: Any, path: str) -> tuple[int, bytes]:
     status_holder: dict[str, int] = {}
     chunks: list[bytes] = []
 
-    async def receive() -> dict[str, Any]:
-        return {"type": "http.request", "body": b"", "more_body": False}
+    receive = connected_client_receive()
 
     async def send(message: dict[str, Any]) -> None:
         if message["type"] == "http.response.start":

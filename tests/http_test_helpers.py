@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -10,6 +12,25 @@ from fastapi.testclient import TestClient
 from frisket.engine.jobs import Worker
 
 ACTION_SCHEMA_VERSION = "frisket.action.v2"
+
+
+def connected_client_receive() -> Callable[[], Awaitable[dict[str, Any]]]:
+    """ASGI ``receive`` for a client that sends one empty request and stays connected.
+
+    A server's ``receive`` blocks once the request is delivered. File responses
+    watch it for a disconnect while they send, so a fake that returns at once
+    never lets the transfer run.
+    """
+    delivered = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal delivered
+        if delivered:
+            await asyncio.Event().wait()
+        delivered = True
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    return receive
 
 
 def drain_queue(client: TestClient, *, worker_id: str = "v1-http-test-worker") -> None:
