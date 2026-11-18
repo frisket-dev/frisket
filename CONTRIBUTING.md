@@ -406,8 +406,9 @@ night closes it. Expect roughly 100 to 130 runner-minutes a night.
 `scripts/ci/e2e_known_failures.json` lists the tests known to fail: spec file
 (relative to `web/tests/e2e`) to test title (describe titles and the test
 title joined by ` › `) to a reason class, `seed`, `retired-request`,
-`stale-expectation`, `environment` or `unclassified` (`seed` entries name
-their projects, below). The list only shrinks.
+`stale-expectation`, `environment`, `intermittent` or `unclassified` (`seed`
+entries name their projects and `intermittent` entries their suspected cause,
+below). The list only shrinks.
 The script fails on a failure the list does not name, on a listed test that
 now passes (delete it, or run with `--update`, which only removes entries and
 refuses while a new failure is unlisted), and on an entry whose spec file or
@@ -418,6 +419,12 @@ A `seed` entry names the demo projects its test opens
 (`seed:Council audio,Local stories`) and is judged only when the seed setup
 found one of them unusable, as on CI for the paid-only ones; when all of them
 open it is reported, not judged.
+An `intermittent` entry is a test that passes some nights and fails others.
+It carries a note naming the suspected cause
+(`intermittent:Enter can arrive before the grid takes focus`; the script
+rejects one without a note) and is reported with its result but never judged:
+a pass does not ask for its removal and a failure is not a new one. Prefer
+fixing the race; delete the entry by hand once it is fixed.
 
 The list is reconciled with the Linux runner and the nightly enforces it
 (`E2E_KNOWN_FAILURES_ENFORCE: "true"` in `nightly-e2e.yml`). A local run on
