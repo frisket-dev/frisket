@@ -392,7 +392,6 @@ class Job:
     workspace_root: str | None = None
     dedupe_key: str | None = None
     priority_class: int = FOREGROUND_PRIORITY_CLASS
-    preferred_row_id: int | None = None
     # Version fields are diagnostic/legacy metadata only; never gate claims.
     code_version: str | None = None
     claimed_code_version: str | None = None
@@ -822,7 +821,6 @@ class JobQueue:
             workspace_root=row.workspace_root,
             dedupe_key=row.dedupe_key,
             priority_class=row.priority_class,
-            preferred_row_id=row.preferred_row_id,
             code_version=row.code_version,
             claimed_code_version=row.claimed_code_version,
             version_mismatch_requeues=row.version_mismatch_requeues or 0,
