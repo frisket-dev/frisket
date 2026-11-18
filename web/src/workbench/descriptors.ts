@@ -417,7 +417,7 @@ export const IMAGE_GALLERY_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstParty
   'frisket.media.view.image_gallery',
 );
 
-export const EVIDENCE_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
+export const CITATION_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
   'frisket.core.view.evidence',
 );
 
@@ -446,7 +446,7 @@ export const GRAPH_NEIGHBORHOOD_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = first
   'frisket.investigative.view.graph_neighborhood',
 );
 
-export const ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR: RowInspectorSectionDescriptor =
+export const ROW_INSPECTOR_CITATIONS_SECTION_DESCRIPTOR: RowInspectorSectionDescriptor =
   firstPartyDescriptor('frisket.core.row_inspector.section.evidence');
 
 export const COLUMN_SETTINGS_SECTION_DESCRIPTOR: ColumnInspectorSectionDescriptor =
@@ -460,7 +460,7 @@ export const ENTITY_SUMMARY_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPart
   'frisket.investigative.view.entity_summary',
 );
 
-export const ENTITY_EVIDENCE_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
+export const ENTITY_CITATIONS_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(
   'frisket.investigative.view.entity_evidence',
 );
 

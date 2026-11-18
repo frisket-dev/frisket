@@ -168,20 +168,20 @@ describe('createChromeStore', () => {
 
   // --- everyday reducer-parity actions -------------------------------------
 
-  it('openEvidenceViewer defaults host to modalOrPeek; closeEvidenceViewer clears', () => {
-    const { store, openEvidenceViewer, closeEvidenceViewer } = createChromeStore(PROJECT_ID);
-    openEvidenceViewer('link-1');
-    expect(store.get().evidenceViewerState).toEqual({ linkId: 'link-1', host: 'modalOrPeek' });
-    openEvidenceViewer('link-2', 'mainView', { scopeSpanId: 'span-7', scopeSpanIds: ['span-7', 'span-8'], highlight: false });
-    expect(store.get().evidenceViewerState).toEqual({
+  it('openCitationViewer defaults host to modalOrPeek; closeCitationViewer clears', () => {
+    const { store, openCitationViewer, closeCitationViewer } = createChromeStore(PROJECT_ID);
+    openCitationViewer('link-1');
+    expect(store.get().citationViewerState).toEqual({ linkId: 'link-1', host: 'modalOrPeek' });
+    openCitationViewer('link-2', 'mainView', { scopeSpanId: 'span-7', scopeSpanIds: ['span-7', 'span-8'], highlight: false });
+    expect(store.get().citationViewerState).toEqual({
       linkId: 'link-2',
       host: 'mainView',
       scopeSpanId: 'span-7',
       scopeSpanIds: ['span-7', 'span-8'],
       highlight: false,
     });
-    closeEvidenceViewer();
-    expect(store.get().evidenceViewerState).toBeNull();
+    closeCitationViewer();
+    expect(store.get().citationViewerState).toBeNull();
   });
 
   it('setDeleteRowsConfirm/clearDeleteRowsConfirm', () => {

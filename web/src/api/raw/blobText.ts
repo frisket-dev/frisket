@@ -65,7 +65,7 @@ export async function readDocumentTextWindow(
 }
 
 /** Legacy evidence without persisted text coordinates keeps its quote fallback. */
-export async function readEvidenceTextResource(url: string, signal: AbortSignal): Promise<string> {
+export async function readCitationTextResource(url: string, signal: AbortSignal): Promise<string> {
   return (await readDocumentTextWindow(url, { signal })).text;
 }
 

@@ -1,12 +1,12 @@
-import './EvidenceReading.css';
+import './CitationReading.css';
 import { useEffect, useMemo, useRef } from 'react';
-import type { EvidenceArtifact, EvidenceSpan, EvidenceTextPassageTarget } from '../../api/open';
-import { readEvidenceTextResource } from '../../api/raw/blobText';
+import type { CitationArtifact, CitationSpan, CitationTextPassageTarget } from '../../api/open';
+import { readCitationTextResource } from '../../api/raw/blobText';
 import { Button } from '../Button';
 import { PanelLoading } from '../PanelPrimitives';
-import { SavedTextContext } from '../EvidenceTextContext';
-import { textSegments, type TextSegment } from '../evidenceTextSegments';
-import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './evidenceSourceModel';
+import { SavedTextContext } from '../CitationTextContext';
+import { textSegments, type TextSegment } from '../citationTextSegments';
+import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './citationSourceModel';
 import { useLoader } from '../../hooks/useLoader';
 
 export type RecoveryState =
@@ -19,7 +19,7 @@ export function TextPassageRecovery({
   recovery,
   onLocateCurrent,
 }: {
-  artifact: EvidenceArtifact;
+  artifact: CitationArtifact;
   recovery: RecoveryState;
   onLocateCurrent?: () => void;
 }) {
@@ -82,14 +82,14 @@ export function TextPassageRecovery({
 }
 
 /* Source columns are candidates, not source cell text. */
-function sourceColumnNames(artifact: EvidenceArtifact): string[] {
+function sourceColumnNames(artifact: CitationArtifact): string[] {
   const raw = jsonRecord(artifact.metadata)?.source_columns;
   if (!Array.isArray(raw)) return [];
   return raw.filter((value): value is string => typeof value === 'string');
 }
 
 /* Row artifacts have no blob; cited quotes are the honest surface. */
-function TextQuoteBlocks({ artifact, spans }: { artifact: EvidenceArtifact; spans: EvidenceSpan[] }) {
+function TextPassageBlocks({ artifact, spans }: { artifact: CitationArtifact; spans: CitationSpan[] }) {
   const firstBlockRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     firstBlockRef.current?.scrollIntoView({ block: 'nearest' });
@@ -126,7 +126,7 @@ function TextQuoteBlocks({ artifact, spans }: { artifact: EvidenceArtifact; span
 }
 
 /* Legacy quote-only records have no persisted coordinates. */
-function highlightQuotes(sourceText: string, spans: EvidenceSpan[]): TextSegment[] {
+function highlightPassages(sourceText: string, spans: CitationSpan[]): TextSegment[] {
   const ranges: Array<{ start: number; end: number }> = [];
   for (const span of spans) {
     const quote = span.quote || span.snippet;
@@ -143,13 +143,13 @@ function TextBlobSource({
   blobUrl,
   spans,
 }: {
-  artifact: EvidenceArtifact;
+  artifact: CitationArtifact;
   blobUrl: string;
-  spans: EvidenceSpan[];
+  spans: CitationSpan[];
 }) {
-  const textBlob = useLoader((signal) => readEvidenceTextResource(blobUrl, signal), [blobUrl], { keepPreviousData: true });
+  const textBlob = useLoader((signal) => readCitationTextResource(blobUrl, signal), [blobUrl], { keepPreviousData: true });
   const text = textBlob.error === null ? textBlob.data : null;
-  const segments = text !== null ? highlightQuotes(text, spans) : null;
+  const segments = text !== null ? highlightPassages(text, spans) : null;
   const firstHighlightIndex = segments ? segments.findIndex((segment) => segment.highlighted) : -1;
   const firstMarkRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -166,7 +166,7 @@ function TextBlobSource({
   // Never fabricate unavailable highlights.
 
   if (!segments || firstHighlightIndex < 0) {
-    return <TextQuoteBlocks artifact={artifact} spans={spans} />;
+    return <TextPassageBlocks artifact={artifact} spans={spans} />;
   }
   return (
     <div className="evidence-text-source" data-testid="evidence-text-source">
@@ -200,8 +200,8 @@ export function TextArtifactSource({
   highlight = true,
   emphasizedSpanIds = [],
 }: {
-  artifact: EvidenceArtifact;
-  textPassageTargets?: readonly EvidenceTextPassageTarget[];
+  artifact: CitationArtifact;
+  textPassageTargets?: readonly CitationTextPassageTarget[];
   playFocusedPassage?: boolean;
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
@@ -216,10 +216,10 @@ export function TextArtifactSource({
   return <LegacyTextArtifactSource artifact={artifact} />;
 }
 
-function LegacyTextArtifactSource({ artifact }: { artifact: EvidenceArtifact }) {
+function LegacyTextArtifactSource({ artifact }: { artifact: CitationArtifact }) {
   const spans = useMemo(() => textCitedSpans(artifact), [artifact]);
   if (spans.length === 0) return null;
   const blob = artifact.artifact_ref.blob;
   if (blob) return <TextBlobSource artifact={artifact} blobUrl={blob.url} spans={spans} />;
-  return <TextQuoteBlocks artifact={artifact} spans={spans} />;
+  return <TextPassageBlocks artifact={artifact} spans={spans} />;
 }

@@ -35,10 +35,10 @@ export type WorkbenchApiPort = Pick<
 >;
 
 /** Evidence reads consumed by the workbench's keyed evidence resource. */
-export type ColumnEvidenceApiPort = Pick<ProjectApi, 'getColumnEvidence'>;
+export type ColumnCitationsApiPort = Pick<ProjectApi, 'getColumnEvidence'>;
 
 /** Evidence viewer reads consumed by the workbench's keyed viewer resource. */
-export type EvidenceLinkViewerApiPort = Pick<ProjectApi, 'getEvidenceViewer'>;
+export type CitationViewerApiPort = Pick<ProjectApi, 'getEvidenceViewer'>;
 
 /** Projection operations exposed to workbench plugin projection views. */
 export type PluginProjectionViewApiPort = Pick<

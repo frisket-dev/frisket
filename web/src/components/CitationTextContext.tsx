@@ -1,20 +1,20 @@
 import './PanelPrimitives.css';
-import './evidence/EvidenceReading.css';
+import './evidence/CitationReading.css';
 import { Button } from './Button';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import type { EvidenceArtifact, EvidenceTextPassageTarget } from '../api/types';
+import type { CitationArtifact, CitationTextPassageTarget } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { TextPassageNavigation } from './TextPassageNavigation';
-import { textSegments } from './evidenceTextSegments';
+import { textSegments } from './citationTextSegments';
 import { useLoader } from '../hooks/useLoader';
 
-type EvidenceTextContext = NonNullable<EvidenceArtifact['text_context']>;
+type CitationTextContext = NonNullable<CitationArtifact['text_context']>;
 
 interface SavedTextContextProps {
-  context: EvidenceTextContext;
-  artifact?: EvidenceArtifact;
-  textPassageTargets?: readonly EvidenceTextPassageTarget[];
+  context: CitationTextContext;
+  artifact?: CitationArtifact;
+  textPassageTargets?: readonly CitationTextPassageTarget[];
   scopeSpanId?: string;
   scopeSpanIds?: readonly string[];
   highlight: boolean;
@@ -77,7 +77,7 @@ export function SavedTextContext(props: SavedTextContextProps) {
 
 interface PassageRequest {
   key: string;
-  target: EvidenceTextPassageTarget;
+  target: CitationTextPassageTarget;
   start?: number;
   spanId?: string;
   revision?: number;

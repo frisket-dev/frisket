@@ -61,7 +61,7 @@
   grid-template-columns: minmax(0, 1.45fr) minmax(340px, 0.8fr);
 }
 /* evidence-pane-reading-surface-v1: the ref-dump aside collapsed (see
-   EvidenceViewerProps.defaultShowDetails) — the source pane takes the full
+   CitationViewerProps.defaultShowDetails) — the source pane takes the full
    width instead of sharing it with an empty second grid column. */
 .evidence-viewer-content-compact {
   grid-template-columns: minmax(0, 1fr);

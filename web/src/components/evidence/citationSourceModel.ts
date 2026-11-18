@@ -1,4 +1,4 @@
-import type { EvidenceArtifact, EvidenceSpan } from '../../api/open';
+import type { CitationArtifact, CitationSpan } from '../../api/open';
 
 // Shared evidence selectors and display coordinates; rendering stays with each source owner.
 export function finiteNumber(value: unknown): number | null {
@@ -12,7 +12,7 @@ export function jsonRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-export function selectorNumber(span: EvidenceSpan | undefined, field: string): number | null {
+export function selectorNumber(span: CitationSpan | undefined, field: string): number | null {
   return finiteNumber(span === undefined ? undefined : jsonRecord(span.selector)?.[field]);
 }
 
@@ -37,8 +37,8 @@ export function isTextRenderableMediaType(mediaType: string): boolean {
   return TEXT_RENDERABLE_MEDIA_TYPES.has(mediaType.split(';')[0].trim());
 }
 
-export function textCitedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
-  const spans: EvidenceSpan[] = [];
+export function textCitedSpans(artifact: CitationArtifact): CitationSpan[] {
+  const spans: CitationSpan[] = [];
   for (const span of artifact.spans) {
     if (span.span_kind !== 'text' && span.span_kind !== 'whole') continue;
     const text = span.quote || span.snippet;

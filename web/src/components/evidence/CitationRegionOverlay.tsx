@@ -1,11 +1,11 @@
-import './EvidenceReading.css';
-import type { EvidenceRegion } from '../../api/open';
+import './CitationReading.css';
+import type { CitationRegion } from '../../api/open';
 import { PageRegion } from '../PageRegion';
 import { normalizeRegion } from '../regionGeometry';
-import { finiteNumber, jsonRecord } from './evidenceSourceModel';
+import { finiteNumber, jsonRecord } from './citationSourceModel';
 
 export function RegionOverlay({ region, emphasized, coordinateSpace = 'page_normalized' }: {
-  region: EvidenceRegion; emphasized: boolean; coordinateSpace?: 'page_normalized' | 'frame_normalized';
+  region: CitationRegion; emphasized: boolean; coordinateSpace?: 'page_normalized' | 'frame_normalized';
 }) {
   const normalized = normalizedBBox(region.bbox, coordinateSpace);
   if (!normalized) return null;

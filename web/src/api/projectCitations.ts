@@ -1,6 +1,6 @@
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
 import type {
-  EvidenceViewerReadOptions,
+  CitationViewerReadOptions,
   TextAnnotationsOptions,
   TextAnnotationLayer,
   TextAnnotations,
@@ -9,15 +9,15 @@ import type {
 } from './types';
 import { isRecord } from './wireValues';
 
-type EvidenceViewerOptions = EvidenceViewerReadOptions;
+type CitationViewerOptions = CitationViewerReadOptions;
 
-type CellEvidenceWire =
+type CellCitationsWire =
   HttpContractSuccessResponse<'tenant.cell_evidence.get'>;
 type CellTextAnnotationsWire =
   HttpContractSuccessResponse<'tenant.cell_text_annotations.get'>;
-type ColumnEvidenceWire =
+type ColumnCitationsWire =
   HttpContractSuccessResponse<'tenant.column_evidence.get'>;
-type EvidenceViewerWire =
+type CitationViewerWire =
   HttpContractSuccessResponse<'tenant.evidence_viewer.get'>;
 type RowSourceDocumentsWire =
   HttpContractSuccessResponse<'tenant.row_source_documents.get'>;
@@ -131,7 +131,7 @@ function textAnnotationsFromWire(
 /** Product-facing evidence reads. The three open JSON payloads stay exactly
  * as the generated transport returns them; annotations alone have a client
  * domain model because their geometry is rendered directly. */
-export function createProjectEvidenceApi(
+export function createProjectCitationsApi(
   projectId: string,
 ) {
   return {
@@ -150,7 +150,7 @@ export function createProjectEvidenceApi(
       rowId: string,
       columnId: string,
       options: RequestOptions & { includeStale?: boolean } = {},
-    ): Promise<CellEvidenceWire> {
+    ): Promise<CellCitationsWire> {
       return httpContract(
         'tenant.cell_evidence.get',
         {
@@ -199,7 +199,7 @@ export function createProjectEvidenceApi(
       sheetId: string,
       columnId: string,
       options: RequestOptions & { rowIds?: readonly string[] } = {},
-    ): Promise<ColumnEvidenceWire> {
+    ): Promise<ColumnCitationsWire> {
       return httpContract(
         'tenant.column_evidence.get',
         {
@@ -216,8 +216,8 @@ export function createProjectEvidenceApi(
 
     getEvidenceViewer(
       evidenceLinkId: string | number,
-      options: EvidenceViewerOptions = {},
-    ): Promise<EvidenceViewerWire> {
+      options: CitationViewerOptions = {},
+    ): Promise<CitationViewerWire> {
       return httpContract(
         'tenant.evidence_viewer.get',
         {

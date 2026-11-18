@@ -18,7 +18,7 @@ import { GeneratedColumnCollisionModal } from '../components/GeneratedColumnColl
 import { SupportContactNote } from '../components/SupportContactNote';
 import { remediateApiError } from '../errors/remediation';
 import { SourcesConnectionsDialog } from '../components/sources/SourcesConnectionsDialog';
-import { CostGateWorkbenchViewFrame, EvidenceWorkbenchViewFrame, GeneratedColumnCollisionWorkbenchViewFrame, ProvenanceWorkbenchPanelFrame, ResolvedWorkbenchLayoutRegion, ReviewQueueWorkbenchViewFrame, RowDeleteConfirmWorkbenchViewFrame } from '../workbench/contributions';
+import { CostGateWorkbenchViewFrame, CitationWorkbenchViewFrame, GeneratedColumnCollisionWorkbenchViewFrame, ProvenanceWorkbenchPanelFrame, ResolvedWorkbenchLayoutRegion, ReviewQueueWorkbenchViewFrame, RowDeleteConfirmWorkbenchViewFrame } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { PluginPeekHost } from '../workbench/PluginPeekHost';
 import { WorkbenchCommandPalette } from '../workbench/WorkbenchCommandPalette';
@@ -29,8 +29,8 @@ import { useSelector } from '../bind/useSelector';
 import { useRenderCount, useWorkspaceShell, useOverlayModel } from './WorkspaceContext';
 import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryPanel } from '../telemetry/navigationTelemetry';
 
-export const LazyEvidenceViewer = lazy(() => (
-  import('../components/EvidenceViewer').then(({ EvidenceViewer }) => ({ default: EvidenceViewer }))
+export const LazyCitationViewer = lazy(() => (
+  import('../components/CitationViewer').then(({ CitationViewer }) => ({ default: CitationViewer }))
 ));
 
 export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
@@ -50,7 +50,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     applyGridFailedFilter,
     retryFailedRows,
     clearDeleteRowsConfirm,
-    closeEvidenceViewer,
+    closeCitationViewer,
     closeReview,
     closeRoutePanel,
     columnDrawer,
@@ -73,12 +73,12 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     doRedo,
     doUndo,
     error,
-    evidenceViewerState,
+    citationViewerState,
     documentPriority,
     hideWorkbenchContribution,
     history,
     lastCommandAction,
-    openEvidenceViewer,
+    openCitationViewer,
     openReview,
     project,
     openPluginPeekDescriptor,
@@ -102,7 +102,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   } = useOverlayModel();
   const visiblePanels: WorkspaceTelemetryPanel[] = [];
   if (columnDrawer && sheet) visiblePanels.push('column');
-  if (evidenceViewerState?.host === 'modalOrPeek') visiblePanels.push('evidence');
+  if (citationViewerState?.host === 'modalOrPeek') visiblePanels.push('evidence');
   useWorkspaceNavigationTelemetry({ projectId: project.id, rightPanels: visiblePanels });
   const actSurfaceHandle = useActSurfaceHandle();
   const sourcesConnectionsOpen = useSelector(
@@ -354,8 +354,8 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
           />
         </ProvenanceWorkbenchPanelFrame>
       )}
-      {evidenceViewerState?.host === 'modalOrPeek' && (
-        <EvidenceWorkbenchViewFrame host="modalOrPeek">
+      {citationViewerState?.host === 'modalOrPeek' && (
+        <CitationWorkbenchViewFrame host="modalOrPeek">
           <Suspense
             fallback={
               <PanelLoading
@@ -365,28 +365,28 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
               />
             }
           >
-            <LazyEvidenceViewer
-              key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
-              evidenceLinkId={evidenceViewerState.linkId}
-              initialPayload={evidenceViewerState.initialPayload}
-              initialPage={evidenceViewerState.initialPage}
-              scopeSpanId={evidenceViewerState.scopeSpanId}
-              scopeSpanIds={evidenceViewerState.scopeSpanIds}
-              highlight={evidenceViewerState.highlight}
-              onClose={closeEvidenceViewer}
+            <LazyCitationViewer
+              key={`${String(citationViewerState.linkId)}:${citationViewerState.scopeSpanId ?? ''}`}
+              evidenceLinkId={citationViewerState.linkId}
+              initialPayload={citationViewerState.initialPayload}
+              initialPage={citationViewerState.initialPage}
+              scopeSpanId={citationViewerState.scopeSpanId}
+              scopeSpanIds={citationViewerState.scopeSpanIds}
+              highlight={citationViewerState.highlight}
+              onClose={closeCitationViewer}
               onOpenCompanion={() => {
                 closeRowDrawer();
-                openEvidenceViewer(evidenceViewerState.linkId, 'mainView', {
-                  initialPayload: evidenceViewerState.initialPayload,
-                  initialPage: evidenceViewerState.initialPage,
-                  scopeSpanId: evidenceViewerState.scopeSpanId,
-                  scopeSpanIds: evidenceViewerState.scopeSpanIds,
-                  highlight: evidenceViewerState.highlight,
+                openCitationViewer(citationViewerState.linkId, 'mainView', {
+                  initialPayload: citationViewerState.initialPayload,
+                  initialPage: citationViewerState.initialPage,
+                  scopeSpanId: citationViewerState.scopeSpanId,
+                  scopeSpanIds: citationViewerState.scopeSpanIds,
+                  highlight: citationViewerState.highlight,
                 });
               }}
             />
           </Suspense>
-        </EvidenceWorkbenchViewFrame>
+        </CitationWorkbenchViewFrame>
       )}
       {reviewOpen && (
         <ReviewQueueWorkbenchViewFrame host="modalOrPeek">

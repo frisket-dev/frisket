@@ -10,8 +10,8 @@ import { useLoader } from '../hooks/useLoader';
 //
 // The sibling of DocumentReader (media) inside the Document view, not a
 // replacement for it — the Document view's source is now media-or-text, and
-// this renders the text arm. It is also NOT a tweak to EvidenceViewer's
-// `highlightQuotes`: that one re-locates each quote by first occurrence in the
+// this renders the text arm. It is also NOT a tweak to CitationViewer's
+// `highlightPassages`: that one re-locates each quote by first occurrence in the
 // fetched text and merges everything into one highlight, which cannot answer
 // "which mention did I click" and puts the mark on the wrong "Ada" whenever a
 // name appears twice. This draws at the offsets the server returned, over the

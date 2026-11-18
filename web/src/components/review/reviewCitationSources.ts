@@ -1,9 +1,9 @@
-import type { EvidenceArtifact, EvidenceCitationRun, EvidenceTextPassageTarget, EvidenceSpan, EvidenceViewerPayload } from '../../api/types';
+import type { CitationArtifact, CitationRun, CitationTextPassageTarget, CitationSpan, CitationViewerPayload } from '../../api/types';
 
-export interface ReviewCitationPayload { fieldId: string; payload: EvidenceViewerPayload; }
-interface SourceMember { fieldId: string; evidenceLinkId: string; itemIndex?: number | null; artifact: EvidenceArtifact; spans: EvidenceSpan[]; }
+export interface ReviewCitationPayload { fieldId: string; payload: CitationViewerPayload; }
+interface SourceMember { fieldId: string; evidenceLinkId: string; itemIndex?: number | null; artifact: CitationArtifact; spans: CitationSpan[]; }
 export interface ReviewCitationSource {
-  id: string; artifact: EvidenceArtifact; fieldIds: string[]; members: SourceMember[];
+  id: string; artifact: CitationArtifact; fieldIds: string[]; members: SourceMember[];
   kind: 'MD' | 'TXT' | 'PDF' | 'AUDIO' | 'VIDEO' | 'IMAGE' | 'FILE'; title: string;
 }
 
@@ -45,18 +45,18 @@ export function sourceLocation(source: ReviewCitationSource, fieldId: string | u
   return null;
 }
 
-function citedSpans(artifact: EvidenceArtifact): EvidenceSpan[] {
+function citedSpans(artifact: CitationArtifact): CitationSpan[] {
   // Required describes validation policy, not which supporting occurrences a
   // reviewer may see. Keep every active span on the supporting link.
   return artifact.spans.filter((span) => span.status === 'active');
 }
 
-function mergeArtifacts(members: readonly SourceMember[]): EvidenceArtifact {
+function mergeArtifacts(members: readonly SourceMember[]): CitationArtifact {
   const first = members[0].artifact;
   const spanIds = new Set(members.flatMap((member) => member.spans.map((span) => span.stable_id)));
   // Backend run indices are local to each evidence link. Reindex before
   // combining artifacts so a result cannot download another result's clip.
-  const runs: EvidenceCitationRun[] = [];
+  const runs: CitationRun[] = [];
   const spans = uniqueBy(members.flatMap((member) => {
     const indices = new Map<number, number>();
     for (const run of member.artifact.runs) {
@@ -92,7 +92,7 @@ function mergeTextContext(members: readonly SourceMember[], spanIds: ReadonlySet
 }
 
 /** Window offsets belong to their owning source/version, even for repeated text. */
-function sameTextPassage(context: EvidenceArtifact['text_context'], first: NonNullable<EvidenceArtifact['text_context']>): boolean {
+function sameTextPassage(context: CitationArtifact['text_context'], first: NonNullable<CitationArtifact['text_context']>): boolean {
   if (!context || context.text !== first.text) return false;
   if (!context.window && !first.window) return true;
   return Boolean(context.window && first.window
@@ -103,14 +103,14 @@ function sameTextPassage(context: EvidenceArtifact['text_context'], first: NonNu
     && context.window.retrieval_revision === first.window.retrieval_revision);
 }
 
-export function reviewTextPassageTargets(source: ReviewCitationSource): EvidenceTextPassageTarget[] {
+export function reviewTextPassageTargets(source: ReviewCitationSource): CitationTextPassageTarget[] {
   return uniqueBy(source.members.flatMap((member) => member.spans.map((span) => ({
     spanId: span.stable_id, evidenceLinkId: member.evidenceLinkId, artifactId: member.artifact.id,
   }))), (target) => `${target.evidenceLinkId}:${target.spanId}`);
 }
 
 /** A focused field retains the original citation owner for passage fetches. */
-export function focusedReviewArtifact(source: ReviewCitationSource, fieldId: string | undefined, spanIds: readonly string[]): EvidenceArtifact {
+export function focusedReviewArtifact(source: ReviewCitationSource, fieldId: string | undefined, spanIds: readonly string[]): CitationArtifact {
   const member = source.members.find((item) => item.fieldId === fieldId && item.spans.some((span) => spanIds.includes(span.stable_id)))
     ?? source.members.find((item) => item.fieldId === fieldId)
     ?? source.members[0];
@@ -133,7 +133,7 @@ function sourceKind(mediaType: string): ReviewCitationSource['kind'] {
   if (type === 'text/plain') return 'TXT';
   return 'FILE';
 }
-function sourceTitle(artifact: EvidenceArtifact): string {
+function sourceTitle(artifact: CitationArtifact): string {
   return artifact.title || artifact.filename || artifact.artifact_ref.blob?.filename || artifact.media_type;
 }
 function record(value: unknown): Record<string, unknown> | null {

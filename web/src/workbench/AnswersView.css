@@ -1,6 +1,6 @@
 /* ---- Grounded Answers view (answers-view-shell-v1 / -docked-evidence-v1):
    three panes -- row list (a DocumentView-list clone), the chosen cited
-   column's per-row values + chips, and the docked EvidenceViewer pane. ---- */
+   column's per-row values + chips, and the docked CitationViewer pane. ---- */
 .answers-view {
   display: flex;
   height: 100%;

@@ -1,4 +1,4 @@
-import type { EvidenceArtifact } from '../../api/open';
+import type { CitationArtifact } from '../../api/open';
 
 export interface PdfPacketSourceCardData {
   filename: string;
@@ -22,7 +22,7 @@ function integer(value: unknown): number | null {
 }
 
 export function pdfPacketSourceCardData(
-  artifact: EvidenceArtifact,
+  artifact: CitationArtifact,
 ): PdfPacketSourceCardData | null {
   const external = record(artifact.external_ref);
   const blob = artifact.artifact_ref.blob;

@@ -1,10 +1,10 @@
-import './EvidenceReading.css';
+import './CitationReading.css';
 import { Download, ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { EvidenceArtifact, EvidenceCitationRun, EvidenceRegion, EvidenceSpan } from '../../api/open';
+import type { CitationArtifact, CitationRun, CitationRegion, CitationSpan } from '../../api/open';
 import { safeHttpUrl } from '../../core/safeUrl';
-import { RegionOverlay } from './EvidenceRegionOverlay';
-import { formatMs, jsonRecord, selectorNumber } from './evidenceSourceModel';
+import { RegionOverlay } from './CitationRegionOverlay';
+import { formatMs, jsonRecord, selectorNumber } from './citationSourceModel';
 
 // Group adjacent temporal spans into display runs.
 
@@ -13,14 +13,14 @@ const CLIENT_RUN_GAP_TOLERANCE_MS = 1500;
 interface TemporalDisplayRun {
   start: number;
   end: number;
-  spans: EvidenceSpan[];
+  spans: CitationSpan[];
   clipUrl: string | null;
   openUrl: string | null;
 }
 
 function buildTemporalDisplayRuns(
-  spans: EvidenceSpan[],
-  backendRuns: EvidenceCitationRun[],
+  spans: CitationSpan[],
+  backendRuns: CitationRun[],
 ): TemporalDisplayRun[] {
   const runs: TemporalDisplayRun[] = [];
   for (const span of spans) {
@@ -51,8 +51,8 @@ function buildTemporalDisplayRuns(
   return runs;
 }
 
-export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }: {
-  artifact: EvidenceArtifact;
+export function CitationMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }: {
+  artifact: CitationArtifact;
   scopeSpanId?: string;
   emphasizedSpanIds: readonly string[];
 }) {
@@ -174,7 +174,7 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
         const end = selectorNumber(span, 'end_ms');
         return start !== null && end !== null && playbackMs >= start && playbackMs <= end;
       }).map((span) => <RegionOverlay key={span.stable_id}
-        region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as EvidenceRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
+        region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as CitationRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
         emphasized={emphasizedSpanIds.includes(span.stable_id)} coordinateSpace="frame_normalized" />)}
     </div>
   ) : (
@@ -301,14 +301,14 @@ export function EvidenceMediaSource({ artifact, scopeSpanId, emphasizedSpanIds }
 }
 
 // Stable ordering shared by captions and the segment list.
-function temporalSpansSorted(artifact: EvidenceArtifact): EvidenceSpan[] {
+function temporalSpansSorted(artifact: CitationArtifact): CitationSpan[] {
   return artifact.spans
     .filter((span) => span.span_kind === 'temporal' && (span.quote || span.snippet))
     .slice()
     .sort((a, b) => (selectorNumber(a, 'start_ms') ?? 0) - (selectorNumber(b, 'start_ms') ?? 0));
 }
 
-function mediaCaptionsDataUrl(artifact: EvidenceArtifact): string {
+function mediaCaptionsDataUrl(artifact: CitationArtifact): string {
   const temporalSpans = artifact.spans.filter((span) => (
     span.span_kind === 'temporal' && (span.quote || span.snippet)
   ));

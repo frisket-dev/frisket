@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react';
-import type { CellEvidencePayload } from '../../api/open';
+import type { CellCitationsPayload } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
-import './CellEvidence.css';
+import './CellCitations.css';
 import { Button } from '../Button';
 import { CitationChip } from '../evidence/CitationChip';
 
-type EvidenceBlockState =
+type CitationBlockState =
   | { phase: 'loading' | 'empty' | 'error'; payload?: null }
-  | { phase: 'ready'; payload: CellEvidencePayload; auditOpen: boolean };
+  | { phase: 'ready'; payload: CellCitationsPayload; auditOpen: boolean };
 
-export function CellEvidenceBlock({
+export function CellCitationsBlock({
   rowId,
   columnId,
   columnName,
@@ -19,7 +19,7 @@ export function CellEvidenceBlock({
   columnName: string;
 }) {
   const { projectApi: api } = useWorkspaceStores();
-  const [state, setState] = useState<EvidenceBlockState>({ phase: 'loading' });
+  const [state, setState] = useState<CitationBlockState>({ phase: 'loading' });
 
   useEffect(() => {
     let alive = true;

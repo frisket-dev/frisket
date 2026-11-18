@@ -6,7 +6,7 @@
 // Rendering is FLAT TEXT + SERVER OFFSETS. Offsets arrive as
 // UTF-16 code units, which is exactly what a JavaScript string indexes in, so
 // `text.slice(start, end)` IS the mark. Nothing here searches the text for a
-// quote — that is EvidenceViewer's model (`highlightQuotes`), which re-locates
+// quote — that is CitationViewer's model (`highlightPassages`), which re-locates
 // each quote by first occurrence and would put marks in the wrong place the
 // moment a name appears twice.
 
@@ -203,7 +203,7 @@ export function markAriaLabel(fragment: AnnotationFragment): string | undefined 
 /** D2: partition the text at EVERY mark boundary into one non-overlapping
  *  fragment list.
  *
- *  Merging overlapping marks into one highlight (EvidenceViewer's model) loses
+ *  Merging overlapping marks into one highlight (CitationViewer's model) loses
  *  the thing the reader is for: two spans of one family genuinely nest —
  *  "Boeing" inside "Boeing Company" — and a merged highlight can answer neither
  *  "which mention did I click" nor "how many are there". Partitioning keeps

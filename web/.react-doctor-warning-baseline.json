@@ -116,7 +116,7 @@
     },
     {
       "rule": "react-doctor/js-index-maps",
-      "file": "src/components/evidence/EvidenceMediaSource.tsx"
+      "file": "src/components/evidence/CitationMediaSource.tsx"
     },
     {
       "rule": "react-doctor/js-index-maps",
@@ -240,11 +240,11 @@
     },
     {
       "rule": "react-doctor/no-event-handler",
-      "file": "src/components/evidence/EvidenceMediaSource.tsx"
+      "file": "src/components/evidence/CitationMediaSource.tsx"
     },
     {
       "rule": "react-doctor/no-event-handler",
-      "file": "src/components/evidence/EvidenceTextSource.tsx"
+      "file": "src/components/evidence/CitationTextSource.tsx"
     },
     {
       "rule": "react-doctor/no-event-handler",

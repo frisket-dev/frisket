@@ -1,6 +1,6 @@
-import '../rowInspection/CellEvidence.css';
+import '../rowInspection/CellCitations.css';
 import { FileText } from 'lucide-react';
-import { openEvidenceViewerViaGlobalEvent } from './openEvidenceViewerViaGlobalEvent';
+import { openCitationViewerViaGlobalEvent } from './openCitationViewerViaGlobalEvent';
 
 // The reusable chip behind RowDrawer's per-cell evidence links, so a user
 // never sees a raw `evidence_link:*` id -- only a clickable chip.
@@ -33,7 +33,7 @@ export function CitationChip({
   linkId,
   label,
   snippet,
-  onOpen = openEvidenceViewerViaGlobalEvent,
+  onOpen = openCitationViewerViaGlobalEvent,
   className,
   testId,
   disabled = false,

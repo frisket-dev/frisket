@@ -4,7 +4,7 @@ import './CellRunDetails.css';
 import '../RowDrawer.css';
 import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, FileSearch2, X } from 'lucide-react';
-import type { CellProvenance, RunTraceRowEvidence } from '../../api/open';
+import type { CellProvenance, RunTraceRowRecord } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { confClass, formatUsdOrNone } from '../../format';
 import { formatUsd } from '../../actions/model';
@@ -38,7 +38,7 @@ function formatPrompt(p: unknown): string | null {
 
 type ExplainState =
   | { phase: 'idle' | 'loading' | 'error' }
-  | { phase: 'done'; evidence: RunTraceRowEvidence };
+  | { phase: 'done'; evidence: RunTraceRowRecord };
 
 export function ExplainBlock({
   runId,
@@ -182,7 +182,7 @@ function formatRunDuration(startedAt: string | null, finishedAt: string | null):
 }
 
 function ExplainTraceRow({ evidence, onResearchDetails }: {
-  evidence: RunTraceRowEvidence;
+  evidence: RunTraceRowRecord;
   onResearchDetails(): void;
 }) {
   const trace = evidence.trace;
@@ -300,7 +300,7 @@ function ExplainTraceRow({ evidence, onResearchDetails }: {
   );
 }
 
-function runTraceAbsenceMessage(status: RunTraceRowEvidence['status']): ReactNode {
+function runTraceAbsenceMessage(status: RunTraceRowRecord['status']): ReactNode {
   switch (status) {
     case 'not_recorded':
       return 'Trace logging was unavailable or the trace was dropped for this run.';

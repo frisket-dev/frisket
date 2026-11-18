@@ -77,7 +77,7 @@ export interface GridViewHandle {
 }
 export interface ChromeHandle {
   readonly store: Store<unknown>;
-  /** = openEvidenceViewerForWorkspace */
+  /** = openCitationViewerForWorkspace */
   openEvidence(linkId: string | number, host?: 'modalOrPeek' | 'mainView'): void;
   /** = navigation.openMap's inline body */
   openMap(columnId?: string): void;

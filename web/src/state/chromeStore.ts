@@ -3,7 +3,7 @@
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 import type { WorkbenchProjectionStatus } from '../workbench/WorkbenchBottomDock';
-import type { EvidenceViewerPayload, ProjectInfo } from '../api/types';
+import type { CitationViewerPayload, ProjectInfo } from '../api/types';
 import {
   createScopedChromePreferenceOwner,
   type HydratedChromePreferences,
@@ -15,10 +15,10 @@ export type { WorkViewKind } from '../core/selectors/workView';
 
 const BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID = 'jobs';
 
-export type EvidenceViewerHost = 'modalOrPeek' | 'mainView';
+export type CitationViewerHost = 'modalOrPeek' | 'mainView';
 
-export interface EvidenceViewerFocus {
-  initialPayload?: EvidenceViewerPayload;
+export interface CitationViewerFocus {
+  initialPayload?: CitationViewerPayload;
   initialPage?: number;
   scopeSpanId?: string;
   scopeSpanIds?: readonly string[];
@@ -90,9 +90,9 @@ export interface OpenSplitState {
   columnId?: string;
 }
 
-interface EvidenceViewerState extends EvidenceViewerFocus {
+interface CitationViewerState extends CitationViewerFocus {
   linkId: string | number;
-  host: EvidenceViewerHost;
+  host: CitationViewerHost;
 }
 
 export interface DeleteRowsConfirmState {
@@ -117,7 +117,7 @@ interface ChromeState {
   lastCommandAction: string;
   deleteRowsConfirm: DeleteRowsConfirmState | null;
   error: WorkspaceToastError | null;
-  evidenceViewerState: EvidenceViewerState | null;
+  citationViewerState: CitationViewerState | null;
   ribbonMode: RibbonMode;
   activeRibbonTab: string;
   discoverOpen: boolean;
@@ -147,7 +147,7 @@ export function createChromeState(
     lastCommandAction: '',
     deleteRowsConfirm: null,
     error: null,
-    evidenceViewerState: null,
+    citationViewerState: null,
     ribbonMode: preferences.ribbonMode,
     activeRibbonTab: preferences.activeRibbonTab,
     discoverOpen: preferences.discoverOpen,
@@ -194,12 +194,12 @@ export function createChromeStore(
 
   openDiagnosePanel(project?: ProjectInfo | null): void;
 
-  openEvidenceViewer(
+  openCitationViewer(
     linkId: string | number,
-    host?: EvidenceViewerHost,
-    focus?: EvidenceViewerFocus,
+    host?: CitationViewerHost,
+    focus?: CitationViewerFocus,
   ): void;
-  closeEvidenceViewer(): void;
+  closeCitationViewer(): void;
 
   setRibbonMode(mode: RibbonMode): void;
   setActiveRibbonTab(tab: string): void;
@@ -286,11 +286,11 @@ export function createChromeStore(
       navigate({ kind: 'settings', scope: 'personal', section: 'diagnostics' });
     },
 
-    openEvidenceViewer(linkId, host = 'modalOrPeek', focus) {
-      store.set((s) => ({ ...s, evidenceViewerState: { linkId, host, ...focus } }));
+    openCitationViewer(linkId, host = 'modalOrPeek', focus) {
+      store.set((s) => ({ ...s, citationViewerState: { linkId, host, ...focus } }));
     },
-    closeEvidenceViewer() {
-      store.set((s) => (s.evidenceViewerState === null ? s : { ...s, evidenceViewerState: null }));
+    closeCitationViewer() {
+      store.set((s) => (s.citationViewerState === null ? s : { ...s, citationViewerState: null }));
     },
 
     setRibbonMode(mode) {
