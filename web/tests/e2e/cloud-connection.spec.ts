@@ -30,7 +30,10 @@ async function waitForExtractSelector(page: Page, navigate: () => Promise<unknow
   const pending = page.waitForResponse(async (response) => {
     if (response.request().method() !== 'POST'
       || !response.url().endsWith('/selector-choices') || !response.ok()) return false;
-    const payload = await response.json() as SelectorResponse;
+    // A navigation discards the body of a response it overtakes; that
+    // response is the earlier refresh, never the one awaited here.
+    const payload = await response.json().catch(() => null) as SelectorResponse | null;
+    if (payload === null) return false;
     return payload.subject.kind === 'action'
       && payload.subject.action_id === 'map.extract' && payload.subject.field === 'engine'
       && payload.groups.flatMap((group) => group.choices).some((choice) => (
