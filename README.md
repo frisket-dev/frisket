@@ -6,7 +6,7 @@ I wanted a spreadsheet that did AI things for investigative journalism. The NYT 
 
 ## Quickstart
 
-Use [Frisket Desktop](#frisket-desktop), [Frisket Cloud](https://app.frisket.dev/), or [Frisket Self-Hosted](#frisket-self-hosted).
+Use [Frisket Desktop](#frisket-desktop), [Frisket Cloud](https://app.frisket.dev/), [Frisket Local](#frisket-local), or [Frisket Team](#frisket-team).
 
 ## What Frisket can do
 
@@ -37,11 +37,9 @@ To update, quit the app and install the new version. Your work stays put.
 
 You're lazy, I get it! [Go to app.frisket.dev](https://app.frisket.dev/) and request access. This is a Frisket instance that I personally run.
 
-### Frisket Self-Hosted
+### Frisket Local
 
-#### Single-user
-
-If you just want to run Frisket on your own computer, use **solo mode**. You'll need Python 3.12.
+If you just want to run Frisket on your own computer, use **Frisket Local**. You'll need Python 3.12.
 
 ```
 pip install 'frisket-data[standard]'
@@ -52,9 +50,9 @@ If you want more shiny extras, use `pip install 'frisket-data[complete]'`.
 
 > Note that it is NOT installed with `frisket`, it's `frisket-data`. I got package-name-sniped!
 
-#### Team
+### Frisket Team
 
-If you're running Frisket on a server or want to support multiple users, go for **team mode**.
+If you're running Frisket on a server or want to support multiple users, go for **Frisket Team**.
 
 1. [Download the server install bundle](https://github.com/frisket-dev/frisket/releases) (`frisket-server-<version>.tar.gz`)
 2. Extract it, then run `sudo ./frisket-install` from the extracted directory
@@ -66,7 +64,7 @@ Codex claims it requires Linux, Docker Engine, and Docker Compose. It installs F
 
 Frisket is split into a few parts, including a lightweight server and a heavier sidecar to optionally offload intensive work. As a result, different installs have slightly different features.
 
-The easy one: in solo mode, pick Docling as your PDF-to-Markdown engine and click **Download and set up**. Frisket handles the rest.
+The easy one: in Frisket Local, pick Docling as your PDF-to-Markdown engine and click **Download and set up**. Frisket handles the rest.
 
 For everything else in the sidecar (like the [dots.mocr](https://github.com/studio-dots-ai/dots.ocr) OCR that Cloud uses), build the image yourself from the repo root:
 
@@ -114,7 +112,7 @@ Paid document services like [OpenDocRouter](https://www.opendocrouter.ai/) work 
 
 ### Ask
 
-Ask is a chatbot that knows about your project. Turn on **Run actions** in its settings and it can convert documents, extract fields, and analyze the results for you, within whatever budget and approval level you set.
+Ask is a chatbot that knows about your project. Turn on **Run actions** in its settings and it can convert documents, extract fields, and analyze the results for you, within whatever budget and write access you set.
 
 You can teach it repeatable workflows with **skills**: short instruction files you write in **Settings → Skills** (or ask Ask to write one for you).
 
