@@ -34,7 +34,7 @@ beforeEach(() => {
   }] });
   vi.mocked(api.listProviders).mockResolvedValue({ providers: [{
     id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: '…1234', models: [],
-  }], schemaVersion: 'frisket.local_providers.v1', tier: 'local' });
+  }], schemaVersion: 'frisket.providers.v1', tier: 'local' });
   vi.mocked(api.listModelPulls).mockResolvedValue({ pulls: [] });
   vi.mocked(api.providerCatalog).mockResolvedValue({ providers: [] } as Awaited<ReturnType<typeof api.providerCatalog>>);
   vi.mocked(api.listOrganizationKeys).mockResolvedValue([{ provider: 'openai', hint: '…1234' }] as Awaited<ReturnType<typeof api.listOrganizationKeys>>);

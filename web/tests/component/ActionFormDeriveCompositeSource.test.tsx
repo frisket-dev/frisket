@@ -33,7 +33,7 @@ beforeEach(() => {
   installActionSelectorFixture(extract);
   vi.spyOn(api, 'listProviders').mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test', kind: 'platform_api', configured: true, source: 'env', hint: null,
-      models: [{ id: 'test/model', label: 'Test model', price: null }] }] });
+      models: [{ id: 'test/model', label: 'Test model', price: null, local: false }] }] });
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 

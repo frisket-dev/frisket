@@ -39,13 +39,18 @@ const engines = [
     recommended: true,
     tier: 'local' as const,
     available: true,
+    version: 'fixture-1',
+    error: null,
   },
   {
     id: 'texttiling',
     label: 'Lexical cohesion',
     description: 'Lexical topic changes',
+    recommended: false,
     tier: 'local' as const,
     available: true,
+    version: 'fixture-1',
+    error: null,
   },
 ];
 
@@ -139,6 +144,7 @@ function payload(
           {
             code: 'fixture_failed',
             engine: variant.engine,
+            variant_id: variant.id,
             message: 'fixture lane failed',
           },
         ]

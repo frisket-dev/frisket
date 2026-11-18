@@ -69,7 +69,6 @@ describe('project data-management generated HTTP contracts', () => {
     await expect(api.updateProjectRetention({
       default_evidence: 'pinned',
       no_compact: undefined,
-      preserved_extension: { retained: true },
     }, options)).resolves.toEqual(retention);
     await expect(api.getProjectNetworkPolicy(options)).resolves.toEqual(network);
     await expect(api.updateProjectNetworkPolicy({ mode: 'off' }, options)).resolves.toEqual(network);
@@ -87,7 +86,6 @@ describe('project data-management generated HTTP contracts', () => {
       [`${base}/retention`, 'GET', undefined],
       [`${switched}/retention`, 'PATCH', JSON.stringify({
         default_evidence: 'pinned',
-        preserved_extension: { retained: true },
       })],
       [`${switched}/network`, 'GET', undefined],
       [`${switched}/network`, 'PATCH', JSON.stringify({ mode: 'off' })],

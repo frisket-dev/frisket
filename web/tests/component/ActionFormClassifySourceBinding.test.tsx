@@ -399,7 +399,7 @@ describe('classify source binding', () => {
         configured: true,
         source: 'env',
         hint: null,
-        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini — fast/cheap', price: null }],
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini — fast/cheap', price: null, local: false }],
       }],
     };
     (listProviders as unknown as Mock).mockResolvedValue(providerCatalog);
@@ -438,7 +438,7 @@ describe('classify source binding', () => {
     (listProviders as unknown as Mock).mockResolvedValue({
       schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
         id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
-        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null, local: false }],
       }],
     } satisfies LocalProviderCatalog);
     const { onExecute } = mountClassify({ sheet: summarySheet() });
@@ -463,7 +463,7 @@ describe('classify source binding', () => {
     (listProviders as unknown as Mock).mockResolvedValue({
       schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
         id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
-        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null, local: false }],
       }],
     } satisfies LocalProviderCatalog);
     const entry = servedTypedEntry('map.classify', (engines) => engines.map((engine) => (
@@ -484,7 +484,7 @@ describe('classify source binding', () => {
     (listProviders as unknown as Mock).mockResolvedValue({
       schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
         id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true, source: 'env', hint: null,
-        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+        models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null, local: false }],
       }],
     } satisfies LocalProviderCatalog);
     const entry = servedTypedEntry('map.classify', (engines) => engines.filter((engine) => engine.id !== 'llm'));

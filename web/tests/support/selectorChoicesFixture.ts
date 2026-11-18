@@ -15,7 +15,7 @@ export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalo
   return {
     schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test provider', kind: 'platform_api', configured: true,
-      source: 'env', hint: null, models: modelIds.map((id) => ({ id, label: id, price: null })) }],
+      source: 'env', hint: null, models: modelIds.map((id) => ({ id, label: id, price: null, local: false })) }],
   };
 }
 

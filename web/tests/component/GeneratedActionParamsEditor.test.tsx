@@ -109,7 +109,7 @@ beforeEach(() => {
     providers: [{
       id: 'test', label: 'Test', kind: 'platform_api', configured: true,
       source: 'env', hint: null,
-      models: [{ id: 'test/model', label: 'Test model', price: null }],
+      models: [{ id: 'test/model', label: 'Test model', price: null, local: false }],
     }],
   });
 });

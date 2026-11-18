@@ -56,7 +56,7 @@ afterEach(() => {
 });
 
 function model(id: string, label: string): LocalProviderModel {
-  return { id, label, price: null };
+  return { id, label, price: null, local: true };
 }
 
 function providerEntry(overrides: Partial<LocalProviderEntry> & Pick<LocalProviderEntry, 'id' | 'label' | 'kind' | 'models'>): LocalProviderEntry {

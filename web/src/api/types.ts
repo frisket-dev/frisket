@@ -1,20 +1,59 @@
 import type { GeneratedActionParams } from '../generated/actionTypes';
 import type {
-  HttpActionPreviewStatusResponse,
-  HttpCellEvidenceResponse,
-  HttpEvidenceViewerResponse,
-  HttpLocalEndpointDiscoveryResponse,
+  HttpActionCatalog,
   HttpActionJob,
+  HttpActionPreviewStatusResponse,
+  HttpApiTokenCreateResponse,
+  HttpApiTokenList,
+  HttpCellEvidenceResponse,
+  HttpCellTextAnnotationsResponse,
+  HttpClusterPreviewResponse,
+  HttpColumnEvidenceResponse,
+  HttpColumnRunsPage,
+  HttpColumnStats,
+  HttpColumnValuesPreviewResponse,
+  HttpEvidenceViewerResponse,
+  HttpInstanceInfoResponse,
+  HttpLocalEndpointCatalog,
+  HttpLocalEndpointDiscoveryResponse,
+  HttpLocalProviderCatalog,
   HttpModelPull,
+  HttpModelPullStartResponse,
+  HttpOAuthConnectionList,
+  HttpOrganizationEnvList,
+  HttpOrganizationKeyList,
+  HttpOrganizationProviderCatalog,
+  HttpProjectAttemptsPage,
+  HttpProjectInviteCreate,
+  HttpProjectLineageResponse,
+  HttpProjectMemberList,
+  HttpProjectMemberRemove,
+  HttpProjectMemberSet,
+  HttpProjectNetworkResponse,
+  HttpProjectProviderKeyCatalogResponse,
+  HttpProjectRetentionResponse,
+  HttpProjectSecretCatalogResponse,
   HttpProjectSettingsRequest,
   HttpProjectSettingsResponse,
+  HttpProvenanceManifest,
   HttpReceipt,
   HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
+  HttpRuntimeProjectionBuildPlan,
+  HttpRuntimeProjectionStatus,
+  HttpSavedViewResolved,
+  HttpSheetGraphResponse,
+  HttpSpendReport,
+  HttpTopicSegmentationCompareScratchResponse,
+  HttpTranslateComparisonResponse,
+  HttpWorkbenchPluginActivation,
+  HttpWorkbenchPluginBackendActivation,
+  HttpWorkbenchPluginInstallExecution,
+  HttpWorkbenchPluginInstallState,
+  HttpWorkbenchPluginRuntimeIndex,
+  HttpWorkbenchPluginSettings,
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
-
-
 
 export interface ProjectInfo {
   id: string;
@@ -36,13 +75,10 @@ export interface ProjectInfo {
   archived?: boolean;
 }
 
-// Instance identity: a third-party operator's own display name/welcome
-// message/support contact, so a self-hosted or hosted-for-others deployment
-// isn't stuck with our hardcoded branding/copy.
-export interface InstanceIdentity {
-  display_name: string;
-  support_contact?: string | null;
-}
+// Instance identity: a third-party operator's own display name and support
+// contact, so a self-hosted or hosted-for-others deployment isn't stuck with
+// our hardcoded branding/copy.
+export type InstanceIdentity = HttpInstanceInfoResponse;
 
 /**
  * The shared, open identity payload for GET /api/me: who you are and which
@@ -122,200 +158,38 @@ export interface RuntimeConfig {
 /** @see RuntimeConfig.recipe_fence_posture */
 export type RecipeFencePosture = 'enforced' | 'partial' | 'none' | 'unknown';
 
-export interface SpendRow {
-  project: string;
-  model: string | null;
-  month: string | null;
-  runs: number;
-  rows: number;
-  cost: number;
-}
+export type SpendReport = HttpSpendReport;
 
-export interface SpendReport {
-  rows: SpendRow[];
-  total_cost: number;
-  has_unknown_costs: boolean;
-  unknown_cost_models: string[];
-}
+export type OrganizationKeyInfo = HttpOrganizationKeyList[number];
+export type OrganizationEnvInfo = HttpOrganizationEnvList[number];
 
-/**
- * What GET /api/org/keys actually returns — provider and hint, nothing more.
- * It previously also declared spend_cap_usd / spent_usd / over_cap, none of
- * which the endpoint has ever sent: the control plane's `org_keys` table has
- * no cap or accrual column (metered caps against an organization key are private
- * commerce). The settings table rendered all three as `undefined`, i.e. "-".
- * Project-level provider keys carry the real, enforced cap.
- */
-export interface OrganizationKeyInfo {
-  provider: string;
-  hint: string;
-}
+export type ProviderCatalog = HttpOrganizationProviderCatalog;
 
-export interface OrganizationEnvInfo {
-  name: string;
-  hint: string;
-  created_at?: string | null;
-}
-
-export interface ProviderCatalogItem {
-  id: string;
-  label: string;
-  secret_name: string;
-  kind: string;
-  policy_fields: string[];
-}
-
-export interface ProviderCatalog {
-  schemaVersion: 'frisket.provider_catalog.v1';
-  providers: ProviderCatalogItem[];
-}
-
-export interface ApiTokenInfo {
-  id: number;
-  user_id: number;
-  created_by: string;
-  name: string;
-  prefix: string;
-  created_at: string | null;
-  last_used_at: string | null;
-  revoked: boolean;
-}
-
-export interface ApiTokenCreateResponse {
-  id: number;
-  token: string;
-  name: string;
-  prefix: string;
-}
-
-export interface RemovalResult {
-  ok: boolean;
-  removed: boolean;
-}
+export type ApiTokenInfo = HttpApiTokenList[number];
+export type ApiTokenCreateResponse = HttpApiTokenCreateResponse;
+export type RemovalResult = HttpProjectMemberRemove;
 
 export type ProjectRole = 'viewer' | 'reviewer' | 'editor' | 'owner';
 
 export type ProjectInviteRole = Extract<ProjectRole, 'viewer' | 'editor'>;
 
-export interface ProjectMember {
-  user_id: number;
-  email: string;
-  role: ProjectRole;
-}
+export type ProjectMember = HttpProjectMemberList[number];
+export type ProjectMemberChange = HttpProjectMemberSet;
 
-export interface ProjectMemberChange {
-  ok: boolean;
-  email: string;
-  role: ProjectRole;
-}
+export type ProjectInviteResponse = HttpProjectInviteCreate;
+export type ProjectInvite = ProjectInviteResponse['invite'];
 
-export interface ProjectInvite {
-  id: number;
-  email: string;
-  role: ProjectInviteRole;
-  created_at: string | null;
-  expires_at: string | null;
-  accepted_at: string | null;
-  revoked_at: string | null;
-}
-
-export interface ProjectInviteResponse {
-  sent: boolean;
-  invite: ProjectInvite;
-}
-
-export interface ProjectRetentionPolicy {
-  schemaVersion?: 'frisket.project_retention_policy.v1' | string;
-  default_evidence: string;
-  pin_evidence_by_default: boolean;
-  no_compact: boolean;
-  supported_default_evidence?: string[];
-  [key: string]: unknown;
-}
-
-export interface ProjectNetworkPolicy {
-  schemaVersion?: 'frisket.project_network_policy.v1' | string;
-  /** inherit = follow the organization default (local edition: on). */
-  mode: 'inherit' | 'on' | 'off' | string;
-  /** Organization-wide default materialized into the project; null = built-in "on". */
-  org_default?: 'on' | 'off' | null;
-  /** The resolved two-state value the dispatch gate reads. */
-  effective: 'on' | 'off' | string;
-  [key: string]: unknown;
-}
+export type ProjectRetentionPolicy = HttpProjectRetentionResponse;
+export type ProjectNetworkPolicy = HttpProjectNetworkResponse;
 
 export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
 export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
+export type ProjectSettings = HttpProjectSettingsResponse;
 
-export interface ProjectSettings extends HttpProjectSettingsResponse {
-  /**
-   * EFFECTIVE value: whether media downloads may reach loopback and RFC1918
-   * addresses, after the server default (FRISKET_MEDIA_PRIVATE_HOSTS) and any
-   * project override are resolved. Link-local and cloud instance-metadata
-   * addresses are refused at every level. App-level filter on what dispatch
-   * accepts, not a network guarantee: direct downloads re-check each redirect
-   * hop, but the yt-dlp path is checked on entry only.
-   */
-  media_allow_private_hosts: boolean;
-  /**
-   * True when the server sets FRISKET_MEDIA_PRIVATE_HOSTS=deny-locked: the
-   * project override is refused (PATCHing it returns 400) and the toggle is
-   * hidden.
-   */
-  media_allow_private_hosts_locked: boolean;
-}
+export type ProjectProviderKeys = HttpProjectProviderKeyCatalogResponse;
+export type ProjectProviderKeyInfo = ProjectProviderKeys['providers'][number];
 
-export interface ProjectProviderKeyInfo extends ProviderCatalogItem {
-  configured: boolean;
-  hint: string | null;
-  spend_cap_usd: number | null;
-  /**
-   * Accrued spend on this key, summed from model-call facts whose
-   * credential_source is `project_key`. Only counts calls we could price —
-   * see `unmetered_calls`.
-   */
-  spent_usd: number;
-  /**
-   * Live calls on this key with no published price. When non-zero,
-   * `spent_usd` is a lower bound, not the total.
-   */
-  unmetered_calls: number;
-  updated_at: string | null;
-}
-
-export interface ProjectProviderKeys {
-  schemaVersion: 'frisket.project_provider_keys.v1';
-  projectId: string;
-  providers: ProjectProviderKeyInfo[];
-}
-
-interface ProjectSecretConsumer {
-  kind: string;
-  id: string;
-}
-
-export interface ProjectSecretInfo {
-  name: string;
-  hint: string | null;
-  configured: boolean;
-  updatedAt: string | null;
-  consumers: ProjectSecretConsumer[];
-}
-
-export interface ProjectSecretMigrationConflict {
-  plugin_id: string;
-  name: string;
-  hint: string | null;
-  status: string;
-  created_at: string | null;
-}
-
-export interface ProjectSecrets {
-  schemaVersion: 'frisket.project_secrets.v1';
-  projectId: string;
-  secrets: ProjectSecretInfo[];
-  conflicts: ProjectSecretMigrationConflict[];
-}
+export type ProjectSecrets = HttpProjectSecretCatalogResponse;
 
 export interface AdminOverview {
   totals: {
@@ -477,25 +351,11 @@ export interface ColumnPatch {
   format?: ColumnDisplayFormat | null;
 }
 
-export interface ColumnStatsTopValue {
-  value: string;
-  count: number;
-}
+export type ColumnStatsTopValue = NonNullable<HttpColumnStats['top_values']>[number];
 
-interface ColumnStatsHistogramBin {
-  min: number;
-  max: number;
-  count: number;
-}
+type ColumnStatsHistogramBin = ColumnStatsNumeric['histogram'][number];
 
-export interface ColumnStatsNumeric {
-  count: number;
-  mean: number;
-  median: number;
-  min: number;
-  max: number;
-  histogram: ColumnStatsHistogramBin[];
-}
+export type ColumnStatsNumeric = NonNullable<HttpColumnStats['numeric']>;
 
 export interface ColumnStatsText {
   count: number;
@@ -508,17 +368,9 @@ export interface ColumnStatsText {
   lengthHistogram: ColumnStatsHistogramBin[];
 }
 
-export interface ColumnStatsDate {
-  count: number;
-  min: string;
-  median: string;
-  max: string;
-}
+export type ColumnStatsDate = NonNullable<HttpColumnStats['date']>;
 
-export interface ColumnStatsJsonType {
-  type: string;
-  count: number;
-}
+export type ColumnStatsJsonType = NonNullable<HttpColumnStats['json_types']>[number];
 
 export interface ColumnStatsFile {
   count: number;
@@ -634,18 +486,7 @@ export interface DeleteSheetResult {
  *  `TextAnnotations.text` — the SAME index unit a JavaScript string uses, so
  *  `text.slice(start, end)` is the mark, with no conversion and no re-location
  *  by quote search (the reader's D1: flat text + server offsets). */
-export interface TextPassageWindow {
-  /** Absolute Unicode codepoint offsets; passage highlights remain local UTF-16. */
-  start: number;
-  end: number;
-  total_characters: number;
-  total_bytes: number;
-  retrieval_revision: number | null;
-  previous_start: number | null;
-  next_start: number | null;
-  reached_start: boolean;
-  reached_end: boolean;
-}
+export type TextPassageWindow = NonNullable<HttpCellTextAnnotationsResponse['window']>;
 
 export interface TextAnnotationsOptions {
   start?: number;
@@ -817,12 +658,7 @@ export interface LineageNode {
   source_kind?: string;
 }
 
-export interface LineageEdge {
-  from: string;
-  to: string;
-  kind: 'source' | 'derive' | 'ai_column';
-  stale: boolean;
-}
+export type LineageEdge = HttpProjectLineageResponse['edges'][number];
 
 export interface LineageDag {
   project_id: string;
@@ -874,18 +710,7 @@ export interface CellProvenance {
   runId: string;
 }
 
-export interface CellCitationSummary {
-  id: number;
-  stable_id: string;
-  export_ref: string;
-  status: 'active' | 'stale' | 'replaced' | 'rejected' | (string & {});
-  role: string;
-  evidence_kind: string;
-  span_count: number;
-  artifact_count: number;
-  snippet: string | null;
-  viewer_href: string;
-}
+export type CellCitationSummary = HttpCellEvidenceResponse['links'][number];
 
 /**
  * Generated contract authority for cell-evidence reads. `current_value_ref`
@@ -895,24 +720,10 @@ export interface CellCitationSummary {
 export type CellCitationsPayload = HttpCellEvidenceResponse;
 export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
-/**
- * answers-view-column-evidence-batch-v1: the Grounded Answers reading view's
- * middle-pane batch. Per row that has ACTIVE evidence on the column, its
- * row_id + the SAME `CellCitationSummary` chip shape `CellCitationsPayload`
- * carries — a chip here is field-identical to a chip from the per-cell
- * endpoint. A row with no active evidence is simply absent from `rows`.
- */
-export interface ColumnCitationsBatchRow {
-  row_id: number;
-  links: CellCitationSummary[];
-}
-
-export interface ColumnCitationsBatchPayload {
-  schema_version: 'frisket.column_evidence_batch.v1';
-  sheet_id: number;
-  column_id: number;
-  rows: ColumnCitationsBatchRow[];
-}
+/** The Grounded Answers reading view's middle-pane batch: one row per row
+ *  with ACTIVE evidence on the column, carrying the same link summary shape
+ *  as `CellCitationsPayload`. A row with no active evidence is absent. */
+export type ColumnCitationsBatchPayload = HttpColumnEvidenceResponse;
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
  * response. Its JSON leaves are open values, so consumers must narrow only
@@ -1460,10 +1271,7 @@ export interface JsonSchemaLike {
   [key: string]: unknown;
 }
 
-export interface ActionCatalogErrorSpec {
-  code: string;
-  message: string;
-}
+export type ActionCatalogErrorSpec = HttpActionCatalog['actions'][number]['errors'][number];
 
 export interface ActionCatalogPolicy {
   kind?: string;
@@ -1654,19 +1462,7 @@ export interface ActionCatalogPayload {
   validation_result_schema: JsonSchemaLike;
 }
 
-export interface OAuthConnectionInfo {
-  id: string;
-  connection_id?: string;
-  provider: string;
-  external_subject?: string | null;
-  external_email?: string | null;
-  scopes?: string[];
-  token_type?: string | null;
-  refresh_token_hint?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  revoked_at?: string | null;
-}
+export type OAuthConnectionInfo = HttpOAuthConnectionList['connections'][number];
 
 export type GoogleSheetsExportSourceKind = 'current_sheet' | 'current_view' | 'all_sheets';
 export type GoogleSheetsExportDestinationKind = 'new_spreadsheet' | 'update_existing';
@@ -1700,74 +1496,22 @@ export interface ModelOption {
 
 /** Local-tier provider catalog for the Braintrust-style model picker
  * (GET /api/providers). Distinct from the hosted-organization ProviderCatalog above. */
-export interface LocalProviderModel {
-  id: string; // e.g. "anthropic/claude-haiku-4-5"
-  label: string;
-  /** $/M tokens from the live pricing table; null when unknown (never faked). */
-  price: { input: number; output: number } | null;
-  local?: boolean;
-}
+export type LocalProviderModel = LocalHttpEndpointEntry['models'][number];
 
-export interface PlatformLocalProviderEntry {
-  id: string;
-  label: string;
-  kind: 'platform_api';
-  models: LocalProviderModel[];
-  configured: boolean;
-  source: 'env' | 'local_file' | null;
-  hint: string | null;
-}
+export type PlatformLocalProviderEntry = Exclude<LocalProviderEntry, LocalHttpEndpointEntry>;
 
-export interface LocalHttpEndpointEntry {
-  endpoint_id: string;
-  label: string;
-  kind: 'local_http';
-  read_only: boolean;
-  models: LocalProviderModel[];
-  reachable: boolean;
-  origin: string;
-  authority: 'instance' | 'organization';
-  source: 'stored' | 'environment';
-  detail: string | null;
-  installed_models?: string[];
-  /** Capability facts, reported separately by the server probe — never
-   *  inferred client-side. `ollama_native` means /api/tags answered with its
-   *  schema-valid shape (an EMPTY model list still qualifies: a fresh
-   *  install is native with nothing pulled). */
-  protocol: 'ollama_native' | 'openai_compatible' | 'unknown';
-  /** `unauthorized` = the server answered 401/403 (e.g. behind an
-   *  auth-checking front door) — a distinct state, not "no models".
-   *  `unenforced` = a token is configured but a deliberately tokenless
-   *  probe SUCCEEDED: the front door the operator thinks exists is not
-   *  actually checking — a loud misconfiguration, not a healthy state. */
-  auth_status: 'ok' | 'unauthorized' | 'unenforced' | 'unknown';
-  /** Whether the effective local endpoint configuration includes a bearer
-   *  token. The token itself is never returned. */
-  token_configured: boolean;
-  /** Whether model-download requests use a separately configured token. */
-  provisioning_token_configured: boolean;
-  /** Whether the configured front door is expected to enforce bearer auth. */
-  edge_auth: boolean;
-  /** In-app pull opt-in. Gates the Download affordance in
-   *  LocalServerGuidance and the Settings toggle. */
-  pull_enabled: boolean;
-}
+/** A configured local HTTP endpoint. Capability facts come from the server
+ *  probe and are never inferred client-side: `auth_status: 'unauthorized'`
+ *  means the endpoint answered 401/403 (not "no models"), and `'unenforced'`
+ *  means a token is configured yet a tokenless probe succeeded, a loud
+ *  misconfiguration. Tokens themselves are never returned. */
+export type LocalHttpEndpointEntry = LocalEndpointCatalog['endpoints'][number];
 
-export type LocalProviderEntry = PlatformLocalProviderEntry | LocalHttpEndpointEntry;
+export type LocalProviderEntry = LocalProviderCatalog['providers'][number];
 
-export interface LocalProviderCatalog {
-  schemaVersion: string;
-  tier: 'local';
-  /** Present when a project's effective network policy filtered remote
-   *  providers from this otherwise instance-scoped catalog. */
-  network?: 'off';
-  providers: LocalProviderEntry[];
-}
+export type LocalProviderCatalog = HttpLocalProviderCatalog;
 
-export interface LocalEndpointCatalog {
-  schemaVersion: 'frisket.local_endpoints.v1';
-  endpoints: LocalHttpEndpointEntry[];
-}
+export type LocalEndpointCatalog = HttpLocalEndpointCatalog;
 
 export type LocalEndpointDiscoveryResponse = HttpLocalEndpointDiscoveryResponse;
 export type LocalEndpointDiscoveryCandidate =
@@ -1789,10 +1533,7 @@ export interface DownloadablePair {
 /** POST /providers/models/pull response (202). `deduplicated` is true when
  *  the request joined an already-running pull for the same model instead of
  *  starting a new one (atomic active-operation uniqueness). */
-export interface ModelPullStartResult {
-  pull: ModelPullDto;
-  deduplicated: boolean;
-}
+export type ModelPullStartResult = HttpModelPullStartResponse;
 
 export interface ProviderValidateResult {
   provider?: string;
@@ -2270,12 +2011,7 @@ export interface MapPointsOptions {
 
 export type RuntimeProjectionBuildMode = 'refresh' | 'rebuild';
 
-export interface RuntimeProjectionArtifactRef {
-  kind: 'projection_artifact' | string;
-  projectionKind: string;
-  artifactId: string;
-  [key: string]: unknown;
-}
+export type RuntimeProjectionArtifactRef = RuntimeProjectionStatus['outputs']['artifactRefs'][number];
 
 export interface RuntimeProjectionTarget {
   sheetId: string;
@@ -2301,40 +2037,9 @@ export interface RuntimeProjectionArtifactRequest extends RuntimeProjectionReque
   artifactId: string;
 }
 
-export interface RuntimeProjectionStatus {
-  schemaVersion: 'frisket.runtime_projection_status.v1';
-  status: 'ready' | 'stale' | 'missing' | 'building' | 'failed' | string;
-  freshness: {
-    state: 'fresh' | 'stale' | 'missing' | 'transient' | 'failed' | string;
-    generation?: string | null;
-    transient?: boolean;
-    [key: string]: unknown;
-  };
-  outputs: {
-    artifactRefs: RuntimeProjectionArtifactRef[];
-    metrics?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-  warnings?: string[];
-  [key: string]: unknown;
-}
+export type RuntimeProjectionStatus = HttpRuntimeProjectionStatus;
 
-export interface RuntimeProjectionBuildPlan {
-  schemaVersion: 'frisket.runtime_projection_build_plan.v1';
-  status: 'accepted' | 'noop' | 'failed' | string;
-  build: {
-    operation: 'refresh' | 'rebuild' | 'noop' | string;
-    idempotencyKey: string;
-    [key: string]: unknown;
-  };
-  outputs: {
-    artifactRefs: RuntimeProjectionArtifactRef[];
-    metrics?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-  warnings?: string[];
-  [key: string]: unknown;
-}
+export type RuntimeProjectionBuildPlan = HttpRuntimeProjectionBuildPlan;
 
 export interface TimelineProjectionItem {
   sourceRowId: string | number;
@@ -2365,53 +2070,15 @@ export interface TimelineProjectionArtifact {
   [key: string]: unknown;
 }
 
-export interface GraphRowRef {
-  sheet_id: number;
-  row_id: number;
-}
-
 // --- Generic sheet-graph view -----------------------------------------------
 // GET /projects/:pid/sheets/:sheetId/graph — derived from the materialized
 // edge/join substrate, NOT the FtM neighborhood service.
 
-export interface SheetGraphNode {
-  id: string;
-  label: string;
-  sheet_id: number;
-  row_id: number;
-  row_ref: GraphRowRef;
-  degree: number;
-  color_value?: unknown;
-  size_value?: unknown;
-}
+export type SheetGraphNode = SheetGraphResult['nodes'][number];
 
-export interface SheetGraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  direction: 'directed' | 'undirected';
-  label: string;
-  sheet_id: number;
-  row_id: number;
-  row_ref: GraphRowRef;
-}
+export type SheetGraphEdge = SheetGraphResult['edges'][number];
 
-export interface SheetGraphResult {
-  schema_version: 'frisket.sheet_graph.v1' | string;
-  sheet_id: number;
-  materialized_kind: 'edge' | 'join' | null;
-  direction: 'directed' | 'undirected';
-  nodes: SheetGraphNode[];
-  edges: SheetGraphEdge[];
-  truncated: boolean;
-  limits: {
-    nodes: number;
-    edges: number;
-    returned_nodes: number;
-    returned_edges: number;
-  };
-  diagnostics: Array<{ code: string; message: string; [key: string]: unknown }>;
-}
+export type SheetGraphResult = HttpSheetGraphResponse;
 
 export interface SheetGraphOptions {
   sheetId: number | string;
@@ -2511,83 +2178,18 @@ export interface TopicSegmentationCompareScratchInput {
   language?: string | null;
 }
 
-export interface TopicSegmentationCompareUnit {
-  id: string;
-  ordinal: number;
-  text: string;
-  speaker: string | null;
-  start_ms: number | null;
-  end_ms: number | null;
-}
+export type TopicSegmentationCompareUnit = TopicSegmentationCompareScratchResult['units'][number];
 
-export interface TopicSegmentationCompareBoundary {
-  id: string;
-  locator: Record<string, unknown>;
-  canonical_key: number;
-  locking_kind: 'point' | 'span';
-  strength: number | null;
-  label: string | null;
-  diagnostics: Record<string, unknown>;
-}
+export type TopicSegmentationCompareCanonicalBoundary = TopicSegmentationCompareEngineResult['canonical_boundaries'][number];
 
-export interface TopicSegmentationCompareCanonicalBoundary {
-  /** Ordinal of the source unit where the following section begins. */
-  key: number;
-  /** Presentation detail only; boundary identity is `key`. */
-  kind: 'point' | 'span';
-  candidate_ids: string[];
-}
+export type TopicSegmentationCompareEngineResult = TopicSegmentationCompareScratchResult['results'][number];
 
-export interface TopicSegmentationCompareSection {
-  index: number;
-  unit_ids: string[];
-}
-
-export interface TopicSegmentationCompareEngineResult {
-  variant_id: string;
-  engine: string;
-  engine_version: string | null;
-  settings: { detail?: TopicSegmentationDetail; [key: string]: unknown };
-  status: 'completed' | 'failed';
-  runtime_ms: number;
-  boundaries: TopicSegmentationCompareBoundary[];
-  canonical_boundaries: TopicSegmentationCompareCanonicalBoundary[];
-  sections: TopicSegmentationCompareSection[];
-  unit_membership: Array<{ unit_id: string; section_indexes: number[] }>;
-  diagnostics: Record<string, unknown>;
-  warnings: OcrComparePreviewMessage[];
-  errors: OcrComparePreviewMessage[];
-}
-
-export interface TopicSegmentationCompareScratchResult {
-  schema_version: 'frisket.topic_segmentation_compare.v1' | string;
-  source: {
-    scratch: true;
-    filename: string;
-    mime: string | null;
-    size: number;
-    source_kind: 'untimed_transcript' | 'timestamped_transcript';
-    snapshot_hash: string;
-    language: string | null;
-  };
-  engines: EngineOption[];
-  units: TopicSegmentationCompareUnit[];
-  results: TopicSegmentationCompareEngineResult[];
-  warnings: OcrComparePreviewMessage[];
-  errors: OcrComparePreviewMessage[];
-}
+export type TopicSegmentationCompareScratchResult = HttpTopicSegmentationCompareScratchResponse;
 
 // Translate compare: a text-source bake-off — one translation per engine
 // over a pasted sample. No cost object (the backend records per-row spend on
 // the durable action; the bake-off is a preview).
-export interface TranslateCompareEngineResult {
-  engine: string;
-  translation: string;
-  detected_language: string | null;
-  runtime_ms: number | null;
-  errors?: string[];
-  [key: string]: unknown;
-}
+export type TranslateCompareEngineResult = HttpTranslateComparisonResponse['results'][number];
 
 export interface TranslateCompareScratchInput {
   engines: string[];
@@ -2667,14 +2269,7 @@ export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
 export interface ViewRenameInput { name: string; }
 export type ViewDefinitionReplaceInput = ViewDefinitionInput;
 
-export interface ViewResolved {
-  view_id: number;
-  query_hash: string;
-  refs: Array<{ sheet_id: number; row_id: number; search_score: number | null; similarity_score: number | null; relevance_score: number | null }>;
-  total: number;
-  offset: number;
-  limit: number;
-}
+export type ViewResolved = HttpSavedViewResolved;
 
 export interface ViewAlertConditions {
   kind: 'conditions';
@@ -3109,106 +2704,25 @@ export interface ActionJobsPage {
  *
  *  Nothing here is invented client-side: the panel names the pricing key and
  *  rate the server actually pinned. */
-export interface AttemptSettlement {
-  /** Retained wire spelling; opaque offering terms version, or null for
-   *  provider-direct and unpriced attempts. */
-  price_card_version: string | null;
-  terminal_status: string | null;
-  charge_usd: string | null;
-  unsettleable?: string;
-  pricing_key?: string | null;
-  unit_rate?: string;
-  quantity_unit?: string;
-  charge_authority?: string;
-  ceiling_mode?: string;
-  row_settlement_mode?: string;
-  metered_quantity?: string;
-  metered_unit?: string;
-  billable_quantity?: string;
-  /** Full valid meter at the pinned rate, before any pinned charge ceiling. */
-  rated_charge_usd?: string | null;
-  /** Quantity actually applied to `charge_usd`; may be below billable quantity. */
-  charged_quantity?: string | null;
-  /** Rated value excluded from the charge by the pinned ceiling. */
-  absorbed_overage_usd?: string | null;
-  rated_calls?: number;
-  unmetered_calls?: number;
-  consented_quantity?: string | null;
-  exceeds_consented?: boolean | null;
-}
-
-export interface AttemptReceiptConsent {
-  id: string;
-  grant_basis: string | null;
-  actor: string | null;
-  granted_at: string | null;
-  promise_set_hash: string | null;
-}
-
-export interface AttemptReceiptTarget {
-  target_id?: string | null;
-  transport?: string | null;
-  engine?: string | null;
-  operator?: string | null;
-  egress_class?: string | null;
-  region?: string | null;
-  credential_source?: string | null;
-}
+export type AttemptSettlement = NonNullable<AttemptReceipt['settlement']>;
 
 /** One execution attempt's receipt. `run_id` is null for a COMPACTION-ORPHANED
  *  attempt: ruling 7 keeps the consent + charge record after `compact()` has
  *  reclaimed the run's data, so a null run id is the honest "the run is gone",
- *  never a missing field. */
-export interface AttemptReceipt {
-  attempt_id: string;
-  run_id: number | null;
-  seq: number;
-  state: string;
-  action_identity_hash: string;
-  scope: number[];
-  target: AttemptReceiptTarget | null;
-  consent: AttemptReceiptConsent | null;
-  cost_basis: JsonValue | null;
-  price_card_version: string | null;
-  settlement: AttemptSettlement | null;
-  evaluation: JsonValue | null;
-  /** Whose credential actually bore the work, derived server-side from the
-   *  calls this attempt authorized. `cost_basis: operator_borne_zero` means
-   *  the PLATFORM charged nothing — it does not mean the run was free, and a
-   *  run billed to the user's own provider key is both. `null` is "no
-   *  metering to read", which is not the same as "nothing external ran". */
-  borne_by: AttemptReceiptBorneBy | null;
-  created_at: string;
-}
+ *  never a missing field. `borne_by` lists providers whose cost landed on a
+ *  credential the operator holds (project key, organization key or the
+ *  deployment's env key); empty means every call ran locally or came from
+ *  cache, and null means there was no metering to read. */
+export type AttemptReceipt = AttemptReceiptsPage['attempts'][number];
 
-/** Providers whose cost landed on a credential the operator holds (a project
- *  key, an organization BYOK key, or the deployment's env key). Empty means every call
- *  ran locally or came from cache — genuinely free. */
-export interface AttemptReceiptBorneBy {
-  credentialed_providers: string[];
-}
-
-export interface AttemptReceiptsPage {
-  schema_version: string;
-  order: string;
-  offset: number;
-  limit: number;
-  total: number;
-  has_more: boolean;
-  next_offset: number | null;
-  run_id: number | null;
-  attempts: AttemptReceipt[];
-}
+export type AttemptReceiptsPage = HttpProjectAttemptsPage;
 
 export interface BackfillResult {
   runId: string;
   filled: number;
 }
 
-export interface ClusterValue {
-  value: string;
-  count: number;
-}
+export type ClusterValue = HttpClusterPreviewResponse['clusters'][number]['values'][number];
 
 export interface ClusterGroup {
   key: string;
@@ -3230,42 +2744,9 @@ export interface ClusterPreviewResult {
 }
 
 /** One distinct value in a column-values preview page, with its row count. */
-export interface ColumnValueCount {
-  value: string;
-  count: number;
-}
+export type ColumnValueCount = HttpColumnValuesPreviewResponse['values'][number];
 
-export interface NumberColumnDistributionBin {
-  start: number;
-  end: number;
-  count: number;
-}
-
-export interface IntegerColumnDistributionBin {
-  start: string;
-  end: string;
-  count: number;
-}
-
-export type ColumnDistribution =
-  | {
-      kind: 'number';
-      min: number;
-      max: number;
-      bins: NumberColumnDistributionBin[];
-    }
-  | {
-      kind: 'integer';
-      min: string;
-      max: string;
-      bins: IntegerColumnDistributionBin[];
-    }
-  | {
-      kind: 'date';
-      min: string;
-      max: string;
-      bins: Array<{ start: string; end: string; count: number }>;
-    };
+export type ColumnDistribution = NonNullable<HttpColumnValuesPreviewResponse['distribution']>;
 
 /** Read-only column-values preview (POST /column-values/v1/preview): the
  *  distinct-value inventory the RESOLVE authoring surfaces (Substitute /
@@ -3296,26 +2777,10 @@ export interface ColumnValuesPreview {
   listFacet?: ColumnListFacet | null;
 }
 
-/** One selectable member in a list-valued-column facet. `count` is distinct
- * sheet rows, rather than member occurrences, so it equals the filter result
- * for that one selector. */
-export interface ColumnListFacetChoice {
-  key: string;
-  label: string;
-  count: number;
-  selector: GridFilterListSelector;
-}
-
 /** Independently paged member inventory carried alongside a whole-cell
- * column-values preview. */
-export interface ColumnListFacet {
-  distinct: number;
-  offset: number;
-  limit: number;
-  truncated: boolean;
-  search: string | null;
-  choices: ColumnListFacetChoice[];
-}
+ * column-values preview. A choice's `count` is distinct sheet rows, not
+ * member occurrences, so it equals the filter result for that selector. */
+export type ColumnListFacet = NonNullable<HttpColumnValuesPreviewResponse['list_facet']>;
 
 /** The `entity_eq` selector a mention group emits, verbatim from the preview
  *  payload. `fingerprint` is an internal comparison token — it travels in the
@@ -3444,7 +2909,6 @@ export interface ReplaceRulesPreview {
   valueHash: string;
 }
 
-
 interface RunInspectorCell {
   columnId: string;
   columnName: string;
@@ -3493,10 +2957,7 @@ export interface RunRowsPage extends PageMeta {
 }
 
 /** One run that wrote into a generated column (column provenance). */
-export interface ReviewPassRate {
-  passed: number;
-  graded: number;
-}
+export type ReviewPassRate = NonNullable<HttpColumnRunsPage['current_run']>['human_score'];
 
 /** One completed judge run pinned to this exact output run and column. */
 export interface JudgeReviewPassRate extends ReviewPassRate {
@@ -3625,13 +3086,7 @@ export interface RunTraceRowRecord {
 // ---------------------------------------------------------------------------
 // Project provenance manifest (GET /provenance)
 
-export interface ProvenanceModelSummary {
-  model: string;
-  provider: string | null;
-  runs: number;
-  rows: number;
-  cost: number;
-}
+export type ProvenanceModelSummary = HttpProvenanceManifest['models'][number];
 
 export interface ProvenanceActionKindSummary {
   actionKind: string;
@@ -4308,27 +3763,11 @@ export interface EmbeddingIndexAnalysisResult {
   sheetId: number;
 }
 
-export interface WorkbenchPluginContributionSummary {
-  kind: string;
-  count: number;
-  ids: string[];
-}
+export type WorkbenchPluginContributionSummary = HttpWorkbenchPluginRuntimeIndex['plugins'][number]['contributionSummary'][number];
 
-export interface WorkbenchPluginFrontendComponentBinding {
-  schemaVersion: 'frisket.workbench_plugin_frontend_component_binding.v1';
-  contributionId: string;
-  moduleKey: string;
-  componentKey: string;
-  modulePath?: string;
-  moduleUrl?: string;
-}
+export type WorkbenchPluginFrontendComponentBinding = HttpWorkbenchPluginRuntimeIndex['plugins'][number]['frontendComponentBindings'][number];
 
-export interface WorkbenchPluginDescriptorPackage {
-  schemaVersion: 'frisket.workbench_descriptor_package.v1';
-  sourcePath: string;
-  descriptorCount: number;
-  runtimeOnlyFieldsStripped: string[];
-}
+export type WorkbenchPluginDescriptorPackage = NonNullable<HttpWorkbenchPluginInstallExecution['workbenchDescriptorPackage']>;
 
 export interface WorkbenchPluginDescriptorManifest {
   schemaVersion?: string;
@@ -4405,27 +3844,7 @@ export interface WorkbenchPluginSettingDescriptor {
   description?: string | null;
 }
 
-export interface WorkbenchPluginSettingInfo {
-  id: string;
-  title: string;
-  type: 'boolean' | 'string' | 'number' | 'enum' | string;
-  description: string | null;
-  defaultValue: unknown;
-  effectiveValue: unknown;
-  source: 'project' | 'default' | string;
-  enum: unknown[] | null;
-  min: number | null;
-  max: number | null;
-  readOnly: boolean;
-}
-
-export interface WorkbenchPluginSettings {
-  schemaVersion: 'frisket.workbench_plugin_settings.v1';
-  projectId: string;
-  pluginId: string;
-  canMutate: boolean;
-  settings: WorkbenchPluginSettingInfo[];
-}
+export type WorkbenchPluginSettings = HttpWorkbenchPluginSettings;
 
 export interface WorkbenchPluginActivationRequest {
   pluginId: string;
@@ -4446,43 +3865,9 @@ export interface WorkbenchPluginLocalInstallRequest {
   arbitraryPackageLoadAllowed: boolean;
 }
 
-export interface WorkbenchPluginLocalInstallExecution {
-  schemaVersion: 'frisket.plugin_install_plan_execution.v1';
-  projectId: string;
-  pluginId: string;
-  // The server preserves the submitted source as an open JSON object. In
-  // particular, failed lifecycle responses need not contain a `kind` field.
-  source: Record<string, JsonValue>;
-  installState: 'installed' | 'enabled' | 'failed' | string;
-  activation: 'manifestLoaded' | 'registryManifestRegistered' | 'failed' | string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  receiptId: string | null;
-  manifestSha256: string;
-  packageSha256: string;
-  arbitraryPackageLoadAllowed: boolean;
-  // Lifecycle failures are server-owned diagnostic envelopes, not the
-  // normalized runtime-index failure model below.
-  installFailure: Record<string, JsonValue> | null;
-  layoutMutated?: boolean;
-  workbenchDescriptorPackage?: WorkbenchPluginDescriptorPackage | null;
-  workbenchDescriptorManifests?: WorkbenchPluginDescriptorManifest[] | null;
-}
+export type WorkbenchPluginLocalInstallExecution = HttpWorkbenchPluginInstallExecution;
 
-export interface WorkbenchPluginActivation {
-  schemaVersion: 'frisket.workbench_plugin_activation.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string;
-  manifestSha256: string;
-  packageSha256: string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  activation: 'registryManifestRegistered' | string;
-  installState: 'enabled' | string;
-  registryActivated: boolean;
-  arbitraryPackageLoadAllowed: boolean;
-  permissionsAccepted: string[];
-  registeredPluginManifests: string[];
-}
+export type WorkbenchPluginActivation = HttpWorkbenchPluginActivation;
 
 export interface WorkbenchPluginBackendActivationRequest {
   pluginId: string;
@@ -4491,23 +3876,7 @@ export interface WorkbenchPluginBackendActivationRequest {
   executableHandlersAllowed: boolean;
 }
 
-export interface WorkbenchPluginBackendActivation {
-  schemaVersion: 'frisket.workbench_plugin_backend_activation.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string;
-  manifestSha256: string;
-  packageSha256: string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  arbitraryPackageLoadAllowed: boolean;
-  executableHandlersRegistered: boolean;
-  trustedRuntimeBindingsRegistered: boolean;
-  // Registry summaries are intentionally open: each plugin runtime may
-  // register arbitrary JSON-shaped contribution metadata.
-  registeredBackendContributions: Record<string, JsonValue>;
-  registeredExecutableHandlers: Record<string, JsonValue>;
-  registeredRuntimeBindings: Record<string, JsonValue>;
-}
+export type WorkbenchPluginBackendActivation = HttpWorkbenchPluginBackendActivation;
 
 export interface WorkbenchPluginInstallFailure {
   code: string;
@@ -4518,23 +3887,7 @@ export interface WorkbenchPluginInstallFailure {
   [key: string]: unknown;
 }
 
-export interface WorkbenchPluginInstallStateChange {
-  schemaVersion: 'frisket.workbench_plugin_install_state.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string | null;
-  manifestSha256: string;
-  packageSha256: string;
-  installState: 'disabled' | 'uninstalled' | 'enabled' | 'failed' | string;
-  activation: 'blocked' | 'removed' | 'registryManifestRegistered' | 'failed' | string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  permissionsAccepted: string[];
-  registryActivated: boolean;
-  arbitraryPackageLoadAllowed: boolean;
-  disabledReason: string | null;
-  source: Record<string, JsonValue>;
-  installFailure: Record<string, JsonValue> | null;
-}
+export type WorkbenchPluginInstallStateChange = HttpWorkbenchPluginInstallState;
 
 // ---------------------------------------------------------------------------
 // The API surface. The live implementation is composed in src/api/real.ts;
