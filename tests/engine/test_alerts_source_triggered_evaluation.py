@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 from pathlib import Path
 from typing import Any
@@ -12,21 +12,21 @@ from frisket.engine.jobs import EMBEDDING_REFRESH_KIND, Worker
 from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
-from frisket.features.watchlists.triggers import (
+from frisket.features.alerts.triggers import (
     source_poll_materialization_from_receipt,
-    trigger_source_materialized_watches,
+    trigger_source_materialized_alerts,
 )
-from frisket.features.watchlists.service import WatchBindingError
+from frisket.features.alerts.service import AlertBindingError
 
 
 PROJECT_ID = "source-watch-project"
 
 
-def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
-    import frisket.features.watchlists.triggers as triggers
+def test_standalone_index_race_retries_only_failed_keyword_alert(monkeypatch):
+    import frisket.features.alerts.triggers as triggers
     import frisket.search
 
-    watches = [
+    alerts = [
         {
             "id": 1,
             "view_spec": '{"selection":{"scope":{"kind":"project"},"search":{"text":"one"}}}',
@@ -39,20 +39,20 @@ def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
     calls = {1: 0, 2: 0}
     drains = []
     monkeypatch.setattr(
-        triggers, "affected_enabled_watches", lambda _project, _event: watches
+        triggers, "affected_enabled_alerts", lambda _project, _event: alerts
     )
     monkeypatch.setattr(
         frisket.search, "drain_index", lambda _project: drains.append(1)
     )
 
-    def evaluate(_project, watch):
-        watch_id = int(watch["id"])
-        calls[watch_id] += 1
-        if watch_id == 2 and calls[watch_id] == 1:
-            raise WatchBindingError("search_index_not_ready", "edited")
-        return {"watch_id": watch_id}
+    def evaluate(_project, alert):
+        alert_id = int(alert["id"])
+        calls[alert_id] += 1
+        if alert_id == 2 and calls[alert_id] == 1:
+            raise AlertBindingError("search_index_not_ready", "edited")
+        return {"watch_id": alert_id}
 
-    monkeypatch.setattr(triggers, "run_watch_evaluation", evaluate)
+    monkeypatch.setattr(triggers, "check_alert", evaluate)
     event = {
         "kind": "source_poll_materialized",
         "project_id": PROJECT_ID,
@@ -64,7 +64,7 @@ def test_standalone_index_race_retries_only_failed_keyword_watch(monkeypatch):
         "materialized_rows": 1,
     }
 
-    results = trigger_source_materialized_watches(object(), event)
+    results = trigger_source_materialized_alerts(object(), event)
 
     assert [result["watch_id"] for result in results] == [1, 2]
     assert calls == {1: 1, 2: 2}
@@ -129,7 +129,7 @@ def _run_source_poll(
     return result
 
 
-def test_completed_source_poll_evaluates_affected_enabled_watches(
+def test_completed_source_poll_evaluates_affected_enabled_alerts(
     tmp_path: Path,
 ) -> None:
     project, source_id = _create_project(tmp_path)
@@ -157,20 +157,20 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
         assert first_materialized is not None
         sheet_id = first_materialized["sheet_id"]
 
-        project_watch = add_watch(
+        project_alert = add_alert(
             project,
             "Project budget watch",
             scope="project",
             query={"kind": "fts", "q": "budget", "limit": 20},
         )
-        sheet_watch = add_watch(
+        sheet_alert = add_alert(
             project,
             "Sheet budget watch",
             scope="sheet",
             sheet_id=sheet_id,
             query={"kind": "fts", "q": "budget", "limit": 20},
         )
-        disabled_watch = add_watch(
+        disabled_alert = add_alert(
             project,
             "Disabled budget watch",
             scope="project",
@@ -178,7 +178,7 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
             enabled=False,
         )
         other_sheet = project.add_sheet("Other source")
-        other_sheet_watch = add_watch(
+        other_sheet_alert = add_alert(
             project,
             "Other sheet watch",
             scope="sheet",
@@ -219,9 +219,9 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
         assert materialized["materialized_rows"] == 1
         assert len(materialized["row_ids"]) == 1
 
-        triggered = trigger_source_materialized_watches(project, materialized)
+        triggered = trigger_source_materialized_alerts(project, materialized)
 
-        assert [item["watch_id"] for item in triggered] == [project_watch, sheet_watch]
+        assert [item["watch_id"] for item in triggered] == [project_alert, sheet_alert]
         assert {item["trigger_kind"] for item in triggered} == {
             "source_poll_materialized"
         }
@@ -231,19 +231,19 @@ def test_completed_source_poll_evaluates_affected_enabled_watches(
         assert all(item["run"]["matched_rows"] == 2 for item in triggered)
         assert all(item["run"]["new_rows"] == 0 for item in triggered)
 
-        for watch_id in (project_watch, sheet_watch):
-            latest = project.watch_latest_run(watch_id)
+        for alert_id in (project_alert, sheet_alert):
+            latest = project.alert_latest_run(alert_id)
             assert latest is not None
-            events = project.watch_run_events(int(latest["id"]), limit=10)
+            events = project.alert_check_events(int(latest["id"]), limit=10)
             assert events == []
 
-        assert project.watch_latest_run(disabled_watch) is None
-        assert project.watch_latest_run(other_sheet_watch) is None
+        assert project.alert_latest_run(disabled_alert) is None
+        assert project.alert_latest_run(other_sheet_alert) is None
     finally:
         project.close()
 
 
-def test_source_poll_selects_sheet_filter_watch_from_owned_query(
+def test_source_poll_selects_sheet_filter_alert_from_owned_query(
     tmp_path: Path,
 ) -> None:
     project, source_id = _create_project(tmp_path)
@@ -268,14 +268,14 @@ def test_source_poll_selects_sheet_filter_watch_from_owned_query(
         )
         assert initial is not None
         sheet_id = initial["sheet_id"]
-        filter_id = add_watch(
+        filter_id = add_alert(
             project,
             "All source rows",
             scope="sheet",
             sheet_id=sheet_id,
             query={"kind": "filter", "sheet_id": sheet_id, "filter": {}},
         )
-        later_id = add_watch(
+        later_id = add_alert(
             project,
             "Later direct watch",
             scope="sheet",
@@ -309,7 +309,7 @@ def test_source_poll_selects_sheet_filter_watch_from_owned_query(
         )
         assert materialized is not None
 
-        triggered = trigger_source_materialized_watches(project, materialized)
+        triggered = trigger_source_materialized_alerts(project, materialized)
 
         assert [item["watch_id"] for item in triggered] == [filter_id, later_id]
         assert triggered[0]["run"]["status"] == "ok"
@@ -337,7 +337,7 @@ def _finish_source_poll_job(client: TestClient, body: dict[str, Any]):
     return job
 
 
-def test_v1_source_poll_action_triggers_watch_run(
+def test_v1_source_poll_action_triggers_alert_check(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
@@ -355,7 +355,7 @@ def test_v1_source_poll_action_triggers_watch_run(
         config={"merge_strategy": "append-new"},
         schedule="@hourly",
     )
-    watch_id = add_watch(
+    alert_id = add_alert(
         project,
         "Budget watch",
         scope="project",
@@ -384,24 +384,26 @@ def test_v1_source_poll_action_triggers_watch_run(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["status"] == "queued"
-    assert project.watch_latest_run(watch_id) is None
+    assert project.alert_latest_run(alert_id) is None
     _finish_source_poll_job(client, body)
     worker = Worker(
         client.app.state.workspace.queue, client.app.state.workspace.registry
     )
     for _ in range(20):
-        if project.watch_latest_run(watch_id) is not None:
+        if project.alert_latest_run(alert_id) is not None:
             break
         assert worker.run_once()
-    run = project.watch_latest_run(watch_id)
+    run = project.alert_latest_run(alert_id)
     assert run is not None
     assert run["matched_rows"] == 1
     assert run["new_rows"] == 0
-    events = project.watch_run_events(int(run["id"]), limit=10)
+    events = project.alert_check_events(int(run["id"]), limit=10)
     assert events == []
 
 
-def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) -> None:
+def test_noop_and_failed_source_polls_do_not_trigger_alert_checks(
+    tmp_path: Path,
+) -> None:
     project, source_id = _create_project(tmp_path)
     try:
         first = _run_source_poll(
@@ -425,7 +427,7 @@ def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) 
             receipt_id=first.receipt_id,
         )
         assert first_materialized is not None
-        watch_id = add_watch(
+        alert_id = add_alert(
             project,
             "Budget watch",
             scope="project",
@@ -473,7 +475,7 @@ def test_noop_and_failed_source_polls_do_not_trigger_watch_runs(tmp_path: Path) 
             is None
         )
 
-        assert project.watch_latest_run(watch_id) is None
+        assert project.alert_latest_run(alert_id) is None
     finally:
         project.close()
 
@@ -483,7 +485,7 @@ def test_v1_source_poll_job_enqueues_embedding_refresh(
     monkeypatch: Any,
 ) -> None:
     # HTTP admission queues source.poll; its worker must still enqueue the
-    # refresh needed by embedding_similarity watches after appending source rows.
+    # refresh needed by embedding_similarity alerts after appending source rows.
     from frisket import ingest
 
     client = TestClient(create_app(tmp_path / "ws"))

@@ -7,7 +7,7 @@ action.
 
 from __future__ import annotations
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -22,7 +22,7 @@ from frisket.engine.jobs import (
     enqueue_enclosure_downloads,
     enqueue_due_source_polls,
     register_source_poll_handler,
-    register_watch_evaluate_handler,
+    register_alert_evaluate_handler,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -65,7 +65,7 @@ def _register(workspace, fetch, queue=None):
         reg, workspace_root=workspace, queue=queue, fetch=fetch
     )
     if queue is not None:
-        register_watch_evaluate_handler(reg, workspace_root=workspace, queue=queue)
+        register_alert_evaluate_handler(reg, workspace_root=workspace, queue=queue)
     return reg
 
 
@@ -107,7 +107,7 @@ def test_source_poll_worker_ingests_enabled_rss(tmp_path):
     q.close()
 
 
-def test_source_poll_watch_notification_enqueues_external_delivery_only_for_events(
+def test_source_poll_alert_notification_enqueues_external_delivery_only_for_events(
     tmp_path,
 ):
     workspace = tmp_path / "ws"
@@ -173,22 +173,22 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
         ),
     )
 
-    # Establish the source-owned sheet before creating a Watch, so only the
-    # second poll has a Watch to evaluate.
+    # Establish the source-owned sheet before creating an Alert, so only the
+    # second poll has an Alert to evaluate.
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()
     p = Project(workspace / "news.frisket")
-    watch_id = add_watch(
+    alert_id = add_alert(
         p,
         "Budget watch",
         scope="project",
         query={"kind": "fts", "q": "budget", "limit": 20},
     )
     # The initial observation is silent; later source changes produce alerts.
-    from frisket.features.watchlists.service import run_watch_evaluation
+    from frisket.features.alerts.service import check_alert
 
     drain_index(p)
-    run_watch_evaluation(p, p.get_watch(watch_id))
+    check_alert(p, p.get_alert(alert_id))
     channel = p.create_notification_channel(
         kind="email",
         name="Watch email",
@@ -199,7 +199,7 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
         name="Budget route",
         channel_id=int(channel["id"]),
         source_kind="watch",
-        source_ref_match={"watch_id": watch_id},
+        source_ref_match={"watch_id": alert_id},
     )
     p.close()
 
@@ -216,7 +216,7 @@ def test_source_poll_watch_notification_enqueues_external_delivery_only_for_even
     assert delivery_jobs[0].status == "queued"
     assert delivery_jobs[0].payload["workspace_root"] == str(workspace)
 
-    # A later materialization still evaluates the Watch, but a non-matching
+    # A later materialization still evaluates the Alert, but a non-matching
     # row emits no notification and cannot enqueue a second delivery.
     q.enqueue(SOURCE_POLL_KIND, {"project_id": "news", "source_id": sid})
     assert worker.run_once()

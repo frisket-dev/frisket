@@ -96,7 +96,7 @@ def test_plugin_candidates_flow_through_core_service_not_channel_direct_send(
     assert state["acknowledged_at"] is None
 
 
-def test_candidate_validation_rejects_invalid_and_watch_source_refs_are_checked(
+def test_candidate_validation_rejects_invalid_and_alert_source_refs_are_checked(
     tmp_path: Path,
 ) -> None:
     _client, _pid, project = _project(tmp_path)

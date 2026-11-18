@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 import json
 from pathlib import Path
@@ -40,10 +40,10 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
     return pid, int(response.json()["sheet_id"])
 
 
-def _create_fts_watch(
+def _create_fts_alert(
     client: TestClient, pid: str, *, limit: int = 10
 ) -> dict[str, Any]:
-    response = post_watch(
+    response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -56,15 +56,15 @@ def _create_fts_watch(
     return response.json()
 
 
-def _run_watch(client: TestClient, pid: str, watch_id: int) -> dict[str, Any]:
-    response = client.post(f"/api/projects/{pid}/watches/{watch_id}/run")
+def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
+    response = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["schema_version"] == "frisket.watch_run.v1"
     return body
 
 
-def test_query_lens_watch_and_notification_candidate_helpers_are_versioned() -> None:
+def test_query_lens_alert_and_notification_candidate_helpers_are_versioned() -> None:
     fts_query = normalize_query_spec(
         {"kind": "fts", "q": "budget", "limit": 25},
         scope={"kind": "project"},
@@ -127,32 +127,32 @@ def test_query_lens_watch_and_notification_candidate_helpers_are_versioned() -> 
         )
 
 
-def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
+def test_alert_checks_record_row_entered_events_and_keep_mvp_tables(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
-    watch = _create_fts_watch(client, pid)
+    alert = _create_fts_alert(client, pid)
 
     project = client.app.state.workspace.get(pid)
-    stored_watch = project.get_watch(watch["id"])
-    assert stored_watch is not None
-    assert stored_watch["view_id"] == watch["view_id"]
-    assert json.loads(stored_watch["view_spec"])["selection"]["search"] == {
+    stored_alert = project.get_alert(alert["id"])
+    assert stored_alert is not None
+    assert stored_alert["view_id"] == alert["view_id"]
+    assert json.loads(stored_alert["view_spec"])["selection"]["search"] == {
         "text": "budget"
     }
-    assert json.loads(stored_watch["detection_policy"])["entered"] is True
+    assert json.loads(stored_alert["detection_policy"])["entered"] is True
 
-    from watch_helpers import seed_empty_watch_baseline
+    from alert_helpers import seed_empty_alert_baseline
 
-    seed_empty_watch_baseline(project, watch["id"])
-    first = _run_watch(client, pid, watch["id"])
+    seed_empty_alert_baseline(project, alert["id"])
+    first = _check_alert(client, pid, alert["id"])
     assert first["run"]["matched_rows"] == 2
     assert first["run"]["new_rows"] == 2
     assert [hit["is_new"] for hit in first["hits"]] == [True, True]
 
     route = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
         params={"offset": 0, "limit": 1},
     )
     assert route.status_code == 200, route.text
@@ -178,23 +178,23 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     assert event["snippet"] is None
 
     filtered = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
         params={"event_kind": "row_entered", "limit": 10},
     )
     assert filtered.status_code == 200, filtered.text
     assert filtered.json()["total"] == 2
 
     no_such_kind = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{first['run']['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{first['run']['id']}/events",
         params={"event_kind": "row_exited", "limit": 10},
     )
     assert no_such_kind.status_code == 200, no_such_kind.text
     assert no_such_kind.json()["total"] == 0
 
-    second = _run_watch(client, pid, watch["id"])
+    second = _check_alert(client, pid, alert["id"])
     assert second["run"]["new_rows"] == 0
     second_events = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{second['run']['id']}/events"
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{second['run']['id']}/events"
     )
     assert second_events.status_code == 200, second_events.text
     assert second_events.json()["total"] == 0
@@ -211,10 +211,10 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     )
     assert added.status_code == 200, added.text
     drain_index(client.app.state.workspace.get(pid))
-    third = _run_watch(client, pid, watch["id"])
+    third = _check_alert(client, pid, alert["id"])
     assert third["run"]["new_rows"] == 1
     third_events = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{third['run']['id']}/events"
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{third['run']['id']}/events"
     )
     assert third_events.status_code == 200, third_events.text
     assert third_events.json()["total"] == 1
@@ -245,15 +245,17 @@ def test_watch_runs_record_row_entered_events_and_keep_mvp_tables(
     }.issubset(indexes)
 
 
-def test_watch_run_events_route_rejects_run_from_another_watch(tmp_path: Path) -> None:
+def test_alert_check_events_route_rejects_run_from_another_alert(
+    tmp_path: Path,
+) -> None:
     client = _client(tmp_path)
     pid, _sheet_id = _seed_project(client)
-    first_watch = _create_fts_watch(client, pid)
-    second_watch = _create_fts_watch(client, pid, limit=5)
-    run = _run_watch(client, pid, first_watch["id"])
+    first_alert = _create_fts_alert(client, pid)
+    second_alert = _create_fts_alert(client, pid, limit=5)
+    run = _check_alert(client, pid, first_alert["id"])
 
-    wrong_watch = client.get(
-        f"/api/projects/{pid}/watches/{second_watch['id']}/runs/{run['run']['id']}/events"
+    wrong_alert = client.get(
+        f"/api/projects/{pid}/watches/{second_alert['id']}/runs/{run['run']['id']}/events"
     )
-    assert wrong_watch.status_code == 404, wrong_watch.text
-    assert "alert check not found" in wrong_watch.json()["detail"]
+    assert wrong_alert.status_code == 404, wrong_alert.text
+    assert "alert check not found" in wrong_alert.json()["detail"]

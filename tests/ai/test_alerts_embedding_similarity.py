@@ -1,18 +1,18 @@
-"""watchlists over embedding_similarity (row-anchor 'rows similar to X').
+"""alerts over embedding_similarity (row-anchor 'rows similar to X').
 
-A watch binds to an embedding_similarity QuerySpec; the existing watch_seen_rows
+An alert binds to an embedding_similarity QuerySpec; the existing watch_seen_rows
 snapshot machinery turns the resolved similar-row set into enter/exit + dedupe +
-notifications — no new watch inbox. A stale index produces a typed blocked watch
-run (cursor not advanced) until a refresh clears it; the watch never calls a
+notifications — no new alert inbox. A stale index produces a typed blocked alert
+run (cursor not advanced) until a refresh clears it; the alert never calls a
 provider (row anchors only).
 """
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 from fastapi.testclient import TestClient
 
@@ -124,7 +124,7 @@ def _row_id(project, sheet, col, text):
     return next(rid for rid, v in project.get_values(sheet, col).items() if v == text)
 
 
-def _make_watch(
+def _make_alert(
     client, pid, sheet, index_id, anchor_row, *, policy=None, **anchor_extra
 ):
     body = {
@@ -138,16 +138,16 @@ def _make_watch(
         },
         "detection_policy": policy or {"kind": "new_matches"},
     }
-    return post_watch(client, f"/api/projects/{pid}/watches", json=body)
+    return post_alert(client, f"/api/projects/{pid}/watches", json=body)
 
 
-def _run(client, pid, watch_id):
-    return client.post(f"/api/projects/{pid}/watches/{watch_id}/run").json()
+def _run(client, pid, alert_id):
+    return client.post(f"/api/projects/{pid}/watches/{alert_id}/run").json()
 
 
-def _events(client, pid, watch_id, run_id):
+def _events(client, pid, alert_id, run_id):
     return client.get(
-        f"/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events"
+        f"/api/projects/{pid}/watches/{alert_id}/runs/{run_id}/events"
     ).json()
 
 
@@ -158,20 +158,20 @@ def _notifications(client, pid):
 # --------------------------------------------------------------------------
 
 
-def test_first_embedding_watch_observation_is_silent(tmp_path):
+def test_first_embedding_alert_observation_is_silent(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
 
-    first = _run(client, pid, watch["id"])
+    first = _run(client, pid, alert["id"])
     assert first["run"]["status"] == "ok", first["run"].get("error")
     # The anchor is excluded; the first successful membership is a silent baseline.
     assert first["run"]["matched_rows"] == 2
     assert first["run"]["new_rows"] == 0
-    events = _events(client, pid, watch["id"], first["run"]["id"])
+    events = _events(client, pid, alert["id"], first["run"]["id"])
     assert events["total"] == 0
     assert _notifications(client, pid)["total"] == 0
 
@@ -182,31 +182,31 @@ def test_no_duplicate_events_across_reruns(tmp_path):
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
 
-    first = _run(client, pid, watch["id"])
+    first = _run(client, pid, alert["id"])
     assert first["run"]["new_rows"] == 0
     # rerun with an unchanged index: no new rows, no new events, no new notification
-    second = _run(client, pid, watch["id"])
+    second = _run(client, pid, alert["id"])
     assert second["run"]["status"] == "ok"
     assert second["run"]["new_rows"] == 0
-    assert _events(client, pid, watch["id"], second["run"]["id"])["total"] == 0
+    assert _events(client, pid, alert["id"], second["run"]["id"])["total"] == 0
     assert _notifications(client, pid)["total"] == 0
 
 
-def test_stale_index_blocks_watch_with_typed_result(tmp_path):
+def test_stale_index_blocks_alert_with_typed_result(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     kitten = _row_id(project, sheet, col, "kitten")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
-    _run(client, pid, watch["id"])  # first ok run
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
+    _run(client, pid, alert["id"])  # first ok run
 
     # a source cell changes -> the index is stale (a candidate's vector is stale)
     _edit_cell(project, pid, row_id=kitten, column_id=col, value="panther", key="e@1")
-    blocked = _run(client, pid, watch["id"])
+    blocked = _run(client, pid, alert["id"])
     assert blocked["run"]["status"] == "error"
     assert blocked["run"]["error_code"] == "embedding_index_stale"
     assert blocked["run"]["new_rows"] == 0
@@ -214,18 +214,18 @@ def test_stale_index_blocks_watch_with_typed_result(tmp_path):
     assert _notifications(client, pid)["total"] == 0
 
 
-def test_hidden_published_member_does_not_block_watch(tmp_path):
+def test_hidden_published_member_does_not_block_alert(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     kitten = _row_id(project, sheet, col, "kitten")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (kitten,))
     project.db.commit()
 
-    result = _run(client, pid, watch["id"])
+    result = _run(client, pid, alert["id"])
     assert result["run"]["status"] == "ok"
     assert result["run"]["matched_rows"] == 1
 
@@ -237,52 +237,52 @@ def test_refresh_then_evaluate_clears_the_block(tmp_path):
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     kitten = _row_id(project, sheet, col, "kitten")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
-    _run(client, pid, watch["id"])
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
+    _run(client, pid, alert["id"])
     _edit_cell(project, pid, row_id=kitten, column_id=col, value="panther", key="e@1")
-    assert _run(client, pid, watch["id"])["run"]["status"] == "error"
+    assert _run(client, pid, alert["id"])["run"]["status"] == "error"
 
-    # the configured refresh path re-embeds; the watch then evaluates fresh again,
+    # the configured refresh path re-embeds; the alert then evaluates fresh again,
     # diffing against the last OK run (so an unchanged membership emits no events).
     _refresh(project, pid, index_id, key="r@2")
-    ok = _run(client, pid, watch["id"])
+    ok = _run(client, pid, alert["id"])
     assert ok["run"]["status"] == "ok"
     assert ok["run"]["matched_rows"] == 2
-    assert _events(client, pid, watch["id"], ok["run"]["id"])["total"] == 0
+    assert _events(client, pid, alert["id"], ok["run"]["id"])["total"] == 0
 
 
-def test_appended_unembedded_row_blocks_watch_then_refresh_emits_enter(tmp_path):
+def test_appended_unembedded_row_blocks_alert_then_refresh_emits_enter(tmp_path):
     # A new embeddable row that entered the index scope but was never embedded makes
-    # the index INCOMPLETE — the watch must block (not silently miss the row), and a
+    # the index INCOMPLETE — the alert must block (not silently miss the row), and a
     # refresh then embeds it and emits its row_entered.
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
-    watch = _make_watch(client, pid, sheet, index_id, cat).json()
-    _run(client, pid, watch["id"])  # ok, entered {kitten, airplane}
+    alert = _make_alert(client, pid, sheet, index_id, cat).json()
+    _run(client, pid, alert["id"])  # ok, entered {kitten, airplane}
 
     # append a new embeddable row WITHOUT refreshing
     project.add_rows(sheet, [{"headline": "lion"}], {"headline": col})
-    blocked = _run(client, pid, watch["id"])
+    blocked = _run(client, pid, alert["id"])
     assert blocked["run"]["status"] == "error"
     assert blocked["run"]["error_code"] == "embedding_index_incomplete"
     assert blocked["run"]["new_rows"] == 0
     assert _notifications(client, pid)["total"] == 0  # no spurious notification
 
-    # refresh embeds the new row; the watch then evaluates ok and the new row enters
+    # refresh embeds the new row; the alert then evaluates ok and the new row enters
     _refresh(project, pid, index_id, key="r@2")
     lion = _row_id(project, sheet, col, "lion")
-    ok = _run(client, pid, watch["id"])
+    ok = _run(client, pid, alert["id"])
     assert ok["run"]["status"] == "ok"
     assert ok["run"]["matched_rows"] == 3
-    events = _events(client, pid, watch["id"], ok["run"]["id"])["events"]
+    events = _events(client, pid, alert["id"], ok["run"]["id"])["events"]
     assert {e["event_kind"] for e in events} == {"row_entered"}
     assert lion in {e["subject_ref"]["row_id"] for e in events}
 
 
-def test_create_rejects_watch_sheet_mismatching_index_sheet(tmp_path):
+def test_create_rejects_alert_sheet_mismatching_index_sheet(tmp_path):
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
@@ -309,10 +309,10 @@ def test_create_rejects_watch_sheet_mismatching_index_sheet(tmp_path):
     assert resp.json()["detail"]["code"] == "embedding_index_sheet_mismatch"
 
 
-def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
-    # a directly-stored (legacy) watch whose sheet != the index sheet must block in
+def test_evaluator_blocks_legacy_cross_sheet_alert(tmp_path):
+    # a directly-stored (legacy) alert whose sheet != the index sheet must block in
     # the evaluator, never recording cross-sheet hits.
-    from frisket.features.watchlists.service import run_watch_evaluation
+    from frisket.features.alerts.service import check_alert
 
     client = _client(tmp_path)
     pid, project, sheet, col = _seed(client)
@@ -320,7 +320,7 @@ def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
     other_sheet = project.add_sheet("other")
-    watch_id = add_watch(
+    alert_id = add_alert(
         project,
         "Corrupt scope",
         scope="sheet",
@@ -334,14 +334,14 @@ def test_evaluator_blocks_legacy_cross_sheet_watch(tmp_path):
     )
     import json
 
-    watch = project.get_watch(watch_id)
-    spec = json.loads(watch["view_spec"])
+    alert = project.get_alert(alert_id)
+    spec = json.loads(alert["view_spec"])
     spec["selection"]["scope"]["sheet_id"] = other_sheet
     project.db.execute(
-        "UPDATE views SET spec=? WHERE id=?", (json.dumps(spec), watch["view_id"])
+        "UPDATE views SET spec=? WHERE id=?", (json.dumps(spec), alert["view_id"])
     )
     project.db.commit()
-    result = run_watch_evaluation(project, project.get_watch(watch_id))
+    result = check_alert(project, project.get_alert(alert_id))
     assert result["run"]["status"] == "error"
     assert result["run"]["error_code"] == "embedding_index_sheet_mismatch"
 
@@ -353,7 +353,7 @@ def test_single_column_cell_anchor_is_precise_and_supported(tmp_path):
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
     cat = _row_id(project, sheet, col, "cat")
-    resp = post_watch(
+    resp = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -376,7 +376,7 @@ def test_manual_text_query_waits_for_explicit_preparation(tmp_path):
     pid, project, sheet, col = _seed(client)
     index_id = _create_index(project, pid, sheet)
     _refresh(project, pid, index_id)
-    resp = post_watch(
+    resp = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={

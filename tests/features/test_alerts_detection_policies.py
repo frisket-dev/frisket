@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 from pathlib import Path
 from typing import Any
@@ -49,14 +49,14 @@ def _sheet_snapshot(
     return columns, by_title
 
 
-def _create_filter_watch(
+def _create_filter_alert(
     client: TestClient,
     pid: str,
     sheet_id: int,
     *,
     policy: dict[str, Any],
 ) -> dict[str, Any]:
-    response = post_watch(
+    response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -79,8 +79,8 @@ def _create_filter_watch(
     return body
 
 
-def _run_watch(client: TestClient, pid: str, watch_id: int) -> dict[str, Any]:
-    response = client.post(f"/api/projects/{pid}/watches/{watch_id}/run")
+def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
+    response = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["schema_version"] == "frisket.watch_run.v1"
@@ -90,7 +90,7 @@ def _run_watch(client: TestClient, pid: str, watch_id: int) -> dict[str, Any]:
 def _events(
     client: TestClient,
     pid: str,
-    watch_id: int,
+    alert_id: int,
     run_id: int,
     *,
     kind: str | None = None,
@@ -99,7 +99,7 @@ def _events(
     if kind is not None:
         params["event_kind"] = kind
     response = client.get(
-        f"/api/projects/{pid}/watches/{watch_id}/runs/{run_id}/events",
+        f"/api/projects/{pid}/watches/{alert_id}/runs/{run_id}/events",
         params=params,
     )
     assert response.status_code == 200, response.text
@@ -110,16 +110,16 @@ def test_membership_changed_emits_entered_and_exited_rows(tmp_path: Path) -> Non
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     columns, by_title = _sheet_snapshot(client, pid, sheet_id)
-    watch = _create_filter_watch(
+    alert = _create_filter_alert(
         client,
         pid,
         sheet_id,
         policy={"kind": "membership_changed"},
     )
 
-    first = _run_watch(client, pid, watch["id"])
+    first = _check_alert(client, pid, alert["id"])
     assert first["run"]["matched_rows"] == 2
-    first_events = _events(client, pid, watch["id"], first["run"]["id"])
+    first_events = _events(client, pid, alert["id"], first["run"]["id"])
     assert first_events == []
 
     edit = post_cell_edit_as_v1_action(
@@ -146,10 +146,10 @@ def test_membership_changed_emits_entered_and_exited_rows(tmp_path: Path) -> Non
     )
     assert added.status_code == 200, added.text
 
-    second = _run_watch(client, pid, watch["id"])
+    second = _check_alert(client, pid, alert["id"])
     assert second["run"]["matched_rows"] == 2
     assert second["run"]["new_rows"] == 1
-    second_events = _events(client, pid, watch["id"], second["run"]["id"])
+    second_events = _events(client, pid, alert["id"], second["run"]["id"])
     assert [event["event_kind"] for event in second_events] == [
         "row_entered",
         "row_exited",
@@ -174,13 +174,13 @@ def test_count_and_threshold_events_use_approved_first_run_baseline(
 ) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
-    count_watch = _create_filter_watch(
+    count_alert = _create_filter_alert(
         client,
         pid,
         sheet_id,
         policy={"kind": "count_changed"},
     )
-    threshold_watch = _create_filter_watch(
+    threshold_alert = _create_filter_alert(
         client,
         pid,
         sheet_id,
@@ -192,24 +192,24 @@ def test_count_and_threshold_events_use_approved_first_run_baseline(
         },
     )
 
-    from watch_helpers import seed_empty_watch_baseline
+    from alert_helpers import seed_empty_alert_baseline
 
     project = client.app.state.workspace.get(pid)
-    seed_empty_watch_baseline(project, count_watch["id"])
-    seed_empty_watch_baseline(project, threshold_watch["id"])
-    first_count = _run_watch(client, pid, count_watch["id"])
-    count_events = _events(client, pid, count_watch["id"], first_count["run"]["id"])
+    seed_empty_alert_baseline(project, count_alert["id"])
+    seed_empty_alert_baseline(project, threshold_alert["id"])
+    first_count = _check_alert(client, pid, count_alert["id"])
+    count_events = _events(client, pid, count_alert["id"], first_count["run"]["id"])
     assert [event["event_kind"] for event in count_events] == ["count_changed"]
     assert count_events[0]["before_json"]["matched_rows"] == 0
     assert count_events[0]["after_json"]["matched_rows"] == 2
     assert count_events[0]["delta_json"]["count_delta"] == 2
 
-    unchanged_count = _run_watch(client, pid, count_watch["id"])
-    assert _events(client, pid, count_watch["id"], unchanged_count["run"]["id"]) == []
+    unchanged_count = _check_alert(client, pid, count_alert["id"])
+    assert _events(client, pid, count_alert["id"], unchanged_count["run"]["id"]) == []
 
-    first_threshold = _run_watch(client, pid, threshold_watch["id"])
+    first_threshold = _check_alert(client, pid, threshold_alert["id"])
     threshold_events = _events(
-        client, pid, threshold_watch["id"], first_threshold["run"]["id"]
+        client, pid, threshold_alert["id"], first_threshold["run"]["id"]
     )
     assert [event["event_kind"] for event in threshold_events] == ["threshold_crossed"]
     assert threshold_events[0]["before_json"]["matched_rows"] == 0
@@ -228,7 +228,7 @@ def test_row_changed_is_bounded_to_configured_fields_and_not_first_observation(
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     columns, by_title = _sheet_snapshot(client, pid, sheet_id)
-    watch = _create_filter_watch(
+    alert = _create_filter_alert(
         client,
         pid,
         sheet_id,
@@ -244,9 +244,9 @@ def test_row_changed_is_bounded_to_configured_fields_and_not_first_observation(
         },
     )
 
-    first = _run_watch(client, pid, watch["id"])
+    first = _check_alert(client, pid, alert["id"])
     assert first["run"]["matched_rows"] == 2
-    assert _events(client, pid, watch["id"], first["run"]["id"]) == []
+    assert _events(client, pid, alert["id"], first["run"]["id"]) == []
 
     project = client.app.state.workspace.get(pid)
     state_rows = project.db.execute(
@@ -273,8 +273,8 @@ def test_row_changed_is_bounded_to_configured_fields_and_not_first_observation(
     )
     assert edit.status_code == 200, edit.text
 
-    second = _run_watch(client, pid, watch["id"])
-    changed_events = _events(client, pid, watch["id"], second["run"]["id"])
+    second = _check_alert(client, pid, alert["id"])
+    changed_events = _events(client, pid, alert["id"], second["run"]["id"])
     assert [event["event_kind"] for event in changed_events] == ["row_changed"]
     changed = changed_events[0]
     assert changed["subject_ref"] == {
@@ -302,8 +302,8 @@ def test_row_changed_is_bounded_to_configured_fields_and_not_first_observation(
         },
     )
     assert added.status_code == 200, added.text
-    third = _run_watch(client, pid, watch["id"])
-    assert _events(client, pid, watch["id"], third["run"]["id"]) == []
+    third = _check_alert(client, pid, alert["id"])
+    assert _events(client, pid, alert["id"], third["run"]["id"]) == []
 
 
 def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
@@ -312,7 +312,7 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    empty_fields = post_watch(
+    empty_fields = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -329,7 +329,7 @@ def test_detection_policy_validation_rejects_unbounded_or_bad_combinations(
     assert empty_fields.status_code == 400, empty_fields.text
     assert "fields" in empty_fields.json()["detail"]
 
-    bad_metric = post_watch(
+    bad_metric = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={

@@ -209,7 +209,7 @@ def test_consumed_operation_and_producer_identities_are_never_reused():
     )
 
 
-def test_view_and_watch_high_water_survives_shape_conversion_and_deletion():
+def test_view_and_alert_high_water_survives_shape_conversion_and_deletion():
     from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 
     db = _prior()
@@ -236,12 +236,12 @@ def test_view_and_watch_high_water_survives_shape_conversion_and_deletion():
         "INSERT INTO views(sheet_id,name,spec) VALUES(4,'next','{}')"
     ).lastrowid
     assert new_view == 102
-    watch = db.execute(
+    alert = db.execute(
         "INSERT INTO watches(name,view_id,detection_policy) VALUES('next',?,'{}')",
         (new_view,),
     ).lastrowid
-    assert watch == 201
-    db.execute("DELETE FROM watches WHERE id=?", (watch,))
+    assert alert == 201
+    db.execute("DELETE FROM watches WHERE id=?", (alert,))
     assert (
         db.execute(
             "INSERT INTO watches(name,view_id,detection_policy) VALUES('next again',?,'{}')",

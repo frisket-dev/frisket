@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 from pathlib import Path
 
@@ -21,7 +21,7 @@ CSV = (
 )
 
 
-def _seed_watch(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
+def _seed_alert(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
     pid = client.post("/api/projects", json={"name": "Lane 5 notifications"}).json()[
         "id"
     ]
@@ -31,7 +31,7 @@ def _seed_watch(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
     )
     assert import_response.status_code == 200, import_response.text
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -40,27 +40,27 @@ def _seed_watch(client: TestClient) -> tuple[str, dict, dict, list[dict]]:
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
-    from watch_helpers import seed_empty_watch_baseline
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
+    from alert_helpers import seed_empty_alert_baseline
 
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
-    return pid, watch, run, events_response.json()["events"]
+    return pid, alert, run, events_response.json()["events"]
 
 
-def test_watch_run_events_project_to_generic_notifications_without_mutating_facts(
+def test_alert_check_events_project_to_generic_notifications_without_mutating_facts(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
-    pid, watch, run, events = _seed_watch(client)
+    pid, alert, run, events = _seed_alert(client)
     event_ids = [event["id"] for event in events]
     assert event_ids
 
@@ -69,21 +69,21 @@ def test_watch_run_events_project_to_generic_notifications_without_mutating_fact
     assert page["total"] == 1
     item = page["notifications"][0]
     assert item["source_kind"] == "watch"
-    assert item["source_ref"] == {"watch_id": watch["id"], "run_id": run["id"]}
+    assert item["source_ref"] == {"watch_id": alert["id"], "run_id": run["id"]}
     assert item["source_event_ids"] == event_ids
     project = client.app.state.workspace.get(pid)
     stored = project.db.execute(
         "SELECT dedupe_key FROM notification_items WHERE id=?",
         (item["id"],),
     ).fetchone()
-    assert stored["dedupe_key"] == f"watch:{watch['id']}:run:{run['id']}"
+    assert stored["dedupe_key"] == f"watch:{alert['id']}:run:{run['id']}"
     assert "," not in stored["dedupe_key"]
     assert len(stored["dedupe_key"]) < 140
     assert item["event_kinds"] == ["row_entered"]
     assert item["event_count"] == len(event_ids)
     assert item["deep_link"] == {
         "kind": "watch_run",
-        "watch_id": watch["id"],
+        "watch_id": alert["id"],
         "run_id": run["id"],
         "event_ids": event_ids,
     }
@@ -96,13 +96,13 @@ def test_watch_run_events_project_to_generic_notifications_without_mutating_fact
     assert summary["by_source_ref"] == [
         {
             "source_kind": "watch",
-            "source_ref": {"watch_id": watch["id"]},
+            "source_ref": {"watch_id": alert["id"]},
             "unseen": 1,
         }
     ]
 
     before_events = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     ).json()["events"]
     read = client.post(f"/api/projects/{pid}/notifications/{item['id']}/read")
@@ -115,12 +115,12 @@ def test_watch_run_events_project_to_generic_notifications_without_mutating_fact
     assert unack.status_code == 200, unack.text
     assert unack.json()["state"] == "read"
     after_events = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     ).json()["events"]
     assert after_events == before_events
 
-    rerun_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    rerun_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert rerun_response.status_code == 200, rerun_response.text
     assert rerun_response.json()["run"]["new_rows"] == 0
     assert client.get(f"/api/projects/{pid}/notifications").json()["total"] == 1

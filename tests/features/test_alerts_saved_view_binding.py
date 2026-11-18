@@ -38,12 +38,12 @@ def scene(tmp_path):
 
 
 def test_alert_grid_and_saved_definition_share_full_membership(tmp_path):
-    client, pid, project, sheet, col, rows, view, watch = scene(tmp_path)
+    client, pid, project, sheet, col, rows, view, alert = scene(tmp_path)
     prefix = f"/api/projects/{pid}"
     grid = client.get(f"{prefix}/views/{view['id']}/resolve?limit=1").json()
     assert grid["total"] == 2
     assert [ref["row_id"] for ref in grid["refs"]] == rows[2:]
-    check = client.post(f"{prefix}/watches/{watch['id']}/run").json()
+    check = client.post(f"{prefix}/watches/{alert['id']}/run").json()
     assert check["run"]["matched_rows"] == 2
     assert check["run"]["new_rows"] == 0
     selected = {**view["spec"]["selection"], "limit": 1}
@@ -53,23 +53,23 @@ def test_alert_grid_and_saved_definition_share_full_membership(tmp_path):
         ).status_code
         == 200
     )
-    next_check = client.post(f"{prefix}/watches/{watch['id']}/run").json()
+    next_check = client.post(f"{prefix}/watches/{alert['id']}/run").json()
     assert next_check["run"]["matched_rows"] == 1
     assert next_check["run"]["new_rows"] == 0
     project.apply_edits([{"row_id": rows[0], "column_id": col, "value": 99}])
-    final = client.post(f"{prefix}/watches/{watch['id']}/run").json()
+    final = client.post(f"{prefix}/watches/{alert['id']}/run").json()
     assert final["run"]["matched_rows"] == 1
     assert final["run"]["new_rows"] == 1
     assert {
-        event["event_kind"] for event in project.watch_run_events(final["run"]["id"])
+        event["event_kind"] for event in project.alert_check_events(final["run"]["id"])
     } == {"row_entered", "row_exited"}
     assert client.delete(f"{prefix}/views/{view['id']}").status_code == 200
-    assert project.get_watch(watch["id"]) is None
+    assert project.get_alert(alert["id"]) is None
     assert client.get(f"{prefix}/notifications").json()["total"] == 0
 
 
 def test_one_alert_per_view_and_owned_query_is_rejected(tmp_path):
-    client, pid, project, _, _, _, view, watch = scene(tmp_path)
+    client, pid, project, _, _, _, view, alert = scene(tmp_path)
     response = client.post(
         f"/api/projects/{pid}/watches",
         json={"name": "Duplicate", "view_id": view["id"]},
@@ -84,7 +84,7 @@ def test_one_alert_per_view_and_owned_query_is_rejected(tmp_path):
         project.db.execute("INSERT INTO watches(name) VALUES('No view')")
     project.db.rollback()
     changed = client.patch(
-        f"/api/projects/{pid}/watches/{watch['id']}",
+        f"/api/projects/{pid}/watches/{alert['id']}",
         json={
             "detection_policy": {
                 "kind": "conditions",

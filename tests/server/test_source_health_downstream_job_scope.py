@@ -115,7 +115,7 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_source(
         "source_id": quiet,
         "source_run_id": 3,
     }
-    watch_job = queue.enqueue(
+    alert_job = queue.enqueue(
         "watch.evaluate",
         {
             "project_id": project_id,
@@ -139,15 +139,15 @@ def test_trigger_ref_only_jobs_stay_attributed_to_their_source(
     )
 
     # The column is the attribution, not a payload re-read at display time.
-    for job_id in (watch_job, refresh_job):
+    for job_id in (alert_job, refresh_job):
         assert queue.get(job_id).source_id == quiet
 
     # ... and it agrees with the reader that the panel used to rely on.
-    for job_id in (watch_job, refresh_job):
+    for job_id in (alert_job, refresh_job):
         assert _job_source_id(queue.get(job_id)) == quiet
 
     summaries = _downstream(client, project_id, quiet)
     assert sorted(job["job_id"] for job in summaries) == sorted(
-        [watch_job, refresh_job]
+        [alert_job, refresh_job]
     )
     assert _downstream(client, project_id, busy) == []

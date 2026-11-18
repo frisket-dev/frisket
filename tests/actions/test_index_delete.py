@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 import json
 from typing import Any
@@ -372,7 +372,7 @@ def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
             "anchor": {"kind": "row", "row_id": row_id},
         }
         if reference_kind == "watch":
-            add_watch(
+            add_alert(
                 project,
                 "Similar stories",
                 scope="sheet",
@@ -419,7 +419,7 @@ def test_pausing_alert_does_not_remove_its_saved_view_index_dependency(tmp_path)
     try:
         seeded = _seed(project, tmp_path)
         index_id = seeded["index_id"]
-        add_watch(
+        add_alert(
             project,
             "Paused similarity",
             scope="sheet",

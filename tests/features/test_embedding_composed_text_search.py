@@ -268,8 +268,8 @@ def test_single_text_and_one_term_lens_hash_identically():
     assert h_text == h_term
 
 
-def test_manual_text_query_still_rejected_for_watches():
-    # Watches re-evaluate on a schedule, so a re-embedding manual_text_query stays
+def test_manual_text_query_still_rejected_for_alerts():
+    # Alerts re-evaluate on a schedule, so a re-embedding manual_text_query stays
     # NOT watchable (unchanged contract) even though lenses now accept it.
     from frisket.contracts.query_spec import normalize_query_spec
 
@@ -282,7 +282,7 @@ def test_manual_text_query_still_rejected_for_watches():
                 "anchor": {"kind": "manual_text_query", "text": "drones"},
             },
             scope={"kind": "sheet", "sheet_id": 7},
-            allow_row_cell=False,  # watch path
+            allow_row_cell=False,  # alert path
         )
 
 

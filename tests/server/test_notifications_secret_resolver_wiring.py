@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch, seed_empty_watch_baseline
+from tests.alert_helpers import post_alert, seed_empty_alert_baseline
 
 from pathlib import Path
 from typing import Any
@@ -46,7 +46,7 @@ class RecordingProvider:
         return DeliveryProviderResult(status="sent", provider_ref="recorded")
 
 
-def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
+def _seed_alert(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     pid = client.post("/api/projects", json={"name": "Resolver wiring"}).json()["id"]
     imported = client.post(
         f"/api/projects/{pid}/import/csv",
@@ -55,7 +55,7 @@ def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     assert imported.status_code == 200, imported.text
     drain_queue(client, worker_id="notification-resolver-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch = post_watch(
+    alert = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -64,16 +64,16 @@ def _seed_watch(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     ).json()
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run").json()["run"]
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run").json()["run"]
     events = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     ).json()["events"]
-    return pid, {"watch": watch, "run": run}, events
+    return pid, {"watch": alert, "run": run}, events
 
 
-def _create_email_route(client: TestClient, pid: str, watch_id: int) -> None:
+def _create_email_route(client: TestClient, pid: str, alert_id: int) -> None:
     channel = client.post(
         f"/api/projects/{pid}/notification-channels",
         json={
@@ -90,7 +90,7 @@ def _create_email_route(client: TestClient, pid: str, watch_id: int) -> None:
             "name": "Email route",
             "channel_id": channel.json()["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
         },
     )
     assert route.status_code == 200, route.text
@@ -133,7 +133,7 @@ def test_create_app_threads_notification_secret_resolver_into_worker(
     client = TestClient(
         create_app(tmp_path / "ws", notification_delivery_runtime=runtime)
     )
-    pid, refs, events = _seed_watch(client)
+    pid, refs, events = _seed_alert(client)
     _create_email_route(client, pid, int(refs["watch"]["id"]))
     request_id = _emit(client, pid, refs, events)
     ws = client.app.state.workspace

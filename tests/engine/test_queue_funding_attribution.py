@@ -79,7 +79,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
         notifications_delivery,
         notifications_digest,
         sources,
-        watches,
+        alerts,
     )
 
     enqueued: list[tuple[str, dict]] = []
@@ -100,11 +100,11 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
     project = object()
 
     monkeypatch.setattr(
-        watches,
-        "find_embedding_similarity_watches",
+        alerts,
+        "find_embedding_similarity_alerts",
         lambda *_args, **_kwargs: [{"id": 801}],
     )
-    assert watches.enqueue_index_watch_evaluations(
+    assert alerts.enqueue_index_alert_evaluations(
         queue,
         project=project,
         project_id=project_id,
@@ -262,7 +262,7 @@ def _assert_actual_hosted_enqueue_producers_persist_storage_identity(
     assert launch_payloads
 
     assert {kind for kind, _payload in enqueued} >= {
-        watches.WATCH_EVALUATE_KIND,
+        alerts.ALERT_EVALUATE_KIND,
         sources.ENCLOSURE_DOWNLOAD_KIND,
         sources.SOURCE_POLL_KIND,
         notifications_delivery.NOTIFICATION_DELIVER_KIND,

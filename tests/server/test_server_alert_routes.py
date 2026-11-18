@@ -8,15 +8,15 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
-from frisket.server.routes.watches import register_watch_routes
-from frisket.server.services.watches import (
-    WatchNotFound,
-    WatchRequestError,
-    WatchRunNotFound,
+from frisket.server.routes.alerts import register_alert_routes
+from frisket.server.services.alerts import (
+    AlertNotFound,
+    AlertRequestError,
+    AlertCheckNotFound,
 )
 
 
-WATCH_ROUTE_ENTRIES = [
+ALERT_ROUTE_ENTRIES = [
     (["GET"], "/api/projects/{pid}/watches", "list_watches"),
     (["POST"], "/api/projects/{pid}/watches", "create_watch"),
     (["PATCH"], "/api/projects/{pid}/watches/{watch_id}", "patch_watch"),
@@ -39,13 +39,13 @@ def _api_routes(app: FastAPI) -> list[tuple[list[str], str, str]]:
     ]
 
 
-def test_watch_route_order_after_views_before_notifications(tmp_path: Path) -> None:
+def test_alert_route_order_after_views_before_notifications(tmp_path: Path) -> None:
     app = create_app(tmp_path / "ws")
     routes = _api_routes(app)
 
     expected = [
         (["GET"], "/api/projects/{pid}/views/{view_id}/resolve", "resolve_view"),
-        *WATCH_ROUTE_ENTRIES,
+        *ALERT_ROUTE_ENTRIES,
         (["GET"], "/api/projects/{pid}/notifications", "list_notifications"),
     ]
     index = routes.index(expected[0])
@@ -53,15 +53,15 @@ def test_watch_route_order_after_views_before_notifications(tmp_path: Path) -> N
     assert routes[index : index + len(expected)] == expected
 
 
-def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
-    service = _FakeWatchService()
+def test_alert_routes_bind_schema_queries_and_map_service_errors() -> None:
+    service = _FakeAlertService()
     app = FastAPI()
-    register_watch_routes(app, service=service)
+    register_alert_routes(app, service=service)
     client = TestClient(app)
 
     listed = client.get("/api/projects/p/watches")
     assert listed.status_code == 200
-    assert listed.json() == [_watch_payload(1)]
+    assert listed.json() == [_alert_payload(1)]
 
     created = client.post(
         "/api/projects/p/watches",
@@ -171,12 +171,12 @@ def test_watch_routes_bind_schema_queries_and_map_service_errors() -> None:
     assert wrong_run.json()["detail"] == "alert check not found"
 
 
-def _run_payload(run_id: int, *, watch_id: int) -> dict[str, Any]:
+def _run_payload(run_id: int, *, alert_id: int) -> dict[str, Any]:
     """The frozen watch_run wire row."""
 
     return {
         "id": run_id,
-        "watch_id": watch_id,
+        "watch_id": alert_id,
         "status": "ok",
         "op_cursor_before": 0,
         "op_cursor_after": 0,
@@ -191,11 +191,11 @@ def _run_payload(run_id: int, *, watch_id: int) -> dict[str, Any]:
     }
 
 
-def _watch_payload(watch_id: int, *, name: str = "Budget") -> dict[str, Any]:
-    """The frozen watch wire row."""
+def _alert_payload(alert_id: int, *, name: str = "Budget") -> dict[str, Any]:
+    """The frozen alert wire row."""
 
     return {
-        "id": watch_id,
+        "id": alert_id,
         "name": name,
         "view_id": 7,
         "sheet_id": None,
@@ -211,15 +211,15 @@ def _watch_payload(watch_id: int, *, name: str = "Budget") -> dict[str, Any]:
     }
 
 
-class _FakeWatchService:
+class _FakeAlertService:
     def __init__(self) -> None:
         self.calls: list[tuple[Any, ...]] = []
 
-    def list_watches(self, project_id: str) -> list[dict]:
+    def list_alerts(self, project_id: str) -> list[dict]:
         self.calls.append(("list_watches", project_id))
-        return [_watch_payload(1)]
+        return [_alert_payload(1)]
 
-    def create_watch(
+    def create_alert(
         self,
         project_id: str,
         *,
@@ -241,54 +241,54 @@ class _FakeWatchService:
             )
         )
         if name == "bad":
-            raise WatchRequestError("bad watch")
-        return _watch_payload(2, name=name)
+            raise AlertRequestError("bad watch")
+        return _alert_payload(2, name=name)
 
-    def run_watch(self, project_id: str, watch_id: int) -> dict:
-        self.calls.append(("run_watch", project_id, watch_id))
-        if watch_id == 404:
-            raise WatchNotFound("alert not found")
+    def check_alert(self, project_id: str, alert_id: int) -> dict:
+        self.calls.append(("run_watch", project_id, alert_id))
+        if alert_id == 404:
+            raise AlertNotFound("alert not found")
         return {
             "schema_version": "frisket.watch_run.v1",
-            "watch": _watch_payload(watch_id),
-            "run": _run_payload(7, watch_id=watch_id),
+            "watch": _alert_payload(alert_id),
+            "run": _run_payload(7, alert_id=alert_id),
             "hits": [],
         }
 
-    def patch_watch(
+    def patch_alert(
         self,
         project_id: str,
-        watch_id: int,
+        alert_id: int,
         *,
         fields: dict[str, Any],
     ) -> dict:
-        self.calls.append(("patch_watch", project_id, watch_id, fields))
+        self.calls.append(("patch_watch", project_id, alert_id, fields))
         if not fields:
-            raise WatchRequestError("at least one watch field is required")
+            raise AlertRequestError("at least one watch field is required")
         if "name" in fields:
             name = str(fields["name"]).strip()
             if not name:
-                raise WatchRequestError("alert name is required")
-            return _watch_payload(watch_id, name=name)
-        return {**_watch_payload(watch_id), "enabled": bool(fields["enabled"])}
+                raise AlertRequestError("alert name is required")
+            return _alert_payload(alert_id, name=name)
+        return {**_alert_payload(alert_id), "enabled": bool(fields["enabled"])}
 
-    def delete_watch(self, project_id: str, watch_id: int) -> dict:
-        self.calls.append(("delete_watch", project_id, watch_id))
-        if watch_id == 404:
-            raise WatchNotFound("alert not found")
-        return {"ok": True, "deleted": watch_id}
+    def delete_alert(self, project_id: str, alert_id: int) -> dict:
+        self.calls.append(("delete_watch", project_id, alert_id))
+        if alert_id == 404:
+            raise AlertNotFound("alert not found")
+        return {"ok": True, "deleted": alert_id}
 
-    def list_watch_runs(
+    def list_alert_checks(
         self,
         project_id: str,
-        watch_id: int,
+        alert_id: int,
         *,
         offset: int,
         limit: int,
         hits_limit: int,
     ) -> dict:
         self.calls.append(
-            ("list_watch_runs", project_id, watch_id, offset, limit, hits_limit)
+            ("list_watch_runs", project_id, alert_id, offset, limit, hits_limit)
         )
         return {
             "schema_version": "frisket.watch_runs_page.v1",
@@ -302,10 +302,10 @@ class _FakeWatchService:
             "runs": [],
         }
 
-    def list_watch_run_events(
+    def list_alert_check_events(
         self,
         project_id: str,
-        watch_id: int,
+        alert_id: int,
         run_id: int,
         *,
         offset: int,
@@ -316,7 +316,7 @@ class _FakeWatchService:
             (
                 "list_watch_run_events",
                 project_id,
-                watch_id,
+                alert_id,
                 run_id,
                 offset,
                 limit,
@@ -324,9 +324,9 @@ class _FakeWatchService:
             )
         )
         if run_id == 404:
-            raise WatchRunNotFound("alert check not found")
+            raise AlertCheckNotFound("alert check not found")
         if event_kind == "bad":
-            raise WatchRequestError("unsupported alert check event kind")
+            raise AlertRequestError("unsupported alert check event kind")
         return {
             "schema_version": "frisket.watch_run_events_page.v1",
             "order": "asc",
@@ -359,10 +359,10 @@ def test_listing_legacy_alert_policy_returns_canonical_conditions(
                 "presentation": {},
             },
         )
-        watch_id = project.add_watch("Legacy watch", view_id=view_id)
+        alert_id = project.add_alert("Legacy watch", view_id=view_id)
         for stored in ('{"kind":"new_matches"}', "invalid json"):
             project.db.execute(
-                "UPDATE watches SET detection_policy=? WHERE id=?", (stored, watch_id)
+                "UPDATE watches SET detection_policy=? WHERE id=?", (stored, alert_id)
             )
             project.db.commit()
             response = client.get(f"/api/projects/{pid}/watches")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 import json
 from pathlib import Path
@@ -73,7 +73,7 @@ def _seed_project(client: TestClient) -> tuple[str, int, dict[str, int]]:
     )
 
 
-def test_shared_sheet_filter_rowset_drives_grid_locate_and_watch(tmp_path: Path):
+def test_shared_sheet_filter_rowset_drives_grid_locate_and_alert(tmp_path: Path):
     client = _client(tmp_path)
     pid, sheet_id, rows = _seed_project(client)
     project = client.app.state.workspace.get(pid)
@@ -121,7 +121,7 @@ def test_shared_sheet_filter_rowset_drives_grid_locate_and_watch(tmp_path: Path)
     assert located.json()["index"] == 1
     assert located.json()["page_offset"] == 1
 
-    watch = post_watch(
+    alert = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -134,7 +134,7 @@ def test_shared_sheet_filter_rowset_drives_grid_locate_and_watch(tmp_path: Path)
             },
         },
     )
-    assert watch.status_code == 200, watch.text
-    run = client.post(f"/api/projects/{pid}/watches/{watch.json()['id']}/run")
+    assert alert.status_code == 200, alert.text
+    run = client.post(f"/api/projects/{pid}/watches/{alert.json()['id']}/run")
     assert run.status_code == 200, run.text
     assert [hit["row_id"] for hit in run.json()["hits"]] == resolved.row_ids

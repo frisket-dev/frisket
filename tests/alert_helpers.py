@@ -1,12 +1,12 @@
 """Alert fixtures with an explicit initial successful observation."""
 
-from frisket.features.watchlists.service import resolve_watch_run
+from frisket.features.alerts.service import resolve_alert_check
 
 
-def seed_empty_watch_baseline(project, watch_id):
-    resolution = resolve_watch_run(project, project.get_watch(watch_id))
-    return project.record_watch_run(
-        watch_id,
+def seed_empty_alert_baseline(project, alert_id):
+    resolution = resolve_alert_check(project, project.get_alert(alert_id))
+    return project.record_alert_check(
+        alert_id,
         hits=[],
         op_cursor_before=project.op_cursor,
         op_cursor_after=project.op_cursor,
@@ -15,7 +15,7 @@ def seed_empty_watch_baseline(project, watch_id):
     )
 
 
-def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
+def add_alert(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
     """Author existing scenario fixtures through the unified View/alert API."""
     from frisket.engine.views.specs import legacy_selection
 
@@ -28,10 +28,10 @@ def add_watch(project, name, *, query, scope="sheet", sheet_id=None, **kwargs):
         spec={**query, "scope": query.get("scope", scope_def)},
     )
     view_id = project.add_view(name, {"selection": selection, "presentation": {}})
-    return project.add_watch(name, view_id=view_id, **kwargs)
+    return project.add_alert(name, view_id=view_id, **kwargs)
 
 
-def post_watch(client, path, *, json):
+def post_alert(client, path, *, json):
     """Build a saved View for an existing alert scenario, then call the real API."""
     from frisket.engine.views.specs import legacy_selection
 

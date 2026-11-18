@@ -179,11 +179,11 @@ def test_manual_query_preparation_is_explicit_then_reused_for_view_and_alert(tmp
     resolve_embedding_similarity(project, canonical, gateway=gateway)
     assert gateway.calls == 1
     assert client.get(path).status_code == 200
-    watch = client.post(
+    alert = client.post(
         f"/api/projects/{pid}/watches",
         json={"name": "Prepared query", "view_id": view["id"]},
     ).json()
-    check = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    check = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert check.status_code == 200, check.text
     assert check.json()["run"]["status"] == "ok"
     assert gateway.calls == 1

@@ -3,7 +3,7 @@
 `{entity_col: {entity_eq: {type, text?|fingerprint?}}}` selects rows carrying
 at least one matching entity, through the shared sheet-filter evaluator
 (`frisket.querysets`) — so /data, row counts, saved views, CSV/dataset export,
-watches, watchlists, map points, embedding scopes and the query preview all
+alerts, alerts, map points, embedding scopes and the query preview all
 honor it without their own branch.
 
 Entity cells are ordinary user JSON: they can be scalar arrays, JSON strings,
@@ -15,7 +15,7 @@ the guard is load-bearing (rather than incidentally unnecessary) is
 
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 import json
 
@@ -449,10 +449,10 @@ def test_malformed_entity_eq_fails_visibly_over_http(tmp_path):
     assert "unknown keys" in json.dumps(response.json())
 
 
-def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
+def test_entity_eq_reaches_the_shared_query_and_alert_consumers(tmp_path):
     """Every filter consumer funnels through _parse_sheet_filter /
     sheet_row_scope_query, so none of them needs its own branch. Spot-check
-    a query evaluator (query preview) and a filter validator (watches)."""
+    a query evaluator (query preview) and a filter validator (alerts)."""
     client = _client(tmp_path)
     pid, sheet_id, rows = _seed_client(client)
     query = {
@@ -468,26 +468,26 @@ def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
     assert preview.status_code == 200, preview.text
     assert preview.json()["total"] == 2
 
-    watch_query = {
+    alert_query = {
         "kind": "filter",
         "sheet_id": sheet_id,
         "filter": {"entities": {"entity_eq": {"type": "organization"}}},
     }
-    watch = post_watch(
+    alert = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
             "name": "Acme rows",
-            "query": watch_query,
+            "query": alert_query,
         },
     )
-    assert watch.status_code == 200, watch.text
+    assert alert.status_code == 200, alert.text
 
     project = client.app.state.workspace.get(pid)
     column = next(
         col["id"] for col in project.columns(sheet_id) if col["name"] == "entities"
     )
-    bad_watch = client.post(
+    bad_alert = client.post(
         f"/api/projects/{pid}/views",
         json={
             "name": "Broken",
@@ -499,11 +499,11 @@ def test_entity_eq_reaches_the_shared_query_and_watch_consumers(tmp_path):
             },
         },
     )
-    assert bad_watch.status_code == 400, bad_watch.text
+    assert bad_alert.status_code == 400, bad_alert.text
 
     # The dataset/CSV exporter is the third shape (a separate rowset reader);
     # it is covered by test_csv_export_returns_the_same_rows_as_the_filtered_grid.
-    # map_points / embeddings scope / watchlists / bulk edits reach the
+    # map_points / embeddings scope / alerts / bulk edits reach the
     # operator through these same three entry points and need no branch of
     # their own — grep resolve_sheet_filter_rows / sheet_row_scope_query.
     assert len(rows) == 3

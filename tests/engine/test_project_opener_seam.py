@@ -37,7 +37,7 @@ def _opener_modules() -> dict[str, Any]:
             "frisket.engine.jobs.enclosures",
             "frisket.engine.jobs.sources",
             "frisket.engine.jobs.embeddings",
-            "frisket.engine.jobs.watches",
+            "frisket.engine.jobs.alerts",
             "frisket.engine.jobs.notifications_delivery",
             "frisket.engine.jobs.notifications_digest",
             "frisket.cli",
@@ -187,7 +187,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
         "frisket.engine.jobs.enclosures",
         "frisket.engine.jobs.sources",
         "frisket.engine.jobs.embeddings",
-        "frisket.engine.jobs.watches",
+        "frisket.engine.jobs.alerts",
         "frisket.engine.jobs.notifications_delivery",
         "frisket.engine.jobs.notifications_digest",
     )
@@ -315,7 +315,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     for name in (
         "frisket.engine.jobs.sources",
         "frisket.engine.jobs.embeddings",
-        "frisket.engine.jobs.watches",
+        "frisket.engine.jobs.alerts",
         "frisket.engine.jobs.notifications_digest",
     ):
         monkeypatch.setattr(modules[name], "Project", forbid_direct_project)
@@ -325,7 +325,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         for sweep in (
             cli._SOURCE_POLLS,
             cli._SCHEDULED_EMBEDDINGS,
-            cli._WATCHES,
+            cli._ALERTS,
             cli._NOTIFICATION_DIGESTS,
         ):
             calls.clear()
@@ -594,7 +594,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         every_sweep = [
             (cli._SOURCE_POLLS, sentinel),
             (cli._SCHEDULED_EMBEDDINGS, sentinel),
-            (cli._WATCHES, sentinel),
+            (cli._ALERTS, sentinel),
             (cli._NOTIFICATION_DIGESTS, sentinel),
         ]
         assert scheduler_openers == every_sweep

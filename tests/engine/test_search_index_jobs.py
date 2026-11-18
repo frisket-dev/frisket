@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 from contextlib import closing
 
@@ -15,9 +15,9 @@ from frisket.engine.jobs import (
     Worker,
 )
 from frisket.engine.jobs import search_index
-from frisket.engine.jobs.watches import (
-    WATCH_EVALUATE_KIND,
-    register_watch_evaluate_handler,
+from frisket.engine.jobs.alerts import (
+    ALERT_EVALUATE_KIND,
+    register_alert_evaluate_handler,
 )
 from frisket.engine.store import Project
 from frisket.retrieval.encoding import EncodingError
@@ -337,14 +337,14 @@ def test_hosted_search_requires_claimed_storage_before_open(tmp_path):
             )
 
 
-def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
+def test_dependent_alert_and_index_keep_fifo_while_foreground_passes(
     tmp_path, monkeypatch
 ):
     _project(tmp_path)
     monkeypatch.setattr(search_index, "INDEX_BATCH_SIZE", 2)
     monkeypatch.setattr(search_index, "BATCHES_PER_CLAIM", 1)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = add_watch(
+        alert_id = add_alert(
             project,
             "needle",
             scope="project",
@@ -355,12 +355,12 @@ def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
         search_index.register_search_index_handler(
             registry, workspace_root=tmp_path, queue=queue
         )
-        register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+        register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
         foreground_runs = []
         registry.register("other", lambda *_: foreground_runs.append(True))
-        watch = queue.enqueue(
-            WATCH_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": watch_id},
+        alert = queue.enqueue(
+            ALERT_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": alert_id},
         )
         with closing(Project(tmp_path / "docs.frisket")) as project:
             index = search_index.enqueue_search_index(
@@ -368,11 +368,11 @@ def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
             )
         worker = Worker(queue, registry)
         assert worker.run_once()
-        assert queue.get(watch).result["status"] == "indexing"
+        assert queue.get(alert).result["status"] == "indexing"
         continuation = next(
             job
             for job in queue.list_jobs(status="queued")
-            if job.kind == WATCH_EVALUATE_KIND
+            if job.kind == ALERT_EVALUATE_KIND
         )
         foreground = queue.enqueue("other", {})
 
@@ -390,16 +390,16 @@ def test_dependent_watch_and_index_keep_fifo_while_foreground_passes(
             pytest.fail("dependent watch and index never settled")
 
         with closing(Project(tmp_path / "docs.frisket")) as project:
-            run = project.watch_latest_run(watch_id)
+            run = project.alert_latest_run(alert_id)
             assert run["status"] == "ok"
             assert run["matched_rows"] == 9
-            assert project.watch_runs_total(watch_id) == 1
+            assert project.alert_checks_total(alert_id) == 1
 
 
-def test_queued_watch_waits_for_complete_unified_index(tmp_path):
+def test_queued_alert_waits_for_complete_unified_index(tmp_path):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = add_watch(
+        alert_id = add_alert(
             project,
             "needle",
             scope="project",
@@ -410,12 +410,12 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
         search_index.register_search_index_handler(
             registry, workspace_root=tmp_path, queue=queue
         )
-        register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+        register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
         job_id = queue.enqueue(
-            WATCH_EVALUATE_KIND,
+            ALERT_EVALUATE_KIND,
             {
                 "project_id": "docs",
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "workspace_root": str(tmp_path),
             },
         )
@@ -424,7 +424,7 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
         assert worker.run_once()
         assert queue.get(job_id).status == "done"
         with closing(Project(tmp_path / "docs.frisket")) as project:
-            run = project.watch_latest_run(watch_id)
+            run = project.alert_latest_run(alert_id)
             assert run is not None
             assert run["status"] == "ok"
             assert run["matched_rows"] == 9
@@ -437,12 +437,12 @@ def test_queued_watch_waits_for_complete_unified_index(tmp_path):
                 )
 
 
-def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
+def test_keyword_alert_index_drain_does_not_wait_for_embedding_encoder(
     tmp_path, monkeypatch
 ):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = add_watch(
+        alert_id = add_alert(
             project,
             "needle",
             scope="project",
@@ -458,15 +458,15 @@ def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
     monkeypatch.setattr(search_index, "process_index_batches", capture_encoder)
     with closing(SqliteJobQueue(tmp_path / "queue.db")) as queue:
         registry = HandlerRegistry()
-        register_watch_evaluate_handler(
+        register_alert_evaluate_handler(
             registry,
             workspace_root=tmp_path,
             queue=queue,
             embedding_encoder=encoder,  # type: ignore[arg-type]
         )
         queue.enqueue(
-            WATCH_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": watch_id},
+            ALERT_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": alert_id},
         )
 
         assert Worker(queue, registry).run_once()
@@ -474,10 +474,10 @@ def test_keyword_watch_index_drain_does_not_wait_for_embedding_encoder(
     assert seen == [None]
 
 
-def test_edit_after_index_quantum_prevents_a_stale_watch_run(tmp_path, monkeypatch):
+def test_edit_after_index_quantum_prevents_a_stale_alert_check(tmp_path, monkeypatch):
     _project(tmp_path)
     with closing(Project(tmp_path / "docs.frisket")) as project:
-        watch_id = add_watch(
+        alert_id = add_alert(
             project,
             "needle",
             scope="project",
@@ -502,24 +502,24 @@ def test_edit_after_index_quantum_prevents_a_stale_watch_run(tmp_path, monkeypat
         search_index.register_search_index_handler(
             registry, workspace_root=tmp_path, queue=queue
         )
-        register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+        register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
         first = queue.enqueue(
-            WATCH_EVALUATE_KIND,
-            {"project_id": "docs", "watch_id": watch_id},
+            ALERT_EVALUATE_KIND,
+            {"project_id": "docs", "watch_id": alert_id},
         )
         worker = Worker(queue, registry)
         assert worker.run_once()
         assert queue.get(first).result["status"] == "indexing"
         with closing(Project(tmp_path / "docs.frisket")) as project:
-            assert project.watch_runs_total(watch_id) == 0
+            assert project.alert_checks_total(alert_id) == 0
 
         for _ in range(20):
             with closing(Project(tmp_path / "docs.frisket")) as project:
-                if project.watch_runs_total(watch_id):
+                if project.alert_checks_total(alert_id):
                     break
             assert worker.run_once()
         with closing(Project(tmp_path / "docs.frisket")) as project:
-            run = project.watch_latest_run(watch_id)
+            run = project.alert_latest_run(alert_id)
             assert run["status"] == "ok"
             assert run["matched_rows"] == 10
-            assert project.watch_runs_total(watch_id) == 1
+            assert project.alert_checks_total(alert_id) == 1

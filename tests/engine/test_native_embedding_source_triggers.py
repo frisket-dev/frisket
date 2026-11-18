@@ -11,7 +11,7 @@ Proves the recurring/source-triggered path is queue-shaped, not inline:
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 from types import SimpleNamespace
 
@@ -25,7 +25,7 @@ from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.jobs import (
     EMBEDDING_REFRESH_KIND,
-    WATCH_EVALUATE_KIND,
+    ALERT_EVALUATE_KIND,
     HandlerRegistry,
     SqliteJobQueue,
     Worker,
@@ -33,10 +33,10 @@ from frisket.engine.jobs import (
     find_on_source_append_indexes,
     refresh_dedupe_key,
     register_embedding_refresh_handler,
-    register_watch_evaluate_handler,
+    register_alert_evaluate_handler,
 )
 from frisket.ai.llm import ModelRouter
-from frisket.features.watchlists.service import run_watch_evaluation
+from frisket.features.alerts.service import check_alert
 from frisket.retrieval import native
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
@@ -409,7 +409,7 @@ def first_key(env, index_id):
 
 
 # --------------------------------------------------------------------------
-# source append -> embedding refresh -> watch evaluation order
+# source append -> embedding refresh -> alert evaluation order
 # --------------------------------------------------------------------------
 
 
@@ -427,8 +427,8 @@ def _full_refresh(env, index_id):
     )
 
 
-def _embedding_watch(env, index_id, anchor_row):
-    return add_watch(
+def _embedding_alert(env, index_id, anchor_row):
+    return add_alert(
         env.project,
         "similar",
         scope="sheet",
@@ -442,12 +442,12 @@ def _embedding_watch(env, index_id, anchor_row):
     )
 
 
-def _registry_with_watches(env, gateway):
+def _registry_with_alerts(env, gateway):
     reg = HandlerRegistry()
     register_embedding_refresh_handler(
         reg, workspace_root=env.workspace, gateway=gateway, queue=env.queue
     )
-    register_watch_evaluate_handler(
+    register_alert_evaluate_handler(
         reg,
         workspace_root=env.workspace,
         queue=env.queue,
@@ -455,9 +455,9 @@ def _registry_with_watches(env, gateway):
     return reg
 
 
-def test_watch_evaluate_handler_requires_delivery_queue(tmp_path):
+def test_alert_evaluate_handler_requires_delivery_queue(tmp_path):
     with pytest.raises(TypeError, match="queue"):
-        register_watch_evaluate_handler(  # type: ignore[call-arg]
+        register_alert_evaluate_handler(  # type: ignore[call-arg]
             HandlerRegistry(),
             workspace_root=tmp_path,
         )
@@ -470,23 +470,23 @@ def _notification_count(env):
 
 
 @pytest.mark.parametrize("with_baseline", [False, True])
-def test_embedding_watch_preserves_cursor_when_vector_runtime_is_unavailable(
+def test_embedding_alert_preserves_cursor_when_vector_runtime_is_unavailable(
     env, tmp_path, monkeypatch: pytest.MonkeyPatch, with_baseline
 ):
     from frisket.engine.views.evaluate import open_selection
     from frisket.engine.views.specs import SelectionUnavailable
-    from frisket.features.watchlists.service import watch_query
+    from frisket.features.alerts.service import alert_query
 
     index_id = _create_index(env, key="unavailable")
     _full_refresh(env, index_id)
-    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+    alert_id = _embedding_alert(env, index_id, _row_id(env, "story 0"))
     baseline = None
     if with_baseline:
-        baseline = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+        baseline = check_alert(env.project, env.project.get_alert(alert_id))
         assert baseline["run"]["status"] == "ok"
         assert baseline["run"]["matched_rows"] == 2
         assert _notification_count(env) == 0
-    before = env.project.get_watch(watch_id)["last_evaluated_op"]
+    before = env.project.get_alert(alert_id)["last_evaluated_op"]
     seen = [
         dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
     ]
@@ -494,72 +494,72 @@ def test_embedding_watch_preserves_cursor_when_vector_runtime_is_unavailable(
         missing_runtime.setattr(native, "_NATIVE_ROOT", tmp_path / "missing-native")
         with pytest.raises(SelectionUnavailable) as unavailable:
             with open_selection(
-                env.project, watch_query(env.project.get_watch(watch_id))
+                env.project, alert_query(env.project.get_alert(alert_id))
             ):
                 pytest.fail("unavailable similarity must not become an empty selection")
         assert unavailable.value.code == "embedding_backend_unavailable"
         assert isinstance(unavailable.value.__cause__, native.Vec1Unavailable)
 
-        evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+        evaluation = check_alert(env.project, env.project.get_alert(alert_id))
 
     assert evaluation["run"]["status"] == "error"
     assert evaluation["run"]["error_code"] == "embedding_backend_unavailable"
-    watch = env.project.get_watch(watch_id)
-    assert watch["last_evaluated_op"] == before
-    assert watch["baseline_run_id"] == (baseline["run_id"] if baseline else None)
+    alert = env.project.get_alert(alert_id)
+    assert alert["last_evaluated_op"] == before
+    assert alert["baseline_run_id"] == (baseline["run_id"] if baseline else None)
     assert [
         dict(row) for row in env.project.db.execute("SELECT * FROM watch_seen_rows")
     ] == seen
     assert _notification_count(env) == 0
-    recovered = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    recovered = check_alert(env.project, env.project.get_alert(alert_id))
     assert recovered["run"]["status"] == "ok"
     assert recovered["run"]["matched_rows"] == 2
-    assert env.project.watch_run_events(recovered["run_id"]) == []
+    assert env.project.alert_check_events(recovered["run_id"]) == []
     assert _notification_count(env) == 0
 
 
 def test_view_does_not_mask_unclassified_similarity_errors(env, monkeypatch):
     from frisket.engine.views.evaluate import open_selection
-    from frisket.features.watchlists.service import watch_query
+    from frisket.features.alerts.service import alert_query
     from frisket.retrieval import query
 
     index_id = _create_index(env, key="unexpected-runtime-error")
     _full_refresh(env, index_id)
-    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+    alert_id = _embedding_alert(env, index_id, _row_id(env, "story 0"))
 
     def unexpected(_connection):
         raise RuntimeError("unclassified retrieval error")
 
     monkeypatch.setattr(query, "load_vec1", unexpected)
     with pytest.raises(RuntimeError, match="unclassified retrieval error"):
-        with open_selection(env.project, watch_query(env.project.get_watch(watch_id))):
+        with open_selection(env.project, alert_query(env.project.get_alert(alert_id))):
             pass
 
 
-def test_embedding_watch_accepts_complete_empty_result(env):
+def test_embedding_alert_accepts_complete_empty_result(env):
     env.sheet = env.project.add_sheet("single-row")
     env.cols = {"headline": env.project.add_column(env.sheet, "headline")}
     [anchor] = env.project.add_rows(env.sheet, [{"headline": "only story"}], env.cols)
     index_id = _create_index(env, key="empty")
     _full_refresh(env, index_id)
-    watch_id = _embedding_watch(env, index_id, anchor)
-    before = int(env.project.get_watch(watch_id)["last_evaluated_op"] or 0)
+    alert_id = _embedding_alert(env, index_id, anchor)
+    before = int(env.project.get_alert(alert_id)["last_evaluated_op"] or 0)
 
-    evaluation = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    evaluation = check_alert(env.project, env.project.get_alert(alert_id))
 
     assert evaluation["run"]["status"] == "ok"
     assert evaluation["run"]["matched_rows"] == 0
-    assert env.project.get_watch(watch_id)["last_evaluated_op"] > before
+    assert env.project.get_alert(alert_id)["last_evaluated_op"] > before
     assert _notification_count(env) == 0
 
 
-def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
+def test_source_append_embedding_alert_evaluates_after_refresh_not_before(env):
     index_id = _create_index(env)
     _full_refresh(env, index_id)
     anchor = _row_id(env, "story 0")
-    watch_id = _embedding_watch(env, index_id, anchor)
+    alert_id = _embedding_alert(env, index_id, anchor)
 
-    baseline = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    baseline = check_alert(env.project, env.project.get_alert(alert_id))
     assert baseline["run"]["status"] == "ok"
     assert baseline["run"]["matched_rows"] == 2
     assert _notification_count(env) == 0
@@ -568,81 +568,81 @@ def test_source_append_embedding_watch_evaluates_after_refresh_not_before(env):
     env.project.add_rows(env.sheet, [{"headline": "story 3"}], env.cols)
     _trigger(env, [_row_id(env, "story 3")])
 
-    # the source-append enqueue does NOT evaluate the embedding watch inline
-    assert env.project.watch_runs_total(watch_id) == 1
+    # the source-append enqueue does NOT evaluate the embedding alert inline
+    assert env.project.alert_checks_total(alert_id) == 1
 
-    worker = Worker(env.queue, _registry_with_watches(env, FakeGateway()))
-    # job 1: the refresh runs; the watch is STILL not evaluated, but a
-    # watch.evaluate job is now queued (refresh -> watch ordering).
+    worker = Worker(env.queue, _registry_with_alerts(env, FakeGateway()))
+    # job 1: the refresh runs; the alert is STILL not evaluated, but a
+    # watch.evaluate job is now queued (refresh -> alert ordering).
     assert worker.run_once() is True
-    assert env.project.watch_runs_total(watch_id) == 1
-    pending = env.queue.list_project_jobs(env.project_id, kind=WATCH_EVALUATE_KIND)
+    assert env.project.alert_checks_total(alert_id) == 1
+    pending = env.queue.list_project_jobs(env.project_id, kind=ALERT_EVALUATE_KIND)
     assert any(j.status == "queued" for j in pending)
 
     # job 2: the watch.evaluate runs AFTER the refresh -> one ok run
     assert worker.run_once() is True
-    assert env.project.watch_runs_total(watch_id) == 2
-    assert env.project.watch_latest_run(watch_id)["status"] == "ok"
+    assert env.project.alert_checks_total(alert_id) == 2
+    assert env.project.alert_latest_run(alert_id)["status"] == "ok"
     # exactly one notification for the entered rows
     assert _notification_count(env) == 1
 
-    # Other independent maintenance may remain, but the watch is exactly once.
+    # Other independent maintenance may remain, but the alert is exactly once.
     while worker.run_once():
         pass
-    assert env.project.watch_runs_total(watch_id) == 2
+    assert env.project.alert_checks_total(alert_id) == 2
     assert _notification_count(env) == 1
 
 
-def test_queued_automatic_watch_rechecks_pause_but_manual_evaluation_remains_available(
+def test_queued_automatic_alert_rechecks_pause_but_manual_evaluation_remains_available(
     env,
 ):
     """A pause between enqueue and claim must not turn into a stale auto-run."""
-    from frisket.features.watchlists.service import run_watch_evaluation
+    from frisket.features.alerts.service import check_alert
 
     index_id = _create_index(env, key="pause-queue")
     _full_refresh(env, index_id)
-    watch_id = _embedding_watch(env, index_id, _row_id(env, "story 0"))
+    alert_id = _embedding_alert(env, index_id, _row_id(env, "story 0"))
     env.project.add_rows(env.sheet, [{"headline": "story queued"}], env.cols)
     _trigger(env, [_row_id(env, "story queued")], source_run_id=99)
 
-    worker = Worker(env.queue, _registry_with_watches(env, FakeGateway()))
+    worker = Worker(env.queue, _registry_with_alerts(env, FakeGateway()))
     assert worker.run_once() is True  # refresh enqueues watch.evaluate
     [queued] = env.queue.list_project_jobs(
-        env.project_id, kind=WATCH_EVALUATE_KIND, status="queued"
+        env.project_id, kind=ALERT_EVALUATE_KIND, status="queued"
     )
-    assert queued.payload["watch_id"] == watch_id
+    assert queued.payload["watch_id"] == alert_id
 
     # The lifecycle route owns the corresponding public mutation. This direct
     # state transition isolates the worker's required re-fetch-at-claim seam.
-    env.project.db.execute("UPDATE watches SET enabled=0 WHERE id=?", (watch_id,))
+    env.project.db.execute("UPDATE watches SET enabled=0 WHERE id=?", (alert_id,))
     env.project.db.commit()
 
     assert worker.run_once() is True
     [completed] = env.queue.list_project_jobs(
-        env.project_id, kind=WATCH_EVALUATE_KIND, status="done"
+        env.project_id, kind=ALERT_EVALUATE_KIND, status="done"
     )
     assert completed.result == {
         "project_id": env.project_id,
-        "watch_id": watch_id,
+        "watch_id": alert_id,
         "skipped": True,
         "reason": "disabled",
     }
-    assert env.project.watch_runs_total(watch_id) == 0
+    assert env.project.alert_checks_total(alert_id) == 0
 
     # "Run now" is deliberate/manual, so pause does not hide it or turn it
-    # into deletion. It produces the first run without re-enabling the Watch.
-    manual = run_watch_evaluation(env.project, env.project.get_watch(watch_id))
+    # into deletion. It produces the first run without re-enabling the Alert.
+    manual = check_alert(env.project, env.project.get_alert(alert_id))
     assert manual["run"]["status"] == "ok"
-    assert env.project.watch_runs_total(watch_id) == 1
+    assert env.project.alert_checks_total(alert_id) == 1
 
 
-def test_source_poll_skips_embedding_watches_inline(env):
-    from frisket.features.watchlists.triggers import affected_enabled_watches
+def test_source_poll_skips_embedding_alerts_inline(env):
+    from frisket.features.alerts.triggers import affected_enabled_alerts
 
     index_id = _create_index(env)
     _full_refresh(env, index_id)
-    emb_watch = _embedding_watch(env, index_id, _row_id(env, "story 0"))
-    fts_watch = add_watch(
+    emb_alert = _embedding_alert(env, index_id, _row_id(env, "story 0"))
+    fts_alert = add_alert(
         env.project,
         "fts",
         scope="sheet",
@@ -662,11 +662,11 @@ def test_source_poll_skips_embedding_watches_inline(env):
         "row_ids": [_row_id(env, "story 1")],
     }
     affected = {
-        int(w["id"]) for w in affected_enabled_watches(env.project, materialization)
+        int(w["id"]) for w in affected_enabled_alerts(env.project, materialization)
     }
-    # embedding watches are deferred to post-refresh; non-embedding stay inline
-    assert emb_watch not in affected
-    assert fts_watch in affected
+    # embedding alerts are deferred to post-refresh; non-embedding stay inline
+    assert emb_alert not in affected
+    assert fts_alert in affected
 
 
 def test_queued_refresh_cancellation_after_run_mint_stops_purchase(env, monkeypatch):

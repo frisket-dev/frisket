@@ -1,4 +1,4 @@
-"""HTTP-06-F6: watchlist routes have exact typed HTTP owners.
+"""HTTP-06-F6: alert routes have exact typed HTTP owners.
 
 Alerts bind one saved View. These tests retain typed boundary, paging,
 authorization and failure coverage while selection has one canonical owner.
@@ -20,16 +20,16 @@ from pydantic import BaseModel, JsonValue, RootModel, ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
-from frisket.features.watchlists.events import WATCH_RUN_EVENT_SCHEMA_VERSION
+from frisket.features.alerts.events import ALERT_CHECK_EVENT_SCHEMA_VERSION
 from frisket.server.app import create_app
 from frisket.search_index import drain_index
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 
-_CONTRACT_MODULE = "frisket.contracts.http.watches"
+_CONTRACT_MODULE = "frisket.contracts.http.alerts"
 
-# The watch row: SELECT * over `watches` plus decoded query/policy/latest run.
-_WATCH_FIELDS = frozenset(
+# The alert row: SELECT * over `alerts` plus decoded query/policy/latest run.
+_ALERT_FIELDS = frozenset(
     {
         "id",
         "name",
@@ -46,7 +46,7 @@ _WATCH_FIELDS = frozenset(
         "latest_run",
     }
 )
-_WATCH_NULLABLE_FIELDS = frozenset(
+_ALERT_NULLABLE_FIELDS = frozenset(
     {
         "schedule",
         "sheet_id",
@@ -101,7 +101,7 @@ _RUNS_PAGE_FIELDS = frozenset(
         "runs",
     }
 )
-# decode_watch_run_event: SELECT * with subject_ref/before/after/delta decoded.
+# decode_alert_check_event: SELECT * with subject_ref/before/after/delta decoded.
 _EVENT_FIELDS = frozenset(
     {
         "id",
@@ -345,10 +345,10 @@ def _query_bounds(query_field: Any) -> dict[str, int]:
     return bounds
 
 
-def _run_payload(run_id: int, *, watch_id: int = 1) -> dict[str, Any]:
+def _run_payload(run_id: int, *, alert_id: int = 1) -> dict[str, Any]:
     return {
         "id": run_id,
-        "watch_id": watch_id,
+        "watch_id": alert_id,
         "status": "ok",
         "op_cursor_before": 0,
         "op_cursor_after": 3,
@@ -375,11 +375,11 @@ def _hit_payload(rank: int) -> dict[str, Any]:
     }
 
 
-def _watch_payload(
-    watch_id: int, *, latest_run: dict[str, Any] | None
+def _alert_payload(
+    alert_id: int, *, latest_run: dict[str, Any] | None
 ) -> dict[str, Any]:
     return {
-        "id": watch_id,
+        "id": alert_id,
         "name": "Budget",
         "view_id": 7,
         "sheet_id": None,
@@ -428,7 +428,7 @@ def routes_by_name(tmp_path_factory: pytest.TempPathFactory) -> dict[str, APIRou
 # ---------------------------------------------------------------------------
 
 
-def test_five_watch_routes_have_policy_identity_auth_and_browser_membership() -> None:
+def test_five_alert_routes_have_policy_identity_auth_and_browser_membership() -> None:
     entries = [entry for entry in BASE_ENDPOINT_CATALOG if entry.id in OPERATION_IDS]
     assert len(entries) == len(OPERATION_IDS)
     assert {
@@ -453,7 +453,7 @@ def test_five_watch_routes_have_policy_identity_auth_and_browser_membership() ->
 
 
 @pytest.mark.parametrize("name", sorted(ROUTES))
-def test_watch_routes_declare_exact_typed_route_shapes(
+def test_alert_routes_declare_exact_typed_route_shapes(
     name: str, routes_by_name: dict[str, APIRoute]
 ) -> None:
     assert set(routes_by_name) == set(ROUTES)
@@ -498,7 +498,7 @@ def test_watch_routes_declare_exact_typed_route_shapes(
 # ---------------------------------------------------------------------------
 
 
-def test_watch_create_request_is_closed_strict_and_query_authoritative() -> None:
+def test_alert_create_request_is_closed_strict_and_query_authoritative() -> None:
     contracts = _contracts()
     request = _model(contracts, "WatchCreateRequest")
     assert request.model_config.get("strict") is True
@@ -537,7 +537,7 @@ def test_watch_create_request_is_closed_strict_and_query_authoritative() -> None
             request.model_validate(invalid)
 
 
-def test_watch_patch_request_is_closed_nonempty_and_validated() -> None:
+def test_alert_patch_request_is_closed_nonempty_and_validated() -> None:
     contracts = _contracts()
     request = _model(contracts, "WatchPatchRequest")
     assert request.model_config.get("strict") is True
@@ -565,15 +565,15 @@ def test_watch_patch_request_is_closed_nonempty_and_validated() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
+def test_alert_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     contracts = _contracts()
-    watch = _model(contracts, "Watch")
-    watch_list = _model(contracts, "WatchList")
+    alert = _model(contracts, "Watch")
+    alert_list = _model(contracts, "WatchList")
     run = _model(contracts, "WatchRun")
     run_with_hits = _model(contracts, "WatchRunWithHits")
     hit = _model(contracts, "WatchHit")
 
-    for model in (watch, run, run_with_hits, hit):
+    for model in (alert, run, run_with_hits, hit):
         assert issubclass(model, WireModel)
         _assert_closed_wire_model(model)
         _assert_all_fields_required(model)
@@ -602,7 +602,7 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
         "snippet": str | None,
         "is_new": bool,
     }
-    watch_annotations = {
+    alert_annotations = {
         "id": int,
         "name": str,
         "view_id": int,
@@ -620,7 +620,7 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
 
     assert set(run.model_fields) == _RUN_FIELDS
     assert set(hit.model_fields) == _HIT_FIELDS
-    assert set(watch.model_fields) == _WATCH_FIELDS
+    assert set(alert.model_fields) == _ALERT_FIELDS
     assert set(run_with_hits.model_fields) == _RUN_FIELDS | _RUN_WITH_HITS_EXTRA_FIELDS
     assert {
         name: model_field.annotation for name, model_field in run.model_fields.items()
@@ -629,8 +629,8 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
         name: model_field.annotation for name, model_field in hit.model_fields.items()
     } == hit_annotations
     assert {
-        name: model_field.annotation for name, model_field in watch.model_fields.items()
-    } == watch_annotations
+        name: model_field.annotation for name, model_field in alert.model_fields.items()
+    } == alert_annotations
     assert {
         name: model_field.annotation
         for name, model_field in run_with_hits.model_fields.items()
@@ -642,27 +642,27 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     }
     _assert_required_nullable(run, _RUN_NULLABLE_FIELDS)
     _assert_required_nullable(hit, _HIT_NULLABLE_FIELDS)
-    _assert_required_nullable(watch, _WATCH_NULLABLE_FIELDS)
+    _assert_required_nullable(alert, _ALERT_NULLABLE_FIELDS)
     _assert_required_nullable(run_with_hits, _RUN_NULLABLE_FIELDS)
 
-    assert issubclass(watch_list, RootModel)
-    assert watch_list.model_config.get("strict") is True
-    root_annotation = watch_list.model_fields["root"].annotation
-    assert root_annotation == list[watch]
+    assert issubclass(alert_list, RootModel)
+    assert alert_list.model_config.get("strict") is True
+    root_annotation = alert_list.model_fields["root"].annotation
+    assert root_annotation == list[alert]
     _assert_closed_annotation(root_annotation, label="WatchList.root")
 
     run_payload = _run_payload(4)
     hit_payload = _hit_payload(1)
-    watch_payload = _watch_payload(1, latest_run=run_payload)
+    alert_payload = _alert_payload(1, latest_run=run_payload)
     assert run.model_validate(run_payload).model_dump() == run_payload
     assert hit.model_validate(hit_payload).model_dump() == hit_payload
-    watch_wire = watch.model_validate(watch_payload)
-    assert watch_wire.model_dump() == watch_payload
-    assert isinstance(watch_wire.latest_run, run)
+    alert_wire = alert.model_validate(alert_payload)
+    assert alert_wire.model_dump() == alert_payload
+    assert isinstance(alert_wire.latest_run, run)
     assert (
-        watch.model_validate({**watch_payload, "latest_run": None}).latest_run is None
+        alert.model_validate({**alert_payload, "latest_run": None}).latest_run is None
     )
-    assert watch_list.model_validate([watch_payload]).model_dump() == [watch_payload]
+    assert alert_list.model_validate([alert_payload]).model_dump() == [alert_payload]
     run_with_hits_payload = {
         **run_payload,
         "hits": [hit_payload],
@@ -681,22 +681,22 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
         with pytest.raises(ValidationError):
             run.model_validate({**run_payload, name: None})
     with pytest.raises(ValidationError):
-        watch.model_validate({**watch_payload, "created_at": None})
+        alert.model_validate({**alert_payload, "created_at": None})
     with pytest.raises(ValidationError):
-        watch.model_validate({**watch_payload, "enabled": None})
+        alert.model_validate({**alert_payload, "enabled": None})
     with pytest.raises(ValidationError):
         hit.model_validate({**hit_payload, "is_new": None})
     with pytest.raises(ValidationError):
         run.model_validate({**run_payload, "id": "4"})
     with pytest.raises(ValidationError):
-        watch.model_validate({**watch_payload, "unapproved_watch_field": 1})
+        alert.model_validate({**alert_payload, "unapproved_watch_field": 1})
     with pytest.raises(ValidationError):
         run.model_validate({**run_payload, "unapproved_run_field": 1})
     with pytest.raises(ValidationError):
         hit.model_validate({**hit_payload, "unapproved_hit_field": 1})
     _assert_missing_fields_rejected(run, run_payload, _RUN_FIELDS)
     _assert_missing_fields_rejected(hit, hit_payload, _HIT_FIELDS)
-    _assert_missing_fields_rejected(watch, watch_payload, _WATCH_FIELDS)
+    _assert_missing_fields_rejected(alert, alert_payload, _ALERT_FIELDS)
     _assert_missing_fields_rejected(
         run_with_hits,
         run_with_hits_payload,
@@ -705,16 +705,16 @@ def test_watch_and_run_and_hit_rows_freeze_the_wire_graph() -> None:
     # query/binding/policy stay recursive JSON, not narrowed objects.
     for spec in ({}, {"a": [1, {"b": None}]}, {"c": "s"}, {"d": True}):
         assert (
-            watch.model_validate(
-                {**watch_payload, "detection_policy": spec}
+            alert.model_validate(
+                {**alert_payload, "detection_policy": spec}
             ).detection_policy
             == spec
         )
 
 
-def test_watch_run_result_and_pages_freeze_their_envelopes() -> None:
+def test_alert_check_result_and_pages_freeze_their_envelopes() -> None:
     contracts = _contracts()
-    watch = _model(contracts, "Watch")
+    alert = _model(contracts, "Watch")
     run = _model(contracts, "WatchRun")
     run_with_hits = _model(contracts, "WatchRunWithHits")
     hit = _model(contracts, "WatchHit")
@@ -737,7 +737,7 @@ def test_watch_run_result_and_pages_freeze_their_envelopes() -> None:
         for name, model_field in result.model_fields.items()
     } == {
         "schema_version": Literal["frisket.watch_run.v1"],
-        "watch": watch,
+        "watch": alert,
         "run": run,
         "hits": list[hit],
     }
@@ -789,18 +789,18 @@ def test_watch_run_result_and_pages_freeze_their_envelopes() -> None:
     _assert_required_nullable(events_page, frozenset({"next_offset"}))
     _assert_required_nullable(event, _EVENT_NULLABLE_FIELDS)
     # The events-page literal is the producer's own constant.
-    assert WATCH_RUN_EVENT_SCHEMA_VERSION == "frisket.watch_run_events_page.v1"
+    assert ALERT_CHECK_EVENT_SCHEMA_VERSION == "frisket.watch_run_events_page.v1"
 
     run_payload = _run_payload(4)
     result_payload = {
         "schema_version": "frisket.watch_run.v1",
-        "watch": _watch_payload(1, latest_run=run_payload),
+        "watch": _alert_payload(1, latest_run=run_payload),
         "run": run_payload,
         "hits": [_hit_payload(1)],
     }
     result_wire = result.model_validate(result_payload)
     assert result_wire.model_dump() == result_payload
-    assert isinstance(result_wire.watch, watch)
+    assert isinstance(result_wire.watch, alert)
     assert isinstance(result_wire.run, run)
     assert isinstance(result_wire.hits[0], hit)
 
@@ -874,7 +874,7 @@ def test_watch_run_result_and_pages_freeze_their_envelopes() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> None:
+def test_live_alert_routes_preserve_their_current_payloads(tmp_path: Path) -> None:
     app = create_app(tmp_path / "live-watches")
     workspace = app.state.workspace
     project_id = str(workspace.create("live watches")["id"])
@@ -882,7 +882,7 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
     with TestClient(app) as client:
         assert client.get(f"/api/projects/{project_id}/watches").json() == []
 
-        created = post_watch(
+        created = post_alert(
             client,
             f"/api/projects/{project_id}/watches",
             json={
@@ -891,44 +891,44 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
             },
         )
         assert created.status_code == 200, created.text
-        watch = created.json()
-        assert set(watch) == _WATCH_FIELDS
-        assert watch["view_id"] > 0
-        assert watch["sheet_id"] is None
-        assert watch["enabled"] is True
-        assert watch["detection_policy"] == {
+        alert = created.json()
+        assert set(alert) == _ALERT_FIELDS
+        assert alert["view_id"] > 0
+        assert alert["sheet_id"] is None
+        assert alert["enabled"] is True
+        assert alert["detection_policy"] == {
             "kind": "conditions",
             "entered": True,
             "exited": False,
             "count_changed": False,
             "fields": [],
         }
-        assert watch["latest_run"] is None
-        watch_id = watch["id"]
+        assert alert["latest_run"] is None
+        alert_id = alert["id"]
 
         renamed = client.patch(
-            f"/api/projects/{project_id}/watches/{watch_id}",
+            f"/api/projects/{project_id}/watches/{alert_id}",
             json={"name": "  Renamed budget  "},
         )
         assert renamed.status_code == 200, renamed.text
         assert renamed.json()["name"] == "Renamed budget"
-        assert renamed.json()["view_id"] == watch["view_id"]
+        assert renamed.json()["view_id"] == alert["view_id"]
         assert renamed.json()["enabled"] is True
 
         paused = client.patch(
-            f"/api/projects/{project_id}/watches/{watch_id}", json={"enabled": False}
+            f"/api/projects/{project_id}/watches/{alert_id}", json={"enabled": False}
         )
         assert paused.status_code == 200, paused.text
         assert paused.json()["enabled"] is False
         assert paused.json()["name"] == "Renamed budget"
 
         drain_index(workspace.get(project_id))
-        run_result = client.post(f"/api/projects/{project_id}/watches/{watch_id}/run")
+        run_result = client.post(f"/api/projects/{project_id}/watches/{alert_id}/run")
         assert run_result.status_code == 200, run_result.text
         body = run_result.json()
         assert set(body) == _RUN_RESULT_FIELDS
         assert body["schema_version"] == "frisket.watch_run.v1"
-        assert set(body["watch"]) == _WATCH_FIELDS
+        assert set(body["watch"]) == _ALERT_FIELDS
         assert set(body["run"]) == _RUN_FIELDS
         assert body["run"]["status"] == "ok"
         assert body["hits"] == []
@@ -936,10 +936,10 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
 
         listed = client.get(f"/api/projects/{project_id}/watches")
         assert listed.status_code == 200
-        assert [set(row) for row in listed.json()] == [_WATCH_FIELDS]
+        assert [set(row) for row in listed.json()] == [_ALERT_FIELDS]
         assert set(listed.json()[0]["latest_run"]) == _RUN_FIELDS
 
-        runs = client.get(f"/api/projects/{project_id}/watches/{watch_id}/runs")
+        runs = client.get(f"/api/projects/{project_id}/watches/{alert_id}/runs")
         assert runs.status_code == 200
         runs_body = runs.json()
         assert set(runs_body) == _RUNS_PAGE_FIELDS
@@ -959,7 +959,7 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         run_id = runs_body["runs"][0]["id"]
 
         events = client.get(
-            f"/api/projects/{project_id}/watches/{watch_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
         )
         assert events.status_code == 200
         events_body = events.json()
@@ -973,20 +973,20 @@ def test_live_watch_routes_preserve_their_current_payloads(tmp_path: Path) -> No
         # Unknown query keys stay ignored, never rejected.
         for path in (
             f"/api/projects/{project_id}/watches?unrecognized=1",
-            f"/api/projects/{project_id}/watches/{watch_id}/runs?unrecognized=1",
-            f"/api/projects/{project_id}/watches/{watch_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/watches/{alert_id}/runs?unrecognized=1",
+            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
             "?unrecognized=1",
         ):
             assert client.get(path).status_code == 200, path
 
 
-def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> None:
+def test_alert_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> None:
     app = create_app(tmp_path / "watch-errors")
     workspace = app.state.workspace
     project_id = str(workspace.create("watch errors")["id"])
 
     with TestClient(app) as client:
-        watch_id = post_watch(
+        alert_id = post_alert(
             client,
             f"/api/projects/{project_id}/watches",
             json={
@@ -996,7 +996,7 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         ).json()["id"]
         drain_index(workspace.get(project_id))
         run_id = client.post(
-            f"/api/projects/{project_id}/watches/{watch_id}/run"
+            f"/api/projects/{project_id}/watches/{alert_id}/run"
         ).json()["run"]["id"]
 
         bad_kind = client.post(
@@ -1018,13 +1018,13 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         )
         assert retired_source.status_code == 422
 
-        missing_watch = client.post(f"/api/projects/{project_id}/watches/9999/run")
-        assert missing_watch.status_code == 404
-        assert missing_watch.json() == {"detail": "alert not found"}
+        missing_alert = client.post(f"/api/projects/{project_id}/watches/9999/run")
+        assert missing_alert.status_code == 404
+        assert missing_alert.json() == {"detail": "alert not found"}
 
         for body in ({}, {"name": "   "}, {"name": None}, {"enabled": None}):
             invalid_patch = client.patch(
-                f"/api/projects/{project_id}/watches/{watch_id}", json=body
+                f"/api/projects/{project_id}/watches/{alert_id}", json=body
             )
             assert invalid_patch.status_code in {400, 422}, invalid_patch.text
 
@@ -1042,11 +1042,11 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
             == 404
         )
         assert client.get(
-            f"/api/projects/{project_id}/watches/{watch_id}/runs/9999/events"
+            f"/api/projects/{project_id}/watches/{alert_id}/runs/9999/events"
         ).json() == {"detail": "alert check not found"}
 
         bad_event_kind = client.get(
-            f"/api/projects/{project_id}/watches/{watch_id}/runs/{run_id}/events"
+            f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
             "?event_kind=bad"
         )
         assert bad_event_kind.status_code == 400
@@ -1055,43 +1055,43 @@ def test_watch_error_oracles_preserve_existing_http_behavior(tmp_path: Path) -> 
         # Existing paging bounds stay route-level 422s.
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{watch_id}/runs?limit=101"
+                f"/api/projects/{project_id}/watches/{alert_id}/runs?limit=101"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{watch_id}/runs?offset=-1"
+                f"/api/projects/{project_id}/watches/{alert_id}/runs?offset=-1"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{watch_id}/runs?hits_limit=501"
+                f"/api/projects/{project_id}/watches/{alert_id}/runs?hits_limit=501"
             ).status_code
             == 422
         )
         assert (
             client.get(
-                f"/api/projects/{project_id}/watches/{watch_id}/runs/{run_id}/events"
+                f"/api/projects/{project_id}/watches/{alert_id}/runs/{run_id}/events"
                 "?limit=101"
             ).status_code
             == 422
         )
 
-        for suffix in ("", f"/{watch_id}/runs"):
+        for suffix in ("", f"/{alert_id}/runs"):
             missing = client.get(f"/api/projects/missing/watches{suffix}")
             assert missing.status_code == 404
             assert missing.json() == {"detail": "no project 'missing'"}
 
 
-def test_watch_schedule_default_manual_patch_and_invalid_schedule(tmp_path):
+def test_alert_schedule_default_manual_patch_and_invalid_schedule(tmp_path):
     app = create_app(tmp_path / "watch-schedule")
     workspace = app.state.workspace
     project_id = str(workspace.create("schedule")["id"])
     with TestClient(app) as client:
         path = f"/api/projects/{project_id}/watches"
-        created = post_watch(
+        created = post_alert(
             client, path, json={"name": "W", "query": {"kind": "fts", "q": "x"}}
         )
         assert created.status_code == 200, created.text

@@ -6,12 +6,12 @@ import json
 import pytest
 
 from frisket.engine.jobs import SqliteJobQueue, Worker, default_registry
-from frisket.engine.jobs.watches import (
-    enqueue_due_watch_evaluations,
-    register_watch_evaluate_handler,
+from frisket.engine.jobs.alerts import (
+    enqueue_due_alert_evaluations,
+    register_alert_evaluate_handler,
 )
 from frisket.engine.store import Project
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 
 @pytest.fixture
@@ -20,7 +20,7 @@ def scene(tmp_path):
     sheet = p.add_sheet("Records")
     col = p.add_column(sheet, "text")
     rows = p.add_rows(sheet, [{"text": "old"}], {"text": col})
-    watch = add_watch(
+    alert = add_alert(
         p,
         "Monitor",
         sheet_id=sheet,
@@ -34,31 +34,31 @@ def scene(tmp_path):
     )
     queue = SqliteJobQueue(tmp_path / ".jobs.db")
     registry = default_registry()
-    register_watch_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
-    yield p, sheet, col, rows[0], watch, queue, Worker(queue, registry)
+    register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
+    yield p, sheet, col, rows[0], alert, queue, Worker(queue, registry)
     queue.close()
     p.close()
 
 
 def schedule(scene, *, now=None, **kwargs):
     p, _, _, _, _, queue, _ = scene
-    return enqueue_due_watch_evaluations(
+    return enqueue_due_alert_evaluations(
         workspace_root=p.path.parent, queue=queue, now=now, **kwargs
     )
 
 
 def run(scene, now=None):
-    p, _, _, _, watch, queue, worker = scene
+    p, _, _, _, alert, queue, worker = scene
     jobs = schedule(scene, now=now)
     assert len(jobs) == 1
     assert worker.run_once()
     job = queue.get(jobs[0]["job_id"])
     assert job.status == "done", job
-    return p.watch_latest_run(watch)
+    return p.alert_latest_run(alert)
 
 
 def events(scene, result):
-    return [r["event_kind"] for r in scene[0].watch_run_events(result["id"])]
+    return [r["event_kind"] for r in scene[0].alert_check_events(result["id"])]
 
 
 def test_scheduled_checks_observe_edits_and_undo(scene):
@@ -73,29 +73,29 @@ def test_scheduled_checks_observe_edits_and_undo(scene):
 
 
 def test_pending_event_continuation_dedupes_and_manual_disables(scene):
-    p, _, _, _, watch, queue, _ = scene
+    p, _, _, _, alert, queue, _ = scene
     queue.enqueue(
         "watch.evaluate",
         {
             "project_id": "alerts",
-            "watch_id": watch,
-            "dedupe_key": f"watch:{watch}:eval:run-3:index:next",
+            "watch_id": alert,
+            "dedupe_key": f"watch:{alert}:eval:run-3:index:next",
         },
     )
     assert schedule(scene) == []
-    p.update_watch(watch, schedule=None)
-    assert p.get_watch(watch)["schedule"] is None
-    p.update_watch(watch, name="Still manual")
-    assert p.get_watch(watch)["schedule"] is None
+    p.update_alert(alert, schedule=None)
+    assert p.get_alert(alert)["schedule"] is None
+    p.update_alert(alert, name="Still manual")
+    assert p.get_alert(alert)["schedule"] is None
     assert schedule(scene, now=datetime.now(UTC) + timedelta(days=2)) == []
     with pytest.raises(ValueError, match="schedule"):
-        p.update_watch(watch, schedule="each second")
+        p.update_alert(alert, schedule="each second")
 
 
 def test_deleted_view_cannot_publish_queued_check(scene):
-    p, _, _, _, watch, queue, worker = scene
+    p, _, _, _, alert, queue, worker = scene
     jobs = schedule(scene)
-    p.delete_view(p.get_watch(watch)["view_id"])
+    p.delete_view(p.get_alert(alert)["view_id"])
     assert worker.run_once()
     assert queue.get(jobs[0]["job_id"]).result["reason"] == "not_found"
     assert schedule(scene) == []
@@ -106,7 +106,7 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
     from frisket.engine.store.runs import RunResultStore
     from helpers import run_writer_authority_fixture
 
-    p, sheet, col, row, watch, _, _ = scene
+    p, sheet, col, row, alert, _, _ = scene
     baseline = run(scene)
     op = p.append_op("map.ask", label="pending observation")
     run_id = RunResultStore(p).start_run(
@@ -124,10 +124,10 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
     failed = run(scene, datetime.now(UTC) + timedelta(hours=2))
     assert failed["status"] == "error"
     assert failed["error_code"] == "watch_inputs_unavailable"
-    assert p.get_watch(watch)["baseline_run_id"] == baseline["id"]
+    assert p.get_alert(alert)["baseline_run_id"] == baseline["id"]
     assert (
         p.db.execute(
-            "SELECT row_id FROM watch_seen_rows WHERE watch_id=?", (watch,)
+            "SELECT row_id FROM watch_seen_rows WHERE watch_id=?", (alert,)
         ).fetchone()[0]
         == row
     )
@@ -137,11 +137,11 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
 def test_clock_changes_membership_without_data_write(scene, monkeypatch):
     import frisket.querysets as qs
 
-    p, sheet, _, row, watch, _, _ = scene
+    p, sheet, _, row, alert, _, _ = scene
     col = p.add_column(sheet, "published", type="date")
     today = datetime.now(UTC)
     p.apply_edits([{"row_id": row, "column_id": col, "value": str(today.date())}])
-    view = p.get_watch(watch)["view_id"]
+    view = p.get_alert(alert)["view_id"]
     from frisket.engine.views.specs import legacy_selection
 
     selection = legacy_selection(
@@ -168,7 +168,7 @@ def test_clock_changes_membership_without_data_write(scene, monkeypatch):
     assert p.op_cursor == cursor
     assert events(scene, later) == ["row_exited"]
     assert (
-        json.loads(p.watch_run_events(later["id"])[0]["after_json"])["reason"]
+        json.loads(p.alert_check_events(later["id"])[0]["after_json"])["reason"]
         == "membership_changed"
     )
 
@@ -231,7 +231,7 @@ def test_exit_records_deletion_and_restoration_is_a_new_entry(scene):
     assert result.status == "completed"
     departed = run(scene, now + timedelta(hours=2))
     assert events(scene, departed) == ["row_exited"]
-    assert json.loads(p.watch_run_events(departed["id"])[0]["after_json"]) == {
+    assert json.loads(p.alert_check_events(departed["id"])[0]["after_json"]) == {
         "matched": False,
         "reason": "row_deleted",
     }
@@ -242,7 +242,7 @@ def test_exit_records_deletion_and_restoration_is_a_new_entry(scene):
 def test_hosted_scheduler_uses_explicit_project_opener(scene):
     import frisket.cli as cli
 
-    p, _, _, _, watch, queue, _ = scene
+    p, _, _, _, alert, queue, _ = scene
     opened = []
 
     def opener(key, path):
@@ -250,7 +250,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
         return Project(path)
 
     assert (
-        cli._sweep(cli._WATCHES, queue, [(p.path.parent, 84)], project_opener=opener)
+        cli._sweep(cli._ALERTS, queue, [(p.path.parent, 84)], project_opener=opener)
         == 1
     )
     assert opened == [(84, "alerts", p.path)]
@@ -259,7 +259,7 @@ def test_hosted_scheduler_uses_explicit_project_opener(scene):
             "watch.evaluate",
             project_id="alerts",
             storage_org_id=84,
-            dedupe_key_prefix=f"watch:{watch}:eval:",
+            dedupe_key_prefix=f"watch:{alert}:eval:",
         )
         is not None
     )
@@ -274,7 +274,7 @@ def test_shared_periodic_loop_runs_checks_and_digests():
         for s in cli._SCHEDULERS
         if s.interval_option == "schedule_notification_digests_interval"
     ]
-    assert scheduler.sweeps == (cli._WATCHES, cli._NOTIFICATION_DIGESTS)
+    assert scheduler.sweeps == (cli._ALERTS, cli._NOTIFICATION_DIGESTS)
     ticks = []
     stop = threading.Event()
 
@@ -289,50 +289,50 @@ def test_shared_periodic_loop_runs_checks_and_digests():
 
 
 def test_failed_job_without_observation_waits_until_next_cadence(scene):
-    p, _, _, _, watch, queue, _ = scene
+    p, _, _, _, alert, queue, _ = scene
     job_id = queue.enqueue(
         "watch.evaluate",
         {
             "project_id": "alerts",
-            "watch_id": watch,
-            "dedupe_key": f"watch:{watch}:eval:sched-failed",
+            "watch_id": alert,
+            "dedupe_key": f"watch:{alert}:eval:sched-failed",
         },
     )
     assert queue.fail_queued(job_id, "project could not open")
-    assert p.watch_latest_run(watch) is None
+    assert p.alert_latest_run(alert) is None
     assert schedule(scene) == []
     assert len(schedule(scene, now=datetime.now(UTC) + timedelta(hours=2))) == 1
 
 
 def test_schedule_queued_before_switch_to_manual_does_not_evaluate(scene):
-    p, _, _, _, watch, queue, worker = scene
+    p, _, _, _, alert, queue, worker = scene
     jobs = schedule(scene)
-    p.update_watch(watch, schedule=None)
+    p.update_alert(alert, schedule=None)
     assert worker.run_once()
     assert queue.get(jobs[0]["job_id"]).result["reason"] == "manual_only"
-    assert p.watch_latest_run(watch) is None
+    assert p.alert_latest_run(alert) is None
 
 
-def test_deleted_view_and_watch_ids_never_retarget_old_work(scene):
-    p, sheet, _, _, old_watch, queue, worker = scene
-    old_view = p.get_watch(old_watch)["view_id"]
+def test_deleted_view_and_alert_ids_never_retarget_old_work(scene):
+    p, sheet, _, _, old_alert, queue, worker = scene
+    old_view = p.get_alert(old_alert)["view_id"]
     admitted = schedule(scene)
     p.delete_view(old_view)
-    replacement = add_watch(
+    replacement = add_alert(
         p,
         "Replacement",
         sheet_id=sheet,
         query={"kind": "filter", "sheet_id": sheet, "filter": {}},
     )
-    assert replacement > old_watch
-    assert p.get_watch(replacement)["view_id"] > old_view
+    assert replacement > old_alert
+    assert p.get_alert(replacement)["view_id"] > old_view
     assert p.get_view(old_view) is None
     # A stale View command cannot edit the replacement, either.
     p.update_view(old_view, name="Stale rename")
-    assert p.get_view(p.get_watch(replacement)["view_id"])["name"] == "Replacement"
+    assert p.get_view(p.get_alert(replacement)["view_id"])["name"] == "Replacement"
     assert worker.run_once()
     assert queue.get(admitted[0]["job_id"]).result["reason"] == "not_found"
-    assert p.watch_latest_run(replacement) is None
+    assert p.alert_latest_run(replacement) is None
 
 
 @pytest.mark.parametrize("scoped", [False, True])
@@ -341,10 +341,10 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
     scene, monkeypatch, caplog, scoped, failure
 ):
     import sqlite3
-    from frisket.engine.jobs import watches
+    from frisket.engine.jobs import alerts
     from frisket.project_identity import ProjectStorageKey
 
-    p, _, _, _, watch, queue, _ = scene
+    p, _, _, _, alert, queue, _ = scene
     broken_path = p.path.parent / "a-broken.frisket"
     Project.create(broken_path).close()
     closed = []
@@ -360,7 +360,7 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
             def fail_scan():
                 raise ValueError("unreadable watch metadata")
 
-            project.watches = fail_scan
+            project.alerts = fail_scan
             close = project.close
 
             def tracked_close():
@@ -374,20 +374,20 @@ def test_one_broken_project_does_not_stop_other_scheduled_alerts(
         assert key == ProjectStorageKey(23, path.stem)
         return open_project(path)
 
-    monkeypatch.setattr(watches, "Project", open_project)
-    result = enqueue_due_watch_evaluations(
+    monkeypatch.setattr(alerts, "Project", open_project)
+    result = enqueue_due_alert_evaluations(
         workspace_root=p.path.parent,
         queue=queue,
         storage_org_id=23 if scoped else None,
         project_opener=scoped_opener if scoped else None,
     )
     assert opened == ["a-broken", "alerts"]
-    assert len(result) == 1 and result[0]["watch_id"] == watch
+    assert len(result) == 1 and result[0]["watch_id"] == alert
     assert queue.get(result[0]["job_id"]).status == "queued"
     errors = [
         record
         for record in caplog.records
-        if record.message == "watch_project_schedule_failed"
+        if record.message == "alert_project_schedule_failed"
     ]
     assert len(errors) == 1 and errors[0].project_id == "a-broken"
     assert errors[0].exc_info is not None

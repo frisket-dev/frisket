@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 from pathlib import Path
 from typing import Any
@@ -32,11 +32,11 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
     return pid, int(response.json()["sheet_id"])
 
 
-def _create_fts_watch(client: TestClient, pid: str, *, sheet_id: int | None = None):
+def _create_fts_alert(client: TestClient, pid: str, *, sheet_id: int | None = None):
     scope: dict[str, Any] = {"kind": "project"}
     if sheet_id is not None:
         scope = {"kind": "sheet", "sheet_id": sheet_id}
-    response = post_watch(
+    response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -49,24 +49,24 @@ def _create_fts_watch(client: TestClient, pid: str, *, sheet_id: int | None = No
     return response.json()
 
 
-def _run_watch(client: TestClient, pid: str, watch_id: int) -> dict[str, Any]:
-    response = client.post(f"/api/projects/{pid}/watches/{watch_id}/run")
+def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
+    response = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["schema_version"] == "frisket.watch_run.v1"
     return body
 
 
-def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> None:
+def test_fts_alert_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    watch = _create_fts_watch(client, pid)
-    view = client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()
+    alert = _create_fts_alert(client, pid)
+    view = client.get(f"/api/projects/{pid}/views/{alert['view_id']}").json()
     assert view["spec"]["selection"]["search"] == {"text": "budget"}
-    assert watch["latest_run"] is None
+    assert alert["latest_run"] is None
 
-    first = _run_watch(client, pid, watch["id"])
+    first = _check_alert(client, pid, alert["id"])
     assert first["run"]["matched_rows"] == 2
     assert first["run"]["new_rows"] == 0
     assert {hit["run_id"] for hit in first["hits"]} == {first["run"]["id"]}
@@ -74,7 +74,7 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     assert {hit["sheet_id"] for hit in first["hits"]} == {sheet_id}
     assert all(hit["snippet"] is None for hit in first["hits"])
 
-    second = _run_watch(client, pid, watch["id"])
+    second = _check_alert(client, pid, alert["id"])
     assert second["run"]["matched_rows"] == 2
     assert second["run"]["new_rows"] == 0
     assert [hit["is_new"] for hit in second["hits"]] == [False, False]
@@ -92,7 +92,7 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     assert added.status_code == 200, added.text
     drain_index(client.app.state.workspace.get(pid))
 
-    third = _run_watch(client, pid, watch["id"])
+    third = _check_alert(client, pid, alert["id"])
     assert third["run"]["matched_rows"] == 3
     assert third["run"]["new_rows"] == 1
     assert sum(1 for hit in third["hits"] if hit["is_new"]) == 1
@@ -105,7 +105,7 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     assert listed[0]["last_evaluated_op"] > 0
 
     page = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs",
         params={"offset": 1, "limit": 1},
     )
     assert page.status_code == 200, page.text
@@ -122,7 +122,7 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     assert len(runs_page["runs"][0]["hits"]) <= 20
 
     hit_limited_page = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs",
         params={"offset": 0, "limit": 1, "hits_limit": 1},
     )
     assert hit_limited_page.status_code == 200, hit_limited_page.text
@@ -133,13 +133,13 @@ def test_fts_watch_manual_runs_track_matched_and_new_rows(tmp_path: Path) -> Non
     assert latest_run_page["runs"][0]["hits_truncated"] is True
 
 
-def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
+def test_filter_alert_owns_captured_membership_and_uses_shared_tables(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
 
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -153,12 +153,12 @@ def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
             },
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
-    assert watch["sheet_id"] == sheet_id
-    view = client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
+    assert alert["sheet_id"] == sheet_id
+    view = client.get(f"/api/projects/{pid}/views/{alert['view_id']}").json()
     assert view["spec"]["selection"]["scope"] == {"kind": "sheet", "sheet_id": sheet_id}
-    run = _run_watch(client, pid, watch["id"])
+    run = _check_alert(client, pid, alert["id"])
     assert run["run"]["matched_rows"] == 2
     assert run["run"]["new_rows"] == 0
     assert [hit["snippet"] for hit in run["hits"]] == [None, None]
@@ -186,7 +186,7 @@ def test_filter_watch_owns_captured_membership_and_uses_shared_tables(
     }.issubset(indexes)
 
 
-def test_fts_watch_preserves_501_requested_matches_through_normalization(
+def test_fts_alert_preserves_501_requested_matches_through_normalization(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -203,7 +203,7 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
     )
 
     drain_index(project)
-    created = post_watch(
+    created = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -218,16 +218,16 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
         },
     )
     assert created.status_code == 200, created.text
-    watch = created.json()
+    alert = created.json()
 
-    result = _run_watch(client, pid, watch["id"])
+    result = _check_alert(client, pid, alert["id"])
     run_id = result["run"]["id"]
     persisted = project.db.execute(
         "SELECT COUNT(*) AS count FROM watch_run_hits WHERE run_id=?",
         (run_id,),
     ).fetchone()
     assert (
-        client.get(f"/api/projects/{pid}/views/{watch['view_id']}").json()["spec"][
+        client.get(f"/api/projects/{pid}/views/{alert['view_id']}").json()["spec"][
             "selection"
         ]["limit"]
         == 501
@@ -237,7 +237,7 @@ def test_fts_watch_preserves_501_requested_matches_through_normalization(
     assert persisted["count"] == 500
     assert (
         project.db.execute(
-            "SELECT count(*) FROM watch_seen_rows WHERE watch_id=?", (watch["id"],)
+            "SELECT count(*) FROM watch_seen_rows WHERE watch_id=?", (alert["id"],)
         ).fetchone()[0]
         == 501
     )
@@ -272,17 +272,17 @@ def test_embedding_query_normalization_preserves_501_requested_limit(
     assert normalize_query_spec(query)["limit"] == 501
 
 
-def test_watch_patch_pause_resume_preserves_execution_state_and_manual_runs(
+def test_alert_patch_pause_resume_preserves_execution_state_and_manual_runs(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
     pid, _sheet_id = _seed_project(client)
-    watch = _create_fts_watch(client, pid)
-    first_run = _run_watch(client, pid, watch["id"])["run"]
+    alert = _create_fts_alert(client, pid)
+    first_run = _check_alert(client, pid, alert["id"])["run"]
     before = client.get(f"/api/projects/{pid}/watches").json()[0]
 
     renamed = client.patch(
-        f"/api/projects/{pid}/watches/{watch['id']}",
+        f"/api/projects/{pid}/watches/{alert['id']}",
         json={"name": "  Budget alerts  "},
     )
     assert renamed.status_code == 200, renamed.text
@@ -296,7 +296,7 @@ def test_watch_patch_pause_resume_preserves_execution_state_and_manual_runs(
         assert renamed.json()[field] == before[field]
 
     paused = client.patch(
-        f"/api/projects/{pid}/watches/{watch['id']}", json={"enabled": False}
+        f"/api/projects/{pid}/watches/{alert['id']}", json={"enabled": False}
     )
     assert paused.status_code == 200, paused.text
     assert paused.json()["enabled"] is False
@@ -305,17 +305,17 @@ def test_watch_patch_pause_resume_preserves_execution_state_and_manual_runs(
 
     # Pause affects automatic selection only. A deliberate Run now remains a
     # manual evaluation and extends, rather than replaces, history.
-    manual_while_paused = _run_watch(client, pid, watch["id"])["run"]
+    manual_while_paused = _check_alert(client, pid, alert["id"])["run"]
     assert manual_while_paused["id"] != first_run["id"]
     assert (
-        client.get(f"/api/projects/{pid}/watches/{watch['id']}/runs").json()["total"]
+        client.get(f"/api/projects/{pid}/watches/{alert['id']}/runs").json()["total"]
         == 2
     )
 
     paused_cursor = paused.json()["last_evaluated_op"]
     paused_history = manual_while_paused["id"]
     resumed = client.patch(
-        f"/api/projects/{pid}/watches/{watch['id']}", json={"enabled": True}
+        f"/api/projects/{pid}/watches/{alert['id']}", json={"enabled": True}
     )
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["enabled"] is True
@@ -323,18 +323,18 @@ def test_watch_patch_pause_resume_preserves_execution_state_and_manual_runs(
     assert resumed.json()["last_run_id"] == paused_history
     # Resuming changes scheduling eligibility only; it never evaluates inline.
     assert (
-        client.get(f"/api/projects/{pid}/watches/{watch['id']}/runs").json()["total"]
+        client.get(f"/api/projects/{pid}/watches/{alert['id']}/runs").json()["total"]
         == 2
     )
 
 
-def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
+def test_alert_delete_cascades_only_its_state_and_single_alert_notifications(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
     pid, _sheet_id = _seed_project(client)
-    deleted_watch = _create_fts_watch(client, pid)
-    retained_watch = post_watch(
+    deleted_alert = _create_fts_alert(client, pid)
+    retained_alert = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -343,13 +343,13 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
             "query": {"kind": "fts", "q": "bridge", "limit": 10},
         },
     ).json()
-    from watch_helpers import seed_empty_watch_baseline
+    from alert_helpers import seed_empty_alert_baseline
 
     project = client.app.state.workspace.get(pid)
-    seed_empty_watch_baseline(project, deleted_watch["id"])
-    seed_empty_watch_baseline(project, retained_watch["id"])
-    deleted_run = _run_watch(client, pid, deleted_watch["id"])["run"]
-    retained_run = _run_watch(client, pid, retained_watch["id"])["run"]
+    seed_empty_alert_baseline(project, deleted_alert["id"])
+    seed_empty_alert_baseline(project, retained_alert["id"])
+    deleted_run = _check_alert(client, pid, deleted_alert["id"])["run"]
+    retained_run = _check_alert(client, pid, retained_alert["id"])["run"]
     project = client.app.state.workspace.get(pid)
 
     channel = client.post(
@@ -362,14 +362,14 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         },
     )
     assert channel.status_code == 200, channel.text
-    for watch in (deleted_watch, retained_watch):
+    for alert in (deleted_alert, retained_alert):
         route = client.post(
             f"/api/projects/{pid}/notification-routes",
             json={
-                "name": f"Route for {watch['id']}",
+                "name": f"Route for {alert['id']}",
                 "channel_id": channel.json()["id"],
                 "source_kind": "watch",
-                "source_ref_match": {"watch_id": watch["id"]},
+                "source_ref_match": {"watch_id": alert["id"]},
                 "delivery_mode": "immediate",
             },
         )
@@ -379,7 +379,7 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_items WHERE "
             "json_extract(source_ref, '$.watch_id')=?",
-            (deleted_watch["id"],),
+            (deleted_alert["id"],),
         ).fetchone()["n"]
         == 1
     )
@@ -387,22 +387,22 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_routes WHERE "
             "source_kind='watch' AND json_extract(source_ref_match_json, '$.watch_id')=?",
-            (deleted_watch["id"],),
+            (deleted_alert["id"],),
         ).fetchone()["n"]
         == 1
     )
 
-    removed = client.delete(f"/api/projects/{pid}/watches/{deleted_watch['id']}")
+    removed = client.delete(f"/api/projects/{pid}/watches/{deleted_alert['id']}")
     assert removed.status_code == 200, removed.text
-    assert removed.json() == {"ok": True, "deleted": deleted_watch["id"]}
+    assert removed.json() == {"ok": True, "deleted": deleted_alert["id"]}
 
     listed = client.get(f"/api/projects/{pid}/watches").json()
-    assert [row["id"] for row in listed] == [retained_watch["id"]]
+    assert [row["id"] for row in listed] == [retained_alert["id"]]
     for table, column, value in (
-        ("watch_runs", "watch_id", deleted_watch["id"]),
-        ("watch_run_events", "watch_id", deleted_watch["id"]),
-        ("watch_seen_rows", "watch_id", deleted_watch["id"]),
-        ("watch_row_field_state", "watch_id", deleted_watch["id"]),
+        ("watch_runs", "watch_id", deleted_alert["id"]),
+        ("watch_run_events", "watch_id", deleted_alert["id"]),
+        ("watch_seen_rows", "watch_id", deleted_alert["id"]),
+        ("watch_row_field_state", "watch_id", deleted_alert["id"]),
     ):
         assert (
             project.db.execute(
@@ -410,8 +410,8 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
             ).fetchone()["n"]
             == 0
         )
-    assert project.get_watch_run(deleted_run["id"]) is None
-    assert project.get_watch_run(retained_run["id"]) is not None
+    assert project.get_alert_check(deleted_run["id"]) is None
+    assert project.get_alert_check(retained_run["id"]) is not None
     assert (
         project.db.execute(
             "SELECT COUNT(*) AS n FROM watch_run_hits WHERE run_id=?",
@@ -423,7 +423,7 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_items WHERE "
             "json_extract(source_ref, '$.watch_id')=?",
-            (deleted_watch["id"],),
+            (deleted_alert["id"],),
         ).fetchone()["n"]
         == 0
     )
@@ -431,7 +431,7 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_items WHERE "
             "json_extract(source_ref, '$.watch_id')=?",
-            (retained_watch["id"],),
+            (retained_alert["id"],),
         ).fetchone()["n"]
         == 1
     )
@@ -439,7 +439,7 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_routes WHERE "
             "source_kind='watch' AND json_extract(source_ref_match_json, '$.watch_id')=?",
-            (deleted_watch["id"],),
+            (deleted_alert["id"],),
         ).fetchone()["n"]
         == 0
     )
@@ -447,7 +447,7 @@ def test_watch_delete_cascades_only_its_state_and_single_watch_notifications(
         project.db.execute(
             "SELECT COUNT(*) AS n FROM notification_routes WHERE "
             "source_kind='watch' AND json_extract(source_ref_match_json, '$.watch_id')=?",
-            (retained_watch["id"],),
+            (retained_alert["id"],),
         ).fetchone()["n"]
         == 1
     )

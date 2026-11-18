@@ -1,10 +1,10 @@
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 import json
 
 import pytest
 
 from frisket.engine.store import Project
-from frisket.server.notifications.projections import watch_run_notification_candidate
+from frisket.server.notifications.projections import alert_check_notification_candidate
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def scene(tmp_path):
         rows = project.add_rows(
             sheet, [{"value": "old"} for _ in range(3)], {"value": column}
         )
-        watch = add_watch(
+        alert = add_alert(
             project,
             "Monitor",
             scope="sheet",
@@ -29,15 +29,15 @@ def scene(tmp_path):
                 "fields": [{"sheet_id": sheet, "column_id": column}],
             },
         )
-        yield project, sheet, column, rows, watch
+        yield project, sheet, column, rows, alert
     finally:
         project.close()
 
 
 def record(scene, rows, *, status="ok", query_hash="scope-1", hits=None):
-    project, sheet, _, _, watch = scene
-    return project.record_watch_run(
-        watch,
+    project, sheet, _, _, alert = scene
+    return project.record_alert_check(
+        alert,
         hits=hits
         if hits is not None
         else ({"sheet_id": sheet, "row_id": row, "snippet": "match"} for row in rows),
@@ -49,17 +49,18 @@ def record(scene, rows, *, status="ok", query_hash="scope-1", hits=None):
 
 
 def kinds(project, run):
-    return [row["event_kind"] for row in project.watch_run_events(run)]
+    return [row["event_kind"] for row in project.alert_check_events(run)]
 
 
 def test_first_observation_silent_and_returning_rows_alert_again(scene):
-    project, _, _, rows, watch = scene
+    project, _, _, rows, alert = scene
     first = record(scene, rows[:1])
     assert kinds(project, first) == []
-    assert project.get_watch_run(first)["matched_rows"] == 1
-    assert project.get_watch_run(first)["new_rows"] == 0
+    assert project.get_alert_check(first)["matched_rows"] == 1
+    assert project.get_alert_check(first)["new_rows"] == 0
     assert (
-        watch_run_notification_candidate(project, watch_id=watch, run_id=first) is None
+        alert_check_notification_candidate(project, alert_id=alert, run_id=first)
+        is None
     )
     assert kinds(project, record(scene, [])) == ["row_exited"]
     assert kinds(project, record(scene, rows[:1])) == ["row_entered"]
@@ -68,7 +69,7 @@ def test_first_observation_silent_and_returning_rows_alert_again(scene):
 
 
 def test_conditions_share_one_check_and_incomplete_preserves_baseline(scene):
-    project, _, column, rows, watch = scene
+    project, _, column, rows, alert = scene
     record(scene, rows[:2])
     project.apply_edits([{"row_id": rows[0], "column_id": column, "value": "updated"}])
     failed = record(scene, [], status="error")
@@ -76,10 +77,10 @@ def test_conditions_share_one_check_and_incomplete_preserves_baseline(scene):
     assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 2
     changed = record(scene, [rows[0], rows[2]])
     assert kinds(project, changed) == ["row_entered", "row_exited", "row_changed"]
-    event = project.watch_run_events(changed)[-1]
+    event = project.alert_check_events(changed)[-1]
     assert "old" in event["before_json"]
     assert "updated" in event["after_json"]
-    assert project.get_watch(watch)["last_run_id"] == changed
+    assert project.get_alert(alert)["last_run_id"] == changed
 
 
 def test_criteria_change_silently_replaces_baseline(scene):
@@ -91,9 +92,9 @@ def test_criteria_change_silently_replaces_baseline(scene):
 
 
 def test_definition_change_during_staging_cannot_publish_old_check(scene):
-    project, sheet, _, rows, watch = scene
+    project, sheet, _, rows, alert = scene
     record(scene, rows[:1])
-    before = project.get_watch(watch)["last_run_id"]
+    before = project.get_alert(alert)["last_run_id"]
 
     def arriving_hits():
         yield {"sheet_id": sheet, "row_id": rows[0]}
@@ -109,32 +110,32 @@ def test_definition_change_during_staging_cannot_publish_old_check(scene):
                         "presentation": {},
                     }
                 ),
-                watch,
+                alert,
             ),
         )
         project.db.commit()
 
     with pytest.raises(ValueError, match="definition changed"):
         record(scene, [], hits=arriving_hits())
-    assert project.get_watch(watch)["last_run_id"] == before
+    assert project.get_alert(alert)["last_run_id"] == before
     assert project.db.execute("SELECT count(*) FROM watch_runs").fetchone()[0] == 1
 
 
 def test_all_changes_counted_with_bounded_previews_and_one_summary_key(scene):
-    project, sheet, column, _, watch = scene
+    project, sheet, column, _, alert = scene
     record(scene, [])
     rows = project.add_rows(
         sheet, [{"value": "extra"} for _ in range(601)], {"value": column}
     )
     run = record(scene, rows)
-    assert project.get_watch_run(run)["matched_rows"] == 601
-    assert project.watch_run_events_total(run) == 601
-    assert len(project.watch_run_hits(run, 1000)) == 500
-    small = watch_run_notification_candidate(
-        project, watch_id=watch, run_id=run, limit=5
+    assert project.get_alert_check(run)["matched_rows"] == 601
+    assert project.alert_check_events_total(run) == 601
+    assert len(project.alert_check_matches(run, 1000)) == 500
+    small = alert_check_notification_candidate(
+        project, alert_id=alert, run_id=run, limit=5
     )
-    large = watch_run_notification_candidate(
-        project, watch_id=watch, run_id=run, limit=500
+    large = alert_check_notification_candidate(
+        project, alert_id=alert, run_id=run, limit=500
     )
     assert "601" in small["title"]
     assert small["payload"]["event_count"] == 601
@@ -143,22 +144,22 @@ def test_all_changes_counted_with_bounded_previews_and_one_summary_key(scene):
 
 
 def test_new_condition_initializes_without_swallowing_existing_entry_alerts(scene):
-    project, _, _, rows, watch = scene
+    project, _, _, rows, alert = scene
     first = record(scene, rows[:1])
-    project.update_watch(watch, name="Renamed")
+    project.update_alert(alert, name="Renamed")
     assert kinds(project, record(scene, rows[:2])) == ["row_entered"]
     project.db.execute(
         "UPDATE watches SET detection_policy=? WHERE id=?",
         (
             json.dumps({"kind": "conditions", "entered": True, "count_changed": True}),
-            watch,
+            alert,
         ),
     )
     project.db.commit()
     new_baseline = record(scene, rows)
     assert kinds(project, new_baseline) == ["row_entered"]
-    assert project.get_watch(watch)["baseline_run_id"] == new_baseline
-    assert project.get_watch_run(first)["detection_policy"] is not None
+    assert project.get_alert(alert)["baseline_run_id"] == new_baseline
+    assert project.get_alert_check(first)["detection_policy"] is not None
 
 
 def test_pending_monitored_value_preserves_successful_baseline(scene):
@@ -166,7 +167,7 @@ def test_pending_monitored_value_preserves_successful_baseline(scene):
     from frisket.engine.store.runs import RunResultStore
     from helpers import run_writer_authority_fixture
 
-    project, sheet, column, rows, watch = scene
+    project, sheet, column, rows, alert = scene
     baseline = record(scene, rows)
     op = project.append_op("map.ask", label="pending observation")
     run = RunResultStore(project).start_run(
@@ -182,9 +183,11 @@ def test_pending_monitored_value_preserves_successful_baseline(scene):
         claim_token=authority.claim_token,
     )
     incomplete = record(scene, rows)
-    assert project.get_watch_run(incomplete)["status"] == "error"
-    assert project.get_watch_run(incomplete)["error_code"] == "watch_inputs_unavailable"
-    assert project.get_watch(watch)["baseline_run_id"] == baseline
+    assert project.get_alert_check(incomplete)["status"] == "error"
+    assert (
+        project.get_alert_check(incomplete)["error_code"] == "watch_inputs_unavailable"
+    )
+    assert project.get_alert(alert)["baseline_run_id"] == baseline
     assert project.db.execute("SELECT count(*) FROM watch_seen_rows").fetchone()[0] == 3
 
 
@@ -193,27 +196,27 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
     from frisket.engine.jobs.notifications_delivery import (
         reconcile_notification_delivery_requests,
     )
-    from frisket.server.notifications.projections import emit_watch_run_notification
+    from frisket.server.notifications.projections import emit_alert_check_notification
 
-    project, _, _, rows, watch = scene
+    project, _, _, rows, alert = scene
     record(scene, [])
     run = record(scene, rows)
-    assert project.get_watch_run(run)["notification_pending"] == 1
+    assert project.get_alert_check(run)["notification_pending"] == 1
     # Crash after baseline publication, before projecting any notification.
     queue = open_queue(workspace=project.path.parent / "queue")
     monkeypatch.setattr(
-        "frisket.features.watchlists.service.evaluate_watch",
+        "frisket.features.alerts.service.evaluate_alert",
         lambda *args: pytest.fail("recovery must not query live data"),
     )
     reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
-    assert project.get_watch_run(run)["notification_pending"] == 0
+    assert project.get_alert_check(run)["notification_pending"] == 0
     assert (
         project.db.execute(
             "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
         ).fetchone()[0]
         == 1
     )
-    emit_watch_run_notification(project, watch_id=watch, run_id=run)
+    emit_alert_check_notification(project, alert_id=alert, run_id=run)
     assert (
         project.db.execute(
             "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
@@ -223,15 +226,15 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
 
 
 def test_notification_persists_total_not_preview_count(scene):
-    from frisket.server.notifications.projections import emit_watch_run_notification
+    from frisket.server.notifications.projections import emit_alert_check_notification
 
-    project, sheet, column, _, watch = scene
+    project, sheet, column, _, alert = scene
     record(scene, [])
     rows = project.add_rows(
         sheet, [{"value": "extra"} for _ in range(501)], {"value": column}
     )
     run = record(scene, rows)
-    emit_watch_run_notification(project, watch_id=watch, run_id=run)
+    emit_alert_check_notification(project, alert_id=alert, run_id=run)
     notification = project.db.execute(
         "SELECT event_count FROM notification_items WHERE source_kind='watch'"
     ).fetchone()
@@ -255,7 +258,7 @@ def test_worker_recovers_saved_notification_without_an_expired_lease(scene):
     # No queued/leased jobs exist: recovery must run from the real idle worker.
     worker = Worker(queue, registry, worker_id="notification-restart")
     assert worker.run_once() is False
-    assert project.get_watch_run(run)["notification_pending"] == 0
+    assert project.get_alert_check(run)["notification_pending"] == 0
     assert (
         project.db.execute(
             "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
@@ -282,21 +285,21 @@ def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
     record(scene, [])
     first = record(scene, rows[:1])
     second = record(scene, rows)
-    original = projections.emit_watch_run_notification
+    original = projections.emit_alert_check_notification
 
-    def fail_first(project, *, watch_id, run_id):
+    def fail_first(project, *, alert_id, run_id):
         if run_id == first:
             raise RuntimeError("transient projection failure")
-        return original(project, watch_id=watch_id, run_id=run_id)
+        return original(project, alert_id=alert_id, run_id=run_id)
 
-    monkeypatch.setattr(projections, "emit_watch_run_notification", fail_first)
+    monkeypatch.setattr(projections, "emit_alert_check_notification", fail_first)
     queue = open_queue(workspace=project.path.parent / "queue")
     reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
-    assert project.get_watch_run(first)["notification_pending"] == 1
-    assert project.get_watch_run(second)["notification_pending"] == 0
-    monkeypatch.setattr(projections, "emit_watch_run_notification", original)
+    assert project.get_alert_check(first)["notification_pending"] == 1
+    assert project.get_alert_check(second)["notification_pending"] == 0
+    monkeypatch.setattr(projections, "emit_alert_check_notification", original)
     reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)
-    assert project.get_watch_run(first)["notification_pending"] == 0
+    assert project.get_alert_check(first)["notification_pending"] == 0
     assert (
         project.db.execute(
             "SELECT count(*) FROM notification_items WHERE source_kind='watch'"
@@ -306,18 +309,18 @@ def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
 
 
 def test_unchanged_membership_and_fields_are_not_rewritten(scene):
-    project, _, _, rows, watch = scene
+    project, _, _, rows, alert = scene
     record(scene, rows)
     first_members = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (watch,)
+            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (alert,)
         )
     ]
     first_fields = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (watch,)
+            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (alert,)
         )
     ]
     statements = []
@@ -330,13 +333,13 @@ def test_unchanged_membership_and_fields_are_not_rewritten(scene):
     assert [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (watch,)
+            "SELECT * FROM watch_seen_rows WHERE watch_id=?", (alert,)
         )
     ] == first_members
     assert [
         tuple(row)
         for row in project.db.execute(
-            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (watch,)
+            "SELECT * FROM watch_row_field_state WHERE watch_id=?", (alert,)
         )
     ] == first_fields
 
@@ -346,7 +349,7 @@ def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
     from frisket.engine.store.runs import RunResultStore
     from helpers import run_writer_authority_fixture
 
-    project, sheet, column, rows, watch = scene
+    project, sheet, column, rows, alert = scene
     record(scene, rows)
     op = project.append_op("map.ask", label="failed observation")
     run = RunResultStore(project).start_run(
@@ -372,6 +375,6 @@ def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
         claim_token=authority.claim_token,
     )
     checked = record(scene, rows)
-    assert project.get_watch_run(checked)["status"] == "ok"
+    assert project.get_alert_check(checked)["status"] == "ok"
     assert kinds(project, checked) == ["row_changed"] * len(rows)
-    assert "not_completed" in project.watch_run_events(checked)[0]["after_json"]
+    assert "not_completed" in project.alert_check_events(checked)[0]["after_json"]

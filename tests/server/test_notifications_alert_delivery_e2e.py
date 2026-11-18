@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 from pathlib import Path
 from typing import Any
@@ -63,7 +63,7 @@ def _client(tmp_path: Path, transport: RecordingSlackTransport) -> TestClient:
     return make_client(tmp_path, notification_delivery_runtime=runtime)
 
 
-def test_watch_event_routes_through_worker_to_recorded_slack_transport(
+def test_alert_event_routes_through_worker_to_recorded_slack_transport(
     tmp_path: Path,
 ) -> None:
     transport = RecordingSlackTransport()
@@ -76,7 +76,7 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
     assert imported.status_code == 200, imported.text
     drain_queue(client, worker_id="notification-watch-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -85,8 +85,8 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
     channel_response = client.post(
         f"/api/projects/{pid}/notification-channels",
         json={
@@ -105,16 +105,16 @@ def test_watch_event_routes_through_worker_to_recorded_slack_transport(
             "name": "Immediate budget alerts",
             "channel_id": channel["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch["id"]},
+            "source_ref_match": {"watch_id": alert["id"]},
             "delivery_mode": "immediate",
         },
     )
     assert route_response.status_code == 200, route_response.text
 
-    from watch_helpers import seed_empty_watch_baseline
+    from alert_helpers import seed_empty_alert_baseline
 
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert run_response.status_code == 200, run_response.text
     assert run_response.json()["run"]["new_rows"] == 2
 
