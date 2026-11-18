@@ -83,7 +83,7 @@ describe('localServerGuidanceState', () => {
           reachable: true,
           protocol: 'ollama_native',
           installed_models: ['qwen3:0.6b'],
-          models: [{ id: 'ollama/@desktop/qwen3:0.6b', label: 'qwen3:0.6b', price: null }],
+          models: [{ id: 'ollama/@desktop/qwen3:0.6b', label: 'qwen3:0.6b', price: null, local: true }],
         }),
       ),
     ).toBeNull();

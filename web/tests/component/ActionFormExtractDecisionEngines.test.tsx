@@ -24,7 +24,7 @@ beforeEach(() => {
     schemaVersion: 'frisket.providers.v1', tier: 'local', providers: [{
       id: 'openai', label: 'OpenAI', kind: 'platform_api', configured: true,
       source: 'env', hint: null,
-      models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null }],
+      models: [{ id: 'openai/gpt-5-mini', label: 'GPT-5 mini', price: null, local: false }],
     }],
   });
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No network in this test')));

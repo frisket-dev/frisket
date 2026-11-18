@@ -152,7 +152,7 @@ describe('defaultActionModel', () => {
         label: 'OpenRouter',
         kind: 'platform_api',
         configured: true,
-        models: [{ id: 'openrouter/anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', price: null }],
+        models: [{ id: 'openrouter/anthropic/claude-3.5-sonnet', label: 'Claude 3.5 Sonnet', price: null, local: false }],
       }),
     ]);
 

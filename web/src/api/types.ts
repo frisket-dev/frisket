@@ -14,7 +14,9 @@ import type {
   HttpColumnValuesPreviewResponse,
   HttpEvidenceViewerResponse,
   HttpInstanceInfoResponse,
+  HttpLocalEndpointCatalog,
   HttpLocalEndpointDiscoveryResponse,
+  HttpLocalProviderCatalog,
   HttpModelPull,
   HttpModelPullStartResponse,
   HttpOrganizationEnvList,
@@ -22,6 +24,7 @@ import type {
   HttpOrganizationProviderCatalog,
   HttpProjectAttemptsPage,
   HttpProjectInviteCreate,
+  HttpProjectLineageResponse,
   HttpProjectMemberList,
   HttpProjectMemberRemove,
   HttpProjectMemberSet,
@@ -35,12 +38,19 @@ import type {
   HttpReceipt,
   HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
+  HttpRuntimeProjectionBuildPlan,
+  HttpRuntimeProjectionStatus,
   HttpSavedViewResolved,
+  HttpSheetGraphResponse,
   HttpSpendReport,
+  HttpTopicSegmentationCompareScratchResponse,
+  HttpTranslateComparisonResponse,
   HttpWorkbenchPluginActivation,
   HttpWorkbenchPluginBackendActivation,
   HttpWorkbenchPluginInstallExecution,
+  HttpWorkbenchPluginInstallState,
   HttpWorkbenchPluginRuntimeIndex,
+  HttpWorkbenchPluginSettings,
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
 
@@ -653,12 +663,7 @@ export interface LineageNode {
   source_kind?: string;
 }
 
-export interface LineageEdge {
-  from: string;
-  to: string;
-  kind: 'source' | 'derive' | 'ai_column';
-  stale: boolean;
-}
+export type LineageEdge = HttpProjectLineageResponse['edges'][number];
 
 export interface LineageDag {
   project_id: string;
@@ -1514,74 +1519,22 @@ export interface ModelOption {
 
 /** Local-tier provider catalog for the Braintrust-style model picker
  * (GET /api/providers). Distinct from the hosted-organization ProviderCatalog above. */
-export interface LocalProviderModel {
-  id: string; // e.g. "anthropic/claude-haiku-4-5"
-  label: string;
-  /** $/M tokens from the live pricing table; null when unknown (never faked). */
-  price: { input: number; output: number } | null;
-  local?: boolean;
-}
+export type LocalProviderModel = LocalHttpEndpointEntry['models'][number];
 
-export interface PlatformLocalProviderEntry {
-  id: string;
-  label: string;
-  kind: 'platform_api';
-  models: LocalProviderModel[];
-  configured: boolean;
-  source: 'env' | 'local_file' | null;
-  hint: string | null;
-}
+export type PlatformLocalProviderEntry = Exclude<LocalProviderEntry, LocalHttpEndpointEntry>;
 
-export interface LocalHttpEndpointEntry {
-  endpoint_id: string;
-  label: string;
-  kind: 'local_http';
-  read_only: boolean;
-  models: LocalProviderModel[];
-  reachable: boolean;
-  origin: string;
-  authority: 'instance' | 'organization';
-  source: 'stored' | 'environment';
-  detail: string | null;
-  installed_models?: string[];
-  /** Capability facts, reported separately by the server probe — never
-   *  inferred client-side. `ollama_native` means /api/tags answered with its
-   *  schema-valid shape (an EMPTY model list still qualifies: a fresh
-   *  install is native with nothing pulled). */
-  protocol: 'ollama_native' | 'openai_compatible' | 'unknown';
-  /** `unauthorized` = the server answered 401/403 (e.g. behind an
-   *  auth-checking front door) — a distinct state, not "no models".
-   *  `unenforced` = a token is configured but a deliberately tokenless
-   *  probe SUCCEEDED: the front door the operator thinks exists is not
-   *  actually checking — a loud misconfiguration, not a healthy state. */
-  auth_status: 'ok' | 'unauthorized' | 'unenforced' | 'unknown';
-  /** Whether the effective local endpoint configuration includes a bearer
-   *  token. The token itself is never returned. */
-  token_configured: boolean;
-  /** Whether model-download requests use a separately configured token. */
-  provisioning_token_configured: boolean;
-  /** Whether the configured front door is expected to enforce bearer auth. */
-  edge_auth: boolean;
-  /** In-app pull opt-in. Gates the Download affordance in
-   *  LocalServerGuidance and the Settings toggle. */
-  pull_enabled: boolean;
-}
+/** A configured local HTTP endpoint. Capability facts come from the server
+ *  probe and are never inferred client-side: `auth_status: 'unauthorized'`
+ *  means the endpoint answered 401/403 (not "no models"), and `'unenforced'`
+ *  means a token is configured yet a tokenless probe succeeded, a loud
+ *  misconfiguration. Tokens themselves are never returned. */
+export type LocalHttpEndpointEntry = LocalEndpointCatalog['endpoints'][number];
 
-export type LocalProviderEntry = PlatformLocalProviderEntry | LocalHttpEndpointEntry;
+export type LocalProviderEntry = LocalProviderCatalog['providers'][number];
 
-export interface LocalProviderCatalog {
-  schemaVersion: string;
-  tier: 'local';
-  /** Present when a project's effective network policy filtered remote
-   *  providers from this otherwise instance-scoped catalog. */
-  network?: 'off';
-  providers: LocalProviderEntry[];
-}
+export type LocalProviderCatalog = HttpLocalProviderCatalog;
 
-export interface LocalEndpointCatalog {
-  schemaVersion: 'frisket.local_endpoints.v1';
-  endpoints: LocalHttpEndpointEntry[];
-}
+export type LocalEndpointCatalog = HttpLocalEndpointCatalog;
 
 export type LocalEndpointDiscoveryResponse = HttpLocalEndpointDiscoveryResponse;
 export type LocalEndpointDiscoveryCandidate =
@@ -2081,12 +2034,7 @@ export interface MapPointsOptions {
 
 export type RuntimeProjectionBuildMode = 'refresh' | 'rebuild';
 
-export interface RuntimeProjectionArtifactRef {
-  kind: 'projection_artifact' | string;
-  projectionKind: string;
-  artifactId: string;
-  [key: string]: unknown;
-}
+export type RuntimeProjectionArtifactRef = RuntimeProjectionStatus['outputs']['artifactRefs'][number];
 
 export interface RuntimeProjectionTarget {
   sheetId: string;
@@ -2112,40 +2060,9 @@ export interface RuntimeProjectionArtifactRequest extends RuntimeProjectionReque
   artifactId: string;
 }
 
-export interface RuntimeProjectionStatus {
-  schemaVersion: 'frisket.runtime_projection_status.v1';
-  status: 'ready' | 'stale' | 'missing' | 'building' | 'failed' | string;
-  freshness: {
-    state: 'fresh' | 'stale' | 'missing' | 'transient' | 'failed' | string;
-    generation?: string | null;
-    transient?: boolean;
-    [key: string]: unknown;
-  };
-  outputs: {
-    artifactRefs: RuntimeProjectionArtifactRef[];
-    metrics?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-  warnings?: string[];
-  [key: string]: unknown;
-}
+export type RuntimeProjectionStatus = HttpRuntimeProjectionStatus;
 
-export interface RuntimeProjectionBuildPlan {
-  schemaVersion: 'frisket.runtime_projection_build_plan.v1';
-  status: 'accepted' | 'noop' | 'failed' | string;
-  build: {
-    operation: 'refresh' | 'rebuild' | 'noop' | string;
-    idempotencyKey: string;
-    [key: string]: unknown;
-  };
-  outputs: {
-    artifactRefs: RuntimeProjectionArtifactRef[];
-    metrics?: Record<string, unknown>;
-    [key: string]: unknown;
-  };
-  warnings?: string[];
-  [key: string]: unknown;
-}
+export type RuntimeProjectionBuildPlan = HttpRuntimeProjectionBuildPlan;
 
 export interface TimelineProjectionItem {
   sourceRowId: string | number;
@@ -2176,53 +2093,17 @@ export interface TimelineProjectionArtifact {
   [key: string]: unknown;
 }
 
-export interface GraphRowRef {
-  sheet_id: number;
-  row_id: number;
-}
+export type GraphRowRef = SheetGraphEdge['row_ref'];
 
 // --- Generic sheet-graph view -----------------------------------------------
 // GET /projects/:pid/sheets/:sheetId/graph — derived from the materialized
 // edge/join substrate, NOT the FtM neighborhood service.
 
-export interface SheetGraphNode {
-  id: string;
-  label: string;
-  sheet_id: number;
-  row_id: number;
-  row_ref: GraphRowRef;
-  degree: number;
-  color_value?: unknown;
-  size_value?: unknown;
-}
+export type SheetGraphNode = SheetGraphResult['nodes'][number];
 
-export interface SheetGraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  direction: 'directed' | 'undirected';
-  label: string;
-  sheet_id: number;
-  row_id: number;
-  row_ref: GraphRowRef;
-}
+export type SheetGraphEdge = SheetGraphResult['edges'][number];
 
-export interface SheetGraphResult {
-  schema_version: 'frisket.sheet_graph.v1' | string;
-  sheet_id: number;
-  materialized_kind: 'edge' | 'join' | null;
-  direction: 'directed' | 'undirected';
-  nodes: SheetGraphNode[];
-  edges: SheetGraphEdge[];
-  truncated: boolean;
-  limits: {
-    nodes: number;
-    edges: number;
-    returned_nodes: number;
-    returned_edges: number;
-  };
-  diagnostics: Array<{ code: string; message: string; [key: string]: unknown }>;
-}
+export type SheetGraphResult = HttpSheetGraphResponse;
 
 export interface SheetGraphOptions {
   sheetId: number | string;
@@ -2322,83 +2203,22 @@ export interface TopicSegmentationCompareScratchInput {
   language?: string | null;
 }
 
-export interface TopicSegmentationCompareUnit {
-  id: string;
-  ordinal: number;
-  text: string;
-  speaker: string | null;
-  start_ms: number | null;
-  end_ms: number | null;
-}
+export type TopicSegmentationCompareUnit = TopicSegmentationCompareScratchResult['units'][number];
 
-export interface TopicSegmentationCompareBoundary {
-  id: string;
-  locator: Record<string, unknown>;
-  canonical_key: number;
-  locking_kind: 'point' | 'span';
-  strength: number | null;
-  label: string | null;
-  diagnostics: Record<string, unknown>;
-}
+export type TopicSegmentationCompareBoundary = TopicSegmentationCompareEngineResult['boundaries'][number];
 
-export interface TopicSegmentationCompareCanonicalBoundary {
-  /** Ordinal of the source unit where the following section begins. */
-  key: number;
-  /** Presentation detail only; boundary identity is `key`. */
-  kind: 'point' | 'span';
-  candidate_ids: string[];
-}
+export type TopicSegmentationCompareCanonicalBoundary = TopicSegmentationCompareEngineResult['canonical_boundaries'][number];
 
-export interface TopicSegmentationCompareSection {
-  index: number;
-  unit_ids: string[];
-}
+export type TopicSegmentationCompareSection = TopicSegmentationCompareEngineResult['sections'][number];
 
-export interface TopicSegmentationCompareEngineResult {
-  variant_id: string;
-  engine: string;
-  engine_version: string | null;
-  settings: { detail?: TopicSegmentationDetail; [key: string]: unknown };
-  status: 'completed' | 'failed';
-  runtime_ms: number;
-  boundaries: TopicSegmentationCompareBoundary[];
-  canonical_boundaries: TopicSegmentationCompareCanonicalBoundary[];
-  sections: TopicSegmentationCompareSection[];
-  unit_membership: Array<{ unit_id: string; section_indexes: number[] }>;
-  diagnostics: Record<string, unknown>;
-  warnings: OcrComparePreviewMessage[];
-  errors: OcrComparePreviewMessage[];
-}
+export type TopicSegmentationCompareEngineResult = TopicSegmentationCompareScratchResult['results'][number];
 
-export interface TopicSegmentationCompareScratchResult {
-  schema_version: 'frisket.topic_segmentation_compare.v1' | string;
-  source: {
-    scratch: true;
-    filename: string;
-    mime: string | null;
-    size: number;
-    source_kind: 'untimed_transcript' | 'timestamped_transcript';
-    snapshot_hash: string;
-    language: string | null;
-  };
-  engines: EngineOption[];
-  units: TopicSegmentationCompareUnit[];
-  results: TopicSegmentationCompareEngineResult[];
-  warnings: OcrComparePreviewMessage[];
-  errors: OcrComparePreviewMessage[];
-}
+export type TopicSegmentationCompareScratchResult = HttpTopicSegmentationCompareScratchResponse;
 
 // Translate compare: a text-source bake-off — one translation per engine
 // over a pasted sample. No cost object (the backend records per-row spend on
 // the durable action; the bake-off is a preview).
-export interface TranslateCompareEngineResult {
-  engine: string;
-  translation: string;
-  detected_language: string | null;
-  runtime_ms: number | null;
-  errors?: string[];
-  [key: string]: unknown;
-}
+export type TranslateCompareEngineResult = HttpTranslateComparisonResponse['results'][number];
 
 export interface TranslateCompareScratchInput {
   engines: string[];
@@ -2961,37 +2781,11 @@ export interface ClusterPreviewResult {
 /** One distinct value in a column-values preview page, with its row count. */
 export type ColumnValueCount = HttpColumnValuesPreviewResponse['values'][number];
 
-export interface NumberColumnDistributionBin {
-  start: number;
-  end: number;
-  count: number;
-}
+export type NumberColumnDistributionBin = Extract<ColumnDistribution, { kind: 'number' }>['bins'][number];
 
-export interface IntegerColumnDistributionBin {
-  start: string;
-  end: string;
-  count: number;
-}
+export type IntegerColumnDistributionBin = Extract<ColumnDistribution, { kind: 'integer' }>['bins'][number];
 
-export type ColumnDistribution =
-  | {
-      kind: 'number';
-      min: number;
-      max: number;
-      bins: NumberColumnDistributionBin[];
-    }
-  | {
-      kind: 'integer';
-      min: string;
-      max: string;
-      bins: IntegerColumnDistributionBin[];
-    }
-  | {
-      kind: 'date';
-      min: string;
-      max: string;
-      bins: Array<{ start: string; end: string; count: number }>;
-    };
+export type ColumnDistribution = NonNullable<HttpColumnValuesPreviewResponse['distribution']>;
 
 /** Read-only column-values preview (POST /column-values/v1/preview): the
  *  distinct-value inventory the RESOLVE authoring surfaces (Substitute /
@@ -3025,23 +2819,11 @@ export interface ColumnValuesPreview {
 /** One selectable member in a list-valued-column facet. `count` is distinct
  * sheet rows, rather than member occurrences, so it equals the filter result
  * for that one selector. */
-export interface ColumnListFacetChoice {
-  key: string;
-  label: string;
-  count: number;
-  selector: GridFilterListSelector;
-}
+export type ColumnListFacetChoice = ColumnListFacet['choices'][number];
 
 /** Independently paged member inventory carried alongside a whole-cell
  * column-values preview. */
-export interface ColumnListFacet {
-  distinct: number;
-  offset: number;
-  limit: number;
-  truncated: boolean;
-  search: string | null;
-  choices: ColumnListFacetChoice[];
-}
+export type ColumnListFacet = NonNullable<HttpColumnValuesPreviewResponse['list_facet']>;
 
 /** The `entity_eq` selector a mention group emits, verbatim from the preview
  *  payload. `fingerprint` is an internal comparison token — it travels in the
@@ -4113,27 +3895,9 @@ export interface WorkbenchPluginSettingDescriptor {
   description?: string | null;
 }
 
-export interface WorkbenchPluginSettingInfo {
-  id: string;
-  title: string;
-  type: 'boolean' | 'string' | 'number' | 'enum' | string;
-  description: string | null;
-  defaultValue: unknown;
-  effectiveValue: unknown;
-  source: 'project' | 'default' | string;
-  enum: unknown[] | null;
-  min: number | null;
-  max: number | null;
-  readOnly: boolean;
-}
+export type WorkbenchPluginSettingInfo = WorkbenchPluginSettings['settings'][number];
 
-export interface WorkbenchPluginSettings {
-  schemaVersion: 'frisket.workbench_plugin_settings.v1';
-  projectId: string;
-  pluginId: string;
-  canMutate: boolean;
-  settings: WorkbenchPluginSettingInfo[];
-}
+export type WorkbenchPluginSettings = HttpWorkbenchPluginSettings;
 
 export interface WorkbenchPluginActivationRequest {
   pluginId: string;
@@ -4154,27 +3918,7 @@ export interface WorkbenchPluginLocalInstallRequest {
   arbitraryPackageLoadAllowed: boolean;
 }
 
-export interface WorkbenchPluginLocalInstallExecution {
-  schemaVersion: 'frisket.plugin_install_plan_execution.v1';
-  projectId: string;
-  pluginId: string;
-  // The server preserves the submitted source as an open JSON object. In
-  // particular, failed lifecycle responses need not contain a `kind` field.
-  source: Record<string, JsonValue>;
-  installState: 'installed' | 'enabled' | 'failed' | string;
-  activation: 'manifestLoaded' | 'registryManifestRegistered' | 'failed' | string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  receiptId: string | null;
-  manifestSha256: string;
-  packageSha256: string;
-  arbitraryPackageLoadAllowed: boolean;
-  // Lifecycle failures are server-owned diagnostic envelopes, not the
-  // normalized runtime-index failure model below.
-  installFailure: Record<string, JsonValue> | null;
-  layoutMutated?: boolean;
-  workbenchDescriptorPackage?: WorkbenchPluginDescriptorPackage | null;
-  workbenchDescriptorManifests?: WorkbenchPluginDescriptorManifest[] | null;
-}
+export type WorkbenchPluginLocalInstallExecution = HttpWorkbenchPluginInstallExecution;
 
 export type WorkbenchPluginActivation = HttpWorkbenchPluginActivation;
 
@@ -4196,23 +3940,7 @@ export interface WorkbenchPluginInstallFailure {
   [key: string]: unknown;
 }
 
-export interface WorkbenchPluginInstallStateChange {
-  schemaVersion: 'frisket.workbench_plugin_install_state.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string | null;
-  manifestSha256: string;
-  packageSha256: string;
-  installState: 'disabled' | 'uninstalled' | 'enabled' | 'failed' | string;
-  activation: 'blocked' | 'removed' | 'registryManifestRegistered' | 'failed' | string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  permissionsAccepted: string[];
-  registryActivated: boolean;
-  arbitraryPackageLoadAllowed: boolean;
-  disabledReason: string | null;
-  source: Record<string, JsonValue>;
-  installFailure: Record<string, JsonValue> | null;
-}
+export type WorkbenchPluginInstallStateChange = HttpWorkbenchPluginInstallState;
 
 // ---------------------------------------------------------------------------
 // The API surface. The live implementation is composed in src/api/real.ts;

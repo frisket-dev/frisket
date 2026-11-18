@@ -207,7 +207,7 @@ beforeEach(() => {
   vi.spyOn(projectApi, 'estimateAction').mockResolvedValue({ cost: 0, rows: 3, llm: false });
   vi.spyOn(apiModule, 'listProviders').mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test', kind: 'platform_api', configured: true, source: 'env', hint: null,
-      models: [{ id: 'test/model', label: 'Test model', price: null }] }] });
+      models: [{ id: 'test/model', label: 'Test model', price: null, local: false }] }] });
   vi.spyOn(projectApi, 'resolveActionParams').mockImplementation(async (request) => ({
     diagnostics: {}, logical_outputs: request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [],
   }));
