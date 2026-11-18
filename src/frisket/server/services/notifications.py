@@ -42,6 +42,7 @@ from frisket.server.notifications.service import (
 )
 from frisket.server.paging import offset_page_meta
 from frisket.server.workspace import Workspace
+from frisket.engine.store.notifications import require_notification_channel
 
 
 class NotificationNotFound(ValueError):
@@ -573,9 +574,7 @@ class NotificationService:
         actor_context: "_NotificationActorContext",
         route_owner_kind: str,
     ) -> None:
-        channel = project.notification_channel(channel_id)
-        if channel is None:
-            raise ValueError("notification channel not found")
+        channel = require_notification_channel(project, channel_id)
         if str(channel["kind"]) == "in_app":
             raise ValueError("in-app notification route is implicit")
         channel_owner_kind, channel_owner_ref = _channel_owner(channel)

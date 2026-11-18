@@ -21,6 +21,10 @@ from frisket.notifications.emit import (
     _loads_object,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.notifications import (
+    require_notification_channel,
+    require_notification_route,
+)
 
 NOTIFICATION_PAGE_SCHEMA_VERSION: Final = "frisket.notifications_page.v1"
 NOTIFICATION_SUMMARY_SCHEMA_VERSION: Final = "frisket.notifications_summary.v1"
@@ -50,12 +54,8 @@ def create_notification_test_request(
     project: Project,
     route_id: int,
 ) -> dict[str, Any]:
-    route = project.notification_route(route_id)
-    if route is None:
-        raise ValueError("notification route not found")
-    channel = project.notification_channel(int(route["channel_id"]))
-    if channel is None:
-        raise ValueError("notification channel not found")
+    route = require_notification_route(project, route_id)
+    channel = require_notification_channel(project, int(route["channel_id"]))
     if str(channel["kind"]) == "in_app":
         raise ValueError("in-app notification route test is implicit")
     return project.create_notification_delivery_request(

@@ -542,6 +542,14 @@ def notification_channel(project: Any, channel_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
+def require_notification_channel(project: Any, channel_id: int) -> sqlite3.Row:
+    """The notification channel ``channel_id``; the caller holds it as existing."""
+    row = project.notification_channel(channel_id)
+    if row is None:
+        raise ValueError("notification channel not found")
+    return row
+
+
 def notification_channels(project: Any) -> list[sqlite3.Row]:
     return project.db.execute(
         "SELECT * FROM notification_channels ORDER BY id ASC"
@@ -558,9 +566,7 @@ def update_notification_channel(
     secret_ref: str | None = None,
     set_secret_ref: bool = False,
 ) -> dict[str, Any]:
-    row = project.notification_channel(channel_id)
-    if row is None:
-        raise ValueError("notification channel not found")
+    row = require_notification_channel(project, channel_id)
     next_name = name if name is not None else str(row["name"])
     next_enabled = int(enabled) if enabled is not None else int(row["enabled"])
     next_config = (
@@ -579,9 +585,7 @@ def update_notification_channel(
 
 
 def public_notification_channel(project: Any, channel_id: int) -> dict[str, Any]:
-    row = project.notification_channel(channel_id)
-    if row is None:
-        raise ValueError("notification channel not found")
+    row = require_notification_channel(project, channel_id)
     return _public_notification_channel_row(project, row)
 
 
@@ -590,6 +594,14 @@ def notification_route(project: Any, route_id: int) -> sqlite3.Row | None:
         "SELECT * FROM notification_routes WHERE id=?",
         (int(route_id),),
     ).fetchone()
+
+
+def require_notification_route(project: Any, route_id: int) -> sqlite3.Row:
+    """The notification route ``route_id``; the caller holds it as existing."""
+    row = project.notification_route(route_id)
+    if row is None:
+        raise ValueError("notification route not found")
+    return row
 
 
 def notification_routes(
@@ -673,9 +685,7 @@ def update_notification_route(
     template_key: str | None = None,
     set_template_key: bool = False,
 ) -> dict[str, Any]:
-    row = project.notification_route(route_id)
-    if row is None:
-        raise ValueError("notification route not found")
+    row = require_notification_route(project, route_id)
     next_values = {
         "name": name if name is not None else row["name"],
         "enabled": int(enabled) if enabled is not None else int(row["enabled"]),
@@ -746,9 +756,7 @@ def update_notification_route(
 
 
 def public_notification_route(project: Any, route_id: int) -> dict[str, Any]:
-    row = project.notification_route(route_id)
-    if row is None:
-        raise ValueError("notification route not found")
+    row = require_notification_route(project, route_id)
     return _public_notification_route_row(project, row)
 
 
@@ -757,6 +765,14 @@ def notification_digest_run(project: Any, digest_run_id: int) -> sqlite3.Row | N
         "SELECT * FROM notification_digest_runs WHERE id=?",
         (int(digest_run_id),),
     ).fetchone()
+
+
+def require_notification_digest_run(project: Any, digest_run_id: int) -> sqlite3.Row:
+    """The notification digest run ``digest_run_id``; the caller holds it as existing."""
+    row = project.notification_digest_run(digest_run_id)
+    if row is None:
+        raise ValueError("notification digest run not found")
+    return row
 
 
 def notification_digest_run_by_route_window(
@@ -829,9 +845,7 @@ def set_notification_digest_run_result(
 
 
 def public_notification_digest_run(project: Any, digest_run_id: int) -> dict[str, Any]:
-    row = project.notification_digest_run(digest_run_id)
-    if row is None:
-        raise ValueError("notification digest run not found")
+    row = require_notification_digest_run(project, digest_run_id)
     return _public_notification_digest_run_row(project, row)
 
 
@@ -918,6 +932,14 @@ def notification_delivery_request(project: Any, request_id: int) -> sqlite3.Row 
     ).fetchone()
 
 
+def require_notification_delivery_request(project: Any, request_id: int) -> sqlite3.Row:
+    """The notification delivery request ``request_id``; the caller holds it as existing."""
+    row = project.notification_delivery_request(request_id)
+    if row is None:
+        raise ValueError("notification delivery request not found")
+    return row
+
+
 def list_notification_delivery_requests(
     project: Any,
     *,
@@ -975,9 +997,7 @@ def notification_delivery_requests_total(
 def public_notification_delivery_request(
     project: Any, request_id: int
 ) -> dict[str, Any]:
-    row = project.notification_delivery_request(request_id)
-    if row is None:
-        raise ValueError("notification delivery request not found")
+    row = require_notification_delivery_request(project, request_id)
     return _public_notification_delivery_request_row(project, row)
 
 

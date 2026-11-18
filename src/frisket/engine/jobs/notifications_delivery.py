@@ -34,7 +34,10 @@ from frisket.notifications.producers import (
 )
 from frisket.project_identity import ProjectStorageKey, validate_project_slug
 from frisket.engine.store import Project
-from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
+from frisket.engine.store.notifications import (
+    TERMINAL_REQUEST_STATUSES,
+    require_notification_delivery_request,
+)
 from frisket.engine.store.effect_checkpoints import (
     AmbiguousReserved,
     EffectCheckpointStore,
@@ -87,9 +90,7 @@ def enqueue_notification_delivery(
         )
     )
     try:
-        request = project.notification_delivery_request(request_id)
-        if request is None:
-            raise ValueError("notification delivery request not found")
+        request = require_notification_delivery_request(project, request_id)
         if request["status"] != "queued":
             job_id = request["job_id"]
             return int(job_id) if job_id is not None else 0
@@ -304,18 +305,14 @@ def deliver_notification_request(
         )
     )
     try:
-        request = project.notification_delivery_request(request_id)
-        if request is None:
-            raise ValueError("notification delivery request not found")
+        request = require_notification_delivery_request(project, request_id)
         if request["status"] in TERMINAL_REQUEST_STATUSES:
             return {"request_id": request_id, "status": request["status"]}
         claimed = project.claim_notification_delivery_request(request_id, job_id=job_id)
         if claimed is None:
             current = project.public_notification_delivery_request(request_id)
             return {"request_id": request_id, "status": current["status"]}
-        request = project.notification_delivery_request(request_id)
-        if request is None:
-            raise ValueError("notification delivery request not found")
+        request = require_notification_delivery_request(project, request_id)
         channel = project.notification_channel(int(request["channel_id"]))
         if channel is None:
             return _apply_terminal_result(
