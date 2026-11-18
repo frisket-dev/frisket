@@ -21,7 +21,7 @@ env:
 
 jobs:
   refresh:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       REFRESH_MODE: ${{ inputs.mode }}
       REFRESH_BRANCH: ${{ inputs.mode == 'models' && 'model-catalog-refresh' || 'pricing-refresh' }}

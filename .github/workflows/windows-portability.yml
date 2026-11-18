@@ -49,7 +49,7 @@ jobs:
     needs: queue-tested
     # A failed queue lookup still decides, and the push then runs the smoke.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
       reason: ${{ steps.paths.outputs.reason }}
@@ -181,7 +181,7 @@ jobs:
     name: windows-portability
     if: ${{ always() }}
     needs: [changes, smoke]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}
