@@ -19,7 +19,6 @@ from frisket.actions.imports import FileSource
 from frisket.actions.types import DynamicOutput, TableError, TableRow
 from frisket.authoring.column_types import register_column_type, unregister_column_type
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -189,7 +188,7 @@ def test_quarantine_metadata_requires_non_boolean_in_bounds_integers(indices):
 
 @pytest.mark.parametrize("format_name", ["geojson", "kml"])
 def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
-    tmp_path, format_name
+    tmp_path, make_project, format_name
 ):
     calls = []
 
@@ -204,7 +203,7 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
         parse=parse,
         validate=lambda value: isinstance(value, str) and value.endswith("!"),
     )
-    project = Project.create(tmp_path / "project")
+    project = make_project("project")
     try:
         raw = (
             json.dumps(_feature(POINT, {"title": "Place"}, id=12)).encode()
@@ -277,7 +276,7 @@ def test_public_import_normalizes_once_and_preserves_renamed_descriptors(
 
 @pytest.mark.parametrize("format_name", ["geojson", "kml"])
 def test_late_geometry_rejection_publishes_nothing_and_skip_retains_properties(
-    tmp_path, format_name
+    tmp_path, make_project, format_name
 ):
     path = tmp_path / f"input.{format_name}"
     raw = (
@@ -297,43 +296,36 @@ def test_late_geometry_rejection_publishes_nothing_and_skip_retains_properties(
         )
     )
     path.write_bytes(raw)
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _request(
-            path, format_name, property_columns=[{"name": "title", "type": "text"}]
-        )
-        rejected = run_action_spec(project, request, project_id="p")
-        assert rejected.status == "failed"
-        assert rejected.errors[0].code == f"unsupported_{format_name}_geometry"
-        for table in ("sheets", "columns", "rows", "ops", "receipts"):
-            assert (
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-            )
-        request["params"]["on_invalid_geometry"] = "skip"
-        imported = run_action_spec(project, request, project_id="p")
-        assert imported.status == "completed", imported.errors
-        sheet = imported.outputs[0].ref
-        assert sheet["row_count"] == 3
-        assert list(
-            project.get_values(sheet["sheet_id"], sheet["columns"]["geometry"]).values()
-        ) == [POINT, None, None]
-        assert list(
-            project.get_values(sheet["sheet_id"], sheet["columns"]["title"]).values()
-        ) == ["Good", "Bad", None]
-        receipt = ReceiptStore(project).parsed_by_id(imported.receipt_id)
-        source = next(
-            item.ref for item in receipt.inputs if "skipped_features" in item.ref
-        )
-        assert source["skipped_features"] == [1]
-        assert source["label"] == "places"
-        assert source["fingerprint"] == "sha256:" + hashlib.sha256(raw).hexdigest()
-        path.unlink()
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == imported.receipt_id
-        assert ReceiptStore(project).parsed_by_id(replay.receipt_id) == receipt
-    finally:
-        project.close()
+    project = make_project("project")
+    request = _request(
+        path, format_name, property_columns=[{"name": "title", "type": "text"}]
+    )
+    rejected = run_action_spec(project, request, project_id="p")
+    assert rejected.status == "failed"
+    assert rejected.errors[0].code == f"unsupported_{format_name}_geometry"
+    for table in ("sheets", "columns", "rows", "ops", "receipts"):
+        assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    request["params"]["on_invalid_geometry"] = "skip"
+    imported = run_action_spec(project, request, project_id="p")
+    assert imported.status == "completed", imported.errors
+    sheet = imported.outputs[0].ref
+    assert sheet["row_count"] == 3
+    assert list(
+        project.get_values(sheet["sheet_id"], sheet["columns"]["geometry"]).values()
+    ) == [POINT, None, None]
+    assert list(
+        project.get_values(sheet["sheet_id"], sheet["columns"]["title"]).values()
+    ) == ["Good", "Bad", None]
+    receipt = ReceiptStore(project).parsed_by_id(imported.receipt_id)
+    source = next(item.ref for item in receipt.inputs if "skipped_features" in item.ref)
+    assert source["skipped_features"] == [1]
+    assert source["label"] == "places"
+    assert source["fingerprint"] == "sha256:" + hashlib.sha256(raw).hexdigest()
+    path.unlink()
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == imported.receipt_id
+    assert ReceiptStore(project).parsed_by_id(replay.receipt_id) == receipt
 
 
 @pytest.mark.parametrize(

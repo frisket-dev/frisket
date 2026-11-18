@@ -13,7 +13,6 @@ from frisket.actions.types import ActionRequest
 from frisket.engine.executor.action_families.embeddings import (
     run_typed_embedding_action,
 )
-from frisket.engine.store import Project
 from frisket.sdk import ActionParams, IndexExport, IndexExporter, action
 from tests.engine.test_embedding_index_export_executor import _seed
 
@@ -58,37 +57,34 @@ def _bound(params: dict[str, Any], *, key: str = "custom-export"):
     )
 
 
-def test_reused_exporter_records_actual_arguments_not_custom_return(tmp_path):
-    project = Project.create(tmp_path / "project")
-    try:
-        seeded = _seed(project, tmp_path)
-        bound = _bound(
-            {"selected": f"chosen:{seeded['index_id']}", "folder": str(tmp_path)}
-        )
-        result = run_typed_embedding_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        assert [output.ref["format"] for output in result.outputs] == ["arrow", "jsonl"]
-        jsonl = result.outputs[1].ref
-        assert Path(jsonl["path"]).parent == seeded["out"]
-        rows = [
-            json.loads(line) for line in Path(jsonl["path"]).read_text().splitlines()
-        ]
-        assert all(row["vector"] is None for row in rows)
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?",
-                (result.receipt_id,),
-            ).fetchone()[0]
-        )
-        assert receipt["inputs"][0]["ref"]["index_id"] == seeded["index_id"]
-        assert receipt["action_kind"] == "custom.archive"
-        assert receipt["provider_use"][0]["cost_actual"] == 0.0
-        assert receipt["provider_use"][0]["external_api"] is False
-        assert len(receipt["exports"]) == 2
-        replay = run_typed_embedding_action(project, "p", bound)
-        assert replay.receipt_id == result.receipt_id
-    finally:
-        project.close()
+def test_reused_exporter_records_actual_arguments_not_custom_return(
+    tmp_path, make_project
+):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    bound = _bound(
+        {"selected": f"chosen:{seeded['index_id']}", "folder": str(tmp_path)}
+    )
+    result = run_typed_embedding_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    assert [output.ref["format"] for output in result.outputs] == ["arrow", "jsonl"]
+    jsonl = result.outputs[1].ref
+    assert Path(jsonl["path"]).parent == seeded["out"]
+    rows = [json.loads(line) for line in Path(jsonl["path"]).read_text().splitlines()]
+    assert all(row["vector"] is None for row in rows)
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?",
+            (result.receipt_id,),
+        ).fetchone()[0]
+    )
+    assert receipt["inputs"][0]["ref"]["index_id"] == seeded["index_id"]
+    assert receipt["action_kind"] == "custom.archive"
+    assert receipt["provider_use"][0]["cost_actual"] == 0.0
+    assert receipt["provider_use"][0]["external_api"] is False
+    assert len(receipt["exports"]) == 2
+    replay = run_typed_embedding_action(project, "p", bound)
+    assert replay.receipt_id == result.receipt_id
 
 
 @pytest.mark.parametrize(
@@ -102,27 +98,24 @@ def test_reused_exporter_records_actual_arguments_not_custom_return(tmp_path):
     ],
 )
 def test_reused_exporter_refuses_actual_arguments_without_invented_fields(
-    tmp_path, patch, code
+    tmp_path, make_project, patch, code
 ):
-    project = Project.create(tmp_path / "project")
-    try:
-        seeded = _seed(project, tmp_path)
-        bound = _bound(
-            {
-                "selected": f"chosen:{seeded['index_id']}",
-                "folder": str(tmp_path),
-                **patch,
-            }
-        )
-        result = run_typed_embedding_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == code
-        assert result.errors[0].action_kind == "custom.archive"
-        assert result.errors[0].field == "params"
-        assert result.receipt_id is None
-        assert list(seeded["out"].iterdir()) == []
-    finally:
-        project.close()
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    bound = _bound(
+        {
+            "selected": f"chosen:{seeded['index_id']}",
+            "folder": str(tmp_path),
+            **patch,
+        }
+    )
+    result = run_typed_embedding_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == code
+    assert result.errors[0].action_kind == "custom.archive"
+    assert result.errors[0].field == "params"
+    assert result.receipt_id is None
+    assert list(seeded["out"].iterdir()) == []
 
 
 @pytest.mark.parametrize("patch", [{"destination": []}, {"include_vectors": 1}])

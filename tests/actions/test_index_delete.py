@@ -73,141 +73,134 @@ def _bound(selected: str) -> BoundTypedActionRequest:
     )
 
 
-def test_reused_deleter_uses_actual_arguments_not_returned_claims(tmp_path):
-    project = Project.create(tmp_path / "project")
+def test_reused_deleter_uses_actual_arguments_not_returned_claims(
+    tmp_path, make_project
+):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    bound = _bound(f"chosen:{index_id}")
+    result = run_typed_embedding_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    ref = result.outputs[0].ref
+    assert ref["kind"] == "embedding_index_delete"
+    assert ref["index_id"] == index_id
+    assert ref["deleted_items"] == 3
+    assert EmbeddingStore(project).get_index(index_id) is None
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
     try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        bound = _bound(f"chosen:{index_id}")
-        result = run_typed_embedding_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        ref = result.outputs[0].ref
-        assert ref["kind"] == "embedding_index_delete"
-        assert ref["index_id"] == index_id
-        assert ref["deleted_items"] == 3
-        assert EmbeddingStore(project).get_index(index_id) is None
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert backend.item_counts(index_id) == {}
-        finally:
-            backend.close()
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
-            ).fetchone()[0]
-        )
-        assert receipt["action_kind"] == "custom.discard"
-        assert receipt["outputs"][0]["ref"] == ref
-        replay = run_typed_embedding_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
+        assert backend.item_counts(index_id) == {}
     finally:
-        project.close()
+        backend.close()
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (result.receipt_id,)
+        ).fetchone()[0]
+    )
+    assert receipt["action_kind"] == "custom.discard"
+    assert receipt["outputs"][0]["ref"] == ref
+    replay = run_typed_embedding_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
 
 
-def test_delete_preserves_sources_blobs_and_other_indexes(tmp_path):
+def test_delete_preserves_sources_blobs_and_other_indexes(tmp_path, make_project):
     from frisket.engine.executor.embedding_export import embedding_export_dir
 
-    project = Project.create(tmp_path / "project")
-    try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        other = run_action_spec(
-            project,
-            _index_create_action(seeded["sheet_id"], key="other-index"),
-            project_id="p",
-        )
-        assert other.status == "completed", other.errors
-        other_id = other.outputs[0].ref["index_id"]
-        _refresh(project, other_id, key="other-refresh")
-        store = EmbeddingStore(project)
-        space_id = store.get_index(index_id)["space_id"]
-        other_metadata = dict(store.get_index(other_id))
-        assert other_metadata["space_id"] == space_id
-        space = dict(store.get_space(space_id))
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    other = run_action_spec(
+        project,
+        _index_create_action(seeded["sheet_id"], key="other-index"),
+        project_id="p",
+    )
+    assert other.status == "completed", other.errors
+    other_id = other.outputs[0].ref["index_id"]
+    _refresh(project, other_id, key="other-refresh")
+    store = EmbeddingStore(project)
+    space_id = store.get_index(index_id)["space_id"]
+    other_metadata = dict(store.get_index(other_id))
+    assert other_metadata["space_id"] == space_id
+    space = dict(store.get_space(space_id))
 
-        content = b"original source attachment"
-        digest = project.add_blob(content, filename="source.txt", mime="text/plain")
-        source_sheet = project.add_sheet("Attachments")
-        source_column = project.add_column(source_sheet, "source", "file")
-        project.add_rows(
-            source_sheet,
-            [
-                {
-                    "source": {
-                        "blob": digest,
-                        "filename": "source.txt",
-                        "mime": "text/plain",
-                    }
+    content = b"original source attachment"
+    digest = project.add_blob(content, filename="source.txt", mime="text/plain")
+    source_sheet = project.add_sheet("Attachments")
+    source_column = project.add_column(source_sheet, "source", "file")
+    project.add_rows(
+        source_sheet,
+        [
+            {
+                "source": {
+                    "blob": digest,
+                    "filename": "source.txt",
+                    "mime": "text/plain",
                 }
-            ],
-            {"source": source_column},
-        )
-
-        def source_snapshot():
-            return {
-                table: [
-                    tuple(row) for row in project.db.execute(f"SELECT * FROM {table}")
-                ]
-                for table in ("sheets", "columns", "rows", "cells", "blobs")
             }
+        ],
+        {"source": source_column},
+    )
 
-        sources = source_snapshot()
-        exports = embedding_export_dir(project)
-        exports.mkdir(parents=True)
-        deleted_export = exports / f"{index_id}.embeddings.jsonl"
-        kept_export = exports / f"{other_id}.embeddings.jsonl"
-        deleted_export.write_text("selected index")
-        kept_export.write_text("other index")
-        backend = UnifiedEmbeddingProbe(project)
-        try:
-            other_vectors = backend.index_binding(other_id)
-            result = run_action_spec(project, _request(index_id), project_id="p")
-            assert result.status == "completed", result.errors
-            assert result.outputs[0].ref["deleted_items"] == 3
-            assert backend.item_counts(index_id) == {}
-            assert backend.item_counts(other_id) == {"ready": 3}
-            assert backend.index_binding(other_id) == other_vectors
-        finally:
-            backend.close()
-        assert store.get_index(index_id) is None
-        assert dict(store.get_index(other_id)) == other_metadata
-        assert dict(store.get_space(space_id)) == space
-        assert source_snapshot() == sources
-        assert project.read_blob(digest) == content
-        assert not deleted_export.exists()
-        assert kept_export.read_text() == "other index"
-        assert run_action_spec(project, _request(index_id), project_id="p") == result
+    def source_snapshot():
+        return {
+            table: [tuple(row) for row in project.db.execute(f"SELECT * FROM {table}")]
+            for table in ("sheets", "columns", "rows", "cells", "blobs")
+        }
+
+    sources = source_snapshot()
+    exports = embedding_export_dir(project)
+    exports.mkdir(parents=True)
+    deleted_export = exports / f"{index_id}.embeddings.jsonl"
+    kept_export = exports / f"{other_id}.embeddings.jsonl"
+    deleted_export.write_text("selected index")
+    kept_export.write_text("other index")
+    backend = UnifiedEmbeddingProbe(project)
+    try:
+        other_vectors = backend.index_binding(other_id)
+        result = run_action_spec(project, _request(index_id), project_id="p")
+        assert result.status == "completed", result.errors
+        assert result.outputs[0].ref["deleted_items"] == 3
+        assert backend.item_counts(index_id) == {}
+        assert backend.item_counts(other_id) == {"ready": 3}
+        assert backend.index_binding(other_id) == other_vectors
     finally:
-        project.close()
+        backend.close()
+    assert store.get_index(index_id) is None
+    assert dict(store.get_index(other_id)) == other_metadata
+    assert dict(store.get_space(space_id)) == space
+    assert source_snapshot() == sources
+    assert project.read_blob(digest) == content
+    assert not deleted_export.exists()
+    assert kept_export.read_text() == "other index"
+    assert run_action_spec(project, _request(index_id), project_id="p") == result
 
 
 @pytest.mark.parametrize("selected", ["chosen:", "chosen: ", " "])
-def test_reused_deleter_validates_derived_arguments_before_mutation(tmp_path, selected):
-    project = Project.create(tmp_path / "project")
+def test_reused_deleter_validates_derived_arguments_before_mutation(
+    tmp_path, make_project, selected
+):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    bound = _bound(selected)
+    result = run_typed_embedding_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_params"
+    assert EmbeddingStore(project).get_index(index_id) is not None
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE idempotency_key='custom-delete'"
+        ).fetchone()[0]
+        == 0
+    )
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
     try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        bound = _bound(selected)
-        result = run_typed_embedding_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_params"
-        assert EmbeddingStore(project).get_index(index_id) is not None
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE idempotency_key='custom-delete'"
-            ).fetchone()[0]
-            == 0
-        )
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert sum(backend.item_counts(index_id).values()) == 3
-        finally:
-            backend.close()
+        assert sum(backend.item_counts(index_id).values()) == 3
     finally:
-        project.close()
+        backend.close()
 
 
 @pytest.mark.parametrize(
@@ -236,213 +229,195 @@ def test_delete_catalog_has_no_vector_retention_option():
     assert "delete_sidecar_vectors" not in catalog["output_schema"]["properties"]
 
 
-def test_delete_preview_refuses_before_any_effect(tmp_path):
-    project = Project.create(tmp_path / "project")
+def test_delete_preview_refuses_before_any_effect(tmp_path, make_project):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    before = project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+    result = resolve_map_preview(project, _request(index_id))
+    assert result.code == "unsupported_action_kind"
+    assert EmbeddingStore(project).get_index(index_id) is not None
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == before
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
     try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        before = project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
-        result = resolve_map_preview(project, _request(index_id))
-        assert result.code == "unsupported_action_kind"
-        assert EmbeddingStore(project).get_index(index_id) is not None
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == before
-        )
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert sum(backend.item_counts(index_id).values()) == 3
-        finally:
-            backend.close()
+        assert sum(backend.item_counts(index_id).values()) == 3
     finally:
-        project.close()
+        backend.close()
 
 
-def test_retired_delete_envelope_refuses(tmp_path):
-    project = Project.create(tmp_path / "project")
-    try:
-        result = run_action_spec(
-            project,
-            {
-                "schema_version": "frisket.action.v2",
-                "kind": "embedding.index_delete",
-                "capabilities": ["project:write"],
-                "params": {"index_id": "missing", "delete_sidecar_vectors": True},
-                "idempotency_key": "retired-delete",
-            },
-            project_id="p",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-    finally:
-        project.close()
+def test_retired_delete_envelope_refuses(make_project):
+    project = make_project("project")
+    result = run_action_spec(
+        project,
+        {
+            "schema_version": "frisket.action.v2",
+            "kind": "embedding.index_delete",
+            "capabilities": ["project:write"],
+            "params": {"index_id": "missing", "delete_sidecar_vectors": True},
+            "idempotency_key": "retired-delete",
+        },
+        project_id="p",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
 
 
 def test_receipt_failure_preserves_project_sidecar_and_export_artifacts(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
     from frisket.engine.executor import embedding_delete
     from frisket.engine.executor.embedding_export import embedding_export_dir
 
-    project = Project.create(tmp_path / "project")
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    store = EmbeddingStore(project)
+    before_index = dict(store.get_index(index_id))
+    before_space = dict(store.get_space(before_index["space_id"]))
+    before_receipts = project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+    directory = embedding_export_dir(project)
+    directory.mkdir(parents=True)
+    artifact = directory / f"{index_id}.embeddings.jsonl"
+    artifact.write_text("exported artifact")
+
+    def fail_receipt(project, receipt):
+        assert project.db.in_transaction
+        assert EmbeddingStore(project).get_index(index_id) is None
+        raise RuntimeError("injected receipt write failure")
+
+    monkeypatch.setattr(embedding_delete, "_insert_receipt", fail_receipt)
+    result = run_action_spec(project, _request(index_id), project_id="p")
+    assert result.status == "failed"
+    assert result.receipt_id is None
+    assert dict(store.get_index(index_id)) == before_index
+    assert dict(store.get_space(before_index["space_id"])) == before_space
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+        == before_receipts
+    )
+    # Derived cleanup runs only after the metadata and receipt commit.
+    assert artifact.read_text() == "exported artifact"
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
     try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        store = EmbeddingStore(project)
-        before_index = dict(store.get_index(index_id))
-        before_space = dict(store.get_space(before_index["space_id"]))
-        before_receipts = project.db.execute(
-            "SELECT COUNT(*) FROM receipts"
-        ).fetchone()[0]
-        directory = embedding_export_dir(project)
-        directory.mkdir(parents=True)
-        artifact = directory / f"{index_id}.embeddings.jsonl"
-        artifact.write_text("exported artifact")
-
-        def fail_receipt(project, receipt):
-            assert project.db.in_transaction
-            assert EmbeddingStore(project).get_index(index_id) is None
-            raise RuntimeError("injected receipt write failure")
-
-        monkeypatch.setattr(embedding_delete, "_insert_receipt", fail_receipt)
-        result = run_action_spec(project, _request(index_id), project_id="p")
-        assert result.status == "failed"
-        assert result.receipt_id is None
-        assert dict(store.get_index(index_id)) == before_index
-        assert dict(store.get_space(before_index["space_id"])) == before_space
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
-            == before_receipts
-        )
-        # Derived cleanup runs only after the metadata and receipt commit.
-        assert artifact.read_text() == "exported artifact"
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert backend.item_counts(index_id) == {"ready": 3}
-        finally:
-            backend.close()
+        assert backend.item_counts(index_id) == {"ready": 3}
     finally:
-        project.close()
+        backend.close()
 
 
 def test_post_commit_cleanup_failure_keeps_committed_authoritative_delete(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
-    project = Project.create(tmp_path / "project")
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+
+    def fail_cleanup(*_args, **_kwargs):
+        raise RuntimeError("injected derived cleanup failure")
+
+    monkeypatch.setattr(
+        "frisket.retrieval.store.RetrievalStore.replace_named_dataset_members",
+        fail_cleanup,
+    )
+
+    result = run_action_spec(project, _request(index_id), project_id="p")
+
+    assert result.status == "completed", result.errors
+    assert result.receipt_id is not None
+    assert EmbeddingStore(project).get_index(index_id) is None
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
     try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-
-        def fail_cleanup(*_args, **_kwargs):
-            raise RuntimeError("injected derived cleanup failure")
-
-        monkeypatch.setattr(
-            "frisket.retrieval.store.RetrievalStore.replace_named_dataset_members",
-            fail_cleanup,
-        )
-
-        result = run_action_spec(project, _request(index_id), project_id="p")
-
-        assert result.status == "completed", result.errors
-        assert result.receipt_id is not None
-        assert EmbeddingStore(project).get_index(index_id) is None
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert backend.item_counts(index_id) == {"ready": 3}
-        finally:
-            backend.close()
+        assert backend.item_counts(index_id) == {"ready": 3}
     finally:
-        project.close()
+        backend.close()
 
 
 @pytest.mark.parametrize("reference_kind", ["watch", "view"])
-def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
-    project = Project.create(tmp_path / "project")
-    try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
-        row_id = project.visible_row_ids(seeded["sheet_id"])[0]
-        query = {
-            "kind": "embedding_similarity",
-            "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
-            "embedding_index_id": index_id,
-            "anchor": {"kind": "row", "row_id": row_id},
-        }
-        if reference_kind == "watch":
-            add_alert(
-                project,
-                "Similar stories",
-                scope="sheet",
-                sheet_id=seeded["sheet_id"],
-                query=query,
-            )
-        else:
-            from frisket.engine.views.specs import legacy_selection
-
-            project.add_view(
-                "Similar stories",
-                {
-                    "selection": legacy_selection(
-                        project, sheet_id=seeded["sheet_id"], spec=query
-                    ),
-                    "presentation": {},
-                },
-            )
-
-        result = run_action_spec(project, _request(index_id), project_id="p")
-
-        assert result.status == "failed"
-        assert result.errors[0].code == "embedding_index_in_use"
-        assert "view" in result.errors[0].message
-        assert EmbeddingStore(project).get_index(index_id) is not None
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM receipts WHERE idempotency_key='typed-delete'"
-            ).fetchone()[0]
-            == 0
-        )
-        backend = UnifiedEmbeddingProbe(project)
-        backend.ensure_schema()
-        try:
-            assert backend.item_counts(index_id) == {"ready": 3}
-        finally:
-            backend.close()
-    finally:
-        project.close()
-
-
-def test_pausing_alert_does_not_remove_its_view_index_dependency(tmp_path):
-    project = Project.create(tmp_path / "project")
-    try:
-        seeded = _seed(project, tmp_path)
-        index_id = seeded["index_id"]
+def test_delete_refuses_live_saved_search_references(
+    tmp_path, make_project, reference_kind
+):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    row_id = project.visible_row_ids(seeded["sheet_id"])[0]
+    query = {
+        "kind": "embedding_similarity",
+        "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
+        "embedding_index_id": index_id,
+        "anchor": {"kind": "row", "row_id": row_id},
+    }
+    if reference_kind == "watch":
         add_alert(
             project,
-            "Paused similarity",
+            "Similar stories",
             scope="sheet",
             sheet_id=seeded["sheet_id"],
-            enabled=False,
-            query={
-                "kind": "embedding_similarity",
-                "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
-                "embedding_index_id": index_id,
-                "anchor": {
-                    "kind": "row",
-                    "row_id": project.visible_row_ids(seeded["sheet_id"])[0],
-                },
+            query=query,
+        )
+    else:
+        from frisket.engine.views.specs import legacy_selection
+
+        project.add_view(
+            "Similar stories",
+            {
+                "selection": legacy_selection(
+                    project, sheet_id=seeded["sheet_id"], spec=query
+                ),
+                "presentation": {},
             },
         )
 
-        result = run_action_spec(project, _request(index_id), project_id="p")
+    result = run_action_spec(project, _request(index_id), project_id="p")
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "embedding_index_in_use"
-        assert EmbeddingStore(project).get_index(index_id) is not None
+    assert result.status == "failed"
+    assert result.errors[0].code == "embedding_index_in_use"
+    assert "view" in result.errors[0].message
+    assert EmbeddingStore(project).get_index(index_id) is not None
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM receipts WHERE idempotency_key='typed-delete'"
+        ).fetchone()[0]
+        == 0
+    )
+    backend = UnifiedEmbeddingProbe(project)
+    backend.ensure_schema()
+    try:
+        assert backend.item_counts(index_id) == {"ready": 3}
     finally:
-        project.close()
+        backend.close()
+
+
+def test_pausing_alert_does_not_remove_its_view_index_dependency(
+    tmp_path, make_project
+):
+    project = make_project("project")
+    seeded = _seed(project, tmp_path)
+    index_id = seeded["index_id"]
+    add_alert(
+        project,
+        "Paused similarity",
+        scope="sheet",
+        sheet_id=seeded["sheet_id"],
+        enabled=False,
+        query={
+            "kind": "embedding_similarity",
+            "scope": {"kind": "sheet", "sheet_id": seeded["sheet_id"]},
+            "embedding_index_id": index_id,
+            "anchor": {
+                "kind": "row",
+                "row_id": project.visible_row_ids(seeded["sheet_id"])[0],
+            },
+        },
+    )
+
+    result = run_action_spec(project, _request(index_id), project_id="p")
+
+    assert result.status == "failed"
+    assert result.errors[0].code == "embedding_index_in_use"
+    assert EmbeddingStore(project).get_index(index_id) is not None
 
 
 @pytest.mark.parametrize("transport", ["cli", "mcp"])

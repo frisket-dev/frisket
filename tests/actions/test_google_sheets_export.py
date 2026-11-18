@@ -26,7 +26,6 @@ from frisket.engine.executor.google_sheets_action import (
     run_google_sheets_action_job,
     run_typed_google_sheets_export,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -38,8 +37,8 @@ class RenamedParams(ActionParams):
 
 
 @pytest.fixture
-def export_case(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "export.frisket")
+def export_case(make_project, monkeypatch):
+    project = make_project("export")
     sheet = project.add_sheet("Rows")
     col = project.add_column(sheet, "name", "text")
     project.add_rows(sheet, [{"name": "Ada"}], {"name": col})

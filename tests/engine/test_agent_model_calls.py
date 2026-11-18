@@ -4,14 +4,12 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import copy
-from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
 
 from frisket.ai.llm import LLMRequest, LLMResponse
 from frisket.engine.executor.agent_model_calls import AccountedAgentRouter
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import mint_direct_effect_attempt
 from frisket.execution.attempt import ATTEMPT_EXTRA
@@ -90,21 +88,21 @@ async def test_model_mismatch_refuses_before_transport():
 
 
 @pytest.fixture
-def agent_context(tmp_path):
-    with closing(Project.create(tmp_path / "agent-call.frisket")) as project:
-        sheet = project.add_sheet("data")
-        [row_id] = project.add_rows(sheet, [{}], {})
-        op_id = project.append_change("research.answer", {}, label="Agent call")
-        run_id = RunResultStore(project).start_run(
-            op_id, sheet, "research.answer", total_rows=1, row_ids=[row_id]
-        )
-        attempt = mint_direct_effect_attempt(
-            project, action_kind="research.answer", run_id=run_id, scope=(row_id,)
-        )
-        yield SimpleNamespace(
-            project=project,
-            extras={"run_id": run_id, "row_id": row_id, ATTEMPT_EXTRA: attempt},
-        )
+def agent_context(make_project):
+    project = make_project("agent-call")
+    sheet = project.add_sheet("data")
+    [row_id] = project.add_rows(sheet, [{}], {})
+    op_id = project.append_change("research.answer", {}, label="Agent call")
+    run_id = RunResultStore(project).start_run(
+        op_id, sheet, "research.answer", total_rows=1, row_ids=[row_id]
+    )
+    attempt = mint_direct_effect_attempt(
+        project, action_kind="research.answer", run_id=run_id, scope=(row_id,)
+    )
+    yield SimpleNamespace(
+        project=project,
+        extras={"run_id": run_id, "row_id": row_id, ATTEMPT_EXTRA: attempt},
+    )
 
 
 @pytest.mark.asyncio

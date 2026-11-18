@@ -90,7 +90,9 @@ def _bound(handler, params, *, columns_from=None):
     )
 
 
-def test_second_format_derived_path_and_observed_facts(tmp_path, monkeypatch):
+def test_second_format_derived_path_and_observed_facts(
+    tmp_path, make_project, monkeypatch
+):
     from frisket.engine.executor import table_action
 
     def unexpected_embedding_reader(*_args):
@@ -102,86 +104,71 @@ def test_second_format_derived_path_and_observed_facts(tmp_path, monkeypatch):
     data = b"Ada\t3\nGrace\t5\n"
     source = tmp_path / "people.tsv"
     source.write_bytes(data)
-    project = Project.create(tmp_path / "project")
-    try:
-        bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "people"})
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        assert list(
-            project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
-        ) == ["ADA", "GRACE"]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        facts = [
-            item.ref
-            for item in receipt.inputs
-            if item.ref.get("kind") == "local_file_read"
-        ]
-        assert facts == [
-            {
-                "kind": "local_file_read",
-                "path": str(source),
-                "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
-                "byte_count": len(data),
-            }
-        ]
-        summary = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "import_source"
-        )
-        assert summary["path"] == str(source)
-        assert summary["fingerprint"] == facts[0]["sha256"]
-        assert summary["line_count"] == 2
-        assert summary["label"] == "A custom feed"
-        assert summary["request_hash"] != "invented"
-        source.unlink()
-        assert (
-            run_typed_create_sheet_action(project, "p", bound).receipt_id
-            == result.receipt_id
-        )
-    finally:
-        project.close()
+    project = make_project("project")
+    bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "people"})
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    assert list(
+        project.get_values(sheet["sheet_id"], sheet["columns"]["name"]).values()
+    ) == ["ADA", "GRACE"]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    facts = [
+        item.ref for item in receipt.inputs if item.ref.get("kind") == "local_file_read"
+    ]
+    assert facts == [
+        {
+            "kind": "local_file_read",
+            "path": str(source),
+            "sha256": "sha256:" + hashlib.sha256(data).hexdigest(),
+            "byte_count": len(data),
+        }
+    ]
+    summary = next(
+        item.ref for item in receipt.evidence if item.ref.get("kind") == "import_source"
+    )
+    assert summary["path"] == str(source)
+    assert summary["fingerprint"] == facts[0]["sha256"]
+    assert summary["line_count"] == 2
+    assert summary["label"] == "A custom feed"
+    assert summary["request_hash"] != "invented"
+    source.unlink()
+    assert (
+        run_typed_create_sheet_action(project, "p", bound).receipt_id
+        == result.receipt_id
+    )
 
 
-def test_unused_file_capability_does_not_claim_a_read(tmp_path):
-    project = Project.create(tmp_path / "project")
-    try:
-        bound = _bound(
-            tab_separated,
-            {"directory": str(tmp_path), "stem": "missing", "skip_read": True},
-        )
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert not any(
-            item.ref.get("kind") in {"local_file_read", "file_rows"}
-            for item in receipt.inputs
-        )
-        assert not any(
-            item.ref.get("kind") == "import_source" for item in receipt.evidence
-        )
-    finally:
-        project.close()
+def test_unused_file_capability_does_not_claim_a_read(tmp_path, make_project):
+    project = make_project("project")
+    bound = _bound(
+        tab_separated,
+        {"directory": str(tmp_path), "stem": "missing", "skip_read": True},
+    )
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert not any(
+        item.ref.get("kind") in {"local_file_read", "file_rows"}
+        for item in receipt.inputs
+    )
+    assert not any(item.ref.get("kind") == "import_source" for item in receipt.evidence)
 
 
-def test_file_reader_refuses_symlink_loop_without_writes(tmp_path):
+def test_file_reader_refuses_symlink_loop_without_writes(tmp_path, make_project):
     source = tmp_path / "loop.tsv"
     source.symlink_to(source.name)
-    project = Project.create(tmp_path / "project")
-    try:
-        bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "loop"})
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_file_source"
-        assert result.errors[0].field == "params"
-        assert result.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("project")
+    bound = _bound(tab_separated, {"directory": str(tmp_path), "stem": "loop"})
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_file_source"
+    assert result.errors[0].field == "params"
+    assert result.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
-def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path):
+def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path, make_project):
     retired = {
         "schema_version": "frisket.action.v2",
         "kind": "import.ndjson",
@@ -195,33 +182,30 @@ def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path):
         "idempotency_key": "retired-import",
     }
     request_hash = legacy_params_hash(ActionSpec.model_validate(retired))
-    project = Project.create(tmp_path / "project")
-    try:
-        ReceiptStore(project).insert_completed(
-            Receipt(
-                receipt_id="retired-receipt",
-                project_id="p",
-                action_id="retired-action",
-                action_kind="import.ndjson",
-                idempotency_key="retired-import",
-                params_hash=request_hash,
-                status="completed",
-                inputs=[
-                    ReceiptIO(
-                        name="ndjson_rows",
-                        ref={"kind": "ndjson_rows", "request_hash": request_hash},
-                    )
-                ],
-            )
+    project = make_project("project")
+    ReceiptStore(project).insert_completed(
+        Receipt(
+            receipt_id="retired-receipt",
+            project_id="p",
+            action_id="retired-action",
+            action_kind="import.ndjson",
+            idempotency_key="retired-import",
+            params_hash=request_hash,
+            status="completed",
+            inputs=[
+                ReceiptIO(
+                    name="ndjson_rows",
+                    ref={"kind": "ndjson_rows", "request_hash": request_hash},
+                )
+            ],
         )
-        result = run_action_spec(project, retired, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert result.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    finally:
-        project.close()
+    )
+    result = run_action_spec(project, retired, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert result.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
 def test_ndjson_retry_replays_original_read_and_new_key_imports_changed_bytes(
@@ -346,14 +330,14 @@ def unnormalized(_params: RawParams) -> TableResult[DynamicOutput]:
     return TableResult(rows=[TableRow(output=DynamicOutput({"value": "raw"}))])
 
 
-def test_host_rejects_unnormalized_values_instead_of_parsing_them(tmp_path):
+def test_host_rejects_unnormalized_values_instead_of_parsing_them(make_project):
     calls = []
     register_column_type(
         "one_parse",
         parse=lambda value: calls.append(value) or {"parsed": value},
         validate=lambda value: isinstance(value, dict),
     )
-    project = Project.create(tmp_path / "project")
+    project = make_project("project")
     try:
         bound = _bound(
             unnormalized,

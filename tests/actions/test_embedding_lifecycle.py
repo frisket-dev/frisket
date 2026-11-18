@@ -27,7 +27,6 @@ from frisket.engine.executor.action_jobs import (
     reserve_typed_action_job,
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -98,13 +97,12 @@ class Gateway:
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "lifecycle.frisket")
+def source(make_project):
+    project = make_project("lifecycle")
     sheet = project.add_sheet("Input")
     column = project.add_column(sheet, "text")
     project.add_rows(sheet, [{"text": "one"}, {"text": "two"}], {"text": column})
     yield project, sheet
-    project.close()
 
 
 def test_derived_create_receipt_owns_arguments_and_result(source):

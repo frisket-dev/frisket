@@ -27,7 +27,6 @@ from frisket.engine.executor.group_summary_action import (
     prepare_group_summary_action,
     run_typed_group_summary_action,
 )
-from frisket.engine.store import Project
 from frisket.execution.consent_coverage import ConsentCoverage
 
 
@@ -65,8 +64,8 @@ def find_renamed(params: FindingArgs, scanner: FindScanner) -> PreparedFind:
 
 
 @pytest.fixture
-def source_project(tmp_path):
-    project = Project.create(tmp_path / "source.frisket")
+def source_project(make_project):
+    project = make_project("source")
     sheet = project.add_sheet("Sources")
     body = project.add_column(sheet, "body", type="text")
     bucket = project.add_column(sheet, "bucket", type="text")
@@ -79,7 +78,6 @@ def source_project(tmp_path):
         {"body": body, "bucket": bucket},
     )
     yield project, sheet, rows
-    project.close()
 
 
 def _bound(handler, params, sheet, *, key, names=None):

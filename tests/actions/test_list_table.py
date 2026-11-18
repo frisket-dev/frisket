@@ -22,7 +22,6 @@ from frisket.actions.types import (
     TableResult,
 )
 from frisket.engine.executor.list_table_read import AdmittedListTableReader
-from frisket.engine.store import Project
 from frisket.contracts.actions.schemas._base import MAX_IMPORT_ROWS_COLUMNS
 from helpers import replace_test_source_cell
 
@@ -211,56 +210,54 @@ def test_parent_column_alias_cannot_overwrite_an_item_projection():
 
 
 def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(
-    tmp_path,
+    make_project,
 ):
-    project = Project.create(tmp_path / "p")
-    try:
-        sheet = project.add_sheet("source")
-        column = project.add_column(sheet, "items", "json", ai_generated=True)
-        rows = project.add_rows(sheet, [{"items": ["a", "b"]}], {"items": column})
-        reader = AdmittedListTableReader(project, "custom.expand")
-        result = reader.read(
-            ListColumnSource(kind="column", sheet_id=sheet, column_id=column)
-        )
-        assert [item.value for item in result] == ["a", "b"]
-        assert reader.parent_sheet_id == sheet
-        assert reader.source_ai_generated is True
-        live_items = list(result)
-        assert set(reader.sources) == {item.source for item in live_items}
-        assert [
-            reader.item_associations[item.source]["item_index"] for item in result
-        ] == [0, 1]
-        assert all(
-            reader.item_associations[item.source]["source_row_id"] == rows[0]
-            for item in result
-        )
-        assert RowSource(sheet_id=sheet, row_id=rows[0]) not in reader.sources
-        assert not project.db.in_transaction
-        # A read inside refresh's transaction must neither commit it nor replace
-        # its snapshot with another connection that cannot see these changes.
-        project.db.execute("BEGIN IMMEDIATE")
-        replace_test_source_cell(
-            project,
-            db=project.db,
-            row_id=rows[0],
-            column_id=column,
-            value=["edited"],
-        )
-        nested = AdmittedListTableReader(project)
-        assert (
-            nested.read(
-                ListColumnSource(kind="column", sheet_id=sheet, column_id=column)
-            )[0].value
-            == "edited"
-        )
-        assert project.db.in_transaction
-        project.db.rollback()
-    finally:
-        project.close()
+    project = make_project("p")
+    sheet = project.add_sheet("source")
+    column = project.add_column(sheet, "items", "json", ai_generated=True)
+    rows = project.add_rows(sheet, [{"items": ["a", "b"]}], {"items": column})
+    reader = AdmittedListTableReader(project, "custom.expand")
+    result = reader.read(
+        ListColumnSource(kind="column", sheet_id=sheet, column_id=column)
+    )
+    assert [item.value for item in result] == ["a", "b"]
+    assert reader.parent_sheet_id == sheet
+    assert reader.source_ai_generated is True
+    live_items = list(result)
+    assert set(reader.sources) == {item.source for item in live_items}
+    assert [reader.item_associations[item.source]["item_index"] for item in result] == [
+        0,
+        1,
+    ]
+    assert all(
+        reader.item_associations[item.source]["source_row_id"] == rows[0]
+        for item in result
+    )
+    assert RowSource(sheet_id=sheet, row_id=rows[0]) not in reader.sources
+    assert not project.db.in_transaction
+    # A read inside refresh's transaction must neither commit it nor replace
+    # its snapshot with another connection that cannot see these changes.
+    project.db.execute("BEGIN IMMEDIATE")
+    replace_test_source_cell(
+        project,
+        db=project.db,
+        row_id=rows[0],
+        column_id=column,
+        value=["edited"],
+    )
+    nested = AdmittedListTableReader(project)
+    assert (
+        nested.read(ListColumnSource(kind="column", sheet_id=sheet, column_id=column))[
+            0
+        ].value
+        == "edited"
+    )
+    assert project.db.in_transaction
+    project.db.rollback()
 
 
 @pytest.fixture
-def named_project(tmp_path, monkeypatch, request):
+def named_project(tmp_path, make_project, monkeypatch, request):
     from tests.engine import test_derive_table_from_list_executor as fixtures
 
     if getattr(request, "param", None) == "empty":
@@ -273,12 +270,9 @@ def named_project(tmp_path, monkeypatch, request):
 
         monkeypatch.setattr(fixtures, "_map_named_results_action", empty_action)
 
-    project = Project.create(tmp_path / "named")
-    try:
-        seeded = fixtures._seed(project, tmp_path)
-        yield project, seeded
-    finally:
-        project.close()
+    project = make_project("named")
+    seeded = fixtures._seed(project, tmp_path)
+    yield project, seeded
 
 
 def _named_source(seeded):

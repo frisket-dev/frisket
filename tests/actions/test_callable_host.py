@@ -20,7 +20,6 @@ from frisket.actions.types import (
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.callable_action import run_typed_callable_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -92,15 +91,14 @@ def _bound(handler, params, *, key="once"):
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "project")
+def source(tmp_path, make_project):
+    project = make_project("project")
     sheet = project.add_sheet("Data")
     column = project.add_column(sheet, "name")
     rows = project.add_rows(
         sheet, [{"name": "=unsafe"}, {"name": "Grace"}], {"name": column}
     )
     yield project, {"source": sheet, "folder": str(tmp_path)}, rows
-    project.close()
 
 
 def test_report_uses_shared_dispatch_declared_value_and_actual_observations(

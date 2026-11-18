@@ -28,7 +28,6 @@ from frisket.actions.types import (
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.executor.table_preview import preview_table
-from frisket.engine.store import Project
 
 
 class Params(ActionParams):
@@ -64,7 +63,7 @@ def bound(handler):
 
 @pytest.mark.parametrize("async_rows", [False, True])
 def test_fast_table_rows_do_not_poll_database_per_row(
-    tmp_path, monkeypatch, async_rows
+    make_project, monkeypatch, async_rows
 ):
     from frisket.engine.executor import table_producer
 
@@ -82,25 +81,25 @@ def test_fast_table_rows_do_not_poll_database_per_row(
             else (TableRow(output=Output(text=str(index))) for index in range(1000))
         )
 
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        def cancelled():
-            project.db.execute("SELECT 1").fetchone()
-            checks.append(True)
-            return False
+    def cancelled():
+        project.db.execute("SELECT 1").fetchone()
+        checks.append(True)
+        return False
 
-        result = run_typed_create_sheet_action(
-            project, "p", bound(produce), deps=ExecutorDeps(cancelled=cancelled)
-        )
-        assert result.status == "completed", result.errors
-        assert 2 <= len(checks) <= 4
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1000
+    result = run_typed_create_sheet_action(
+        project, "p", bound(produce), deps=ExecutorDeps(cancelled=cancelled)
+    )
+    assert result.status == "completed", result.errors
+    assert 2 <= len(checks) <= 4
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1000
 
 
 @pytest.mark.parametrize("async_rows", [False, True])
 @pytest.mark.parametrize("cancel_after", [123, 1000])
 def test_polled_table_cancellation_aborts_before_publication(
-    tmp_path, monkeypatch, async_rows, cancel_after
+    make_project, monkeypatch, async_rows, cancel_after
 ):
     from frisket.engine.executor import table_producer
 
@@ -129,19 +128,19 @@ def test_polled_table_cancellation_aborts_before_publication(
     def produce(params: Params) -> TableResult[Output]:
         return TableResult(rows=asynchronous_rows() if async_rows else rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(
-            project,
-            "p",
-            bound(produce),
-            deps=ExecutorDeps(cancelled=lambda: len(produced) >= cancel_after),
-        )
-        assert result.status == "cancelled", result.errors
-        assert result.errors[0].code == "action_cancelled"
-        assert closed == [True]
-        assert cancel_after <= len(produced) <= (175 if cancel_after == 123 else 1000)
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
+    project = make_project("project")
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        bound(produce),
+        deps=ExecutorDeps(cancelled=lambda: len(produced) >= cancel_after),
+    )
+    assert result.status == "cancelled", result.errors
+    assert result.errors[0].code == "action_cancelled"
+    assert closed == [True]
+    assert cancel_after <= len(produced) <= (175 if cancel_after == 123 else 1000)
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 0
 
 
 def test_async_table_nested_loop_refusal_is_typed_and_closes_coroutine():
@@ -191,55 +190,53 @@ def test_table_rows_recheck_cancellation_at_entry_even_after_fresh_poll(
 @pytest.mark.parametrize("async_producer", [False, True])
 @pytest.mark.parametrize("async_rows", [False, True])
 def test_async_table_uses_one_loop_owner_thread_and_replays(
-    tmp_path, async_producer, async_rows
+    make_project, async_producer, async_rows
 ):
     owner = threading.get_ident()
     loops, calls, closed = [], [], []
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        def observed():
-            assert threading.get_ident() == owner
-            assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] <= 1
-            assert not project.db.in_transaction
-            loops.append(asyncio.get_running_loop())
+    def observed():
+        assert threading.get_ident() == owner
+        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] <= 1
+        assert not project.db.in_transaction
+        loops.append(asyncio.get_running_loop())
 
-        async def rows():
-            try:
-                for index in range(502):
-                    observed()
-                    await asyncio.sleep(0)
-                    yield TableRow(output=Output(text=str(index)))
-            finally:
+    async def rows():
+        try:
+            for index in range(502):
                 observed()
                 await asyncio.sleep(0)
-                closed.append(True)
-
-        def produce(params: Params) -> TableResult[Output]:
-            calls.append(True)
-            return TableResult(
-                rows=rows()
-                if async_rows
-                else [TableRow(output=Output(text=params.text))]
-            )
-
-        async def async_produce(params: Params) -> TableResult[Output]:
+                yield TableRow(output=Output(text=str(index)))
+        finally:
             observed()
             await asyncio.sleep(0)
-            return produce(params)
+            closed.append(True)
 
-        request = bound(async_produce if async_producer else produce)
-        result = run_typed_create_sheet_action(project, "p", request)
-        assert result.status == "completed", result.errors
-        assert calls == [True]
-        assert closed == ([True] if async_rows else [])
-        assert len(set(loops)) == int(async_producer or async_rows)
-        assert all(loop.is_closed() for loop in loops)
-        assert run_typed_create_sheet_action(project, "p", request) == result
-        assert calls == [True]
+    def produce(params: Params) -> TableResult[Output]:
+        calls.append(True)
+        return TableResult(
+            rows=rows() if async_rows else [TableRow(output=Output(text=params.text))]
+        )
+
+    async def async_produce(params: Params) -> TableResult[Output]:
+        observed()
+        await asyncio.sleep(0)
+        return produce(params)
+
+    request = bound(async_produce if async_producer else produce)
+    result = run_typed_create_sheet_action(project, "p", request)
+    assert result.status == "completed", result.errors
+    assert calls == [True]
+    assert closed == ([True] if async_rows else [])
+    assert len(set(loops)) == int(async_producer or async_rows)
+    assert all(loop.is_closed() for loop in loops)
+    assert run_typed_create_sheet_action(project, "p", request) == result
+    assert calls == [True]
 
 
 def test_dynamic_async_schema_is_available_without_consuming_extra_preview_row(
-    tmp_path,
+    make_project,
 ):
     events = []
 
@@ -257,28 +254,28 @@ def test_dynamic_async_schema_is_available_without_consuming_extra_preview_row(
 
         return DynamicTableResult(schema=[TableColumn("word", "text")], rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        before = tuple(project.db.iterdump())
-        result = preview_table(
-            project,
-            "p",
-            bound(produce),
-            deps=ExecutorDeps(),
-            progress=lambda *_: None,
-            cancelled=lambda: False,
-        )
-        try:
-            assert len(result.rows) == 20 and result.total is None
-            assert events == [*range(20), "closed"]
-            assert result.columns[0].name == "word"
-            assert tuple(project.db.iterdump()) == before
-        finally:
-            result.close()
+    project = make_project("project")
+    before = tuple(project.db.iterdump())
+    result = preview_table(
+        project,
+        "p",
+        bound(produce),
+        deps=ExecutorDeps(),
+        progress=lambda *_: None,
+        cancelled=lambda: False,
+    )
+    try:
+        assert len(result.rows) == 20 and result.total is None
+        assert events == [*range(20), "closed"]
+        assert result.columns[0].name == "word"
+        assert tuple(project.db.iterdump()) == before
+    finally:
+        result.close()
 
 
 @pytest.mark.parametrize("waiting", ["producer", "rows"])
 def test_cancellation_while_awaiting_closes_before_reader_release(
-    tmp_path, monkeypatch, waiting
+    make_project, monkeypatch, waiting
 ):
     from frisket.engine.executor.local_file_read import AdmittedLocalFileReader
 
@@ -310,23 +307,23 @@ def test_cancellation_while_awaiting_closes_before_reader_release(
 
         return TableResult(rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        def cancelled():
-            assert threading.get_ident() == owner
-            project.db.execute("SELECT 1").fetchone()
-            return "waiting" in events
+    def cancelled():
+        assert threading.get_ident() == owner
+        project.db.execute("SELECT 1").fetchone()
+        return "waiting" in events
 
-        result = run_typed_create_sheet_action(
-            project, "p", bound(produce), deps=ExecutorDeps(cancelled=cancelled)
-        )
-        assert result.status == "cancelled"
-        assert result.errors[0].code == "action_cancelled"
-        assert events == ["waiting", "await_closed", "reader_closed"]
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    result = run_typed_create_sheet_action(
+        project, "p", bound(produce), deps=ExecutorDeps(cancelled=cancelled)
+    )
+    assert result.status == "cancelled"
+    assert result.errors[0].code == "action_cancelled"
+    assert events == ["waiting", "await_closed", "reader_closed"]
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
-def test_late_async_stream_failure_aborts_hidden_batches(tmp_path):
+def test_late_async_stream_failure_aborts_hidden_batches(make_project):
     closed = []
 
     async def produce(params: Params) -> TableResult[Output]:
@@ -341,23 +338,23 @@ def test_late_async_stream_failure_aborts_hidden_batches(tmp_path):
 
         return TableResult(rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound(produce))
-        assert result.status == "failed"
-        assert closed == [True]
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound(produce))
+    assert result.status == "failed"
+    assert closed == [True]
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
-def test_unsolicited_child_cancelled_error_still_propagates(tmp_path):
+def test_unsolicited_child_cancelled_error_still_propagates(make_project):
     async def produce(params: Params) -> TableResult[Output]:
         raise asyncio.CancelledError()
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        with pytest.raises(asyncio.CancelledError):
-            run_typed_create_sheet_action(project, "p", bound(produce))
+    project = make_project("project")
+    with pytest.raises(asyncio.CancelledError):
+        run_typed_create_sheet_action(project, "p", bound(produce))
 
 
-def test_cancellation_at_producer_return_still_closes_owned_rows(tmp_path):
+def test_cancellation_at_producer_return_still_closes_owned_rows(make_project):
     events = []
 
     class Rows:
@@ -372,18 +369,18 @@ def test_cancellation_at_producer_return_still_closes_owned_rows(tmp_path):
         events.append("returned")
         return TableResult(rows=Rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(
-            project,
-            "p",
-            bound(produce),
-            deps=ExecutorDeps(cancelled=lambda: "returned" in events),
-        )
-        assert result.status == "cancelled"
-        assert events == ["returned", "closed"]
+    project = make_project("project")
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        bound(produce),
+        deps=ExecutorDeps(cancelled=lambda: "returned" in events),
+    )
+    assert result.status == "cancelled"
+    assert events == ["returned", "closed"]
 
 
-def test_async_generator_context_survives_pulls_and_preview_close(tmp_path):
+def test_async_generator_context_survives_pulls_and_preview_close(make_project):
     context = ContextVar("table-test", default="outside")
     tasks, closed = [], []
 
@@ -404,16 +401,16 @@ def test_async_generator_context_survives_pulls_and_preview_close(tmp_path):
 
         return TableResult(rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = preview_table(
-            project,
-            "p",
-            bound(produce),
-            deps=ExecutorDeps(),
-            progress=lambda *_: None,
-            cancelled=lambda: False,
-        )
-        result.close()
+    project = make_project("project")
+    result = preview_table(
+        project,
+        "p",
+        bound(produce),
+        deps=ExecutorDeps(),
+        progress=lambda *_: None,
+        cancelled=lambda: False,
+    )
+    result.close()
     assert closed == [True]
     assert len(set(tasks)) == 1
     assert context.get() == "outside"
@@ -421,7 +418,7 @@ def test_async_generator_context_survives_pulls_and_preview_close(tmp_path):
 
 @pytest.mark.parametrize("cancel", [False, True])
 def test_async_pdf_capability_bridges_only_renderer_and_joins_before_cleanup(
-    tmp_path, monkeypatch, cancel
+    make_project, monkeypatch, cancel
 ):
     from frisket.engine.executor import pdf_page_read
     from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
@@ -468,40 +465,40 @@ def test_async_pdf_capability_bridges_only_renderer_and_joins_before_cleanup(
             rows=[TableRow(output=DynamicOutput({"image": images[1]}))],
         )
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        before = tuple(project.db.iterdump())
+    project = make_project("project")
+    before = tuple(project.db.iterdump())
 
-        def cancelled():
-            assert threading.get_ident() == owner
-            project.db.execute("SELECT 1").fetchone()
-            return cancel and entered.is_set()
+    def cancelled():
+        assert threading.get_ident() == owner
+        project.db.execute("SELECT 1").fetchone()
+        return cancel and entered.is_set()
 
-        def preview():
-            return preview_table(
-                project,
-                "p",
-                bound(produce),
-                deps=ExecutorDeps(),
-                progress=lambda *_: None,
-                cancelled=cancelled,
-            )
+    def preview():
+        return preview_table(
+            project,
+            "p",
+            bound(produce),
+            deps=ExecutorDeps(),
+            progress=lambda *_: None,
+            cancelled=cancelled,
+        )
 
-        if cancel:
-            with pytest.raises(TableError, match="cancelled"):
-                preview()
-        else:
-            result = preview()
-            try:
-                assert len(result.rows) == len(result.artifacts) == 1
-            finally:
-                result.close()
-        assert stopped.is_set()
-        assert all(not path.exists() for path in paths)
-        assert tuple(project.db.iterdump()) == before
+    if cancel:
+        with pytest.raises(TableError, match="cancelled"):
+            preview()
+    else:
+        result = preview()
+        try:
+            assert len(result.rows) == len(result.artifacts) == 1
+        finally:
+            result.close()
+    assert stopped.is_set()
+    assert all(not path.exists() for path in paths)
+    assert tuple(project.db.iterdump()) == before
 
 
 @pytest.mark.parametrize("fatal", [False, True])
-def test_cancelled_async_generator_cleanup_failure_is_not_lost(tmp_path, fatal):
+def test_cancelled_async_generator_cleanup_failure_is_not_lost(make_project, fatal):
     from frisket.engine.sandbox.shim import SandboxTeardownError
 
     entered, closed = [], []
@@ -523,31 +520,31 @@ def test_cancelled_async_generator_cleanup_failure_is_not_lost(tmp_path, fatal):
 
         return TableResult(rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        def run():
-            return run_typed_create_sheet_action(
-                project,
-                "p",
-                bound(produce),
-                deps=ExecutorDeps(cancelled=lambda: bool(entered)),
-            )
+    def run():
+        return run_typed_create_sheet_action(
+            project,
+            "p",
+            bound(produce),
+            deps=ExecutorDeps(cancelled=lambda: bool(entered)),
+        )
 
-        if fatal:
-            with pytest.raises(SandboxTeardownError) as caught:
-                run()
-            assert caught.value is failure
-        else:
-            result = run()
-            assert result.status == "failed"
-            assert result.errors[0].code == "project_write_failed"
-        assert closed == [True]
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    if fatal:
+        with pytest.raises(SandboxTeardownError) as caught:
+            run()
+        assert caught.value is failure
+    else:
+        result = run()
+        assert result.status == "failed"
+        assert result.errors[0].code == "project_write_failed"
+    assert closed == [True]
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("waiting", ["producer", "rows"])
 def test_suppressed_cancellation_closes_returned_resource_in_original_context(
-    tmp_path, waiting
+    make_project, waiting
 ):
     context = ContextVar("cancelled-table", default="outside")
     entered, closed, tasks = [], [], []
@@ -590,18 +587,18 @@ def test_suppressed_cancellation_closes_returned_resource_in_original_context(
 
         return TableResult(rows=rows())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(
-            project,
-            "p",
-            bound(produce),
-            deps=ExecutorDeps(cancelled=lambda: bool(entered)),
-        )
-        assert result.status == "cancelled"
-        assert closed == [True]
-        assert len(set(tasks)) == 1
-        assert context.get() == "outside"
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    project = make_project("project")
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        bound(produce),
+        deps=ExecutorDeps(cancelled=lambda: bool(entered)),
+    )
+    assert result.status == "cancelled"
+    assert closed == [True]
+    assert len(set(tasks)) == 1
+    assert context.get() == "outside"
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("fatal", [False, True])

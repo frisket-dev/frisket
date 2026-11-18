@@ -72,7 +72,7 @@ def _bound(producer, *, columns_from=None, params=None, output_names=None):
 
 @pytest.mark.parametrize("streamed", [False, True])
 def test_static_staged_file_output_publishes_inferred_schema_and_replays(
-    tmp_path, streamed
+    make_project, streamed
 ):
     calls = []
 
@@ -92,46 +92,46 @@ def test_static_staged_file_output_publishes_inferred_schema_and_replays(
     assert [(field.key, field.column_type) for field in bound.output_fields] == [
         ("attachment", "file")
     ]
-    with closing(Project.create(tmp_path / "project")) as project:
-        seed = project.add_sheet("Existing")
-        column = project.add_column(seed, "Value", type="text")
-        project.add_rows(seed, [{"Value": "existing"}], {"Value": column})
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        column_id = sheet["columns"]["Evidence"]
-        values = project.get_values(sheet["sheet_id"], column_id)
-        assert len(values) == 2
-        digest = hashlib.sha256(b"attachment bytes").hexdigest()
-        assert (
-            list(values.values())
-            == [
-                {
-                    "blob": digest,
-                    "filename": "source.bin",
-                    "mime": "application/octet-stream",
-                }
-            ]
-            * 2
-        )
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        refs = [
-            item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
+    project = make_project("project")
+    seed = project.add_sheet("Existing")
+    column = project.add_column(seed, "Value", type="text")
+    project.add_rows(seed, [{"Value": "existing"}], {"Value": column})
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    column_id = sheet["columns"]["Evidence"]
+    values = project.get_values(sheet["sheet_id"], column_id)
+    assert len(values) == 2
+    digest = hashlib.sha256(b"attachment bytes").hexdigest()
+    assert (
+        list(values.values())
+        == [
+            {
+                "blob": digest,
+                "filename": "source.bin",
+                "mime": "application/octet-stream",
+            }
         ]
-        assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
-            (row_id, column_id) for row_id in values
-        }
-        assert sorted(ref["row_index"] for ref in refs) == [1, 2]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert calls == [True]
+        * 2
+    )
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    refs = [
+        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
+    ]
+    assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
+        (row_id, column_id) for row_id in values
+    }
+    assert sorted(ref["row_index"] for ref in refs) == [1, 2]
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert calls == [True]
 
 
 @pytest.mark.parametrize("streamed", [False, True])
 def test_params_defined_columns_preserve_every_repeated_handle_occurrence(
-    tmp_path, streamed
+    make_project, streamed
 ):
     def produce(
         params: DeclaredParams, blobs: ImportBlobStager
@@ -160,29 +160,29 @@ def test_params_defined_columns_preserve_every_repeated_handle_occurrence(
         },
         output_names={"left": "First attachment", "right": "Second attachment"},
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        rows = project.visible_row_ids(sheet["sheet_id"])
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        refs = [
-            item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
-        ]
-        assert len(refs) == 4
-        assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
-            (row_id, column_id)
-            for row_id in rows
-            for column_id in sheet["columns"].values()
-        }
-        assert set(sheet["columns"]) == {"First attachment", "Second attachment"}
-        assert len({ref["hash"] for ref in refs}) == 1
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    rows = project.visible_row_ids(sheet["sheet_id"])
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    refs = [
+        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
+    ]
+    assert len(refs) == 4
+    assert {(ref["row_id"], ref["column_id"]) for ref in refs} == {
+        (row_id, column_id)
+        for row_id in rows
+        for column_id in sheet["columns"].values()
+    }
+    assert set(sheet["columns"]) == {"First attachment", "Second attachment"}
+    assert len({ref["hash"] for ref in refs}) == 1
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("streamed", [False, True])
 def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
-    tmp_path, streamed
+    make_project, streamed
 ):
     def produce(
         params: DeclaredParams, blobs: ImportBlobStager
@@ -210,39 +210,39 @@ def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
         params={"columns": [{"key": "image", "type": "image"}]},
         output_names={"image": "Preview"},
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        documents = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref["kind"] == "imported_pdf_document"
-        ]
-        pages = [
-            item.ref
-            for item in receipt.evidence
-            if item.ref["kind"] == "imported_pdf_page_image"
-        ]
-        assert len(documents) == len(pages) == 2
-        assert len({ref["hash"] for ref in documents}) == 1
-        assert len({ref["hash"] for ref in pages}) == 1
-        assert len({ref["artifact_id"] for ref in documents}) == 2
-        docs_by_name = {ref["filename"]: ref for ref in documents}
-        for ref in pages:
-            assert (
-                ref["artifact_id"]
-                == docs_by_name[f"document-{ref['page']}.pdf"]["artifact_id"]
-            )
-            assert ref["column_id"] == sheet["columns"]["Preview"]
-            link = project.db.execute(
-                "SELECT row_id, column_id FROM evidence_links WHERE id=?",
-                (ref["evidence_link_id"],),
-            ).fetchone()
-            assert tuple(link) == (ref["row_id"], ref["column_id"])
-        assert sorted(ref["page"] for ref in pages) == [1, 2]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 2
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    documents = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref["kind"] == "imported_pdf_document"
+    ]
+    pages = [
+        item.ref
+        for item in receipt.evidence
+        if item.ref["kind"] == "imported_pdf_page_image"
+    ]
+    assert len(documents) == len(pages) == 2
+    assert len({ref["hash"] for ref in documents}) == 1
+    assert len({ref["hash"] for ref in pages}) == 1
+    assert len({ref["artifact_id"] for ref in documents}) == 2
+    docs_by_name = {ref["filename"]: ref for ref in documents}
+    for ref in pages:
+        assert (
+            ref["artifact_id"]
+            == docs_by_name[f"document-{ref['page']}.pdf"]["artifact_id"]
+        )
+        assert ref["column_id"] == sheet["columns"]["Preview"]
+        link = project.db.execute(
+            "SELECT row_id, column_id FROM evidence_links WHERE id=?",
+            (ref["evidence_link_id"],),
+        ).fetchone()
+        assert tuple(link) == (ref["row_id"], ref["column_id"])
+    assert sorted(ref["page"] for ref in pages) == [1, 2]
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 2
 
 
 @pytest.mark.parametrize("failure", ["forged", "foreign", "nested", "raw_cell"])

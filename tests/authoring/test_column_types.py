@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from helpers import make_client
 from frisket.authoring import column_types
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import COLUMN_TYPES, Project
+from frisket.engine.store import COLUMN_TYPES
 from http_test_helpers import (
     post_cell_edit_as_v1_action,
     post_column_set_type_as_v1_action,
@@ -201,20 +201,20 @@ class TestRegistry:
 
 
 class TestStore:
-    def test_add_column_accepts_plugin_type(self, tmp_path, plugin_type):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_add_column_accepts_plugin_type(self, make_project, plugin_type):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "payload", type=plugin_type)
         assert p.get_column(cid)["type"] == plugin_type
 
-    def test_add_column_rejects_unknown_type(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_add_column_rejects_unknown_type(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         with pytest.raises(ValueError, match="unknown column type"):
             p.add_column(sheet, "payload", type="no_such_type")
 
-    def test_set_column_type(self, tmp_path, plugin_type):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_set_column_type(self, make_project, plugin_type):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "payload", type="text")
         p.set_column_type(cid, plugin_type)
@@ -224,9 +224,9 @@ class TestStore:
 
     @pytest.mark.parametrize("value", [-(2**63) - 1, 2**63, 1.0, True])
     def test_integer_storage_preserves_but_excludes_invalid_values(
-        self, tmp_path, value
+        self, make_project, value
     ):
-        p = Project.create(tmp_path / "integer-storage.frisket", name="t")
+        p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="integer")
         first = p.add_rows(sheet, [{"value": value}], {"value": cid})[0]
@@ -237,8 +237,10 @@ class TestStore:
             second: value,
         }
 
-    def test_retype_to_integer_marks_out_of_range_existing_data_invalid(self, tmp_path):
-        p = Project.create(tmp_path / "integer-retype.frisket", name="t")
+    def test_retype_to_integer_marks_out_of_range_existing_data_invalid(
+        self, make_project
+    ):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="json")
         p.add_rows(sheet, [{"value": 2**63}], {"value": cid})
@@ -247,8 +249,8 @@ class TestStore:
         assert p.get_values(sheet, cid) == {1: None}
         assert p.get_values(sheet, cid, preserve_invalid=True) == {1: 2**63}
 
-    def test_hidden_column_revival_reclassifies_retained_data(self, tmp_path):
-        p = Project.create(tmp_path / "integer-revival.frisket", name="t")
+    def test_hidden_column_revival_reclassifies_retained_data(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         cid = p.add_column(sheet, "value", type="json")
         p.add_rows(sheet, [{"value": 2**63}], {"value": cid})

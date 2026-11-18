@@ -15,8 +15,8 @@ from tests.alert_helpers import add_alert
 
 
 @pytest.fixture
-def scene(tmp_path):
-    p = Project.create(tmp_path / "alerts.frisket")
+def scene(tmp_path, make_project):
+    p = make_project("alerts")
     sheet = p.add_sheet("Records")
     col = p.add_column(sheet, "text")
     rows = p.add_rows(sheet, [{"text": "old"}], {"text": col})
@@ -37,7 +37,6 @@ def scene(tmp_path):
     register_alert_evaluate_handler(registry, workspace_root=tmp_path, queue=queue)
     yield p, sheet, col, rows[0], alert, queue, Worker(queue, registry)
     queue.close()
-    p.close()
 
 
 def schedule(scene, *, now=None, **kwargs):

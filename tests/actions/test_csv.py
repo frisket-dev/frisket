@@ -390,7 +390,7 @@ def test_csv_normalizes_registered_values_once():
         unregister_column_type("csv_once")
 
 
-def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path):
+def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path, make_project):
     retired = {
         "schema_version": "frisket.action.v2",
         "kind": "import.csv",
@@ -405,30 +405,27 @@ def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path):
         "idempotency_key": "retired-import",
     }
     request_hash = legacy_params_hash(ActionSpec.model_validate(retired))
-    project = Project.create(tmp_path / "project")
-    try:
-        ReceiptStore(project).insert_completed(
-            Receipt(
-                receipt_id="retired-receipt",
-                project_id="p",
-                action_id="retired-action",
-                action_kind="import.csv",
-                idempotency_key="retired-import",
-                params_hash=request_hash,
-                status="completed",
-                inputs=[
-                    ReceiptIO(
-                        name="csv_rows",
-                        ref={"kind": "csv_rows", "params_hash": request_hash},
-                    )
-                ],
-            )
+    project = make_project("project")
+    ReceiptStore(project).insert_completed(
+        Receipt(
+            receipt_id="retired-receipt",
+            project_id="p",
+            action_id="retired-action",
+            action_kind="import.csv",
+            idempotency_key="retired-import",
+            params_hash=request_hash,
+            status="completed",
+            inputs=[
+                ReceiptIO(
+                    name="csv_rows",
+                    ref={"kind": "csv_rows", "params_hash": request_hash},
+                )
+            ],
         )
-        result = run_action_spec(project, retired, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert result.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-    finally:
-        project.close()
+    )
+    result = run_action_spec(project, retired, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert result.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0

@@ -15,7 +15,6 @@ from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.executor.embedding_read import AdmittedEmbeddingIndexReader
-from frisket.engine.store import Project
 from helpers import replace_test_source_cells
 from frisket.sdk import (
     ActionParams,
@@ -69,8 +68,8 @@ class Gateway:
 
 
 @pytest.fixture
-def seeded(tmp_path):
-    project = Project.create(tmp_path / "tables")
+def seeded(make_project):
+    project = make_project("tables")
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "text")
     project.add_rows(sheet, [{"text": "a"}, {"text": "b"}], {"text": column})
@@ -106,7 +105,6 @@ def seeded(tmp_path):
     )
     assert refresh.status == "completed", refresh.errors
     yield project, index_id
-    project.close()
 
 
 def bound_for(producer, index_id, **changes):

@@ -52,36 +52,36 @@ def test_upgrade_preserves_data_and_undo_history(tmp_path):
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_failed_upgrade_rolls_back_atomically(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        prior(project)
-        project.db.execute(
-            "CREATE TRIGGER refuse_stamp BEFORE UPDATE ON meta WHEN NEW.key='schema_digest' BEGIN SELECT RAISE(ABORT,'stamp refused'); END"
-        )
-        project.db.commit()
-        with pytest.raises(sqlite3.IntegrityError, match="stamp refused"):
-            run_step(project.db, *ACTION_SUBMISSIONS_STEP)
-        assert (
-            project.db.execute(
-                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
-            ).fetchone()[0]
-            == ACTION_SUBMISSIONS_FROM_DIGEST
-        )
-        assert not project.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
-        ).fetchone()
-
-
-def test_standalone_upgrade_stamps_its_historical_endpoint(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        prior(project)
+def test_failed_upgrade_rolls_back_atomically(make_project):
+    project = make_project("project")
+    prior(project)
+    project.db.execute(
+        "CREATE TRIGGER refuse_stamp BEFORE UPDATE ON meta WHEN NEW.key='schema_digest' BEGIN SELECT RAISE(ABORT,'stamp refused'); END"
+    )
+    project.db.commit()
+    with pytest.raises(sqlite3.IntegrityError, match="stamp refused"):
         run_step(project.db, *ACTION_SUBMISSIONS_STEP)
-        assert (
-            project.db.execute(
-                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
-            ).fetchone()[0]
-            == ACTION_SUBMISSIONS_TO_DIGEST
-        )
-        assert project.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
-        ).fetchone()
+    assert (
+        project.db.execute(
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone()[0]
+        == ACTION_SUBMISSIONS_FROM_DIGEST
+    )
+    assert not project.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
+    ).fetchone()
+
+
+def test_standalone_upgrade_stamps_its_historical_endpoint(make_project):
+    project = make_project("project")
+    prior(project)
+    run_step(project.db, *ACTION_SUBMISSIONS_STEP)
+    assert (
+        project.db.execute(
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone()[0]
+        == ACTION_SUBMISSIONS_TO_DIGEST
+    )
+    assert project.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='action_submissions'"
+    ).fetchone()

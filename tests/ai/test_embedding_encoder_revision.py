@@ -50,10 +50,9 @@ class RecordingGateway:
 
 
 @pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "revision.frisket", name="revision")
+def project(make_project):
+    project = make_project("revision")
     yield project
-    project.close()
 
 
 def _sheet(project: Project) -> int:

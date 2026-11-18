@@ -16,7 +16,6 @@ import pytest
 
 from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.retrieval.contracts import SourceLocator
 from frisket.retrieval.source_adapter import resolve_cell_text_sources
 from frisket.retrieval.store import (
@@ -150,8 +149,8 @@ def _publish_lexical_cells(project, sheet, column, row_ids):
 
 
 @pytest.fixture
-def env(tmp_path):
-    project = Project.create(tmp_path / "hy.frisket", name="hy")
+def env(make_project):
+    project = make_project("hy")
     sheet = project.add_sheet("contracts")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)
@@ -164,7 +163,6 @@ def env(tmp_path):
         project.visible_row_ids(sheet),
     )
     yield project, sheet, cols, index_id
-    project.close()
 
 
 def _row(project, sheet, cols, text):

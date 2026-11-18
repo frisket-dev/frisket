@@ -70,49 +70,47 @@ def _bound(folder: Path, behavior: str = "copy") -> BoundTypedActionRequest:
     )
 
 
-def test_reused_loader_records_actual_path_and_facts_not_returned_claims(tmp_path):
+def test_reused_loader_records_actual_path_and_facts_not_returned_claims(
+    tmp_path, make_project
+):
     manifest = _write_manifest(tmp_path)
-    project = Project.create(tmp_path / "project")
-    try:
-        bound = _bound(manifest.parent)
-        first = run_typed_plugin_load_action(project, "p", bound)
-        assert first.status == "completed", first.errors
-        ref = first.outputs[0].ref
-        assert ref["path"] == str(manifest)
-        assert ref["plugin_id"] == "frisket-ndjson"
-        assert ref["byte_count"] == manifest.stat().st_size
-        assert ref["package_sha256"] == ref["package_identity"]["package_sha256"]
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?", (first.receipt_id,)
-            ).fetchone()[0]
-        )
-        assert receipt["action_kind"] == "custom.record"
-        assert receipt["outputs"][0]["ref"] == ref
-        assert receipt["evidence"][0]["ref"] == ref
-        manifest.unlink()
-        replay = run_typed_plugin_load_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-    finally:
-        project.close()
+    project = make_project("project")
+    bound = _bound(manifest.parent)
+    first = run_typed_plugin_load_action(project, "p", bound)
+    assert first.status == "completed", first.errors
+    ref = first.outputs[0].ref
+    assert ref["path"] == str(manifest)
+    assert ref["plugin_id"] == "frisket-ndjson"
+    assert ref["byte_count"] == manifest.stat().st_size
+    assert ref["package_sha256"] == ref["package_identity"]["package_sha256"]
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?", (first.receipt_id,)
+        ).fetchone()[0]
+    )
+    assert receipt["action_kind"] == "custom.record"
+    assert receipt["outputs"][0]["ref"] == ref
+    assert receipt["evidence"][0]["ref"] == ref
+    manifest.unlink()
+    replay = run_typed_plugin_load_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
 
 
 @pytest.mark.parametrize("behavior", ["no_call", "double_call"])
-def test_reused_loader_requires_exactly_one_successful_call(tmp_path, behavior):
+def test_reused_loader_requires_exactly_one_successful_call(
+    tmp_path, make_project, behavior
+):
     manifest = _write_manifest(tmp_path)
-    project = Project.create(tmp_path / "project")
-    try:
-        result = run_typed_plugin_load_action(
-            project, "p", _bound(manifest.parent, behavior)
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert result.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("project")
+    result = run_typed_plugin_load_action(
+        project, "p", _bound(manifest.parent, behavior)
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert result.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize(
@@ -132,42 +130,43 @@ def test_manifest_params_refuse_malformed_or_claimed_source_facts(manifest):
     assert result.error.code == "invalid_action_request"
 
 
-def test_missing_manifest_replay_requires_identical_typed_request(tmp_path):
+def test_missing_manifest_replay_requires_identical_typed_request(
+    tmp_path, make_project
+):
     manifest = _write_manifest(tmp_path)
-    project = Project.create(tmp_path / "project")
-    try:
-        first = run_action_spec(project, _plugin_load_action(manifest), project_id="p")
-        assert first.status == "completed", first.errors
-        manifest.unlink()
-        changed = run_action_spec(
-            project,
-            _plugin_load_action(manifest.with_name("different.json")),
-            project_id="p",
-        )
-        assert changed.status == "failed"
-        assert changed.errors[0].code == "idempotency_conflict"
-        legacy = run_action_spec(
-            project,
-            {
-                "schema_version": "frisket.action.v2",
-                "kind": "plugin.load",
-                "capabilities": ["project:write", "plugin:load"],
-                "params": {"manifest": {"kind": "local_file", "path": str(manifest)}},
-                "idempotency_key": "plugin_load@sha256:v1",
-            },
-            project_id="p",
-        )
-        assert legacy.status == "failed"
-        assert legacy.errors[0].code == "invalid_action_request"
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    finally:
-        project.close()
+    project = make_project("project")
+    first = run_action_spec(project, _plugin_load_action(manifest), project_id="p")
+    assert first.status == "completed", first.errors
+    manifest.unlink()
+    changed = run_action_spec(
+        project,
+        _plugin_load_action(manifest.with_name("different.json")),
+        project_id="p",
+    )
+    assert changed.status == "failed"
+    assert changed.errors[0].code == "idempotency_conflict"
+    legacy = run_action_spec(
+        project,
+        {
+            "schema_version": "frisket.action.v2",
+            "kind": "plugin.load",
+            "capabilities": ["project:write", "plugin:load"],
+            "params": {"manifest": {"kind": "local_file", "path": str(manifest)}},
+            "idempotency_key": "plugin_load@sha256:v1",
+        },
+        project_id="p",
+    )
+    assert legacy.status == "failed"
+    assert legacy.errors[0].code == "invalid_action_request"
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize(
     "changed_file", ["plugin.json", "helper.py", "workbench-descriptors.json"]
 )
-def test_present_package_bytes_are_revalidated_on_replay(tmp_path, changed_file):
+def test_present_package_bytes_are_revalidated_on_replay(
+    tmp_path, make_project, changed_file
+):
     manifest = _write_manifest(tmp_path, plugin_id="demo.command")
     document = json.loads(manifest.read_text())
     document["contributes"]["workbench_commands"] = ["demo.command.command.hello"]
@@ -181,72 +180,68 @@ def test_present_package_bytes_are_revalidated_on_replay(tmp_path, changed_file)
             / "fixtures/local_plugins/demo_command/workbench-descriptors.json"
         ).read_bytes()
     )
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _plugin_load_action(manifest)
-        first = run_action_spec(project, request, project_id="p")
-        assert first.status == "completed", first.errors
-        ref = first.outputs[0].ref
-        assert ref["workbench_descriptor_package"]["descriptor_manifests"][0]["id"] == (
-            "demo.command.command.hello"
-        )
-        assert {item["path"] for item in ref["package_identity"]["files"]} == {
-            "plugin.json",
-            "helper.py",
-            "workbench-descriptors.json",
-        }
-        target = manifest.parent / changed_file
-        target.write_text(target.read_text() + "\n")
-        result = run_action_spec(project, request, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "idempotency_conflict"
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-    finally:
-        project.close()
+    project = make_project("project")
+    request = _plugin_load_action(manifest)
+    first = run_action_spec(project, request, project_id="p")
+    assert first.status == "completed", first.errors
+    ref = first.outputs[0].ref
+    assert ref["workbench_descriptor_package"]["descriptor_manifests"][0]["id"] == (
+        "demo.command.command.hello"
+    )
+    assert {item["path"] for item in ref["package_identity"]["files"]} == {
+        "plugin.json",
+        "helper.py",
+        "workbench-descriptors.json",
+    }
+    target = manifest.parent / changed_file
+    target.write_text(target.read_text() + "\n")
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "idempotency_conflict"
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("changed", [False, True])
 def test_transactional_duplicate_key_recheck_uses_package_replay_policy(
-    tmp_path, monkeypatch, changed
+    tmp_path, make_project, monkeypatch, changed
 ):
     from frisket.engine.executor import action_lifecycle
 
     manifest = _write_manifest(tmp_path)
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _plugin_load_action(manifest)
-        winner = run_action_spec(project, request, project_id="p")
-        assert winner.status == "completed", winner.errors
-        if changed:
-            manifest.write_text(manifest.read_text() + "\n")
-        lookup = action_lifecycle._receipt_for_idempotency
-        transactions = []
+    project = make_project("project")
+    request = _plugin_load_action(manifest)
+    winner = run_action_spec(project, request, project_id="p")
+    assert winner.status == "completed", winner.errors
+    if changed:
+        manifest.write_text(manifest.read_text() + "\n")
+    lookup = action_lifecycle._receipt_for_idempotency
+    transactions = []
 
-        def race(target, key):
-            transactions.append(target.db.in_transaction)
-            return None if len(transactions) == 1 else lookup(target, key)
+    def race(target, key):
+        transactions.append(target.db.in_transaction)
+        return None if len(transactions) == 1 else lookup(target, key)
 
-        monkeypatch.setattr(action_lifecycle, "_receipt_for_idempotency", race)
-        result = run_action_spec(project, request, project_id="p")
-        assert transactions == [False, True]
-        if changed:
-            assert result.status == "failed"
-            assert result.errors[0].code == "idempotency_conflict"
-        else:
-            assert result.status == "completed", result.errors
-            assert result.receipt_id == winner.receipt_id
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-        assert not project.db.in_transaction
-    finally:
-        project.close()
+    monkeypatch.setattr(action_lifecycle, "_receipt_for_idempotency", race)
+    result = run_action_spec(project, request, project_id="p")
+    assert transactions == [False, True]
+    if changed:
+        assert result.status == "failed"
+        assert result.errors[0].code == "idempotency_conflict"
+    else:
+        assert result.status == "completed", result.errors
+        assert result.receipt_id == winner.receipt_id
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    assert not project.db.in_transaction
 
 
-def test_receipt_insertion_failure_rolls_back_without_activation(tmp_path, monkeypatch):
+def test_receipt_insertion_failure_rolls_back_without_activation(
+    tmp_path, make_project, monkeypatch
+):
     from frisket.authoring.plugin_registry import default_registry
     from frisket.engine.store.receipts import ReceiptStore
 
     manifest = _write_manifest(tmp_path)
-    project = Project.create(tmp_path / "project")
+    project = make_project("project")
     before = default_registry().plugin_manifests()
     try:
         insert = ReceiptStore.insert_completed

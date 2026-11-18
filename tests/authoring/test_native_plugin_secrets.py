@@ -283,11 +283,8 @@ def test_secret_lookup_is_scoped_and_refuses_undeclared_names(tmp_path, monkeypa
 
 
 @pytest.mark.parametrize("requested", ["demo_api_key", " DeMo_ApI_KeY "])
-def test_secret_lookup_normalizes_requested_name(tmp_path, requested):
-    project = Project.create(tmp_path / "project")
-    try:
-        _store_secret(project, "plugin.one", SECRET_VALUE)
-        secrets = HostPluginSecrets.from_binding(project, _binding("plugin.one"))
-        assert secrets.require(requested) == SECRET_VALUE
-    finally:
-        project.close()
+def test_secret_lookup_normalizes_requested_name(make_project, requested):
+    project = make_project("project")
+    _store_secret(project, "plugin.one", SECRET_VALUE)
+    secrets = HostPluginSecrets.from_binding(project, _binding("plugin.one"))
+    assert secrets.require(requested) == SECRET_VALUE

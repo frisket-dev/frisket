@@ -98,8 +98,8 @@ def _refresh(project, index_id, gateway, *, key="r"):
 
 
 @pytest.fixture
-def env(tmp_path):
-    project = Project.create(tmp_path / "sim.frisket", name="sim")
+def env(make_project):
+    project = make_project("sim")
     sheet = project.add_sheet("animals")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(
@@ -110,7 +110,6 @@ def env(tmp_path):
     index_id = _create_index(project, sheet)
     _refresh(project, index_id, MappedGateway(_VECTORS))
     yield project, sheet, cols, index_id
-    project.close()
 
 
 def _row(project, sheet, cols, text):

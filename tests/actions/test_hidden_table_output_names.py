@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import closing
 
 import pytest
 
@@ -17,7 +16,6 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 
 
 class Params(ActionParams):
@@ -48,7 +46,7 @@ def _produce(params: Params) -> TableResult[DynamicOutput] | DynamicTableResult:
 
 @pytest.mark.parametrize("declared", [False, True])
 def test_hidden_display_column_renames_preserve_schema_and_request_identity(
-    tmp_path, declared
+    make_project, declared
 ):
     registered = RegisteredAction(
         "custom.hidden_table",
@@ -79,20 +77,20 @@ def test_hidden_display_column_renames_preserve_schema_and_request_identity(
         ),
     )
     assert typed_request_hash(bound) != typed_request_hash(changed)
-    with closing(Project.create(tmp_path / "hidden.frisket")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = next(o.sheet_id for o in result.outputs if o.kind == "sheet")
-        columns = project.columns(sheet, include_hidden=True)
-        assert [(c["name"], bool(c["hidden"])) for c in columns] == [
-            ("Private value", True),
-            ("value", False),
-        ]
-        assert list(project.get_values(sheet, columns[0]["id"]).values()) == ["kept"]
-        assert list(project.get_values(sheet, columns[1]["id"]).values()) == ["visible"]
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        conflict = run_typed_create_sheet_action(project, "p", changed)
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
+    project = make_project("hidden")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = next(o.sheet_id for o in result.outputs if o.kind == "sheet")
+    columns = project.columns(sheet, include_hidden=True)
+    assert [(c["name"], bool(c["hidden"])) for c in columns] == [
+        ("Private value", True),
+        ("value", False),
+    ]
+    assert list(project.get_values(sheet, columns[0]["id"]).values()) == ["kept"]
+    assert list(project.get_values(sheet, columns[1]["id"]).values()) == ["visible"]
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    conflict = run_typed_create_sheet_action(project, "p", changed)
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
