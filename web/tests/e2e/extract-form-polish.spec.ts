@@ -8,7 +8,6 @@ import {
   openAction,
   selectActionSourceColumns,
   uniqueName,
-  type ActionRequest,
 } from './helpers';
 import { exposeReplayModel, prepareOwnModelReplay } from './replayModelScenario';
 
@@ -17,10 +16,6 @@ import { exposeReplayModel, prepareOwnModelReplay } from './replayModelScenario'
 // intercepted, so no model is called.
 
 const RUN_ID = 9701;
-
-type Posted<Id extends keyof GeneratedActionParams> = ActionRequest & {
-  params: GeneratedActionParams[Id];
-};
 
 async function seedProject(page: Page, namePrefix: string): Promise<{ pid: string; sheetId: number }> {
   const pid = await createProject(page.request, uniqueName(namePrefix));
@@ -78,17 +73,17 @@ async function openFormOnTitle(
   await expect(trigger).toContainText('Gemini 3.5 Flash-Lite');
 }
 
-async function runAndReadPost<Id extends 'map.extract' | 'map.classify'>(
+/** Run the form and return the params of the one request it posted. */
+async function runAndReadParams<Id extends 'map.extract' | 'map.classify'>(
   page: Page,
   posts: Array<Record<string, unknown>>,
   actionKind: Id,
-): Promise<Posted<Id>> {
+): Promise<GeneratedActionParams[Id]> {
   await expect(page.getByTestId('generated-action-run')).toBeEnabled();
   await clickRunButton(page);
   await expect.poll(() => posts.length).toBe(1);
-  const posted = posts[0] as unknown as Posted<Id>;
-  expect(posted.action_id).toBe(actionKind);
-  return posted;
+  expect(posts[0].action_id).toBe(actionKind);
+  return posts[0].params as GeneratedActionParams[Id];
 }
 
 test('extract runs clean with fields but no instructions', async ({ page }) => {
@@ -103,9 +98,9 @@ test('extract runs clean with fields but no instructions', async ({ page }) => {
   expect(order).toEqual(['output-fields-editor', 'field-instruction']);
   await expect(page.getByTestId('field-instruction')).toHaveValue('');
 
-  const posted = await runAndReadPost(page, posts, 'map.extract');
-  expect(posted.params.instruction).toBe('');
-  expect(posted.params.fields).toEqual([{ name: 'value', type: 'text', description: '' }]);
+  const params = await runAndReadParams(page, posts, 'map.extract');
+  expect(params.instruction).toBe('');
+  expect(params.fields).toEqual([{ name: 'value', type: 'text', description: '' }]);
   await expect(page.getByTestId('error-toast')).toHaveCount(0);
 });
 
@@ -118,10 +113,10 @@ test('citations default to "Cite sources": grounded, not required', async ({ pag
   await expect(page.getByTestId('field-citation_mode')).toBeVisible();
   await expect(page.getByTestId('field-citation_mode')).toHaveValue('cite');
 
-  const posted = await runAndReadPost(page, posts, 'map.extract');
-  expect(posted.params.grounding?.enabled).toBe(true);
-  expect(posted.params.grounding?.citation_required ?? false).toBe(false);
-  expect(posted.params.evidence_policy?.citation_required ?? false).toBe(false);
+  const params = await runAndReadParams(page, posts, 'map.extract');
+  expect(params.grounding?.enabled).toBe(true);
+  expect(params.grounding?.citation_required ?? false).toBe(false);
+  expect(params.evidence_policy?.citation_required ?? false).toBe(false);
 });
 
 test('citations "Off" turns grounding off', async ({ page }) => {
@@ -130,9 +125,9 @@ test('citations "Off" turns grounding off', async ({ page }) => {
   await openFormOnTitle(page, pid, sheetId, 'map.extract');
   await page.getByTestId('field-citation_mode').selectOption('none');
 
-  const posted = await runAndReadPost(page, posts, 'map.extract');
-  expect(posted.params.grounding).toMatchObject({ enabled: false, citation_required: false });
-  expect(posted.params.evidence_policy).toEqual({ citation_required: false });
+  const params = await runAndReadParams(page, posts, 'map.extract');
+  expect(params.grounding).toMatchObject({ enabled: false, citation_required: false });
+  expect(params.evidence_policy).toEqual({ citation_required: false });
 });
 
 test('citations "Require citations" grounds, requires, and names the columns to check', async ({
@@ -152,11 +147,11 @@ test('citations "Require citations" grounds, requires, and names the columns to 
     .getByRole('option').filter({ hasText: 'notes' }).click();
   await page.keyboard.press('Escape');
 
-  const posted = await runAndReadPost(page, posts, 'map.extract');
-  expect(posted.params.grounding).toMatchObject({ enabled: true, citation_required: true });
+  const params = await runAndReadParams(page, posts, 'map.extract');
+  expect(params.grounding).toMatchObject({ enabled: true, citation_required: true });
   // The evidence policy model forbids undeclared keys: exactly this one.
-  expect(posted.params.evidence_policy).toEqual({ citation_required: true });
-  expect(posted.params.source_document_columns).toEqual(['notes']);
+  expect(params.evidence_policy).toEqual({ citation_required: true });
+  expect(params.source_document_columns).toEqual(['notes']);
   await expect(page.getByTestId('error-toast')).toHaveCount(0);
 });
 
@@ -232,9 +227,9 @@ test('a fresh extract launch leaves confidence off and offers no justification',
   await expect(page.getByTestId('field-include_confidence')).not.toBeChecked();
   await expect(page.getByTestId('field-include_justification')).toHaveCount(0);
 
-  const posted = await runAndReadPost(page, posts, 'map.extract');
-  expect(posted.params.include_confidence).toBe(false);
-  expect(posted.params).not.toHaveProperty('include_justification');
+  const params = await runAndReadParams(page, posts, 'map.extract');
+  expect(params.include_confidence).toBe(false);
+  expect(params).not.toHaveProperty('include_justification');
 });
 
 test('a fresh classify launch leaves confidence and justification off', async ({ page }) => {
@@ -246,8 +241,8 @@ test('a fresh classify launch leaves confidence and justification off', async ({
   await expect(page.getByTestId('field-include_confidence')).not.toBeChecked();
   await expect(page.getByTestId('field-include_justification')).not.toBeChecked();
 
-  const posted = await runAndReadPost(page, posts, 'map.classify');
-  expect(posted.params.context).toBe('');
-  expect(posted.params.include_confidence).toBe(false);
-  expect(posted.params.include_justification).toBe(false);
+  const params = await runAndReadParams(page, posts, 'map.classify');
+  expect(params.context).toBe('');
+  expect(params.include_confidence).toBe(false);
+  expect(params.include_justification).toBe(false);
 });
