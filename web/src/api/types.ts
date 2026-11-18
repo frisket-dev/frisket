@@ -19,6 +19,7 @@ import type {
   HttpLocalProviderCatalog,
   HttpModelPull,
   HttpModelPullStartResponse,
+  HttpOAuthConnectionList,
   HttpOrganizationEnvList,
   HttpOrganizationKeyList,
   HttpOrganizationProviderCatalog,
@@ -1473,19 +1474,7 @@ export interface ActionCatalogPayload {
   validation_result_schema: JsonSchemaLike;
 }
 
-export interface OAuthConnectionInfo {
-  id: string;
-  connection_id?: string;
-  provider: string;
-  external_subject?: string | null;
-  external_email?: string | null;
-  scopes?: string[];
-  token_type?: string | null;
-  refresh_token_hint?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  revoked_at?: string | null;
-}
+export type OAuthConnectionInfo = HttpOAuthConnectionList['connections'][number];
 
 export type GoogleSheetsExportSourceKind = 'current_sheet' | 'current_view' | 'all_sheets';
 export type GoogleSheetsExportDestinationKind = 'new_spreadsheet' | 'update_existing';
@@ -3809,14 +3798,7 @@ export interface EmbeddingIndexAnalysisResult {
 
 export type WorkbenchPluginContributionSummary = HttpWorkbenchPluginRuntimeIndex['plugins'][number]['contributionSummary'][number];
 
-export interface WorkbenchPluginFrontendComponentBinding {
-  schemaVersion: 'frisket.workbench_plugin_frontend_component_binding.v1';
-  contributionId: string;
-  moduleKey: string;
-  componentKey: string;
-  modulePath?: string;
-  moduleUrl?: string;
-}
+export type WorkbenchPluginFrontendComponentBinding = HttpWorkbenchPluginRuntimeIndex['plugins'][number]['frontendComponentBindings'][number];
 
 export type WorkbenchPluginDescriptorPackage = NonNullable<HttpWorkbenchPluginInstallExecution['workbenchDescriptorPackage']>;
 
