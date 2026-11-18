@@ -178,7 +178,7 @@ def _cached_page(adapter, store, target):
                 "blocks": payload.get("blocks") or [],
             },
         }
-    ref_id = store.cached_ref(target) or adapter.cached_reference(target)
+    ref_id = adapter.reading_reference(store, target)
     if ref_id is None:
         return None
     row = (
@@ -584,9 +584,7 @@ class PdfPacketOcrCoordinator:
                 )
 
                 with PdfSplitPreparationStore(inventory_path) as store:
-                    cached_ref = store.cached_ref(target) or adapter.cached_reference(
-                        target
-                    )
+                    cached_ref = adapter.reading_reference(store, target)
                 if cached_ref is None:
                     raise ValueError(
                         "cached OCR reference is unavailable; refresh setup"
