@@ -19,7 +19,7 @@ from frisket.engine._workers.parakeet_session import (
     ParakeetSessionFailure,
 )
 from frisket.sdk.ops.transcription import parakeet as transcribe_mod
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.actions.media_options import TranscriptionOptions
 from frisket.engine.executor.transcription_read import AdmittedTranscriber
 from frisket.sdk.ops.transcribe_engines import TranscribeCancelled
@@ -99,11 +99,13 @@ def test_non_parakeet_and_precancelled_scopes_allocate_nothing(
     monkeypatch.setattr(transcribe_mod, "acquire_local_engine_lease", forbidden)
 
     async def run() -> None:
-        async with _scope({"engine": "faster_whisper"}, OpContext(), expected_rows=2):
+        async with _scope(
+            {"engine": "faster_whisper"}, ActionContext(), expected_rows=2
+        ):
             assert transcribe_mod._ACTIVE_RUN_SCOPED_SESSION.get() is None
         async with _scope(
             {"engine": "parakeet-tdt"},
-            OpContext(extras={"cancelled": lambda: True}),
+            ActionContext(extras={"cancelled": lambda: True}),
             expected_rows=2,
         ):
             assert transcribe_mod._ACTIVE_RUN_SCOPED_SESSION.get() is None
@@ -128,7 +130,7 @@ def test_scope_installs_one_inherited_session_then_resets_before_close(
     async def run() -> None:
         async with _scope(
             {"engine": "parakeet-tdt", "vad": False},
-            OpContext(extras={"cancelled": cancel}),
+            ActionContext(extras={"cancelled": cancel}),
             expected_rows=3,
         ):
             current = transcribe_mod._ACTIVE_RUN_SCOPED_SESSION.get()
@@ -169,7 +171,9 @@ def test_scope_resets_and_closes_after_body_failure(
 
     async def run() -> None:
         with pytest.raises(ValueError, match="body failed"):
-            async with _scope({"engine": "parakeet-tdt"}, OpContext(), expected_rows=1):
+            async with _scope(
+                {"engine": "parakeet-tdt"}, ActionContext(), expected_rows=1
+            ):
                 raise ValueError("body failed")
 
     asyncio.run(run())
@@ -191,7 +195,9 @@ def test_teardown_failure_poisons_admission_and_escapes(
 
     async def run() -> None:
         with pytest.raises(SandboxTeardownError):
-            async with _scope({"engine": "parakeet-tdt"}, OpContext(), expected_rows=1):
+            async with _scope(
+                {"engine": "parakeet-tdt"}, ActionContext(), expected_rows=1
+            ):
                 pass
 
     asyncio.run(run())

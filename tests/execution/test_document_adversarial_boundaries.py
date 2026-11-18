@@ -11,7 +11,7 @@ from frisket.engine.executor.document_convert import (
     _BoundDocumentConverter,
 )
 from frisket.engine.store import Project
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 def test_retyping_admitted_text_cannot_authorize_path_read(tmp_path, monkeypatch):
@@ -31,7 +31,7 @@ def test_retyping_admitted_text_cannot_authorize_path_read(tmp_path, monkeypatch
             sheet, [{"source": str(secret)}], {"source": column}
         )
         row = Row({"source": str(secret)})
-        ctx = OpContext(project=project, extras={"row_id": row_id})
+        ctx = ActionContext(project=project, extras={"row_id": row_id})
         owner = AdmittedDocumentConverter(ctx, engine="markitdown")
         bound = owner.bind_row(
             row,

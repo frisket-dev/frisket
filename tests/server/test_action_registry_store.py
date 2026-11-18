@@ -12,8 +12,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.authoring import recipe_registry
-from frisket.authoring.recipe_registry import (
+from frisket.authoring import action_registry
+from frisket.authoring.action_registry import (
     ActionRegistryError,
     ActionRegistryStore,
     build_action_artifact,
@@ -85,7 +85,7 @@ def test_action_registry_publish_import_round_trip_is_content_addressed(
     tmp_path, monkeypatch
 ):
     clock = {"now": "2026-09-06T17:50:24Z"}
-    monkeypatch.setattr(recipe_registry, "_utc_now", lambda: clock["now"])
+    monkeypatch.setattr(action_registry, "_utc_now", lambda: clock["now"])
     client = _client(tmp_path)
     body = {
         "name": "Local beat classifier",
@@ -188,13 +188,13 @@ def test_action_registry_publish_import_round_trip_is_content_addressed(
     assert import_payload["artifact"]["artifact_id"] == artifact_id
     assert saved["action_kind"] == "map.classify"
 
-    listed_internal = client.app.state.workspace.saved_recipes()
+    listed_internal = client.app.state.workspace.saved_actions()
     assert listed_internal[0]["registry_artifact"]["artifact_id"] == artifact_id
     assert listed_internal[0]["eval_receipts"][0]["receipt_id"] == receipt["receipt_id"]
 
     templates = [
         saved_actions.saved_action_template(entry)
-        for entry in client.app.state.workspace.saved_recipes()
+        for entry in client.app.state.workspace.saved_actions()
     ]
     assert [(template["id"], template["name"]) for template in templates] == [
         (saved["id"], saved["name"])
@@ -377,7 +377,7 @@ def _external_action_artifact() -> dict:
 def test_registry_uses_the_canonical_lookup_key_not_the_private_implementation_name(
     monkeypatch,
 ) -> None:
-    from frisket.authoring import recipe_registry
+    from frisket.authoring import action_registry
 
     class PrivateNamedImplementation:
         name = "private_runner_name"
@@ -392,11 +392,11 @@ def test_registry_uses_the_canonical_lookup_key_not_the_private_implementation_n
 
     lookups = []
     monkeypatch.setattr(
-        recipe_registry,
+        action_registry,
         "get_recipe",
         lambda action_kind: lookups.append(action_kind) or PrivateNamedImplementation(),
     )
-    artifact = recipe_registry.build_action_artifact(
+    artifact = action_registry.build_action_artifact(
         name="Canonical plugin action",
         spec={
             "action_kind": "plugin.alias",
@@ -462,7 +462,7 @@ def test_registry_import_rejects_blank_effective_name_without_residue(
 
     assert response.status_code == 400, response.text
     assert "name cannot be blank" in response.text
-    assert client.app.state.workspace.saved_recipes() == []
+    assert client.app.state.workspace.saved_actions() == []
     assert not (tmp_path / "action_registry").exists()
 
 
@@ -596,7 +596,7 @@ def test_action_registry_import_rejects_removed_saved_action_keys_without_residu
     assert f"removed keys: {removed_key}" in response.text
     workspace = client.app.state.workspace
     assert workspace.action_registry.list()["artifacts"] == []
-    assert workspace.saved_recipes() == []
+    assert workspace.saved_actions() == []
     assert not list(tmp_path.glob("action_registry/artifacts/*.json"))
 
 
@@ -746,7 +746,7 @@ def test_two_processes_concurrently_publish_same_artifact_distinct_receipts(
     registry_root = tmp_path / "workspace"
     code = (
         "import json, sys\n"
-        "from frisket.authoring.recipe_registry import ActionRegistryStore, build_action_artifact\n"
+        "from frisket.authoring.action_registry import ActionRegistryStore, build_action_artifact\n"
         "spec = {\n"
         "    'action_kind': 'map.classify',\n"
         "    'action_name': 'Local beat classifier',\n"

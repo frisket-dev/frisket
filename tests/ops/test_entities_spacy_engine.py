@@ -5,7 +5,7 @@ from frisket.execution.dispatch_control import STANDALONE
 import pytest
 
 from frisket.ops.ner_local import LocalNerExtractor
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.spacy_ner import (
     SPACY_ONTONOTES_TYPES,
     requested_spacy_types,
@@ -196,7 +196,7 @@ async def test_ner_recipe_spacy_engine_raises_honest_error_when_unavailable(
     with pytest.raises(RuntimeError, match="not installed"):
         await LocalNerExtractor(
             "spacy",
-            OpContext(
+            ActionContext(
                 extras={"standalone_dispatch": STANDALONE},
             ),
         ).extract(
@@ -224,7 +224,7 @@ async def test_ner_recipe_spacy_engine_calls_run_spacy_ner_default(monkeypatch):
 
     out = await LocalNerExtractor(
         "spacy",
-        OpContext(
+        ActionContext(
             extras={"standalone_dispatch": STANDALONE},
         ),
     ).extract(

@@ -40,7 +40,7 @@ from frisket.engine.executor.map_rows_action import (
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.plugins.sdk import Plugin
 from frisket.sdk import InvocationContext as ExportedContext
 from runner_test_helpers import run_with_output_claim
@@ -223,7 +223,7 @@ def test_context_keeps_injection_order_but_adds_no_capability_grants(project):
     plan = build_typed_map_rows_plan(store, bound)
     first, second = object(), object()
     arguments = plan.program._handler_arguments(
-        [first, second], OpContext(project=store)
+        [first, second], ActionContext(project=store)
     )
     assert terminal.handler(bound.params, Row({}), *arguments).output.value == "ordered"
 

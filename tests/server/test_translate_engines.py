@@ -1,5 +1,5 @@
 """The translate engine axis: contract validation, the
-`_recipe_engines("map.translate")` catalog branch, and its key-gated + pair-level
+`_action_engines("map.translate")` catalog branch, and its key-gated + pair-level
 availability. No live provider calls (tests never touch the live network by
 default); credential presence
 is simulated via env / a stub project secrets store."""
@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from frisket.actions.translate import TranslateParams, translation_outputs
 from frisket.actions.translation_languages import TRANSLATE_ENGINES
-from frisket.server.action_catalog_hints import _recipe_engines
+from frisket.server.action_catalog_hints import _action_engines
 
 
 def _params(**overrides):
@@ -139,12 +139,12 @@ def test_hosted_translation_requires_consent_even_below_character_threshold(
 
 
 def _engines_by_id(project=None, caps=None):
-    engines = _recipe_engines("map.translate", caps or {}, project=project)
+    engines = _action_engines("map.translate", caps or {}, project=project)
     return {engine["id"]: engine for engine in engines}
 
 
 def test_catalog_engine_ids_match_the_contract_roster() -> None:
-    engines = _recipe_engines("map.translate", {})
+    engines = _action_engines("map.translate", {})
     assert [engine["id"] for engine in engines] == list(TRANSLATE_ENGINES)
 
 
@@ -271,7 +271,7 @@ def test_llm_availability_consults_project_keys_not_just_env(
 
     assert _configured_llm_providers(None) == set()
     assert "anthropic" in _configured_llm_providers(_ProjectWithKeys())
-    by_id = _recipe_engines("map.translate", {}, project=_ProjectWithKeys())
+    by_id = _action_engines("map.translate", {}, project=_ProjectWithKeys())
     assert next(e for e in by_id if e["id"] == "llm")["available"] is True
 
 

@@ -10,7 +10,7 @@ from frisket.actions.types import Row, RowError
 from frisket.engine.executor import translate_read
 from frisket.engine.executor.translate_read import AdmittedTranslator, TranslationEngine
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
@@ -143,7 +143,7 @@ def test_translation_text_is_unlabelled_and_retains_false_and_zero():
 @pytest.mark.parametrize("engine", ["deepl", "google_translate", "opus_mt", "hy_mt2"])
 async def test_empty_text_skips_every_provider(engine):
     data, accounting = await TranslationEngine().execute(
-        {"empty": " "}, {"engine": engine}, OpContext(project=None)
+        {"empty": " "}, {"engine": engine}, ActionContext(project=None)
     )
     assert data == {"translation": ""}
     assert accounting == {"cost": 0.0}
@@ -183,7 +183,7 @@ async def test_hosted_actual_response_and_empty_failure_retain_accounting(
         return httpx.Response(200, json=payload)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
-        ctx = OpContext(
+        ctx = ActionContext(
             project=None,
             http=http,
             credential_use_context=CredentialUseContext.open(),
@@ -216,7 +216,7 @@ async def test_bound_translator_checks_admitted_options_route_and_single_call(
     monkeypatch,
 ):
     options = TranslationOptions(language=["es"])
-    ctx = OpContext(project=None)
+    ctx = ActionContext(project=None)
     route = SimpleNamespace(
         engine="opus_mt",
         target_snapshot={"capability": "translate", "transport": "local"},
@@ -259,7 +259,7 @@ async def test_bound_translator_checks_admitted_options_route_and_single_call(
 @pytest.mark.asyncio
 async def test_bound_translator_preserves_failed_paid_call(monkeypatch):
     options = TranslationOptions()
-    ctx = OpContext(project=None)
+    ctx = ActionContext(project=None)
     route = SimpleNamespace(
         engine="deepl",
         target_snapshot={"capability": "translate", "transport": "deepl.v2"},
@@ -342,7 +342,7 @@ async def test_local_provisioning_integrity_cancellation_and_artifact_facts(
     def signal():
         return False
 
-    ctx = OpContext(
+    ctx = ActionContext(
         project=None,
         extras={"cancelled": signal, "standalone_dispatch": STANDALONE},
     )

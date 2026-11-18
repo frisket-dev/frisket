@@ -39,7 +39,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.server.app import create_app
 from runner_test_helpers import run_with_output_claim
 
@@ -394,7 +394,7 @@ class _CancellationBatchRecipe(Recipe):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, dict[str, Any]]:
         del ctx
         rows = list(values_by_row)
@@ -429,7 +429,7 @@ class _LegacyOverwriteRecipe(Recipe):
         self,
         values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         del values, spec, ctx
         return {"digits": "legacy overwrite"}

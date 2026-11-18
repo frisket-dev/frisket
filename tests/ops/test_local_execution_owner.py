@@ -9,7 +9,7 @@ import pytest
 
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.execution.purchases import PurchaseAdmission
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 class Policy:
@@ -35,7 +35,7 @@ class Policy:
 
 
 def context(policy):
-    return OpContext(
+    return ActionContext(
         extras={
             "standalone_dispatch": STANDALONE,
             "service_operation_policy": policy,
@@ -493,7 +493,7 @@ async def test_native_document_engine_cannot_bypass_owner(
         column = project.add_column(sheet, "doc", type="text")
         row_id = project.add_rows(sheet, [{"doc": html}], {"doc": column})[0]
         row = Row({"doc": html})
-        ctx = OpContext(
+        ctx = ActionContext(
             project=project,
             extras={
                 "preview": True,

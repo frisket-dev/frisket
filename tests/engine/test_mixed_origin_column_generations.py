@@ -23,7 +23,7 @@ from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.server.services.sheet_grid import _sheet_data_payload
 from runner_test_helpers import run_with_output_claim
 from tests.action_test_helpers import run_typed_map_request, typed_map_request
@@ -487,7 +487,7 @@ class _MixedKindRecipe(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         row_id = int(ctx.extras["row_id"])
         if row_id == spec.get("error_row_id"):

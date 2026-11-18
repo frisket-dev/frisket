@@ -37,7 +37,7 @@ from frisket.engine.runner import MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 
 
 class RenderParams(ActionParams):
@@ -193,7 +193,7 @@ class _LegacyControlRecipe(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         del row_values, spec, ctx
         return {"first": "one", "second": "two", "first_confidence": 0.3}
@@ -214,7 +214,7 @@ def test_prepared_publication_seam_leaves_legacy_control_behavior_unchanged(
             _LegacyControlRecipe(llm=False),
             {},
             {"action_kind": "map.legacy_test"},
-            OpContext(
+            ActionContext(
                 project=store, extras={"preview": True, "cancelled": lambda: False}
             ),
         )

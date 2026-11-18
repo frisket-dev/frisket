@@ -446,7 +446,7 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
     users whose OpenAI/Gemini key lives in Settings → AI Providers rather
     than a shell env var. The
     catalog must resolve keys from the same three sources execution uses."""
-    from frisket.server.action_catalog_hints import _recipe_engines
+    from frisket.server.action_catalog_hints import _action_engines
     from frisket.server import provider_config
     from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 
@@ -467,7 +467,7 @@ def test_remote_ocr_engines_consult_project_keys_not_just_env(monkeypatch, tmp_p
         monkeypatch.delenv(env_name, raising=False)
 
     def by_id(project):
-        return {e["id"]: e for e in _recipe_engines("media.ocr", {}, project=project)}
+        return {e["id"]: e for e in _action_engines("media.ocr", {}, project=project)}
 
     # No env or project keys: every shared vision model remains visible with
     # an honest unavailable reason and the generic position option declaration.

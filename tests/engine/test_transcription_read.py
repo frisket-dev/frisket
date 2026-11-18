@@ -7,7 +7,7 @@ from frisket.actions.media_options import TranscriptionOptions
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.engine.executor.transcription_read import AdmittedTranscriber
 from frisket.engine.store import Project
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.sdk.ops import transcribe_engines
 
 
@@ -23,7 +23,7 @@ def audio(tmp_path):
         row_id = project.add_rows(sheet, [{"recording": value}], {"recording": column})[
             0
         ]
-        ctx = OpContext(project=project, extras={"row_id": row_id})
+        ctx = ActionContext(project=project, extras={"row_id": row_id})
         yield ctx, sheet, row_id, column, value
 
 

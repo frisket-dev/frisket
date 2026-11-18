@@ -13,10 +13,10 @@ def test_tesseract_uses_one_user_facing_language_vocabulary() -> None:
 
 
 def test_ocr_catalog_names_tesseracts_supported_language() -> None:
-    from frisket.server.action_catalog_hints import _recipe_engines
+    from frisket.server.action_catalog_hints import _action_engines
 
     engine = next(
-        item for item in _recipe_engines("media.ocr", {}) if item["id"] == "tesseract"
+        item for item in _action_engines("media.ocr", {}) if item["id"] == "tesseract"
     )
     assert engine["language"]["fixed_language"] == "en"
     assert engine["language"]["choices"] == [{"value": "en", "label": "English"}]

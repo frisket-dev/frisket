@@ -12,7 +12,7 @@ from frisket.ai.llm.cache import ResponseCache
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMResponse
 from frisket.engine.executor.action_support import _routed_call_provider_use
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.sdk.ops.transcribe_engines import (
     FasterWhisperAdapter,
@@ -112,7 +112,7 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
     )
     try:
         router._adapters["mock"] = adapter
-        ctx = OpContext(
+        ctx = ActionContext(
             http=None,
             extras={**({"router": router}), "standalone_dispatch": STANDALONE},
         )

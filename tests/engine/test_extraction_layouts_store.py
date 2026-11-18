@@ -208,7 +208,7 @@ def test_saved_workspace_templates_are_copied_once_without_deleting_originals(
     workspace.create("Recipes", project_id="p")
     with closing(Project(workspace.root / "p.frisket")) as setup_project:
         sheet, column, rows, template = seed(setup_project)
-    original = workspace.save_recipe(
+    original = workspace.save_action(
         "My old form",
         {
             "action_kind": "media.extract_document",
@@ -234,11 +234,11 @@ def test_saved_workspace_templates_are_copied_once_without_deleting_originals(
         first.templates[0].draft.model_dump()["fields"]
         == template.model_dump()["fields"]
     )
-    assert workspace.saved_recipe_by_id(original["id"]) == original
+    assert workspace.saved_action_by_id(original["id"]) == original
     workspace._projects.pop("p").close()
     monkeypatch.setattr(
         workspace,
-        "_read_saved_recipes",
+        "_read_saved_actions",
         lambda: pytest.fail("completed legacy upgrade rescanned workspace recipes"),
     )
     assert (
@@ -270,10 +270,10 @@ def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
         },
     }
     invalid_reference = {**spec, "reference_row_id": {"unexpected": "object"}}
-    workspace.save_recipe("Invalid template", invalid_template)
-    workspace.save_recipe("Invalid reference", invalid_reference)
-    workspace.save_recipe("Valid", spec)
-    originals = workspace.saved_recipes()
+    workspace.save_action("Invalid template", invalid_template)
+    workspace.save_action("Invalid reference", invalid_reference)
+    workspace.save_action("Valid", spec)
+    originals = workspace.saved_actions()
     workspace.get("p")
     response = DocumentExtractionService(workspace).templates("p", sheet, "document")
     assert [item.name for item in response.templates] == ["Layout 1", "Layout 2"]
@@ -282,7 +282,7 @@ def test_bad_saved_recipe_does_not_hide_existing_layouts_or_valid_imports(
         response.templates[1].draft.model_dump()["fields"]
         == template.model_dump()["fields"]
     )
-    assert workspace.saved_recipes() == originals
+    assert workspace.saved_actions() == originals
     assert caplog.text.count("Skipped an invalid saved extraction template") == 2
     assert "private-invalid-value" not in caplog.text
 
@@ -292,7 +292,7 @@ def test_saved_template_import_does_not_swallow_database_failure(tmp_path, monke
     workspace.create("Recipes", project_id="p")
     with closing(Project(workspace.root / "p.frisket")) as setup_project:
         sheet, column, rows, template = seed(setup_project)
-    workspace.save_recipe(
+    workspace.save_action(
         "Valid",
         {
             "action_kind": "media.extract_document",
@@ -328,7 +328,7 @@ def test_hidden_legacy_source_keeps_upgrade_pending_until_next_open(tmp_path):
         sheet, column, rows, template = seed(setup_project)
         setup_project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
         setup_project.db.commit()
-    workspace.save_recipe(
+    workspace.save_action(
         "Temporarily hidden",
         {
             "action_kind": "media.extract_document",

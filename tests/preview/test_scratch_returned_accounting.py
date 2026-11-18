@@ -73,7 +73,7 @@ def test_cloud_scratch_records_returned_children_before_retirement(
         )
 
         async def run():
-            with context.op_context_scope():
+            with context.action_context_scope():
                 await coordinator.execute(_request())
                 if failure == "body":
                     raise ValueError("OCR parser failed after provider returned")

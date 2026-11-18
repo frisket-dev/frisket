@@ -31,7 +31,7 @@ from frisket.actions.types import (
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner.row_inputs import row_values
 from frisket.engine.store import Project
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 class SelectedParams(ActionParams):
@@ -127,7 +127,7 @@ def test_model_selection_uses_typed_value_and_direct_keeps_template(source):
     )
     result = asyncio.run(
         direct_plan.program.execute(
-            values, direct_plan.spec_dict(), OpContext(project=project)
+            values, direct_plan.spec_dict(), ActionContext(project=project)
         )
     )
     assert result.cells["answer"]["value"] == "Person: Ada"

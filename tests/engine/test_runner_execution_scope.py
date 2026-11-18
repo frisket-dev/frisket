@@ -17,7 +17,7 @@ import frisket.engine.runner.map_runner as map_runner_module
 import frisket.engine.runner.validation as validation_module
 from frisket.ai.llm import ModelRouter
 from frisket.ops.base import (
-    OpContext,
+    ActionContext,
     Recipe,
     RecipeInvocationHalt,
     normalize_recipe_invocation_halt,
@@ -150,7 +150,7 @@ class _ScopeRecipe(Recipe):
     async def execution_scope(
         self,
         spec: dict,
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         expected_rows: int,
     ):
@@ -172,7 +172,7 @@ class _ScopeRecipe(Recipe):
             self.exits += 1
 
     async def execute(
-        self, row_values: dict[str, Any], spec: dict, ctx: OpContext
+        self, row_values: dict[str, Any], spec: dict, ctx: ActionContext
     ) -> dict[str, Any]:
         self.calls.append(int(ctx.extras["row_id"]))
         call_number = len(self.calls)
@@ -199,7 +199,7 @@ class _BatchScopeRecipe(_ScopeRecipe):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict,
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, dict[str, Any]]:
         del ctx
         assert self.entries == self.exits + 1

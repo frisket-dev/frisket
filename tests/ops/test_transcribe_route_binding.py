@@ -1,6 +1,6 @@
 """Route-resolution: adapter env-decoupling + the execute-seam one-ledger wiring.
 
-With a route binding in ``OpContext.extras`` the transcription adapters take
+With a route binding in ``ActionContext.extras`` the transcription adapters take
 their connection material from the route's target deref
 (``ConnectionConfig``), never from ``FRISKET_MODELS_URL``/``TOKEN``; without
 one (previews / non-routed calls) the engine-roster cutover
@@ -34,7 +34,7 @@ from frisket.execution.promise_compiler import OperatorBorneZeroCost
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY
 from frisket.execution.targets import ExecutionTarget
 from frisket.ops._sidecar import sidecar_post
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.sdk.ops.transcription.sidecar import sidecar_transcribe_timeout
 
 
@@ -171,7 +171,7 @@ def test_sidecar_post_uses_route_connection_not_env(monkeypatch):
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
     captured: list[httpx.Request] = []
-    ctx = OpContext(http=_capture_client(captured, {"ok": True}))
+    ctx = ActionContext(http=_capture_client(captured, {"ok": True}))
     connection = ConnectionConfig(base_url="http://route-gw:9000", token="route-token")
     body = asyncio.run(
         sidecar_post(
@@ -204,7 +204,7 @@ def test_sidecar_post_uses_route_connection_timeout_when_caller_omits_it():
     )
     body = asyncio.run(
         sidecar_post(
-            OpContext(http=FakeHttp()),
+            ActionContext(http=FakeHttp()),
             "/ner",
             json={"engine": "gliner", "texts": ["hello"]},
             connection=connection,
@@ -232,7 +232,7 @@ def test_sidecar_post_preserves_explicit_caller_timeout():
     explicit = httpx.Timeout(connect=1.0, read=2.0, write=3.0, pool=4.0)
     body = asyncio.run(
         sidecar_post(
-            OpContext(http=FakeHttp()),
+            ActionContext(http=FakeHttp()),
             "/ocr",
             data={"engine": "dots.mocr"},
             timeout=explicit,
@@ -262,7 +262,7 @@ def test_sidecar_post_follows_modal_result_redirect() -> None:
     async def request() -> dict:
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             return await sidecar_post(
-                OpContext(http=client),
+                ActionContext(http=client),
                 "/ocr",
                 data={"engine": "dots.mocr"},
                 connection=ConnectionConfig(
@@ -279,7 +279,7 @@ def test_sidecar_post_follows_modal_result_redirect() -> None:
 
 
 def test_sidecar_post_route_connection_missing_material_fails_loudly():
-    ctx = OpContext(http=_capture_client([], {}))
+    ctx = ActionContext(http=_capture_client([], {}))
     with pytest.raises(RuntimeError, match="route-bound"):
         asyncio.run(
             sidecar_post(
@@ -298,7 +298,7 @@ def test_sidecar_post_unrouted_unconfigured_gateway_refuses_with_remedy(monkeypa
     # target's activation remedy (which names the env knobs to set).
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
-    ctx = OpContext(http=_capture_client([], {}))
+    ctx = ActionContext(http=_capture_client([], {}))
     with pytest.raises(RuntimeError, match="FRISKET_MODELS_URL"):
         asyncio.run(
             sidecar_post(ctx, "/ocr", data={"engine": "x"}, dispatch=STANDALONE)
@@ -312,7 +312,7 @@ def test_sidecar_post_unrouted_configured_gateway_binds_ephemerally(monkeypatch)
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://env-gw:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "env-token")
     captured: list[httpx.Request] = []
-    ctx = OpContext(http=_capture_client(captured, {"ok": True}))
+    ctx = ActionContext(http=_capture_client(captured, {"ok": True}))
     body = asyncio.run(
         sidecar_post(ctx, "/ocr", data={"engine": "x"}, dispatch=STANDALONE)
     )
@@ -394,7 +394,7 @@ def test_run_sidecar_uses_route_binding_end_to_end(monkeypatch):
     connection = ConnectionConfig(
         base_url="http://route-gw:9000", token="route-token", timeout_seconds=90.0
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=_capture_client(
             captured,
             {
@@ -461,7 +461,7 @@ def test_execute_binds_facts_to_route_in_scope(tmp_path, monkeypatch):
             "faster_whisper",
             wav,
             {"engine": "faster_whisper"},
-            OpContext(extras=_attempt_extras(route, _local_binding())),
+            ActionContext(extras=_attempt_extras(route, _local_binding())),
             transport="local",
         )
     )
@@ -486,7 +486,7 @@ def test_execute_without_route_keeps_factory_facts(tmp_path, monkeypatch):
             "faster_whisper",
             wav,
             {"engine": "faster_whisper"},
-            OpContext(extras={"preview": True, "cancelled": lambda: False}),
+            ActionContext(extras={"preview": True, "cancelled": lambda: False}),
             transport="local",
         )
     )
@@ -522,7 +522,7 @@ def test_execute_asserts_observation_present_under_route(tmp_path, monkeypatch):
                 "faster_whisper",
                 wav,
                 {"engine": "faster_whisper"},
-                OpContext(
+                ActionContext(
                     extras=_attempt_extras(
                         _route(
                             engine="faster_whisper",

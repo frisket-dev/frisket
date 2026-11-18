@@ -28,7 +28,7 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.transcription_sidecar import TRANSCRIPTION_CONTRACT_VERSION
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.sdk.ops.transcription import parakeet as transcribe_mod
 from frisket.engine._workers.parakeet_session import (
     ParakeetRowError,
@@ -338,7 +338,7 @@ def test_execute_raises_before_materialization_when_already_cancelled(
     launched = {"count": 0}
 
     @contextmanager
-    def tracking_materialize(media, ctx, *, op="this op"):
+    def tracking_materialize(media, ctx, *, action="this action"):
         materialized["count"] += 1
         yield media
 
@@ -353,7 +353,7 @@ def test_execute_raises_before_materialization_when_already_cancelled(
         "frisket.sdk.ops.transcription.faster_whisper.run_sandboxed", fake
     )
 
-    ctx = OpContext(extras={"cancelled": lambda: True})
+    ctx = ActionContext(extras={"cancelled": lambda: True})
 
     async def go():
         reader = transcription_read.AdmittedTranscriber(

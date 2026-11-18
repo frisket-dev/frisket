@@ -1300,7 +1300,7 @@ def test_cancelled_template_save_does_not_persist(tmp_path):
     )
     with pytest.raises(TableError, match="cancelled"):
         service.save("p", body, cancelled=lambda: True)
-    assert workspace.saved_recipes() == []
+    assert workspace.saved_actions() == []
 
 
 def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(

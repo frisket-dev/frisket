@@ -14,14 +14,14 @@ import pytest
 
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translate_common import TranslateEngineError
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.integrations.translation_engine import TranslationEngine
 
 
 def _local_context(**kwargs):
     extras = kwargs.pop("extras", {})
-    return OpContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
+    return ActionContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
 
 
 def _hold_file_lock(lock_path: str, acquired, release) -> None:
@@ -225,7 +225,7 @@ def test_translate_catalog_reports_installed_and_downloadable_pairs(monkeypatch)
     monkeypatch.setattr(opus_mt, "installed_pairs", lambda cache_root=None: [])
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
 
-    engines = action_catalog_hints._recipe_engines("map.translate", {})
+    engines = action_catalog_hints._action_engines("map.translate", {})
     opus = next(e for e in engines if e["id"] == "opus_mt")
     # A present runtime makes the engine selectable even with no
     # pair installed; the missing pair is a run-gating state, not engine

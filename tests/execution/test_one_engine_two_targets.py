@@ -175,7 +175,7 @@ def _attempt_ctx(route: RouteRow):
     from frisket.execution.provider import ConnectionConfig
     from frisket.execution.resolver import CandidateBinding, RouteRowFacts
     from frisket.execution.targets import ExecutionTarget
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
 
     facts = RouteRowFacts(
         target_id=route.target_snapshot["target_id"],
@@ -195,7 +195,7 @@ def _attempt_ctx(route: RouteRow):
             egress_class=route.egress_class,
         ),
     )
-    return OpContext(
+    return ActionContext(
         extras={
             ATTEMPT_EXTRA: AttemptCommitment(
                 attempt_id="attempt_TESTATTEMPT000000000000",

@@ -16,7 +16,7 @@ from frisket.engine.executor.census_capability import (
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.execution.purchases import PurchaseAdmission, PurchasePolicyRequired
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "census"
 
@@ -103,7 +103,7 @@ def _routed_extras(row_ids):
 
 def _capability(handler, row_ids=(1, 2, 3), *, cancelled=None):
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    ctx = OpContext(
+    ctx = ActionContext(
         http=client,
         extras={
             **_routed_extras(row_ids),
@@ -300,7 +300,7 @@ def test_caches_are_local_and_bounded_and_preserve_grouping(monkeypatch):
             calls.append(("GET", params["in"]))
             return httpx.Response(200, json=_fixture_json("acs_2024_dc_tracts.json"))
 
-    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
+    ctx = ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     points = {i: (float(i), 0.0) for i in range(1, 6)}
     geos = asyncio.run(capability._lookup_geographies(points, "tract", ctx))
@@ -332,7 +332,7 @@ def test_block_group_acs_groups_by_tract_and_cache_is_bounded(monkeypatch):
             assert "B01003_001M" in params["get"]
             return httpx.Response(200, json=[])
 
-    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
+    ctx = ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     geos = [
         CensusGeo("11", "001", "980000", "1000"),
@@ -412,7 +412,9 @@ def test_geo_lookup_does_not_retry_rate_limit(monkeypatch):
 
 def test_unrouted_lookup_refuses_before_http(monkeypatch):
     monkeypatch.setenv("CENSUS_API_KEY", "test-key")
-    capability = AdmittedCensusDemographics(OpContext(http=object())).bind_rows((1,))
+    capability = AdmittedCensusDemographics(ActionContext(http=object())).bind_rows(
+        (1,)
+    )
     with pytest.raises(RecipeInvocationHalt, match="admitted provider route"):
         _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert capability.request_count == 0
@@ -458,7 +460,7 @@ def test_acs_errors_do_not_leak_credential(error_kind):
                 503 if error_kind == "status" else 200, text=f"unexpected {secret}"
             )
 
-    ctx = OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
+    ctx = ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE})
     capability = AdmittedCensusDemographics(ctx)
     with pytest.raises(RuntimeError) as caught:
         asyncio.run(
@@ -475,7 +477,7 @@ def test_acs_errors_do_not_leak_credential(error_kind):
 
 
 def test_moe_and_unknown_denominators():
-    capability = AdmittedCensusDemographics(OpContext())
+    capability = AdmittedCensusDemographics(ActionContext())
     result = capability._format_row(
         CensusGeo("11", "001", "980000", "1034"),
         {
@@ -516,7 +518,7 @@ def test_census_geolookup_parser_accepts_real_headerless_csv():
 
 
 def test_census_suppressed_degree_counts_stay_unknown():
-    recipe = AdmittedCensusDemographics(OpContext())
+    recipe = AdmittedCensusDemographics(ActionContext())
     record = {
         var: "100"
         for var in [
@@ -568,7 +570,7 @@ def test_census_acs_non_json_key_error_is_readable():
         async def get(self, _url, params):
             return Response()
 
-    recipe = AdmittedCensusDemographics(OpContext())
+    recipe = AdmittedCensusDemographics(ActionContext())
     with pytest.raises(RuntimeError, match="Invalid Census API key"):
         asyncio.run(
             recipe._fetch_acs_group(
@@ -576,7 +578,7 @@ def test_census_acs_non_json_key_error_is_readable():
                 "tract",
                 "2024",
                 False,
-                OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
+                ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
             )
         )
 
@@ -594,7 +596,7 @@ def test_census_acs_non_json_missing_key_error_is_readable():
         async def get(self, _url, params):
             return Response()
 
-    recipe = AdmittedCensusDemographics(OpContext())
+    recipe = AdmittedCensusDemographics(ActionContext())
     with pytest.raises(RuntimeError, match="set CENSUS_API_KEY"):
         asyncio.run(
             recipe._fetch_acs_group(
@@ -602,7 +604,7 @@ def test_census_acs_non_json_missing_key_error_is_readable():
                 "tract",
                 "2024",
                 False,
-                OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
+                ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
             )
         )
 
@@ -616,14 +618,14 @@ def test_census_acs_block_group_fixture_parses():
                 200, json=_fixture_json("acs_2024_dc_block_groups_980000.json")
             )
 
-    recipe = AdmittedCensusDemographics(OpContext())
+    recipe = AdmittedCensusDemographics(ActionContext())
     records = asyncio.run(
         recipe._fetch_acs_group(
             ("11", "001", "980000"),
             "block_group",
             "2024",
             False,
-            OpContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
+            ActionContext(http=HTTP(), extras={"standalone_dispatch": STANDALONE}),
         )
     )
 

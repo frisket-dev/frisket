@@ -38,7 +38,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSLATE,
     EXECUTION_CAPABILITIES,
 )
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.actions.types import GeoPoint, Row
 from frisket.actions.translate_types import TranslationOptions
 from frisket.engine.executor.census_capability import AdmittedCensusDemographics
@@ -139,7 +139,7 @@ async def _transcribe_probe(
         "openai/whisper-1",
         "unread-before-fence.wav",
         {},
-        OpContext(
+        ActionContext(
             http=SimpleNamespace(
                 post=lambda *_args, **_kwargs: _effect_reached(effects, "remote")
             ),
@@ -171,7 +171,7 @@ async def _ocr_probe(
     source.write_bytes(b"not-read-until-after-the-fence")
     await OcrEngines()._ocr_datalab(
         [source],
-        OpContext(
+        ActionContext(
             credential_use_context=context,
             extras=_routed_extras(),
         ),
@@ -195,7 +195,7 @@ async def _to_markdown_probe(
     source = tmp_path / "credential-fence.pdf"
     source.write_bytes(b"%PDF-1.4")
     converter = bound_document_converter(
-        OpContext(
+        ActionContext(
             credential_use_context=context,
             extras=_routed_extras(),
         ),
@@ -217,7 +217,7 @@ async def _translate_probe(
         "frisket.ops.integrations.deepl.deepl_translate",
         fake_deepl,
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         project=object(),
         http=object(),
         credential_use_context=context,
@@ -246,7 +246,7 @@ async def _geocode_probe(
         _effect_reached(effects, "opencage")
 
     monkeypatch.setattr(AdmittedGeocoder, "_opencage", fake_opencage)
-    ctx = OpContext(
+    ctx = ActionContext(
         project=object(),
         http=object(),
         credential_use_context=context,
@@ -279,7 +279,7 @@ async def _census_probe(
     monkeypatch.setattr(AdmittedCensusDemographics, "_lookup_geographies", fake_lookup)
     monkeypatch.setattr(AdmittedCensusDemographics, "_fetch_acs", fake_fetch)
     census = AdmittedCensusDemographics(
-        OpContext(
+        ActionContext(
             project=object(),
             http=object(),
             credential_use_context=context,
@@ -316,7 +316,7 @@ async def _classify_probe(monkeypatch, _tmp_path, context, effects) -> None:
             ),
         ),
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=SimpleNamespace(post=post), credential_use_context=context, extras=extras
     )
     fields = ClassifyParams(
@@ -346,7 +346,7 @@ _FENCE_PROBES: dict[str, _Probe] = {
     CAPABILITY_CLASSIFY: _classify_probe,
 }
 
-# LLM calls do not receive an OpContext credential resolver: account-authorized
+# LLM calls do not receive an ActionContext credential resolver: account-authorized
 # Cloud LLM execution carries its immutable user/account/lane subject in the
 # durable CloudExecutionAttempt instead. HttpCloudExecutionTransport checks the
 # current installation session against that subject before constructing or
@@ -413,7 +413,7 @@ async def test_hosted_ner_requires_purchase_authority_before_egress(monkeypatch)
         raise AssertionError("NER must not send without hosted purchase authority")
 
     monkeypatch.setattr(_sidecar, "_sidecar_post_transport", send)
-    ctx = OpContext(credential_use_context=_owner_mismatch_context())
+    ctx = ActionContext(credential_use_context=_owner_mismatch_context())
     with pytest.raises(PurchasePolicyRequired, match="Hosted execution"):
         await _sidecar.sidecar_post(
             ctx,

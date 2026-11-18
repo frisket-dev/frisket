@@ -22,7 +22,7 @@ from frisket.engine.store.runs import (
 )
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.engine.runner.batch_normalization import normalize_batch_row
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from helpers import write_claimed_test_results
 
 
@@ -42,7 +42,7 @@ class _LegacyOmissionRecipe(Recipe):
         self,
         values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         del values, ctx
         return {
@@ -195,7 +195,7 @@ def test_missing_outputs_publish_explicit_null_or_error(make_project) -> None:
             _LegacyOmissionRecipe(),
             {"seed": "value"},
             {"action_kind": "map.extract", "with_error": True},
-            OpContext(
+            ActionContext(
                 project=project,
                 http=None,
                 extras={"preview": True, "cancelled": lambda: False},

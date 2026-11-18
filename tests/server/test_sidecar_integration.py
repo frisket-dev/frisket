@@ -40,7 +40,7 @@ import pytest
 from frisket.execution.dispatch_control import STANDALONE
 
 from frisket.ops import _sidecar
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.contracts.transcription_sidecar import (
     TRANSCRIPTION_CONTEXT_MAX_CHARS,
     TRANSCRIPTION_CONTRACT_VERSION,
@@ -90,8 +90,8 @@ def _wav(path, seconds=0.3, freq=220.0):
     return path
 
 
-def _ctx(handler) -> OpContext:
-    return OpContext(
+def _ctx(handler) -> ActionContext:
+    return ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"preview": True, "cancelled": lambda: False},
     )
@@ -147,7 +147,7 @@ def _transcribe_action(
         project.close()
 
 
-def _routed_gateway_ctx(handler) -> OpContext:
+def _routed_gateway_ctx(handler) -> ActionContext:
     """A ROUTE-BOUND gateway dispatch context (the engine-roster cutover: the gateway whisper
     is reached through a route or the ephemeral deref — the dead gateway
     spellings no longer exist, and env is never read by dispatch)."""
@@ -219,7 +219,7 @@ def _routed_gateway_ctx(handler) -> OpContext:
         cost_basis=OperatorBorneZeroCost(),
         price_card_version=None,
     )
-    return OpContext(
+    return ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={ATTEMPT_EXTRA: attempt, "preview": True, "cancelled": lambda: False},
     )
@@ -513,7 +513,7 @@ def test_transcribe_sidecar_v1_sends_canonical_options_and_preserves_result(
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
     audio = _wav(tmp_path / "a.wav")
-    ctx = OpContext(http=None, extras={"preview": True, "cancelled": lambda: False})
+    ctx = ActionContext(http=None, extras={"preview": True, "cancelled": lambda: False})
     result = asyncio.run(
         transcribe_engines.TranscriptionV1Adapter().transcribe(
             synthetic_v1_engine,
@@ -656,7 +656,9 @@ def test_transcribe_sidecar_v1_forwards_declared_context(tmp_path, monkeypatch):
             engine,
             str(audio),
             {"context": "Frisket, Sortformer"},
-            OpContext(http=None, extras={"preview": True, "cancelled": lambda: False}),
+            ActionContext(
+                http=None, extras={"preview": True, "cancelled": lambda: False}
+            ),
         )
     )
 
@@ -744,7 +746,7 @@ def test_transcribe_sidecar_v1_continuous_asgi_chain(tmp_path, monkeypatch):
                     "diarize": True,
                     "num_speakers": 2,
                 },
-                OpContext(
+                ActionContext(
                     http=client, extras={"preview": True, "cancelled": lambda: False}
                 ),
             )
@@ -807,7 +809,7 @@ def test_transcribe_sidecar_v1_rejects_malformed_or_wrong_version(
                 synthetic_v1_engine,
                 str(audio),
                 {},
-                OpContext(
+                ActionContext(
                     http=None, extras={"preview": True, "cancelled": lambda: False}
                 ),
             )
@@ -1077,7 +1079,7 @@ def test_all_three_ops_call_sidecar_post(tmp_path, monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
 
-    ctx = OpContext(http=None, extras={"preview": True, "cancelled": lambda: False})
+    ctx = ActionContext(http=None, extras={"preview": True, "cancelled": lambda: False})
     page = tmp_path / "page.png"
     page.write_bytes(b"png")
     doc = tmp_path / "doc.pdf"
@@ -1087,7 +1089,7 @@ def test_all_three_ops_call_sidecar_post(tmp_path, monkeypatch):
     binding = _gateway_binding(
         ConnectionConfig(base_url="http://models:8500", token="sekrit")
     )
-    ocr_ctx = OpContext(
+    ocr_ctx = ActionContext(
         extras=_attempt_extras(
             _route(
                 engine="dots.mocr",
@@ -1102,7 +1104,7 @@ def test_all_three_ops_call_sidecar_post(tmp_path, monkeypatch):
         )
     )
     pages = asyncio.run(ocr.OcrEngines()._ocr_sidecar("dots.mocr", [page], ocr_ctx))
-    convert_ctx = OpContext(
+    convert_ctx = ActionContext(
         extras=_attempt_extras(
             _route(),
             _gateway_binding(

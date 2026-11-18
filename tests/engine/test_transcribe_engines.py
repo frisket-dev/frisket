@@ -39,7 +39,7 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
     TranscriptionEngineCapabilities,
 )
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.actions.media import TranscribeParams
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
@@ -132,7 +132,7 @@ def test_vibevoice_sidecar_request_omits_unsupported_clean_default(
             "vibevoice-asr",
             str(audio),
             {"clean": False, "context": "names"},
-            OpContext(
+            ActionContext(
                 extras={"standalone_dispatch": STANDALONE},
             ),
         )
@@ -228,7 +228,7 @@ def test_shared_engine_boundary_dispatches_each_existing_family(
             engine,
             "/nonexistent.wav",
             {"engine": engine},
-            OpContext(
+            ActionContext(
                 extras={"standalone_dispatch": STANDALONE},
             ),
             transport=transport,
@@ -246,7 +246,7 @@ def test_unknown_engine_rejected(tmp_path):
                 "bogus",
                 str(tmp_path / "a.wav"),
                 {},
-                OpContext(
+                ActionContext(
                     extras={"standalone_dispatch": STANDALONE},
                 ),
                 transport="local",
@@ -773,7 +773,7 @@ def test_remote_engine_needs_configured_provider(tmp_path, monkeypatch):
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -814,7 +814,7 @@ def test_remote_engine_posts_audio(tmp_path, monkeypatch):
             },
         )
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -875,7 +875,7 @@ def test_mai_transcribe_2_posts_its_documented_openrouter_options(tmp_path):
             },
         )
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -936,7 +936,7 @@ def test_mai_transcribe_2_rejects_unsupported_format_before_egress(tmp_path):
     def handler(_request: httpx.Request) -> httpx.Response:
         pytest.fail("unsupported MAI audio format reached OpenRouter")
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -984,7 +984,7 @@ def test_declared_openrouter_model_does_not_inherit_mai_request_options(
         seen["body"] = request.content.decode("latin-1")
         return httpx.Response(200, json={"text": "hello", "segments": []})
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1045,7 +1045,7 @@ def test_remote_engine_routes_qualified_local_model_and_records_local_facts(
     # This bare name has a nonzero hosted price. The canonical local identity
     # must win before provider stripping, and zero needs no duration estimate.
     engine = "ollama/@studio/whisper-1"
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1090,7 +1090,7 @@ def test_qualified_local_http_failure_still_records_known_zero(tmp_path) -> None
             ),
         ),
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _request: httpx.Response(503))
         ),
@@ -1170,7 +1170,7 @@ def test_remote_engine_names_the_upload_from_the_media_row(
     with project.materialize_blob(digest) as materialized:
         assert Path(materialized).suffix == ""
 
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "preview": True, "cancelled": lambda: False},
@@ -1216,7 +1216,7 @@ def test_remote_engine_upload_suffix_follows_the_media_mime(make_project, monkey
     project = make_project("P")
     digest = project.add_blob(b"ID3fake-mp3-bytes", mime="audio/mpeg")
     cell = MediaBlobStore(project).media_cell(digest, mime="audio/mpeg")
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "preview": True, "cancelled": lambda: False},
@@ -1265,7 +1265,7 @@ def test_remote_engine_ollama_edge_auth_raises_typed_unsupported_error(
             ),
         ),
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1304,7 +1304,7 @@ def test_remote_engine_ollama_tokenless_keeps_todays_behavior(tmp_path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404)
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1335,7 +1335,7 @@ def test_remote_engine_failure_redacts_borrowed_provider_key(tmp_path) -> None:
         assert request.headers["Authorization"] == f"Bearer {secret}"
         return httpx.Response(500, text=f"provider echoed {secret}")
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1371,7 +1371,7 @@ def test_remote_engine_normalizes_all_success_path_failures(
             200, json={"segments": [{"start": "not-a-number", "end": 1, "text": "x"}]}
         )
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1401,7 +1401,7 @@ def test_remote_engine_survives_hostile_transport_stringification(tmp_path) -> N
     def handler(request: httpx.Request) -> httpx.Response:
         raise HostileConnectError("unused", request=request)
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1443,7 +1443,7 @@ def test_remote_engine_survives_hostile_postprocess_stringification(
             200, json={"segments": [{"start": 0, "end": 1, "text": "x"}]}
         )
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1474,7 +1474,7 @@ def test_remote_engine_token_priced_model_costs_from_usage(tmp_path, monkeypatch
             },
         )
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1501,7 +1501,7 @@ def test_remote_engine_unknown_model_reports_unknown_cost(tmp_path, monkeypatch)
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"text": "hello", "duration": 60.0})
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"router": router, "standalone_dispatch": STANDALONE},
     )
@@ -1618,11 +1618,11 @@ def test_path_cells_rejected_on_untrusted_deploys(monkeypatch, tmp_path):
 
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
     with pytest.raises(ValueError, match="ingested blob"):
-        with materialize_media_path("/etc/passwd", ctx=None, op="transcribe"):
+        with materialize_media_path("/etc/passwd", ctx=None, action="transcribe"):
             pass
     # trusted/local default still allows paths
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "1")
-    with materialize_media_path("/tmp/x.mp3", ctx=None, op="transcribe") as path:
+    with materialize_media_path("/tmp/x.mp3", ctx=None, action="transcribe") as path:
         assert path == Path("/tmp/x.mp3")
 
 
@@ -1780,7 +1780,7 @@ def test_remote_transcription_records_returned_usage_before_output_validation(
         use_env_keys=False,
     )
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    ctx = OpContext(
+    ctx = ActionContext(
         http=client,
         extras={
             "router": router,

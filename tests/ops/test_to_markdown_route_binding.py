@@ -29,7 +29,7 @@ from frisket.execution.attempt import (
 )
 from frisket.execution.promise_compiler import OperatorBorneZeroCost
 from frisket.execution.targets import ExecutionTarget
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from tests.document_conversion_helpers import bound_document_converter
 
 
@@ -128,7 +128,7 @@ def test_convert_sidecar_uses_route_binding_not_ambient_env(monkeypatch):
     connection_a = ConnectionConfig(
         base_url="http://gateway-a:9000", token="gateway-a-token"
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=_capture_client(
             captured, {"documents": [{"markdown": "# From A", "ocr_used": [False]}]}
         ),
@@ -148,7 +148,7 @@ def test_convert_sidecar_without_admission_refuses_before_http(monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://env-gw:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "env-token")
     captured: list[httpx.Request] = []
-    ctx = OpContext(
+    ctx = ActionContext(
         http=_capture_client(
             captured, {"documents": [{"markdown": "# From env", "ocr_used": []}]}
         )

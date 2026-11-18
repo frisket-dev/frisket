@@ -31,7 +31,7 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.ops.integrations import natural_pdf
 from frisket.ops.media_probe import probe_for_ingest
 from frisket.sdk.ops import transcribe_engines
@@ -80,8 +80,8 @@ def _project_with_blob(
 
 def _context(
     project: Project, limits: Any, *, extras: dict[str, Any] | None = None
-) -> OpContext:
-    return OpContext(
+) -> ActionContext:
+    return ActionContext(
         project=project,
         http=None,
         extras={} if extras is None else extras,
@@ -241,7 +241,7 @@ def test_transcription_limit_uses_stored_measurement_and_precedes_dispatch(
         _engine: str,
         path: str,
         _spec: dict[str, Any],
-        _ctx: OpContext,
+        _ctx: ActionContext,
         **_kwargs: Any,
     ) -> transcribe_engines.TranscriptionEngineResult:
         dispatch_calls.append(path)
@@ -309,7 +309,7 @@ def test_transcription_recovers_real_duration_for_unprobed_import_before_dispatc
         _engine: str,
         path: str,
         _spec: dict[str, Any],
-        _ctx: OpContext,
+        _ctx: ActionContext,
         **_kwargs: Any,
     ) -> transcribe_engines.TranscriptionEngineResult:
         dispatch_calls.append(path)
@@ -788,7 +788,7 @@ class _LimitCaptureRecipe(Recipe):
         return [{"name": "out", "column_type": "text"}]
 
     async def execute(
-        self, _values: dict[str, Any], _spec: dict[str, Any], ctx: OpContext
+        self, _values: dict[str, Any], _spec: dict[str, Any], ctx: ActionContext
     ) -> dict[str, str]:
         self.observed_limits.append(ctx.execution_limits)
         return {"out": "ok"}

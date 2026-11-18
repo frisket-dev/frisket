@@ -2,8 +2,8 @@
 
 GET/POST /api/actions/v1/saved-actions were removed (zero callers outside
 tests); the saved-recipes STORE they wrote to stays, since the action-registry
-publish(saved_action_id)/import(save_recipe) flows build on it directly via
-``workspace.save_recipe``/``saved_recipe_by_id``.
+publish(saved_action_id)/import(save_action) flows build on it directly via
+``workspace.save_action``/``saved_action_by_id``.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from frisket.ai.llm import ModelRouter
-from frisket.authoring.recipe_registry import REMOVED_ACTION_KEYS
+from frisket.authoring.action_registry import REMOVED_ACTION_KEYS
 from frisket.server.app import create_app
 from frisket.server import schemas
 from frisket.server.services import saved_actions
@@ -91,7 +91,7 @@ def test_v1_saved_actions_can_publish_by_saved_id_without_legacy_save_routes(
 ) -> None:
     client = _client(tmp_path)
     workspace = client.app.state.workspace
-    entry = workspace.save_recipe(
+    entry = workspace.save_action(
         "Beat classifier",
         _publishable_saved_action_spec(),
     )
@@ -150,9 +150,9 @@ def test_saved_action_boundaries_refuse_removed_wire_spellings(tmp_path) -> None
                 checks=[],
             )
         with pytest.raises(saved_actions.SavedActionSpecError, match=removed_key):
-            workspace.save_recipe("Removed spelling", spec)
+            workspace.save_action("Removed spelling", spec)
 
-    assert workspace.saved_recipes() == []
+    assert workspace.saved_actions() == []
     assert workspace.action_registry.list()["artifacts"] == []
 
 

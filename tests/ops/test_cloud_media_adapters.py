@@ -48,7 +48,7 @@ from frisket.execution.targets import (
     TargetEngineSupport,
     ToMarkdownOptionSupport,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines_cloud import ocr_cloud
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.sdk.ops.transcription.cloud import CloudTranscriptionAdapter
@@ -146,8 +146,8 @@ def _ctx(
     *,
     engine: str = ENGINE,
     ocr_geometry: bool = True,
-) -> OpContext:
-    return OpContext(
+) -> ActionContext:
+    return ActionContext(
         extras=(
             {
                 **(
@@ -306,7 +306,7 @@ def test_cloud_ocr_requires_exact_typed_binding_before_opening_files(tmp_path):
             ocr_cloud(
                 ENGINE,
                 [missing],
-                OpContext(
+                ActionContext(
                     extras={"standalone_dispatch": STANDALONE},
                 ),
                 {},
@@ -577,7 +577,7 @@ def test_cloud_document_convert_keeps_source_provenance_and_external_accounting(
             sheet_id, [{"doc": "source document"}], {"doc": column_id}
         )
         extras = {**_route_extras(engine), "preview": True, "cancelled": lambda: False}
-        ctx = OpContext(
+        ctx = ActionContext(
             project=project,
             extras=extras,
             cloud_execution=CloudMediaExecutionBinding(

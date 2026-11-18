@@ -19,7 +19,7 @@ from frisket.ops.integrations.translate_common import (
     _SUPPORTED_ISO,
 )
 from frisket.server.action_catalog_hints import (
-    _recipe_engines,
+    _action_engines,
     action_catalog_payload_with_launcher_hints,
 )
 
@@ -66,8 +66,8 @@ def test_supported_language_names_pin_the_roster() -> None:
 # catalog projection
 
 
-def test_recipe_engines_emit_translate_language() -> None:
-    engines = {e["id"]: e for e in _recipe_engines("map.translate", {})}
+def test_action_engines_emit_translate_language() -> None:
+    engines = {e["id"]: e for e in _action_engines("map.translate", {})}
     assert set(engines) == {"llm", "deepl", "google_translate", "opus_mt", "hy_mt2"}
     for engine_id, engine in engines.items():
         assert "language" in engine

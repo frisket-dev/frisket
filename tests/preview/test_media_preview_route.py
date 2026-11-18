@@ -19,7 +19,7 @@ from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.resolver import preview_resolution_in_scope
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 
 
 @pytest.mark.parametrize("engine", ["dots.mocr", "whisper-turbo", "moss"])
@@ -68,7 +68,7 @@ def test_media_preview_uses_exact_validated_connection_without_writes(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         ),
         authority=UnroutedOnlyAuthority(project),
-        op_context_extras={"preview_execution": object()},
+        action_context_extras={"preview_execution": object()},
     )
     validated = []
     original = preview._preview_validated
@@ -147,7 +147,7 @@ def test_media_preview_uses_exact_validated_connection_without_writes(
         {"preview": True, "preview_execution": {"resolution": resolved.resolution}},
     ):
         assert preview_resolution_in_scope(extras) is None
-        ctx = OpContext(project=project, extras=extras)
+        ctx = ActionContext(project=project, extras=extras)
         reader = (
             AdmittedOcrReader(
                 ctx, None, engine=engine, options=OcrOptions().normalize(engine)

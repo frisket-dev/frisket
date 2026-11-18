@@ -19,7 +19,7 @@ from frisket.operability.trace import (
     read_trace_row,
     read_trace_row_retries,
 )
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 
 
 class _Inner:
@@ -442,7 +442,7 @@ def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raise
                 CancelledRecipe(llm=False),
                 {},
                 {"action_kind": "map.cancelled_test"},
-                OpContext(
+                ActionContext(
                     project=project,
                     extras={"preview": True, "cancelled": lambda: False},
                 ),

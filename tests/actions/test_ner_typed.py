@@ -108,9 +108,9 @@ async def test_local_adapter_skips_blank_input_and_uses_real_call_arguments(
         return {"results": [[{"text": "Ada", "label": "person", "start": 0, "end": 3}]]}
 
     monkeypatch.setattr(ner_local, "sidecar_post", sidecar)
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
 
-    context = OpContext(extras={"preview": True, "cancelled": lambda: False})
+    context = ActionContext(extras={"preview": True, "cancelled": lambda: False})
     extractor = ner_local.LocalNerExtractor("gliner", context)
     assert await extractor.extract(" ", labels=["person"], threshold=0.2) == []
     result = await extractor.extract("Ada", labels=["person"], threshold=0.2)

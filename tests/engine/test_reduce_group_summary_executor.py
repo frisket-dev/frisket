@@ -1296,14 +1296,14 @@ def test_grouped_action_preserves_injected_composition_through_model_rows(
 
     contexts, runners = [], []
 
-    context_type = map_runner.OpContext
+    context_type = map_runner.ActionContext
 
     def observe_context(*args, **kwargs):
         context = context_type(*args, **kwargs)
         contexts.append(context)
         return context
 
-    monkeypatch.setattr(map_runner, "OpContext", observe_context)
+    monkeypatch.setattr(map_runner, "ActionContext", observe_context)
     router, adapter = _summary_router()
     with closing(Project.create(tmp_path / "funded-groups.frisket")) as project:
         seeded = _seed(project, tmp_path)

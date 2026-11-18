@@ -20,7 +20,7 @@ from frisket.sdk.ops.transcription import parakeet as parakeet_mod
 
 from frisket.contracts.transcription_sidecar import TRANSCRIPTION_CONTRACT_VERSION
 from frisket.engine._workers import faster_whisper_worker
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.sdk.ops.transcribe_engines import (
     segments_with_index,
 )
@@ -257,7 +257,7 @@ def test_recipe_execute_threads_words_through_faster_whisper(
             "faster_whisper",
             str(tmp_path / "a.wav"),
             {},
-            OpContext(
+            ActionContext(
                 extras={"standalone_dispatch": STANDALONE},
             ),
         )
@@ -304,7 +304,7 @@ def test_parakeet_default_vad_true_stays_segment_level_no_words(
             "parakeet-tdt",
             str(tmp_path / "a.wav"),
             {},
-            OpContext(
+            ActionContext(
                 extras={"standalone_dispatch": STANDALONE},
             ),
         )

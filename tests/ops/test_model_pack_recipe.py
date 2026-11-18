@@ -4,7 +4,7 @@ from frisket.execution.dispatch_control import STANDALONE
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.ner import NerOutput
 from frisket.ops.ner_local import LocalNerExtractor
@@ -53,7 +53,7 @@ async def test_ner_recipe_calls_model_pack_sidecar(monkeypatch):
     http = _Http()
 
     out = await LocalNerExtractor(
-        "gliner", OpContext(extras={"standalone_dispatch": STANDALONE}, http=http)
+        "gliner", ActionContext(extras={"standalone_dispatch": STANDALONE}, http=http)
     ).extract(
         "Ada Lovelace worked with Babbage.",
         labels=["person", "organization"],
@@ -103,7 +103,7 @@ async def test_gliner_raw_label_survives_double_canonicalization(monkeypatch):
 
     executed = await LocalNerExtractor(
         "gliner",
-        OpContext(extras={"standalone_dispatch": STANDALONE}, http=_ZeroShotHttp()),
+        ActionContext(extras={"standalone_dispatch": STANDALONE}, http=_ZeroShotHttp()),
     ).extract(
         "a@b.com",
         labels=["email address"],
