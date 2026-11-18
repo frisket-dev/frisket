@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import JsonValue
@@ -34,19 +35,26 @@ def local_reading_status(statuses: Iterable[str]) -> ActionResultStatus:
     return "failed" if "failed" in found else "cancelled"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LocalReading:
+    """What one import pass read on this machine, and how."""
+
+    action_kind: str
+    engine: str
+    service: str
+    settings: Mapping[str, JsonValue]
+    pages: Sequence[JsonValue]
+    status: ActionResultStatus
+    change_ids: Sequence[int] = ()
+
+
 def record_local_reading(
     project: Any,
+    reading: LocalReading,
     *,
     receipt_id: str,
     project_id: str,
-    action_kind: str,
     import_receipt_id: str,
-    engine: str,
-    service: str,
-    settings: Mapping[str, JsonValue],
-    pages: Sequence[JsonValue],
-    status: ActionResultStatus,
-    op_ids: Sequence[int] = (),
 ) -> None:
     """Record once that an import read these pages here, at no cost."""
     receipts = ReceiptStore(project)
@@ -57,11 +65,11 @@ def record_local_reading(
             receipt_id=receipt_id,
             project_id=project_id,
             action_id="act_" + receipt_id.removeprefix("receipt_")[:24],
-            action_kind=action_kind,
-            op_ids=list(op_ids),
-            status=status,
+            action_kind=reading.action_kind,
+            op_ids=list(reading.change_ids),
+            status=reading.status,
             params_hash=hashlib.sha256(
-                json.dumps(dict(settings), sort_keys=True).encode()
+                json.dumps(dict(reading.settings), sort_keys=True).encode()
             ).hexdigest(),
             inputs=[
                 ReceiptIO(
@@ -71,22 +79,23 @@ def record_local_reading(
             ],
             provider_use=[
                 {
-                    "service": service,
+                    "service": reading.service,
                     "provider": "local",
-                    "engine": engine,
+                    "engine": reading.engine,
                     "credential_source": "local",
                     "external_api": False,
                     "cost_actual": 0.0,
-                    "model_call_count": len(pages),
+                    "model_call_count": len(reading.pages),
                     "request_count": 0,
                 }
             ],
-            value={"settings": dict(settings), "pages": list(pages)},
+            value={"settings": dict(reading.settings), "pages": list(reading.pages)},
         )
     )
 
 
 __all__ = [
+    "LocalReading",
     "local_reading_receipt_id",
     "local_reading_status",
     "record_local_reading",

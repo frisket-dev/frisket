@@ -22,6 +22,8 @@ from frisket.redaction import safe_error
 
 from frisket.actions.media import OcrParams
 from frisket.ops.base import ActionProgramInvocationHalt
+from frisket.engine.runner.confirmation_context import ConsentEstimate
+from frisket.server.services.action_preview_runs import _scratch_claims
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -1389,13 +1391,6 @@ class PdfSplitPreparationAdapter:
 
                 admission = nullcontext(None)
                 receipt_id = None
-                from frisket.engine.runner.confirmation_context import (
-                    ConsentEstimate,
-                )
-                from frisket.server.services.action_preview_runs import (
-                    _scratch_claims,
-                )
-
                 resolved, estimate, _uncovered = _scratch_claims(
                     self.workspace.get(self.project_id), plan
                 )

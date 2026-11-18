@@ -22,6 +22,7 @@ from frisket.engine.store.import_intake import (
     write_import_header,
 )
 from frisket.engine.store.local_readings import (
+    LocalReading,
     local_reading_receipt_id,
     local_reading_status,
     record_local_reading,
@@ -422,15 +423,17 @@ class PdfSplitPreparationJobs:
             )
             record_local_reading(
                 project,
+                LocalReading(
+                    action_kind="media.ocr",
+                    engine=str(settings.get("engine")),
+                    service="ocr",
+                    settings=settings,
+                    pages=pages,
+                    status=local_reading_status(str(row["status"]) for row in rows),
+                ),
                 receipt_id=receipt_id,
                 project_id=str(header.project_id),
-                action_kind="media.ocr",
                 import_receipt_id=str(header.envelope["receipt_id"]),
-                engine=str(settings.get("engine")),
-                service="ocr",
-                settings=settings,
-                pages=pages,
-                status=local_reading_status(str(row["status"]) for row in rows),
             )
             with PdfSplitPreparationStore(directory / "inventory.db") as store:
                 with store.db:

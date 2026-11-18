@@ -41,6 +41,7 @@ from frisket.engine.store.import_sessions import (
     ImportSessionStore,
 )
 from frisket.engine.store.local_readings import (
+    LocalReading,
     local_reading_receipt_id,
     record_local_reading,
 )
@@ -185,29 +186,29 @@ def _record_text_layer_reading(
                 == "native"
             }
             if read:
+                pages: list[JsonValue] = [page for page in sorted(read)]
+                covered: list[JsonValue] = [row for row in rows]
                 documents.append(
-                    {
-                        "file": str(source["filename"]),
-                        "pages": sorted(read),
-                        "rows": rows,
-                    }
+                    {"file": str(source["filename"]), "pages": pages, "rows": covered}
                 )
         if not documents:
             return
         record_local_reading(
             project,
+            LocalReading(
+                action_kind="media.read_pdf_text",
+                engine="native",
+                service="frisket.media.read_pdf_text",
+                settings={"method": "pdf_text_layer", "reader": "pdfium"},
+                pages=documents,
+                status="completed",
+                change_ids=[int(session.op_id)],
+            ),
             receipt_id=local_reading_receipt_id(
                 "media.read_pdf_text", session.receipt_id
             ),
             project_id=project_id,
-            action_kind="media.read_pdf_text",
             import_receipt_id=session.receipt_id,
-            engine="native",
-            service="frisket.media.read_pdf_text",
-            settings={"method": "pdf_text_layer", "reader": "pdfium"},
-            pages=documents,
-            status="completed",
-            op_ids=[int(session.op_id)],
         )
     except Exception as exc:
         if project.db.in_transaction:
