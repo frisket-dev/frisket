@@ -505,6 +505,14 @@ class PdfSplitPreparationJobs:
         session = ImportSessionStore(project).get(import_ref)
         if self._superseded(project, session, str(generation)):
             raise ValueError("This import's rows are no longer available")
+        sheet = project.db.execute(
+            "SELECT hidden FROM sheets WHERE id=?", (session.sheet_id,)
+        ).fetchone()
+        if sheet is None or sheet[0]:
+            # Deleting a sheet can be undone; its pages are read again then.
+            raise ValueError(
+                "This import's sheet was deleted; restore it to read its pages again"
+            )
         with PdfSplitPreparationStore(directory / "inventory.db") as store:
             unread = self._unread_work(store, str(generation))
         if not unread:

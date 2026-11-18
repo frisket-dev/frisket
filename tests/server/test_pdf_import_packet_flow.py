@@ -1681,3 +1681,30 @@ def test_a_local_reading_receipt_that_cannot_be_named_waits_for_a_later_pass(
 )
 def test_a_reading_pass_nobody_finished_is_cancelled_not_failed(statuses, status):
     assert local_reading_status(statuses) == status
+
+
+def test_a_retry_waits_while_its_sheet_is_deleted(flow):
+    client, pid, provider = flow
+    provider.failures = 1
+    ref, sheet_id, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    sessions = f"/api/projects/{pid}/import/files/sessions/{ref}"
+    shown = client.post(f"{sessions}/preparation/retry/estimate").json()
+    deleted = client.delete(f"/api/projects/{pid}/sheets/{sheet_id}")
+    assert deleted.status_code == 200, deleted.text
+    refused = client.post(
+        f"{sessions}/preparation/retry",
+        json={
+            "plan_token": shown["plan_token"],
+            "confirmation": shown["estimate"]["promise_set_hash"],
+        },
+    )
+    assert refused.status_code == 409, refused.text
+    assert "sheet was deleted" in refused.json()["detail"]
+    assert client.post(f"{sessions}/preparation/retry/estimate").status_code == 409
+    assert provider.calls == 1
+    client.app.state.workspace.get(pid).undo()
+    _estimate_body, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    assert _settle(client, pid, ref, read=1)["failed_pages"] == 0
+    assert provider.calls == 2
