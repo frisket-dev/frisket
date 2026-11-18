@@ -40,7 +40,8 @@ def normalize_allowance_usd(value: object) -> str:
         raise InvalidLocalRuntimeConfigError(
             "cost_preapproval_usd must be non-negative"
         )
-    if amount.as_tuple().exponent < -6 or amount >= _MAX_ALLOWANCE_USD:
+    exponent = amount.as_tuple().exponent
+    if not isinstance(exponent, int) or exponent < -6 or amount >= _MAX_ALLOWANCE_USD:
         raise InvalidLocalRuntimeConfigError(
             "cost_preapproval_usd must fit in 12 whole and 6 decimal digits"
         )

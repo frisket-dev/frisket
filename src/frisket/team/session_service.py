@@ -169,8 +169,11 @@ class IdentitySessionService:
                 raise ValueError("allowance must be a decimal") from exc
             if not threshold.is_finite() or threshold < 0:
                 raise ValueError("allowance must be non-negative")
-            if threshold.as_tuple().exponent < -6 or threshold >= Decimal(
-                "1000000000000"
+            exponent = threshold.as_tuple().exponent
+            if (
+                not isinstance(exponent, int)
+                or exponent < -6
+                or threshold >= Decimal("1000000000000")
             ):
                 raise ValueError("allowance must fit in 12 whole and 6 decimal digits")
         with self._uow_factory() as uow:
