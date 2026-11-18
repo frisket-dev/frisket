@@ -36,7 +36,7 @@ beforeAll(() => {
   installPopoverPolyfill();
 });
 
-// RowField mounts CellEvidenceBlock, which fetches evidence on mount. Isolate
+// RowField mounts CellCitationsBlock, which fetches evidence on mount. Isolate
 // the render from the network — the fetch failure lands in its own catch and is
 // irrelevant to the action-rail assertions here.
 beforeEach(() => {

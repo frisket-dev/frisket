@@ -36,7 +36,7 @@ from pathlib import Path
 
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -228,7 +228,7 @@ try:
             snippet="amount=$1,250,000",
         ),
     ]
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=current_ref,
@@ -252,7 +252,7 @@ try:
             for index, span in enumerate(spans)
         ],
     )
-    source_link = record_evidence_link(
+    source_link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=source_ref,

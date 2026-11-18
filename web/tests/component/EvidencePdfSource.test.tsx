@@ -22,7 +22,7 @@ vi.mock('../../src/media/PdfViewer', () => ({
 }));
 
 import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
-import type { EvidenceArtifact } from '../../src/api/types';
+import type { CitationArtifact } from '../../src/api/types';
 import { artifactRef, blobRef, evidenceArtifact } from '../support/evidenceFixtures';
 
 afterEach(() => {
@@ -64,7 +64,7 @@ describe('evidence PDF renderer', () => {
       render_url: `/api/projects/p/blobs/pdf/pages/${index + 1}/image`,
       text: null,
       regions: [],
-    })) as EvidenceArtifact['pages'];
+    })) as CitationArtifact['pages'];
     const artifact = evidenceArtifact({ media_type: 'application/pdf', pages });
 
     render(<ArtifactSource artifact={artifact} />);
@@ -101,7 +101,7 @@ describe('evidence PDF renderer', () => {
     const observations = installIntersectionObserver();
     const artifact = evidenceArtifact({
       media_type: 'application/pdf',
-      pages: [{ page: 1, image: null, render_url: '/page/1', text: null, regions: [] }] as EvidenceArtifact['pages'],
+      pages: [{ page: 1, image: null, render_url: '/page/1', text: null, regions: [] }] as CitationArtifact['pages'],
     });
     render(<ArtifactSource artifact={artifact} />);
     act(() => observations[0].callback([{
@@ -143,7 +143,7 @@ describe('evidence PDF renderer', () => {
         id: 22,
         stable_id: 'span-page-2',
         selector: { page_start: 2, page_end: 2 },
-      }] as EvidenceArtifact['spans'],
+      }] as CitationArtifact['spans'],
       pages: [{
         page: 2,
         image: { blob_hash: 'raster', url: '/page-2.png', width: 10, height: 10 },
@@ -155,7 +155,7 @@ describe('evidence PDF renderer', () => {
           snippet: 'Selected text',
           raw: {},
         }],
-      }] as EvidenceArtifact['pages'],
+      }] as CitationArtifact['pages'],
     });
 
     render(<ArtifactSource artifact={artifact} scopeSpanId="span-page-2" />);

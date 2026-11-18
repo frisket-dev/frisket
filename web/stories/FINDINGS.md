@@ -80,12 +80,12 @@ subsequent implementation and tests. This map does not propose a universal frame
    setup completion, refresh errors and preservation of edited variants.
 
 3. **Evidence resource scope, then duplicated cache machinery.**
-   `workbench/columnEvidenceResource.ts:45` and
-   `workbench/evidenceLinkViewerResource.ts:32` duplicate bounded-cache,
+   `workbench/columnCitationsResource.ts:45` and
+   `workbench/citationViewerResource.ts:32` duplicate bounded-cache,
    subscription and publication logic. Both caches are module-global and omit
    API/project scope; the column key uses project-local numeric sheet/column/row
    IDs, while the HTTP endpoint explicitly includes project ID
-   (`api/projectEvidence.ts:128`). A component remount does not clear this cache.
+   (`api/projectCitations.ts:128`). A component remount does not clear this cache.
    First test two projects with identical numeric IDs and fix isolation; then
    share only the small evidence-resource mechanism if it reduces both owners.
    Keep endpoint payloads, empty states and retention bounds distinct. Do not

@@ -16,7 +16,7 @@ from frisket.actions.types import ActionRequest
 from frisket.ai.llm import ModelRouter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 
 workspace, pid = sys.argv[1:]
 record = json.loads(Path('web/tests/fixtures/text-citation-live.json').read_text())
@@ -48,10 +48,10 @@ try:
     assert result.status == 'completed', result.errors
     assert len(calls) == 2, 'Expected recorded response followed by schema repair'
     output = next(c for c in project.columns(sheet) if c['name'] == 'plaintiff')
-    links = list_cell_evidence(project, sheet_id=sheet, row_id=row, column_id=output['id'])['links']
+    links = list_cell_citations(project, sheet_id=sheet, row_id=row, column_id=output['id'])['links']
     sources = []
     for link in links:
-        payload = resolve_evidence_viewer(project, link['stable_id'])
+        payload = resolve_citation_viewer(project, link['stable_id'])
         assert not payload['link']['text_layer_hash_mismatch']
         sources.extend(a['text_context']['text'] for a in payload['artifacts'] if a.get('text_context'))
     assert set(sources) == set(record['inputs'].values())

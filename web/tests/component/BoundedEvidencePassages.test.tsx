@@ -3,9 +3,9 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
-import { TextArtifactSource } from '../../src/components/evidence/EvidenceTextSource';
+import { TextArtifactSource } from '../../src/components/evidence/CitationTextSource';
 import { createProjectApi } from '../../src/api/real';
-import type { EvidenceArtifact, EvidenceViewerPayload } from '../../src/api/types';
+import type { CitationArtifact, CitationViewerPayload } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan, artifactRef, blobRef } from '../support/evidenceFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -21,12 +21,12 @@ function context(start = 0, spanId = 'span:first', text = '😀 quoted head', re
       previous_start: start ? Math.max(0, start - 16384) : null, next_start: end < 100000 ? end : null,
       reached_start: start === 0, reached_end: end >= 100000 } };
 }
-function source(overrides: Partial<EvidenceArtifact> = {}) {
+function source(overrides: Partial<CitationArtifact> = {}) {
   return evidenceArtifact({ id: 22, stable_id: 'artifact:22', media_type: 'text/plain',
     spans: [evidenceSpan({ stable_id: 'span:first', quote: 'First citation' }), evidenceSpan({ stable_id: 'span:tail', quote: 'Tail citation' })],
     text_context: context(), ...overrides });
 }
-function response(artifact: EvidenceArtifact) { return { artifacts: [artifact] } as EvidenceViewerPayload; }
+function response(artifact: CitationArtifact) { return { artifacts: [artifact] } as CitationViewerPayload; }
 beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
 afterEach(() => { cleanup(); read.mockReset(); });
 
@@ -107,7 +107,7 @@ describe('bounded saved evidence passages', () => {
   });
 
   it('aborts a superseded citation jump and rejects its late response', async () => {
-    let finish!: (payload: EvidenceViewerPayload) => void;
+    let finish!: (payload: CitationViewerPayload) => void;
     read.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
     const mounted = render(<TextArtifactSource artifact={source()} scopeSpanId="span:tail" />);
     const signal = read.mock.calls[0][1]?.signal;

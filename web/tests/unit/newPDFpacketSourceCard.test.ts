@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { EvidenceArtifact } from '../../src/api/open';
+import type { CitationArtifact } from '../../src/api/open';
 import { pdfPacketSourceCardData } from '../../src/components/evidence/pdfPacketSourceCardModel';
 
 const artifact = {
@@ -12,7 +12,7 @@ const artifact = {
   },
   source_cell: { sheet_id: 17, row_id: 2, column_id: 4 },
   spans: [{ selector: { kind: 'page_range', page_start: 17, page_end: 21 } }],
-} as EvidenceArtifact;
+} as CitationArtifact;
 
 describe('PDF packet source card projection', () => {
   it('builds the deep link, range strip values, and sibling destination from evidence', () => {

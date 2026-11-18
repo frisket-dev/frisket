@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { EvidenceViewerPayload } from '../../src/api/types';
+import type { CitationViewerPayload } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources, sourceLocation, sourcesForField } from '../../src/components/review/reviewCitationSources';
 
-function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): EvidenceViewerPayload {
+function payload(role: string, artifact: ReturnType<typeof evidenceArtifact>): CitationViewerPayload {
   return {
     schema_version: 'frisket.evidence_viewer.v1', warnings: [], artifacts: [artifact],
     link: {

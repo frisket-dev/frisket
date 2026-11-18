@@ -6,7 +6,7 @@ import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support
 
 const projectApi = vi.hoisted(() => ({ getEvidenceViewer: vi.fn() }));
 vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => ({ projectApi }) }));
-import { SavedTextContext } from '../../src/components/EvidenceTextContext';
+import { SavedTextContext } from '../../src/components/CitationTextContext';
 
 const context = {
   text: 'Hello Michigan.\nDetroit replied.', offset_unit: 'utf16_code_unit' as const,

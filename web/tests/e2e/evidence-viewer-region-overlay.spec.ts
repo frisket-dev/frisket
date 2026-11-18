@@ -5,12 +5,12 @@ import { expect, test, type Page } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
 import { testPython } from '../support/testPython';
 
-// EvidencePageView + RegionOverlay (EvidenceViewer.tsx:246-286) are the viewer
+// CitationPageView + RegionOverlay (CitationViewer.tsx:246-286) are the viewer
 // half of the bounding-box chain and read `artifact.pages[].image` /
 // `.regions[].bbox` exactly in the shape
 // `store/evidence.py:686-742`'s `_page_payloads` emits. This spec seeds the
 // backend shape directly (the same `record_source_artifact` ->
-// `record_source_span` -> `record_evidence_link` producer pattern
+// `record_source_span` -> `record_citation` producer pattern
 // `executor/action_families/media/ocr.py::_write_media_ocr_evidence` uses,
 // mirrored the way evidence-viewer-temporal-seek.spec.ts seeds a transcribed
 // row) rather than running a real OCR engine.
@@ -29,7 +29,7 @@ const REPO_ROOT =
 // A minimal valid 1x1 PNG (matches tests/engine/test_ocr_grounding_spans.py
 // PNG_1X1) -- real image bytes so the blob route's mime lookup + the <img>
 // element both resolve; the overlay's position math is percentage-based
-// (normalizedRegionStyle, EvidenceViewer.tsx:516-523) so it does not depend on
+// (normalizedRegionStyle, CitationViewer.tsx:516-523) so it does not depend on
 // decoded pixel dimensions.
 const PNG_1X1_B64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
@@ -55,7 +55,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -143,7 +143,7 @@ try:
         selector={"engine": "rapidocr", "score": 0.97},
         metadata={"raw": {"text": "invoice total 42"}},
     )
-    grounded_link = record_evidence_link(
+    grounded_link = record_citation(
         project, subject_kind="cell", subject_ref=text_ref,
         spans=[
             {"span_id": page1_span["id"], "rank": 0},
@@ -184,7 +184,7 @@ try:
         page_start=1, page_end=1, snippet="unrenderable scan text",
         metadata={"engine": "rapidocr"},
     )
-    fallback_link = record_evidence_link(
+    fallback_link = record_citation(
         project, subject_kind="cell", subject_ref=ftext_ref,
         spans=[{"span_id": fallback_page_span["id"], "rank": 0}],
         sheet_id=sheet_id, row_id=fallback_row_id, column_id=text_column_id,
@@ -250,13 +250,13 @@ test('grounded OCR PDF row: page images render (not the text fallback), the regi
 
   // The region's highlight overlay sits on page 2 at the seeded normalized
   // bbox -- asserted directly off the overlay's inline style percentages
-  // (EvidenceViewer.tsx normalizedRegionStyle: left/top/width/height =
+  // (CitationViewer.tsx normalizedRegionStyle: left/top/width/height =
   // x0/y0/(x1-x0)/(y1-y0) as `${n * 100}%`).
   const highlight = page2.getByTestId('evidence-region-highlight');
   await expect(highlight).toHaveCount(1);
   // Read the inline style attribute directly (not getComputedStyle, which
   // resolves percentages to pixels) -- normalizedRegionStyle sets these as
-  // literal `${n * 100}%` strings (EvidenceViewer.tsx:516-523).
+  // literal `${n * 100}%` strings (CitationViewer.tsx:516-523).
   const style = await highlight.evaluate((el) => ({
     left: el.style.left,
     top: el.style.top,

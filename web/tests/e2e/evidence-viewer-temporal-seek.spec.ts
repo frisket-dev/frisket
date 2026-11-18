@@ -43,7 +43,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -147,7 +147,7 @@ try:
         },
     )
     spans = [span0, span1, span2]
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=transcript_ref,
@@ -279,7 +279,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -364,7 +364,7 @@ try:
         selector={"segment_index": 5},
     )
     spans = [span0, span1]
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=transcript_ref,

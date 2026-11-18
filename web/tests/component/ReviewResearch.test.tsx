@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import type { ReactNode } from 'react';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ReviewBundle, ReviewBundleField, RunTraceRowEvidence } from '../../src/api/types';
+import type { ReviewBundle, ReviewBundleField, RunTraceRowRecord } from '../../src/api/types';
 import { ReviewResearch } from '../../src/components/review/ReviewResearch';
 
 const { api } = vi.hoisted(() => ({ api: { getRunTraceRow: vi.fn() } }));
@@ -42,7 +42,7 @@ it('shows renamed historical companion sources before trace loading and after fa
 });
 
 it('ignores a late response after switching the keyed row owner', async () => {
-  let finishFirst!: (value: RunTraceRowEvidence) => void;
+  let finishFirst!: (value: RunTraceRowRecord) => void;
   getRunTraceRow.mockImplementationOnce(() => new Promise(resolve => { finishFirst = resolve; }))
     .mockRejectedValueOnce(new Error('second failed'));
   const view = render(<ReviewResearch key="first" bundle={bundle} field={answer} />);

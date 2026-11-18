@@ -5,7 +5,7 @@
 //
 // Pins the four things that are easy to get silently wrong:
 //   * marks are drawn at the SERVER's offsets over the SERVER's string — never
-//     re-located by searching for the quote, which is what EvidenceViewer does
+//     re-located by searching for the quote, which is what CitationViewer does
 //     and which puts the mark on the wrong occurrence of a repeated name;
 //   * a nested pair stays two marks with the inner one owning the click;
 //   * an UNPOSITIONED layer keeps its count and draws NOTHING — a stale layer

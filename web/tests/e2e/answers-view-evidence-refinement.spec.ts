@@ -5,7 +5,7 @@
 // ROOT CAUSE (proven by this seed): a citation link can bind temporal spans
 // across MANY source artifacts (the transcribe grounding binds one span per
 // segment; a cross-row / shared-artifact citation reaches several videos). The
-// docked EvidenceViewer rendered EVERY such artifact's segment list — every
+// docked CitationViewer rendered EVERY such artifact's segment list — every
 // video's transcript concatenated in one pane. The refinement (a) scopes the
 // docked viewer to the SELECTED row's own source artifact via scopeRowId, and
 // (b) composes the pane into three parts — the extraction value(s), the
@@ -55,7 +55,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -118,7 +118,7 @@ try:
     # bug). Rank 0 = that row's own cited segment, so the link snippet (first by
     # rank) is the citation quote; the other row's spans are the foreign noise
     # scopeRowId must drop.
-    link_a = record_evidence_link(
+    link_a = record_citation(
         project, subject_kind="cell_value", subject_ref=refs[row_a],
         sheet_id=sheet_id, row_id=row_a, column_id=finding_col,
         run_id=run_id, op_id=op_id, receipt_id="receipt-a",
@@ -131,7 +131,7 @@ try:
             {"span_id": spans_b[1]["id"], "rank": 3, "span_role": "support", "required": False},
         ],
     )
-    link_b = record_evidence_link(
+    link_b = record_citation(
         project, subject_kind="cell_value", subject_ref=refs[row_b],
         sheet_id=sheet_id, row_id=row_b, column_id=finding_col,
         run_id=run_id, op_id=op_id, receipt_id="receipt-b",
