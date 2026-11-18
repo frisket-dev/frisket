@@ -1,5 +1,8 @@
 from __future__ import annotations
+from dataclasses import replace
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.ops.base import RecipeInvocationHalt
 
 from frisket.server.services.pdf_split_preparation import (
     PdfSplitPageTarget,
@@ -174,7 +177,6 @@ def _wait_preview(preview, jobs):
 def test_actual_scratch_receipt_reads_original_page_once_and_retains_reference(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
     import pytest
     from frisket.engine.store.prepared_content import PreparedContentStore
 
@@ -231,7 +233,6 @@ def test_actual_scratch_receipt_reads_original_page_once_and_retains_reference(
 def test_upload_sample_uses_existing_draft_cache_without_project_artifact(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
 
     adapter, preview, project, provider, read, _op, source = _runtime(
         tmp_path, monkeypatch
@@ -270,7 +271,6 @@ def test_upload_sample_uses_existing_draft_cache_without_project_artifact(
 def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
     import pytest
     from frisket.engine.runner.validation import TrustedConsentRefused
     from frisket.server.services.pdf_import_ocr_consent import (
@@ -577,7 +577,6 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
 def test_successfully_read_empty_upload_page_is_never_retried_as_missing(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
 
     adapter, preview, project, provider, read, _op, source = _runtime(
         tmp_path, monkeypatch
@@ -841,7 +840,6 @@ def test_independent_preview_inventories_share_one_original_page_flight(
 def test_background_source_page_carries_the_approved_nondefault_actor(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
     from decimal import Decimal
     from frisket.execution.consent_coverage import ConsentCoverage
 
@@ -891,7 +889,6 @@ def test_background_source_page_carries_the_approved_nondefault_actor(
 def test_approved_page_estimate_ignores_only_confirmation_display(
     tmp_path, monkeypatch
 ):
-    from dataclasses import replace
     from frisket.engine.runner.validation import (
         TrustedConsentContext,
         TrustedConsentGrant,
@@ -981,6 +978,86 @@ def test_split_undo_stops_provider_retry_without_explicit_stop(tmp_path, monkeyp
             work = store.db.execute("SELECT status FROM pdf_split_page_work").fetchone()
             assert work[0] == "cancelled"
             assert store.cached_ref(read) is None
+    finally:
+        preview._registry.shutdown()
+        project.close()
+
+
+def _halt_first_attempt(adapter, code):
+    prepare = adapter._prepare
+    attempts = []
+
+    def halting(work, **kwargs):
+        lease, prepared = prepare(work, **kwargs)
+        plan = prepared[0]
+        run = plan.run
+
+        async def halt_once(context):
+            attempts.append(work.work_key)
+            if len(attempts) == 1:
+                raise RecipeInvocationHalt(code, "the local engine is in use")
+            return await run(context)
+
+        return lease, (replace(plan, run=halt_once), *prepared[1:])
+
+    adapter._prepare = halting
+    return attempts
+
+
+def test_page_refused_by_a_busy_local_engine_runs_again_without_rebilling(
+    tmp_path, monkeypatch
+):
+    adapter, preview, project, provider, read, _op, _source = _runtime(
+        tmp_path, monkeypatch
+    )
+    try:
+        adapter.publish_child_pages = lambda bindings, ref: [True for _ in bindings]
+        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, quoted)
+        attempts = _halt_first_attempt(adapter, "local_engine_busy")
+        jobs = adapter.start_pending(generation="generation-one")
+        assert _wait_preview(preview, jobs)[0]["status"] == "error"
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            work = store.db.execute(
+                "SELECT status,error,job_id FROM pdf_split_page_work"
+            ).fetchone()
+        assert tuple(work) == ("pending", None, None)
+        assert provider.calls == 0
+        assert adapter.progress(generation="generation-one")["pending"] == 1
+
+        again = adapter.start_pending(generation="generation-one")
+        assert _wait_preview(preview, again)[0]["status"] == "done"
+        assert attempts == [read.work_key, read.work_key]
+        assert provider.calls == 1
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            assert (
+                store.db.execute("SELECT status FROM pdf_split_page_work").fetchone()[0]
+                == "completed"
+            )
+            assert store.cached_ref(read) is not None
+        assert project.db.execute("SELECT COUNT(*) FROM model_calls").fetchone()[0] == 1
+    finally:
+        preview._registry.shutdown()
+        project.close()
+
+
+def test_other_local_engine_halts_still_fail_the_page(tmp_path, monkeypatch):
+    adapter, preview, project, provider, read, _op, _source = _runtime(
+        tmp_path, monkeypatch
+    )
+    try:
+        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, quoted)
+        _halt_first_attempt(adapter, "local_session_failed")
+        jobs = adapter.start_pending(generation="generation-one")
+        assert _wait_preview(preview, jobs)[0]["status"] == "error"
+        with PdfSplitPreparationStore(adapter.inventory_path) as store:
+            status, error = store.db.execute(
+                "SELECT status,error FROM pdf_split_page_work"
+            ).fetchone()
+        assert status == "failed" and "local engine is in use" in error
+        assert adapter.start_pending(generation="generation-one") == ()
+        assert provider.calls == 0
     finally:
         preview._registry.shutdown()
         project.close()
