@@ -128,8 +128,8 @@ export function FeedSourceForm({
   // A successful
   // create does NOT close the workspace — it swaps to a "Populate feed?"
   // prompt offering the same run this source's Sources-panel row would (Poll
-  // now -> api.fetchSource). No watchRunLinkStore intent slot needed here: unlike
-  // the notification -> WatchesPanel handoff (pendingWatchRunLink), this
+  // now -> api.fetchSource). No alertCheckLinkStore intent slot needed here: unlike
+  // the notification -> AlertsPanel handoff (pendingAlertCheckLink), this
   // prompt and its onImported target live in the same always-mounted
   // component tree for the lifetime of the dialog — a direct prop (already
   // threaded through ImportWorkspaceDialog) reaches the right place

@@ -28,7 +28,7 @@ DEFAULT_SCOPE_PAGE_SIZE = 500
 
 class IndexScopeError(ValueError):
     """A stored source scope could not be resolved. Carries the typed code callers
-    map onto their own surface (refresh action error / watch binding error)."""
+    map onto their own surface (refresh action error / alert binding error)."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)

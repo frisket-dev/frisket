@@ -50,12 +50,12 @@ test('the left sidebar is retired; re-homed panels live in Discover and chrome s
   await revealRibbonAction(page, 'media.fetch_url');
 });
 
-test('the palette hides a re-homed panel (Watches) and it recovers', async ({ page }) => {
+test('the palette hides a re-homed panel (Alerts) and it recovers', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('sidebar-visibility'));
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
   await openProject(page, pid, sheetId);
 
-  // Watches now renders in the Discover panel's Watches tab.
+  // Alerts now renders in the Discover panel's Alerts tab.
   await openDiscoverTab(page, 'Watches');
   const discover = page.getByTestId('discover-panel');
   await expect(

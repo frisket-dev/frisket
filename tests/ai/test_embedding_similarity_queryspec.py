@@ -1,6 +1,6 @@
 """embedding_similarity retrieval backend (handoff Lane 4 "find similar").
 
-Backend only — no UI, watchlists, clustering, scheduled refresh, or export.
+Backend only — no UI, alerts, clustering, scheduled refresh, or export.
 Covers: row-anchor nearest-in-order; results constrained to the index sheet +
 visibility; missing/stale anchor typed failures; cross-space mismatch can't run;
 manual text query blocks remote egress unless policy allows it; and NO provider

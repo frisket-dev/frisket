@@ -21,7 +21,7 @@
 /* THE one muted empty line + inline error block (ui-region-frames-v1 / C6,
    components/PanelPrimitives.tsx PanelEmpty/PanelError). Replaces the
    literal-duplicate .history-empty/.sources-empty/.notifications-empty/
-   .watches-empty/.source-run-empty/.watch-run-empty and
+   .watches-empty/.source-run-empty/.alert-check-empty and
    .sources-error/.watches-error rules, so an empty/error state renders
    identically in every host region (dock, Discover, drawers). */
 .panel-empty { font-size: 11.5px; color: var(--text-light); padding: 4px 8px; }

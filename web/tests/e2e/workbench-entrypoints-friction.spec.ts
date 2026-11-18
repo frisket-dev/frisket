@@ -25,24 +25,24 @@ test('hidden contributions recover through the command palette', async ({ page }
   const sheetId = await importCsv(page.request, pid, 'alpha.csv', 'name\nAlpha\n');
   await openProject(page, pid, sheetId);
 
-  // Watches re-homed into the Discover panel's Watches tab
+  // Alerts re-homed into the Discover panel's Alerts tab
   // (workbench-ia-right-edge-v1); hide/reveal now surfaces there.
   await openDiscoverTab(page, 'Watches');
-  const watchesContribution = page
+  const alertsContribution = page
     .getByTestId('discover-panel')
     .getByTestId('workbench-contribution-frisket-core-panel-watches');
-  await expect(watchesContribution).toBeVisible();
+  await expect(alertsContribution).toBeVisible();
 
   const hidePalette = await openCommandPalette(page);
   await hidePalette
     .getByTestId('workbench-visibility-command-hide-frisket-core-panel-watches')
     .click();
   await page.getByLabel('Close command palette').click();
-  await expect(watchesContribution).toHaveCount(0);
+  await expect(alertsContribution).toHaveCount(0);
 
   const palette = await openCommandPalette(page);
   await palette.getByTestId('workbench-visibility-command-reveal-frisket-core-panel-watches').click();
-  await expect(watchesContribution).toBeVisible();
+  await expect(alertsContribution).toBeVisible();
 });
 
 test('the command palette Commands section filters by the typed query, joins keyboard nav, and collapses to an empty state', async ({

@@ -201,7 +201,7 @@ test('opening a lens resolves it and renders the ranked rows with distance/score
 
   const results = page.getByTestId('embedding-lens-results-1');
   await expect(results).toBeVisible();
-  // ranked rows surface their numeric distance + score (what the watch path drops)
+  // ranked rows surface their numeric distance + score (what the alert path drops)
   await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.120');
   await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.880');
   await expect(page.getByTestId('embedding-lens-result-row-1')).toContainText('0.340');

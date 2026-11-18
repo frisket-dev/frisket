@@ -334,7 +334,7 @@ def notification_summary(
             visibility_params,
         )
     }
-    by_watch = [
+    by_alert = [
         {
             "source_kind": "watch",
             "source_ref": {"watch_id": int(row["watch_id"])},
@@ -359,7 +359,7 @@ def notification_summary(
         **counts,
         "by_severity": by_severity,
         "by_source_kind": by_source_kind,
-        "by_source_ref": by_watch,
+        "by_source_ref": by_alert,
     }
 
 

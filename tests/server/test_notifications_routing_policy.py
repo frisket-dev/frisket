@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch, seed_empty_watch_baseline
+from tests.alert_helpers import post_alert, seed_empty_alert_baseline
 
 from pathlib import Path
 from typing import Any
@@ -19,7 +19,7 @@ CSV = (
 )
 
 
-def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
+def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     pid = client.post("/api/projects", json={"name": "Notification routes"}).json()[
         "id"
     ]
@@ -29,7 +29,7 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     )
     assert import_response.status_code == 200, import_response.text
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -38,24 +38,24 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
-    return pid, {"watch": watch, "run": run}, events_response.json()["events"]
+    return pid, {"watch": alert, "run": run}, events_response.json()["events"]
 
 
-def _emit_watch_candidate(
+def _emit_alert_candidate(
     client: TestClient,
     pid: str,
-    watch_id: int,
+    alert_id: int,
     run_id: int,
     event_ids: list[int],
 ) -> dict[str, Any]:
@@ -63,15 +63,15 @@ def _emit_watch_candidate(
         f"/api/projects/{pid}/notifications/emit",
         json={
             "source_kind": "watch",
-            "source_ref": {"watch_id": watch_id, "run_id": run_id},
+            "source_ref": {"watch_id": alert_id, "run_id": run_id},
             "source_event_ids": event_ids,
-            "dedupe_key": f"watch:{watch_id}:run:{run_id}:events:route-policy",
+            "dedupe_key": f"watch:{alert_id}:run:{run_id}:events:route-policy",
             "title": f"Budget watch found {len(event_ids)} new rows",
             "summary": f'{len(event_ids)} rows newly matched Search "budget".',
             "severity": "warning",
             "deep_link": {
                 "kind": "watch_run",
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "run_id": run_id,
                 "event_ids": event_ids,
             },
@@ -106,13 +106,13 @@ def _create_channel(client: TestClient, pid: str, kind: str, name: str) -> dict:
 
 def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     event_ids = [event["id"] for event in events]
-    watch_id = int(refs["watch"]["id"])
+    alert_id = int(refs["watch"]["id"])
     run_id = int(refs["run"]["id"])
     project = client.app.state.workspace.get(pid)
 
-    no_route_emit = _emit_watch_candidate(client, pid, watch_id, run_id, event_ids)
+    no_route_emit = _emit_alert_candidate(client, pid, alert_id, run_id, event_ids)
     assert no_route_emit["schema_version"] == "frisket.notification_emit_result.v2"
     assert no_route_emit["planned_delivery_requests"] == []
     assert (
@@ -136,7 +136,7 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "name": "Budget Slack",
             "channel_id": slack["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
             "event_kinds": ["row_entered"],
             "severity_min": "info",
             "delivery_mode": "immediate",
@@ -149,7 +149,7 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "name": "Budget daily digest",
             "channel_id": email["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
             "delivery_mode": "digest",
             "digest_cadence": "daily",
         },
@@ -162,7 +162,7 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "channel_id": email["id"],
             "enabled": False,
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -173,13 +173,13 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "name": "Other watch",
             "channel_id": email["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id + 999},
+            "source_ref_match": {"watch_id": alert_id + 999},
             "delivery_mode": "immediate",
         },
     )
     assert nonmatching_route.status_code == 200, nonmatching_route.text
 
-    planned = _emit_watch_candidate(client, pid, watch_id, run_id, event_ids)
+    planned = _emit_alert_candidate(client, pid, alert_id, run_id, event_ids)
     assert planned["deduped"] is True
     assert planned["planned_delivery_requests"] == [
         {
@@ -214,12 +214,12 @@ def test_emit_plans_only_matching_external_immediate_routes(tmp_path: Path) -> N
             "name": "Budget email immediate",
             "channel_id": email["id"],
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
     assert second_route.status_code == 200, second_route.text
-    repeated = _emit_watch_candidate(client, pid, watch_id, run_id, event_ids)
+    repeated = _emit_alert_candidate(client, pid, alert_id, run_id, event_ids)
     assert [req["route_id"] for req in repeated["planned_delivery_requests"]] == [
         matching_route.json()["id"],
         second_route.json()["id"],

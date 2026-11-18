@@ -32,10 +32,10 @@ from .embeddings import (
     register_embedding_refresh_handler,
 )
 from .enclosures import register_enclosure_download_handler
-from .watches import (
-    WATCH_EVALUATE_KIND,
-    enqueue_index_watch_evaluations,
-    register_watch_evaluate_handler,
+from .alerts import (
+    ALERT_EVALUATE_KIND,
+    enqueue_index_alert_evaluations,
+    register_alert_evaluate_handler,
 )
 from .ports import (
     AdmissionPort,
@@ -143,9 +143,9 @@ __all__ = [
     "refresh_dedupe_key",
     "register_embedding_refresh_handler",
     "register_enclosure_download_handler",
-    "register_watch_evaluate_handler",
-    "enqueue_index_watch_evaluations",
-    "WATCH_EVALUATE_KIND",
+    "register_alert_evaluate_handler",
+    "enqueue_index_alert_evaluations",
+    "ALERT_EVALUATE_KIND",
     "register_action_run_handler",
     "register_project_run_handler",
     "register_source_poll_handler",

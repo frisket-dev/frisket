@@ -8,10 +8,10 @@ import { useProjectDataResource } from '../bind/useRouteHandle';
 import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
-import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
+import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { applySavedViewTransition, clearViewSelectionTransition } from '../state/workspaceTransitions';
-import { SAVED_VIEWS_CONTRIBUTION_ID, WATCHES_CONTRIBUTION_ID } from './contributionIds';
+import { SAVED_VIEWS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
@@ -40,7 +40,7 @@ export function useWorkspaceSavedViewsController({
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
-  const watchRunLink = useWatchRunLinkHandle();
+  const alertCheckLink = useAlertCheckLinkHandle();
   const columnGroupSpecs = useSelector(gridView.store, (state) => state.columnGroupSpecs);
   const { openDiscover } = chromeState;
   const { isContributionHidden, revealContribution } = visibility;
@@ -228,19 +228,19 @@ export function useWorkspaceSavedViewsController({
       });
   }, [canCreateSavedView, projectApi, savedViews]);
 
-  const addWatchForCurrentView = useCallback(async () => {
+  const addAlertForCurrentView = useCallback(async () => {
     if (!sheet || !canEditProject(project)) return;
     try {
       // Alerts follow a saved definition, never a copied transient filter.
       const view = activeView ?? await projectApi.saveView({ name: `View: ${sheet.name}`, ...currentViewDefinition() });
       await ensureViewsLoaded();
-      const existing = (await projectApi.listWatches()).some((watch) => watch.viewId === view.id);
-      if (existing) watchRunLink.clearPendingCreateDraft();
-      else watchRunLink.setPendingCreateDraft({ view_id: view.id, sheet_id: view.sheet_id, name: view.name });
-      if (isContributionHidden(WATCHES_CONTRIBUTION_ID)) revealContribution(WATCHES_CONTRIBUTION_ID);
+      const existing = (await projectApi.listAlerts()).some((alert) => alert.viewId === view.id);
+      if (existing) alertCheckLink.clearPendingCreateDraft();
+      else alertCheckLink.setPendingCreateDraft({ view_id: view.id, sheet_id: view.sheet_id, name: view.name });
+      if (isContributionHidden(ALERTS_CONTRIBUTION_ID)) revealContribution(ALERTS_CONTRIBUTION_ID);
       openDiscover('Watches');
     } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
-  }, [activeView, currentViewDefinition, ensureViewsLoaded, isContributionHidden, openDiscover, project, projectApi, revealContribution, sheet, showError, watchRunLink]);
+  }, [activeView, currentViewDefinition, ensureViewsLoaded, isContributionHidden, openDiscover, project, projectApi, revealContribution, sheet, showError, alertCheckLink]);
 
   const applySavedView = useCallback(
     (view: SavedView) => {
@@ -340,12 +340,12 @@ export function useWorkspaceSavedViewsController({
     savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
     ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
     renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView, openSavedView,
+    startSavedViewDelete, deleteView, addAlertForCurrentView, applySavedView, openSavedView,
   }), [
     views, viewName, viewModified, currentDefinition, updateViewSelection, clearViewSelection, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
     savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
     ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
     renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addWatchForCurrentView, applySavedView, openSavedView,
+    startSavedViewDelete, deleteView, addAlertForCurrentView, applySavedView, openSavedView,
   ]);
 }

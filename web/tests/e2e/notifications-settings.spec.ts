@@ -11,15 +11,15 @@ test('notification settings manages channels routes digests and delivery health'
       'Budget hearing,open,The council discussed budget oversight.\n' +
       'Budget audit,open,Auditors found budget variances.\n',
   );
-  const watchResponse = await page.request.post(`/api/projects/${pid}/watches`, {
+  const alertResponse = await page.request.post(`/api/projects/${pid}/watches`, {
     data: {
       name: 'Budget watch',
       scope: { kind: 'project' },
       query: { kind: 'fts', q: 'budget', limit: 10 },
     },
   });
-  expect(watchResponse.ok()).toBeTruthy();
-  const watch = await watchResponse.json();
+  expect(alertResponse.ok()).toBeTruthy();
+  const alert = await alertResponse.json();
 
   await page.goto(`/p/${pid}/settings/project/notifications`);
   await expect(page.getByTestId('settings-section-project-notifications')).toBeVisible();
@@ -35,11 +35,11 @@ test('notification settings manages channels routes digests and delivery health'
   await expect(settings).not.toContainText('SLACK_WEBHOOK_URL');
 
   await page.getByTestId('notification-route-name').fill('Budget Slack immediate');
-  await page.getByTestId('notification-route-watch-id').fill(String(watch.id));
+  await page.getByTestId('notification-route-alert-id').fill(String(alert.id));
   await page.getByTestId('notification-route-mode').selectOption('immediate');
   await page.getByTestId('notification-create-route').click();
   const slackRoute = page.getByTestId('notification-route-item').filter({ hasText: 'Budget Slack immediate' });
-  await expect(slackRoute).toContainText(`watch_id: ${watch.id}`);
+  await expect(slackRoute).toContainText(`watch_id: ${alert.id}`);
   await expect(slackRoute).toContainText('immediate');
 
   await page.getByTestId('notification-channel-kind').selectOption('email');
@@ -53,7 +53,7 @@ test('notification settings manages channels routes digests and delivery health'
   await page.getByTestId('notification-route-channel').selectOption({ label: 'Budget Email · alerts@example.com' });
   await page.getByTestId('notification-route-mode').selectOption('digest');
   await page.getByTestId('notification-route-name').fill('Budget daily email digest');
-  await page.getByTestId('notification-route-watch-id').fill(String(watch.id));
+  await page.getByTestId('notification-route-alert-id').fill(String(alert.id));
   await page.getByTestId('notification-route-digest-cadence').selectOption('daily');
   await page.getByTestId('notification-route-digest-anchor').fill('09:00');
   await page.getByTestId('notification-create-route').click();

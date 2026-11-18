@@ -17,7 +17,7 @@ from frisket.project_opener import project_bundle_paths
 SCANNERS = [
     ("sources", "enqueue_due_source_polls"),
     ("embeddings", "enqueue_due_scheduled_refreshes"),
-    ("watches", "enqueue_due_watch_evaluations"),
+    ("alerts", "enqueue_due_alert_evaluations"),
     ("notifications_digest", "enqueue_due_notification_digests"),
     ("notifications_delivery", "reconcile_notification_delivery_requests"),
 ]

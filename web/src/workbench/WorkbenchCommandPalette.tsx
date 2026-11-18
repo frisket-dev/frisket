@@ -194,10 +194,10 @@ export function WorkbenchCommandPalette({
     groups,
     coverage,
     searchError,
-    canWatch,
-    watchBusy,
-    watchStatus,
-    createSearchWatch,
+    canCreateAlert,
+    alertBusy,
+    alertStatus,
+    createSearchAlert,
     namedIndexes,
     namedIndexId,
     setNamedIndexId,
@@ -538,10 +538,10 @@ export function WorkbenchCommandPalette({
             namedIndexId={namedIndexId}
             onNamedIndexChange={setNamedIndexId}
             namedIndexError={namedIndexError}
-            canWatch={canWatch}
-            watchBusy={watchBusy}
-            watchStatus={watchStatus}
-            onCreateWatch={createSearchWatch}
+            canCreateAlert={canCreateAlert}
+            alertBusy={alertBusy}
+            alertStatus={alertStatus}
+            onCreateAlert={createSearchAlert}
             canSaveLens={canSaveLens}
             saveBusy={saveBusy}
             saveStatus={saveStatus}

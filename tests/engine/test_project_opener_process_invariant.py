@@ -41,7 +41,7 @@ _OPEN_SITE_MODULES = (
     "frisket.engine.jobs.enclosures",
     "frisket.engine.jobs.sources",
     "frisket.engine.jobs.embeddings",
-    "frisket.engine.jobs.watches",
+    "frisket.engine.jobs.alerts",
     "frisket.engine.jobs.notifications_delivery",
     "frisket.engine.jobs.notifications_digest",
     "frisket.engine.executor.action_jobs",

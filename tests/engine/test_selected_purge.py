@@ -609,7 +609,7 @@ def test_interrupted_content_cleanup_resumes(project, monkeypatch):
     )
 
 
-def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
+def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
     from frisket.engine.store.runs import RunResultStore
 
     first = add(project, "first", "secret")
@@ -628,12 +628,12 @@ def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
         view = project.db.execute(
             "INSERT INTO views(name,spec) VALUES ('w','{}')"
         ).lastrowid
-        watch = project.db.execute(
+        alert = project.db.execute(
             "INSERT INTO watches(name,view_id) VALUES ('w',?)", (view,)
         ).lastrowid
         wr = project.db.execute(
             "INSERT INTO watch_runs(watch_id,op_cursor_before,op_cursor_after) VALUES (?,0,0)",
-            (watch,),
+            (alert,),
         ).lastrowid
         project.db.execute(
             "INSERT INTO watch_run_hits(run_id,sheet_id,row_id,rank,snippet) VALUES (?,?,?,1,?)",
@@ -645,25 +645,25 @@ def test_purge_cleans_copied_watch_text_and_only_related_trace(project):
         )
         project.db.execute(
             "UPDATE watches SET baseline_run_id=?,last_run_id=? WHERE id=?",
-            (wr, wr, watch),
+            (wr, wr, alert),
         )
         project.db.executemany(
             "INSERT INTO watch_seen_rows(watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) VALUES (?,?,?,?,?)",
             [
-                (watch, first[0], first[2], wr, wr),
-                (watch, second[0], second[2], wr, wr),
+                (alert, first[0], first[2], wr, wr),
+                (alert, second[0], second[2], wr, wr),
             ],
         )
         project.db.executemany(
             "INSERT INTO watch_row_field_state(watch_id,sheet_id,row_id,column_id,value_hash,value_json,last_observed_run_id) VALUES (?,?,?,?,?,?,?)",
             [
-                (watch, first[0], first[2], first[1], "secret", '"secret"', wr),
-                (watch, second[0], second[2], second[1], "public", '"public"', wr),
+                (alert, first[0], first[2], first[1], "secret", '"secret"', wr),
+                (alert, second[0], second[2], second[1], "public", '"public"', wr),
             ],
         )
         project.db.execute(
             "INSERT INTO notification_items(source_kind,source_ref,dedupe_key,title,summary) VALUES ('watch',json_object('watch_id',?,'run_id',?),'private','private','secret')",
-            (watch, wr),
+            (alert, wr),
         )
         project.db.execute(
             "INSERT INTO notification_items(source_kind,source_ref,dedupe_key,title,summary) VALUES ('other','{}','public','public','unrelated')"

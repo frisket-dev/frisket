@@ -129,14 +129,14 @@ class TestBackgroundIndexPriority:
         queue = request.getfixturevalue(queue_fixture)
         first_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         action = queue.enqueue(ACTION_RUN_KIND, {})
-        watch = queue.enqueue("watch.evaluate", {})
+        alert = queue.enqueue("watch.evaluate", {})
         second_index = queue.enqueue(SEARCH_INDEX_KIND, {})
         project_run = queue.enqueue(PROJECT_RUN_KIND, {})
         other = queue.enqueue("echo", {})
 
         claimed = [queue.claim("worker").id for _ in range(6)]
 
-        assert claimed == [action, project_run, other, first_index, watch, second_index]
+        assert claimed == [action, project_run, other, first_index, alert, second_index]
 
     def test_delayed_foreground_does_not_block_available_index(self, clocked_queue):
         queue, clock = clocked_queue

@@ -286,7 +286,7 @@ def _validate_hosted_attribution(
       ``project_id`` sensitive — the org whose directory the bundle lives in —
       so it is what per-tenant surfaces filter on, and it is REQUIRED here.
     * ``org_id`` is who pays and whose BYOK keys resolve. Background work
-      minted by the engine (source polls, watch evaluations, digests,
+      minted by the engine (source polls, alert evaluations, digests,
       deliveries) legitimately has no funding account in scope, so it is
       OPTIONAL — but a value that IS claimed must be a well-formed identity.
 
@@ -925,7 +925,7 @@ class JobQueue:
         select_next = (
             sa.select(c.id)
             .where(*claim_filters)
-            # Watch continuations depend on index progress, so keep their FIFO
+            # Alert continuations depend on index progress, so keep their FIFO
             # together. Sustained foreground work may postpone this class.
             .order_by(
                 c.priority_class,

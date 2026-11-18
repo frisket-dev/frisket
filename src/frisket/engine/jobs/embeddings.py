@@ -15,7 +15,7 @@ generic JobQueue/Worker (NOT the MapRunner/output-column queue):
   source) complete with a typed ``blocked`` result so they are replayable without
   burning retries.
 
-Not in scope: QuerySpec similarity, UI, watchlists, clustering, or a generic
+Not in scope: QuerySpec similarity, UI, alerts, clustering, or a generic
 automation_jobs framework. This is one narrow, embedding-owned pilot.
 """
 
@@ -414,7 +414,7 @@ def register_embedding_refresh_handler(
             registry, workspace_root=root, router=router, queue=queue
         )
 
-    def _enqueue_dependent_watches(
+    def _enqueue_dependent_alerts(
         project: Project,
         *,
         project_id: str,
@@ -425,9 +425,9 @@ def register_embedding_refresh_handler(
     ) -> int:
         if queue is None:
             return 0
-        from frisket.engine.jobs.watches import enqueue_index_watch_evaluations
+        from frisket.engine.jobs.alerts import enqueue_index_alert_evaluations
 
-        watch_jobs = enqueue_index_watch_evaluations(
+        alert_jobs = enqueue_index_alert_evaluations(
             queue,
             project=project,
             project_id=project_id,
@@ -436,7 +436,7 @@ def register_embedding_refresh_handler(
             index_id=index_id,
             trigger_ref=trigger_ref,
         )
-        return len(watch_jobs)
+        return len(alert_jobs)
 
     def _action_job_executor(
         project: Project, env: ActionJobEnvelope, *, execution
@@ -456,7 +456,7 @@ def register_embedding_refresh_handler(
             output_ref = result.outputs[0].ref if result.outputs else {}
             index_id = str(output_ref.get("index_id") or "")
             if index_id:
-                _enqueue_dependent_watches(
+                _enqueue_dependent_alerts(
                     project,
                     project_id=env.project_id,
                     project_root=root,

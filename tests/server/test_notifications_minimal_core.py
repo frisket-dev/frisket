@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 import json
 import sqlite3
@@ -22,7 +22,7 @@ CSV = (
 )
 
 
-def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
+def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     pid = client.post("/api/projects", json={"name": "Notifications"}).json()["id"]
     import_response = client.post(
         f"/api/projects/{pid}/import/csv",
@@ -30,7 +30,7 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     )
     assert import_response.status_code == 200, import_response.text
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -39,26 +39,26 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
-    from watch_helpers import seed_empty_watch_baseline
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
+    from alert_helpers import seed_empty_alert_baseline
 
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
-    return pid, {"watch": watch, "run": run}, events_response.json()["events"]
+    return pid, {"watch": alert, "run": run}, events_response.json()["events"]
 
 
-def _emit_watch_candidate(
+def _emit_alert_candidate(
     client: TestClient,
     pid: str,
-    watch_id: int,
+    alert_id: int,
     run_id: int,
     event_ids: list[int],
 ) -> dict[str, Any]:
@@ -66,15 +66,15 @@ def _emit_watch_candidate(
         f"/api/projects/{pid}/notifications/emit",
         json={
             "source_kind": "watch",
-            "source_ref": {"watch_id": watch_id, "run_id": run_id},
+            "source_ref": {"watch_id": alert_id, "run_id": run_id},
             "source_event_ids": event_ids,
-            "dedupe_key": f"watch:{watch_id}:run:{run_id}:events:{','.join(map(str, sorted(event_ids)))}",
+            "dedupe_key": f"watch:{alert_id}:run:{run_id}:events:{','.join(map(str, sorted(event_ids)))}",
             "title": f"Budget watch found {len(event_ids)} new rows",
             "summary": f'{len(event_ids)} rows newly matched Search "budget".',
             "severity": "warning",
             "deep_link": {
                 "kind": "watch_run",
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "run_id": run_id,
                 "event_ids": event_ids,
             },
@@ -85,11 +85,11 @@ def _emit_watch_candidate(
     return response.json()
 
 
-def test_notification_tables_routes_and_actor_state_for_watch_events(
+def test_notification_tables_routes_and_actor_state_for_alert_events(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     event_ids = [event["id"] for event in events]
 
     project = client.app.state.workspace.get(pid)
@@ -126,7 +126,7 @@ def test_notification_tables_routes_and_actor_state_for_watch_events(
     assert projected_page["total"] == 1
     projected_id = projected_page["notifications"][0]["id"]
 
-    emit = _emit_watch_candidate(
+    emit = _emit_alert_candidate(
         client,
         pid,
         int(refs["watch"]["id"]),
@@ -200,7 +200,7 @@ def test_notification_tables_routes_and_actor_state_for_watch_events(
     assert ack_state["read_at"]
     assert ack_state["acknowledged_at"]
 
-    deduped = _emit_watch_candidate(
+    deduped = _emit_alert_candidate(
         client,
         pid,
         int(refs["watch"]["id"]),
@@ -239,7 +239,7 @@ def test_notification_channels_redact_secrets_without_emit_time_attempts(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     event_ids = [event["id"] for event in events]
 
     email = client.post(
@@ -289,7 +289,7 @@ def test_notification_channels_redact_secrets_without_emit_time_attempts(
     assert patched.status_code == 200, patched.text
     assert patched.json()["enabled"] is False
 
-    emit = _emit_watch_candidate(
+    emit = _emit_alert_candidate(
         client,
         pid,
         int(refs["watch"]["id"]),

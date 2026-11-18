@@ -71,7 +71,7 @@ import { createProjectAttemptsApi } from './projectAttempts';
 import { createProjectSourcesApi } from './projectSources';
 import { createTeamLocalModelsApi } from './teamLocalModels';
 import { createViewsLensesApi } from './viewsLenses';
-import { createWatchesApi } from './watches';
+import { createAlertsApi } from './alerts';
 import { createNotificationsApi } from './notifications';
 import type { RequestOptions } from './httpContract';
 import type {
@@ -348,7 +348,7 @@ export function createProjectApi(projectId: string) {
   }
 
   return composeDisjoint(
-    createWatchesApi(projectId),
+    createAlertsApi(projectId),
     createNotificationsApi(projectId),
     createViewsLensesApi(projectId),
     createColumnTypesApi(projectId),

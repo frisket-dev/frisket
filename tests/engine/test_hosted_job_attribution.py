@@ -150,7 +150,7 @@ def test_server_scoped_job_is_expressible_on_the_hosted_queue(tmp_path):
 
 
 def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp_path):
-    """The shape every engine-minted background job emits (source polls, watch
+    """The shape every engine-minted background job emits (source polls, alert
     evaluations, digests, deliveries): a storage label and no org_id. Requiring
     org_id here would force the engine to invent a funding account it does not
     know -- and cloud attributes these by their storage label, which is why its

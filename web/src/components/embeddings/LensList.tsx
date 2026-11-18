@@ -41,7 +41,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
 
   useEffect(() => {
     // Defer the load so the setState fires outside the synchronous effect body
-    // (matches WatchesPanel; avoids react-hooks/set-state-in-effect cascades).
+    // (matches AlertsPanel; avoids react-hooks/set-state-in-effect cascades).
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
   }, [load, reloadKey]);

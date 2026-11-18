@@ -858,7 +858,7 @@ def test_live_notification_routes_preserve_their_current_payloads(
         # FROZEN filter semantics: empty notification_ids and empty source_ref
         # add NO predicate — the everything-filter reaches every item, and
         # marking seen transitions only the still-unseen ones. The system item
-        # is already read from the lifecycle above, so exactly the watch item
+        # is already read from the lifecycle above, so exactly the alert item
         # transitions.
         seen = client.post(
             f"/api/projects/{project_id}/notifications/seen",

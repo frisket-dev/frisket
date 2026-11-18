@@ -9,26 +9,26 @@ from frisket.server.notifications.service import (
     LOCAL_ACTOR_ID,
     NotificationEmitResult,
     emit_notification_candidate,
-    watch_events_dedupe_key,
+    alert_events_dedupe_key,
 )
 from frisket.engine.store import Project
-from frisket.features.watchlists.events import decode_watch_run_event
+from frisket.features.alerts.events import decode_alert_check_event
 
 
-def watch_run_notification_candidate(
+def alert_check_notification_candidate(
     project: Project,
     *,
-    watch_id: int,
+    alert_id: int,
     run_id: int,
     limit: int = 500,
 ) -> NotificationCandidate | None:
-    watch = project.get_watch(watch_id)
-    run = project.get_watch_run(run_id)
-    if watch is None or run is None or int(run["watch_id"]) != int(watch_id):
+    alert = project.get_alert(alert_id)
+    run = project.get_alert_check(run_id)
+    if alert is None or run is None or int(run["watch_id"]) != int(alert_id):
         return None
     events = [
-        decode_watch_run_event(row)
-        for row in project.watch_run_events(int(run_id), offset=0, limit=limit)
+        decode_alert_check_event(row)
+        for row in project.alert_check_events(int(run_id), offset=0, limit=limit)
     ]
     if not events:
         return None
@@ -40,14 +40,14 @@ def watch_run_notification_candidate(
         )
     )
     event_kinds = sorted({str(event["event_kind"]) for event in event_groups})
-    event_count = project.watch_run_events_total(int(run_id))
-    watch_name = str(watch["name"])
+    event_count = project.alert_check_events_total(int(run_id))
+    alert_name = str(alert["name"])
     severity = _highest_severity(
         str(event["severity"] or "info") for event in event_groups
     )
     matched_rows = int(run["matched_rows"] or 0)
     new_rows = int(run["new_rows"] or 0)
-    title = f"{watch_name} recorded {event_count} alert event"
+    title = f"{alert_name} recorded {event_count} alert event"
     if event_count != 1:
         title += "s"
     summary = (
@@ -58,11 +58,11 @@ def watch_run_notification_candidate(
         summary = f"{summary} Events: {', '.join(event_kinds)}."
     return {
         "source_kind": "watch",
-        "source_ref": {"watch_id": int(watch_id), "run_id": int(run_id)},
+        "source_ref": {"watch_id": int(alert_id), "run_id": int(run_id)},
         "source_event_ids": event_ids,
         "event_count": event_count,
-        "dedupe_key": watch_events_dedupe_key(
-            watch_id=int(watch_id),
+        "dedupe_key": alert_events_dedupe_key(
+            alert_id=int(alert_id),
             run_id=int(run_id),
             event_ids=event_ids,
         ),
@@ -71,12 +71,12 @@ def watch_run_notification_candidate(
         "severity": severity,  # type: ignore[typeddict-item]
         "deep_link": {
             "kind": "watch_run",
-            "watch_id": int(watch_id),
+            "watch_id": int(alert_id),
             "run_id": int(run_id),
             "event_ids": event_ids,
         },
         "payload": {
-            "watch_name": watch_name,
+            "watch_name": alert_name,
             "run_status": str(run["status"]),
             "matched_rows": matched_rows,
             "new_rows": new_rows,
@@ -86,16 +86,16 @@ def watch_run_notification_candidate(
     }
 
 
-def emit_watch_run_notification(
+def emit_alert_check_notification(
     project: Project,
     *,
-    watch_id: int,
+    alert_id: int,
     run_id: int,
     actor_id: str = LOCAL_ACTOR_ID,
 ) -> NotificationEmitResult | None:
-    candidate = watch_run_notification_candidate(
+    candidate = alert_check_notification_candidate(
         project,
-        watch_id=watch_id,
+        alert_id=alert_id,
         run_id=run_id,
     )
     result = (
@@ -107,7 +107,7 @@ def emit_watch_run_notification(
     # durable notification and delivery planning; recovery safely repeats either.
     project.db.execute(
         "UPDATE watch_runs SET notification_pending=0 WHERE id=? AND watch_id=?",
-        (run_id, watch_id),
+        (run_id, alert_id),
     )
     project.db.commit()
     return result

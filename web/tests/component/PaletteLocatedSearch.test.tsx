@@ -22,8 +22,8 @@ const decideSearchPreparation = vi.fn();
 const getSearchPreparationTextSamples = vi.fn();
 const embeddingIndexes = vi.fn();
 const saveView = vi.fn();
-const createWatch = vi.fn();
-const projectApi = { embeddingIndexes, saveView, createWatch };
+const createAlert = vi.fn();
+const projectApi = { embeddingIndexes, saveView, createAlert };
 let workspaceProjectId = 'project-1';
 
 vi.mock('../../src/api/open', async (importOriginal) => ({
@@ -243,14 +243,14 @@ beforeEach(() => {
   getSearchPreparationTextSamples.mockResolvedValue({ samples: [] });
   embeddingIndexes.mockReset();
   saveView.mockReset();
-  createWatch.mockReset();
+  createAlert.mockReset();
   embeddingIndexes.mockResolvedValue([{
     indexId: 'index-1',
     name: 'Research passages',
     sheetId: 1,
   }]);
   saveView.mockResolvedValue({ id: 4 });
-  createWatch.mockResolvedValue({});
+  createAlert.mockResolvedValue({});
   listModelPulls.mockResolvedValue({ pulls: [] });
   orgListModelPulls.mockResolvedValue({ pulls: [] });
   listSearchPreparations.mockResolvedValue({ batches: [] });
@@ -887,15 +887,15 @@ describe('located palette search', () => {
     }));
   });
 
-  it('creates a persisted row-similarity watch from a named-index anchor', async () => {
+  it('creates a persisted row-similarity alert from a named-index anchor', async () => {
     searchProject.mockResolvedValue(completeResponse);
     render(<AnchoredPaletteHarness />);
 
-    const watch = await screen.findByTestId('watch-search-button');
-    await waitFor(() => expect(watch).toBeEnabled());
-    fireEvent.click(watch);
+    const alert = await screen.findByTestId('alert-search-button');
+    await waitFor(() => expect(alert).toBeEnabled());
+    fireEvent.click(alert);
 
-    await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
+    await waitFor(() => expect(createAlert).toHaveBeenCalledWith({
       name: 'Similar to page 2',
       view_id: 4,
     }));
@@ -921,16 +921,16 @@ describe('located palette search', () => {
     }));
   });
 
-  it('keeps project keyword watches available', async () => {
+  it('keeps project keyword alerts available', async () => {
     searchProject.mockResolvedValue(completeResponse);
     render(<PaletteHarness />);
 
     fireEvent.change(screen.getByTestId('search-mode-select'), {
       target: { value: 'lexical' },
     });
-    const watch = screen.getByTestId('watch-search-button');
-    await waitFor(() => expect(watch).toBeEnabled());
-    fireEvent.click(watch);
+    const alert = screen.getByTestId('alert-search-button');
+    await waitFor(() => expect(alert).toBeEnabled());
+    fireEvent.click(alert);
 
     await waitFor(() => expect(saveView).toHaveBeenCalledWith({
       name: 'Search: budget', presentation: {}, selection: {
@@ -938,7 +938,7 @@ describe('located palette search', () => {
         limit: null, search: { text: 'budget' },
       },
     }));
-    await waitFor(() => expect(createWatch).toHaveBeenCalledWith({
+    await waitFor(() => expect(createAlert).toHaveBeenCalledWith({
       name: 'Search: budget',
       view_id: 4,
     }));

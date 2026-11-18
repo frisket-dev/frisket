@@ -7,7 +7,7 @@ Root cause:
 standalone self-host worker (``frisket worker``/docker-compose's ``worker``
 service) instead opens ``FRISKET_RUN_QUEUE_DATABASE_URL`` (Postgres in
 production). Two different queues: every self-hosted background job (OCR,
-transcribe, recipes, digests, watches) sat in the app's SQLite file forever,
+transcribe, recipes, digests, alerts) sat in the app's SQLite file forever,
 never claimed.
 
 This module proves, per the review's non-negotiable acceptance bar:
@@ -276,7 +276,7 @@ class TestQueueSplitEndToEnd:
 
 
 class TestSchedulerRootLayoutMatchesTeamApp:
-    """Scheduled source polls, digests, and watches must start for the
+    """Scheduled source polls, digests, and alerts must start for the
     team app's actual (flat) bundle layout, not only the legacy per-org
     FRISKET_DATA_DIR/projects/<org_id> shape."""
 

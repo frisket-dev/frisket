@@ -10,7 +10,7 @@ import { MentionsPanel, type MentionsPanelProps } from '../components/MentionsPa
 import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { NotificationsPanel } from '../components/NotificationsPanel';
 import { SourcesPanel, type SourcesPanelProps } from '../components/SourcesPanel';
-import { WatchesPanel } from '../components/WatchesPanel';
+import { AlertsPanel } from '../components/AlertsPanel';
 import { ViewsPanel, type ViewsPanelProps } from '../workspace/ViewsPanel';
 import {
   hostContextCapabilityAttribute,
@@ -43,7 +43,7 @@ import {
   SOURCE_KIND_FORM_DESCRIPTORS,
   SOURCE_RUNS_VIEW_DESCRIPTOR,
   SOURCE_SUMMARY_VIEW_DESCRIPTOR,
-  WATCHES_DESCRIPTOR,
+  ALERTS_DESCRIPTOR,
   actionFormDescriptor,
   normalizePlacement,
   type WorkbenchCommandDescriptor,
@@ -127,7 +127,7 @@ interface SavedViewsWorkbenchPanelProps extends ViewsPanelProps {
   host?: WorkbenchRegionId;
 }
 
-interface WatchesWorkbenchPanelProps {
+interface AlertsWorkbenchPanelProps {
   canEdit: boolean;
   canCreateFromCurrentView?: boolean;
   host?: WorkbenchRegionId;
@@ -731,13 +731,13 @@ export function SavedViewsWorkbenchPanel({
   );
 }
 
-export function WatchesWorkbenchPanel({
+export function AlertsWorkbenchPanel({
   canEdit,
   canCreateFromCurrentView = false,
   host = 'leftSidebar',
   onCreateFromCurrentView = () => {},
-}: WatchesWorkbenchPanelProps) {
-  const descriptor = WATCHES_DESCRIPTOR;
+}: AlertsWorkbenchPanelProps) {
+  const descriptor = ALERTS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
 
   return (
@@ -746,7 +746,7 @@ export function WatchesWorkbenchPanel({
       host={placement.host}
       className={placement.host === 'bottomDock' ? 'bottom-dock-tab-body' : ''}
     >
-      <WatchesPanel
+      <AlertsPanel
         canEdit={canEdit}
         canCreateFromCurrentView={canCreateFromCurrentView}
         onCreateFromCurrentView={onCreateFromCurrentView}

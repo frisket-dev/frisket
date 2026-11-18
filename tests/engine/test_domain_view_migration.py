@@ -4,7 +4,7 @@ from frisket.upgrades.project.domain_view_migration import migrate_unified_views
 from frisket.engine.views.evaluate import open_selection
 
 
-def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(make_project):
+def test_all_old_definitions_and_alert_identity_survive_one_time_cutover(make_project):
     project = make_project("old-views")
     try:
         sheet = project.add_sheet("records")
@@ -56,10 +56,10 @@ def test_all_old_definitions_and_watch_identity_survive_one_time_cutover(make_pr
         db.commit()
         assert project.get_view(7)["name"] == "Normal"
         assert len(project.views()) == 4
-        watch = project.get_watch(9)
-        assert watch["last_run_id"] == 22
-        assert watch["baseline_run_id"] is None
-        assert project.get_watch_run(22) is not None
+        alert = project.get_alert(9)
+        assert alert["last_run_id"] == 22
+        assert alert["baseline_run_id"] is None
+        assert project.get_alert_check(22) is not None
         assert not {"query", "scope", "sheet_id"} & {
             row[1] for row in db.execute("PRAGMA table_info(watches)")
         }

@@ -113,7 +113,7 @@ def test_empty_explicit_cohort_needs_no_search_preparation(data):
 
 
 def test_similarity_filters_and_sort_share_membership_without_model_calls(tmp_path):
-    from tests.ai.test_watchlists_embedding_similarity import (
+    from tests.ai.test_alerts_embedding_similarity import (
         _client,
         _seed,
         _create_index,
@@ -156,7 +156,7 @@ def test_similarity_filters_and_sort_share_membership_without_model_calls(tmp_pa
 
 
 def test_manual_similarity_needs_explicit_query_preparation(tmp_path):
-    from tests.ai.test_watchlists_embedding_similarity import (
+    from tests.ai.test_alerts_embedding_similarity import (
         _client,
         _seed,
         _create_index,
@@ -185,7 +185,7 @@ def test_manual_similarity_needs_explicit_query_preparation(tmp_path):
 
 
 def test_incomplete_search_check_never_invents_departures(data):
-    from frisket.features.watchlists.service import run_watch_evaluation
+    from frisket.features.alerts.service import check_alert
 
     project, sheet, text, _, rows = data
     drain_index(project)
@@ -199,7 +199,7 @@ def test_incomplete_search_check_never_invents_departures(data):
             "presentation": {},
         },
     )
-    watch = project.add_watch(
+    alert = project.add_alert(
         "Budget changes",
         view_id=view,
         detection_policy={
@@ -209,20 +209,20 @@ def test_incomplete_search_check_never_invents_departures(data):
             "count_changed": True,
         },
     )
-    first = run_watch_evaluation(project, project.get_watch(watch))
+    first = check_alert(project, project.get_alert(alert))
     assert first["run"]["matched_rows"] == 3
     project.apply_edits(
         [{"row_id": rows[0], "column_id": text, "value": "budget amended"}]
     )
-    incomplete = run_watch_evaluation(project, project.get_watch(watch))
+    incomplete = check_alert(project, project.get_alert(alert))
     assert incomplete["run"]["status"] == "error"
     assert incomplete["run"]["error_code"] == "selection_incomplete"
-    assert project.get_watch(watch)["baseline_run_id"] == first["run_id"]
-    assert not project.watch_run_events(incomplete["run_id"])
+    assert project.get_alert(alert)["baseline_run_id"] == first["run_id"]
+    assert not project.alert_check_events(incomplete["run_id"])
     drain_index(project)
-    final = run_watch_evaluation(project, project.get_watch(watch))
+    final = check_alert(project, project.get_alert(alert))
     assert final["run"]["matched_rows"] == 3
-    assert not project.watch_run_events(final["run_id"])
+    assert not project.alert_check_events(final["run_id"])
 
 
 def test_search_selections_borrow_one_snapshot_and_cleanup_attachments(data):

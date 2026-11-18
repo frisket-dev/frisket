@@ -1,4 +1,4 @@
-"""Shared rowset evaluation helpers for grid, watches, and query consumers."""
+"""Shared rowset evaluation helpers for grid, alerts, and query consumers."""
 
 from __future__ import annotations
 
@@ -1587,7 +1587,7 @@ def _parse_sheet_filter(
         if op == "entity_eq":
             # Entity-mention predicate on a marked entity JSON column — the
             # operator the Mentions panel emits, honored by /data, saved
-            # views, CSV export, watches, map points and embedding scopes
+            # views, CSV export, alerts, map points and embedding scopes
             # because every consumer funnels through this parser.
             if not is_entity_mentions_column(column):
                 raise SheetRowSetError(

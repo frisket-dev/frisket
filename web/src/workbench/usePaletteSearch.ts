@@ -40,10 +40,10 @@ interface PaletteSearch {
   groups: ProjectSearchGroupWire[] | null;
   coverage: ProjectSearchResponseWire['coverage'] | null;
   searchError: string | null;
-  canWatch: boolean;
-  watchBusy: boolean;
-  watchStatus: string | null;
-  createSearchWatch(): void;
+  canCreateAlert: boolean;
+  alertBusy: boolean;
+  alertStatus: string | null;
+  createSearchAlert(): void;
   namedIndexes: EmbeddingIndexSummary[];
   namedIndexId: string | undefined;
   setNamedIndexId(indexId: string | undefined): void;
@@ -240,25 +240,25 @@ export function usePaletteSearch(
     guardOverlap: true,
   });
 
-  const { busy: watchBusy, error: watchStatus, setError: setWatchStatus, run: runWatch } = useAction();
+  const { busy: alertBusy, error: alertStatus, setError: setAlertStatus, run: checkAlert } = useAction();
   const selectedIndex = namedIndexes.find((index) => index.indexId === namedIndexId);
   const selectedRowId = anchorRowId(anchor);
-  const canWatch = !watchBusy && (
+  const canCreateAlert = !alertBusy && (
     (Boolean(trimmedQuery) && !anchor && !namedIndexId && mode === 'lexical')
     || (selectedIndex?.sheetId != null && selectedRowId != null)
   );
-  const createSearchWatch = () => {
-    if (!canWatch) return;
+  const createSearchAlert = () => {
+    if (!canCreateAlert) return;
     const similarity = selectedIndex?.sheetId != null && selectedRowId != null;
     const selection: import('../api/types').ViewSelection = similarity
       ? { scope: { kind: 'sheet', sheet_id: selectedIndex.sheetId! }, filters: [], order: [{ score: 'similarity', dir: 'desc' }], limit: MAX_LENS_VIEW_ROWS,
           similarity: { kind: 'embedding_similarity', sheet_id: selectedIndex.sheetId!, embedding_index_id: selectedIndex.indexId, anchor: { kind: 'row', row_id: selectedRowId } } }
       : { scope: { kind: 'project' }, filters: [], order: [{ score: 'search', dir: 'desc' }], limit: null, search: { text: trimmedQuery } };
     const name = similarity ? `Similar to ${anchorLabel ?? `row ${selectedRowId}`}` : `Search: ${trimmedQuery}`;
-    void runWatch(async () => {
+    void checkAlert(async () => {
       const view = await projectApi.saveView({ name, selection, presentation: {} });
-      await projectApi.createWatch({ name, view_id: view.id });
-      window.dispatchEvent(new Event('frisket:watches-changed'));
+      await projectApi.createAlert({ name, view_id: view.id });
+      window.dispatchEvent(new Event('frisket:alerts-changed'));
       onClose();
     });
   };
@@ -448,16 +448,16 @@ export function usePaletteSearch(
     groups,
     coverage,
     searchError,
-    canWatch,
-    watchBusy,
-    watchStatus,
-    createSearchWatch,
+    canCreateAlert,
+    alertBusy,
+    alertStatus,
+    createSearchAlert,
     namedIndexes,
     namedIndexId,
     setNamedIndexId(indexId) {
       setNamedIndexId(indexId);
       if (indexId && mode === 'lexical') setMode('semantic');
-      setWatchStatus(null);
+      setAlertStatus(null);
       setSaveStatus(null);
     },
     namedIndexError,

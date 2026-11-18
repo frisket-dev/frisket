@@ -57,7 +57,7 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
       // optional-activeCell dataRequirement witness moved to the evidence view.
       // projection_status retired from the dock to a status-bar chip; no
       // longer a hideable dock tab.
-      // watches removed with the Watches dock tab.
+      // alerts removed with the Alerts dock tab.
       // plugins retired from the dock entirely — not a visibility target
       // because it is no longer a dock contribution at all.
     ],

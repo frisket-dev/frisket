@@ -19,7 +19,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs import SqliteJobQueue
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
-from tests.watch_helpers import add_watch
+from tests.alert_helpers import add_alert
 
 GOOD = ("a-good", "c-good")
 UNREADABLE = "b-unreadable"
@@ -59,10 +59,10 @@ def _due_embedding_index(project: Project) -> None:
     assert result.status == "completed", result.errors
 
 
-def _due_watch(project: Project) -> None:
+def _due_alert(project: Project) -> None:
     sheet = project.add_sheet("Records")
     project.add_column(sheet, "text")
-    add_watch(
+    add_alert(
         project,
         "Monitor",
         sheet_id=sheet,
@@ -95,7 +95,7 @@ SWEEPS: dict[str, tuple[cli._Sweep, Callable[[Project], None], str]] = {
         _due_embedding_index,
         "embedding_project_schedule_failed",
     ),
-    "watch": (cli._WATCHES, _due_watch, "watch_project_schedule_failed"),
+    "watch": (cli._ALERTS, _due_alert, "alert_project_schedule_failed"),
     "digest": (
         cli._NOTIFICATION_DIGESTS,
         _due_digest,

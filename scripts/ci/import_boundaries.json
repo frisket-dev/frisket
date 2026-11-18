@@ -142,9 +142,9 @@
         "frisket.engine.executor.collection_read",
         "frisket.engine.executor.action_families.imports",
         "frisket.engine.jobs.sources",
-        "frisket.engine.jobs.watches",
+        "frisket.engine.jobs.alerts",
         "frisket.engine.store.media_download_candidates",
-        "frisket.engine.store.watches"
+        "frisket.engine.store.alerts"
       ],
       "forbidden_imports": [
         "frisket.features",

@@ -48,7 +48,7 @@ interface RouteDraft {
   channelId: string;
   enabled: boolean;
   sourceKind: 'all' | 'watch' | 'run' | 'source';
-  watchId: string;
+  alertId: string;
   severityMin: 'info' | 'warning' | 'critical';
   deliveryMode: 'immediate' | 'digest';
   digestCadence: NotificationDigestCadence;
@@ -72,7 +72,7 @@ const initialRouteDraft: RouteDraft = {
   channelId: '',
   enabled: true,
   sourceKind: 'watch',
-  watchId: '',
+  alertId: '',
   severityMin: 'info',
   deliveryMode: 'immediate',
   digestCadence: 'daily',
@@ -99,8 +99,8 @@ function routeModeLabel(route: NotificationRoute): string {
 
 function sourceMatchLabel(route: NotificationRoute): string {
   if (!route.sourceKind) return 'all notifications';
-  const watchId = route.sourceRefMatch.watch_id;
-  if (route.sourceKind === 'watch' && watchId !== undefined) return `watch_id: ${String(watchId)}`;
+  const alertId = route.sourceRefMatch.watch_id;
+  if (route.sourceKind === 'watch' && alertId !== undefined) return `watch_id: ${String(alertId)}`;
   return route.sourceKind;
 }
 
@@ -127,8 +127,8 @@ function statusChipTone(status: string): StatusTone {
 }
 
 function routePayload(draft: RouteDraft) {
-  const sourceRefMatch = draft.sourceKind === 'watch' && draft.watchId.trim()
-    ? { watch_id: Number(draft.watchId.trim()) }
+  const sourceRefMatch = draft.sourceKind === 'watch' && draft.alertId.trim()
+    ? { watch_id: Number(draft.alertId.trim()) }
     : {};
   return {
     name: draft.name.trim(),
@@ -521,7 +521,7 @@ function RouteSection({
         </FormField>
         {draft.sourceKind === 'watch' && (
           <FormField layout="inline" label="Alert ID">
-            <TextInput aria-label="Alert ID" data-testid="notification-route-watch-id" value={draft.watchId} onChange={(event) => onDraftChange({ watchId: event.target.value })} placeholder="Alert ID" />
+            <TextInput aria-label="Alert ID" data-testid="notification-route-alert-id" value={draft.alertId} onChange={(event) => onDraftChange({ alertId: event.target.value })} placeholder="Alert ID" />
           </FormField>
         )}
         <FormField layout="inline" label="Delivery">

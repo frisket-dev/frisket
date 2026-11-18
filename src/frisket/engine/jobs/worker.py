@@ -9,7 +9,7 @@ Handlers are contextual callables
 `(payload: dict, context: JobHandlerContext) -> result`, registered on a
 HandlerRegistry. ``register_production_handlers`` is the ONE product
 registration (project runs, action jobs, source polls, enclosure downloads,
-embeddings, watches, notifications) that every edition composes;
+embeddings, alerts, notifications) that every edition composes;
 ``default_registry`` wires only the echo test handler for bare-loop tests.
 """
 
@@ -421,7 +421,7 @@ def register_production_handlers(
     from .notifications_digest import register_notification_digest_handlers
     from .runs import register_action_run_handler, register_project_run_handler
     from .sources import register_source_poll_handler
-    from .watches import register_watch_evaluate_handler
+    from .alerts import register_alert_evaluate_handler
 
     # The deployment's price list, installed process-wide (see
     # ``frisket.execution.pricing_policy`` for why it cannot ride ``ports``:
@@ -580,7 +580,7 @@ def register_production_handlers(
         workspace_root_storage_org_id=workspace_root_storage_org_id,
         project_opener=project_opener,
     )
-    watch_evaluate_registration = register_watch_evaluate_handler(
+    alert_evaluate_registration = register_alert_evaluate_handler(
         registry,
         workspace_root=root,
         queue=queue,
@@ -619,7 +619,7 @@ def register_production_handlers(
         registrations = {
             "project.run": project_run_registration,
             "action.run": action_run_registration,
-            "watch.evaluate": watch_evaluate_registration,
+            "watch.evaluate": alert_evaluate_registration,
             "source.poll": source_poll_registration,
             "enclosure.download": enclosure_download_registration,
             "blob.metadata.backfill": blob_metadata_registration,

@@ -4,10 +4,10 @@ import { AtSign, Bell, BellRing, BookOpen, Boxes, Database, Images, ListFilter, 
 import { canEditProject } from '../api/projectRole';
 import { DiscoverPanel, type DiscoverTabDescriptor } from '../workbench/DiscoverPanel';
 import { DISCOVER_TABS, type DiscoverTab } from './useWorkspaceChromeState';
-import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, SourcesWorkbenchPanel, SavedViewsWorkbenchPanel, WatchesWorkbenchPanel } from '../workbench/contributions';
+import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, SourcesWorkbenchPanel, SavedViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution, type WorkbenchResolvedLayoutRegion } from '../workbench/layout';
 import { PluginPanelHost } from '../workbench/PluginPanelHost';
-import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, SAVED_VIEWS_CONTRIBUTION_ID, SOURCES_CONTRIBUTION_ID, WATCHES_CONTRIBUTION_ID } from './contributionIds';
+import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, SAVED_VIEWS_CONTRIBUTION_ID, SOURCES_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -51,7 +51,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     currentDefinition,
     updateViewSelection,
     clearViewSelection,
-    addWatchForCurrentView,
+    addAlertForCurrentView,
     openCellSimilarity,
     selectedRowIdsForSheet,
     setViewName,
@@ -132,10 +132,10 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
       );
     case 'frisket.core.panel.watches':
       return (
-        <WatchesWorkbenchPanel
+        <AlertsWorkbenchPanel
           canEdit={canEditProject(project)}
           canCreateFromCurrentView={sheet !== null && canEditProject(project)}
-          onCreateFromCurrentView={addWatchForCurrentView}
+          onCreateFromCurrentView={addAlertForCurrentView}
         />
       );
     case 'frisket.embeddings.panel.indexes':
@@ -192,7 +192,7 @@ const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
   Mentions: [MENTIONS_CONTRIBUTION_ID],
   Sources: [SOURCES_CONTRIBUTION_ID],
   Views: [SAVED_VIEWS_CONTRIBUTION_ID],
-  Watches: [WATCHES_CONTRIBUTION_ID],
+  Watches: [ALERTS_CONTRIBUTION_ID],
   Embeddings: [EMBEDDINGS_CONTRIBUTION_ID],
   Notifications: [NOTIFICATIONS_CONTRIBUTION_ID],
 };

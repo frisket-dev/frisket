@@ -35,7 +35,7 @@ the interactive companion for the isolated production components.
 | Audio/video extraction | Actual temporal action forms. There is no audio/video PDF-layout Extract pane in current Frisket. |
 | Filter | Populated categorical/numeric filters and active filter. |
 | Mentions | Empty/no-entity-column, populated grouped spellings, selected group; populated state explicitly uses API fixtures. |
-| Sources / Views / Watches | Sources empty/add, saved-view empty/create/populated, watches empty/create. |
+| Sources / Views / Alerts | Sources empty/add, saved-view empty/create/populated, alerts empty/create. |
 | Notifications / Embeddings | Empty/create and explicit synthetic unread/stale cards. |
 | Jobs / Errors / History / Lineage | All four docks, expanded detail area, failed job detail, real import/template history and lineage. Failure jobs are API fixtures. |
 | Inspection / search | Row/cell provenance, column history, command palette search. |
@@ -58,7 +58,7 @@ to cover them**:
 - Feed creation/update/population and source-run health details.
 - Populated alongside content, PDF citations, repeated-section drawing, extraction
   diagnostics, image-specific layout, and integrated transcript/citation seeking.
-- Date/advanced filter conditions, nonempty watch history, notification delivery,
+- Date/advanced filter conditions, nonempty alert history, notification delivery,
   embedding search results, complex lineage chains.
 - Populated Ask conversation/tool activity and completed model-comparison results.
 - Ready-provider setup/submission, real paid estimates, full action preview/result

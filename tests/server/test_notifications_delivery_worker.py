@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.watch_helpers import post_watch
+from tests.alert_helpers import post_alert
 
 from pathlib import Path
 from typing import Any
@@ -79,7 +79,7 @@ def test_emit_result_bridge_rejects_malformed_results(
         )
 
 
-def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
+def _seed_alert_events(client: TestClient) -> tuple[str, dict[str, Any], list[dict]]:
     pid = client.post("/api/projects", json={"name": "Notification worker"}).json()[
         "id"
     ]
@@ -90,7 +90,7 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
     assert import_response.status_code == 200, import_response.text
     drain_queue(client, worker_id="notification-delivery-setup")
     drain_index(client.app.state.workspace.get(pid))
-    watch_response = post_watch(
+    alert_response = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
@@ -99,20 +99,20 @@ def _seed_watch_events(client: TestClient) -> tuple[str, dict[str, Any], list[di
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch_response.status_code == 200, watch_response.text
-    watch = watch_response.json()
-    from watch_helpers import seed_empty_watch_baseline
+    assert alert_response.status_code == 200, alert_response.text
+    alert = alert_response.json()
+    from alert_helpers import seed_empty_alert_baseline
 
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch["id"])
-    run_response = client.post(f"/api/projects/{pid}/watches/{watch['id']}/run")
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert["id"])
+    run_response = client.post(f"/api/projects/{pid}/watches/{alert['id']}/run")
     assert run_response.status_code == 200, run_response.text
     run = run_response.json()["run"]
     events_response = client.get(
-        f"/api/projects/{pid}/watches/{watch['id']}/runs/{run['id']}/events",
+        f"/api/projects/{pid}/watches/{alert['id']}/runs/{run['id']}/events",
         params={"limit": 10},
     )
     assert events_response.status_code == 200, events_response.text
-    return pid, {"watch": watch, "run": run}, events_response.json()["events"]
+    return pid, {"watch": alert, "run": run}, events_response.json()["events"]
 
 
 def _create_email_channel(
@@ -138,7 +138,7 @@ def _create_route(
     pid: str,
     *,
     channel_id: int,
-    watch_id: int,
+    alert_id: int,
 ) -> dict[str, Any]:
     response = client.post(
         f"/api/projects/{pid}/notification-routes",
@@ -146,7 +146,7 @@ def _create_route(
             "name": "Budget email",
             "channel_id": channel_id,
             "source_kind": "watch",
-            "source_ref_match": {"watch_id": watch_id},
+            "source_ref_match": {"watch_id": alert_id},
             "delivery_mode": "immediate",
         },
     )
@@ -154,7 +154,7 @@ def _create_route(
     return response.json()
 
 
-def _emit_watch(
+def _emit_alert(
     client: TestClient,
     pid: str,
     refs: dict[str, Any],
@@ -220,9 +220,9 @@ def test_notification_delivery_worker_sends_request_and_records_attempt(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     channel = _create_email_channel(client, pid)
-    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    _create_route(client, pid, channel_id=channel["id"], alert_id=refs["watch"]["id"])
     provider = SequencedProvider(
         [
             DeliveryProviderResult(
@@ -234,7 +234,7 @@ def test_notification_delivery_worker_sends_request_and_records_attempt(
     )
     _install_provider(client, provider)
 
-    emitted = _emit_watch(client, pid, refs, events)
+    emitted = _emit_alert(client, pid, refs, events)
     request_id = emitted["planned_delivery_requests"][0]["id"]
     project = client.app.state.workspace.get(pid)
     request = project.public_notification_delivery_request(request_id)
@@ -261,15 +261,15 @@ def test_notification_delivery_worker_sends_request_and_records_attempt(
 
 def test_missing_secret_skips_without_provider_call(tmp_path: Path) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     channel = _create_email_channel(client, pid, secret=False)
-    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    _create_route(client, pid, channel_id=channel["id"], alert_id=refs["watch"]["id"])
     provider = SequencedProvider(
         [DeliveryProviderResult(status="sent", provider_ref="should-not-send")]
     )
     _install_provider(client, provider)
 
-    emitted = _emit_watch(client, pid, refs, events)
+    emitted = _emit_alert(client, pid, refs, events)
     request_id = emitted["planned_delivery_requests"][0]["id"]
     assert _drain_one(client) is True
 
@@ -284,9 +284,9 @@ def test_transient_provider_failure_requeues_and_reconciles_request(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     channel = _create_email_channel(client, pid)
-    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    _create_route(client, pid, channel_id=channel["id"], alert_id=refs["watch"]["id"])
     provider = SequencedProvider(
         [
             DeliveryProviderResult(
@@ -298,7 +298,7 @@ def test_transient_provider_failure_requeues_and_reconciles_request(
         ]
     )
     _install_provider(client, provider)
-    emitted = _emit_watch(client, pid, refs, events)
+    emitted = _emit_alert(client, pid, refs, events)
     request_id = emitted["planned_delivery_requests"][0]["id"]
     ws = client.app.state.workspace
     project = ws.get(pid)
@@ -334,9 +334,9 @@ def test_transient_provider_failure_requeues_and_reconciles_request(
 
 def test_retry_exhaustion_marks_one_terminal_failed_request(tmp_path: Path) -> None:
     client = _client(tmp_path)
-    pid, refs, events = _seed_watch_events(client)
+    pid, refs, events = _seed_alert_events(client)
     channel = _create_email_channel(client, pid)
-    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    _create_route(client, pid, channel_id=channel["id"], alert_id=refs["watch"]["id"])
     provider = SequencedProvider(
         [
             DeliveryProviderResult(status="failed", error="still down", transient=True),
@@ -470,15 +470,15 @@ def test_recovery_enqueues_delivery_planned_before_process_stopped(tmp_path):
     from frisket.engine.jobs.notifications_delivery import (
         reconcile_notification_delivery_requests,
     )
-    from frisket.server.notifications.projections import emit_watch_run_notification
+    from frisket.server.notifications.projections import emit_alert_check_notification
 
     client = _client(tmp_path)
-    pid, refs, _events = _seed_watch_events(client)
+    pid, refs, _events = _seed_alert_events(client)
     channel = _create_email_channel(client, pid)
-    _create_route(client, pid, channel_id=channel["id"], watch_id=refs["watch"]["id"])
+    _create_route(client, pid, channel_id=channel["id"], alert_id=refs["watch"]["id"])
     project = client.app.state.workspace.get(pid)
-    result = emit_watch_run_notification(
-        project, watch_id=refs["watch"]["id"], run_id=refs["run"]["id"]
+    result = emit_alert_check_notification(
+        project, alert_id=refs["watch"]["id"], run_id=refs["run"]["id"]
     )
     request_id = result["planned_delivery_requests"][0]["id"]
     assert project.notification_delivery_request(request_id)["job_id"] is None

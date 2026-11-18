@@ -58,7 +58,7 @@ test('Sources & connections (project switcher) reveals above an open Action draw
   await expect(page.getByTestId('sources-panel')).toBeVisible();
 });
 
-test('a notification-run reveal (Watches tab) also closes an open Action drawer', async ({ page }) => {
+test('a notification-run reveal (Alerts tab) also closes an open Action drawer', async ({ page }) => {
   const { pid } = await seed(page);
 
   const notification = {

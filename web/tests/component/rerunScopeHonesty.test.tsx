@@ -13,16 +13,16 @@ vi.mock('../../src/api/open', async (importOriginal) => {
     ...actual,
     api: {
       ...actual.api,
-      listWatches: vi.fn(),
+      listAlerts: vi.fn(),
       getNotificationsSummary: vi.fn(),
     },
   };
 });
 
 import { CascadeConfirmDialog } from '../../src/workbench/LineagePanel';
-import { WatchesPanel } from '../../src/components/WatchesPanel';
+import { AlertsPanel } from '../../src/components/AlertsPanel';
 
-import type { SheetMeta, WatchInfo } from '../../src/api/open';
+import type { SheetMeta, AlertInfo } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import { canEditProject } from '../../src/api/projectRole';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -32,14 +32,14 @@ import {
 } from '../../src/editions/module';
 
 const api = createProjectApi('p1');
-const listWatches = vi.spyOn(api, 'listWatches');
+const listAlerts = vi.spyOn(api, 'listAlerts');
 const getNotificationsSummary = vi.spyOn(api, 'getNotificationsSummary');
 const { render } = createWorkspaceTestHarness({
   projectId: 'canonical-project',
   api: { projectApi: api },
 });
 
-const mockApi = { listWatches, getNotificationsSummary };
+const mockApi = { listAlerts, getNotificationsSummary };
 
 afterEach(() => {
   cleanup();
@@ -95,7 +95,7 @@ const EMPTY_SUMMARY = {
   bySourceRef: [],
 };
 
-function blockedEmbeddingWatch(): WatchInfo {
+function blockedEmbeddingAlert(): AlertInfo {
   return {
     id: 5,
     name: 'Leads',
@@ -111,7 +111,7 @@ function blockedEmbeddingWatch(): WatchInfo {
     updatedAt: '2026-07-27 00:00:00',
     latestRun: {
       id: 3,
-      watchId: 5,
+      alertId: 5,
       status: 'error',
       opCursorBefore: 0,
       opCursorAfter: 0,
@@ -127,21 +127,21 @@ function blockedEmbeddingWatch(): WatchInfo {
   };
 }
 
-describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
+describe('Alerts panel — re-run labels say what they buy (ruling 4)', () => {
   it('names the full fresh check on the run and refresh-index doors', async () => {
-    mockApi.listWatches.mockResolvedValue([blockedEmbeddingWatch()]);
+    mockApi.listAlerts.mockResolvedValue([blockedEmbeddingAlert()]);
     mockApi.getNotificationsSummary.mockResolvedValue(EMPTY_SUMMARY);
 
-    render(<WatchesPanel canEdit />);
+    render(<AlertsPanel canEdit />);
 
-    await waitFor(() => expect(screen.getByTestId('watch-item')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('alert-item')).toBeInTheDocument());
 
     // The play button is icon-only: its accessible name is the pre-click copy.
-    expect(screen.getByTestId('run-watch')).toHaveAccessibleName(
+    expect(screen.getByTestId('check-alert')).toHaveAccessibleName(
       'Check Leads now — a full fresh check, not a resume',
     );
     // The blocked-index remediation names BOTH purchases it makes.
-    const refresh = screen.getByTestId('watch-refresh-index-5');
+    const refresh = screen.getByTestId('alert-refresh-index-5');
     expect(refresh).toHaveTextContent('Refresh index & check again');
     expect(refresh).toHaveAttribute(
       'title',
@@ -150,12 +150,12 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
   });
 
   it('renders edition controls for editors, not viewers, without changing the default', async () => {
-    mockApi.listWatches.mockResolvedValue([blockedEmbeddingWatch()]);
+    mockApi.listAlerts.mockResolvedValue([blockedEmbeddingAlert()]);
     mockApi.getNotificationsSummary.mockResolvedValue(EMPTY_SUMMARY);
 
-    const defaultRender = render(<WatchesPanel canEdit />);
-    await waitFor(() => expect(screen.getByTestId('watch-item')).toBeInTheDocument());
-    expect(screen.queryByTestId('edition-watch-control')).not.toBeInTheDocument();
+    const defaultRender = render(<AlertsPanel canEdit />);
+    await waitFor(() => expect(screen.getByTestId('alert-item')).toBeInTheDocument());
+    expect(screen.queryByTestId('edition-alert-control')).not.toBeInTheDocument();
     defaultRender.unmount();
 
     const editionId = 'watch-control-test';
@@ -170,9 +170,9 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
           team: true,
         },
       },
-      WatchControlSlot: ({ projectId, watch, refreshWatches }) => (
-        <button type="button" data-testid="edition-watch-control" onClick={refreshWatches}>
-          Destination for {watch.name} in {projectId}
+      WatchControlSlot: ({ projectId, watch: alert, refreshWatches: refreshAlerts }) => (
+        <button type="button" data-testid="edition-alert-control" onClick={refreshAlerts}>
+          Destination for {alert.name} in {projectId}
         </button>
       ),
     });
@@ -182,23 +182,23 @@ describe('Watches panel — re-run labels say what they buy (ruling 4)', () => {
 
     const viewer = { id: 'p1', name: 'Viewer project', role: 'viewer' } as const;
     const viewerRender = render(
-      <WatchesPanel canEdit={canEditProject(viewer)} />,
+      <AlertsPanel canEdit={canEditProject(viewer)} />,
       { wrapper: EditionWrapper },
     );
-    await waitFor(() => expect(screen.getByTestId('watch-item')).toBeInTheDocument());
-    expect(screen.queryByTestId('edition-watch-control')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('run-watch')).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('alert-item')).toBeInTheDocument());
+    expect(screen.queryByTestId('edition-alert-control')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('check-alert')).not.toBeInTheDocument();
     viewerRender.unmount();
 
     const editor = { id: 'p1', name: 'Editor project', role: 'editor' } as const;
     render(
-      <WatchesPanel canEdit={canEditProject(editor)} />,
+      <AlertsPanel canEdit={canEditProject(editor)} />,
       { wrapper: EditionWrapper },
     );
-    await waitFor(() => expect(screen.getByTestId('edition-watch-control')).toHaveTextContent(
+    await waitFor(() => expect(screen.getByTestId('edition-alert-control')).toHaveTextContent(
       'Destination for Leads in canonical-project',
     ));
-    fireEvent.click(screen.getByTestId('edition-watch-control'));
-    await waitFor(() => expect(mockApi.listWatches).toHaveBeenCalledTimes(4));
+    fireEvent.click(screen.getByTestId('edition-alert-control'));
+    await waitFor(() => expect(mockApi.listAlerts).toHaveBeenCalledTimes(4));
   });
 });

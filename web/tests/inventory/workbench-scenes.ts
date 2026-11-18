@@ -164,12 +164,12 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await shot(page, 'Side panels', 'views-populated', 'src/workspace/ViewsPanel.tsx');
 
   await openDiscoverTab(page, 'Watches');
-  await expect(page.getByTestId('watches-empty')).toBeVisible();
-  await expect(page.getByTestId('watches-panel')).toHaveAttribute('aria-busy', 'false');
-  await shot(page, 'Side panels', 'watches-empty', 'src/components/WatchesPanel.tsx');
-  await page.getByTestId('new-watch-from-current-grid').click();
-  await expect(page.getByTestId('watch-create-composer')).toBeVisible();
-  await shot(page, 'Side panels', 'watch-create', 'src/components/WatchesPanel.tsx');
+  await expect(page.getByTestId('alerts-empty')).toBeVisible();
+  await expect(page.getByTestId('alerts-panel')).toHaveAttribute('aria-busy', 'false');
+  await shot(page, 'Side panels', 'alerts-empty', 'src/components/AlertsPanel.tsx');
+  await page.getByTestId('new-alert-from-current-grid').click();
+  await expect(page.getByTestId('alert-create-composer')).toBeVisible();
+  await shot(page, 'Side panels', 'watch-create', 'src/components/AlertsPanel.tsx');
 
   await openDiscoverTab(page, 'Notifications');
   await expect(page.getByTestId('notifications-panel')).toContainText('No notifications.');
@@ -278,13 +278,13 @@ export async function capturePopulatedPanelScenes(page: Page, shot: Shot) {
   await shot(page, 'Bottom dock', 'lineage-import-and-template', 'real local import and model-free map.template; src/workbench/LineagePanel.tsx');
 }
 
-/** Synthetic read-only card states. No source polling, watch evaluation or delivery occurs. */
+/** Synthetic read-only card states. No source polling, alert evaluation or delivery occurs. */
 export async function capturePanelCardScenes(page: Page, shot: Shot) {
   const { projectId, sheetId } = await createWorkbench(page, 'Synthetic card contents inventory');
   const timestamp = '2026-10-19T12:00:00Z';
   await page.clock.setFixedTime(new Date('2026-10-19T12:05:00Z'));
   const sourceId = 701;
-  const watchId = 702;
+  const alertId = 702;
   const pageInfo = { order: 'desc', offset: 0, limit: 20, total: 1, has_more: false, next_offset: null };
 
   // Wire shapes: projectSourceReadsHttpContracts.test.ts. The .invalid URL
@@ -320,24 +320,24 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     alerts: [], warnings: [{ code: 'synthetic_fixture', message: 'Synthetic fixture: one loaded poll has incomplete archive metadata.' }],
   };
 
-  // Wire shapes: watchesHttpContracts.test.ts. Both history outcomes are
+  // Wire shapes: alertsHttpContracts.test.ts. Both history outcomes are
   // presentation fixtures; the real Run control is never clicked.
-  const watchRun = {
-    id: 721, watch_id: watchId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
+  const alertCheck = {
+    id: 721, watch_id: alertId, status: 'ok', op_cursor_before: 0, op_cursor_after: 3,
     matched_rows: 12, new_rows: 2, error: null, error_code: null,
     resolved_query_hash: 'synthetic-planning-query', resolved_query: { kind: 'fts', q: 'planning budget' },
     started_at: timestamp, finished_at: timestamp,
   };
-  const watch = {
-    id: watchId, name: 'Synthetic fixture: planning applications and housing budget amendments across committee reports',
+  const alert = {
+    id: alertId, name: 'Synthetic fixture: planning applications and housing budget amendments across committee reports',
     scope: 'project', sheet_id: sheetId,
     query: { kind: 'fts', q: 'planning applications housing budget amendments public committee reports', mode: 'keyword', rerank: 'off', limit: 50 },
     query_version: 'frisket.query.v1', query_hash: 'synthetic-planning-query', detection_policy: { kind: 'new_matches' },
-    enabled: false, last_evaluated_op: 3, last_run_id: watchRun.id, last_status: 'ok',
-    created_at: timestamp, updated_at: timestamp, latest_run: watchRun,
+    enabled: false, last_evaluated_op: 3, last_run_id: alertCheck.id, last_status: 'ok',
+    created_at: timestamp, updated_at: timestamp, latest_run: alertCheck,
   };
-  const watchRuns = [watchRun, {
-    ...watchRun, id: 720, status: 'error', matched_rows: 0, new_rows: 0,
+  const alertChecks = [alertCheck, {
+    ...alertCheck, id: 720, status: 'error', matched_rows: 0, new_rows: 0,
     error: 'Synthetic fixture: evaluation interrupted; the last completed results remain available.',
     started_at: '2026-10-19T11:00:00Z', finished_at: '2026-10-19T11:00:00Z',
   }].map(run => ({ ...run, hits: [], hits_limit: 20, hits_truncated: false }));
@@ -352,7 +352,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   const notificationRoute = {
     id: 732, name: 'Synthetic fixture: daily digest for planning and housing committee record changes',
     enabled: false, owner_kind: 'project', owner_ref: projectId, recipient_actor_id: null,
-    channel_id: channel.id, source_kind: 'watch', source_ref_match: { watch_id: watchId }, event_kinds: [],
+    channel_id: channel.id, source_kind: 'watch', source_ref_match: { watch_id: alertId }, event_kinds: [],
     severity_min: 'info', delivery_mode: 'digest', digest_cadence: 'daily', digest_timezone: 'UTC',
     digest_anchor_time: '09:00', template_key: null, created_at: timestamp, updated_at: timestamp,
   };
@@ -367,12 +367,12 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     ['sources', [source]],
     [`sources/${sourceId}`, { ...source, runs: [sourceRun], runs_page: { ...sourcePage, latest_run: sourceRun, latest_run_loaded: true } }],
     [`sources/${sourceId}/health`, health],
-    ['watches', [watch]],
-    [`watches/${watchId}/runs`, { schema_version: 'frisket.watch_runs_page.v1', ...pageInfo, total: 2, hits_limit: 20, runs: watchRuns }],
+    ['watches', [alert]],
+    [`watches/${alertId}/runs`, { schema_version: 'frisket.watch_runs_page.v1', ...pageInfo, total: 2, hits_limit: 20, runs: alertChecks }],
     ['notifications/summary', {
       schema_version: 'frisket.notifications_summary.v1', total: 2, unseen: 2, seen: 0, read: 0, acknowledged: 0,
       by_severity: { info: 2 }, by_source_kind: { watch: 2 },
-      by_source_ref: [{ source_kind: 'watch', source_ref: { watch_id: watchId }, unseen: 2 }],
+      by_source_ref: [{ source_kind: 'watch', source_ref: { watch_id: alertId }, unseen: 2 }],
     }],
     ['notification-channels', { schema_version: 'frisket.notification_channels.v1', channels: [
       { ...channel, id: 730, kind: 'in_app', name: 'In-app', config: {}, has_secret: false }, channel,
@@ -385,7 +385,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
     const endpoint = new URL(request.url()).pathname.split(`/api/projects/${projectId}/`)[1];
     // Grid bootstrap reads distinct values through POST. Permit only that
     // receipt-free local query on our imported sheet, not action execution,
-    // source polling, watch evaluation or notification delivery mutations.
+    // source polling, alert evaluation or notification delivery mutations.
     const isColumnPreview = request.method() === 'POST'
       && endpoint === 'column-values/v1/preview'
       && request.postDataJSON()?.sheet_id === sheetId;
@@ -419,24 +419,24 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await shot(page, 'Panel cards', 'source-health-run-details', 'synthetic read-only API fixture; src/components/sources/SourceHealthDrawer.tsx; src/components/sources/SourceHealthContent.tsx', '[data-testid="source-health-drawer"]');
 
   await openDiscoverTab(page, 'Watches');
-  await expect(page.getByTestId('watch-item')).toHaveCount(1);
-  await page.getByTestId('toggle-watch-runs').click();
-  await expect(page.getByTestId('watch-run-history')).toContainText('evaluation interrupted');
-  await expect(page.getByTestId('watch-notification-count')).toHaveText('2');
-  await shot(page, 'Panel cards', 'paused-watch-with-history', 'synthetic read-only API fixture; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
-  const watchCard = page.getByTestId('watch-item');
-  await watchCard.getByTestId('rename-watch').click();
-  await watchCard.getByTestId('watch-rename-input').fill('');
-  await expect(watchCard.getByTestId('watch-rename-error')).toBeVisible();
-  await expect(watchCard.getByTestId('save-watch-rename')).toBeDisabled();
-  await shot(page, 'Panel cards', 'watch-rename-empty', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
-  await watchCard.getByTestId('watch-rename-input').fill('Planning and housing investigations — renamed draft');
-  await shot(page, 'Panel cards', 'watch-rename-draft', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="watch-item"]');
-  await watchCard.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await watchCard.getByTestId('delete-watch').click();
-  const deleteDialog = page.getByTestId('delete-watch-confirmation');
+  await expect(page.getByTestId('alert-item')).toHaveCount(1);
+  await page.getByTestId('toggle-alert-checks').click();
+  await expect(page.getByTestId('alert-check-history')).toContainText('evaluation interrupted');
+  await expect(page.getByTestId('alert-notification-count')).toHaveText('2');
+  await shot(page, 'Panel cards', 'paused-watch-with-history', 'synthetic read-only API fixture; src/components/WatchesPanel.tsx', '[data-testid="alert-item"]');
+  const alertCard = page.getByTestId('alert-item');
+  await alertCard.getByTestId('rename-alert').click();
+  await alertCard.getByTestId('alert-rename-input').fill('');
+  await expect(alertCard.getByTestId('alert-rename-error')).toBeVisible();
+  await expect(alertCard.getByTestId('save-alert-rename')).toBeDisabled();
+  await shot(page, 'Panel cards', 'watch-rename-empty', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="alert-item"]');
+  await alertCard.getByTestId('alert-rename-input').fill('Planning and housing investigations — renamed draft');
+  await shot(page, 'Panel cards', 'watch-rename-draft', 'synthetic read-only API fixture; unsaved draft; src/components/WatchesPanel.tsx', '[data-testid="alert-item"]');
+  await alertCard.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await alertCard.getByTestId('delete-alert').click();
+  const deleteDialog = page.getByTestId('delete-alert-confirmation');
   await expect(deleteDialog).toHaveJSProperty('open', true);
-  await shot(page, 'Panel cards', 'watch-delete-confirmation', 'synthetic read-only API fixture; deletion cancelled; src/components/WatchesPanel.tsx', '[data-testid="delete-watch-confirmation"]');
+  await shot(page, 'Panel cards', 'watch-delete-confirmation', 'synthetic read-only API fixture; deletion cancelled; src/components/WatchesPanel.tsx', '[data-testid="delete-alert-confirmation"]');
   await deleteDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(deleteDialog).toHaveCount(0);
 
@@ -456,7 +456,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await shot(page, 'Panel cards', 'notification-channel-draft', 'synthetic read-only API fixture; unsaved secret reference only; src/components/NotificationSettingsPanel.tsx', '[data-testid="notification-channel-form"]');
   await page.getByTestId('notification-route-name').fill('Planning and housing daily digest — draft');
   await page.getByTestId('notification-route-channel').selectOption(String(channel.id));
-  await page.getByTestId('notification-route-watch-id').fill(String(watchId));
+  await page.getByTestId('notification-route-alert-id').fill(String(alertId));
   await page.getByTestId('notification-route-mode').selectOption('digest');
   await page.getByTestId('notification-route-digest-cadence').selectOption('daily');
   await page.getByTestId('notification-route-digest-anchor').fill('09:00');

@@ -20,9 +20,9 @@ import {
 } from './compareViewStore';
 import { createPreviewViewStore, type PreviewViewStoreHandle } from './previewViewStore';
 import {
-  createWatchRunLinkStore,
-  type WatchRunLinkStoreHandle,
-} from './watchRunLinkStore';
+  createAlertCheckLinkStore,
+  type AlertCheckLinkStoreHandle,
+} from './alertCheckLinkStore';
 import { createChromeStore, type ChromeStoreHandle } from './chromeStore';
 import { createActSurfaceStore, type ActSurfaceStoreHandle } from './actSurfaceStore';
 import {
@@ -97,7 +97,7 @@ export interface WorkspaceStores {
    *  collaborators through bind/usePreviewViewHandle.ts. */
   previewView: PreviewViewStoreHandle;
   /** In-memory watch/notification handoff; deliberately survives sheet changes. */
-  watchRunLink: WatchRunLinkStoreHandle;
+  alertCheckLink: AlertCheckLinkStoreHandle;
   /** Chrome: action panel/command palette/ask popover/discover/ribbon/
    *  promoted views/open split/document view + the former
    *  workspaceUiReducer remnants. Constructed WITH
@@ -142,7 +142,7 @@ export interface WorkspaceStores {
   // only; none of the three is constructed by WEB-01.
   /** Disposes every controller/subscription this instance owns. gridView,
    *  rowCache, selection, detail, savedViews, workView, compareView,
-   *  watchRunLink, chrome, and actSurface are plain state containers with no
+   *  alertCheckLink, chrome, and actSurface are plain state containers with no
    *  long-lived subscriptions of their own, so their share of this is a no-op;
    *  pluginLayout.dispose() clears its timer/visibility listener and invalidates
    *  its pending runtime-index generation;
@@ -184,10 +184,10 @@ export function createWorkspaceStores(
   // ids repeat across projects (SheetGrid.tsx's widthsKey comment), so two
   // projects sharing a sheet id must never share a cache slot.
   const rowCache = createRowCacheStore();
-  // selection/detail/savedViews/workView/compareView/previewView/watchRunLink are not project-scoped
+  // selection/detail/savedViews/workView/compareView/previewView/alertCheckLink are not project-scoped
   // persistence either — every field they own is either pure in-memory
   // session state (selection, detail's drawers, workView, compareView, previewView,
-  // watchRunLink) or a
+  // alertCheckLink) or a
   // plain component-state list re-fetched per sheet (savedViews' `views`,
   // from api.listViews on the active-sheet transition), matching gridView/job's
   // precedent above. Preview receives projectId only for its existing product-
@@ -198,7 +198,7 @@ export function createWorkspaceStores(
   const workView = createWorkViewStore();
   const compareView = createCompareViewStore();
   const previewView = createPreviewViewStore(projectApi, projectId);
-  const watchRunLink = createWatchRunLinkStore();
+  const alertCheckLink = createAlertCheckLinkStore();
   // The route owner is assembled after its reset participants so its private
   // applyRoute can invoke the fixed cross-store matrix synchronously.
   const route = createRouteStore(projectId, {
@@ -271,7 +271,7 @@ export function createWorkspaceStores(
     workView,
     compareView,
     previewView,
-    watchRunLink,
+    alertCheckLink,
     chrome,
     actSurface,
     pluginLayout,

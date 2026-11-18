@@ -15,7 +15,7 @@ const DISCOVER_MAX_WIDTH = 520;
 const DISCOVER_DEFAULT_WIDTH = 290;
 const DISCOVER_RAIL_WIDTH = 48;
 
-/** A Discover tab: the four first-party tabs (Filter · Sources · Watches ·
+/** A Discover tab: the four first-party tabs (Filter · Sources · Alerts ·
  *  Embeddings) plus any plugin leftSidebar panel re-homed here as an appended
  *  tab. `id` is the first-party tab name (Filter retains the internal id
  *  `Facets`) or the plugin panel's contribution id; `slug` is its testid-safe
@@ -148,7 +148,7 @@ function DiscoverTabStrip({
 
 /**
  * Discover region — panel ⇄ rail. A right-edge tabbed panel (Filter · Sources
- * · Watches · Embeddings, plus any plugin leftSidebar panels re-homed as
+ * · Alerts · Embeddings, plus any plugin leftSidebar panels re-homed as
  * appended tabs) that hosts the re-homed panel contributions, collapsible to
  * a 48px icon rail. It renders side by side with the Inspect Detail column
  * (they coexist).

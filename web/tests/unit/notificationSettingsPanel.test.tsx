@@ -188,7 +188,7 @@ describe('NotificationSettingsPanel configurable email', () => {
     await waitFor(() => expect(screen.getByTestId('notification-channel-secret-ref')).toHaveValue(''));
     fireEvent.change(screen.getByTestId('notification-route-name'), { target: { value: 'Council digest' } });
     fireEvent.change(screen.getByTestId('notification-route-mode'), { target: { value: 'digest' } });
-    fireEvent.change(screen.getByTestId('notification-route-watch-id'), { target: { value: '7' } });
+    fireEvent.change(screen.getByTestId('notification-route-alert-id'), { target: { value: '7' } });
     fireEvent.change(screen.getByTestId('notification-route-digest-anchor'), { target: { value: '14:30' } });
     fireEvent.click(screen.getByTestId('notification-create-route'));
     await waitFor(() => expect(projectApi.createNotificationRoute).toHaveBeenCalledWith(expect.objectContaining({

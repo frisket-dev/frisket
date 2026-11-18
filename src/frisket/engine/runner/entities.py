@@ -3,7 +3,7 @@
 The OpenRefine-style cluster panel needs something to power it: a way to group
 near-duplicate values in a column into clusters of likely-the-same thing, and a
 way to *resolve* a cluster to a single canonical value materialised into an
-``Entities`` sheet (so watchlists / joins can hang off stable entity ids).
+``Entities`` sheet (so alerts / joins can hang off stable entity ids).
 
 The clustering itself is deterministic and network-free string fingerprinting
 (OpenRefine's "key collision" + n-gram methods); those pure helpers live in

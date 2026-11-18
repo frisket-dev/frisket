@@ -168,9 +168,9 @@ _SCHEDULED_EMBEDDINGS = _Sweep(
     "frisket.engine.jobs:enqueue_due_scheduled_refreshes",
     "embedding_scheduler_skipped",
 )
-_WATCHES = _Sweep(
-    "frisket.engine.jobs.watches:enqueue_due_watch_evaluations",
-    "watch_scheduler_skipped",
+_ALERTS = _Sweep(
+    "frisket.engine.jobs.alerts:enqueue_due_alert_evaluations",
+    "alert_scheduler_skipped",
 )
 _NOTIFICATION_DIGESTS = _Sweep(
     "frisket.engine.jobs:enqueue_due_notification_digests",
@@ -199,7 +199,7 @@ _SCHEDULERS = (
     _Scheduler(
         "notification-digest-scheduler",
         "schedule_notification_digests_interval",
-        (_WATCHES, _NOTIFICATION_DIGESTS),
+        (_ALERTS, _NOTIFICATION_DIGESTS),
     ),
 )
 

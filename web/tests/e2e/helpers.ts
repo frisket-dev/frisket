@@ -1144,7 +1144,7 @@ export async function openHistory(page: Page): Promise<void> {
 
 /**
  * Activate a Discover-panel tab (workbench-ia-right-edge-v1). The Sources /
- * Facets / Watches / Embeddings / Notifications panels re-homed from the left
+ * Facets / Alerts / Embeddings / Notifications panels re-homed from the left
  * sidebar into the Discover panel (Notifications split into its own sibling
  * tab per discover-notifications-tab-v1); only the active tab's body renders.
  * Expands the panel from the rail first if it is collapsed.

@@ -13,12 +13,12 @@ from frisket.authoring.workbench.plugin_runtime_shared import (
 from frisket.server.routes.notifications import register_notification_routes
 from frisket.server.routes.projects import register_project_lifecycle_routes
 from frisket.server.routes.views import register_view_routes
-from frisket.server.routes.watches import register_watch_routes
+from frisket.server.routes.alerts import register_alert_routes
 from frisket.server.routes.workbench import register_workbench_routes
 from frisket.server.services.notifications import NotificationRequestError
 from frisket.server.services.projects import ProjectNotFound
 from frisket.server.services.views import ViewNotFound
-from frisket.server.services.watches import WatchNotFound
+from frisket.server.services.alerts import AlertNotFound
 
 
 Registrar = Callable[..., None]
@@ -63,10 +63,10 @@ class _RaisingService:
             b'{"detail":"view not found"}',
         ),
         (
-            register_watch_routes,
+            register_alert_routes,
             "POST",
             "/api/projects/p/watches/9/run",
-            WatchNotFound("service text is intentionally hidden"),
+            AlertNotFound("service text is intentionally hidden"),
             404,
             b'{"detail":"alert not found"}',
         ),
@@ -114,7 +114,7 @@ def test_registrar_translates_its_typed_service_errors_standalone(
         (register_project_lifecycle_routes, "GET", "/api/projects/p"),
         (register_notification_routes, "GET", "/api/projects/p/notifications"),
         (register_view_routes, "GET", "/api/projects/p/views/9"),
-        (register_watch_routes, "POST", "/api/projects/p/watches/9/run"),
+        (register_alert_routes, "POST", "/api/projects/p/watches/9/run"),
         (
             register_workbench_routes,
             "GET",
