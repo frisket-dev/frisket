@@ -6,6 +6,15 @@ import { returningUserStorageState } from './playwright.returning-user';
 const configuredWorkers = Number(process.env.FRISKET_E2E_WORKERS ?? '2');
 const workers = Number.isFinite(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 1;
 const stack = localStack();
+// FRISKET_E2E_TRACE overrides Playwright's trace mode (the nightly sets
+// retain-on-failure so every failed attempt leaves a trace to download).
+const trace = (process.env.FRISKET_E2E_TRACE || 'on-first-retry') as
+  | 'off'
+  | 'on'
+  | 'retain-on-failure'
+  | 'on-first-retry'
+  | 'on-all-retries'
+  | 'retain-on-first-failure';
 
 // E2E suite against a LIVE local stack:
 //   backend  uv run frisket <workspace> <dynamic-port>
@@ -30,7 +39,7 @@ export default defineConfig({
     storageState: returningUserStorageState(stack.baseURL),
     actionTimeout: 8_000,
     navigationTimeout: 20_000,
-    trace: 'on-first-retry',
+    trace,
     screenshot: 'only-on-failure',
     // media.spec plays audio programmatically; headless Chromium blocks
     // autoplay without this flag. The swiftshader flag lets deck.gl's WebGL

@@ -116,6 +116,7 @@ jobs:
           FRISKET_CACHE_MODE: replay_strict
           PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/e2e-report-${{ matrix.shard }}.json
           SHARD: ${{ matrix.shard }}
+          FRISKET_E2E_TRACE: retain-on-failure
         run: |
           set +e
           npx playwright test --config playwright/playwright.config.ts --shard "$SHARD/$SHARDS" \
@@ -134,6 +135,13 @@ jobs:
           path: ${{ runner.temp }}/e2e-report-${{ matrix.shard }}.json
           if-no-files-found: ignore
           retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() }}
+        with:
+          name: e2e-traces-${{ matrix.shard }}
+          path: web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
 
   # Judges the merged shard reports, writes the job summary, and opens,
   # comments on or closes the one `nightly-e2e` issue on main. A cancelled

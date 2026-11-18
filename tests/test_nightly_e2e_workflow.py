@@ -41,6 +41,16 @@ def test_keyless_sharded_and_bounded():
     assert shards == [str(n) for n in range(1, int(config["env"]["SHARDS"]) + 1)]
     suite = step("shard", "npx playwright test")
     assert suite["env"]["FRISKET_CACHE_MODE"] == "replay_strict"
+    assert suite["env"]["FRISKET_E2E_TRACE"] == "retain-on-failure"
+    traces = next(
+        s
+        for s in jobs["shard"]["steps"]
+        if s.get("with", {}).get("name", "").startswith("e2e-traces-")
+    )
+    assert traces["uses"].startswith("actions/upload-artifact@")
+    assert "always()" in traces["if"]
+    assert traces["with"]["path"] == "web/test-results"
+    assert traces["with"]["retention-days"] == "7"
     writers = [k for k, j in jobs.items() if (j.get("permissions") or {}).get("issues")]
     assert writers == ["verdict"]
 
