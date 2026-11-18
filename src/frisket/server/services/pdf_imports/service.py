@@ -43,6 +43,7 @@ from frisket.engine.store.disk_capacity import (
     DISK_HEADROOM_BYTES,
     require_disk_headroom,
 )
+from frisket.redaction import safe_error
 from frisket.server.services.import_bulk_sources import (
     fsync_directory,
     is_junk_path,
@@ -62,8 +63,6 @@ from .previews import (
     thumbnail as render_thumbnail,
 )
 from .semantic_setup import bind_semantic_setup_consent, semantic_setup_facts
-from frisket.redaction import safe_error
-
 from .storage import (
     PdfDraftStore,
     PdfImportDraftError,
