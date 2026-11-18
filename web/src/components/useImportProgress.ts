@@ -31,6 +31,7 @@ import {
   subscribeImportSessions,
 } from './importProgressSession';
 import { errorMessage } from '../hooks/errorMessage';
+import { ApiError } from '../api/contractErrors';
 
 const POLL_MS = 2_000;
 const ACTIVE_CHILD_STATES = new Set(['queued', 'running', 'stalled', 'orphaned']);
@@ -81,6 +82,20 @@ export interface ImportRetryConsent {
   confirmation: string;
   estimate: RunEstimate;
   pages: number;
+}
+
+/** The server refuses a retry of an undone import because its rows are gone;
+ * the person is told the import was undone. */
+async function retryOfLiveImport<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409
+      && error.message.includes('rows are no longer available')) {
+      throw new Error('This import was undone');
+    }
+    throw error;
+  }
 }
 
 export function pendingImportRowCount(activity: ImportActivity | null): number {
@@ -429,9 +444,13 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       setRetryConsent(null);
       const { importRef } = activity;
       void command(importRef, async () => {
-        const estimated = await estimateImportPreparationRetry(projectId, importRef);
+        const estimated = await retryOfLiveImport(
+          () => estimateImportPreparationRetry(projectId, importRef),
+        );
         if (!estimated.estimate.requires_confirmation) {
-          return retryImportPreparation(projectId, importRef, estimated.planToken, null);
+          return retryOfLiveImport(
+            () => retryImportPreparation(projectId, importRef, estimated.planToken, null),
+          );
         }
         const confirmation = estimated.estimate.promise_set_hash;
         if (!confirmation) throw new Error('The retry estimate is missing its consent token.');
@@ -447,9 +466,9 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     },
     confirmRetry(consent) {
       setRetryConsent(null);
-      void command(consent.importRef, () => retryImportPreparation(
+      void command(consent.importRef, () => retryOfLiveImport(() => retryImportPreparation(
         projectId, consent.importRef, consent.planToken, consent.confirmation,
-      ));
+      )));
     },
     cancelRetry() {
       setRetryConsent(null);

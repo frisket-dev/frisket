@@ -4,6 +4,8 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../../src/api/contractErrors';
+
 const listImportSessions = vi.hoisted(() => vi.fn());
 const cancelImportSession = vi.hoisted(() => vi.fn());
 const resolveImportSession = vi.hoisted(() => vi.fn());
@@ -276,6 +278,19 @@ describe('persistent import progress controller', () => {
       'project-1', 'import-1', 'retry:paid', 'hash-3',
     ));
     expect(screen.queryByRole('button', { name: 'Consent to 3 pages' })).not.toBeInTheDocument();
+  });
+
+  it('says an undone import was undone when its retry is refused', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockRejectedValue(
+      new ApiError(409, "This import's rows are no longer available"),
+    );
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This import was undone');
+    expect(retryImportPreparation).not.toHaveBeenCalled();
   });
 
   it('shows a changed retry estimate and lets the person estimate again', async () => {
