@@ -17,7 +17,7 @@ from pydantic import BaseModel, JsonValue, RootModel, ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from frisket.server.app import create_app
 
 
@@ -882,13 +882,13 @@ def test_health_dto_is_explicit_and_keeps_redaction_separate_from_raw_reads() ->
         "alerts": [
             {
                 "code": "unsupported_source_schedule",
-                "message": "Source schedule could not be parsed for stale detection.",
+                "message": "Feed schedule could not be parsed for stale detection.",
             }
         ],
         "warnings": [
             {
                 "code": "sparse_source_run_metadata",
-                "message": "Some loaded source runs lack v1 runtime metadata; row deltas and costs may be incomplete.",
+                "message": "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
                 "run_ids": [8],
             },
         ],
@@ -1082,7 +1082,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
     workspace = app.state.workspace
     project_id = str(workspace.create("live project source reads")["id"])
     project = workspace.get(project_id)
-    store = SourceStore(project)
+    store = FeedStore(project)
     config_cases = (
         ("object", {"nested": ["value"]}),
         ("array", ["value", 7]),
@@ -1093,7 +1093,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
     )
     source_ids: list[int] = []
     for label, config in config_cases:
-        source_id = store.add_source(
+        source_id = store.add_feed(
             f"config-{label}",
             kind="rss",
             url=None,
@@ -1112,7 +1112,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         ("raw-source-cursor", None, None, detailed_source_id),
     )
     project.db.commit()
-    run_id = store.start_source_run(detailed_source_id, cursor_before="raw-before")
+    run_id = store.start_feed_check(detailed_source_id, cursor_before="raw-before")
     job_id = workspace.queue.enqueue(
         "source.poll",
         {"project_id": project_id, "source_id": detailed_source_id},
@@ -1303,7 +1303,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         assert health["warnings"] == [
             {
                 "code": "sparse_source_run_metadata",
-                "message": "Some loaded source runs lack v1 runtime metadata; row deltas and costs may be incomplete.",
+                "message": "Some loaded feed checks lack v1 runtime metadata; row deltas and costs may be incomplete.",
                 "run_ids": [run_id],
             }
         ]
@@ -1322,7 +1322,7 @@ def test_source_read_error_oracles_preserve_existing_http_behavior(
     workspace = app.state.workspace
     project_id = str(workspace.create("source read errors")["id"])
     project = workspace.get(project_id)
-    source_id = SourceStore(project).add_source("source")
+    source_id = FeedStore(project).add_feed("source")
     missing_source_id = source_id + 100
 
     with TestClient(app) as client:
@@ -1336,7 +1336,7 @@ def test_source_read_error_oracles_preserve_existing_http_behavior(
                 f"/api/projects/{project_id}/sources/{missing_source_id}{suffix}"
             )
             assert response.status_code == 404
-            assert response.json() == {"detail": "source not found"}
+            assert response.json() == {"detail": "feed not found"}
 
         detail_bad_offset = client.get(
             f"/api/projects/{project_id}/sources/{source_id}?runs_offset=-1"

@@ -1,10 +1,10 @@
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 
 def test_manual_feed_http_returns_destination_and_visible_cancellable_job(client):
     pid = client.post("/api/projects", json={"name": "Feed"}).json()["id"]
     project = client.app.state.workspace.get(pid)
-    sid = SourceStore(project).add_source(
+    sid = FeedStore(project).add_feed(
         "My feed", kind="rss", url="https://example.test/feed"
     )
     response = client.post(

@@ -40,7 +40,7 @@ from frisket.engine.jobs.queue import (
     normalize_queue_organization_id,
 )
 
-SOURCE_POLL_KIND = "source.poll"
+FEED_POLL_KIND = "source.poll"
 
 
 def _hosted(tmp_path, name="hosted.db"):
@@ -157,7 +157,7 @@ def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp
     filter accepts both spellings."""
     queue = _hosted(tmp_path)
     job_id = queue.enqueue(
-        SOURCE_POLL_KIND,
+        FEED_POLL_KIND,
         {
             "project_id": "news",
             "storage_org_id": 23,

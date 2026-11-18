@@ -67,10 +67,10 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from frisket import cli
-from frisket.engine.jobs import SOURCE_POLL_KIND, open_queue
+from frisket.engine.jobs import FEED_POLL_KIND, open_queue
 from frisket.engine.jobs.queue import QUEUE_DB_NAME, JobQueue
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from frisket.team.app import TeamConfig, create_team_app
 from tests.http_test_helpers import v1_action_from_canonical_run_spec
 from tests.team_setup_helpers import claim_server, sign_in_with_magic_link
@@ -283,7 +283,7 @@ class TestSchedulerRootLayoutMatchesTeamApp:
     def test_no_arg_scheduler_roots_fall_back_to_flat_data_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from frisket.cli import _source_scheduler_roots
+        from frisket.cli import _feed_scheduler_roots
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -294,14 +294,14 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         # layout) -- the flat data dir itself must be the discovered root,
         # paired with storage_org_id=None: a flat layout has no claimed
         # per-organization storage identity at all.
-        assert _source_scheduler_roots(None) == [(data_dir, None)]
+        assert _feed_scheduler_roots(None) == [(data_dir, None)]
 
         # Once a legacy per-organization layout DOES exist, it still wins (unchanged
         # behavior for the true multi-tenant hosted shape), paired with the
         # real parsed organization id.
         organization_root = data_dir / "projects" / "7"
         organization_root.mkdir(parents=True)
-        assert _source_scheduler_roots(None) == [(organization_root, 7)]
+        assert _feed_scheduler_roots(None) == [(organization_root, 7)]
 
     def test_flat_data_dir_with_numeric_basename_is_not_misread_as_an_organization(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -313,14 +313,14 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         makes claimed_project_location build the wrong path
         (<data_dir>/projects/7/<slug>.frisket instead of
         <data_dir>/<slug>.frisket) and the scheduled job fails/retries."""
-        from frisket.cli import _source_scheduler_roots
+        from frisket.cli import _feed_scheduler_roots
 
         numeric_data_dir = tmp_path / "7"
         numeric_data_dir.mkdir()
         monkeypatch.delenv("FRISKET_SOURCE_WORKSPACE_ROOTS", raising=False)
         monkeypatch.setenv("FRISKET_DATA_DIR", str(numeric_data_dir))
 
-        roots = _source_scheduler_roots(None)
+        roots = _feed_scheduler_roots(None)
         assert roots == [(numeric_data_dir, None)]
 
     def test_stray_nonnumeric_projects_dir_does_not_suppress_flat_layout(
@@ -332,7 +332,7 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         real flat <data_dir>/<slug>.frisket bundles must not suppress the
         flat fallback and misroute discovery into the (bogus) hosted
         per-organization layout."""
-        from frisket.cli import _source_scheduler_roots
+        from frisket.cli import _feed_scheduler_roots
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
@@ -344,7 +344,7 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         # No REAL (numeric) per-organization root exists, so the flat data dir itself
         # is still the discovered root -- the stray projects/cache/ dir must
         # not have been counted as proof of a hosted layout.
-        assert _source_scheduler_roots(None) == [(data_dir, None)]
+        assert _feed_scheduler_roots(None) == [(data_dir, None)]
 
     def test_standalone_worker_schedules_due_source_under_flat_team_data_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -395,7 +395,7 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         # The team app's real bundle layout: <data_dir>/<slug>.frisket
         # directly, no projects/ nesting at all.
         p = Project.create(data_dir / "flat-team.frisket", name="flat-team")
-        sid = SourceStore(p).add_source(
+        sid = FeedStore(p).add_feed(
             name="Flat Feed",
             kind="rss",
             url="https://example.com/feed.xml",
@@ -413,8 +413,8 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         assert cli.worker(["--database-url", run_queue_url, "--drain"]) == 0
 
         jobs = q.list_jobs(status="done")
-        assert len([job for job in jobs if job.kind == SOURCE_POLL_KIND]) == 1
+        assert len([job for job in jobs if job.kind == FEED_POLL_KIND]) == 1
         p2 = Project(data_dir / "flat-team.frisket")
-        assert SourceStore(p2).source_runs(sid)[0]["status"] == "ok"
+        assert FeedStore(p2).feed_checks_page(sid)[0]["status"] == "ok"
         p2.close()
         q.close()

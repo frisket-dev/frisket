@@ -126,7 +126,7 @@ class StreamingSheetWriter:
         self._params_hash = params_hash
         self._action_id = action_id
         self._receipt_id = receipt_id
-        self._source_ref = source_ref
+        self._feed_ref = source_ref
         self._producer_id = producer_id
         self._warnings = [str(warning) for warning in warnings]
         self._row_count = int(row_count)
@@ -841,11 +841,11 @@ class StreamingSheetWriter:
     def _completed_session_receipt(
         self, receipt: Receipt, *, row_count: int, status: str
     ) -> Receipt:
-        if self._source_ref.get("update_relationship") is not None:
+        if self._feed_ref.get("update_relationship") is not None:
             return self._completed_update_receipt(
                 receipt, row_count=row_count, status=status
             )
-        source = self._source_ref
+        source = self._feed_ref
         outputs = [
             ReceiptIO(
                 name=self._requested_sheet_name,
@@ -992,7 +992,7 @@ class StreamingSheetWriter:
             return self._publication
         self._require_open()
         observed_reads = [dict(read) for read in reads]
-        source = dict(source_ref) if source_ref is not None else self._source_ref
+        source = dict(source_ref) if source_ref is not None else self._feed_ref
         db = self.project.db
         try:
             with write_transaction(db):

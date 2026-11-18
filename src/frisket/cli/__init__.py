@@ -51,7 +51,7 @@ def _cloud_project_roots() -> list[SchedulerRoot]:
     ``FRISKET_DATA_DIR/projects/<org_id>/*.frisket``.
 
     Only directories whose name is a valid positive storage-organization id are
-    accepted. This is not just cosmetic: ``_source_scheduler_roots`` treats
+    accepted. This is not just cosmetic: ``_feed_scheduler_roots`` treats
     a non-empty result here as proof the hosted per-organization layout is in use and
     lets it suppress the flat single-organization fallback (the ``or`` below); a
     stray non-numeric directory under ``projects/`` (a cache dir, a
@@ -109,7 +109,7 @@ def _flat_data_dir_scheduler_root() -> list[SchedulerRoot]:
     return [(root, None)] if root.is_dir() else []
 
 
-def _source_scheduler_roots(workspace: Path | None) -> list[SchedulerRoot]:
+def _feed_scheduler_roots(workspace: Path | None) -> list[SchedulerRoot]:
     raw = os.environ.get("FRISKET_SOURCE_WORKSPACE_ROOTS")
     if raw:
         return [
@@ -161,8 +161,8 @@ class _Sweep:
     count: Callable[[Any], int] = len
 
 
-_SOURCE_POLLS = _Sweep(
-    "frisket.engine.jobs:enqueue_due_source_polls", "source_scheduler_skipped"
+_FEED_POLLS = _Sweep(
+    "frisket.engine.jobs:enqueue_due_feed_polls", "source_scheduler_skipped"
 )
 _SCHEDULED_EMBEDDINGS = _Sweep(
     "frisket.engine.jobs:enqueue_due_scheduled_refreshes",
@@ -190,7 +190,7 @@ class _Scheduler:
 
 
 _SCHEDULERS = (
-    _Scheduler("source-scheduler", "schedule_sources_interval", (_SOURCE_POLLS,)),
+    _Scheduler("source-scheduler", "schedule_sources_interval", (_FEED_POLLS,)),
     _Scheduler(
         "embedding-scheduler",
         "schedule_embeddings_interval",
@@ -569,7 +569,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
             register_model_pull_handler(
                 registry, workspace_root=handler_root, queue=queue
             )
-    source_roots = _source_scheduler_roots(workspace)
+    feed_roots = _feed_scheduler_roots(workspace)
 
     w = Worker(
         queue,
@@ -582,12 +582,12 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     schedulers: list[threading.Thread] = []
     for scheduler in _SCHEDULERS:
         interval = getattr(args, scheduler.interval_option)
-        if interval <= 0 or not source_roots:
+        if interval <= 0 or not feed_roots:
             continue
 
         def tick(sweeps: tuple[_Sweep, ...] = scheduler.sweeps) -> None:
             for sweep in sweeps:
-                _sweep(sweep, queue, source_roots, project_opener=project_opener)
+                _sweep(sweep, queue, feed_roots, project_opener=project_opener)
 
         if args.drain:
             tick()

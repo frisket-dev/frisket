@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from frisket.ops.netguard import url_is_safe
 from frisket.engine.store.cell_writes import create_base_cell_producer
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from frisket.engine.store.project import Project
@@ -287,7 +287,7 @@ def ingest_rss(
     url = source["url"]
     if not url:
         error = "rss source has no url"
-        SourceStore(project).record_source_run(
+        FeedStore(project).record_feed_check(
             source_id, new_rows=0, status="error", error=error
         )
         raise IngestError(error)
@@ -296,7 +296,7 @@ def ingest_rss(
     try:
         text = fetch(url)
     except Exception as exc:  # noqa: BLE001 - recorded against the run
-        SourceStore(project).record_source_run(
+        FeedStore(project).record_feed_check(
             source_id, new_rows=0, status="error", error=str(exc)
         )
         raise IngestError(str(exc)) from exc
@@ -305,7 +305,7 @@ def ingest_rss(
     if getattr(parsed, "bozo", False):
         exc = getattr(parsed, "bozo_exception", None)
         error = f"rss parse error: {exc}" if exc else "rss parse error"
-        SourceStore(project).record_source_run(
+        FeedStore(project).record_feed_check(
             source_id, new_rows=0, status="error", error=error
         )
         raise IngestError(error)
@@ -316,7 +316,7 @@ def ingest_rss(
     if sheet_id is None or sheet_id not in sheet_ids:
         title = (getattr(parsed, "feed", {}) or {}).get("title") or source["name"]
         sheet_id = project.add_sheet(str(title)[:80] or "feed")
-        SourceStore(project).update_source(source_id, sheet_id=sheet_id)
+        FeedStore(project).update_feed(source_id, sheet_id=sheet_id)
 
     seen = _load_cursor(source)
 
@@ -348,7 +348,7 @@ def ingest_rss(
     total_new = len(new_records) + len(revision_records)
     if total_new == 0:
         # still log the poll so monitoring/forecast see it
-        run_id = SourceStore(project).record_source_run(
+        run_id = FeedStore(project).record_feed_check(
             source_id, new_rows=0, status="ok", cursor=json.dumps(seen)
         )
         return {
@@ -409,7 +409,7 @@ def ingest_rss(
     ]
 
     # --- advance bookkeeping + persist dedup cursor ---
-    run_id = SourceStore(project).record_source_run(
+    run_id = FeedStore(project).record_feed_check(
         source_id,
         new_rows=total_new,
         status="ok",

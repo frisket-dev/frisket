@@ -171,19 +171,19 @@ def _stamp_old(db):
 def test_upgrade_poll_keeps_deleted_legacy_source_item(tmp_path, changed):
     from contextlib import closing
 
-    from frisket.engine.executor.source_poll_action import (
-        _materialize_registered_source_poll_in_txn,
+    from frisket.engine.executor.feed_poll_action import (
+        _materialize_registered_feed_poll_in_txn,
     )
     from frisket.engine.store import Project
-    from frisket.engine.store.sources import SourceStore
-    from frisket.server.sources.runtime import SourcePollItem, SourcePollResult
+    from frisket.engine.store.feeds import FeedStore
+    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
     from tests.engine.historical_schema import restore_pre_domain_schema
 
     path = tmp_path / "feed.frisket"
     with closing(Project.create(path)) as project:
         sheet = project.add_sheet("Feed")
-        SourceStore(project).add_source("Unrelated", kind="rss")
-        source = SourceStore(project).add_source("Feed", kind="rss", sheet_id=sheet)
+        FeedStore(project).add_feed("Unrelated", kind="rss")
+        source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
         columns = {
             name: project.add_column(sheet, name, type=kind)
             for name, kind in (
@@ -222,16 +222,16 @@ def test_upgrade_poll_keeps_deleted_legacy_source_item(tmp_path, changed):
             (f"source:{source}", row),
         ).fetchone()
         assert json.loads(observed[0])[str(columns["title"])] == "Original"
-        source_before = dict(SourceStore(project).get_source(source))
+        source_before = dict(FeedStore(project).get_feed(source))
         with project.db:
-            result = _materialize_registered_source_poll_in_txn(
+            result = _materialize_registered_feed_poll_in_txn(
                 project,
                 project.db.cursor(),
-                source_before=source_before,
-                source_run_id=run,
-                poll_result=SourcePollResult(
+                feed_before=source_before,
+                feed_check_id=run,
+                poll_result=FeedCheckResult(
                     items=[
-                        SourcePollItem(
+                        FeedItem(
                             dedupe_key="entry",
                             row={"title": "Revised" if changed else "Original"},
                         )
@@ -258,18 +258,18 @@ def test_upgrade_poll_tracks_latest_legacy_revision_without_changing_old_rows(
 ):
     from contextlib import closing
 
-    from frisket.engine.executor.source_poll_action import (
-        _materialize_registered_source_poll_in_txn,
+    from frisket.engine.executor.feed_poll_action import (
+        _materialize_registered_feed_poll_in_txn,
     )
     from frisket.engine.store import Project
-    from frisket.engine.store.sources import SourceStore
-    from frisket.server.sources.runtime import SourcePollItem, SourcePollResult
+    from frisket.engine.store.feeds import FeedStore
+    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
     from tests.engine.historical_schema import restore_pre_domain_schema
 
     path = tmp_path / "revisions.frisket"
     with closing(Project.create(path)) as project:
         sheet = project.add_sheet("Feed")
-        source = SourceStore(project).add_source("Feed", kind="rss", sheet_id=sheet)
+        source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
         columns = {
             name: project.add_column(sheet, name, type=kind)
             for name, kind in (
@@ -310,13 +310,13 @@ def test_upgrade_poll_tracks_latest_legacy_revision_without_changing_old_rows(
         project.db.commit()
     with closing(Project(path)) as project:
         with project.db:
-            result = _materialize_registered_source_poll_in_txn(
+            result = _materialize_registered_feed_poll_in_txn(
                 project,
                 project.db.cursor(),
-                source_before=dict(SourceStore(project).get_source(source)),
-                source_run_id=run,
-                poll_result=SourcePollResult(
-                    items=[SourcePollItem(dedupe_key="entry", row={"title": "New"})]
+                feed_before=dict(FeedStore(project).get_feed(source)),
+                feed_check_id=run,
+                poll_result=FeedCheckResult(
+                    items=[FeedItem(dedupe_key="entry", row={"title": "New"})]
                 ),
             )
         assert result["new_rows"] == 0

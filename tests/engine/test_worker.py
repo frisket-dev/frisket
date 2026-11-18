@@ -29,7 +29,7 @@ from frisket.engine.jobs import (
 )
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from frisket.execution.provider import open_execution_composition
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
@@ -855,14 +855,14 @@ class TestCli:
         import httpx
 
         from frisket import cli, ingest
-        from frisket.engine.jobs import SOURCE_POLL_KIND, open_queue
+        from frisket.engine.jobs import FEED_POLL_KIND, open_queue
         from frisket.engine.store import Project
 
         project_root = tmp_path / "projects" / "1"
         queue_root = tmp_path / "queue"
         project_root.mkdir(parents=True)
         p = Project.create(project_root / "source-cli.frisket", name="source-cli")
-        sid = SourceStore(p).add_source(
+        sid = FeedStore(p).add_feed(
             name="CLI Feed",
             kind="rss",
             url="https://example.com/feed.xml",
@@ -910,7 +910,7 @@ class TestCli:
         monkeypatch.setattr(httpx, "Client", FakeClient)
         q = open_queue(workspace=queue_root)
         jid = q.enqueue(
-            SOURCE_POLL_KIND,
+            FEED_POLL_KIND,
             {
                 "project_id": "source-cli",
                 "source_id": sid,
@@ -925,7 +925,7 @@ class TestCli:
         assert job.status == "done"
         assert job.result["new_rows"] == 1
         p2 = Project(project_root / "source-cli.frisket")
-        assert SourceStore(p2).source_runs(sid)[0]["status"] == "ok"
+        assert FeedStore(p2).feed_checks_page(sid)[0]["status"] == "ok"
         p2.close()
         q.close()
 
@@ -934,7 +934,7 @@ class TestCli:
         import httpx
 
         from frisket import cli, ingest
-        from frisket.engine.jobs import SOURCE_POLL_KIND, open_queue
+        from frisket.engine.jobs import FEED_POLL_KIND, open_queue
         from frisket.engine.store import Project
 
         monkeypatch.delenv("FRISKET_DATA_DIR", raising=False)
@@ -978,7 +978,7 @@ class TestCli:
 
         monkeypatch.setattr(httpx, "Client", FakeClient)
         p = Project.create(tmp_path / "scheduled-cli.frisket", name="scheduled-cli")
-        sid = SourceStore(p).add_source(
+        sid = FeedStore(p).add_feed(
             name="Scheduled Feed",
             kind="rss",
             url="https://example.com/feed.xml",
@@ -990,9 +990,9 @@ class TestCli:
         assert cli.worker([str(tmp_path), "--drain"]) == 0
 
         jobs = q.list_jobs(status="done")
-        assert len([job for job in jobs if job.kind == SOURCE_POLL_KIND]) == 1
+        assert len([job for job in jobs if job.kind == FEED_POLL_KIND]) == 1
         p2 = Project(tmp_path / "scheduled-cli.frisket")
-        assert SourceStore(p2).source_runs(sid)[0]["status"] == "ok"
+        assert FeedStore(p2).feed_checks_page(sid)[0]["status"] == "ok"
         p2.close()
         q.close()
 

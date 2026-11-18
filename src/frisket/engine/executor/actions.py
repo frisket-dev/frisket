@@ -493,13 +493,13 @@ def run_action_spec(
         supports_typed_export_action,
     )
     from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
-    from frisket.engine.executor.source_action import (
-        run_typed_source_action,
-        supports_typed_source_action,
+    from frisket.engine.executor.feed_action import (
+        run_typed_feed_action,
+        supports_typed_feed_action,
     )
-    from frisket.engine.executor.source_poll_action import (
-        run_typed_source_poll_action,
-        supports_typed_source_poll_action,
+    from frisket.engine.executor.feed_poll_action import (
+        run_typed_feed_poll_action,
+        supports_typed_feed_poll_action,
     )
 
     from frisket.actions.types import ActionRequest
@@ -679,8 +679,8 @@ def run_action_spec(
             for name, supports in (
                 ("mutation", supports_typed_mutation_action),
                 ("operation", supports_typed_operation_action),
-                ("source", supports_typed_source_action),
-                ("source_poll", supports_typed_source_poll_action),
+                ("source", supports_typed_feed_action),
+                ("source_poll", supports_typed_feed_poll_action),
                 ("export", supports_typed_export_action),
                 ("embedding", supports_typed_embedding_action),
                 ("plugin", supports_typed_plugin_load_action),
@@ -734,14 +734,14 @@ def run_action_spec(
         if owners[0] == "operation":
             return run_typed_operation_action(project, project_id, typed)
         if owners[0] == "source":
-            return run_typed_source_action(project, project_id, typed)
+            return run_typed_feed_action(project, project_id, typed)
         if owners[0] == "source_poll":
-            return run_typed_source_poll_action(
+            return run_typed_feed_poll_action(
                 project,
                 project_id,
                 typed,
-                on_progress=executor_deps.source_poll_progress,
-                should_cancel=executor_deps.source_poll_cancelled,
+                on_progress=executor_deps.feed_poll_progress,
+                should_cancel=executor_deps.feed_poll_cancelled,
                 rss_fetcher=executor_deps.rss_fetcher,
             )
         if owners[0] == "temporal_extract":

@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from helpers import write_claimed_test_results
 
 
@@ -74,14 +74,14 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
             ),
         )
         run_ids.append(run_id)
-    source_id = SourceStore(project).add_source(
+    source_id = FeedStore(project).add_feed(
         "Offset feed",
         kind="rss",
         url="https://example.test/feed.xml",
         schedule="@hourly",
     )
     for index in range(5):
-        SourceStore(project).record_source_run(source_id, status="ok", new_rows=index)
+        FeedStore(project).record_feed_check(source_id, status="ok", new_rows=index)
     project.db.commit()
     return client, project_id, run_ids[-1], topic_col, source_id
 

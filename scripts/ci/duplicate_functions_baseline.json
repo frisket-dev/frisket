@@ -283,8 +283,8 @@
    "src/frisket/engine/executor/run_backfill_action.py::_RunBackfiller.retry"
   ],
   [
-   "src/frisket/engine/executor/source_action.py::_config",
-   "src/frisket/engine/executor/source_poll_action.py::_source_config_dict"
+   "src/frisket/engine/executor/feed_action.py::_config",
+   "src/frisket/engine/executor/feed_poll_action.py::_feed_config_dict"
   ],
   [
    "src/frisket/engine/executor/temporal_extract_publication.py::_staged_extract_annotations",
@@ -307,8 +307,8 @@
    "src/frisket/server/run_status.py::_parse_status_time"
   ],
   [
-   "src/frisket/engine/jobs/sources.py::_source_dict",
-   "src/frisket/server/services/sources.py::_source_dict"
+   "src/frisket/engine/jobs/feeds.py::_feed_dict",
+   "src/frisket/server/services/feeds.py::_feed_dict"
   ],
   [
    "src/frisket/engine/projections/point_backend.py::GeoProjectionBackend._prune_other_generations",
@@ -495,16 +495,16 @@
    "src/frisket/server/services/search_preparation_planning.py::_imported_pdf_page_source"
   ],
   [
-   "src/frisket/server/sources/api_list_dicts.py::_config_positive_int",
-   "src/frisket/server/sources/courtlistener.py::_config_positive_int"
+   "src/frisket/server/feeds/api_list_dicts.py::_config_positive_int",
+   "src/frisket/server/feeds/courtlistener.py::_config_positive_int"
   ],
   [
-   "src/frisket/server/sources/api_list_dicts.py::_record_scalar_text",
-   "src/frisket/server/sources/api_list_dicts.py::_record_source_item_id"
+   "src/frisket/server/feeds/api_list_dicts.py::_record_scalar_text",
+   "src/frisket/server/feeds/api_list_dicts.py::_record_source_item_id"
   ],
   [
-   "src/frisket/server/sources/youtube.py::register_youtube_channel_feed_checker",
-   "src/frisket/server/sources/youtube.py::register_youtube_playlist_feed_checker"
+   "src/frisket/server/feeds/youtube.py::register_youtube_channel_feed_checker",
+   "src/frisket/server/feeds/youtube.py::register_youtube_playlist_feed_checker"
   ],
   [
    "src/frisket/upgrades/project/domain_migration.py::capture_current_baseline",
@@ -561,14 +561,14 @@
    "src/frisket/engine/executor/extract_citations.py::_text_hash",
    "src/frisket/engine/executor/group_summary_runtime.py::_text_hash",
    "src/frisket/engine/executor/operation_action.py::_text_hash",
-   "src/frisket/engine/executor/source_action.py::_text_hash",
-   "src/frisket/engine/executor/source_poll_action.py::_text_hash",
+   "src/frisket/engine/executor/feed_action.py::_text_hash",
+   "src/frisket/engine/executor/feed_poll_action.py::_text_hash",
    "src/frisket/engine/store/citation_text.py::_text_hash",
    "src/frisket/engine/store/evidence.py::_text_hash",
    "src/frisket/ops/ner_citations.py::_text_hash",
-   "src/frisket/server/sources/api_list_dicts.py::_text_hash",
-   "src/frisket/server/sources/courtlistener.py::_text_hash",
-   "src/frisket/server/sources/youtube.py::_text_hash"
+   "src/frisket/server/feeds/api_list_dicts.py::_text_hash",
+   "src/frisket/server/feeds/courtlistener.py::_text_hash",
+   "src/frisket/server/feeds/youtube.py::_text_hash"
   ],
   [
    "src/frisket/engine/executor/import_blob_stage.py::AdmittedImportBlobStager._require_open",
@@ -578,7 +578,7 @@
   [
    "src/frisket/engine/jobs/queue.py::_mapping",
    "src/frisket/server/services/selector_choices_projection.py::_mapping",
-   "src/frisket/server/sources/health.py::_mapping"
+   "src/frisket/server/feeds/health.py::_mapping"
   ],
   [
    "src/frisket/engine/store/cell_writes.py::_require_transaction",
@@ -604,9 +604,9 @@
    "src/frisket/retrieval/preparation.py::_check_cancelled"
   ],
   [
-   "src/frisket/server/sources/api_list_dicts.py::_hash_json",
-   "src/frisket/server/sources/courtlistener.py::_hash_json",
-   "src/frisket/server/sources/youtube.py::_hash_json"
+   "src/frisket/server/feeds/api_list_dicts.py::_hash_json",
+   "src/frisket/server/feeds/courtlistener.py::_hash_json",
+   "src/frisket/server/feeds/youtube.py::_hash_json"
   ],
   [
    "src/frisket/team/auth_limits.py::_aware",

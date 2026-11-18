@@ -18,7 +18,7 @@ import frisket.cli as cli
 from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs import SqliteJobQueue
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 from tests.alert_helpers import add_alert
 
 GOOD = ("a-good", "c-good")
@@ -26,7 +26,7 @@ UNREADABLE = "b-unreadable"
 
 
 def _due_source(project: Project) -> None:
-    SourceStore(project).add_source(
+    FeedStore(project).add_feed(
         name="News",
         kind="rss",
         url="https://example.com/feed.xml",
@@ -89,7 +89,7 @@ def _due_digest(project: Project) -> None:
 
 
 SWEEPS: dict[str, tuple[cli._Sweep, Callable[[Project], None], str]] = {
-    "source": (cli._SOURCE_POLLS, _due_source, "source_project_schedule_failed"),
+    "source": (cli._FEED_POLLS, _due_source, "source_project_schedule_failed"),
     "embedding": (
         cli._SCHEDULED_EMBEDDINGS,
         _due_embedding_index,

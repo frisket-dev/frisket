@@ -199,32 +199,32 @@ def test_import_update_uses_baseline_and_skips_whole_conflicting_key(tmp_path):
 
 
 def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
-    from frisket.engine.executor.source_poll_action import (
-        _materialize_registered_source_poll_in_txn,
+    from frisket.engine.executor.feed_poll_action import (
+        _materialize_registered_feed_poll_in_txn,
     )
-    from frisket.engine.store.sources import SourceStore
-    from frisket.server.sources.runtime import SourcePollItem, SourcePollResult
+    from frisket.engine.store.feeds import FeedStore
+    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
 
     project, sheet, col, row, op = _project(tmp_path)
     with closing(project):
-        sources = SourceStore(project)
-        source = sources.add_source("Test", kind="rss", sheet_id=sheet)
+        sources = FeedStore(project)
+        source = sources.add_feed("Test", kind="rss", sheet_id=sheet)
 
         def poll(items):
-            run = sources.start_source_run(source)
+            run = sources.start_feed_check(source)
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                return _materialize_registered_source_poll_in_txn(
+                return _materialize_registered_feed_poll_in_txn(
                     project,
                     project.db.cursor(),
-                    source_before=dict(sources.get_source(source)),
-                    source_run_id=run,
-                    poll_result=SourcePollResult(items=items),
+                    feed_before=dict(sources.get_feed(source)),
+                    feed_check_id=run,
+                    poll_result=FeedCheckResult(items=items),
                 )
 
-        first = poll([SourcePollItem("item-a", {"title": "first"})])
+        first = poll([FeedItem("item-a", {"title": "first"})])
         [target] = first["row_ids"]
-        second = poll([SourcePollItem("item-a", {"title": "second"})])
+        second = poll([FeedItem("item-a", {"title": "second"})])
         assert second["new_rows"] == 0
         assert second["row_ids"] == [target]
         title = int(
@@ -236,30 +236,30 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         project.apply_edits(
             [{"row_id": target, "column_id": title, "value": "my correction"}]
         )
-        third = poll([SourcePollItem("item-a", {"title": "third"})])
+        third = poll([FeedItem("item-a", {"title": "third"})])
         assert third["row_ids"] == []
         assert project.get_values(sheet, title, [target])[target] == "my correction"
         baseline = observation(project.db, f"source:{source}", target)
         assert baseline[str(title)] == "third"
         duplicate = poll(
             [
-                SourcePollItem("item-a", {"title": "fourth"}),
-                SourcePollItem("item-a", {"title": "conflict"}),
+                FeedItem("item-a", {"title": "fourth"}),
+                FeedItem("item-a", {"title": "conflict"}),
             ]
         )
         assert duplicate["row_ids"] == []
         assert duplicate["skipped_rows"] == 2
         assert observation(project.db, f"source:{source}", target) == baseline
-        sources.update_source(source, config={"update_policy": "incoming_wins"})
-        latest = poll([SourcePollItem("item-a", {"title": "latest"})])
+        sources.update_feed(source, config={"update_policy": "incoming_wins"})
+        latest = poll([FeedItem("item-a", {"title": "latest"})])
         assert latest["row_ids"] == [target]
         assert project.get_values(sheet, title, [target])[target] == "latest"
         assert project.undo() == latest["op_id"]
         assert project.get_values(sheet, title, [target])[target] == "my correction"
-        repeated = poll([SourcePollItem("item-a", {"title": "latest"})])
+        repeated = poll([FeedItem("item-a", {"title": "latest"})])
         assert repeated["row_ids"] == []
         assert repeated["op_id"] is None
-        sources.update_source(source, config={"update_policy": "keep_changes"})
+        sources.update_feed(source, config={"update_policy": "keep_changes"})
         # A hidden association cannot steal a newly visible current-key row.
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (target,))
         project.db.commit()
@@ -274,7 +274,7 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
             [{"source_id": source, "source_item_id": "item-a", "title": "new target"}],
             cols,
         )
-        replaced = poll([SourcePollItem("item-a", {"title": "third"})])
+        replaced = poll([FeedItem("item-a", {"title": "third"})])
         assert replaced["new_rows"] == 0
         assert (
             observation(project.db, f"source:{source}", replacement)[str(title)]
@@ -288,8 +288,8 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         # untouched coordinates in the cross-product of its rows and columns.
         pair = poll(
             [
-                SourcePollItem("item-b", {"title": "B", "note": "keep B"}),
-                SourcePollItem("item-c", {"title": "keep C", "note": "C"}),
+                FeedItem("item-b", {"title": "B", "note": "keep B"}),
+                FeedItem("item-c", {"title": "keep C", "note": "C"}),
             ]
         )
         b, c = pair["row_ids"]
@@ -300,8 +300,8 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         )
         updated = poll(
             [
-                SourcePollItem("item-b", {"title": "new B"}),
-                SourcePollItem("item-c", {"note": "new C"}),
+                FeedItem("item-b", {"title": "new B"}),
+                FeedItem("item-c", {"note": "new C"}),
             ]
         )
         assert updated["row_ids"] == [b, c]

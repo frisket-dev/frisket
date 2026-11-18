@@ -12,12 +12,12 @@ from frisket.engine.executor.actions import resolve_map_preview
 from frisket.engine.executor.action_families.runs import _guard_backfill_run_spec
 from frisket.engine.store import Project
 from frisket.execution.action_admission import action_admission_error
-from frisket.server.sources.runtime import (
+from frisket.server.feeds.runtime import (
     get_feed_checker,
     register_feed_checker,
     unregister_feed_checker,
 )
-from frisket.server.sources.tiktok import TikTokProfileFeedChecker
+from frisket.server.feeds.tiktok import TikTokProfileFeedChecker
 
 
 def test_direct_source_poll_checks_network_before_creating_source_or_dispatching(

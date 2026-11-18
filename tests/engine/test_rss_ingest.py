@@ -14,7 +14,7 @@ import pytest
 
 from frisket import ingest
 from frisket.engine.store import Project
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 
 def _feed(items: list[dict], feed_title: str = "Test Feed") -> str:
@@ -53,15 +53,13 @@ def project(tmp_path):
 
 
 def _add_rss_source(project: Project, url="https://example.com/feed.xml", **cfg):
-    sid = SourceStore(project).add_source(
-        name="My Feed", kind="rss", url=url, config=cfg
-    )
+    sid = FeedStore(project).add_feed(name="My Feed", kind="rss", url=url, config=cfg)
     return _src(project, sid)
 
 
 def _src(project: Project, sid: int) -> dict:
     """Source row as the dict shape ingest_rss consumes (config parsed)."""
-    row = dict(SourceStore(project).get_source(sid))
+    row = dict(FeedStore(project).get_feed(sid))
     row["config"] = json.loads(row.get("config") or "{}")
     return row
 
@@ -192,11 +190,11 @@ def test_op_logged_per_poll(project):
 
     # a poll that lands NOTHING new logs no op (but still a source_run)
     src = _src(project, src["id"])
-    runs_before = len(SourceStore(project).source_runs(src["id"]))
+    runs_before = len(FeedStore(project).feed_checks_page(src["id"]))
     s2 = ingest.ingest_rss(project, src, fetch=lambda u: poll)
     assert s2["new_rows"] == 0 and s2["op_id"] is None
     assert len(project.history()) == before + 1  # unchanged
-    assert len(SourceStore(project).source_runs(src["id"])) == runs_before + 1
+    assert len(FeedStore(project).feed_checks_page(src["id"])) == runs_before + 1
 
 
 # --------------------------------------------------------------------------
@@ -207,7 +205,7 @@ def test_cursor_persisted(project):
     poll = _feed([{"guid": "a", "title": "A", "link": "http://x/a"}])
     ingest.ingest_rss(project, src, fetch=lambda u: poll)
 
-    row = SourceStore(project).get_source(src["id"])
+    row = FeedStore(project).get_feed(src["id"])
     cursor = json.loads(row["cursor"])
     assert "a" in cursor  # dedup key persisted
     assert isinstance(cursor["a"], str)  # content fingerprint
@@ -366,7 +364,7 @@ def test_ingest_uses_guarded_fetch_by_default(project, monkeypatch):
         ingest.ingest_rss(project, src)  # default fetch=fetch_feed_text
     assert seen["url"] == "http://10.0.0.1/feed.xml"
     # the failed poll is recorded, not silently lost
-    runs = SourceStore(project).source_runs(src["id"])
+    runs = FeedStore(project).feed_checks_page(src["id"])
     assert runs and runs[0]["status"] == "error"
 
 
@@ -376,12 +374,12 @@ def test_parse_error_records_failed_source_run_before_raising(project):
     with pytest.raises(ingest.IngestError, match="rss parse error"):
         ingest.ingest_rss(project, src, fetch=lambda u: "<not xml")
 
-    runs = [dict(r) for r in SourceStore(project).source_runs(src["id"])]
+    runs = [dict(r) for r in FeedStore(project).feed_checks_page(src["id"])]
     assert len(runs) == 1
     assert runs[0]["status"] == "error"
     assert runs[0]["new_rows"] == 0
     assert "rss parse error" in runs[0]["error"]
-    row = SourceStore(project).get_source(src["id"])
+    row = FeedStore(project).get_feed(src["id"])
     assert row["last_status"] == "error"
     assert row["new_rows_total"] == 0
 
@@ -390,15 +388,15 @@ def test_missing_url_records_failed_source_run_before_raising(project):
     """A malformed rss source is still a failed poll, not a lost exception."""
     src = _add_rss_source(project, url=None)
 
-    with pytest.raises(ingest.IngestError, match="rss source has no url"):
+    with pytest.raises(ingest.IngestError, match="RSS feed has no url"):
         ingest.ingest_rss(project, src, fetch=lambda u: _feed([]))
 
-    runs = [dict(r) for r in SourceStore(project).source_runs(src["id"])]
+    runs = [dict(r) for r in FeedStore(project).feed_checks_page(src["id"])]
     assert len(runs) == 1
     assert runs[0]["status"] == "error"
     assert runs[0]["new_rows"] == 0
-    assert runs[0]["error"] == "rss source has no url"
-    row = SourceStore(project).get_source(src["id"])
+    assert runs[0]["error"] == "RSS feed has no url"
+    row = FeedStore(project).get_feed(src["id"])
     assert row["last_status"] == "error"
     assert row["new_rows_total"] == 0
 

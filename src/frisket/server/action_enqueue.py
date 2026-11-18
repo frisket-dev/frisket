@@ -703,10 +703,10 @@ def queue_v1_action_run(
             error=_typed_plan_error(kind, exc),
         )
     if kind == "source.poll":
-        from frisket.server.source_enqueue import queue_source_poll
+        from frisket.server.feed_enqueue import queue_feed_poll
 
         try:
-            return queue_source_poll(project, project_id, dict(action_body), ctx)
+            return queue_feed_poll(project, project_id, dict(action_body), ctx)
         except (KeyError, TypeError, ValueError) as exc:
             return _failed_result(
                 project_id=project_id,

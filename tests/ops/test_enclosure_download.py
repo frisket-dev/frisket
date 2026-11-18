@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from helpers import make_client as _client
 from http_test_helpers import drain_queue
 from frisket.engine.jobs import Worker
-from frisket.engine.store.sources import SourceStore
+from frisket.engine.store.feeds import FeedStore
 
 
 def _project(client: TestClient):
@@ -436,7 +436,7 @@ def test_source_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     monkeypatch.setattr(enclosures, "download_url", _fake_download())
     client = _client(tmp_path)
     pid, project = _project(client)
-    source_id = SourceStore(project).add_source(
+    source_id = FeedStore(project).add_feed(
         name="Podcast",
         kind="rss",
         url="https://feed.example/rss.xml",
@@ -522,7 +522,7 @@ def test_source_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     assert media["blob"]
     assert media["filename"] == "ep1.mp3"
     assert (
-        json.loads(SourceStore(project).get_source(source_id)["config"])[
+        json.loads(FeedStore(project).get_feed(source_id)["config"])[
             "download_enclosures"
         ]
         == "queued"

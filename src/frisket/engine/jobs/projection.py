@@ -44,7 +44,7 @@ ADMIN_JOB_DIAGNOSTIC_KEYS = (
     "model",
     "engine",
 )
-SOURCE_POLL_KIND = "source.poll"
+FEED_POLL_KIND = "source.poll"
 ENCLOSURE_DOWNLOAD_KIND = "enclosure.download"
 
 # runs-are-jobs-parity-v1: a run whose action placement is INLINE never gets a
@@ -80,7 +80,7 @@ JOB_RESULT_SUMMARY_KEYS_BY_KIND = {
         "action_kind",
         "receipt_id",
     ),
-    SOURCE_POLL_KIND: (
+    FEED_POLL_KIND: (
         "completed_items",
         "total_items",
         "source_name",

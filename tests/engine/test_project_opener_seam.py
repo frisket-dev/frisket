@@ -35,7 +35,7 @@ def _opener_modules() -> dict[str, Any]:
             "frisket.engine.jobs.worker",
             "frisket.engine.jobs.runs",
             "frisket.engine.jobs.enclosures",
-            "frisket.engine.jobs.sources",
+            "frisket.engine.jobs.feeds",
             "frisket.engine.jobs.embeddings",
             "frisket.engine.jobs.alerts",
             "frisket.engine.jobs.notifications_delivery",
@@ -54,7 +54,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace_module = importlib.import_module("frisket.server.workspace")
-    sources_module = importlib.import_module("frisket.engine.jobs.sources")
+    sources_module = importlib.import_module("frisket.engine.jobs.feeds")
     real_register = workspace_module.register_production_handlers
     registered_openers: list[Any] = []
 
@@ -185,7 +185,7 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
     direct_modules = (
         "frisket.engine.jobs.runs",
         "frisket.engine.jobs.enclosures",
-        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.embeddings",
         "frisket.engine.jobs.alerts",
         "frisket.engine.jobs.notifications_delivery",
@@ -313,7 +313,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         raise _DirectProjectBypass(f"runtime path bypassed ProjectOpener for {path}")
 
     for name in (
-        "frisket.engine.jobs.sources",
+        "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.embeddings",
         "frisket.engine.jobs.alerts",
         "frisket.engine.jobs.notifications_digest",
@@ -323,7 +323,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
     queue = SqliteJobQueue(tmp_path / "scheduler.db", hosted=True)
     try:
         for sweep in (
-            cli._SOURCE_POLLS,
+            cli._FEED_POLLS,
             cli._SCHEDULED_EMBEDDINGS,
             cli._ALERTS,
             cli._NOTIFICATION_DIGESTS,
@@ -562,7 +562,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             lambda *args, **kwargs: sentinel,
         )
         monkeypatch.setattr(
-            cli, "_source_scheduler_roots", lambda workspace: [(root, 23)]
+            cli, "_feed_scheduler_roots", lambda workspace: [(root, 23)]
         )
 
         def capture_sweep(
@@ -592,7 +592,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         )
         assert rc == 0
         every_sweep = [
-            (cli._SOURCE_POLLS, sentinel),
+            (cli._FEED_POLLS, sentinel),
             (cli._SCHEDULED_EMBEDDINGS, sentinel),
             (cli._ALERTS, sentinel),
             (cli._NOTIFICATION_DIGESTS, sentinel),

@@ -33,12 +33,12 @@ import pytest
 from frisket.engine.executor import run_action_spec
 import frisket.ops.ytdlp as youtube_ops
 from frisket.ai.llm import ModelRouter
-from frisket.server.sources.runtime import (
+from frisket.server.feeds.runtime import (
     get_feed_checker,
     register_feed_checker,
     unregister_feed_checker,
 )
-from frisket.server.sources.youtube import (
+from frisket.server.feeds.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
     YOUTUBE_PLAYLIST,
@@ -91,7 +91,7 @@ def restore_youtube_playlist_feed_checker():
             register_feed_checker(previous, replace=True)
 
 
-def _source_poll_action(source: dict[str, Any]) -> dict[str, Any]:
+def _feed_poll_action(source: dict[str, Any]) -> dict[str, Any]:
     return {
         "action_id": "source.poll",
         "scope": {"kind": "project"},
@@ -170,7 +170,7 @@ def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
     project = make_project("YT")
     result = run_action_spec(
         project,
-        _source_poll_action(_playlist_source()),
+        _feed_poll_action(_playlist_source()),
         project_id=PROJECT_ID,
     )
     assert result.status == "completed", result.errors
