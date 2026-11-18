@@ -3008,24 +3008,30 @@ class RunResultStore:
     def model_calls(
         self, run_id: int | None = None, *, receipt_id: str | None = None
     ) -> list[sqlite3.Row]:
+        """Model calls in the order they were recorded.
+
+        ``created_at`` has one-second resolution and ids are random, so calls
+        recorded in the same second are ordered by ``rowid``, which SQLite
+        assigns in insertion order.
+        """
         if receipt_id is not None:
             if run_id is not None:
                 raise ValueError("model calls require one owner")
             return self.db.execute(
                 "SELECT m.* FROM model_calls m JOIN execution_attempts a "
                 "ON a.id=m.attempt_id WHERE a.receipt_id=? "
-                "ORDER BY m.created_at, m.id",
+                "ORDER BY m.created_at, m.rowid",
                 (receipt_id,),
             ).fetchall()
         if run_id is None:
             return self.db.execute(
-                "SELECT * FROM model_calls ORDER BY created_at, id"
+                "SELECT * FROM model_calls ORDER BY created_at, rowid"
             ).fetchall()
         return self.db.execute(
             "SELECT call.* FROM model_calls call WHERE call.run_id=? OR call.id IN ("
             "SELECT linked.id FROM receipts receipt JOIN execution_attempts attempt ON attempt.receipt_id=receipt.id "
             "JOIN model_calls linked ON linked.attempt_id=attempt.id WHERE receipt.run_id=? AND linked.run_id IS NULL) "
-            "ORDER BY call.created_at,call.id",
+            "ORDER BY call.created_at,call.rowid",
             (run_id, run_id),
         ).fetchall()
 

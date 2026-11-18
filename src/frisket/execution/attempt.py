@@ -1102,7 +1102,7 @@ def attempt_settlement(
         }
     calls = project.db.execute(
         "SELECT row_id, units, provider_cost_usd FROM model_calls WHERE attempt_id=? "
-        "ORDER BY created_at, id",
+        "ORDER BY created_at, rowid",
         (attempt_id,),
     ).fetchall()
 
