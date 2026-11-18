@@ -3,7 +3,7 @@ import { createProject, importCsv, openAction, openDiscoverTab, uniqueName } fro
 
 // The standalone add-source form retired from the Sources panel (workbench
 // entrypoints friction lane — creation now goes through the Import flow), so
-// the feed-kind form contributions are exercised via the EDIT form: seed a
+// the source-kind form contributions are exercised via the EDIT form: seed a
 // source with the v1 source.create action, then open its editor.
 async function createRssSource(
   request: APIRequestContext,
@@ -34,7 +34,7 @@ async function createRssSource(
   return created.id;
 }
 
-test('feed-kind forms render as workbench form contributions', async ({ page }) => {
+test('source-kind forms render as workbench form contributions', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-workbench-source-form'));
   const sourceName = uniqueName('contribution-feed');
   const sourceId = await createRssSource(page.request, pid, sourceName);

@@ -7,11 +7,11 @@
 //   feed-interval         — cadence <select> in the add form (preset values
 //                             "" | "@hourly" | "0 */6 * * *" | "@daily")
 //   feed-create           — submit the Import Feed form
-//   feed-list             — list of configured sources
-//   feed-item-<id>        — one source row
-//   source-status-<id>      — last-status badge for that source
-//   feed-check-now-<id>       — "Fetch now" (manual poll) button
-//   feed-checks-<id>        — that source's poll-history list (status + error)
+//   feed-list             — list of configured feeds
+//   feed-item-<id>        — one feed row
+//   feed-status-<id>      — last-status badge for that feed
+//   feed-check-now-<id>   — "Check now" button
+//   feed-checks-<id>      — that feed's check-history list (status + error)
 //   feed-sched-<id>       — per-row cadence <select> (edit → PATCH)
 //   feed-delete-<id>      — delete control (arms, then confirms)
 //
@@ -134,7 +134,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   const id = created.id;
   expect(created.schedule).toBe('@hourly');
   await expect(page.getByTestId(`feed-item-${id}`)).toBeVisible();
-  await expect(page.getByTestId(`source-status-${id}`)).toHaveText(/never/i);
+  await expect(page.getByTestId(`feed-status-${id}`)).toHaveText(/never/i);
 
   await page.route(`**/api/projects/${pid}/sources/${id}/fetch`, async (route) => {
     legacyFetchCalled = true;
@@ -189,7 +189,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await expect(page.getByTestId('feeds-error')).toContainText(/blocked|localhost|private/i);
   await expect(page.getByTestId(`feed-checks-${id}`)).toContainText(/error/i);
   await expect(page.getByTestId(`feed-checks-${id}`)).toContainText(/blocked|localhost|private/i);
-  await expect(page.getByTestId(`source-status-${id}`)).toHaveText(/error/i);
+  await expect(page.getByTestId(`feed-status-${id}`)).toHaveText(/error/i);
   await expect.poll(() => sourceDetailQueries.some((query) => (
     query.includes('runs_offset=0') && query.includes('runs_limit=20')
   ))).toBeTruthy();

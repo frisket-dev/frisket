@@ -45,7 +45,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
             <div className="control-row">
               <span className="control-row panel-item-meta"><FeedKindIcon kind={s.kind} /></span>
               <span className="panel-item-title panel-item-main" title={s.name}>{s.name}</span>
-              <FeedStatus value={status} testId={`source-status-${s.id}`} />
+              <FeedStatus value={status} testId={`feed-status-${s.id}`} />
             </div>
             <div className="control-row panel-item-meta">
               <strong data-testid={`feed-kind-${s.id}`}>{feedKindLabel(s.kind)}</strong>
