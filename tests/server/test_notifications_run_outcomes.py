@@ -117,7 +117,7 @@ def _redeliver_project_run(client: TestClient, job_id: int) -> dict[str, Any]:
     assert job is not None
     return ws.registry.get("project.run")(
         {**deepcopy(job.payload), "job_id": job.id},
-        JobHandlerContext.from_claimed_job(trusted_org_id=None),
+        JobHandlerContext.from_claimed_job(trusted_organization_id=None),
     )
 
 
