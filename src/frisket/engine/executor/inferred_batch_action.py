@@ -582,7 +582,7 @@ def _publish(
             )
         if error:
             status = "cancelled" if cancelled else "failed"
-            prior = ReceiptStore(project).parsed_by_id(receipt_id)
+            prior = ReceiptStore(project).require_parsed(receipt_id)
             receipt = prior.model_copy(
                 update={"status": status, "outputs": [], "errors": [error]}
             )

@@ -355,7 +355,7 @@ def step_operation(
         from .import_sessions import ImportSessionStore
         from .streaming_import import StreamingSheetWriter
 
-        session = ImportSessionStore(project).get(str(session_row["id"]))
+        session = ImportSessionStore(project).require(str(session_row["id"]))
         StreamingSheetWriter._from_session(project, session).prepare_removal(session)
         target = project.db.execute(
             "SELECT * FROM ops WHERE id=?", (target_op_id,)

@@ -288,6 +288,13 @@ class ReceiptStore:
         ).fetchone()
         return StoredReceipt.from_row(row) if row is not None else None
 
+    def require(self, receipt_id: str) -> StoredReceipt:
+        """The stored receipt ``receipt_id``, which the caller holds as existing."""
+        stored = self.find_by_id(receipt_id)
+        if stored is None:
+            raise RuntimeError(f"receipt {receipt_id!r} does not exist")
+        return stored
+
     def body_by_id(self, receipt_id: str) -> str | None:
         row = self.db.execute(
             "SELECT body FROM receipts WHERE id=?",
@@ -309,6 +316,13 @@ class ReceiptStore:
     def parsed_by_id(self, receipt_id: str) -> Receipt | None:
         body = self.body_by_id(receipt_id)
         return Receipt.model_validate_json(body) if body is not None else None
+
+    def require_parsed(self, receipt_id: str) -> Receipt:
+        """The receipt ``receipt_id`` parsed, which the caller holds as existing."""
+        receipt = self.parsed_by_id(receipt_id)
+        if receipt is None:
+            raise RuntimeError(f"receipt {receipt_id!r} does not exist")
+        return receipt
 
     def status_by_id(self, receipt_id: str) -> str | None:
         row = self.db.execute(

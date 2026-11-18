@@ -44,7 +44,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
     db.execute("BEGIN IMMEDIATE")
     try:
         open_receipts = [
-            receipts.find_by_id(row["id"])
+            receipts.require(row["id"])
             for row in db.execute(
                 "SELECT id FROM receipts WHERE status IN ('queued','running')"
             ).fetchall()
@@ -193,7 +193,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
 
         # Includes runless actions and auxiliary receipts attached to a run.
         for stored in open_receipts:
-            current = receipts.find_by_id(stored.id)
+            current = receipts.require(stored.id)
             if current.status in {"queued", "running"}:
                 cancelled = current.parsed().model_copy(
                     update={

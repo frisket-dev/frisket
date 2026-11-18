@@ -358,7 +358,7 @@ def _recover_stale_receipt_attempt(project, receipt, params_hash):
             authority=AbandonedRunRecoveryAuthority(require_cancel_intent=True),
             commit=owns_transaction,
         )
-    return ReceiptStore(project).find_by_id(str(_row_value(receipt, "id")))
+    return ReceiptStore(project).require(str(_row_value(receipt, "id")))
 
 
 def _running_receipt_has_live_owner(project: Any, receipt: Any) -> bool:

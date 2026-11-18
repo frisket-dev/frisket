@@ -133,10 +133,7 @@ class PdfSplitWriter(StreamingSheetWriter):
     @property
     def session(self) -> ImportSession:
         resumable = self._require_session()
-        session = ImportSessionStore(self.project).get(resumable.session_id)
-        if session is None:
-            raise ImportSessionConflict("split session is unavailable")
-        return session
+        return ImportSessionStore(self.project).require(resumable.session_id)
 
     def _require_split_writer(self, expected_cursor: int) -> ImportSession:
         resumable = self._require_session()
