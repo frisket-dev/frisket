@@ -99,16 +99,6 @@
  "export-delete.spec.ts": {
   "project settings downloads exports with and without media": "stale-expectation"
  },
- "extract-form-polish.spec.ts": {
-  "a fresh classify launch also carries include_confidence/include_justification false unless toggled (item 6)": "stale-expectation",
-  "a fresh extract launch carries include_confidence false unless toggled (item 6)": "stale-expectation",
-  "a params-did-not-validate 400 shows which field failed, not just the summary (item 4)": "stale-expectation",
-  "citation_mode 'Off' sends no grounding params": "stale-expectation",
-  "citation_mode 'Require citations' grounds + requires, launches clean (item 0 regression)": "stale-expectation",
-  "citation_mode default (Cite sources) grounds evidence without requiring citations": "stale-expectation",
-  "extract runs clean with fields but no instructions (item 1)": "stale-expectation",
-  "run split-button menu items left-align consistently (item 5)": "stale-expectation"
- },
  "feed-add-populate-prompt.spec.ts": {
   "Run launches exactly the manual poll (source.poll on the new feed)": "stale-expectation"
  },
