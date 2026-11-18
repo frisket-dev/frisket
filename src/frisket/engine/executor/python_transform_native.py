@@ -104,9 +104,14 @@ class NativeSubprocessExecutor:
         except RuntimeError as exc:
             # The child died or printed non-JSON: a user exception, a limit, or
             # a wrapper crash. The native shim does not distinguish them, so we
-            # do not pretend to. Message text is the child's stderr tail, which
-            # the shim has already truncated.
-            return TransformFailure(code=TRANSFORM_EXCEPTION, message=str(exc))
+            # do not pretend to. The shim reports the tail of the child's
+            # stderr; its last line is the exception a traceback ends with, and
+            # a row error message holds at most 500 characters.
+            lines = [line for line in str(exc).splitlines() if line.strip()]
+            return TransformFailure(
+                code=TRANSFORM_EXCEPTION,
+                message=(lines[-1].strip() if lines else "the program failed")[:500],
+            )
 
         if not out.get("assigned"):
             return TransformFailure(

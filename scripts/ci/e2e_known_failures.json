@@ -38,9 +38,6 @@
  "date-range-filter.spec.ts": {
   "date-range filters use date columns and round-trip through views": "stale-expectation"
  },
- "delete-rows.spec.ts": {
-  "deletes selected rows through a confirmed v1 row.delete action": "stale-expectation"
- },
  "derive-join-stale-projection.spec.ts": {
   "refresh after a projection rename retains its stable id and posts the current wire name": "stale-expectation",
   "refresh after projection deletion fails closed until explicit replacement and sends no stale POST": "stale-expectation"
@@ -56,28 +53,6 @@
  },
  "editable-grid.spec.ts": {
   "the in-place editor wraps a long unbroken text value": "stale-expectation"
- },
- "embeddings-alert.spec.ts": {
-  "a blocked embedding alert shows a Refresh link that refreshes the index": "stale-expectation"
- },
- "embeddings-create-flow.spec.ts": {
-  "remote index creation separates source, egress, cost, and summary review": "stale-expectation"
- },
- "embeddings-lens-grid.spec.ts": {
-  "NER initialized from a lens submits complete exact membership, not its grid window": "stale-expectation",
-  "a stale/incomplete resolve blocks the grid open with refresh-needed, no partial grid": "stale-expectation",
-  "distance and score are visible in the grid path (result columns)": "stale-expectation",
-  "exiting the lens view restores the full sheet in the grid": "stale-expectation",
-  "opening a lens shows ONLY the lens row_ids in the grid, in score order": "stale-expectation",
-  "the banner honestly shows \"showing N of M\" when the window is smaller than the total": "stale-expectation"
- },
- "embeddings-lens.spec.ts": {
-  "a stale-anchor resolve shows a refresh-needed message rather than a crash": "stale-expectation",
-  "an incomplete-index resolve shows refresh-needed, not a raw error": "stale-expectation",
-  "opening a lens resolves it and renders the ranked rows with distance/score": "stale-expectation"
- },
- "embeddings-queue-progress.spec.ts": {
-  "create embeddings enqueues the build, the jobs panel shows it running, and the embeddings panel refreshes to ready on completion without a manual reload": "stale-expectation"
  },
  "engine-selection-layout.spec.ts": {
   "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
@@ -98,16 +73,6 @@
  },
  "export-delete.spec.ts": {
   "project settings downloads exports with and without media": "stale-expectation"
- },
- "extract-form-polish.spec.ts": {
-  "a fresh classify launch also carries include_confidence/include_justification false unless toggled (item 6)": "stale-expectation",
-  "a fresh extract launch carries include_confidence false unless toggled (item 6)": "stale-expectation",
-  "a params-did-not-validate 400 shows which field failed, not just the summary (item 4)": "stale-expectation",
-  "citation_mode 'Off' sends no grounding params": "stale-expectation",
-  "citation_mode 'Require citations' grounds + requires, launches clean (item 0 regression)": "stale-expectation",
-  "citation_mode default (Cite sources) grounds evidence without requiring citations": "stale-expectation",
-  "extract runs clean with fields but no instructions (item 1)": "stale-expectation",
-  "run split-button menu items left-align consistently (item 5)": "stale-expectation"
  },
  "feed-add-populate-prompt.spec.ts": {
   "Run launches exactly the manual poll (source.poll on the new feed)": "stale-expectation"
@@ -136,18 +101,7 @@
   "grounded extract posts citation policy on map.extract and opens evidence links": "stale-expectation"
  },
  "import-surfaces.spec.ts": {
-  "CSV folder selection plans a bulk import, keeps paths aligned, and executes separate sheets": "stale-expectation",
-  "Files accepts two XLSX workbooks, bulk-plans them once, and opens the designated worksheet": "stale-expectation",
   "URL import records invalid URL errors": "stale-expectation",
-  "a bulk plan with no proposed outputs reports that status and cannot execute": "stale-expectation",
-  "a directly selected extensionless file is sent to the bulk planner": "stale-expectation",
-  "a question-bearing CSV plan waits for a choice and an execute click": "stale-expectation",
-  "a question-free bulk plan executes exactly once without showing an execute control": "stale-expectation",
-  "a sole ZIP plans with archive expansion": "stale-expectation",
-  "bulk email warnings remain inert text alongside a successful import": "stale-expectation",
-  "bulk email warnings remain visible alongside a partial import failure": "stale-expectation",
-  "closing a planned bulk import clears it before the workspace reopens": "stale-expectation",
-  "empty-project dropzone keeps a single ordinary file on legacy file import": "stale-expectation",
   "two generic Files selections with one PDF stay on the normal file import": "stale-expectation"
  },
  "investigative-feeds.spec.ts": {
@@ -191,24 +145,6 @@
   "audio grid leading control opens one dismissible player without opening row detail": "seed:Council audio,Local stories",
   "audio playback survives a run while new grid starts wait for terminal progress": "seed:Council audio",
   "audio row controls the one app-level player and actually plays": "seed:Council audio"
- },
- "mentions-panel.spec.ts": {
-  "1 — Mentions CTA opens the map.ner drawer, and a real spaCy run fills the panel": "stale-expectation",
-  "1b — the same map.ner drawer opened from the Act ribbon fills the Mentions panel": "stale-expectation",
-  "2 — a multi-form group discloses its spellings; grouped and exact filters match their counts": "stale-expectation",
-  "4 — a view keeps its entity_eq mention filter through leave and restore": "stale-expectation",
-  "5 — a legacy entity column offers Rebuild and shows none of its old items": "stale-expectation",
-  "6 — filtering by a group that only exists on page 2 keeps both pages loaded": "stale-expectation"
- },
- "native-embeddings-ui.spec.ts": {
-  "provider picker shows available + disabled-remote and creates a local index": "stale-expectation",
-  "refresh clears refresh-needed": "stale-expectation",
-  "remote provider requires privacy confirmation before automatic refresh": "stale-expectation"
- },
- "new-columns-scroll-annotation.spec.ts": {
-  "a grouped annotation clears the group header and keeps dismiss in the top-right": "stale-expectation",
-  "a run creating a new column scrolls it into view, annotates it, shows a populate progress bar, then clears": "stale-expectation",
-  "the new-columns annotation can be dismissed by clicking its dismiss control": "stale-expectation"
  },
  "notifications-settings.spec.ts": {
   "notification settings manages channels routes digests and delivery health": "stale-expectation"
@@ -263,7 +199,6 @@
   "organization AI Providers require test before save and clear validation on edits": "stale-expectation"
  },
  "recipe-forms.spec.ts": {
-  "an action form actually runs (regex, offline) — not just visible controls": "stale-expectation",
   "catalog actions without static cards are reachable and runnable": "unclassified",
   "media action engine picker uses backend availability metadata": "stale-expectation"
  },
@@ -281,11 +216,6 @@
  },
  "research-answer-launcher-terminology.spec.ts": {
   "research answer uses its ribbon label, catalog form title and canonical run route": "stale-expectation"
- },
- "resolve-actions.spec.ts": {
-  "combine hand-groups three variants into one canonical bucket": "stale-expectation",
-  "replace authors ordered rules with a first-match-wins commit": "stale-expectation",
-  "substitute maps values (one to a target, one to null) and autocloses on Apply": "stale-expectation"
  },
  "retrieval-search-flow.spec.ts": {
   "live lexical search returns grouped results and navigates to the exact cell": "stale-expectation"
@@ -317,24 +247,11 @@
   "row drawer focuses selected fields with scoped smooth scrolling": "stale-expectation",
   "row drawer selected-field scroll respects reduced motion": "stale-expectation"
  },
- "run-controls.spec.ts": {
-  "run watcher can cancel a queued run": "stale-expectation"
- },
  "run-failure-surfacing.spec.ts": {
-  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation",
-  "clicking a preview error cell shows the full error text in the Detail panel": "stale-expectation"
- },
- "run-live-cell-fill.spec.ts": {
-  "a failed row shows its error text inline instead of an empty dash": "stale-expectation",
-  "cells pulse during a run, fill in live before completion, and clear all pulses after": "stale-expectation",
-  "run-status polling stops once the run is terminal (no forever-polling completed runs)": "stale-expectation"
+  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation"
  },
  "run-progress-single-surface.spec.ts": {
-  "active run uses one watcher surface plus a compact footer affordance": "stale-expectation",
-  "failed run copy stays clear without reopening a duplicate active surface": "stale-expectation"
- },
- "run-progress-visibility.spec.ts": {
-  "active run has prominent progress and pending AI-cell affordances": "stale-expectation"
+  "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
  },
  "run-receipts-panel.spec.ts": {
   "a free local OCR run shows an honest no-charges receipt panel": "stale-expectation"
@@ -397,11 +314,6 @@
  },
  "workbench-ia-lineage.spec.ts": {
   "Re-run now on a MODEL-backed derived sheet pauses at the cost confirm (no auto-spend)": "stale-expectation"
- },
- "workbench-ia-monitor.spec.ts": {
-  "the active dock tab carries the Monitor amber accent": "stale-expectation",
-  "the dock tabs join the panel below and still switch content": "stale-expectation",
-  "the live run summary and progress bar track the job store": "stale-expectation"
  },
  "workbench-ia-region-frames.spec.ts": {
   "C6: a PanelEmpty renders identically in a dock tab and a Discover tab": "stale-expectation",

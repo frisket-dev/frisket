@@ -1,12 +1,13 @@
 import { expect, test, type Page } from '@playwright/test';
+import type { HttpContractSuccessResponse } from '../../src/api/httpContract';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
-// List a saved similarity lens, open it (resolve), and render the ranked row-set
-// WITH per-row distance/score. A stale anchor resolve surfaces the typed
-// refresh-needed message, not a crash. The embedding + lens endpoints are
-// stubbed (deterministic, embedder-independent); the backend lens contract is
-// covered by Python tests (tests/ai/test_embedding_lens.py).
+// The Embeddings panel lists the saved views that rank rows by an index. Opening
+// one resolves it and shows the ranked rows with their scores; an index that
+// needs a refresh says so instead of showing a raw error. The index, view list
+// and resolve endpoints are stubbed with their contract shapes, since no
+// embedding model runs keyless.
 
 const INDEX_ID = 'embidx_e2e';
 
@@ -38,207 +39,115 @@ function makeIndex(sheetId: number) {
   });
 }
 
-interface ViewStubs {
-  setAnchorStale(value: boolean): void;
-  /** Force the next resolve to 400 with this typed code (e.g. embedding_index_incomplete). */
-  setResolveError(code: string | null): void;
-}
+type ViewList = HttpContractSuccessResponse<'tenant.list_views.get'>;
+type ViewResolved = HttpContractSuccessResponse<'tenant.resolve_view.get'>;
 
-async function stubEmbeddingsAndViews(
+/** Stub one index with one saved similarity view. The returned setter makes
+ *  the next resolve answer 400 with a typed code. */
+async function stubIndexWithView(
   page: Page,
   pid: string,
   sheetId: number,
-): Promise<ViewStubs> {
-  const views: Array<Record<string, unknown>> = [{
+): Promise<(code: string | null) => void> {
+  const views: ViewList = [{
     id: 1,
     name: 'Similar to kitten',
     sheet_id: sheetId,
     spec: {
-      schema_version: 'frisket.lens.v1',
-      query: {
-        kind: 'embedding_similarity',
-        embedding_index_id: INDEX_ID,
-        anchor: { kind: 'row', row_id: 2 },
-        limit: 500,
+      selection: {
+        scope: { kind: 'sheet', sheet_id: sheetId },
+        filters: [],
+        order: [{ score: 'similarity', dir: 'desc' }],
+        limit: null,
+        similarity: { embedding_index_id: INDEX_ID, anchor: { kind: 'row', row_id: 2 } },
       },
       presentation: {},
     },
     op_id: 10,
+    unavailable_reason: null,
     created_at: '2026-06-21T00:00:00Z',
     updated_at: '2026-06-21T00:00:00Z',
   }];
-  let anchorStale = false;
   let resolveErrorCode: string | null = null;
 
   await page.route(`**/api/projects/${pid}/embeddings/v1/indexes*`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(embeddingIndexListFixture(sheetId, [makeIndex(sheetId)])),
-    }),
-  );
+    route.fulfill({ json: embeddingIndexListFixture(sheetId, [makeIndex(sheetId)]) }));
 
-  await page.route(`**/api/projects/${pid}/embeddings/v1/similarity-preview`, (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema_version: 'frisket.embedding_similarity_preview.v1',
-        index_id: INDEX_ID,
-        space_id: 'emb_e2e',
-        sheet_id: sheetId,
-        distance_metric: 'cosine',
-        anchor: { kind: 'manual_text_query' },
-        limit: 5,
-        hits: [{ row_id: 2, sheet_id: sheetId, distance: 0.1, score: 0.9, values: { headline: 'kitten' } }],
-      }),
-    }),
-  );
+  await page.route(new RegExp(`/api/projects/${pid}/views(\\?[^/]*)?$`), (route) =>
+    route.request().method() === 'GET' ? route.fulfill({ json: views }) : route.continue());
 
-  // POST + GET /lenses. Stubbed wire lens objects MUST carry created_at/updated_at
-  // so the toLens mapper does not choke (prior lens-like spec bug).
-  // Match POST /lenses and GET /lenses?sheet_id=... with one regex (the glob
-  // form mishandles the query string + the '?' wildcard char).
-  await page.route(new RegExp(`/api/projects/${pid}/lenses(\\?[^/]*)?$`), async (route) => {
-    if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON() as Record<string, unknown>;
-      const view = {
-        id: views.length + 1,
-        name: body.name,
-        sheet_id: sheetId,
-        spec: {
-          schema_version: 'frisket.lens.v1',
-          query: body.query,
-          presentation: body.presentation ?? {},
-        },
-        op_id: 10 + views.length,
-        created_at: '2026-06-21T00:00:00Z',
-        updated_at: '2026-06-21T00:00:00Z',
-      };
-      views.push(view);
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(view),
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(views),
-    });
-  });
-
-  // GET /lenses/{id}/resolve — ranked row_ids + per-row distance/score, or a
-  // typed embedding_anchor_stale 400 when the anchor row drifted.
-  await page.route(`**/api/projects/${pid}/lenses/*/resolve*`, async (route) => {
-    const errorCode = resolveErrorCode ?? (anchorStale ? 'embedding_anchor_stale' : null);
-    if (errorCode) {
+  await page.route(`**/api/projects/${pid}/views/1/resolve*`, async (route) => {
+    if (resolveErrorCode) {
       await route.fulfill({
         status: 400,
-        contentType: 'application/json',
-        body: JSON.stringify({
+        json: {
           detail: {
-            code: errorCode,
-            message: `index not searchable (${errorCode})`,
+            code: resolveErrorCode,
+            message: `index not searchable (${resolveErrorCode})`,
             field: 'embedding_index_id',
           },
-        }),
+        },
       });
       return;
     }
-    const url = new URL(route.request().url());
-    const viewId = Number(url.pathname.split('/').slice(-2)[0]);
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        lens_id: viewId,
-        schema_version: 'frisket.query_preview.v1',
-        sheet_id: sheetId,
-        query: { kind: 'embedding_similarity', embedding_index_id: INDEX_ID, anchor: { kind: 'row', row_id: 2 } },
-        query_hash: 'sha256:lens-e2e',
-        row_ids: [3, 1],
-        row_count: 2,
-        total: 2,
-        offset: 0,
-        limit: 20,
-        evaluator: 'embedding_similarity',
-        scores: {
-          '3': { distance: 0.12, score: 0.88 },
-          '1': { distance: 0.34, score: 0.66 },
-        },
-      }),
-    });
+    const resolved: ViewResolved = {
+      view_id: 1,
+      query_hash: 'sha256:view-e2e',
+      refs: [
+        { sheet_id: sheetId, row_id: 3, search_score: 0.12, similarity_score: 0.88, relevance_score: null },
+        { sheet_id: sheetId, row_id: 1, search_score: 0.34, similarity_score: 0.66, relevance_score: null },
+      ],
+      total: 2,
+      offset: 0,
+      limit: 20,
+    };
+    await route.fulfill({ json: resolved });
   });
 
-  return {
-    setAnchorStale: (value: boolean) => {
-      anchorStale = value;
-    },
-    setResolveError: (code: string | null) => {
-      resolveErrorCode = code;
-    },
+  return (code) => {
+    resolveErrorCode = code;
   };
 }
 
 async function openEmbeddingViews(page: Page) {
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
-  await expect(page.getByTestId('embedding-lens-1')).toBeVisible();
-  await expect(page.getByTestId('embedding-lens-1')).toContainText('Similar to');
+  await expect(page.getByTestId('embedding-lens-1')).toContainText('Similar to kitten');
   await expect(page.getByTestId('embedding-lens-open-1')).toBeVisible();
 }
 
-test('opening a lens resolves it and renders the ranked rows with distance/score', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
+test('opening a saved similarity view lists its ranked rows with their scores', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('e2e-emb-view'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  await stubEmbeddingsAndViews(page, pid, sheetId);
+  await stubIndexWithView(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
   await openEmbeddingViews(page);
   await page.getByTestId('embedding-lens-open-1').click();
 
   const results = page.getByTestId('embedding-lens-results-1');
   await expect(results).toBeVisible();
-  // ranked rows surface their numeric distance + score (what the alert path drops)
+  await expect(results.locator('li')).toHaveCount(2);
+  await expect(results.locator('li').first()).toHaveAttribute('data-testid', 'embedding-lens-result-row-3');
   await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.120');
   await expect(page.getByTestId('embedding-lens-result-row-3')).toContainText('0.880');
   await expect(page.getByTestId('embedding-lens-result-row-1')).toContainText('0.340');
   await expect(page.getByTestId('embedding-lens-result-row-1')).toContainText('0.660');
 });
 
-test('a stale-anchor resolve shows a refresh-needed message rather than a crash', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
+test('a view over an incomplete index says it is out of date, not a raw error', async ({ page }) => {
+  const pid = await createProject(page.request, uniqueName('e2e-emb-view'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  const { setAnchorStale } = await stubEmbeddingsAndViews(page, pid, sheetId);
+  const setResolveError = await stubIndexWithView(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
   await openEmbeddingViews(page);
 
-  setAnchorStale(true);
-  await page.getByTestId('embedding-lens-open-1').click();
-
-  const err = page.getByTestId('embedding-lens-resolve-error-1');
-  await expect(err).toBeVisible();
-  await expect(err).toContainText('out of date');
-  // no results rendered and the panel did not crash
-  await expect(page.getByTestId('embedding-lens-results-1')).toHaveCount(0);
-  await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
-});
-
-test('an incomplete-index resolve shows refresh-needed, not a raw error', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
-  const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  const { setResolveError } = await stubEmbeddingsAndViews(page, pid, sheetId);
-  await page.goto(`/p/${pid}`);
-  await openEmbeddingViews(page);
-
-  // an appended unembedded row -> the backend gate returns embedding_index_incomplete
   setResolveError('embedding_index_incomplete');
   await page.getByTestId('embedding-lens-open-1').click();
 
   const err = page.getByTestId('embedding-lens-resolve-error-1');
   await expect(err).toBeVisible();
-  await expect(err).toContainText('out of date'); // refresh-needed, not a raw error code
+  await expect(err).toContainText('out of date');
+  await expect(err).not.toContainText('embedding_index_incomplete');
   await expect(page.getByTestId('embedding-lens-results-1')).toHaveCount(0);
+  await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
 });

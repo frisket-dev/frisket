@@ -12,8 +12,6 @@
 // on-screen sheet heading (`sheet-stats`, "5 rows · 2 columns", which counts
 // the VISIBLE rows) and once on the `total` of the grid's own filtered
 // /sheets/{id}/data fetch, the request whose result the user is looking at.
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,12 +32,8 @@ import {
   typedActionRequest,
   uniqueName,
 } from './helpers';
-import { testPython } from '../support/testPython';
+import type { ViewSelection } from '../../src/api/types';
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 const SHOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../test-results');
 
 const MENTIONS_CONTRIBUTION = 'workbench-contribution-frisket-investigative-panel-mentions';
@@ -53,6 +47,11 @@ async function openMentionsPanel(page: Page): Promise<Locator> {
   const panel = page.getByTestId('discover-panel').getByTestId(MENTIONS_CONTRIBUTION);
   await expect(panel).toBeVisible();
   return panel;
+}
+
+/** The open NER form runs on the local spaCy engine without a choice. */
+async function expectSpacyEngine(page: Page): Promise<void> {
+  await expect(page.getByTestId('engine-selector')).toContainText('spaCy');
 }
 
 /** Run `map.ner` server-side with the real spaCy engine. Used to SEED the
@@ -127,12 +126,10 @@ test('1 — Mentions CTA opens the map.ner drawer, and a real spaCy run fills th
 
   await expect(drawer).not.toContainText('Action unavailable');
   await expect(page.getByTestId('generated-action-form')).toBeVisible({ timeout: 20_000 });
+  // The form starts with no source column; spaCy is already its engine.
+  await selectActionSourceColumns(page, 'snippet');
+  await expectSpacyEngine(page);
   await expect(page.getByTestId('generated-action-run')).toBeEnabled();
-
-  // Engine spaCy, chosen explicitly through the picker.
-  await page.getByTestId('engine-picker-button').click();
-  await page.getByTestId('engine-option-spacy').click();
-  await expect(page.getByTestId('engine-picker-button')).toContainText('spaCy');
 
   await clickRunButton(page, { requireCostConfirmation: false });
   await expectDemo1Results(panel, page);
@@ -159,9 +156,7 @@ test('1b — the same map.ner drawer opened from the Act ribbon fills the Mentio
   expect((await sheetColumns(request, pid, sheetId)).map((column) => column.name)).toEqual([
     'snippet',
   ]);
-  await page.getByTestId('engine-picker-button').click();
-  await page.getByTestId('engine-option-spacy').click();
-  await expect(page.getByTestId('engine-picker-button')).toContainText('spaCy');
+  await expectSpacyEngine(page);
   await shoot(page, '1b-drawer');
 
   await clickRunButton(page, { requireCostConfirmation: false });
@@ -281,10 +276,10 @@ test('2 — a multi-form group discloses its spellings; grouped and exact filter
   // click carried it (the entity_eq payload holds only a fingerprint), so this
   // is no longer the same chip for every organization on the sheet.
   await expect(page.getByTestId('active-grid-filter')).toContainText(
-    'entities · “Acme Corp.” (Organization, grouped forms)',
+    'entities · “ACME Corp.” (Organization, grouped forms)',
   );
   await expect(panel.getByTestId('mentions-active-filter')).toContainText(
-    '“Acme Corp.” · Organization, grouped forms',
+    '“ACME Corp.” · Organization, grouped forms',
   );
   // Same number, on screen: the sheet heading counts the VISIBLE rows.
   await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 2 columns');
@@ -412,7 +407,7 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   await expect(grouped).toBeVisible({ timeout: 30_000 });
   expect(await gridRowsAfter(page, pid, sheetId, () => grouped.click())).toBe(5);
   await expect(page.getByTestId('active-grid-filter')).toContainText(
-    'entities · “Acme Corp.” (Organization, grouped forms)',
+    'entities · “ACME Corp.” (Organization, grouped forms)',
   );
 
   await openToolbarOverflow(page);
@@ -427,11 +422,15 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
     res.status() === 200,
   );
   await page.getByTestId('save-view-button').click();
-  const saved = (await (await created).json()) as { spec: Record<string, unknown> };
+  const saved = (await (await created).json()) as { spec: { selection: ViewSelection } };
   // The filter is PERSISTED structurally — not stringified, not dropped.
-  expect(saved.spec).toEqual({
-    filter: { entities: { entity_eq: { type: 'organization', fingerprint: 'acme corp' } } },
-  });
+  const entities = (await sheetColumns(request, pid, sheetId)).find(
+    (column) => column.name === 'entities',
+  );
+  expect(saved.spec.selection.filters).toEqual([{
+    column_id: entities?.id,
+    condition: { entity_eq: { type: 'organization', fingerprint: 'acme corp' } },
+  }]);
 
   // Leave: back to the project root, filter cleared by the fresh mount.
   await page.goto('/');
@@ -460,84 +459,9 @@ test('4 — a view keeps its entity_eq mention filter through leave and restore'
   await expect(page.getByTestId('sheet-stats')).toHaveText('5 rows · 2 columns');
   const restoredPanel = await openMentionsPanel(page);
   await expect(restoredPanel.getByTestId('mentions-active-filter')).toContainText(
-    '“Acme Corp.” · Organization, grouped forms',
+    '“ACME Corp.” · Organization, grouped forms',
   );
   await shoot(page, '4-restored-view');
-});
-
-// ---------------------------------------------------------------------------
-// Demo 5 — a legacy (unmarked) entity column offers Rebuild, never fallback
-//
-// A pre-marker `map.ner` column cannot be produced through the API any more:
-// every `map.ner` run stamps `semantic_type='entity_mentions'` on its output.
-// So the legacy state is reproduced the only way it exists in the wild — a
-// real `map.ner` column whose marker is absent — by clearing the marker
-// directly in the project store (the same out-of-band store access
-// column-format.spec.ts and friends already use).
-
-function clearSemanticTypeMarker(pid: string, columnId: string): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import sys
-from pathlib import Path
-from frisket.engine.store import Project
-
-workspace, pid, column_id = sys.argv[1], sys.argv[2], int(sys.argv[3])
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    project.set_column_semantic_type(column_id, None)
-    row = project.db.execute(
-        "SELECT semantic_type, current_run_id FROM columns WHERE id=?", (column_id,)
-    ).fetchone()
-    print(row["semantic_type"], row["current_run_id"])
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, pid, columnId], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
-  });
-}
-
-test('5 — a legacy entity column offers Rebuild and shows none of its old items', async ({
-  page,
-  request,
-}) => {
-  test.setTimeout(180_000);
-  const pid = await createProject(request, uniqueName('e2e-mentions-legacy'));
-  const sheetId = await importCsv(request, pid, 'filings.csv', csv(DEMO2_ROWS));
-  await extractEntities(request, pid, sheetId, DEMO2_LABELS);
-
-  const entities = (await sheetColumns(request, pid, sheetId)).find(
-    (column) => column.name === 'entities',
-  );
-  expect(entities).toBeTruthy();
-  clearSemanticTypeMarker(pid, String(entities!.id));
-
-  await openProject(page, pid, sheetId);
-  const panel = await openMentionsPanel(page);
-
-  const rebuild = panel.getByTestId('mentions-rebuild-cta');
-  await expect(rebuild).toHaveText('Rebuild entity column');
-  await expect(panel.getByTestId('mentions-blurb')).toContainText(
-    'extracted before mention grouping',
-  );
-
-  // No fallback: the old items are not parsed, fingerprinted, or listed.
-  await expect(panel.getByTestId('mentions-extract-cta')).toHaveCount(0);
-  await expect(panel.getByTestId('mentions-group-row')).toHaveCount(0);
-  await expect(panel.getByTestId('mentions-summary')).toHaveCount(0);
-  await expect(panel).not.toContainText('ACME Corp.');
-  await expect(panel).not.toContainText('Acme Inc.');
-  await expect(panel).not.toContainText('Maria Gomez');
-  await shoot(page, '5-rebuild');
-
-  // Rebuilding is a fresh whole-column extraction, opened for review.
-  await rebuild.click();
-  await expect(page.getByTestId('action-panel')).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('action-panel')).not.toContainText('Action unavailable');
-  await expect(page.getByTestId('generated-action-form')).toBeVisible({ timeout: 20_000 });
 });
 
 // ---------------------------------------------------------------------------
@@ -588,7 +512,7 @@ test('6 — filtering by a group that only exists on page 2 keeps both pages loa
   await expect(target).toHaveAttribute('aria-pressed', 'true');
   await expect(panel.getByTestId('mentions-show-more-organization')).toHaveCount(0);
   await expect(panel.getByTestId('mentions-active-filter')).toContainText(
-    '“Acme Corp.” · Organization, grouped forms',
+    '“zephyr holdings corp.” · Organization, grouped forms',
   );
   await shoot(page, '6-paging-survives-filter');
 

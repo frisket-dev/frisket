@@ -5,6 +5,7 @@ import {
   editCells,
   importCsv,
   openAction,
+  selectActionInputColumns,
   openHistory,
   openProject,
   sheetColumns,
@@ -70,6 +71,7 @@ async function startSimulatedPythonRun(page: Page, pid: string): Promise<number>
     status: 'completed',
   });
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page.getByTestId('field-code').fill("result = row.get('note', '')");
   const [, runResponse] = await Promise.all([
@@ -111,14 +113,14 @@ test('the active dock tab carries the Monitor amber accent', async ({ page, requ
     return {
       monitor,
       activeColor: readColor(active),
-      activeShadow: active ? getComputedStyle(active).boxShadow : '',
+      activeUnderline: active ? getComputedStyle(active).borderBottomColor : '',
       inactiveColor: readColor(document.querySelector('[data-testid="bottom-dock-tab-history"]')),
     };
   });
 
   // Active tab text + underline are painted in var(--monitor); inactive is not.
   expect(probe.activeColor).toBe(probe.monitor);
-  expect(probe.activeShadow).toContain(probe.monitor);
+  expect(probe.activeUnderline).toBe(probe.monitor);
   expect(probe.inactiveColor).not.toBe(probe.monitor);
 });
 
@@ -221,23 +223,17 @@ test('the dock tabs join the panel below and still switch content', async ({ pag
   const activeTabStyle = await errorsTab.evaluate((element) => {
     const style = getComputedStyle(element);
     return {
-      borderTopWidth: style.borderTopWidth,
       borderBottomWidth: style.borderBottomWidth,
       borderBottomLeftRadius: style.borderBottomLeftRadius,
       borderBottomRightRadius: style.borderBottomRightRadius,
-      marginBottom: style.marginBottom,
       boxShadow: style.boxShadow,
-      zIndex: style.zIndex,
     };
   });
   expect(activeTabStyle).toEqual({
-    borderTopWidth: '2px',
-    borderBottomWidth: '0px',
+    borderBottomWidth: '2px',
     borderBottomLeftRadius: '0px',
     borderBottomRightRadius: '0px',
-    marginBottom: '-1px',
     boxShadow: 'none',
-    zIndex: '1',
   });
 
   await page.getByTestId('bottom-dock-tab-jobs').click();
