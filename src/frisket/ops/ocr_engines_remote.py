@@ -30,7 +30,7 @@ from frisket.execution.credential_use import (
     require_consented_credential,
 )
 from frisket.execution.runtime_binding import bind_fact_to_route
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions
 
 DATALAB_ENGINE = "datalab"
@@ -141,7 +141,7 @@ def _decode_positioned_ocr_page(
     }
 
 
-def _datalab_credential(ctx: OpContext) -> Any:
+def _datalab_credential(ctx: ActionContext) -> Any:
     """Resolve value, source, and owner together before checking consent."""
     from frisket.credentials import resolve_credential_for_use
     from frisket.execution.definitions import DATALAB_API_KEY_ENV
@@ -189,7 +189,7 @@ def halt_unless_consented_credential(
         ) from exc
 
 
-async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[dict]:
+async def ocr_datalab(pages: list[Path], ctx: ActionContext, usage: dict) -> list[dict]:
     """Datalab's hosted OCR API (datalab.to), pay-per-call,
     migrated onto ``/convert(output_format=
     "json")`` per Datalab's own migration guide for the deprecated
@@ -343,7 +343,7 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
 async def ocr_vlm(
     model: str,
     pages: list[Path],
-    ctx: OpContext,
+    ctx: ActionContext,
     usage: dict,
     language: str | None = None,
     *,
@@ -367,7 +367,7 @@ async def ocr_vlm(
 
         router = router.for_execution(dispatch_for_context(ctx))
     if router is None:
-        raise RuntimeError("remote ocr engines need the model router in OpContext")
+        raise RuntimeError("remote ocr engines need the model router in ActionContext")
     routed = routed_admission_in_scope(ctx.extras)
     if routed is not None:
         # §3.5 pre-effect USE constraint for direct provider routes: the router

@@ -11,7 +11,7 @@ from frisket.ai.embeddings.analytics import (
     encode_project_legacy_texts_async,
 )
 from frisket.ai.embeddings.backends import embedder_is_remote
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.engine.executor.embedding_batches import (
     record_embedding_batch,
     refuse_missing_paid_vectors,
@@ -49,11 +49,11 @@ class AdmittedSemanticMatcher:
         self._candidates: list[tuple[int, str, Any]] | None = None
 
     def bind_row(
-        self, ctx: OpContext, *, expected_source: Any = _UNBOUND_SOURCE
+        self, ctx: ActionContext, *, expected_source: Any = _UNBOUND_SOURCE
     ) -> BoundSemanticMatcher:
         return BoundSemanticMatcher(self, ctx, expected_source)
 
-    async def candidates(self, ctx: OpContext) -> list[tuple[int, str, Any]]:
+    async def candidates(self, ctx: ActionContext) -> list[tuple[int, str, Any]]:
         if self._candidates is None:
             embed, model_id = self.backend
             texts = [text for _, text in self.values]
@@ -79,7 +79,10 @@ class AdmittedSemanticMatcher:
 
 class BoundSemanticMatcher:
     def __init__(
-        self, admitted: AdmittedSemanticMatcher, ctx: OpContext, expected_source: Any
+        self,
+        admitted: AdmittedSemanticMatcher,
+        ctx: ActionContext,
+        expected_source: Any,
     ) -> None:
         self._admitted = admitted
         self._ctx = ctx

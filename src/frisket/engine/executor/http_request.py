@@ -27,7 +27,7 @@ from frisket.ops.api_call_request import (
     build_request_kwargs,
     strict_json_loads,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.netguard import (
     EgressRefused,
     ResponseTooLarge,
@@ -43,7 +43,7 @@ class HttpRequestCancelled(RowError):
     """Host-observed cooperative cancellation before egress."""
 
 
-async def _pace_request(ctx: OpContext, value: Any) -> bool:
+async def _pace_request(ctx: ActionContext, value: Any) -> bool:
     """Apply one fixed-interval limiter shared by every row in this run.
 
     Returns True once this request may proceed, or False if a cooperative
@@ -78,7 +78,7 @@ async def _pace_request(ctx: OpContext, value: Any) -> bool:
 
 
 class AdmittedHttpRequester:
-    def __init__(self, ctx: OpContext):
+    def __init__(self, ctx: ActionContext):
         self._ctx = ctx
         self._closed = False
 

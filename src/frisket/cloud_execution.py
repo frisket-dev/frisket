@@ -51,7 +51,7 @@ from frisket.contracts.transcription_sidecar import TranscriptionOptions
 from frisket.ops.integrations.hosted_error import HostedEngineError
 
 if TYPE_CHECKING:
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
 
 
 CloudMediaCapability = Literal["ocr", "transcribe", "document.convert"]
@@ -953,7 +953,7 @@ class HttpCloudExecutionTransport:
 
 
 def cloud_media_execution(
-    ctx: OpContext,
+    ctx: ActionContext,
     capability: CloudMediaCapability,
     engine: str,
 ) -> tuple[CloudExecutionTransport, CloudExecutionAttempt]:

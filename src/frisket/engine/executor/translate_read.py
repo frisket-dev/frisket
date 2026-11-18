@@ -12,7 +12,7 @@ from frisket.actions.translate_types import (
 )
 from frisket.actions.types import Row, RowError
 from frisket.execution.attempt import routed_admission_in_scope
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.integrations.translation_engine import TranslationEngine
 
@@ -20,7 +20,7 @@ from frisket.ops.integrations.translation_engine import TranslationEngine
 class AdmittedTranslator:
     """One provider translation per captured row, with host-owned facts."""
 
-    def __init__(self, ctx: OpContext, *, engine: str, options: dict) -> None:
+    def __init__(self, ctx: ActionContext, *, engine: str, options: dict) -> None:
         self._translation_engine = TranslationEngine(invocation_owned=True)
         self._ctx = ctx
         self._engine = engine
@@ -36,14 +36,14 @@ class AdmittedTranslator:
         self._closed = True
         await self._translation_engine.aclose()
 
-    def _check_active(self, ctx: OpContext) -> None:
+    def _check_active(self, ctx: ActionContext) -> None:
         if self._closed:
             raise RuntimeError("translator invocation is closed")
         cancelled = ctx.extras.get("cancelled")
         if callable(cancelled) and cancelled():
             raise asyncio.CancelledError
 
-    def _check_route(self, ctx: OpContext) -> None:
+    def _check_route(self, ctx: ActionContext) -> None:
         from frisket.execution.resolve_for_action import authored_options
         from frisket.execution.resolver import preview_resolution_in_scope
 
@@ -91,7 +91,7 @@ class AdmittedTranslator:
 
 class _BoundTranslator:
     def __init__(
-        self, owner: AdmittedTranslator, row: Row, row_id: int, ctx: OpContext
+        self, owner: AdmittedTranslator, row: Row, row_id: int, ctx: ActionContext
     ):
         self._owner, self._row, self._row_id, self._ctx = owner, row, row_id, ctx
 

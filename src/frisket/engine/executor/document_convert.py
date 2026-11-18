@@ -454,7 +454,7 @@ class _BoundDocumentConverter:
             # holding "/etc/passwd" is content to convert, not a file reference.
             if media_typed and "\n" not in doc and len(doc) < 4096:
                 try:
-                    candidate = resolve_media_path(doc, ctx, op="to_markdown")
+                    candidate = resolve_media_path(doc, ctx, action="to_markdown")
                     if Path(candidate).exists():
                         return Path(candidate), {"kind": "path"}
                 except ValueError:

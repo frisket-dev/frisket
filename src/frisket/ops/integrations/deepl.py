@@ -1,7 +1,7 @@
 """DeepL API v2 translation client.
 
 A thin async wrapper over the shared ``httpx.AsyncClient`` the MapRunner already
-owns (``OpContext.http``), mirroring ``ops/_sidecar.py``'s injectable-client
+owns (``ActionContext.http``), mirroring ``ops/_sidecar.py``'s injectable-client
 shape so tests drive it with ``httpx.MockTransport`` and NEVER touch the network
 (tests never touch the live network by default). The key resolves through ``credentials.resolve_credential``
 (env → project secrets) at the call site; this module only consumes it.

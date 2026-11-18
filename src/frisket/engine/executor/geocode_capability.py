@@ -34,7 +34,7 @@ from frisket.execution.credential_use import (
     require_consented_credential,
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
 from frisket.ops.integrations.hosted_error import (
     HostedEngineError,
@@ -91,14 +91,14 @@ async def _nominatim_pace(
 class AdmittedGeocoder:
     """One logical lookup per admitted row; internal retries retain their facts."""
 
-    def __init__(self, ctx: OpContext) -> None:
+    def __init__(self, ctx: ActionContext) -> None:
         self._ctx = ctx
         self._closed = False
         self._called_rows: set[int] = set()
         self.accounting_by_row: dict[int, dict[str, Any]] = {}
         self.request_count = 0
 
-    def bind_row(self, ctx: OpContext) -> _GeocoderRow:
+    def bind_row(self, ctx: ActionContext) -> _GeocoderRow:
         return _GeocoderRow(self, ctx)
 
     async def aclose(self) -> None:
@@ -111,7 +111,7 @@ class AdmittedGeocoder:
         if cancelled and cancelled():
             raise asyncio.CancelledError()
 
-    async def _lookup(self, ctx: OpContext, address: str) -> GeocodedAddress:
+    async def _lookup(self, ctx: ActionContext, address: str) -> GeocodedAddress:
         self._check_active()
         row_id = ctx.extras.get("row_id")
         if not isinstance(row_id, int) or row_id in self._called_rows:
@@ -291,7 +291,7 @@ class AdmittedGeocoder:
     async def _opencage(
         self,
         address: str,
-        ctx: OpContext,
+        ctx: ActionContext,
         api_key: str,
         *,
         credential_source: str,
@@ -340,7 +340,7 @@ class AdmittedGeocoder:
             ) from None
 
     async def _nominatim(
-        self, address: str, ctx: OpContext, *, pricing_key: str
+        self, address: str, ctx: ActionContext, *, pricing_key: str
     ) -> tuple[dict | None, dict[str, Any]]:
         await _nominatim_pace()
         data, accounting = await self._get(
@@ -392,7 +392,7 @@ class AdmittedGeocoder:
 
     async def _get(
         self,
-        ctx: OpContext,
+        ctx: ActionContext,
         url: str,
         params: dict,
         headers: dict | None = None,
@@ -541,7 +541,7 @@ class AdmittedGeocoder:
 
 
 class _GeocoderRow:
-    def __init__(self, owner: AdmittedGeocoder, ctx: OpContext) -> None:
+    def __init__(self, owner: AdmittedGeocoder, ctx: ActionContext) -> None:
         self._owner = owner
         self._ctx = ctx
 

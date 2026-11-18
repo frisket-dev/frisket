@@ -6,11 +6,11 @@ Canonical sources: `OCR_ENGINE_TABLE` (frisket.contracts.actions.schemas._engine
 tier/label/billable for the symbolic local/sidecar/datalab engines) and
 `ocr_vision_engines()` (derived from the shared `MODEL_ENTRIES` inventory in
 frisket.server.action_catalog_hints for image-capable generic models). Both
-feed `_recipe_engines`'s "ocr" branch, so this script and that function can
+feed `_action_engines`'s "ocr" branch, so this script and that function can
 never see different data.
 
 The symbolic table keeps its canonical order. Generic vision models are
-inserted immediately before Datalab, matching `_recipe_engines`'s return list
+inserted immediately before Datalab, matching `_action_engines`'s return list
 (a projector parity test elsewhere pins dots.mocr to index 3).
 Every OCR runtime is optional, so every fallback entry is unavailable until
 the live catalog confirms that runtime — see engineCatalog.ts's

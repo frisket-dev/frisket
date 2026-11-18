@@ -924,7 +924,7 @@ def _transcribe_options_hint(engine_id: str) -> dict[str, bool]:
     }
 
 
-def _recipe_engines(
+def _action_engines(
     action_kind: str,
     sidecar_capabilities: dict[str, Any],
     project: Project | None = None,
@@ -1730,7 +1730,7 @@ def _recipe_engines(
     return []
 
 
-def _recipe_pricing(name: str) -> dict[str, Any] | None:
+def _action_pricing(name: str) -> dict[str, Any] | None:
     if name == "geocode":
         if not os.environ.get("OPENCAGE_API_KEY"):
             # Nominatim is a free public API, not an unavailable/zero-dollar
@@ -1741,7 +1741,7 @@ def _recipe_pricing(name: str) -> dict[str, Any] | None:
     return None
 
 
-def _recipe_pricing_options(name: str) -> dict[str, dict[str, Any]] | None:
+def _action_pricing_options(name: str) -> dict[str, dict[str, Any]] | None:
     if name == "geocode":
         return {
             "opencage": external_pricing_entry(GEOCODE_EXTERNAL_GEOCODER),
@@ -1749,7 +1749,7 @@ def _recipe_pricing_options(name: str) -> dict[str, dict[str, Any]] | None:
     return None
 
 
-def _recipe_cost_source(name: str) -> str | None:
+def _action_cost_source(name: str) -> str | None:
     """Non-price cost provenance for an action's default selection."""
     if name == "census_demographics":
         return "free_public_api"
@@ -1758,7 +1758,7 @@ def _recipe_cost_source(name: str) -> str | None:
     return None
 
 
-def _recipe_cost_source_options(name: str) -> dict[str, str] | None:
+def _action_cost_source_options(name: str) -> dict[str, str] | None:
     """Non-price provenance for explicit choices omitted from price options."""
     if name == "geocode":
         return {"nominatim": "free_public_api"}
@@ -1927,7 +1927,7 @@ def project_action_catalog_launcher_hints(
             "form_params": form_params,
             "execution_capability": execution_capability,
         }
-        engines = _recipe_engines(
+        engines = _action_engines(
             f"enrich.{execution_capability}"
             if execution_capability in {"geocode", "census_demographics"}
             else "media.to_markdown"
@@ -1958,7 +1958,7 @@ def project_action_catalog_launcher_hints(
             if network_off:
                 engines = _apply_network_off_engine_hints(engines)
             hints["engines"] = engines
-        pricing = _recipe_pricing(provider_name)
+        pricing = _action_pricing(provider_name)
         if (
             pricing is not None
             and provider_name == "geocode"
@@ -1973,7 +1973,7 @@ def project_action_catalog_launcher_hints(
             )
         if pricing:
             hints["pricing"] = pricing
-        pricing_options = _recipe_pricing_options(provider_name)
+        pricing_options = _action_pricing_options(provider_name)
         if (
             pricing_options
             and execution_composition is not None
@@ -1994,10 +1994,10 @@ def project_action_catalog_launcher_hints(
             }
         if pricing_options:
             hints["pricing_options"] = pricing_options
-        cost_source = _recipe_cost_source(provider_name)
+        cost_source = _action_cost_source(provider_name)
         if cost_source:
             hints["cost_source"] = cost_source
-        cost_source_options = _recipe_cost_source_options(provider_name)
+        cost_source_options = _action_cost_source_options(provider_name)
         if cost_source_options:
             hints["cost_source_options"] = cost_source_options
         default_output = ACTION_PROVIDER_DEFAULT_OUTPUT.get(provider_name)

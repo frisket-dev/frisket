@@ -1,6 +1,6 @@
 from .base import (
     RECIPE_INVOCATION_HALT_CODES,
-    OpContext,
+    ActionContext,
     Recipe,
     RecipeInvocationHalt,
     RenderedCall,
@@ -16,6 +16,6 @@ __all__ = [
     "normalize_recipe_invocation_halt",
     "persisted_recipe_invocation_halt",
     "RenderedCall",
-    "OpContext",
+    "ActionContext",
     "get_recipe",
 ]

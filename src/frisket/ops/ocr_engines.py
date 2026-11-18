@@ -29,7 +29,7 @@ from frisket.execution.purchases import (
     execute_purchase,
     policy_for_context,
 )
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
 from frisket.ops import ocr_engines_remote as hosted
 from frisket.ops import ocr_engines_local as local
@@ -77,7 +77,7 @@ class OcrEngines:
         pages: list[dict],
         usage: dict,
         *,
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> ModelCallMeta:
         """The per-row OCR fact. ``units["pages"]`` is the METERED quantity
         the price book settles the per-page SKU against (``_METERED_UNIT_KEY``),
@@ -162,7 +162,7 @@ class OcrEngines:
         self,
         engine: str,
         page_paths: list[Path],
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         usage: dict,
         language: str | None = None,

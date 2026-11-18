@@ -35,7 +35,7 @@ from frisket.execution.purchases import (
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.execution.targets import US_CENSUS_TARGET_ID
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
 
 CENSUS_GEOLOOKUP_BATCH_URL = (
@@ -99,7 +99,7 @@ def _num(value: Any) -> float | int | None:
     return int(n) if n.is_integer() else n
 
 
-def _cancelled(ctx: OpContext) -> bool:
+def _cancelled(ctx: ActionContext) -> bool:
     cb = (ctx.extras or {}).get("cancelled")
     return bool(cb()) if callable(cb) else False
 
@@ -138,7 +138,7 @@ def _find_key(headers: list[str], *needles: str) -> str | None:
 
 
 def _provider_accounting(
-    ctx: OpContext, credential_source: str, *, units: dict[str, int | str]
+    ctx: ActionContext, credential_source: str, *, units: dict[str, int | str]
 ) -> dict[str, Any]:
     """One host-observed row or HTTP invocation's known-zero provider fact.
 
@@ -208,7 +208,7 @@ class CensusGeo:
 
 @dataclass
 class AdmittedCensusDemographics:
-    ctx: OpContext = field(repr=False)
+    ctx: ActionContext = field(repr=False)
     accounting_by_row: dict[int, dict[str, Any]] = field(
         default_factory=dict, init=False
     )
@@ -235,7 +235,7 @@ class AdmittedCensusDemographics:
     async def aclose(self) -> None:
         pass
 
-    def _record_request(self, ctx: OpContext, credential_source: str) -> None:
+    def _record_request(self, ctx: ActionContext, credential_source: str) -> None:
         accounting = _provider_accounting(
             ctx,
             credential_source,
@@ -374,7 +374,7 @@ class AdmittedCensusDemographics:
         self,
         points: dict[int, tuple[float, float]],
         geography: str,
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, CensusGeo]:
         benchmark = DEFAULT_GEOLOOKUP_BENCHMARK
         default_vintage = (
@@ -518,7 +518,7 @@ class AdmittedCensusDemographics:
         geography: str,
         vintage: str,
         include_moe: bool,
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         credential: ResolvedCredential | None = None,
     ) -> dict[str, dict[str, Any]]:
@@ -569,7 +569,7 @@ class AdmittedCensusDemographics:
         geography: str,
         vintage: str,
         include_moe: bool,
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         credential: ResolvedCredential | None = None,
     ) -> dict[str, dict[str, Any]]:

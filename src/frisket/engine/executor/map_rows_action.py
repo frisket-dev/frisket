@@ -88,7 +88,7 @@ from frisket.contracts.action import (
     ReceiptEvidence,
     ReceiptIO,
 )
-from frisket.ops.base import OpContext, Recipe, RenderedCall
+from frisket.ops.base import ActionContext, Recipe, RenderedCall
 from frisket.engine.executor.action_lifecycle import (
     _PreparedMapExecution,
     _run_reserved_maprunner_action,
@@ -908,7 +908,9 @@ class _TypedMapRowsProgram(Recipe):
                     self._capability_bindings.reset(token)
 
     @staticmethod
-    def _persist_returned_capability_facts(ctx: OpContext, bindings: list[Any]) -> None:
+    def _persist_returned_capability_facts(
+        ctx: ActionContext, bindings: list[Any]
+    ) -> None:
         """Returned facts outlive author failure and cancelled publication.
 
         The existing fenced writer deduplicates the capability's stable call
@@ -958,7 +960,7 @@ class _TypedMapRowsProgram(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> PreparedRowPublication:
         bindings = self._capability_bindings.get()
         if self._terminal.capabilities and bindings is None:
@@ -1440,7 +1442,7 @@ class _TypedMapBatchProgram(_TypedMapRowsProgram):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, PreparedRowPublication]:
         del spec
         bindings = self._capability_bindings.get()

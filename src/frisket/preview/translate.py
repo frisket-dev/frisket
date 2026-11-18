@@ -34,7 +34,7 @@ from frisket.preview.common import (
     billable_engine_error,
 )
 from frisket.ops.integrations.translate_common import REMOTE_TRANSLATE_ENGINES
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.integrations.translation_engine import TranslationEngine
 from frisket.redaction import canonical_error_code, redact_text, safe_error
 from frisket.engine.store import Project
@@ -244,7 +244,7 @@ async def _run_engine_with_project(
             f"translate compare tried to dispatch billable engine '{engine}'; "
             "billable engines belong to the cost-gated map.translate action"
         )
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project, http=http, extras={"preview": True, "cancelled": lambda: False}
     )
     out = await TranslationEngine().execute(row_values, spec, ctx)

@@ -1,7 +1,7 @@
 """Datalab hosted document APIs (datalab.to) — pay-per-call REMOTE engines for
 media.ocr and media.to_markdown. They follow the hosted-engine shape in
 integrations/deepl.py + google_translate.py: the same injectable-async-client
-shape over ``OpContext.http`` so tests replay ``httpx.MockTransport`` and
+shape over ``ActionContext.http`` so tests replay ``httpx.MockTransport`` and
 never touch the network.
 
 Datalab (github.com/datalab-to) is the vendor behind the Surya 2.5 and Chandra
@@ -256,7 +256,7 @@ async def _poll(
     not accumulated-sleep — a slow poll GET (network latency, Datalab-side
     queueing) no longer silently extends the effective timeout past
     ``poll_timeout``. ``should_cancel`` (the same cooperative-cancellation
-    callable MapRunner threads through ``OpContext.extras['cancelled']``,
+    callable MapRunner threads through ``ActionContext.extras['cancelled']``,
     checked between ROWS at runner/map_runner.py's ``one_row``) is checked
     each iteration so a run-cancel during a long poll stops promptly instead
     of only being noticed after the whole row (which could be a 180s poll

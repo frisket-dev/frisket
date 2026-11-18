@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.authoring.recipe_registry import (
+from frisket.authoring.action_registry import (
     ActionRegistryError,
     action_registry_entry_summary,
     build_action_artifact,
@@ -39,7 +39,7 @@ class ActionRegistryService:
                 400, "pass saved_action_id or spec, not both"
             )
         if saved_action_id is not None:
-            saved = self._workspace.saved_recipe_by_id(saved_action_id)
+            saved = self._workspace.saved_action_by_id(saved_action_id)
             if saved is None:
                 raise ActionRegistryRouteError(404, "no such saved action")
             try:
@@ -122,7 +122,7 @@ class ActionRegistryService:
             stored = self._workspace.action_registry.publish(candidate)
         except ActionRegistryError as exc:
             raise ActionRegistryRouteError(400, str(exc)) from exc
-        entry = self._workspace.save_recipe(
+        entry = self._workspace.save_action(
             action_name,
             stored["spec"],
             registry_artifact=action_registry_entry_summary(stored),

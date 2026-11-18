@@ -7,12 +7,12 @@ from typing import Any
 
 from frisket.execution.attempt import attempt_in_scope, routed_admission_in_scope
 from frisket.execution.runtime_binding import bind_fact_to_route
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.engine.store.runs import RunResultStore
 
 
 def persist_hosted_accepted_accounting(
-    ctx: OpContext,
+    ctx: ActionContext,
     accounting: dict[str, Any],
 ) -> None:
     """Persist the provider's accepted job before its first poll.

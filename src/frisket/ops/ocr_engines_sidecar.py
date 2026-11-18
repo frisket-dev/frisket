@@ -11,11 +11,11 @@ from frisket.execution.dispatch_control import dispatch_for_context
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ops._sidecar import sidecar_post
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.ocr_engines_local import LIGHT_ENGINE
 
 
-async def ocr_sidecar(engine: str, pages: list[Path], ctx: OpContext) -> list[dict]:
+async def ocr_sidecar(engine: str, pages: list[Path], ctx: ActionContext) -> list[dict]:
     """POST /ocr on the frisket-models sidecar: multipart page bytes
     (the sidecar may be another machine — it never reads our disk),
     bearer-token auth, array batching; per page text + bbox blocks.

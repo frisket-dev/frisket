@@ -57,7 +57,7 @@ from frisket.server.notifications.delivery import (
 )
 from frisket.server.notifications.secrets import NotificationSecretResolver
 from frisket.project_identity import validate_project_slug
-from frisket.authoring.recipe_registry import ActionRegistryStore
+from frisket.authoring.action_registry import ActionRegistryStore
 from frisket.authoring.action_metadata import PRODUCT_EDITION_SNAPSHOT_KEY
 from frisket.engine.runner import RunProgress
 from frisket.server.route_errors import RouteError
@@ -350,7 +350,7 @@ class Workspace:
         # The installed composition policy directly governs both catalog
         # seeding and registry rehydration at this authority.
         self.plugin_package_catalog = plugin_package_catalog_for_root(self.root)
-        self._saved_recipes_lock = threading.RLock()
+        self._saved_actions_lock = threading.RLock()
         self.action_registry = ActionRegistryStore(self.root)
         # The saved-actions store accepts only the post-reset v1 dialect.
         # keyed (project_id, run_id): run ids are per-project sqlite
@@ -1015,9 +1015,9 @@ class Workspace:
             try:
                 from frisket.upgrades.project import upgrade_project
 
-                with self._saved_recipes_lock:
+                with self._saved_actions_lock:
                     upgrade_project(
-                        project, project_id=project_id, recipes=self._read_saved_recipes
+                        project, project_id=project_id, recipes=self._read_saved_actions
                     )
                 self._attach_project_jobs(project_id, project)
             except BaseException:
@@ -1245,15 +1245,15 @@ class Workspace:
         return plugin_package_lifecycle_lock(self.root)
 
     @property
-    def _saved_recipes_path(self) -> Path:
+    def _saved_actions_path(self) -> Path:
         return self.root / "saved_recipes.json"
 
     @property
-    def _saved_recipes_lock_path(self) -> Path:
+    def _saved_actions_lock_path(self) -> Path:
         return self.root / ".saved_recipes.lock"
 
-    def _read_saved_recipes(self) -> list[dict]:
-        p = self._saved_recipes_path
+    def _read_saved_actions(self) -> list[dict]:
+        p = self._saved_actions_path
         if not p.exists():
             return []
         try:
@@ -1262,41 +1262,41 @@ class Workspace:
             return []
         return data if isinstance(data, list) else []
 
-    def saved_recipes(self) -> list[dict]:
-        with self._saved_recipes_lock:
-            return self._read_saved_recipes()
+    def saved_actions(self) -> list[dict]:
+        with self._saved_actions_lock:
+            return self._read_saved_actions()
 
-    def saved_recipe_by_id(self, recipe_id: int) -> dict | None:
-        with self._saved_recipes_lock:
-            for recipe in self._read_saved_recipes():
-                if recipe.get("id") == recipe_id:
-                    return recipe
+    def saved_action_by_id(self, saved_action_id: int) -> dict | None:
+        with self._saved_actions_lock:
+            for saved_action in self._read_saved_actions():
+                if saved_action.get("id") == saved_action_id:
+                    return saved_action
         return None
 
-    def save_recipe(
+    def save_action(
         self,
         name: str,
         spec: dict,
         *,
         registry_artifact: dict[str, Any] | None = None,
         eval_receipts: list[dict[str, Any]] | None = None,
-        recipe_id: int | None = None,
+        saved_action_id: int | None = None,
     ) -> dict:
         from frisket.server.services.saved_actions import require_saved_action_spec
 
-        with self._saved_recipes_lock:
-            lock_path = self._saved_recipes_lock_path
+        with self._saved_actions_lock:
+            lock_path = self._saved_actions_lock_path
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             with FileLock(str(lock_path), timeout=-1):
-                recipes = self._read_saved_recipes()
-                if recipe_id is not None and not any(
-                    r.get("id") == recipe_id for r in recipes
+                saved_actions = self._read_saved_actions()
+                if saved_action_id is not None and not any(
+                    r.get("id") == saved_action_id for r in saved_actions
                 ):
                     raise KeyError("saved action not found")
                 rid = (
-                    recipe_id
-                    if recipe_id is not None
-                    else max((r.get("id", 0) for r in recipes), default=0) + 1
+                    saved_action_id
+                    if saved_action_id is not None
+                    else max((r.get("id", 0) for r in saved_actions), default=0) + 1
                 )
                 entry = {
                     "id": rid,
@@ -1307,9 +1307,9 @@ class Workspace:
                     entry["registry_artifact"] = registry_artifact
                 if eval_receipts is not None:
                     entry["eval_receipts"] = eval_receipts
-                recipes = [r for r in recipes if r.get("id") != rid]
-                recipes.append(entry)
-                tmp = self._saved_recipes_path.with_suffix(".json.tmp")
-                tmp.write_text(json.dumps(recipes, indent=2))
-                tmp.replace(self._saved_recipes_path)
+                saved_actions = [r for r in saved_actions if r.get("id") != rid]
+                saved_actions.append(entry)
+                tmp = self._saved_actions_path.with_suffix(".json.tmp")
+                tmp.write_text(json.dumps(saved_actions, indent=2))
+                tmp.replace(self._saved_actions_path)
                 return entry
