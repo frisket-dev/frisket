@@ -305,8 +305,8 @@ def _finalize_update(
         finish_table_intake,
     )
 
-    session = ImportSessionStore(project).get(frozen.import_ref)
-    receipt = ReceiptStore(project).parsed_by_id(envelope.receipt_id)
+    session = ImportSessionStore(project).require(frozen.import_ref)
+    receipt = ReceiptStore(project).require_parsed(envelope.receipt_id)
     if receipt.status == "running" and session.state in {"active", "paused"}:
         if session.writer_authority != writer_authority:
             raise ImportSessionConflict("row update no longer owns publication")
@@ -447,9 +447,9 @@ def run_rows_updater(
             if outcome["status"] != "published":
                 raise ValueError("row update was interrupted")
             self.enumeration_complete = True
-            session = ImportSessionStore(project).get(self.frozen.import_ref)
+            session = ImportSessionStore(project).require(self.frozen.import_ref)
             writer = StreamingSheetWriter._from_session(project, session)
-            receipt = ReceiptStore(project).parsed_by_id(self.envelope.receipt_id)
+            receipt = ReceiptStore(project).require_parsed(self.envelope.receipt_id)
             snapshot = writer._completed_update_receipt(
                 receipt, row_count=session.committed_rows, status="running"
             )

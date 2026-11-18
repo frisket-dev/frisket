@@ -219,7 +219,7 @@ def register_import_files_handler(
                                 else:
                                     writer.pause(expected_cursor=cursor)
                             elif header.cancel_requested:
-                                stored = ReceiptStore(project).find_by_id(
+                                stored = ReceiptStore(project).require(
                                     envelope.receipt_id
                                 )
                                 ReceiptStore(project).update_body_status(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 from typing import Any, Mapping, NoReturn
@@ -70,7 +71,7 @@ def write_op(
             json.dumps(undo_info, sort_keys=True),
         ),
     )
-    op_id = int(cur.lastrowid)
+    op_id = inserted_rowid(cur)
     from frisket.engine.store.changes import start_change
     from frisket.engine.store.column_descriptors import record_descriptor_changes
 

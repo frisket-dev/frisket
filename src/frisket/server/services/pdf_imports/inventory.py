@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 import sqlite3
@@ -218,7 +219,7 @@ class PdfDraftInventory:
                         sample_key,
                     ),
                 )
-                through = int(cursor.lastrowid)
+                through = inserted_rowid(cursor)
                 self.db.execute(
                     "INSERT INTO pdf_selected_state(occurrence_id) VALUES(?)",
                     (occurrence_id,),
@@ -358,7 +359,7 @@ class PdfDraftInventory:
                     "VALUES(?,?,?,?,?,?)",
                     values,
                 )
-                through = int(cursor.lastrowid)
+                through = inserted_rowid(cursor)
                 self.db.execute(
                     "UPDATE pdf_selected_state SET upload_state='staged',"
                     "staged_ordinal=?,sha256=?,mime=?,media_kind=? "

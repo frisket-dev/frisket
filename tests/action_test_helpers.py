@@ -1,6 +1,7 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,7 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionRequest
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.ai.llm import ModelRouter
-from frisket.contracts.action import ActionResult
+from frisket.contracts.action import ActionResult, ActionSpec
 from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
@@ -19,6 +20,15 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 # Default for the first migrated map-action tests; action families that mutate
 # sources, blobs, artifacts, or sheets should pass their own table list.
 DEFAULT_COUNT_TABLES = ("columns", "runs", "results", "model_calls", "ops", "receipts")
+
+
+def legacy_params_hash(action: ActionSpec) -> str:
+    """The idempotency hash of a v1 ``ActionSpec`` body."""
+    payload = action.model_dump(mode="json", exclude_none=True)
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def write_json(tmp_path: Path, name: str, payload: dict[str, Any]) -> Path:

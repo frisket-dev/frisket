@@ -95,6 +95,13 @@ class ImportSessionStore:
         ).fetchone()
         return None if row is None else ImportSession.from_row(row)
 
+    def require(self, session_id: str) -> ImportSession:
+        """The import session ``session_id``, which the caller holds as existing."""
+        session = self.get(session_id)
+        if session is None:
+            raise ImportSessionConflict("import session is unavailable")
+        return session
+
     def require_writer(
         self,
         session_id: str,

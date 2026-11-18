@@ -116,7 +116,7 @@ class GroupPublication:
                     terminal.reason or "cancelled summary could not close"
                 )
             result = _result_from_receipt(
-                ReceiptStore(self.project).parsed_by_id(self.receipt_id)
+                ReceiptStore(self.project).require_parsed(self.receipt_id)
             )
             if owns_transaction:
                 db.commit()
@@ -191,7 +191,7 @@ class GroupPublication:
             from frisket.contracts.action import ReceiptIO
 
             receipts = ReceiptStore(project)
-            receipt = receipts.parsed_by_id(self.receipt_id)
+            receipt = receipts.require_parsed(self.receipt_id)
             receipt = receipt.model_copy(
                 update={
                     "run_id": run_id,

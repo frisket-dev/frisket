@@ -13,7 +13,7 @@ import json
 from bisect import bisect_left, bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 CONSUMED_SOURCE_SCHEMA_SQL = """
@@ -726,7 +726,7 @@ def store_capture(
             _json(current) if fresh else "{}",
         ),
     )
-    identity = int(cursor.lastrowid)
+    identity = inserted_rowid(cursor)
     project.db.executemany(
         "INSERT INTO consumed_source_columns VALUES(?,?)",
         ((identity, column_id) for column_id in columns),

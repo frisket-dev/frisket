@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from contextlib import contextmanager
 from itertools import islice
 from typing import Any
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 PURGE_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project_purges (
@@ -136,7 +136,7 @@ def begin_purge(
         raise ValueError("Select at least one sheet, column or row")
     with write_transaction(db):
         require_no_pending_purge(db)
-        purge = int(db.execute("INSERT INTO project_purges DEFAULT VALUES").lastrowid)
+        purge = inserted_rowid(db.execute("INSERT INTO project_purges DEFAULT VALUES"))
         p = {"purge": purge}
         for kind, ids in choices.items():
             for identity in ids:

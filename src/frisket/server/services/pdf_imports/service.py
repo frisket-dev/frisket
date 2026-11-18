@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import contextlib
 import errno
 import hashlib
@@ -2762,7 +2763,7 @@ class PdfImportService:
                     "VALUES(?,?,?,?,?,?)",
                     values,
                 )
-                ordinal = int(cursor.lastrowid)
+                ordinal = inserted_rowid(cursor)
                 if ordinal != int(row["commit_ordinal"]):
                     raise RuntimeError("commit inventory ordinal changed")
                 category = str(row["category"])

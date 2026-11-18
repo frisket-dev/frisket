@@ -16,6 +16,10 @@ from frisket.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.notifications import (
+    require_notification_digest_run,
+    require_notification_route,
+)
 
 
 @dataclass(frozen=True)
@@ -70,9 +74,7 @@ def compose_notification_digest(
     now: datetime | None = None,
     window: NotificationDigestWindow | None = None,
 ) -> dict[str, Any]:
-    route = project.notification_route(route_id)
-    if route is None:
-        raise ValueError("notification route not found")
+    route = require_notification_route(project, route_id)
     if not bool(route["enabled"]):
         raise ValueError("notification digest route is disabled")
     if str(route["delivery_mode"]) != "digest":
@@ -142,9 +144,7 @@ def render_notification_digest_message(
     digest_run_id = request["digest_run_id"]
     if digest_run_id is None:
         raise ValueError("notification digest request missing digest_run_id")
-    run = project.notification_digest_run(int(digest_run_id))
-    if run is None:
-        raise ValueError("notification digest run not found")
+    run = require_notification_digest_run(project, int(digest_run_id))
     route = project.notification_route(int(run["route_id"]))
     route_name = str(route["name"]) if route is not None else "Notification"
     items = project.notification_digest_items(int(run["id"]))

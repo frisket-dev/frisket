@@ -62,16 +62,15 @@ def resolve_action_selection(
         return bound
     from frisket.engine.executor.map_rows_action import typed_request_hash
 
+    prior = existing.parsed() if existing is not None else None
     if (
-        existing is not None
-        and existing.parsed().run_id is not None
-        and existing.parsed().params_hash == typed_request_hash(bound)
+        prior is not None
+        and prior.run_id is not None
+        and prior.params_hash == typed_request_hash(bound)
     ):
         from frisket.engine.store.runs import RunResultStore
 
-        rows = RunResultStore(project).run_row_scope_if_present(
-            existing.parsed().run_id
-        )
+        rows = RunResultStore(project).run_row_scope_if_present(prior.run_id)
         if rows is not None:
             return freeze_action_selection(bound, rows)
     from frisket.engine.views.evaluate import open_selection

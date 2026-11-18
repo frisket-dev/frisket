@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -266,7 +267,7 @@ def _write_extract_in_transaction(
             json.dumps(op_spec, sort_keys=True, allow_nan=False),
         ),
     )
-    op_id = int(cur.lastrowid)
+    op_id = inserted_rowid(cur)
     from frisket.engine.store.changes import ChangeStore
 
     ChangeStore(project).start(op_id)
@@ -281,7 +282,7 @@ def _write_extract_in_transaction(
             params.sheet_id,
         ),
     )
-    output_column_id = int(cur.lastrowid)
+    output_column_id = inserted_rowid(cur)
     insert_edits(
         project.db,
         op_id=op_id,
@@ -305,7 +306,7 @@ def _write_extract_in_transaction(
             "FROM columns WHERE sheet_id=?), 1, 0)",
             (params.sheet_id, transcript_name, params.sheet_id),
         )
-        transcript_column_id = int(cur.lastrowid)
+        transcript_column_id = inserted_rowid(cur)
         transcript_column_ids[source_column_id] = transcript_column_id
         created_column_ids.append(transcript_column_id)
         transcript_edits: list[EditCellWrite] = []
@@ -347,7 +348,7 @@ def _write_extract_in_transaction(
                 params.sheet_id,
             ),
         )
-        annotation_column_id = int(cur.lastrowid)
+        annotation_column_id = inserted_rowid(cur)
         annotation_column_ids[source_column_id] = annotation_column_id
         created_column_ids.append(annotation_column_id)
     project.set_undo_info(op_id, {"created_columns": created_column_ids}, commit=False)

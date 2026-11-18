@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 import sqlite3
 import uuid
@@ -1197,7 +1198,7 @@ class RetrievalStore:
                 canonical_json(publication.lexical.locator),
             ),
         )
-        lexical_rowid = int(cursor.lastrowid)
+        lexical_rowid = inserted_rowid(cursor)
         if not publication.lexical.text.strip():
             self.db.execute(
                 "DELETE FROM lexical_sources WHERE rowid=?", (lexical_rowid,)

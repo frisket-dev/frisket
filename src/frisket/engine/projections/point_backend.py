@@ -22,6 +22,7 @@ mechanical, not event-driven.
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 import sqlite3
@@ -509,7 +510,7 @@ class GeoProjectionBackend:
                     "VALUES (?,?,?,?,?)",
                     (projection_id, rid, lon, lat, ref_json),
                 )
-                point_id = int(cur.lastrowid)
+                point_id = inserted_rowid(cur)
                 conn.execute(
                     "INSERT INTO geo_points_rtree "
                     "(point_id, min_lon, max_lon, min_lat, max_lat) "
@@ -685,7 +686,7 @@ class GeoProjectionBackend:
                     "(projection_id, row_id, geometry_json) VALUES (?,?,?)",
                     (projection_id, rid, geometry_json),
                 )
-                shape_id = int(cur.lastrowid)
+                shape_id = inserted_rowid(cur)
                 conn.execute(
                     "INSERT INTO geo_shapes_rtree "
                     "(shape_id, min_lon, max_lon, min_lat, max_lat) "

@@ -18,7 +18,7 @@ from frisket.actions.types import ActionRequest, TableError
 from frisket.authoring.column_types import register_column_type, unregister_column_type
 from frisket.contracts.action import ActionSpec, Receipt, ReceiptIO
 from frisket.engine.executor import run_action_spec
-from frisket.engine.executor.action_support import _params_hash
+from action_test_helpers import legacy_params_hash
 from frisket.engine.executor.action_inventory import BoundLocalFile
 from frisket.engine.executor.local_file_read import AdmittedLocalFileReader
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
@@ -404,7 +404,7 @@ def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path):
         },
         "idempotency_key": "retired-import",
     }
-    request_hash = _params_hash(ActionSpec.model_validate(retired))
+    request_hash = legacy_params_hash(ActionSpec.model_validate(retired))
     project = Project.create(tmp_path / "project")
     try:
         ReceiptStore(project).insert_completed(

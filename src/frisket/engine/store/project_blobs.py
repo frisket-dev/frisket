@@ -6,6 +6,7 @@ stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 import logging
@@ -176,7 +177,7 @@ def record_blob_derivation(
     )
     if commit:
         project.db.commit()
-    return int(cur.lastrowid)
+    return inserted_rowid(cur)
 
 
 def blob_derivation(project: Any, derived_hash: str) -> sqlite3.Row | None:

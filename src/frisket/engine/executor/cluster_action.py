@@ -206,7 +206,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         if commit:
             project.db.execute("BEGIN IMMEDIATE")
         try:
-            prior = ReceiptStore(project).parsed_by_id(receipt_id)
+            prior = ReceiptStore(project).require_parsed(receipt_id)
             terminal = prior.model_copy(
                 update={
                     "status": status,
@@ -255,7 +255,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         except BaseException:
             project.db.rollback()
             raise
-        return _result_from_receipt(ReceiptStore(project).parsed_by_id(receipt_id))
+        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run["cancel_requested_at"] is not None:

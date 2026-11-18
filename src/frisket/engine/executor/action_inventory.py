@@ -12,7 +12,6 @@ from frisket.actions.types import EmailInput
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
-    ActionSpec,
     Receipt,
 )
 from frisket.engine.runner import (
@@ -34,13 +33,21 @@ class _ActionExecutionEnvelope(Protocol):
     Both the v1 ``ActionSpec`` and the code-first typed adapter satisfy this
     protocol.  Keeping the executor seam structural prevents a direct typed
     request from being translated into a legacy action declaration merely to
-    reuse reservation, claim, and receipt machinery.
+    reuse reservation, claim, and receipt machinery. The members are read-only
+    so the frozen typed envelope and the mutable ``ActionSpec`` both conform.
     """
 
-    kind: str
-    idempotency_key: str | None
-    params: Mapping[str, Any]
-    row_scope: Any | None
+    @property
+    def kind(self) -> str: ...
+
+    @property
+    def idempotency_key(self) -> str | None: ...
+
+    @property
+    def params(self) -> Mapping[str, Any]: ...
+
+    @property
+    def row_scope(self) -> Any | None: ...
 
 
 @dataclass(frozen=True)
@@ -204,6 +211,7 @@ class _ReservedMaprunnerActionSpec:
     precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None]
     write_fn: Callable[..., ActionResult]
     reservation_kind: str
+    params_hash_fn: Callable[[_ActionExecutionEnvelope], str]
     # optional resume seam: (project, params, resolved) -> the existing run id to RESUME
     # (run.backfill) instead of creating a new run. None (default) keeps the create path:
     # the map runner allocates a fresh run + generated columns. When set, the body threads it
@@ -214,11 +222,13 @@ class _ReservedMaprunnerActionSpec:
     # executable is intentionally absent from the legacy Recipe registry.
     program_fn: Callable[[Any, dict[str, Any]], Any | ActionError | None] | None = None
     replay_error_fn: (
-        Callable[[Any, Any, Receipt, ActionSpec], ActionError | None] | None
+        Callable[[Any, Any, Receipt, _ActionExecutionEnvelope], ActionError | None]
+        | None
     ) = None
-    params_hash_fn: Callable[[ActionSpec], str] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
-    cost_gate_error_fn: Callable[[ActionSpec, CostGate], ActionError] | None = None
+    cost_gate_error_fn: (
+        Callable[[_ActionExecutionEnvelope, CostGate], ActionError] | None
+    ) = None
     map_error_code: str = "map_run_failed"
 
 
@@ -235,13 +245,13 @@ class _ActionCoreSpec:
 
     kind: str
     params_model: type[BaseModel]
+    params_hash_fn: Callable[[_ActionExecutionEnvelope], str]
 
     # which execution body the core runs after the shared idempotency + confirmation
     # gate.
     body_kind: Literal["reserved_maprunner", "plain"] = "reserved_maprunner"
 
     # lifecycle policy
-    params_hash_fn: Callable[[ActionSpec], str] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
     result_from_existing_fn: Callable[..., ActionResult | None] | None = None
     reserve_fn: Callable[..., dict[str, str] | ActionResult] | None = None
@@ -287,7 +297,9 @@ class _ActionCoreSpec:
     # in-txn helper builds the rollback error via this callable instead of the fixed
     # project_write_failed ActionError; lets a plain op preserve its own pre-migration
     # exception code/message.
-    plain_exception_error_fn: Callable[[ActionSpec], ActionError] | None = None
+    plain_exception_error_fn: (
+        Callable[[_ActionExecutionEnvelope], ActionError] | None
+    ) = None
     # optional cleanup-on-rollback seam for plain ops whose perform stages out-of-txn side
     # effects (filesystem artifacts: a pre-txn tmp write, an in-txn os.replace into place).
     # The shared in-txn helper calls it with the resolved value on EVERY path where the
@@ -347,13 +359,15 @@ class _QueuedActionSpec:
     reservation_kind: str
     queue_job_kind: str
     payload_codecs: tuple[_QueuedPayloadCodec, ...]
+    params_hash_fn: Callable[[_ActionExecutionEnvelope], str]
     finalize_action: Callable[..., ActionResult] | None = None
     pre_run_guard: (
         Callable[[Any, Mapping[str, Any], BaseModel], ActionError | None] | None
     ) = None
-    params_hash_fn: Callable[[ActionSpec], str] | None = None
     confirmed_fn: Callable[[Any], bool] | None = None
-    cost_gate_error_fn: Callable[[ActionSpec, CostGate], ActionError] | None = None
+    cost_gate_error_fn: (
+        Callable[[_ActionExecutionEnvelope, CostGate], ActionError] | None
+    ) = None
     map_error_code: str = "map_run_failed"
     output_claim_error_field: str = "params.output_name"
     completed_result_from_existing_fn: Callable[..., ActionResult] | None = None

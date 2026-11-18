@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 from dataclasses import dataclass
@@ -190,7 +191,7 @@ def apply_additive_tables(
             "VALUES (?, ?, '{}', '{}', 0)",
             (operation_kind, label),
         )
-        op_id = int(cur.lastrowid)
+        op_id = inserted_rowid(cur)
         changes = ChangeStore(project)
         changes.start(op_id)
         producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
@@ -210,7 +211,7 @@ def apply_additive_tables(
                     "(?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets))",
                     (op.name,),
                 )
-                sheet_id = int(cur.lastrowid)
+                sheet_id = inserted_rowid(cur)
                 sheet_ids[op.sheet_ref] = sheet_id
                 row_ids[op.sheet_ref] = []
                 created_sheets.append(sheet_id)
@@ -222,8 +223,8 @@ def apply_additive_tables(
                     "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
                     (sheet_id, op.name, op.type, op.format, int(op.hidden), sheet_id),
                 )
-                column_ids[op.column_ref] = int(cur.lastrowid)
-                created_columns.append(int(cur.lastrowid))
+                column_ids[op.column_ref] = inserted_rowid(cur)
+                created_columns.append(inserted_rowid(cur))
             elif isinstance(op, AppendRowsOp):
                 sheet_id = sheet_ids[op.sheet_ref]
                 base = cur.execute(
@@ -235,7 +236,7 @@ def apply_additive_tables(
                         "INSERT INTO rows (sheet_id, position) VALUES (?, ?)",
                         (sheet_id, base + i + 1),
                     )
-                    row_id = int(cur.lastrowid)
+                    row_id = inserted_rowid(cur)
                     created_rows.append(row_id)
                     row_ids[op.sheet_ref].append(row_id)
                     cell_writes.extend(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 import sqlite3
 from typing import Any
@@ -55,7 +56,7 @@ class SourceStore:
         )
         if commit:
             self.db.commit()
-        return int(cur.lastrowid)
+        return inserted_rowid(cur)
 
     def update_source(
         self, source_id: int, *, commit: bool = True, **fields: Any
@@ -120,7 +121,7 @@ class SourceStore:
         )
         if commit:
             self.db.commit()
-        return int(cur.lastrowid)
+        return inserted_rowid(cur)
 
     def start_source_run(
         self,
@@ -136,7 +137,7 @@ class SourceStore:
         )
         if commit:
             self.db.commit()
-        return int(cur.lastrowid)
+        return inserted_rowid(cur)
 
     def finish_source_run(
         self,

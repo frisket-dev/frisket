@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 
 import pytest
+from action_test_helpers import legacy_params_hash
 
 
 # --- the generic action.run job kind ---------------------------------------
@@ -221,6 +222,7 @@ def test_concurrent_action_job_reservation_rechecks_params_after_lock(
                 project,
                 action,
                 project_id="project-reservation-race",
+                params_hash=legacy_params_hash(action),
             )
             with results_lock:
                 results.append(result)
@@ -284,6 +286,7 @@ def test_action_job_replay_resumes_after_pre_enqueue_failure(tmp_path) -> None:
             project,
             action,
             project_id=project_id,
+            params_hash=legacy_params_hash(action),
         )
         assert isinstance(reservation, dict)
         envelope = ActionJobEnvelope(
@@ -308,6 +311,7 @@ def test_action_job_replay_resumes_after_pre_enqueue_failure(tmp_path) -> None:
             project,
             action,
             project_id=project_id,
+            params_hash=legacy_params_hash(action),
         )
         assert isinstance(resumed, dict)
         assert resumed == reservation
@@ -329,6 +333,7 @@ def test_action_job_replay_resumes_after_pre_enqueue_failure(tmp_path) -> None:
             project,
             action,
             project_id=project_id,
+            params_hash=legacy_params_hash(action),
         )
         assert not isinstance(replay, dict)
         assert replay.job_id == result.job_id
@@ -366,6 +371,7 @@ def test_dynamic_plugin_prepared_receipt_does_not_enter_static_resume_path(
         project,
         action,
         project_id="project-dynamic-plugin-replay",
+        params_hash=legacy_params_hash(action),
     )
     assert isinstance(reservation, dict)
     queue = RecordingQueue()
@@ -390,6 +396,7 @@ def test_dynamic_plugin_prepared_receipt_does_not_enter_static_resume_path(
         project,
         action,
         project_id="project-dynamic-plugin-replay",
+        params_hash=legacy_params_hash(action),
     )
     assert isinstance(replay, ActionResult)
     assert replay.status == "queued"
@@ -424,6 +431,7 @@ def test_action_job_replay_repairs_post_enqueue_evidence_without_duplicate(
             project,
             action,
             project_id=project_id,
+            params_hash=legacy_params_hash(action),
         )
         assert isinstance(reservation, dict)
         envelope = ActionJobEnvelope(
@@ -466,6 +474,7 @@ def test_action_job_replay_repairs_post_enqueue_evidence_without_duplicate(
             project,
             action,
             project_id=project_id,
+            params_hash=legacy_params_hash(action),
         )
         assert isinstance(resumed, dict)
         assert resumed == reservation
@@ -784,7 +793,6 @@ def test_action_run_job_retryable_failed_result_requeues(tmp_path) -> None:
         launch_queued_action_job,
         reserve_queued_action_job_receipt,
     )
-    from frisket.engine.executor.action_support import _params_hash
     from frisket.engine.jobs.queue import ACTION_RUN_KIND, open_queue
     from frisket.engine.jobs.runs import register_action_run_handler
     from frisket.engine.jobs.worker import HandlerRegistry, Worker
@@ -804,7 +812,7 @@ def test_action_run_job_retryable_failed_result_requeues(tmp_path) -> None:
     project = Project.create(project_path, name="ActionJobRetryable")
     queue = open_queue(workspace=tmp_path)
     try:
-        params_hash = _params_hash(action)
+        params_hash = legacy_params_hash(action)
         reservation = reserve_queued_action_job_receipt(
             project,
             action,
@@ -879,7 +887,6 @@ def test_retryable_action_run_exhaustion_terminalizes_receipt(tmp_path) -> None:
     from frisket.engine.executor.queue_terminalization import (
         register_queue_terminalization,
     )
-    from frisket.engine.executor.action_support import _params_hash
     from frisket.engine.jobs.queue import ACTION_RUN_KIND, open_queue
     from frisket.engine.jobs.runs import register_action_run_handler
     from frisket.engine.jobs.worker import HandlerRegistry, Worker
@@ -899,7 +906,7 @@ def test_retryable_action_run_exhaustion_terminalizes_receipt(tmp_path) -> None:
     project = Project.create(project_path, name="ActionJobRetryExhausted")
     queue = open_queue(workspace=tmp_path)
     try:
-        params_hash = _params_hash(action)
+        params_hash = legacy_params_hash(action)
         reservation = reserve_queued_action_job_receipt(
             project,
             action,

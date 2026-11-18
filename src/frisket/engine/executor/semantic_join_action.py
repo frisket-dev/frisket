@@ -483,7 +483,7 @@ def finalize_semantic_join(
             raise StaleAttemptWriter(
                 f"semantic join publication abort was refused: {outcome.reason}"
             )
-        return _result_from_receipt(ReceiptStore(project).parsed_by_id(receipt_id))
+        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
 
     from frisket.ops.base import persisted_recipe_invocation_halt
 
@@ -706,7 +706,7 @@ def finalize_semantic_join(
 
         match_evidence = [
             item
-            for item in ReceiptStore(project).parsed_by_id(receipt_id).evidence
+            for item in ReceiptStore(project).require_parsed(receipt_id).evidence
             if item.ref.get("kind")
             in {"semantic_join_embedding_backend", "semantic_join_thresholds"}
         ]

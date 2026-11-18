@@ -249,7 +249,7 @@ def admit_table_import(
         elif session.receipt_id != envelope.receipt_id:
             raise ValueError("table import session identity changed")
         if frozen.plan.update is not None:
-            session = ImportSessionStore(project).get(frozen.import_ref)
+            session = ImportSessionStore(project).require(frozen.import_ref)
             compact_request = bound.request.model_dump(mode="json", exclude_none=True)
             compact_request["params"] = {
                 key: value

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-from .transactions import require_transaction
+from .transactions import inserted_rowid, require_transaction
 
 
 @dataclass(frozen=True)
@@ -57,7 +57,7 @@ def enqueue_dirty_scope(
         "(sheet_id,column_id,row_id_start,row_id_end) VALUES (?,?,?,?)",
         (sheet_id, column_id, row_id_start, row_id_end),
     )
-    return int(cursor.lastrowid)
+    return inserted_rowid(cursor)
 
 
 def latest_revision(db: sqlite3.Connection) -> int:

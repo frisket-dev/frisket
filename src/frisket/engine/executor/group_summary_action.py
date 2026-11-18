@@ -266,7 +266,7 @@ def run_typed_group_summary_action(
             "receipt_id": str(existing["id"]),
             "action_id": str(existing["action_id"]),
         }
-        receipt = ReceiptStore(project).parsed_by_id(reservation["receipt_id"])
+        receipt = ReceiptStore(project).require_parsed(reservation["receipt_id"])
         cohort = next(
             item.ref["row_ids"]
             for item in receipt.inputs

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 import logging
 from dataclasses import dataclass
@@ -887,7 +888,7 @@ def _web_capture_page_add_generated_column(
             params.sheet_id,
         ),
     )
-    return int(cur.lastrowid)
+    return inserted_rowid(cur)
 
 
 def _web_capture_page_apply_edits_in_txn(
