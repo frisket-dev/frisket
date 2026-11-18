@@ -332,7 +332,7 @@ def test_source_check_replay_does_not_reapply_totals(
         assert _new_rows_total(env.project, env.seeded["url_source_id"]) == 5
 
 
-def test_source_check_replays_after_source_is_deleted(
+def test_source_check_replays_after_feed_is_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A committed receipt is authoritative even after its source is absent."""
@@ -352,7 +352,7 @@ def test_source_check_replays_after_source_is_deleted(
         ]
 
 
-def test_source_check_validates_source_inside_transaction(
+def test_source_check_validates_feed_inside_transaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.store.feeds import FeedStore

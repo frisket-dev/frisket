@@ -10,12 +10,12 @@ export function FeedConfigFields({ form, onChange }: {
   return (
     <>
       {(form.kind === 'youtube_playlist' || form.kind === 'youtube_channel' || form.kind === 'tiktok_profile') && (
-        <div className="sources-form-grid">
+        <div className="feeds-form-grid">
           {form.kind !== 'tiktok_profile' && <FormField label="Max pages" >
 
             <TextInput
               aria-label="YouTube max pages"
-              data-testid="source-youtube-max-pages"
+              data-testid="feed-youtube-max-pages"
               value={form.youtubeMaxPages}
               onChange={(e) => onChange({ youtubeMaxPages: e.target.value })}
             />
@@ -34,12 +34,12 @@ export function FeedConfigFields({ form, onChange }: {
 
       {form.kind === 'api_list_dicts' && (
         <>
-          <div className="sources-form-grid">
+          <div className="feeds-form-grid">
             <FormField label="List path" >
 
               <TextInput
                 aria-label="API list path"
-                data-testid="source-api-list-path"
+                data-testid="feed-api-list-path"
                 value={form.apiListPath}
                 onChange={(e) => onChange({ apiListPath: e.target.value })}
               />
@@ -48,18 +48,18 @@ export function FeedConfigFields({ form, onChange }: {
 
               <TextInput
                 aria-label="API item ID path"
-                data-testid="source-api-item-id-path"
+                data-testid="feed-api-item-id-path"
                 value={form.apiItemIdPath}
                 onChange={(e) => onChange({ apiItemIdPath: e.target.value })}
               />
             </FormField>
           </div>
-          <div className="sources-form-grid">
+          <div className="feeds-form-grid">
             <FormField label="Updated path" >
 
               <TextInput
                 aria-label="API updated-at path"
-                data-testid="source-api-updated-at-path"
+                data-testid="feed-api-updated-at-path"
                 value={form.apiUpdatedAtPath}
                 onChange={(e) => onChange({ apiUpdatedAtPath: e.target.value })}
               />
@@ -68,7 +68,7 @@ export function FeedConfigFields({ form, onChange }: {
 
               <TextInput
                 aria-label="API max items"
-                data-testid="source-api-max-items"
+                data-testid="feed-api-max-items"
                 value={form.apiMaxItems}
                 onChange={(e) => onChange({ apiMaxItems: e.target.value })}
               />
@@ -80,9 +80,9 @@ export function FeedConfigFields({ form, onChange }: {
       {form.kind === 'courtlistener_docket' && (
         <>
           <TextArea
-            className="source-textarea"
+            className="feed-textarea"
             aria-label="CourtListener keywords"
-            data-testid="source-court-keywords"
+            data-testid="feed-court-keywords"
             value={form.courtKeywords}
             onChange={(e) => onChange({ courtKeywords: e.target.value })}
             placeholder="injunction, settlement"
@@ -91,7 +91,7 @@ export function FeedConfigFields({ form, onChange }: {
             <label className="control-row">
               <input
                 type="checkbox"
-                data-testid="source-court-include-parties"
+                data-testid="feed-court-include-parties"
                 checked={form.courtIncludeParties}
                 onChange={(e) => onChange({ courtIncludeParties: e.target.checked })}
               />
@@ -100,7 +100,7 @@ export function FeedConfigFields({ form, onChange }: {
             <label className="control-row">
               <input
                 type="checkbox"
-                data-testid="source-court-include-documents"
+                data-testid="feed-court-include-documents"
                 checked={form.courtIncludeDocuments}
                 onChange={(e) => onChange({ courtIncludeDocuments: e.target.checked })}
               />
@@ -111,7 +111,7 @@ export function FeedConfigFields({ form, onChange }: {
             Max entries
             <TextInput
               aria-label="CourtListener max entries"
-              data-testid="source-court-max-entries"
+              data-testid="feed-court-max-entries"
               value={form.courtMaxEntries}
               onChange={(e) => onChange({ courtMaxEntries: e.target.value })}
             />

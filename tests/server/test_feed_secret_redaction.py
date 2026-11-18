@@ -111,7 +111,7 @@ CORPUS = _corpus()
 
 
 @pytest.mark.parametrize("oracle", sorted(ORACLES))
-def test_canonical_source_redaction_is_at_least_as_strong_as_each_oracle(oracle):
+def test_canonical_feed_redaction_is_at_least_as_strong_as_each_oracle(oracle):
     redact = ORACLES[oracle]
     covered = [text for text in CORPUS if SECRET not in redact(text)]
     assert len(covered) > len(CORPUS) // 2

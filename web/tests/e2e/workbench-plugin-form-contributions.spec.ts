@@ -3,7 +3,7 @@ import { createProject, importCsv, openAction, openDiscoverTab, uniqueName } fro
 
 // The standalone add-source form retired from the Sources panel (workbench
 // entrypoints friction lane — creation now goes through the Import flow), so
-// the source-kind form contributions are exercised via the EDIT form: seed a
+// the feed-kind form contributions are exercised via the EDIT form: seed a
 // source with the v1 source.create action, then open its editor.
 async function createRssSource(
   request: APIRequestContext,
@@ -34,15 +34,15 @@ async function createRssSource(
   return created.id;
 }
 
-test('source-kind forms render as workbench form contributions', async ({ page }) => {
+test('feed-kind forms render as workbench form contributions', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-workbench-source-form'));
   const sourceName = uniqueName('contribution-feed');
   const sourceId = await createRssSource(page.request, pid, sourceName);
   await page.goto(`/p/${pid}`);
 
   await openDiscoverTab(page, 'Sources');
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
-  await page.getByTestId(`source-edit-${sourceId}`).click();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
+  await page.getByTestId(`feed-edit-${sourceId}`).click();
 
   const rssForm = page.getByTestId('workbench-contribution-frisket-core-source-kind-form-rss');
   await expect(rssForm).toBeVisible();
@@ -53,9 +53,9 @@ test('source-kind forms render as workbench form contributions', async ({ page }
   await expect(rssForm).toHaveAttribute('data-runtime-component-key', 'core.sources.RssSourceForm');
   await expect(rssForm).toHaveAttribute('data-accepts', 'source.rss');
   await expect(rssForm).toHaveAttribute('data-required-capabilities', /source\.create/);
-  await expect(rssForm.getByTestId('source-form')).toBeVisible();
+  await expect(rssForm.getByTestId('feed-form')).toBeVisible();
 
-  await page.getByTestId('source-kind').selectOption('api_list_dicts');
+  await page.getByTestId('feed-kind').selectOption('api_list_dicts');
   const apiForm = page.getByTestId('workbench-contribution-frisket-core-source-kind-form-api-list-dicts');
   await expect(apiForm).toBeVisible();
   await expect(apiForm).toHaveAttribute('data-schema-version', 'frisket.source.kind.form.v1');
@@ -65,7 +65,7 @@ test('source-kind forms render as workbench form contributions', async ({ page }
   );
   await expect(apiForm).toHaveAttribute('data-runtime-component-key', 'core.sources.ApiListDictsSourceForm');
   await expect(apiForm).toHaveAttribute('data-accepts', 'source.api_list_dicts');
-  await expect(apiForm.getByTestId('source-api-list-path')).toBeVisible();
+  await expect(apiForm.getByTestId('feed-api-list-path')).toBeVisible();
 });
 
 test('action forms render as workbench action form contributions', async ({ page }) => {

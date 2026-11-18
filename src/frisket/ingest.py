@@ -286,7 +286,7 @@ def ingest_rss(
 
     url = source["url"]
     if not url:
-        error = "rss source has no url"
+        error = "rss feed has no url"
         FeedStore(project).record_feed_check(
             source_id, new_rows=0, status="error", error=error
         )

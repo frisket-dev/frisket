@@ -14,10 +14,10 @@ test('source type and cadence selects fill their flex rows', async ({ page }) =>
   await page.goto(`/p/${pid}`);
   await page.getByTestId('ribbon-tab-data').click();
   await page.getByTestId('ribbon-command-sources').click();
-  const cadence = page.getByTestId('source-sched-1');
+  const cadence = page.getByTestId('feed-sched-1');
   await expect(cadence).toBeVisible();
   const cadenceWidth = await cadence.evaluate(select => {
-    const row = select.closest('.source-controls')!;
+    const row = select.closest('.feed-controls')!;
     const siblings = [...row.children].filter(child => child !== select.parentElement);
     const available = row.getBoundingClientRect().width
       - siblings.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0)
@@ -25,12 +25,12 @@ test('source type and cadence selects fill their flex rows', async ({ page }) =>
     return Math.abs(select.getBoundingClientRect().width - available);
   });
   expect(cadenceWidth).toBeLessThan(2);
-  await page.getByTestId('source-edit-1').click();
-  const kind = page.getByTestId('source-kind');
+  await page.getByTestId('feed-edit-1').click();
+  const kind = page.getByTestId('feed-kind');
   await expect(kind).toBeVisible();
   expect(await kind.evaluate(select => Math.abs(
     select.getBoundingClientRect().width
-    - select.closest('.sources-form-row')!.getBoundingClientRect().width,
+    - select.closest('.feeds-form-row')!.getBoundingClientRect().width,
   ))).toBeLessThan(2);
 });
 

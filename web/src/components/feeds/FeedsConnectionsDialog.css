@@ -1,5 +1,5 @@
 /* ---- live sources panel ------------------------------------------------- */
-.sources-connections-layer {
+.feeds-connections-layer {
   position: fixed;
   inset: 0;
   z-index: 68;
@@ -15,14 +15,14 @@
   background: rgba(20, 26, 40, 0.42);
   color: var(--text);
 }
-dialog.sources-connections-layer::backdrop { background: transparent; }
-.sources-connections-backdrop {
+dialog.feeds-connections-layer::backdrop { background: transparent; }
+.feeds-connections-backdrop {
   position: absolute;
   inset: 0;
   border: 0;
   background: transparent;
 }
-.sources-connections {
+.feeds-connections {
   position: relative;
   z-index: 1;
   width: min(900px, calc(100vw - 32px));
@@ -36,7 +36,7 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   background: var(--bg);
   box-shadow: var(--shadow-modal);
 }
-.sources-connections-header {
+.feeds-connections-header {
   flex: 0 0 auto;
   display: flex;
   align-items: flex-start;
@@ -45,13 +45,13 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   padding: 16px 18px;
   border-bottom: 1px solid var(--border);
 }
-.sources-connections-heading {
+.feeds-connections-heading {
   display: flex;
   align-items: flex-start;
   gap: var(--space-10);
   min-width: 0;
 }
-.sources-connections-icon {
+.feeds-connections-icon {
   display: inline-grid;
   place-items: center;
   flex: 0 0 32px;
@@ -61,29 +61,29 @@ dialog.sources-connections-layer::backdrop { background: transparent; }
   background: var(--accent-bg);
   color: var(--accent);
 }
-.sources-connections-heading h2 {
+.feeds-connections-heading h2 {
   margin: 0;
   font-size: 18px;
   line-height: 1.25;
 }
-.sources-connections-heading p {
+.feeds-connections-heading p {
   margin: 3px 0 0;
   color: var(--text-light);
   font-size: var(--font-size-small);
 }
-.sources-connections-content {
+.feeds-connections-content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding: 16px 18px 22px;
 }
 @media (max-width: 640px) {
-  .sources-connections-layer { padding: 8px; }
-  .sources-connections {
+  .feeds-connections-layer { padding: 8px; }
+  .feeds-connections {
     width: calc(100vw - 16px);
     height: calc(100vh - 16px);
     min-height: 0;
   }
-  .sources-connections-header,
-  .sources-connections-content { padding-left: 12px; padding-right: 12px; }
+  .feeds-connections-header,
+  .feeds-connections-content { padding-left: 12px; padding-right: 12px; }
 }

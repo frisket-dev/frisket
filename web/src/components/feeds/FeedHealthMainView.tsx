@@ -33,7 +33,7 @@ export function FeedHealthMainView({
   }, [load, sourceId]);
 
   return (
-    <section className="content-stack" data-testid="source-health-mainView">
+    <section className="content-stack" data-testid="feed-health-mainView">
       <div className="control-row">
         <div className="panel-item-main">
           <div className="panel-item-title">{health?.source.name ?? 'Feed health'}</div>
@@ -43,7 +43,7 @@ export function FeedHealthMainView({
       </div>
 
       {error && (
-        <PanelError testId="source-health-mainView-error">{error}</PanelError>
+        <PanelError testId="feed-health-mainView-error">{error}</PanelError>
       )}
       {loading && !health ? (
         <PanelEmpty>loading...</PanelEmpty>
@@ -55,14 +55,14 @@ export function FeedHealthMainView({
             <Button
               type="button"
 
-              data-testid={`source-health-retry-${sourceId}`}
+              data-testid={`feed-health-retry-${sourceId}`}
               disabled={busy}
               onClick={() => { void poll(sourceId, { onPolled }); }}
             >
               <RefreshCw size={12} className={busy ? 'spin' : undefined} />
               Check now
             </Button>
-            <span data-testid={`source-health-cost-${sourceId}`}>
+            <span data-testid={`feed-health-cost-${sourceId}`}>
               Cost {formatCost(health.costs.recentActualMicro)}
             </span>
           </div>

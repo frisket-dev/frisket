@@ -2,8 +2,8 @@
 // that cannot add a source is a dead end.
 //
 // sources.spec.ts already pins that source creation itself lives in the
-// Import workspace dialog (FeedImportForm's "Feed" mode: source-name/
-// source-url/source-interval/source-create, wired to the source.create v1
+// Import workspace dialog (FeedImportForm's "Feed" mode: feed-name/
+// feed-url/feed-interval/feed-create, wired to the source.create v1
 // action) and that FeedsPanel must NOT own a second independent creation
 // form (`source-add-button` pinned to count 0 there). So this spec proves the
 // missing piece only: a discoverable Add affordance INSIDE the Sources panel
@@ -22,15 +22,15 @@ test('the Feeds panel has an Add affordance that opens the existing Import flow'
 
   await page.goto(`/p/${pid}`);
   await openDiscoverTab(page, 'Sources');
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
 
   // Empty state: no sources yet, but the Add affordance is present and does
   // NOT duplicate the creation form locally (sources.spec.ts's invariant).
-  await expect(page.getByTestId('sources-empty')).toBeVisible();
-  const addButton = page.getByTestId('sources-add-source');
+  await expect(page.getByTestId('feeds-empty')).toBeVisible();
+  const addButton = page.getByTestId('feeds-add-feed');
   await expect(addButton).toBeVisible();
   await expect(page.getByTestId('source-add-button')).toHaveCount(0);
-  await expect(page.getByTestId('source-form')).toHaveCount(0);
+  await expect(page.getByTestId('feed-form')).toHaveCount(0);
 
   // Clicking Add opens the SAME Import workspace dialog the ribbon's Import
   // command opens -- reuse, not a bespoke FeedsPanel dialog. It lands
@@ -40,12 +40,12 @@ test('the Feeds panel has an Add affordance that opens the existing Import flow'
   await expect(page.getByTestId('import-workspace-dialog')).toBeVisible();
   await expect(page.getByTestId('import-workspace')).toBeVisible();
   await expect(page.getByTestId('import-mode-feed')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('source-name')).toBeVisible();
+  await expect(page.getByTestId('feed-name')).toBeVisible();
 
   // Closing without submitting creates nothing and returns to the panel.
   await page.getByTestId('import-workspace-close').click();
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
-  await expect(page.getByTestId('sources-empty')).toBeVisible();
+  await expect(page.getByTestId('feeds-empty')).toBeVisible();
 
   // Re-open: still lands on Feed (forced every time, not just the first open)
   // and actually create a source through it -- proves the Add button reaches
@@ -53,10 +53,10 @@ test('the Feeds panel has an Add affordance that opens the existing Import flow'
   await addButton.click();
   await expect(page.getByTestId('import-workspace-dialog')).toBeVisible();
   await expect(page.getByTestId('import-mode-feed')).toHaveAttribute('aria-selected', 'true');
-  await page.getByTestId('source-name').fill(feedName);
-  await page.getByTestId('source-url').fill(blockedUrl);
-  await page.getByTestId('source-interval').selectOption('@hourly');
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-name').fill(feedName);
+  await page.getByTestId('feed-url').fill(blockedUrl);
+  await page.getByTestId('feed-interval').selectOption('@hourly');
+  await page.getByTestId('feed-create').click();
 
   // feed-add-populate-prompt-v1: creation swaps to a "Populate feed?" prompt
   // inline rather than closing outright — decline it here (this spec is
@@ -65,9 +65,9 @@ test('the Feeds panel has an Add affordance that opens the existing Import flow'
   await page.getByTestId('feed-populate-dismiss').click();
 
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden({ timeout: 10_000 });
-  await expect(page.getByTestId('sources-empty')).toHaveCount(0);
-  await expect(page.getByTestId('source-list')).toBeVisible();
-  const items = page.getByTestId('source-list').locator('.source-item');
+  await expect(page.getByTestId('feeds-empty')).toHaveCount(0);
+  await expect(page.getByTestId('feed-list')).toBeVisible();
+  const items = page.getByTestId('feed-list').locator('.feed-item');
   await expect(items).toContainText(feedName);
 
   // Non-empty state: the Add affordance stays available for adding more, and
@@ -119,7 +119,7 @@ test('the generic Import entry point preserves the last-selected mode; Feeds Add
   await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
 
   await openDiscoverTab(page, 'Sources');
-  await page.getByTestId('sources-add-source').click();
+  await page.getByTestId('feeds-add-feed').click();
   await expect(page.getByTestId('import-workspace-dialog')).toBeVisible();
   await expect(page.getByTestId('import-mode-feed')).toHaveAttribute('aria-selected', 'true');
 });

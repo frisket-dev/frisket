@@ -90,7 +90,7 @@ export function FeedHealthDrawer({
   );
 
   return (
-    <aside className="panel-card" data-testid="source-health-drawer">
+    <aside className="panel-card" data-testid="feed-health-drawer">
       <div className="control-row">
         <div className="panel-item-main">
           <div className="panel-item-title">{healthFeed?.name ?? 'Feed details'}</div>
@@ -100,7 +100,7 @@ export function FeedHealthDrawer({
           <Button
             type="button"
 
-            data-testid={`source-health-open-mainView-${healthOpenId}`}
+            data-testid={`feed-health-open-mainView-${healthOpenId}`}
             onClick={() => {
               onOpenFeedHealthMainView(healthOpenId);
               actions.closeHealth();
@@ -144,20 +144,20 @@ export function FeedHealthDrawer({
         : null}
 
       {healthError && (
-        <PanelError testId="source-health-error">{healthError}</PanelError>
+        <PanelError testId="feed-health-error">{healthError}</PanelError>
       )}
       {healthLoading && !openHealth ? (
         <PanelEmpty>loading...</PanelEmpty>
       ) : openHealth ? (
         <>
           {activeTab === 'summary' && (
-            <div className="panel-card panel-item-meta" data-testid="source-detail-summary-panel">
+            <div className="panel-card panel-item-meta" data-testid="feed-detail-summary-panel">
               <strong className="panel-item-title">{openHealth.source.name}</strong>
               <span>{feedKindLabel(openHealth.source.kind)}</span>
               <span>{healthFeed ? feedConfigSummary(healthFeed) : redactedUrl(openHealth.source.url) ?? 'feed details'}</span>
               <span>
                 {openHealth.source.enabled ? 'enabled' : 'disabled'} /{' '}
-                <span data-testid={`source-health-status-${healthOpenId}`}>
+                <span data-testid={`feed-health-status-${healthOpenId}`}>
                   {statusLabel(openHealth.summary.status)}
                 </span>
               </span>
@@ -170,14 +170,14 @@ export function FeedHealthDrawer({
             <Button
               type="button"
 
-              data-testid={`source-health-retry-${healthOpenId}`}
+              data-testid={`feed-health-retry-${healthOpenId}`}
               disabled={busy === healthOpenId}
               onClick={() => { void actions.fetchNow(healthOpenId); }}
             >
               <RefreshCw size={12} className={busy === healthOpenId ? 'spin' : undefined} />
               Check now
             </Button>
-            <span data-testid={`source-health-cost-${healthOpenId}`}>
+            <span data-testid={`feed-health-cost-${healthOpenId}`}>
               Cost {formatCost(openHealth.costs.recentActualMicro)}
             </span>
           </div>

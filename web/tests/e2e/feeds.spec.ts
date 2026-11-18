@@ -1,19 +1,19 @@
 // Live-sources (RSS) management UI.
 //
 // Contract testids the FeedsPanel must expose:
-//   sources-panel           — the panel container (always open in its Discover tab)
-//   source-name             — Import Feed mode name input
-//   source-url              — Import Feed mode URL/reference input
-//   source-interval         — cadence <select> in the add form (preset values
+//   feeds-panel           — the panel container (always open in its Discover tab)
+//   feed-name             — Import Feed mode name input
+//   feed-url              — Import Feed mode URL/reference input
+//   feed-interval         — cadence <select> in the add form (preset values
 //                             "" | "@hourly" | "0 */6 * * *" | "@daily")
-//   source-create           — submit the Import Feed form
-//   source-list             — list of configured sources
-//   source-item-<id>        — one source row
+//   feed-create           — submit the Import Feed form
+//   feed-list             — list of configured sources
+//   feed-item-<id>        — one source row
 //   source-status-<id>      — last-status badge for that source
-//   source-fetch-<id>       — "Fetch now" (manual poll) button
-//   source-runs-<id>        — that source's poll-history list (status + error)
-//   source-sched-<id>       — per-row cadence <select> (edit → PATCH)
-//   source-delete-<id>      — delete control (arms, then confirms)
+//   feed-check-now-<id>       — "Fetch now" (manual poll) button
+//   feed-checks-<id>        — that source's poll-history list (status + error)
+//   feed-sched-<id>       — per-row cadence <select> (edit → PATCH)
+//   feed-delete-<id>      — delete control (arms, then confirms)
 //
 // Deterministic + network-free: the source points at http://localhost/... which
 // the backend SSRF guard (frisket.ops.netguard) rejects SYNCHRONOUSLY (localhost
@@ -63,7 +63,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
     'data-required-capabilities',
     /host\.navigation\.openSheet/,
   );
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
 
   const sourceCreateActions: Array<Record<string, unknown>> = [];
   const sourceUpdateActions: Array<Record<string, unknown>> = [];
@@ -100,10 +100,10 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await expect(page.getByTestId('source-add-button')).toHaveCount(0);
   await openImportWorkspace(page);
   await page.getByTestId('import-mode-feed').click();
-  await page.getByTestId('source-name').fill(feedName);
-  await page.getByTestId('source-url').fill(blockedUrl);
-  await page.getByTestId('source-interval').selectOption('@hourly');
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-name').fill(feedName);
+  await page.getByTestId('feed-url').fill(blockedUrl);
+  await page.getByTestId('feed-interval').selectOption('@hourly');
+  await page.getByTestId('feed-create').click();
   await expect.poll(() => sourceCreateActions.length).toBe(1);
   expect(sourceCreateActions[0]).toMatchObject({
     action_id: 'source.create',
@@ -133,7 +133,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   const created = (await sources(page.request, pid)).find((s) => s.name === feedName)!;
   const id = created.id;
   expect(created.schedule).toBe('@hourly');
-  await expect(page.getByTestId(`source-item-${id}`)).toBeVisible();
+  await expect(page.getByTestId(`feed-item-${id}`)).toBeVisible();
   await expect(page.getByTestId(`source-status-${id}`)).toHaveText(/never/i);
 
   await page.route(`**/api/projects/${pid}/sources/${id}/fetch`, async (route) => {
@@ -175,7 +175,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   });
 
   // Manual poll against a blocked URL → the failure surfaces in run history.
-  await page.getByTestId(`source-fetch-${id}`).click();
+  await page.getByTestId(`feed-check-now-${id}`).click();
   await expect.poll(() => sourceFetchActions.length).toBe(1);
   expect(sourceFetchActions[0]).toMatchObject({
     schema_version: 'frisket.action.v2',
@@ -184,11 +184,11 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
     params: { source_id: id },
   });
   expect(String(sourceFetchActions[0].idempotency_key)).toMatch(/^web-source\.poll:/);
-  await expect(page.getByTestId(`source-runs-${id}`)).toBeVisible();
-  await expect(page.getByTestId('sources-error')).toContainText(/Check failed:/);
-  await expect(page.getByTestId('sources-error')).toContainText(/blocked|localhost|private/i);
-  await expect(page.getByTestId(`source-runs-${id}`)).toContainText(/error/i);
-  await expect(page.getByTestId(`source-runs-${id}`)).toContainText(/blocked|localhost|private/i);
+  await expect(page.getByTestId(`feed-checks-${id}`)).toBeVisible();
+  await expect(page.getByTestId('feeds-error')).toContainText(/Check failed:/);
+  await expect(page.getByTestId('feeds-error')).toContainText(/blocked|localhost|private/i);
+  await expect(page.getByTestId(`feed-checks-${id}`)).toContainText(/error/i);
+  await expect(page.getByTestId(`feed-checks-${id}`)).toContainText(/blocked|localhost|private/i);
   await expect(page.getByTestId(`source-status-${id}`)).toHaveText(/error/i);
   await expect.poll(() => sourceDetailQueries.some((query) => (
     query.includes('runs_offset=0') && query.includes('runs_limit=20')
@@ -196,7 +196,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   expect(legacyFetchCalled).toBe(false);
 
   // Edit the cadence through source.update.
-  await page.getByTestId(`source-sched-${id}`).selectOption('@daily');
+  await page.getByTestId(`feed-sched-${id}`).selectOption('@daily');
   await expect.poll(() => sourceUpdateActions.length).toBe(1);
   expect(sourceUpdateActions[0]).toMatchObject({
     action_id: 'source.update',
@@ -231,8 +231,8 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   expect(legacyUpdateCalled).toBe(false);
 
   // Delete (arm, then confirm) through source.delete → it leaves the list.
-  await page.getByTestId(`source-delete-${id}`).click();
-  await page.getByTestId(`source-delete-${id}`).click();
+  await page.getByTestId(`feed-delete-${id}`).click();
+  await page.getByTestId(`feed-delete-${id}`).click();
   await expect.poll(() => sourceDeleteActions.length).toBe(1);
   expect(sourceDeleteActions[0]).toMatchObject({
     action_id: 'source.delete',
@@ -241,7 +241,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
     params: { source_id: id },
   });
   expect(String(sourceDeleteActions[0].idempotency_key)).toMatch(/^web-source\.delete:/);
-  await expect(page.getByTestId(`source-item-${id}`)).toHaveCount(0);
+  await expect(page.getByTestId(`feed-item-${id}`)).toHaveCount(0);
   await expect
     .poll(async () => (await sources(page.request, pid)).find((s) => s.id === id))
     .toBeFalsy();

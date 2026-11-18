@@ -110,8 +110,8 @@ test('the command palette Commands section filters by the typed query, joins key
   await expect(openSources).toHaveAttribute('data-active', 'true');
   await queryInput.press('Enter');
   await expect(page.getByTestId('workbench-region-commandPalette')).toHaveCount(0);
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
 });
 
 test('Search this project closes on Escape from controls and result focus', async ({ page }) => {
@@ -138,9 +138,9 @@ test('Sources panel does not render an independent add-source form', async ({ pa
 
   await openDiscoverTab(page, 'Sources');
   const sources = page.getByTestId('workbench-contribution-frisket-core-panel-sources');
-  await expect(sources.getByTestId('sources-panel')).toBeVisible();
+  await expect(sources.getByTestId('feeds-panel')).toBeVisible();
   await expect(sources.getByTestId('source-add-button')).toHaveCount(0);
-  await expect(sources.getByTestId('source-form')).toHaveCount(0);
+  await expect(sources.getByTestId('feed-form')).toHaveCount(0);
   // Import is reachable via the ribbon Import tab (the sidebar quick-action
   // retired in workbench-ia-focus-v1), not an in-panel add-source form.
   await page.getByTestId('ribbon-tab-data').click();

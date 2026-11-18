@@ -161,31 +161,31 @@ async function createSource(
   } = {},
 ): Promise<WireSource> {
   await openFeedImport(page);
-  await page.getByTestId('source-kind').selectOption(kind);
-  await page.getByTestId('source-name').fill(name);
-  await page.getByTestId('source-url').fill(ref);
+  await page.getByTestId('feed-kind').selectOption(kind);
+  await page.getByTestId('feed-name').fill(name);
+  await page.getByTestId('feed-url').fill(ref);
   if (kind === 'youtube_playlist' || kind === 'youtube_channel') {
     if (options.youtubeMaxPages !== undefined) {
-      await page.getByTestId('source-youtube-max-pages').fill(options.youtubeMaxPages);
+      await page.getByTestId('feed-youtube-max-pages').fill(options.youtubeMaxPages);
     }
     if (options.youtubeMaxItems !== undefined) {
       await page.getByTestId('source-youtube-max-items').fill(options.youtubeMaxItems);
     }
   }
   if (kind === 'api_list_dicts') {
-    await page.getByTestId('source-api-list-path').fill('/results');
-    await page.getByTestId('source-api-item-id-path').fill('/id');
-    await page.getByTestId('source-api-updated-at-path').fill('/updated_at');
-    await page.getByTestId('source-api-max-items').fill('25');
+    await page.getByTestId('feed-api-list-path').fill('/results');
+    await page.getByTestId('feed-api-item-id-path').fill('/id');
+    await page.getByTestId('feed-api-updated-at-path').fill('/updated_at');
+    await page.getByTestId('feed-api-max-items').fill('25');
   }
   if (kind === 'courtlistener_docket') {
-    await page.getByTestId('source-court-keywords').fill('injunction, settlement');
+    await page.getByTestId('feed-court-keywords').fill('injunction, settlement');
     const maxEntries = options.courtMaxEntries === undefined ? '250' : options.courtMaxEntries;
     if (maxEntries !== null) {
-      await page.getByTestId('source-court-max-entries').fill(maxEntries);
+      await page.getByTestId('feed-court-max-entries').fill(maxEntries);
     }
   }
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-create').click();
   // feed-add-populate-prompt-v1: creation swaps to a "Populate feed?" prompt
   // instead of closing outright. This suite drives its own fake seeded polls
   // (seedFakeSourcePoll) and asserts on those, so decline the real run here.
@@ -209,21 +209,21 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
       kind: 'youtube_playlist',
       name: uniqueName('Uncapped playlist'),
       ref: 'https://www.youtube.com/playlist?list=PLuncapped123',
-      controlIds: ['source-youtube-max-pages', 'source-youtube-max-items'],
+      controlIds: ['feed-youtube-max-pages', 'source-youtube-max-items'],
       omittedKeys: ['max_pages_per_poll', 'max_items_per_poll'],
     },
     {
       kind: 'youtube_channel',
       name: uniqueName('Uncapped channel'),
       ref: '@uncappedchannel',
-      controlIds: ['source-youtube-max-pages', 'source-youtube-max-items'],
+      controlIds: ['feed-youtube-max-pages', 'source-youtube-max-items'],
       omittedKeys: ['max_pages_per_poll', 'max_items_per_poll'],
     },
     {
       kind: 'courtlistener_docket',
       name: uniqueName('Uncapped docket'),
       ref: 'https://www.courtlistener.com/docket/123456/uncapped/',
-      controlIds: ['source-court-max-entries'],
+      controlIds: ['feed-court-max-entries'],
       omittedKeys: ['max_entries_per_poll'],
     },
   ] as const;
@@ -250,14 +250,14 @@ test('feed forms preserve uncapped defaults and explicit feed limits', async ({ 
 
   await openDiscoverTab(page, 'Sources');
   for (const { source, item } of created) {
-    await page.getByTestId(`source-edit-${source.id}`).click();
+    await page.getByTestId(`feed-edit-${source.id}`).click();
     for (const controlId of item.controlIds) {
       await expect(page.getByTestId(controlId)).toHaveValue('');
     }
     const editedName = `${item.name} edited`;
-    await page.getByTestId('source-name').fill(editedName);
+    await page.getByTestId('feed-name').fill(editedName);
     const updateCount = actionPosts.filter((post) => post.action_id === 'source.update').length;
-    await page.getByTestId('source-create').click();
+    await page.getByTestId('feed-create').click();
     await expect.poll(
       () => actionPosts.filter((post) => post.action_id === 'source.update').length,
     ).toBe(updateCount + 1);
@@ -381,9 +381,9 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
 
   await expect(page.getByTestId('source-add-button')).toHaveCount(0);
   await openFeedImport(page);
-  await page.getByTestId('source-kind').selectOption('api_list_dicts');
-  await page.getByTestId('source-name').fill('Bad API');
-  await page.getByTestId('source-url').fill('http://example.gov/items');
+  await page.getByTestId('feed-kind').selectOption('api_list_dicts');
+  await page.getByTestId('feed-name').fill('Bad API');
+  await page.getByTestId('feed-url').fill('http://example.gov/items');
   await expect(page.getByRole('alert')).toContainText('HTTPS');
   await page.getByTestId('import-workspace-close').click();
 
@@ -417,28 +417,28 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
     'https://www.courtlistener.com/docket/123456/example/',
   );
 
-  await expect(page.getByTestId(`source-kind-${playlist.id}`)).toHaveText('YouTube playlist');
-  await expect(page.getByTestId(`source-kind-${channel.id}`)).toHaveText('YouTube channel');
-  await expect(page.getByTestId(`source-kind-${api.id}`)).toHaveText('API list');
-  await expect(page.getByTestId(`source-kind-${court.id}`)).toHaveText('CourtListener docket');
+  await expect(page.getByTestId(`feed-kind-${playlist.id}`)).toHaveText('YouTube playlist');
+  await expect(page.getByTestId(`feed-kind-${channel.id}`)).toHaveText('YouTube channel');
+  await expect(page.getByTestId(`feed-kind-${api.id}`)).toHaveText('API list');
+  await expect(page.getByTestId(`feed-kind-${court.id}`)).toHaveText('CourtListener docket');
 
-  await page.getByTestId(`source-edit-${api.id}`).click();
-  await page.getByTestId('source-api-list-path').fill('/items');
-  await page.getByTestId('source-create').click();
+  await page.getByTestId(`feed-edit-${api.id}`).click();
+  await page.getByTestId('feed-api-list-path').fill('/items');
+  await page.getByTestId('feed-create').click();
   await expect.poll(async () => {
     const updated = (await sources(page, pid)).find((source) => source.id === api.id);
     return updated?.config.list_path;
   }).toBe('/items');
 
   for (const source of [playlist, channel, api, court]) {
-    await page.getByTestId(`source-fetch-${source.id}`).click();
+    await page.getByTestId(`feed-check-now-${source.id}`).click();
     await expect.poll(() => mockedPolls.has(source.id)).toBeTruthy();
-    await expect(page.getByTestId(`source-runs-${source.id}`)).toContainText('1 changed');
-    await expect(page.getByTestId(`source-runs-${source.id}`)).toContainText('2 skipped');
-    await expect(page.getByTestId(`source-runs-${source.id}`)).toContainText('1 warning');
+    await expect(page.getByTestId(`feed-checks-${source.id}`)).toContainText('1 changed');
+    await expect(page.getByTestId(`feed-checks-${source.id}`)).toContainText('2 skipped');
+    await expect(page.getByTestId(`feed-checks-${source.id}`)).toContainText('1 warning');
   }
 
-  await page.getByTestId(`source-fetch-${rss.id}`).click();
+  await page.getByTestId(`feed-check-now-${rss.id}`).click();
   await expect.poll(() => (
     actionPosts.some((post) => post.kind === 'source.poll'
       && (post.params as Record<string, unknown>).source_id === rss.id)
@@ -468,8 +468,8 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
   expect(titleColumn).toBeTruthy();
   expect(rows.rows[0].cells[String(titleColumn!.id)]).toBe('Fixture API item');
 
-  await expect(page.getByTestId(`source-item-${api.id}`)).toBeVisible();
-  await page.getByTestId(`source-health-${api.id}`).click();
-  await expect(page.getByTestId('source-health-drawer')).toBeVisible();
-  await expect(page.getByTestId(`source-health-status-${api.id}`)).toHaveText('healthy');
+  await expect(page.getByTestId(`feed-item-${api.id}`)).toBeVisible();
+  await page.getByTestId(`feed-health-${api.id}`).click();
+  await expect(page.getByTestId('feed-health-drawer')).toBeVisible();
+  await expect(page.getByTestId(`feed-health-status-${api.id}`)).toHaveText('healthy');
 });

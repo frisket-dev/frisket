@@ -2090,9 +2090,9 @@ test('generated plugin detail tabs mount in entity and source detail with their 
   // (workbench-ia-right-edge-v1; sidebar retired at inc 8).
   await openImportWorkspace(page);
   await page.getByTestId('import-mode-feed').click();
-  await page.getByTestId('source-name').fill('Detail parity feed');
-  await page.getByTestId('source-url').fill('http://localhost/feed.xml');
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-name').fill('Detail parity feed');
+  await page.getByTestId('feed-url').fill('http://localhost/feed.xml');
+  await page.getByTestId('feed-create').click();
   // Manual feed creation surfaces a "Populate feed?" prompt inside the still-
   // open import dialog (feed-add-populate-prompt-v1, pinned by
   // feed-add-populate-prompt.spec.ts). Dismiss it ("Not now" creates the
@@ -2105,8 +2105,8 @@ test('generated plugin detail tabs mount in entity and source detail with their 
   const sources = (await sourcesRes.json()) as Array<{ id: number; name: string }>;
   const source = sources.find((candidate) => candidate.name === 'Detail parity feed');
   expect(source).toBeTruthy();
-  await page.getByTestId(`source-health-${source!.id}`).click();
-  await expect(page.getByTestId('source-health-drawer')).toBeVisible();
+  await page.getByTestId(`feed-health-${source!.id}`).click();
+  await expect(page.getByTestId('feed-health-drawer')).toBeVisible();
   const sourceTabId = `source-detail-tab-${`${generatedPluginId}.panel.source`.replace(/[^a-zA-Z0-9]+/g, '-')}`;
   await page.getByTestId(sourceTabId).click();
   const sourceTab = page.getByTestId('contract-detail-source-tab');

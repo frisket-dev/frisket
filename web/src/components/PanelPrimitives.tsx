@@ -80,7 +80,7 @@ export function PanelLoading({
 
 /**
  * The one inline error block. Replaces the
- * byte-identical -error blocks (sources-error ≡ watches-error). role="alert"
+ * byte-identical -error blocks (feeds-error ≡ watches-error). role="alert"
  * by default so assistive tech and the existing specs keep working.
  */
 export function PanelError({

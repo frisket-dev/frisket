@@ -128,15 +128,15 @@ export async function captureImportScenes(page: Page, shot: Shot) {
 
   await freshImport(page, 'feed source');
   await page.getByTestId('import-mode-feed').click();
-  await page.getByTestId('source-url').fill('https://example.test/council/feed.xml');
-  await page.getByTestId('source-name').fill('Council notices');
+  await page.getByTestId('feed-url').fill('https://example.test/council/feed.xml');
+  await page.getByTestId('feed-name').fill('Council notices');
   await shot(page, 'Import workflow', 'feed-rss-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
-  await page.getByTestId('source-kind').selectOption('api_list_dicts');
-  await expect(page.getByTestId('source-api-list-path')).toBeVisible();
-  await page.getByTestId('source-url').fill('https://example.test/api/notices');
-  await page.getByTestId('source-api-list-path').fill('results');
+  await page.getByTestId('feed-kind').selectOption('api_list_dicts');
+  await expect(page.getByTestId('feed-api-list-path')).toBeVisible();
+  await page.getByTestId('feed-url').fill('https://example.test/api/notices');
+  await page.getByTestId('feed-api-list-path').fill('results');
   await shot(page, 'Import workflow', 'feed-api-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
-  await page.getByTestId('source-kind').selectOption('youtube_playlist');
+  await page.getByTestId('feed-kind').selectOption('youtube_playlist');
   await expect(page.getByTestId('source-youtube-max-items')).toBeVisible();
   await shot(page, 'Import workflow', 'feed-playlist-options', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx');
 }

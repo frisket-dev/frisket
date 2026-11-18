@@ -7,7 +7,7 @@ import { createProject, importCsv, openAction, openProject, uniqueName } from '.
 // Closed/collapsed states are unchanged (workbench-ia-action-drawer.spec.ts
 // still pins the fixed-400px/no-reflow/band-edges contract; this spec pins
 // the NEW coverage + the interactions the coordinator flagged as at risk:
-// the sources-panel reveal-over-drawer path, and the ribbon/tab-strip
+// the feeds-panel reveal-over-drawer path, and the ribbon/tab-strip
 // clickability under the covering drawer).
 
 async function seed(page: Page): Promise<{ pid: string; sheetId: number }> {
@@ -104,7 +104,7 @@ test('close: ribbon is clickable again', async ({ page }) => {
   await expect(page.getByTestId('workbench-region-act')).toHaveAttribute('data-ribbon-mode', 'menu');
 });
 
-test('the sources-panel reveal-over-drawer interaction still works', async ({ page }) => {
+test('the feeds-panel reveal-over-drawer interaction still works', async ({ page }) => {
   await seed(page);
   await openAction(page, 'map.summarize');
   await expect(page.getByTestId('action-drawer')).toBeVisible();
@@ -114,8 +114,8 @@ test('the sources-panel reveal-over-drawer interaction still works', async ({ pa
 
   // The focused Sources manager wins over the full-height drawer while the
   // draft remains available underneath it.
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-connections-close')).toBeFocused();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-close')).toBeFocused();
   await expect(page.getByTestId('action-drawer')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
 });

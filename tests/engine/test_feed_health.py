@@ -34,7 +34,7 @@ def _insert_receipt(project: Project, receipt_id: str, body: dict[str, Any]) -> 
     project.db.commit()
 
 
-def test_source_health_route_summarizes_runs_jobs_costs_and_redacts(
+def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
@@ -160,7 +160,7 @@ def test_source_health_route_summarizes_runs_jobs_costs_and_redacts(
     assert "provider_body" not in serialized
 
 
-def test_source_health_paginates_recent_runs_defaulting_to_twenty(
+def test_feed_health_paginates_recent_checks_defaulting_to_twenty(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)
@@ -213,7 +213,7 @@ def test_source_health_paginates_recent_runs_defaulting_to_twenty(
     assert [run["id"] for run in tail_body["runs"]] == list(reversed(run_ids[:3]))
 
 
-def test_source_health_statuses_cover_disabled_never_run_stale_and_missing(
+def test_feed_health_statuses_cover_disabled_never_checked_stale_and_missing(
     tmp_path: Path,
 ) -> None:
     client = _client(tmp_path)

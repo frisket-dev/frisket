@@ -12,13 +12,13 @@ test('Feeds & connections opens an obvious focused management modal', async ({ p
 
   await openFromImport(page);
 
-  const dialog = page.getByTestId('sources-connections-dialog');
+  const dialog = page.getByTestId('feeds-connections-dialog');
   await expect(dialog).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Feeds & connections' })).toBeVisible();
   await expect(page.getByText('Manage recurring feeds, scheduled checks, and connection health')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
-  await expect(page.getByTestId('sources-empty')).toBeVisible();
-  await expect(page.getByTestId('sources-connections-close')).toBeFocused();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-empty')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-close')).toBeFocused();
 
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
@@ -27,8 +27,8 @@ test('Feeds & connections opens an obvious focused management modal', async ({ p
   // changing a tab in the resident Discover panel.
   await page.getByTestId('switch-project').click();
   await page.getByTestId('project-sources-open').click();
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-connections-close')).toBeFocused();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-close')).toBeFocused();
 });
 
 test('Add feed reuses Import Feed and returns to the manager', async ({ page }) => {
@@ -36,12 +36,12 @@ test('Add feed reuses Import Feed and returns to the manager', async ({ page }) 
   await page.goto(`/p/${pid}`);
   await openFromImport(page);
 
-  await page.getByTestId('sources-add-source').click();
+  await page.getByTestId('feeds-add-feed').click();
   await expect(page.getByTestId('import-workspace-dialog')).toBeVisible();
   await expect(page.getByTestId('import-mode-feed')).toHaveAttribute('aria-selected', 'true');
 
   await page.getByTestId('import-workspace-close').click();
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-add-source')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-add-feed')).toBeVisible();
 });

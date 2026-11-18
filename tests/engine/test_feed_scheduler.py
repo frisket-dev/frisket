@@ -324,7 +324,7 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
     q.close()
 
 
-def test_source_poll_worker_skips_disabled_source(tmp_path):
+def test_source_poll_worker_skips_disabled_feed(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
     sid = FeedStore(p).add_feed(
@@ -363,7 +363,7 @@ def test_source_poll_worker_skips_disabled_source(tmp_path):
     q.close()
 
 
-def test_source_poll_worker_skips_missing_source(tmp_path):
+def test_source_poll_worker_skips_missing_feed(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
     p.close()
@@ -392,7 +392,7 @@ def test_source_poll_worker_skips_missing_source(tmp_path):
     q.close()
 
 
-def test_source_poll_worker_skips_non_rss_source(tmp_path):
+def test_source_poll_worker_skips_non_rss_feed(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
     sid = FeedStore(p).add_feed(

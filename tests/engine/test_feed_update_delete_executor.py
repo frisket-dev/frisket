@@ -266,7 +266,7 @@ def test_source_update_rejects_null_for_nonnullable_patch_fields(field: str) -> 
 
 
 @pytest.mark.parametrize("case_index", [0, 1], ids=["update", "delete"])
-def test_source_mutation_validates_existence_inside_transaction(
+def test_feed_mutation_validates_existence_inside_transaction(
     case_index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.store.feeds import FeedStore
@@ -292,7 +292,7 @@ def test_source_mutation_validates_existence_inside_transaction(
 
 
 @pytest.mark.parametrize("case_index", [0, 1], ids=["update", "delete"])
-def test_source_mutation_and_receipt_roll_back_together(
+def test_feed_mutation_and_receipt_roll_back_together(
     case_index: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.engine.store.receipts import ReceiptStore
@@ -317,7 +317,7 @@ def test_source_mutation_and_receipt_roll_back_together(
         assert dict(_get_source(env.project, source_id)) == before
 
 
-def test_source_delete_replay_preserves_full_ref_after_source_is_absent(
+def test_source_delete_replay_preserves_full_ref_after_feed_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with case_env(CASES[1], tmp_path, monkeypatch) as env:

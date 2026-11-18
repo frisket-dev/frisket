@@ -30,9 +30,9 @@ test('command palette controls workbench contributions through command descripto
 
   await openSources.click();
   await expect(palette).toHaveCount(0);
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
-  await page.getByTestId('sources-connections-close').click();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
+  await page.getByTestId('feeds-connections-close').click();
 
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P');
   await expect(palette).toBeVisible();

@@ -37,9 +37,9 @@ describe('feed setup independent of the import workspace', () => {
     ['courtlistener_docket', '123', { docket_id: 123, include_parties: true, include_documents: true }],
   ])('creates %s without automatically polling it', async (kind, url, config) => {
     const props = setup();
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: url } });
-    expect(screen.getByTestId('source-kind')).toHaveValue(kind);
-    fireEvent.click(screen.getByTestId('source-create'));
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: url } });
+    expect(screen.getByTestId('feed-kind')).toHaveValue(kind);
+    fireEvent.click(screen.getByTestId('feed-create'));
     await screen.findByTestId('feed-populate-prompt');
     expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       kind, schedule: null, enabled: true, config: expect.objectContaining(config),
@@ -52,11 +52,11 @@ describe('feed setup independent of the import workspace', () => {
 
   it('supports TikTok handles, limits and the existing populate flow', async () => {
     const props = setup();
-    fireEvent.change(screen.getByTestId('source-kind'), { target: { value: 'tiktok_profile' } });
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '@example' } });
+    fireEvent.change(screen.getByTestId('feed-kind'), { target: { value: 'tiktok_profile' } });
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: '@example' } });
     fireEvent.change(screen.getByTestId('source-tiktok-max-items'), { target: { value: '25' } });
-    expect(screen.queryByTestId('source-youtube-max-pages')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('source-create'));
+    expect(screen.queryByTestId('feed-youtube-max-pages')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('feed-create'));
     await screen.findByTestId('feed-populate-prompt');
     expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'tiktok_profile', config: { profile_url: '@example', max_items_per_poll: 25 },
@@ -67,13 +67,13 @@ describe('feed setup independent of the import workspace', () => {
 
   it('keeps an explicit type selection and validates API inputs before submission', () => {
     setup();
-    fireEvent.change(screen.getByTestId('source-kind'), { target: { value: 'api_list_dicts' } });
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'http://example.test/feed.xml' } });
-    expect(screen.getByTestId('source-kind')).toHaveValue('api_list_dicts');
+    fireEvent.change(screen.getByTestId('feed-kind'), { target: { value: 'api_list_dicts' } });
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'http://example.test/feed.xml' } });
+    expect(screen.getByTestId('feed-kind')).toHaveValue('api_list_dicts');
     expect(screen.getByRole('alert')).toHaveTextContent('HTTPS');
-    expect(screen.getByTestId('source-create')).toBeDisabled();
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
-    fireEvent.change(screen.getByTestId('source-api-list-path'), { target: { value: 'items' } });
+    expect(screen.getByTestId('feed-create')).toBeDisabled();
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'https://example.test/feed.xml' } });
+    fireEvent.change(screen.getByTestId('feed-api-list-path'), { target: { value: 'items' } });
     expect(screen.getByRole('alert')).toHaveTextContent('must start with /');
     expect(api.createFeed).not.toHaveBeenCalled();
   });
@@ -81,8 +81,8 @@ describe('feed setup independent of the import workspace', () => {
   it('offers retry after a failed populate, then opens the returned sheet', async () => {
     const props = setup();
     api.fetchFeed.mockRejectedValueOnce(new Error('temporary failure'));
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/feed.xml' } });
-    fireEvent.click(screen.getByTestId('source-create'));
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'https://example.test/feed.xml' } });
+    fireEvent.click(screen.getByTestId('feed-create'));
     await screen.findByTestId('feed-populate-prompt');
     fireEvent.click(screen.getByTestId('feed-populate-run'));
     expect(await screen.findByRole('alert')).toHaveTextContent('temporary failure');
@@ -95,9 +95,9 @@ describe('feed setup independent of the import workspace', () => {
 
   it('keeps numeric-docket limits in the shared fields and serializer', async () => {
     setup();
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
-    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '7' } });
-    fireEvent.click(screen.getByTestId('source-create'));
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('feed-court-max-entries'), { target: { value: '7' } });
+    fireEvent.click(screen.getByTestId('feed-create'));
     await screen.findByTestId('feed-populate-prompt');
     expect(api.createFeed).toHaveBeenCalledWith(expect.objectContaining({
       url: null, name: 'CourtListener docket: 123', schedule: null,
@@ -107,22 +107,22 @@ describe('feed setup independent of the import workspace', () => {
 
   it('rejects invalid numeric-docket limits instead of silently dropping them', async () => {
     setup();
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: '123' } });
-    fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '-2' } });
-    fireEvent.click(screen.getByTestId('source-create'));
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: '123' } });
+    fireEvent.change(screen.getByTestId('feed-court-max-entries'), { target: { value: '-2' } });
+    fireEvent.click(screen.getByTestId('feed-create'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Max entries must be a positive whole number');
     expect(api.createFeed).not.toHaveBeenCalled();
   });
 
   it.each([
-    ['source-url', 'https://example.test/api/next'],
-    ['source-kind', 'rss'],
-    ['source-api-list-path', '/next'],
+    ['feed-url', 'https://example.test/api/next'],
+    ['feed-kind', 'rss'],
+    ['feed-api-list-path', '/next'],
   ])('clears an earlier create error when correcting %s', async (field, value) => {
     api.createFeed.mockRejectedValueOnce(new Error('Create failed'));
     setup();
-    fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api/items' } });
-    fireEvent.click(screen.getByTestId('source-create'));
+    fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'https://example.test/api/items' } });
+    fireEvent.click(screen.getByTestId('feed-create'));
     expect(await screen.findByRole('alert')).toHaveTextContent('Create failed');
     fireEvent.change(screen.getByTestId(field), { target: { value } });
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

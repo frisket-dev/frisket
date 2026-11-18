@@ -896,7 +896,7 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
     assert "abc123" not in receipt["errors"][0]["message"]
 
 
-def test_courtlistener_missing_token_returns_disabled_source_state(
+def test_courtlistener_missing_token_returns_disabled_feed_state(
     make_project,
     restore_courtlistener_feed_checker: None,
     monkeypatch: pytest.MonkeyPatch,
@@ -930,7 +930,7 @@ def test_courtlistener_missing_token_returns_disabled_source_state(
     assert "token=" not in source_run["error"].lower()
 
 
-def test_courtlistener_scheduled_source_dispatches_generic_source_poll(
+def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
     tmp_path: Path,
     restore_courtlistener_feed_checker: None,
 ) -> None:
