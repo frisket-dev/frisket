@@ -120,7 +120,7 @@ function renderDialog(open: boolean, onImported = vi.fn(), onClose = vi.fn()) {
 beforeEach(() => {
   prepareImportUrls.mockReset();
   listPdfImportDrafts.mockReset();
-  listPdfImportDrafts.mockResolvedValue([]);
+  listPdfImportDrafts.mockResolvedValue({ items: [], unreadable: [] });
   createPdfImport.mockReset();
   createPdfImport.mockImplementation(() => new Promise(() => undefined));
   getPdfImport.mockReset();

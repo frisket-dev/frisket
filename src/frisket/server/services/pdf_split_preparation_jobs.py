@@ -28,6 +28,7 @@ from frisket.engine.store.pdf_split_text import (
 )
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import import_preparation_notification_candidate
+from frisket.redaction import safe_error
 from frisket.server.services.pdf_import_ocr_consent import (
     PdfImportOcrConsentError,
     PdfImportOcrGrant,
@@ -343,11 +344,15 @@ class PdfSplitPreparationJobs:
             return
         try:
             emit_notification_candidate(project, candidate)
-        except Exception:
+        except Exception as exc:
             LOG.warning(
                 "import_notification_emit_failed",
-                extra={"import_ref": import_ref},
-                exc_info=True,
+                extra={
+                    "import_ref": import_ref,
+                    "error": safe_error(
+                        "import_notification_emit_failed", exc, max_chars=300
+                    ).text,
+                },
             )
             if project.db.in_transaction:
                 project.db.rollback()

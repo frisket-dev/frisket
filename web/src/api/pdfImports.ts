@@ -53,7 +53,7 @@ export type PdfImportSnapshot = Omit<HttpPdfImportStatus, 'batch_ocr' | 'commit'
 };
 
 /** A project's drafts, and those whose stored state could not be read. */
-export interface PdfImportDraftList {
+interface PdfImportDraftList {
   items: PdfImportSnapshot[];
   unreadable: { draft_id: string; error: string }[];
 }
