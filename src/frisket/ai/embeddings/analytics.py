@@ -69,10 +69,11 @@ def legacy_analytical_descriptor(
 ) -> dict[str, Any]:
     """Describe the exact historical text-input cache for one analytical model.
 
-    Legacy ``cell_vec`` recorded the model id and raw text, but no revision or
-    normalization fact.  Preserve those unknowns instead of upgrading them by
-    inference.  A custom model remains supported when its caller supplies the
-    factual output dimension.
+    The cache key is the model id and raw text.  Normalization stays unknown
+    unless the caller supplies it; the revision is the provider's current
+    encoding generation, so a local cache filled by an older FastEmbed misses.
+    A custom model remains supported when its caller supplies the factual
+    output dimension.
     """
 
     provider_id, requested_model = _model_identity(model_id)
@@ -115,7 +116,6 @@ def legacy_analytical_descriptor(
         requested_model=requested_model,
         # Migration proves old cache rows against this exact historical key.
         actual_model_id=model_id,
-        model_revision="unknown",
         modality="text",
         dimension=dimension,
         dtype="float32",

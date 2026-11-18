@@ -23,6 +23,7 @@ from frisket.ai.embeddings import (
     EmbeddingProviderError,
 )
 from frisket.ai.embeddings.backends import LOCAL_MODEL
+from frisket.ai.embeddings.spaces import LOCAL_FASTEMBED_ENCODER_REVISION
 
 from .contracts import (
     BetweenUnits,
@@ -137,7 +138,7 @@ def _embedding_diagnostics(*, model_id: str, dimension: int) -> dict[str, JsonVa
         "provider_kind": "local_process",
         "requested_model": model_id,
         "actual_model_id": f"fastembed/{model_id}",
-        "model_revision": "unknown",
+        "model_revision": LOCAL_FASTEMBED_ENCODER_REVISION,
         "dimension": dimension,
         "normalization": "none",
         "cache": "shared",

@@ -12,6 +12,7 @@ from frisket.ai.embeddings.analytics import (
     legacy_analytical_space,
 )
 from frisket.ai.embeddings.backends import LOCAL_MODEL, REMOTE_EMBED_MODEL
+from frisket.ai.embeddings.spaces import LOCAL_FASTEMBED_ENCODER_REVISION
 from frisket.engine.store import Project
 from frisket.retrieval.store import CachedRepresentation, RetrievalStore
 
@@ -42,7 +43,8 @@ def test_legacy_space_uses_capability_dimensions_without_claiming_old_normalizat
     assert (remote["dimension"], remote["normalization"]) == (1536, "none")
     assert local["actual_model_id"] == f"fastembed/{LOCAL_MODEL}"
     assert remote["actual_model_id"] == REMOTE_EMBED_MODEL
-    assert local["model_revision"] == remote["model_revision"] == "unknown"
+    assert local["model_revision"] == LOCAL_FASTEMBED_ENCODER_REVISION
+    assert remote["model_revision"] == "unknown"
 
 
 def test_custom_legacy_model_requires_factual_dimension_and_retains_override():

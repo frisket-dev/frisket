@@ -9,15 +9,18 @@ vectors live in the unified retrieval sidecar.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import uuid
 from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.leases import acquire_lease, release_lease
+from frisket.engine.store.transactions import write_transaction
 
 from .spaces import (
     canonical_json,
+    current_space_descriptor,
     descriptor_hash,
     space_id_for,
     validate_descriptor,
@@ -181,6 +184,37 @@ class EmbeddingStore:
         )
         if commit:
             self.db.commit()
+
+    def move_index_to_current_space(self, index_id: str) -> str | None:
+        """Point an index whose space predates its provider's current encoding
+        generation at the current space, in one owned transaction.
+
+        The index's published members keep their old space, so they read as
+        stale and the refresh re-embeds them instead of reusing cached vectors.
+        An invalid stored descriptor is left for the readers that report it.
+        Returns the new space id, or None when the index did not move."""
+        index = self.get_index(index_id)
+        space = None if index is None else self.get_space(index["space_id"])
+        if space is None:
+            return None
+        try:
+            descriptor = json.loads(space["descriptor_json"])
+            validate_descriptor(descriptor)
+        except (TypeError, ValueError):
+            return None
+        current = current_space_descriptor(descriptor)
+        if current is descriptor:
+            return None
+        with write_transaction(
+            self.db, what="moving an embedding index to its current space"
+        ):
+            space_id = self.create_space(current, commit=False)
+            self.db.execute(
+                "UPDATE embedding_indexes SET space_id=?, updated_at=datetime('now') "
+                "WHERE id=?",
+                (space_id, index_id),
+            )
+        return space_id
 
     def space_is_referenced(
         self, space_id: str, *, exclude_index_id: str | None = None
