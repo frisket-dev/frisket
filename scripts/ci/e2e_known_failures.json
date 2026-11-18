@@ -38,9 +38,6 @@
  "date-range-filter.spec.ts": {
   "date-range filters use date columns and round-trip through views": "stale-expectation"
  },
- "delete-rows.spec.ts": {
-  "deletes selected rows through a confirmed v1 row.delete action": "stale-expectation"
- },
  "derive-join-stale-projection.spec.ts": {
   "refresh after a projection rename retains its stable id and posts the current wire name": "stale-expectation",
   "refresh after projection deletion fails closed until explicit replacement and sends no stale POST": "stale-expectation"
@@ -202,7 +199,6 @@
   "organization AI Providers require test before save and clear validation on edits": "stale-expectation"
  },
  "recipe-forms.spec.ts": {
-  "an action form actually runs (regex, offline) — not just visible controls": "stale-expectation",
   "catalog actions without static cards are reachable and runnable": "unclassified",
   "media action engine picker uses backend availability metadata": "stale-expectation"
  },
@@ -220,11 +216,6 @@
  },
  "research-answer-launcher-terminology.spec.ts": {
   "research answer uses its ribbon label, catalog form title and canonical run route": "stale-expectation"
- },
- "resolve-actions.spec.ts": {
-  "combine hand-groups three variants into one canonical bucket": "stale-expectation",
-  "replace authors ordered rules with a first-match-wins commit": "stale-expectation",
-  "substitute maps values (one to a target, one to null) and autocloses on Apply": "stale-expectation"
  },
  "retrieval-search-flow.spec.ts": {
   "live lexical search returns grouped results and navigates to the exact cell": "stale-expectation"
