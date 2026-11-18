@@ -665,7 +665,7 @@ class TestRuns:
         """The debug dump must mirror the project's
         actual internals — op log entries for the import + run, the run row
         with its true status/counts, a results summary, cache stats, and the
-        column-lineage edge from the AI column back to its producing run."""
+        column-lineage edge from the generated column back to its producing run."""
         pid, sheet_id = make_project_with_data(client)
         spec = {
             "action_kind": "map.classify",
@@ -717,7 +717,7 @@ class TestRuns:
         assert body["cache"]["enabled"] is True
         assert body["cache"]["mode"] == "replay_strict"
         assert body["cache"]["entries"] > 0
-        # lineage: the AI column points back at its producing run + inputs
+        # lineage: the generated column points back at its producing run + inputs
         sheet = next(s for s in body["lineage"] if s["sheet_id"] == sheet_id)
         beat = next(c for c in sheet["columns"] if c["name"] == "beat")
         assert beat["ai_generated"] is True
@@ -731,8 +731,8 @@ class TestRuns:
         assert client.get("/api/projects/nope/debug").status_code == 404
 
 
-class TestSavedViews:
-    """Filter/sort operations and saved views. A saved view is a named filter/
+class TestViews:
+    """Filter/sort operations and views. A view is a named filter/
     sort over a sheet, and saving one is a LOGGED op (provenance), not an
     ephemeral grid setting."""
 

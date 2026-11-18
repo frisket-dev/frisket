@@ -270,7 +270,7 @@ def test_failure_before_first_page_is_paused_until_latest_retry_is_queued(projec
     workspace = SimpleNamespace(
         get=lambda _project_id: project,
         queue=queue,
-        queue_storage_org_id=None,
+        queue_storage_organization_id=None,
     )
     service = ImportSessionService(workspace)
     created = service.create("project-1", "files")

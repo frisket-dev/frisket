@@ -6,7 +6,7 @@ import { useShellIdentity } from '../shellIdentity';
 import { useTelemetryDisclosureReady } from '../telemetry/disclosureReady';
 import { WalkthroughProvider } from '../walkthrough/WalkthroughProvider';
 import { GuidanceReadyContext } from '../workbench/guidanceReady';
-import { CostPreapprovalSetupModal } from './CostPreapprovalSetupModal';
+import { AllowanceSetupModal } from './AllowanceSetupModal';
 import { FirstLaunchCloudSuggestion } from './FirstLaunchCloudSuggestion';
 
 const NO_BADGES: readonly { id: string; badges: readonly string[] }[] = [];
@@ -31,7 +31,7 @@ export function ApplicationGuidance({ projectId, children }: { projectId?: strin
           <FirstLaunchCloudSuggestion projectId={projectId} onComplete={completeCloudWelcome} />
         )}
         {telemetryReady && needsCostSetup && (
-          <CostPreapprovalSetupModal onComplete={() => setCompletedCostSetupFor(me.email)} />
+          <AllowanceSetupModal onComplete={() => setCompletedCostSetupFor(me.email)} />
         )}
       </WalkthroughProvider>
     </GuidanceReadyContext.Provider>

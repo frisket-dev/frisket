@@ -80,7 +80,7 @@ def media_output_column_value_hash(
     column_id: int,
     row_ids: list[int],
 ) -> str:
-    """Deterministic value hash of an output column's cells for replay checks."""
+    """Deterministic value hash of a generated column's cells for replay checks."""
     values = project.get_values(sheet_id, column_id, row_ids=row_ids)
     payload = {str(row_id): values.get(row_id) for row_id in row_ids}
     raw = json.dumps(payload, sort_keys=True, separators=(",", ":"))

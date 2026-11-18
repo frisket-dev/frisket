@@ -1662,7 +1662,7 @@ def build_typed_map_rows_plan(
     *,
     _allow_existing_outputs: bool = False,
     _admit_output_targets: bool = True,
-    _enforce_expected_output_columns: bool = True,
+    _enforce_expected_generated_columns: bool = True,
 ) -> TypedMapRowsPlan:
     """Resolve a typed request into a registry-free MapRunner program."""
 
@@ -1737,8 +1737,8 @@ def build_typed_map_rows_plan(
             bound,
             allow_idempotent_outputs=_allow_existing_outputs,
         )
-        if _enforce_expected_output_columns:
-            _require_expected_output_columns(request, output_target_preconditions)
+        if _enforce_expected_generated_columns:
+            _require_expected_generated_columns(request, output_target_preconditions)
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
@@ -1782,7 +1782,7 @@ def _resolve_typed_output_targets(
     )
 
 
-def _require_expected_output_columns(
+def _require_expected_generated_columns(
     request: ActionRequest, actual: Mapping[str, int | None]
 ) -> None:
     """Refuse a named output target that changed after its caller prepared it."""
@@ -3570,7 +3570,7 @@ def typed_queued_map_spec(
                 project,
                 bound,
                 _allow_existing_outputs=recovering_queued,
-                _enforce_expected_output_columns=not recovering_queued,
+                _enforce_expected_generated_columns=not recovering_queued,
             )
             if recovering_queued and type(existing["run_id"]) is int:
                 run_id = int(existing["run_id"])
@@ -3708,7 +3708,7 @@ def typed_queued_map_spec(
                 project,
                 bound,
                 _allow_existing_outputs=True,
-                _enforce_expected_output_columns=False,
+                _enforce_expected_generated_columns=False,
             )
         except TypedMapRowsPlanError as exc:
             input_error = exc.code in {"invalid_input_ref", "column_not_ai_generated"}

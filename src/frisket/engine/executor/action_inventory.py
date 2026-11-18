@@ -206,7 +206,7 @@ class _ReservedMaprunnerActionSpec:
     reservation_kind: str
     # optional resume seam: (project, params, resolved) -> the existing run id to RESUME
     # (run.backfill) instead of creating a new run. None (default) keeps the create path:
-    # the map runner allocates a fresh run + output columns. When set, the body threads it
+    # the map runner allocates a fresh run + generated columns. When set, the body threads it
     # into MapRunner.run(resume_run_id=...), which skips the create-path estimate/cost-gate
     # and extends the existing run's row scope.
     resume_run_id_fn: Callable[[Any, Any, dict[str, Any]], int | None] | None = None
@@ -384,9 +384,9 @@ def _group_label_from_output_intent(action: _ActionExecutionEnvelope) -> str | N
     return None
 
 
-def _overwrite_existing_from_output_intent(action: _ActionExecutionEnvelope) -> bool:
+def _replace_existing_from_output_intent(action: _ActionExecutionEnvelope) -> bool:
     """True when the caller declared an ``overwrite_existing`` output intent:
-    the runner then reuses a colliding output column instead of rejecting."""
+    the runner then reuses a colliding generated column instead of rejecting."""
     for intent in getattr(action, "output_intent", ()):
         if isinstance(intent, dict) and intent.get("kind") == "overwrite_existing":
             return True
@@ -417,6 +417,6 @@ def _apply_action_envelope_to_runner_spec(
     group_label = _group_label_from_output_intent(action)
     if group_label is not None:
         runner_spec["group_label"] = group_label
-    if _overwrite_existing_from_output_intent(action):
+    if _replace_existing_from_output_intent(action):
         runner_spec["overwrite"] = True
     return runner_spec

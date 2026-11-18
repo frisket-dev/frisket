@@ -1546,7 +1546,7 @@ def _parse_sheet_filter(
             continue
         if op == "failed":
             # Failed-cell predicate ("show the rows that failed"), honored by
-            # /data, saved views, CSV export, and the map like every builtin.
+            # /data, views, CSV export, and the map like every builtin.
             if not isinstance(value, str) or value not in _FAILED_FILTER_VALUES:
                 raise SheetRowSetError(
                     f"failed filter for {name} must be 'any' or a failure "
@@ -1556,7 +1556,7 @@ def _parse_sheet_filter(
             continue
         if op == "bbox":
             # Geographic bounding box on a geo_point ({lat,lon}) column — the
-            # "filter to viewport" operator, honored by /data, saved views, map.
+            # "filter to viewport" operator, honored by /data, views, map.
             if column["type"] != "geo_point":
                 raise SheetRowSetError(
                     f"bbox filter requires a geo_point column: {name}"

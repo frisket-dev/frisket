@@ -28,8 +28,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.resolve_for_action import (
@@ -273,7 +273,7 @@ def test_gateway_engine_compiles_egress_user_claim(audio_project, monkeypatch):
     assert [p.field for p in claims] == ["egress_class"]
 
 
-def test_platform_funding_without_an_offer_has_no_target_or_quote(audio_project):
+def test_platform_funding_without_an_offer_has_no_target_or_estimate(audio_project):
     """The funding marker cannot manufacture the old hosted SKU."""
     from frisket.execution.price_book import PlatformMetered
 
@@ -333,7 +333,7 @@ def test_platform_inclusion_is_exact_free_and_not_presented_as_billing(
         composition=composition,
     )
     assert isinstance(sibling, Refusal)
-    assert sibling.quote_absent is True
+    assert sibling.estimate_absent is True
 
 
 def test_composition_refuses_inclusion_not_supplied_by_provider(audio_project):
@@ -376,12 +376,12 @@ def test_an_injected_offer_prices_the_exact_selected_target(audio_project, monke
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.audio_minute",
             terms_version="test.synthetic.terms.v1",
             unit_rate="0.017",
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding("half_even", 6),
+            rounding=CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -423,11 +423,11 @@ def test_an_injected_offer_prices_the_exact_selected_target(audio_project, monke
 
     cost_rows = [p for p in resolved.promise_set.promises if p.field == "cost"]
     assert len(cost_rows) == 1 and cost_rows[0].op == "le"
-    assert cost_rows[0].basis["pricing_key"] == offering.quote.pricing_key
+    assert cost_rows[0].basis["pricing_key"] == offering.estimate.pricing_key
     assert cost_rows[0].basis["charge_authority"] == offering.charge_authority
 
 
-def test_bounded_scratch_offer_quotes_its_single_ephemeral_unit(
+def test_bounded_scratch_offer_estimates_its_single_ephemeral_unit(
     audio_project, monkeypatch
 ):
     """Scratch media carries the row allocation required by retail settlement."""
@@ -449,12 +449,12 @@ def test_bounded_scratch_offer_quotes_its_single_ephemeral_unit(
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.audio_minute",
             terms_version="test.synthetic.terms.v1",
             unit_rate="0.017",
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding("half_even", 6),
+            rounding=CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -512,12 +512,12 @@ def _resolved_gateway_offering(audio_project, monkeypatch, rate="0.000164"):
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.gateway.audio_second",
             terms_version="test.gateway.terms.v1",
             unit_rate=rate,
             quantity_unit="audio_second",
-            rounding=CommercialQuoteRounding("half_even", 3),
+            rounding=CommercialEstimateRounding("half_even", 3),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -543,10 +543,10 @@ def _resolved_gateway_offering(audio_project, monkeypatch, rate="0.000164"):
     ("provider_rate", "billed_cost", "covered"),
     [("2.5", 1_500_000, True), ("0.1", 3_000_000, False), ("0.1", None, False)],
 )
-def test_preapproval_uses_retail_quote_without_changing_provider_rates(
+def test_allowance_uses_retail_estimate_without_changing_provider_rates(
     audio_project, monkeypatch, provider_rate, billed_cost, covered
 ):
-    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.engine.runner.validation import _bind_rated_estimate
     from frisket.execution.consent_coverage import ConsentCoverage
     from frisket.execution.resolve_for_action import project_uncovered_user_claims
 
@@ -554,7 +554,7 @@ def test_preapproval_uses_retail_quote_without_changing_provider_rates(
         audio_project, monkeypatch, rate=provider_rate
     )
     original_cost = next(p for p in resolved.promise_set.promises if p.field == "cost")
-    quoted = _bind_rated_quote(
+    estimated = _bind_rated_estimate(
         resolved,
         {
             "cost": float(resolved.cost_basis.bound),
@@ -564,14 +564,14 @@ def test_preapproval_uses_retail_quote_without_changing_provider_rates(
     )
     uncovered = project_uncovered_user_claims(
         project,
-        quoted.promise_set,
+        estimated.promise_set,
         consent_coverage=ConsentCoverage(_PRINCIPAL, Decimal("2")),
     )
 
     assert (uncovered == []) is covered
-    assert quoted.cost_basis == resolved.cost_basis
+    assert estimated.cost_basis == resolved.cost_basis
     assert (
-        next(p for p in quoted.promise_set.promises if p.field == "cost")
+        next(p for p in estimated.promise_set.promises if p.field == "cost")
         == original_cost
     )
 
@@ -598,7 +598,7 @@ def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
     audio_project, monkeypatch, billed_cost, covered
 ):
     from frisket.cloud_execution import CloudPayerSubject
-    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.engine.runner.validation import _bind_rated_estimate
     from frisket.execution.consent_coverage import ConsentCoverage
     from frisket.execution.promises import Promise, PromiseSet
     from frisket.execution.resolve_for_action import project_uncovered_user_claims
@@ -616,7 +616,7 @@ def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
     write_project_settings(
         project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
     )
-    quoted = _bind_rated_quote(
+    estimated = _bind_rated_estimate(
         resolved,
         {
             "cost": float(resolved.cost_basis.bound),
@@ -626,7 +626,7 @@ def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
     )
     uncovered = project_uncovered_user_claims(
         project,
-        quoted.promise_set,
+        estimated.promise_set,
         consent_coverage=ConsentCoverage(_PRINCIPAL, Decimal("1")),
     )
     assert (payer_claim not in uncovered) is covered
@@ -872,14 +872,14 @@ def test_exact_match_consent_covers_an_identical_rerun(audio_project, monkeypatc
         exact_match_consent_covers,
         project_uncovered_user_claims,
     )
-    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.engine.runner.validation import _bind_rated_estimate
     from frisket.engine.store.execution_routes import instance_principal
     from frisket.execution.consent_coverage import ConsentCoverage
 
     project, resolved = _resolved_gateway_offering(audio_project, monkeypatch)
     _, sheet_id = audio_project
     spec = _spec(sheet_id, engine="parakeet-tdt", diarize=True)
-    resolved = _bind_rated_quote(
+    resolved = _bind_rated_estimate(
         resolved,
         {
             "cost": float(resolved.cost_basis.bound),
@@ -890,8 +890,8 @@ def test_exact_match_consent_covers_an_identical_rerun(audio_project, monkeypatc
     coverage = ConsentCoverage(instance_principal(project), Decimal("0"))
 
     # The production gate hashes the retail-rated promise set. Keep this
-    # exact-consent test above its explicit preapproval threshold so it does
-    # not pass merely because the fresh run is preapproved.
+    # exact-consent test above its explicit allowance threshold so it does
+    # not pass merely because the fresh run is covered by the allowance.
     assert project_uncovered_user_claims(
         project, resolved.promise_set, spec=spec, consent_coverage=coverage
     )

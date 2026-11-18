@@ -76,7 +76,7 @@ def test_hosted_translate_char_pricing_entries_and_cost() -> None:
         GOOGLE_TRANSLATE_CHAR,
         external_pricing_entry,
     )
-    from frisket.ops.integrations.translate_common import hosted_translate_cost
+    from frisket.ops.integrations.translate_common import remote_translate_cost
 
     for key in (DEEPL_TRANSLATE_CHAR, GOOGLE_TRANSLATE_CHAR):
         entry = external_pricing_entry(key)
@@ -85,10 +85,10 @@ def test_hosted_translate_char_pricing_entries_and_cost() -> None:
         assert entry["external_api"] is True
         assert entry["unit_price_usd"] and entry["unit_price_usd"] > 0
 
-    assert hosted_translate_cost("deepl", 1000) > 0
-    assert hosted_translate_cost("deepl", 0) == 0.0
+    assert remote_translate_cost("deepl", 1000) > 0
+    assert remote_translate_cost("deepl", 0) == 0.0
     # not a hosted char-billed engine -> no rate
-    assert hosted_translate_cost("opus_mt", 1000) is None
+    assert remote_translate_cost("opus_mt", 1000) is None
 
 
 def test_detected_language_output_tracks_the_flag() -> None:
@@ -111,7 +111,7 @@ def test_hosted_translation_requires_consent_even_below_character_threshold(
     monkeypatch.setattr(TranslationEngine, "execute", forbidden)
     # The point of this test is that a hosted translation gates on consent
     # regardless of how short the text is, so it pins zero standing
-    # preapproval. Under the $2 product default the quoted cost falls under
+    # allowance. Under the $2 product default the quoted cost falls under
     # the limit and dispatches, which would make `forbidden` unreachable.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     monkeypatch.setenv("DEEPL_API_KEY", "test:fx")

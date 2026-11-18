@@ -236,7 +236,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     cancelRuns,
   } = session;
   const busy = preparing || runProgress !== null;
-  const quoteInputKey = useMemo(() => JSON.stringify({
+  const estimateInputKey = useMemo(() => JSON.stringify({
     docs: docs.map((doc) => doc.id),
     columns: columns.map(({ id, engineId, options }) => ({ id, engineId, options })),
   }), [columns, docs]);
@@ -246,8 +246,8 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
     return () => cancelRuns();
   }, [active, cancelRuns]);
 
-  const { clearQuote } = paid;
-  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
+  const { clearEstimate } = paid;
+  useEffect(() => { clearEstimate(); }, [clearEstimate, estimateInputKey]);
 
   const variantEditor = useOcrVariantConfigure(session);
 
@@ -353,7 +353,7 @@ export function OcrCompareTab({ target = null, active = true, onSessionChange }:
         frontDoorHint="Nothing uploads to your project — this session is disposable. Configure variants, then Run."
         pendingLabel="not run yet — select Run comparison"
       />
-      {paid.quote}
+      {paid.estimateLine}
       {paid.gate}
     </section>
   );

@@ -13,7 +13,7 @@ import type { EmbeddingApiPort } from '../../api/ports';
 import { REFRESH_NEEDED_CODES } from './constants';
 import { StatusChip } from '../PanelPrimitives';
 import { IndexPolicyDetail } from './IndexPolicyDetail';
-import { LensList } from './LensList';
+import { ViewList } from './ViewList';
 import { errorMessage } from '../../hooks/errorMessage';
 import { useAction } from '../../hooks/useAction';
 
@@ -137,7 +137,7 @@ export function EmbeddingIndexCard({
       >
         <ScanSearch size={11} /> Find similar
       </Button>
-      <LensList apiPort={apiPort} index={index} reloadKey={0} />
+      <ViewList apiPort={apiPort} index={index} reloadKey={0} />
       <Button
         type="button"
         className="embedding-policy-toggle"

@@ -55,7 +55,7 @@ from frisket.server.services.skills import SkillLibrary
 from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
-    TeamOrgModelsGatewayPort,
+    TeamOrganizationModelsGatewayPort,
     register_team_models_gateway_routes,
     team_models_gateway_service,
 )
@@ -73,9 +73,9 @@ from frisket.team.admin_browser_service import AdminMembershipService
 from frisket.team.config import TeamConfig, team_config_from_env
 from frisket.team.control_plane import (
     SEARCH_KEY_PROVIDERS,
-    TeamOrgKeyCredentialPort,
-    TeamOrgSearchKeyCredentialPort,
-    org_provider_keys,
+    TeamOrganizationKeyCredentialPort,
+    TeamOrganizationSearchKeyCredentialPort,
+    organization_provider_keys,
 )
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.admin_routes import register_admin_api_routes
@@ -106,7 +106,7 @@ from frisket.team.schema import (
 )
 from frisket.team.uow import TeamUnitOfWork
 from frisket.team.team_bootstrap import (
-    initialize_team_schema_and_org,
+    initialize_team_schema_and_organization,
     preflight_team_schema,
 )
 from frisket.team.secret_box import TeamSecretBox
@@ -146,7 +146,7 @@ _LOG = logging.getLogger("frisket.team.app")
 # derives the worker's FRISKET_DATABASE_URL default FROM
 # FRISKET_TEAM_DATABASE_URL (nested interpolation), closing the common case.
 # Divergent values are UNSUPPORTED: the split is not merely "app control
-# plane vs worker audit database" — the worker also resolves org provider
+# plane vs worker audit database" — the worker also resolves organization provider
 # keys through FRISKET_DATABASE_URL (jobs/ports.py), so splitting the two
 # scatters one logical control plane across two databases with no supported
 # reconciliation. The warning below (equality validation, never a crash)
@@ -217,7 +217,7 @@ class _DeleteBody(BaseModel):
     confirm_name: str
 
 
-class _OrgNetworkBody(BaseModel):
+class _OrganizationNetworkBody(BaseModel):
     # "on" | "off" | None (clear back to the built-in "on").
     network_default: str | None = None
 
@@ -542,7 +542,7 @@ def _sync_project_network_policy(
     """Materialize the control-plane network settings into the bundle
     (following the `sensitive` sync precedent): the gate reads
     policy from the Project bundle at validate/dispatch/replay time, where no
-    control-plane handle exists — so both the project's mode and the org
+    control-plane handle exists — so both the project's mode and the organization
     default live there, reconciled on drift."""
     org_default = cx.execute(
         sa.select(orgs.c.network_default).where(orgs.c.id == org_id)
@@ -780,7 +780,7 @@ def create_team_app(
         oidc_exchange = production_oidc_exchange(config)
     if validate_provider_key is None:
         validate_provider_key = validate_provider_credential
-    org_id = initialize_team_schema_and_org(
+    org_id = initialize_team_schema_and_organization(
         engine, organization_name=config.organization_name
     )
     secret_box = TeamSecretBox(config)
@@ -826,7 +826,7 @@ def create_team_app(
     def _team_executor_deps_factory(
         _project_id: str, _request: Request
     ) -> ExecutorDeps:
-        # This composition is single-org (org_id fixed above at server
+        # This composition is single-organization (org_id fixed above at server
         # startup, not per-request — see the run-queue/org_id comments
         # around `core = create_app(...)` below), so the resolver closes
         # over it directly; project_id/request are unused but required by
@@ -907,7 +907,7 @@ def create_team_app(
     identity_session = IdentitySessionService(
         uow_factory,
         token_service=_TokenService(),
-        is_org_owner=lambda user_id, oid: (
+        is_organization_owner=lambda user_id, oid: (
             _membership_role(engine, user_id, oid) == "owner"
         ),
     )
@@ -954,7 +954,7 @@ def create_team_app(
         except SessionForbidden as exc:
             raise HTTPException(403, str(exc)) from exc
 
-    def require_org_member(
+    def require_organization_member(
         request: Request | BackgroundAskContext, *, browser: bool = False
     ) -> dict[str, Any]:
         user = require_user(request, browser=browser)
@@ -966,7 +966,7 @@ def create_team_app(
     # self-host worker polls (`frisket worker --database-url ...` /
     # FRISKET_RUN_QUEUE_DATABASE_URL), or every enqueued job (OCR,
     # transcribe, recipes, digests, alerts, model pulls) sits forever
-    # unclaimed. `hosted=False` always: the open team server -- single org,
+    # unclaimed. `hosted=False` always: the open team server -- single organization,
     # workspace root IS the storage directory, no claimed ProjectStorageKey
     # routing -- is never the multi-tenant hosted posture an external
     # composition provides, even when its run-queue happens to be Postgres.
@@ -981,16 +981,16 @@ def create_team_app(
             return SelectorCapabilities()
         user_id = int(actor["id"])
         can_edit = access.can_on_project(org_id, pid, user_id, "editor")
-        org_owner = _membership_role(engine, user_id, org_id) == "owner"
+        organization_owner = _membership_role(engine, user_id, org_id) == "owner"
         return SelectorCapabilities(
             may_author_actions=can_edit,
             may_run_actions=can_edit,
             configure_project_credentials=access.can_on_project(
                 org_id, pid, user_id, "owner"
             ),
-            configure_organization_credentials=org_owner,
-            manage_model_downloads=org_owner and model_pull_enabled,
-            configure_models_gateway=org_owner,
+            configure_organization_credentials=organization_owner,
+            manage_model_downloads=organization_owner and model_pull_enabled,
+            configure_models_gateway=organization_owner,
         )
 
     gateway_service = team_models_gateway_service(
@@ -1000,18 +1000,21 @@ def create_team_app(
         decrypt=secret_box.decrypt,
     )
     from frisket.execution.provider import open_execution_composition
-    from frisket.team.document_credentials import TeamOrgDocumentCredentialPort
-    from frisket.engine.jobs.ports import TrustedJobOrgUnavailable
+    from frisket.team.document_credentials import TeamOrganizationDocumentCredentialPort
+    from frisket.engine.jobs.ports import TrustedJobOrganizationUnavailable
 
-    document_credentials = TeamOrgDocumentCredentialPort(secret_box.decrypt)
+    document_credentials = TeamOrganizationDocumentCredentialPort(secret_box.decrypt)
 
     def team_execution_composition(project, router, context):
-        trusted_org = context.trusted_job_org_id
-        if trusted_org == TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG:
+        trusted_organization = context.trusted_job_organization_id
+        if (
+            trusted_organization
+            == TrustedJobOrganizationUnavailable.JOB_ROW_HAS_NO_ORGANIZATION
+        ):
             raise ValueError(
                 "Organization action credentials require trusted job identity"
             )
-        if isinstance(trusted_org, int) and trusted_org != org_id:
+        if isinstance(trusted_organization, int) and trusted_organization != org_id:
             raise ValueError("Queued organization does not match this Team server")
         return open_execution_composition(
             project,
@@ -1032,20 +1035,22 @@ def create_team_app(
         queue_payload_extra={"org_id": org_id},
         executor_deps_factory=_team_executor_deps_factory,
         execution_composition_factory=team_execution_composition,
-        provider_keys_resolver=lambda: org_provider_keys(
+        provider_keys_resolver=lambda: organization_provider_keys(
             engine, org_id=org_id, decryptor=secret_box.decrypt
         ),
-        search_provider_keys_resolver=lambda: org_provider_keys(
+        search_provider_keys_resolver=lambda: organization_provider_keys(
             engine,
             org_id=org_id,
             providers=SEARCH_KEY_PROVIDERS,
             decryptor=secret_box.decrypt,
         ),
         worker_ports=WorkerPorts(
-            credential_port=TeamOrgKeyCredentialPort(secret_box.decrypt),
+            credential_port=TeamOrganizationKeyCredentialPort(secret_box.decrypt),
             action_credential_port=document_credentials,
-            search_credential_port=TeamOrgSearchKeyCredentialPort(secret_box.decrypt),
-            models_gateway_port=TeamOrgModelsGatewayPort(secret_box.decrypt),
+            search_credential_port=TeamOrganizationSearchKeyCredentialPort(
+                secret_box.decrypt
+            ),
+            models_gateway_port=TeamOrganizationModelsGatewayPort(secret_box.decrypt),
         ),
         require_explicit_provider_keys=True,
         serve_spa=False,
@@ -1084,7 +1089,7 @@ def create_team_app(
     for pending_slug in pending_slugs:
         _complete_project_intent(engine, core.state.workspace, slug=pending_slug)
 
-    # This Team server is single-org today, but skill material remains below
+    # This Team server is single-organization today, but skill material remains below
     # an explicit active-org root so the trusted runtime seam cannot silently
     # turn into a process-wide library when the composition grows tenants.
     team_skill_library = SkillLibrary(config.data_dir / "organizations" / str(org_id))
@@ -1097,7 +1102,7 @@ def create_team_app(
 
     def authorize_research(project_id: str, context: BackgroundAskContext) -> None:
         try:
-            actor = require_org_member(context)
+            actor = require_organization_member(context)
         except HTTPException as exc:
             if exc.status_code not in {401, 403}:
                 raise
@@ -1154,11 +1159,11 @@ def create_team_app(
         resolve_user=resolve_request,
         admin_emails=current_owner_emails,
         project_access=access,
-        org_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
+        organization_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
     )
     app = FastAPI(title="frisket team", version="0.1.0")
     app.state.control_engine = engine
-    app.state.team_org_id = org_id
+    app.state.team_organization_id = org_id
     app.state.workspace = core.state.workspace
     app.state.skill_library = core.state.skill_library
     app.state.project_qa_service = core.state.project_qa_service
@@ -1392,7 +1397,7 @@ def create_team_app(
 
     @app.post("/api/projects")
     def create_project(request: Request, body: _Body) -> dict[str, Any]:
-        user = require_org_member(request)
+        user = require_organization_member(request)
         if not body.name.strip():
             raise HTTPException(400, "project name is required")
         key = request.headers.get("idempotency-key", "").strip()
@@ -1615,7 +1620,7 @@ def create_team_app(
 
     @app.get("/api/org/network")
     def get_org_network(request: Request) -> dict[str, Any]:
-        require_org_member(request, browser=True)
+        require_organization_member(request, browser=True)
         with engine.connect() as cx:
             network_default = cx.execute(
                 sa.select(orgs.c.network_default).where(orgs.c.id == org_id)
@@ -1626,9 +1631,11 @@ def create_team_app(
         }
 
     @app.patch("/api/org/network")
-    def update_org_network(request: Request, body: _OrgNetworkBody) -> dict[str, Any]:
-        """Org-wide default for projects whose mode is "inherit" (egress-gate
-        same synchronization rule). Owner-only; fans the new default out to every org
+    def update_org_network(
+        request: Request, body: _OrganizationNetworkBody
+    ) -> dict[str, Any]:
+        """Organization-wide default for projects whose mode is "inherit" (egress-gate
+        same synchronization rule). Owner-only; fans the new default out to every organization
         project bundle because the gate reads bundle-side."""
         actor = require_user(request, browser=True, admin=True)
         if body.network_default not in (None, "on", "off"):
@@ -1673,7 +1680,7 @@ def create_team_app(
         proxy is configured and currently carrying traffic, never its URL
         (that stays on the operator admin surface). ``can_configure`` tells
         the UI whether to show the setup command or ask-your-admin copy."""
-        user = require_org_member(request)
+        user = require_organization_member(request)
         from frisket.ops import media_proxy as media_proxy_config
 
         resolved = media_proxy_config.read_media_proxy(config.data_dir)
@@ -1879,7 +1886,7 @@ def create_team_app(
     def create_token(
         request: Request, body: ApiTokenCreateRequest
     ) -> ApiTokenCreateResponse:
-        user = require_org_member(request, browser=True)
+        user = require_organization_member(request, browser=True)
         token = "frisket_pat_" + secrets.token_urlsafe(32)
         token_name = body.name.strip() or "token"
         token_prefix = token[:20]
@@ -1918,7 +1925,7 @@ def create_team_app(
         responses=http_error_responses(401, 403, 500),
     )
     def list_tokens(request: Request) -> ApiTokenList:
-        user = require_org_member(request, browser=True)
+        user = require_organization_member(request, browser=True)
         with engine.connect() as cx:
             rows = cx.execute(
                 sa.select(
@@ -1965,7 +1972,7 @@ def create_team_app(
         responses=http_error_responses(401, 403, 422, 500),
     )
     def revoke_token(token_id: int, request: Request) -> ApiTokenRevokeResponse:
-        user = require_org_member(request, browser=True)
+        user = require_organization_member(request, browser=True)
 
         with engine.begin() as cx:
             result = cx.execute(
@@ -2106,7 +2113,9 @@ def create_team_app(
         config=config,
         engine=engine,
         secret_box=secret_box,
-        require_browser_user=lambda request: require_org_member(request, browser=True),
+        require_browser_user=lambda request: require_organization_member(
+            request, browser=True
+        ),
         google_connection_exchange=google_connection_exchange,
         # The SAME instance already wired into `_connected_account_resolver`
         # above (before `create_app()`), not a second equivalent one.
@@ -2124,7 +2133,9 @@ def create_team_app(
     register_team_models_gateway_routes(
         app,
         service=gateway_service,
-        require_member=lambda request: require_org_member(request, browser=True),
+        require_member=lambda request: require_organization_member(
+            request, browser=True
+        ),
         require_owner=lambda request: require_user(request, browser=True, admin=True),
         member_can_mutate=lambda actor: (
             _membership_role(engine, int(actor["id"]), org_id) == "owner"

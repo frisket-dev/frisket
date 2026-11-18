@@ -221,13 +221,15 @@ def test_users_list_uses_the_canonical_user_and_invite_envelope(tmp_path: Path) 
     assert listed.status_code == 200, listed.text
     payload = listed.json()
     assert payload["schema_version"] == "frisket.admin_users.v1"
-    org = payload["orgs"][0]
-    by_email = {row["email"]: row for row in org["users"]}
+    organization = payload["orgs"][0]
+    by_email = {row["email"]: row for row in organization["users"]}
     owner_row = by_email["owner@example.com"]
     assert owner_row["role"] == "owner"
     assert set(owner_row) == {"user_id", "email", "name", "role", "created_at"}
     invited_row = next(
-        row for row in org["pending_invites"] if row["email"] == "new@example.com"
+        row
+        for row in organization["pending_invites"]
+        if row["email"] == "new@example.com"
     )
     assert invited_row["role"] == "member"
     assert set(invited_row) == {"email", "org_id", "role", "expires_at"}
@@ -661,7 +663,7 @@ def test_media_proxy_check_probes_through_the_configured_proxy(
     assert probed["url"] == "socks5://127.0.0.1:1080"
 
 
-def test_org_media_proxy_status_is_member_readable_and_boolean_only(
+def test_organization_media_proxy_status_is_member_readable_and_boolean_only(
     tmp_path: Path, monkeypatch
 ) -> None:
     from frisket.ops import media_proxy as media_proxy_config

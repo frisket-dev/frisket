@@ -288,7 +288,7 @@ def test_preview_computes_sample_and_writes_nothing(tmp_path: Path) -> None:
 
         # brand-new virtual column, not an overwrite
         assert [c.name for c in result.columns] == ["n_chars"]
-        assert result.columns[0].overwrites_column_id is None
+        assert result.columns[0].replaces_column_id is None
 
         # NOTHING persisted, and no real column materialized
         assert _counts(project) == before
@@ -320,7 +320,7 @@ def test_preview_marks_overwrite_of_existing_column(tmp_path: Path) -> None:
         result = asyncio.run(
             plan.make_runner().preview(plan.runner_spec, program=plan.program)
         )
-        assert result.columns[0].overwrites_column_id == existing
+        assert result.columns[0].replaces_column_id == existing
         # still nothing written
         assert _counts(project) == before
     finally:

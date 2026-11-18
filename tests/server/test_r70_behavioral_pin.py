@@ -25,8 +25,8 @@ from frisket.engine.store.execution_routes import (
 )
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     install_pricing_policy,
 )
 from frisket.ops.base import persisted_recipe_invocation_halt
@@ -39,8 +39,8 @@ class _AboveLimitPolicy:
 
     policy_id = "test.r70.above-limit.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=2_000_001,
             provider_cost=facts.provider_cost,
             lane="cost_plus",

@@ -37,7 +37,7 @@ _MESSAGE = (
     "This action can cause an external or metered effect, so it cannot run as "
     "a preview. Run the action instead."
 )
-_SAFE_QUOTE = {
+_SAFE_ESTIMATE = {
     "cost": 0.0,
     "cost_source": "free_local",
     "billed_cost": 0,
@@ -126,7 +126,7 @@ def _install_validation(
     recipe: _Recipe,
     effectful: bool,
     cannot_egress: bool,
-    estimate: Any = _SAFE_QUOTE,
+    estimate: Any = _SAFE_ESTIMATE,
     resolved: Any = None,
     raised: BaseException | None = None,
 ) -> list[dict[str, Any]]:
@@ -358,34 +358,40 @@ def test_strict_replay_requires_an_attached_cache_and_cannot_hide_web_effect() -
 @pytest.mark.parametrize(
     ("label", "estimate", "cannot_egress", "consumes_resolution", "resolved"),
     [
-        ("provider-positive", {**_SAFE_QUOTE, "cost": 0.01}, True, False, None),
-        ("provider-overflow", {**_SAFE_QUOTE, "cost": 10**10000}, True, False, None),
-        ("billed-positive", {**_SAFE_QUOTE, "billed_cost": 1}, True, False, None),
-        ("wrong-source", {**_SAFE_QUOTE, "cost_source": "provider"}, True, False, None),
-        ("provider-null", {**_SAFE_QUOTE, "cost": None}, True, False, None),
-        ("billed-null", {**_SAFE_QUOTE, "billed_cost": None}, True, False, None),
+        ("provider-positive", {**_SAFE_ESTIMATE, "cost": 0.01}, True, False, None),
+        ("provider-overflow", {**_SAFE_ESTIMATE, "cost": 10**10000}, True, False, None),
+        ("billed-positive", {**_SAFE_ESTIMATE, "billed_cost": 1}, True, False, None),
         (
-            "missing-policy",
-            {k: v for k, v in _SAFE_QUOTE.items() if k != "policy_id"},
+            "wrong-source",
+            {**_SAFE_ESTIMATE, "cost_source": "provider"},
             True,
             False,
             None,
         ),
-        ("malformed-cost", {**_SAFE_QUOTE, "cost": "zero"}, True, False, None),
+        ("provider-null", {**_SAFE_ESTIMATE, "cost": None}, True, False, None),
+        ("billed-null", {**_SAFE_ESTIMATE, "billed_cost": None}, True, False, None),
+        (
+            "missing-policy",
+            {k: v for k, v in _SAFE_ESTIMATE.items() if k != "policy_id"},
+            True,
+            False,
+            None,
+        ),
+        ("malformed-cost", {**_SAFE_ESTIMATE, "cost": "zero"}, True, False, None),
         ("non-mapping-estimate", [], True, False, None),
-        ("unknown-money-fact", {**_SAFE_QUOTE, "surcharge": 0}, True, False, None),
-        ("static-egress", _SAFE_QUOTE, False, False, None),
-        ("resolution-required", _SAFE_QUOTE, True, True, None),
-        ("third-party", _SAFE_QUOTE, True, True, _resolution("third_party_api")),
-        ("shared", _SAFE_QUOTE, True, True, _resolution("shared_service")),
-        ("dedicated", _SAFE_QUOTE, True, True, _resolution("dedicated")),
-        ("unknown-egress", _SAFE_QUOTE, True, True, _resolution("mystery")),
-        ("malformed-egress", _SAFE_QUOTE, True, True, _resolution([])),
-        ("malformed-resolution", _SAFE_QUOTE, True, True, SimpleNamespace()),
-        ("opaque-resolution", _SAFE_QUOTE, True, True, object()),
+        ("unknown-money-fact", {**_SAFE_ESTIMATE, "surcharge": 0}, True, False, None),
+        ("static-egress", _SAFE_ESTIMATE, False, False, None),
+        ("resolution-required", _SAFE_ESTIMATE, True, True, None),
+        ("third-party", _SAFE_ESTIMATE, True, True, _resolution("third_party_api")),
+        ("shared", _SAFE_ESTIMATE, True, True, _resolution("shared_service")),
+        ("dedicated", _SAFE_ESTIMATE, True, True, _resolution("dedicated")),
+        ("unknown-egress", _SAFE_ESTIMATE, True, True, _resolution("mystery")),
+        ("malformed-egress", _SAFE_ESTIMATE, True, True, _resolution([])),
+        ("malformed-resolution", _SAFE_ESTIMATE, True, True, SimpleNamespace()),
+        ("opaque-resolution", _SAFE_ESTIMATE, True, True, object()),
         (
             "missing-resolution-facts",
-            _SAFE_QUOTE,
+            _SAFE_ESTIMATE,
             True,
             True,
             SimpleNamespace(resolution=SimpleNamespace()),
@@ -475,7 +481,7 @@ def test_non_effectful_candidates_retain_existing_refusals(
 
 
 def _claims_gate(
-    estimate: dict[str, Any] = _SAFE_QUOTE,
+    estimate: dict[str, Any] = _SAFE_ESTIMATE,
     *,
     claims: list[dict[str, str]] | None = None,
 ) -> validation.ClaimsGate:
@@ -496,7 +502,7 @@ def test_free_operator_lan_claims_gate_is_rethrown_unchanged_then_retry_admits(
     gate = _claims_gate()
     outcomes: list[Any] = [
         gate,
-        _validated(recipe, _SAFE_QUOTE, _resolution("operator_lan")),
+        _validated(recipe, _SAFE_ESTIMATE, _resolution("operator_lan")),
     ]
     calls: list[dict[str, Any]] = []
     monkeypatch.setattr(validation, "recipe_for_spec", lambda _spec: recipe)
@@ -533,7 +539,7 @@ def test_free_operator_lan_claims_gate_is_rethrown_unchanged_then_retry_admits(
 @pytest.mark.parametrize(
     ("gate", "cannot_egress"),
     [
-        (validation.CostGate(0.0, estimate_details=_SAFE_QUOTE), True),
+        (validation.CostGate(0.0, estimate_details=_SAFE_ESTIMATE), True),
         (
             _claims_gate(
                 claims=[
@@ -543,10 +549,10 @@ def test_free_operator_lan_claims_gate_is_rethrown_unchanged_then_retry_admits(
             ),
             True,
         ),
-        (_claims_gate({**_SAFE_QUOTE, "cost": 0.01}), True),
-        (_claims_gate({**_SAFE_QUOTE, "billed_cost": 1}), True),
-        (_claims_gate({**_SAFE_QUOTE, "cost_source": "estimated"}), True),
-        (_claims_gate({**_SAFE_QUOTE, "cost": "zero"}), True),
+        (_claims_gate({**_SAFE_ESTIMATE, "cost": 0.01}), True),
+        (_claims_gate({**_SAFE_ESTIMATE, "billed_cost": 1}), True),
+        (_claims_gate({**_SAFE_ESTIMATE, "cost_source": "estimated"}), True),
+        (_claims_gate({**_SAFE_ESTIMATE, "cost": "zero"}), True),
         (
             validation.ClaimsGate(
                 0.0,
@@ -617,7 +623,7 @@ def test_all_entrypoints_refuse_before_batch_scope_or_row(
         recipe=recipe,
         effectful=True,
         cannot_egress=False,
-        estimate={**_SAFE_QUOTE, "cost_source": "unknown", "cost": None},
+        estimate={**_SAFE_ESTIMATE, "cost_source": "unknown", "cost": None},
     )
     row_calls = 0
 

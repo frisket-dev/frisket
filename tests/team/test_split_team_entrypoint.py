@@ -174,7 +174,7 @@ def _oidc_sign_in(client: TestClient) -> Any:
     )
 
 
-def test_magic_link_and_generic_oidc_users_join_the_same_single_org(
+def test_magic_link_and_generic_oidc_users_join_the_same_single_organization(
     tmp_path: Path,
 ) -> None:
     app = _build_app(tmp_path)
@@ -329,7 +329,7 @@ def test_pat_and_project_role_ladder_protect_real_core_routes(tmp_path: Path) ->
         )
 
 
-def test_open_admin_diagnostics_and_org_secret_management_work_over_http(
+def test_open_admin_diagnostics_and_organization_secret_management_work_over_http(
     tmp_path: Path,
 ) -> None:
     async def validator(_provider: str, _key: str) -> bool:
@@ -489,7 +489,7 @@ def test_client_error_cap_counts_actual_chunked_body_before_json_buffering(
         )
 
 
-def test_org_key_candidate_validation_matches_ui_contract_and_binds_receipt(
+def test_organization_key_candidate_validation_matches_ui_contract_and_binds_receipt(
     tmp_path: Path,
 ) -> None:
     from frisket.server.provider_config import validation_token_is_valid
@@ -629,21 +629,21 @@ def test_postgres_lock_is_scoped_and_atomic_upsert_is_dialect_safe() -> None:
     assert "ON CONFLICT" in sql and "DO UPDATE" in sql
 
 
-def test_org_and_project_owner_mutations_request_scoped_database_locks(
+def test_organization_and_project_owner_mutations_request_scoped_database_locks(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.team.admin_browser_service as admin_browser_service
     import frisket.team.app as team_app
 
-    org_scopes: list[Any] = []
+    organization_scopes: list[Any] = []
     project_scopes: list[Any] = []
-    original_org_lock = admin_browser_service.locked_transaction
+    original_organization_lock = admin_browser_service.locked_transaction
     original_project_lock = team_app.locked_transaction
 
     @contextmanager
-    def record_org_lock(engine: Any, *, lock_scope: Any = None):
-        org_scopes.append(lock_scope)
-        with original_org_lock(engine, lock_scope=lock_scope) as cx:
+    def record_organization_lock(engine: Any, *, lock_scope: Any = None):
+        organization_scopes.append(lock_scope)
+        with original_organization_lock(engine, lock_scope=lock_scope) as cx:
             yield cx
 
     @contextmanager
@@ -652,7 +652,9 @@ def test_org_and_project_owner_mutations_request_scoped_database_locks(
         with original_project_lock(engine, lock_scope=lock_scope) as cx:
             yield cx
 
-    monkeypatch.setattr(admin_browser_service, "locked_transaction", record_org_lock)
+    monkeypatch.setattr(
+        admin_browser_service, "locked_transaction", record_organization_lock
+    )
     monkeypatch.setattr(team_app, "locked_transaction", record_project_lock)
     app = _build_app(tmp_path)
     owner, member = TestClient(app), TestClient(app)
@@ -677,7 +679,7 @@ def test_org_and_project_owner_mutations_request_scoped_database_locks(
         ).status_code
         == 200
     )
-    assert org_scopes == [("org-membership", 1)]
+    assert organization_scopes == [("org-membership", 1)]
     assert any(
         scope and "project" in repr(scope).lower() and pid in repr(scope)
         for scope in project_scopes
@@ -1094,46 +1096,50 @@ def test_owner_authorization_is_rechecked_inside_scoped_mutation_lock(
     async def validator(_provider: str, _key: str) -> bool:
         return True
 
-    org_app = _build_app(tmp_path / "org", validate_provider_key=validator)
-    org_owner = TestClient(org_app)
-    _session_for_email(org_owner, org_app, "owner@example.com")
+    organization_app = _build_app(tmp_path / "org", validate_provider_key=validator)
+    organization_owner = TestClient(organization_app)
+    _session_for_email(organization_owner, organization_app, "owner@example.com")
     candidate = {"provider": "openai", "key": "sk-must-not-save"}
-    validation = org_owner.post("/api/org/keys/validate", json=candidate)
+    validation = organization_owner.post("/api/org/keys/validate", json=candidate)
     assert validation.status_code == 200, validation.text
     receipt = validation.json()["validation_token"]
     assert receipt
-    with org_app.state.control_engine.connect() as cx:
-        org_owner_id = cx.execute(
+    with organization_app.state.control_engine.connect() as cx:
+        organization_owner_id = cx.execute(
             sa.select(users.c.id).where(users.c.email == "owner@example.com")
         ).scalar_one()
-    original_org_lock = operational_routes.locked_transaction
-    org_revoked = False
+    original_organization_lock = operational_routes.locked_transaction
+    organization_revoked = False
 
     @contextmanager
-    def revoke_org_inside_lock(engine: Any, *, lock_scope: Any = None):
-        nonlocal org_revoked
-        with original_org_lock(engine, lock_scope=lock_scope) as cx:
-            if not org_revoked and lock_scope and "org-key" in repr(lock_scope):
+    def revoke_organization_inside_lock(engine: Any, *, lock_scope: Any = None):
+        nonlocal organization_revoked
+        with original_organization_lock(engine, lock_scope=lock_scope) as cx:
+            if (
+                not organization_revoked
+                and lock_scope
+                and "org-key" in repr(lock_scope)
+            ):
                 cx.execute(
                     memberships.update()
                     .where(
                         memberships.c.org_id == 1,
-                        memberships.c.user_id == org_owner_id,
+                        memberships.c.user_id == organization_owner_id,
                     )
                     .values(role="member")
                 )
-                org_revoked = True
+                organization_revoked = True
             yield cx
 
     monkeypatch.setattr(
-        operational_routes, "locked_transaction", revoke_org_inside_lock
+        operational_routes, "locked_transaction", revoke_organization_inside_lock
     )
-    denied_org = org_owner.post(
+    denied_organization = organization_owner.post(
         "/api/org/keys", json={**candidate, "validation_token": receipt}
     )
-    assert denied_org.status_code == 403, denied_org.text
-    assert org_revoked is True
-    with org_app.state.control_engine.connect() as cx:
+    assert denied_organization.status_code == 403, denied_organization.text
+    assert organization_revoked is True
+    with organization_app.state.control_engine.connect() as cx:
         assert (
             cx.execute(sa.select(sa.func.count()).select_from(org_keys)).scalar_one()
             == 0

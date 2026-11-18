@@ -144,7 +144,7 @@ describe('ActionCompareTab', () => {
       { key: 'A', rows: { 10: { party: cell(baseline) } }, scores: {}, verdicts: {} },
       { key: 'B', rows: { 10: { party: cell('Other party') } }, scores: {}, verdicts: {} },
     ] }) as unknown as EvaluationResponse;
-    const evaluation = (baseline: string) => ({ response: response(baseline), field: 'party', lens: 'each_other' as const,
+    const evaluation = (baseline: string) => ({ response: response(baseline), field: 'party', view: 'each_other' as const,
       rowIds: [10], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() });
     const view = render(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences} evaluation={evaluation('Acme')} />);
     const different = editor.props!.getCellContent([2, 0]);
@@ -167,7 +167,7 @@ describe('ActionCompareTab', () => {
     const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
     const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
-      evaluation={{ response: null, field: 'party', lens: 'expected', rowIds: [10], onOpenRow, onScoreClick, onRuleClick: vi.fn() }} />);
+      evaluation={{ response: null, field: 'party', view: 'expected', rowIds: [10], onOpenRow, onScoreClick, onRuleClick: vi.fn() }} />);
     act(() => editor.props!.onCellActivated?.([2, 0]));
     act(() => editor.props!.onHeaderClicked?.(2, {} as never));
     expect(onOpenRow).toHaveBeenCalledWith(10, 'note');
@@ -183,7 +183,7 @@ describe('ActionCompareTab', () => {
     const response = { link: null, expected: {}, variants: state.variants.map((variant) => ({ key: variant.displayKey,
       rows: {}, scores: { party: { accuracy: 0.74 } }, verdicts: {} })), best: {} } as unknown as EvaluationResponse;
     render(<ActionCompareGrid projectId="p1" state={state} {...gridPreferences}
-      labelForDraft={() => 'A model name that would obscure the score'} evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11],
+      labelForDraft={() => 'A model name that would obscure the score'} evaluation={{ response, field: 'party', view: 'expected', rowIds: [10, 11],
         onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
     const headers = editor.props!.columns.filter((column) => String(column.id).startsWith('output:'));
     expect(headers.map((column) => [column.icon, column.title])).toEqual(['A', 'B', 'C', 'D', 'E'].map((key) => [`variantBadge${key}`, 'party · 74%']));
@@ -195,7 +195,7 @@ describe('ActionCompareTab', () => {
     const response = { link: { fields: [{ logical_key: 'party', rule: 'hand', hidden: false }] }, expected: {},
       variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
-      evaluation={{ response, field: 'party', lens: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
+      evaluation={{ response, field: 'party', view: 'expected', rowIds: [10, 11], onOpenRow: vi.fn(), onRuleClick: vi.fn(), onScoreClick: vi.fn() }} />);
     expect(editor.props!.columns.find((column) => String(column.id).startsWith('output:party:'))).toMatchObject({ title: 'party · 100% · 1/38 scored', width: 240 });
     expect(editor.props!.columns.find((column) => column.id === 'expected:party')).toMatchObject({ title: 'expected · hand · 38 checked', width: 240 });
   });

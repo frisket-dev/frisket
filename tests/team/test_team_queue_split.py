@@ -39,7 +39,7 @@ This module proves, per the review's non-negotiable acceptance bar:
   the team app's actual flat ``FRISKET_DATA_DIR/<slug>.frisket`` layout, so
   scheduled digests/watches never started -- is fixed, including the two
   storage-identity edge cases exposed in the first
-  version of that fix (a numeric-basename flat data dir misread as an org;
+  version of that fix (a numeric-basename flat data dir misread as an organization;
   a stray non-numeric ``projects/`` subdirectory suppressing the flat
   fallback) (``TestSchedulerRootLayoutMatchesTeamApp``).
 
@@ -277,7 +277,7 @@ class TestQueueSplitEndToEnd:
 
 class TestSchedulerRootLayoutMatchesTeamApp:
     """Scheduled source polls, digests, and alerts must start for the
-    team app's actual (flat) bundle layout, not only the legacy per-org
+    team app's actual (flat) bundle layout, not only the legacy per-organization
     FRISKET_DATA_DIR/projects/<org_id> shape."""
 
     def test_no_arg_scheduler_roots_fall_back_to_flat_data_dir(
@@ -293,22 +293,22 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         # No projects/<org_id> subdirectories exist (team app's real
         # layout) -- the flat data dir itself must be the discovered root,
         # paired with storage_org_id=None: a flat layout has no claimed
-        # per-org storage identity at all.
+        # per-organization storage identity at all.
         assert _source_scheduler_roots(None) == [(data_dir, None)]
 
-        # Once a legacy per-org layout DOES exist, it still wins (unchanged
+        # Once a legacy per-organization layout DOES exist, it still wins (unchanged
         # behavior for the true multi-tenant hosted shape), paired with the
-        # real parsed org id.
-        org_root = data_dir / "projects" / "7"
-        org_root.mkdir(parents=True)
-        assert _source_scheduler_roots(None) == [(org_root, 7)]
+        # real parsed organization id.
+        organization_root = data_dir / "projects" / "7"
+        organization_root.mkdir(parents=True)
+        assert _source_scheduler_roots(None) == [(organization_root, 7)]
 
-    def test_flat_data_dir_with_numeric_basename_is_not_misread_as_an_org(
+    def test_flat_data_dir_with_numeric_basename_is_not_misread_as_an_organization(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A flat FRISKET_DATA_DIR whose basename
         happens to be a plain integer (e.g. /mnt/7) must NOT be misclassified
-        as hosted storage org 7 -- storage_org_id must stay None for the flat
+        as hosted storage organization 7 -- storage_org_id must stay None for the flat
         fallback regardless of the data dir's own name. Getting this wrong
         makes claimed_project_location build the wrong path
         (<data_dir>/projects/7/<slug>.frisket instead of
@@ -326,22 +326,22 @@ class TestSchedulerRootLayoutMatchesTeamApp:
     def test_stray_nonnumeric_projects_dir_does_not_suppress_flat_layout(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """_hosted_project_roots must not treat
-        every directory under <data_dir>/projects as a hosted org root. A
+        """_cloud_project_roots must not treat
+        every directory under <data_dir>/projects as a hosted organization root. A
         stray non-numeric directory there (a cache dir, a leftover) beside
         real flat <data_dir>/<slug>.frisket bundles must not suppress the
         flat fallback and misroute discovery into the (bogus) hosted
-        per-org layout."""
+        per-organization layout."""
         from frisket.cli import _source_scheduler_roots
 
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / "projects").mkdir()
-        (data_dir / "projects" / "cache").mkdir()  # non-numeric, not an org
+        (data_dir / "projects" / "cache").mkdir()  # non-numeric, not an organization
         monkeypatch.delenv("FRISKET_SOURCE_WORKSPACE_ROOTS", raising=False)
         monkeypatch.setenv("FRISKET_DATA_DIR", str(data_dir))
 
-        # No REAL (numeric) per-org root exists, so the flat data dir itself
+        # No REAL (numeric) per-organization root exists, so the flat data dir itself
         # is still the discovered root -- the stray projects/cache/ dir must
         # not have been counted as proof of a hosted layout.
         assert _source_scheduler_roots(None) == [(data_dir, None)]

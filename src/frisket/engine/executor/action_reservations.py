@@ -78,7 +78,7 @@ def _runner_output_fields(
     return fields
 
 
-def _output_column_busy_error(
+def _generated_column_busy_error(
     action_kind: str, conflict: Any, *, field: str = "params.output_name"
 ) -> ActionError:
     return ActionError(
@@ -145,7 +145,7 @@ def _acquire_output_claims_for_runner(
         commit=commit,
     )
     if conflict is not None:
-        return _output_column_busy_error(action.kind, conflict, field=error_field)
+        return _generated_column_busy_error(action.kind, conflict, field=error_field)
     return None
 
 
@@ -764,7 +764,7 @@ def _queued_action_reservation_payload(
                             output_name=str(field["name"]),
                         )
                         if active_claim is not None:
-                            output_precheck = _output_column_busy_error(
+                            output_precheck = _generated_column_busy_error(
                                 action.kind,
                                 active_claim,
                                 field=spec.output_claim_error_field,
@@ -1217,10 +1217,10 @@ def _hide_deferred_created_columns(
 ) -> None:
     if getattr(program, "defer_generation_seal", False) is not True:
         return
-    from frisket.engine.runner.preparation import _created_output_column_ids
+    from frisket.engine.runner.preparation import _created_generated_column_ids
 
     row = project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
-    created = _created_output_column_ids(project, int(row["op_id"]))
+    created = _created_generated_column_ids(project, int(row["op_id"]))
     # Existing replacement targets retain their prior visible generation.
     project.db.executemany(
         "UPDATE columns SET hidden=1 WHERE id=?",

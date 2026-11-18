@@ -13,7 +13,7 @@ from frisket.project_opener import (
     claimed_opener_key,
     open_claimed_project,
     open_payload_project,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
     project_bundle_paths,
 )
 
@@ -22,6 +22,6 @@ __all__ = [
     "claimed_opener_key",
     "open_claimed_project",
     "open_payload_project",
-    "require_opener_storage_org_id",
+    "require_opener_storage_organization_id",
     "project_bundle_paths",
 ]

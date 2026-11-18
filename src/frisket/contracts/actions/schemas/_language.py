@@ -48,7 +48,7 @@ class LanguageDeclaration(ContractModel):
     - ``single``     — one language OR Auto. UI renders one Auto-first picker.
     - ``multi``      — a SET of expected languages. UI renders a multi-select.
 
-    ``detects`` gates the ``detected_language`` output column: an engine that
+    ``detects`` gates the ``detected_language`` generated column: an engine that
     cannot report a detected language emits no such column, rather
     than a constant-value lie.
 

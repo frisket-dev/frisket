@@ -7,11 +7,11 @@ import pytest
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.server.sources.rss import (
-    RssPoller,
-    register_rss_poller,
+    RssFeedChecker,
+    register_rss_feed_checker,
 )
 from frisket.server.sources.runtime import (
-    register_source_poller,
+    register_feed_checker,
 )
 from frisket.engine.store import Project
 
@@ -95,7 +95,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
             }
         ]
     )
-    register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
+    register_feed_checker(RssFeedChecker(fetch=lambda _url: feed), replace=True)
     project = make_project("RSS poll")
     try:
         first = run_action_spec(
@@ -159,7 +159,7 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
         )
     finally:
         project.close()
-        register_rss_poller(replace=True)
+        register_rss_feed_checker(replace=True)
 
 
 def _duplicate_key_feed(*, conflicting: bool = True) -> str:
@@ -210,7 +210,7 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
     poll with zero new items: 2, 3, 4, ... 9 over eight polls.
     """
     feed = _duplicate_key_feed(conflicting=conflicting)
-    register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
+    register_feed_checker(RssFeedChecker(fetch=lambda _url: feed), replace=True)
     project = make_project("RSS dup")
     try:
         first = run_action_spec(
@@ -253,7 +253,7 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
         ] == (0 if conflicting else 1)
     finally:
         project.close()
-        register_rss_poller(replace=True)
+        register_rss_feed_checker(replace=True)
 
 
 def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
@@ -266,7 +266,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
     silently double-writing.
     """
     feed = _duplicate_key_feed(conflicting=False)
-    register_source_poller(RssPoller(fetch=lambda _url: feed), replace=True)
+    register_feed_checker(RssFeedChecker(fetch=lambda _url: feed), replace=True)
     project = make_project("RSS dup fence")
     try:
         result = run_action_spec(
@@ -303,7 +303,7 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
         )
     finally:
         project.close()
-        register_rss_poller(replace=True)
+        register_rss_feed_checker(replace=True)
 
 
 def _receipt(project: Project, receipt_id: str) -> dict[str, Any]:

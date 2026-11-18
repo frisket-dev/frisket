@@ -144,8 +144,8 @@ def _enqueue_search_index_after_completion(
         claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
         if isinstance(claimed, ProjectStorageKey):
             continuation["storage_org_id"] = claimed.storage_org_id
-        if isinstance(context.trusted_job_org_id, int):
-            continuation["org_id"] = context.trusted_job_org_id
+        if isinstance(context.trusted_job_organization_id, int):
+            continuation["org_id"] = context.trusted_job_organization_id
 
         from .search_index import enqueue_search_index
 
@@ -308,20 +308,20 @@ def _resumable_provider_error(
     )
 
 
-def _org_local_server_env_bundle(
+def _organization_local_server_env_bundle(
     env: dict[str, str] | None = None,
 ) -> LocalModelEndpointConfig | None:
     """The local-server endpoint is operator DEPLOYMENT INFRASTRUCTURE —
-    same category as ``FRISKET_MODELS_URL``, which every org run already
+    same category as ``FRISKET_MODELS_URL``, which every organization run already
     reads straight from the process env regardless of ``use_env_keys`` — not
-    a tenant credential. Org runs get the whole validated env endpoint
+    a tenant credential. Organization runs get the whole validated env endpoint
     — origin AND tokens AND edge_auth — atomically: a bundle
     with tokens but an invalid/missing origin is rejected as a unit (an env
     token may never ride a non-env origin), same rule as the local tier's
     own env-bundle resolution. Returns None when no env bundle is a
     candidate at all or it was rejected — callers receive an empty endpoint
     authority. API keys are untouched by this function and
-    remain excluded for org runs exactly as before; this is ONLY the
+    remain excluded for organization runs exactly as before; this is ONLY the
     local-model endpoint bundle crossing the ``use_env_keys=False`` gate.
     """
     # Config loading only — no HTTP machinery rides in through this import.
@@ -337,10 +337,10 @@ def resolve_run_local_endpoints(
     org_id: int | str | None,
     env: dict[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig, ...]:
-    """Plural execution authority; org runs receive only operator endpoints."""
+    """Plural execution authority; organization runs receive only operator endpoints."""
 
     if org_id is not None:
-        config = _org_local_server_env_bundle(env)
+        config = _organization_local_server_env_bundle(env)
         return (config,) if config is not None else ()
     from frisket.server.provider_config import resolve_local_endpoints
 
@@ -357,7 +357,7 @@ def resolve_run_action_credentials(
     port = ports.action_credential_port
     if port is None:
         return None
-    org_id = handler_context.trusted_job_org_id
+    org_id = handler_context.trusted_job_organization_id
     if not isinstance(org_id, int):
         raise ValueError("Organization action credentials require trusted job identity")
     return port.action_credential_resolver(
@@ -375,15 +375,15 @@ def resolve_run_models_gateway(
 ) -> ModelsGatewayConnection | None:
     """Resolve gateway credentials at execution from trusted worker context.
 
-    A claimed org id is carried outside the job payload by ``JobHandlerContext``.
+    A claimed organization id is carried outside the job payload by ``JobHandlerContext``.
     Local/direct work reads the workspace's existing private config map. In both
     cases environment values retain precedence and a partial pair refuses.
     """
 
-    trusted_org_id = handler_context.trusted_job_org_id
-    if isinstance(trusted_org_id, int):
+    trusted_organization_id = handler_context.trusted_job_organization_id
+    if isinstance(trusted_organization_id, int):
         return ports.models_gateway().models_gateway_connection(
-            org_id=int(trusted_org_id),
+            org_id=int(trusted_organization_id),
             control_database_url=control_database_url,
         )
     from frisket.server.provider_config import resolve_models_gateway
@@ -401,7 +401,7 @@ def resolve_run_keys(
     """The provider keys a queued run's router starts from, plus their
     non-secret provenance label (worker-local-provider-keys-v1).
 
-    Hosted (org_id + control DB): org BYOK rows through the credentials port,
+    Hosted (org_id + control DB): organization BYOK rows through the credentials port,
     resolved at claim time — plaintext never rides the queue payload.
     Local tier: the UI-entered workspace provider-key file, with env still
     winning per ``resolve_effective_keys`` — the same layer the
@@ -418,7 +418,7 @@ def resolve_run_keys(
         return keys, "org_byok"
     if org_id is not None:
         # No control-plane read happened, so no returned key can honestly be
-        # labeled org BYOK. The only possible value is operator deployment
+        # labeled organization BYOK. The only possible value is operator deployment
         # infrastructure from the environment. Calling it ``org_byok`` made a
         # paid operator credential look like the zero-rated lane when a
         # malformed hosted worker omitted its control DB.
@@ -440,14 +440,14 @@ def resolve_run_search_credentials(
 ) -> dict[str, str]:
     """Resolve only search keys from the worker's trusted tenant context."""
 
-    trusted_org_id = handler_context.trusted_job_org_id
-    if isinstance(trusted_org_id, int):
+    trusted_organization_id = handler_context.trusted_job_organization_id
+    if isinstance(trusted_organization_id, int):
         port = ports.search_credentials()
         if port is None or not control_database_url:
             return {}
         return dict(
             port.search_provider_keys(
-                org_id=trusted_org_id,
+                org_id=trusted_organization_id,
                 control_database_url=control_database_url,
             )
         )
@@ -471,7 +471,7 @@ def build_run_search_service(
     return configured_search_service(
         workspace_root,
         credential_source="org_byok"
-        if isinstance(handler_context.trusted_job_org_id, int)
+        if isinstance(handler_context.trusted_job_organization_id, int)
         else "local",
         effective_keys=resolve_run_search_credentials(
             workspace_root,
@@ -556,7 +556,7 @@ def _router_for(
         sources = {
             **{provider: base_sources[provider] for provider in base_keys},
             # keys_source is the caller's provenance for the injected layer:
-            # org BYOK rows in hosted, the workspace key file ("local") in the
+            # organization BYOK rows in hosted, the workspace key file ("local") in the
             # local tier (worker-local-provider-keys-v1).
             **dict.fromkeys(keys or {}, keys_source),
             **dict.fromkeys(project_keys, "project_key"),
@@ -674,7 +674,7 @@ def register_project_run_handler(
     control_database_url: str | None = None,
     worker_ports: WorkerPorts | None = None,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     executor_deps_factory: Any | None = None,
     project_opener: ProjectOpener | None = None,
     execution_router_factory: Callable[[], ModelRouter] | None = None,
@@ -686,7 +686,7 @@ def register_project_run_handler(
     """Register the project-run handler.
 
     Edition policy arrives as ports (`worker_ports`), never as an import: the
-    open default admits every run and resolves org BYOK keys
+    open default admits every run and resolves organization BYOK keys
     from the open identity control plane. An external composition injects its
     own admission and credential ports.
     """
@@ -703,7 +703,7 @@ def register_project_run_handler(
             payload,
             workspace_root=root,
             require_storage_identity=require_storage_identity,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         )
         run_id = int(payload["run_id"])
         project = (
@@ -951,7 +951,7 @@ def register_project_run_handler(
                     else None
                 ),
                 run_id=run_id,
-                trusted_job_org_id=handler_context.trusted_job_org_id,
+                trusted_job_organization_id=handler_context.trusted_job_organization_id,
                 edition_snapshot=edition_snapshot,
             )
             execution_composition = (
@@ -988,7 +988,7 @@ def register_project_run_handler(
                 actor_row["consent_principal"] if actor_row is not None else None
             )
             if principal is None and isinstance(
-                handler_context.trusted_job_org_id, int
+                handler_context.trusted_job_organization_id, int
             ):
                 raise ExecutionRouteVerificationFailed(
                     "consent_missing", "queued run has no admitted user identity"
@@ -1360,7 +1360,7 @@ def register_action_run_handler(
     control_database_url: str | None = None,
     worker_ports: WorkerPorts | None = None,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     """Register the generic ``action.run`` worker handler (queued_action_job).
@@ -1392,7 +1392,7 @@ def register_action_run_handler(
             payload,
             workspace_root=root,
             require_storage_identity=require_storage_identity,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         )
         project = (
             Project(project_path)
@@ -1486,7 +1486,7 @@ def register_action_run_handler(
         lambda queue: reconcile_exhausted_action_run_jobs(
             queue,
             workspace_root=root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             project_opener=project_opener,
         )
     )

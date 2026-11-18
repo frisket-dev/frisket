@@ -77,7 +77,7 @@ async function setup({ joined = true, two = false, bestB = false, hand = false, 
   document.body.appendChild(menuHost);
   function Host({ revision = 0 }: { revision?: number }) {
     const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
-    return <ComparisonEvaluationWorkspace variantMenuHost={menuHost} api={api} state={state} session={session} initialLens={joined ? 'expected' : 'each_other'}
+    return <ComparisonEvaluationWorkspace variantMenuHost={menuHost} api={api} state={state} session={session} initialView={joined ? 'expected' : 'each_other'}
       dataRevision={revision} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={changed} onOpenVariant={onOpenVariant} onUseSettings={vi.fn()}
       renderGrid={(evaluation) => <><button onClick={() => evaluation.onOpenRow(101, 'answer')}>Open row</button><button onClick={() => evaluation.onOpenRow(101, 'other')}>Open other field</button><button onClick={() => evaluation.onScoreClick('A', 'other')}>Score other field</button></>} />;
   }

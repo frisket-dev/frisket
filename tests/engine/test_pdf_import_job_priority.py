@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from frisket.engine.jobs.ports import JobHandlerContext, TrustedJobOrgUnavailable
+from frisket.engine.jobs.ports import (
+    JobHandlerContext,
+    TrustedJobOrganizationUnavailable,
+)
 from frisket.engine.jobs.queue import (
     BACKGROUND_PRIORITY_CLASS,
     FOREGROUND_PRIORITY_CLASS,
@@ -77,7 +80,7 @@ def test_project_run_composes_queue_hint_only_for_marked_pdf_ocr() -> None:
         )
     )
     context = JobHandlerContext(
-        trusted_job_org_id=TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG,
+        trusted_job_organization_id=TrustedJobOrganizationUnavailable.JOB_ROW_HAS_NO_ORGANIZATION,
         job_id=17,
         job_attempt=1,
         handler_authority_id="authority-17",

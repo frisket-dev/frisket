@@ -34,7 +34,7 @@ from frisket.authoring.project_ask_actions import (
     search_project_ask_actions,
 )
 from frisket.server.services.project_qa_actions import (
-    QuoteProvider,
+    EstimateProvider,
     save_prepared_project_ask_action,
 )
 from frisket.server.services.project_qa_web import safe_web_text, safe_web_url
@@ -172,7 +172,7 @@ class ProjectQATools:
         store: ProjectQAStore,
         *,
         catalog_payload_provider: Callable[[], Mapping[str, Any]] | None = None,
-        quote_provider: QuoteProvider | None = None,
+        estimate_provider: EstimateProvider | None = None,
         output_grants_provider: Callable[[], OutputGrantResolution] | None = None,
         embedding_runtime: EmbeddingRuntime | None = None,
         setup_scope: Literal["workspace", "organization"] | None = None,
@@ -194,7 +194,7 @@ class ProjectQATools:
         self._project_action_catalog_payload = (
             catalog_payload_provider or root_action_catalog_payload
         )
-        self._project_action_quote = quote_provider
+        self._project_action_estimate = estimate_provider
         validate_scope(project, self.turn["scope"])
 
     @property
@@ -1377,7 +1377,7 @@ class ProjectQATools:
                 title=title,
                 draft=draft,
                 catalog_payload=catalog_payload,
-                quote_provider=self._project_action_quote,
+                estimate_provider=self._project_action_estimate,
                 output_grants=self._output_grants_provider().grants
                 if self._output_grants_provider
                 else (),

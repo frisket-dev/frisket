@@ -48,7 +48,7 @@ _OPEN_SITE_MODULES = (
     "frisket.engine.executor.queue_terminalization",
 )
 
-_STORAGE_ORG_ID = 42
+_STORAGE_ORGANIZATION_ID = 42
 
 
 class _DirectOpenBypass(AssertionError):
@@ -75,11 +75,13 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
     monkeypatch: pytest.MonkeyPatch,
     _booby_trapped_direct_opens: list[Path],
 ) -> None:
-    root = tmp_path / str(_STORAGE_ORG_ID)
+    root = tmp_path / str(_STORAGE_ORGANIZATION_ID)
     bundle = root / "trusted.frisket"
     created = Project.create(bundle, name="Trusted")
     created.close()
-    key = ProjectStorageKey(storage_org_id=_STORAGE_ORG_ID, project_slug="trusted")
+    key = ProjectStorageKey(
+        storage_org_id=_STORAGE_ORGANIZATION_ID, project_slug="trusted"
+    )
 
     calls: list[tuple[ProjectStorageKey, Path]] = []
 
@@ -94,8 +96,8 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         root,
         queue=queue,
         queue_payload_extra={
-            "org_id": _STORAGE_ORG_ID,
-            "storage_org_id": _STORAGE_ORG_ID,
+            "org_id": _STORAGE_ORGANIZATION_ID,
+            "storage_org_id": _STORAGE_ORGANIZATION_ID,
         },
         project_opener=counting_opener,
         enable_provider_config=False,
@@ -138,14 +140,14 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         assert all(call == (key, bundle) for call in calls)
 
         # (3) BACKGROUND SCHEDULER-SCAN OPEN — enqueue_due_source_polls, keyed
-        # by the root's declared storage org, never the directory name.
+        # by the root's declared storage organization, never the directory name.
         from frisket.engine.jobs import enqueue_due_source_polls
 
         calls.clear()
         enqueue_due_source_polls(
             workspace_root=root,
             queue=queue,
-            storage_org_id=_STORAGE_ORG_ID,
+            storage_org_id=_STORAGE_ORGANIZATION_ID,
             project_opener=counting_opener,
         )
         assert calls, "scheduler scan did not go through the opener"

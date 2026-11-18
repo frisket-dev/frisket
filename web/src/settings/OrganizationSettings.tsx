@@ -7,28 +7,28 @@ import { ProviderKeyForm } from '../engine-selector/ProviderKeyForm';
 import {
   ApiError,
   createApiKey,
-  deleteOrgEnvVar,
-  deleteOrgKey,
-  listOrgLocalEndpoints,
+  deleteOrganizationEnvVar,
+  deleteOrganizationKey,
+  listOrganizationLocalEndpoints,
   getSpend,
   listApiKeys,
-  listOrgEnvVars,
-  listOrgKeys,
-  orgCancelModelPull,
-  orgGetModelPull,
-  orgListModelPulls,
-  orgStartArtifactPull,
+  listOrganizationEnvVars,
+  listOrganizationKeys,
+  organizationCancelModelPull,
+  organizationGetModelPull,
+  organizationListModelPulls,
+  organizationStartArtifactPull,
   providerCatalog,
   revokeApiKey,
-  setOrgEnvVar,
-  setOrgKey,
-  validateOrgKey,
+  setOrganizationEnvVar,
+  setOrganizationKey,
+  validateOrganizationKey,
   type ApiTokenInfo,
   type LocalHttpEndpointEntry,
   type ModelPullDto,
   type LocalEndpointCatalog,
-  type OrgEnvInfo,
-  type OrgKeyInfo,
+  type OrganizationEnvInfo,
+  type OrganizationKeyInfo,
   type ProviderCatalog,
   type SpendReport,
 } from '../api/open';
@@ -44,12 +44,12 @@ import { InlineStatus, SettingsTable } from './SettingsPrimitives';
 
 export function OrganizationAiProvidersSettings() {
   const catalog = useLoader<ProviderCatalog>(() => providerCatalog(), []);
-  const keys = useLoader<OrgKeyInfo[]>(() => listOrgKeys(), []);
+  const keys = useLoader<OrganizationKeyInfo[]>(() => listOrganizationKeys(), []);
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const { existingTests, testExisting } = useExistingProviderValidation(
-    'organization', (provider, signal) => validateOrgKey(provider, undefined, { signal }),
+    'organization', (provider, signal) => validateOrganizationKey(provider, undefined, { signal }),
   );
 
   const rows = keys.data ?? [];
@@ -60,8 +60,8 @@ export function OrganizationAiProvidersSettings() {
         <KeyRound size={14} /> Add new key
       </Button>
       {adding && <ProviderKeyForm canMutate keyLabel="Provider key" providers={catalog.data?.providers ?? []}
-        validate={(provider, key, signal) => validateOrgKey(provider, key, { signal })}
-        save={(provider, key, receipt, _cap, signal) => setOrgKey(provider, key, receipt, { signal })}
+        validate={(provider, key, signal) => validateOrganizationKey(provider, key, { signal })}
+        save={(provider, key, receipt, _cap, signal) => setOrganizationKey(provider, key, receipt, { signal })}
         onSaved={() => { setAdding(false); setNotice('Provider key saved'); void keys.reload(); }} />}
       <SettingsTable
         headers={['Provider', 'Key', '']}
@@ -92,7 +92,7 @@ export function OrganizationAiProvidersSettings() {
               type="button"
               aria-label={`Delete ${row.provider} provider key`}
               title={`Delete ${row.provider} provider key`}
-              onClick={() => void deleteOrgKey(row.provider)
+              onClick={() => void deleteOrganizationKey(row.provider)
                 .then(keys.reload)
                 .catch((caught) => setMutationError(errorMessage(caught)))}
             >
@@ -102,13 +102,13 @@ export function OrganizationAiProvidersSettings() {
         ])}
         empty="No provider keys"
       />
-      <OrgLocalModelsSettings />
+      <OrganizationLocalModelsSettings />
     </div>
   );
 }
 
-// Org (team-tier) local endpoint cards come from the same plural catalog DTO
-// as workspace endpoints, reported under the hosted org authority by
+// Organization (team-tier) local endpoint cards come from the same plural catalog DTO
+// as workspace endpoints, reported under the hosted organization authority by
 // GET /api/org/local-endpoints. An empty collection means the operator has
 // not wired up an endpoint, so nothing renders (unlike workspace guidance for
 // a machine the user controls). The UI has no way to know owner-vs-member, so
@@ -122,7 +122,7 @@ function isModelPullDto(value: unknown): value is ModelPullDto {
   );
 }
 
-function orgLocalModelsStatusChip(
+function organizationLocalModelsStatusChip(
   info: LocalHttpEndpointEntry,
 ): { tone: StatusTone; text: string } {
   if (info.auth_status === 'unenforced') {
@@ -143,8 +143,8 @@ function orgLocalModelsStatusChip(
   return { tone: 'neutral', text: 'unknown' };
 }
 
-function OrgLocalModelsSettings() {
-  const info = useLoader<LocalEndpointCatalog>(() => listOrgLocalEndpoints(), []);
+function OrganizationLocalModelsSettings() {
+  const info = useLoader<LocalEndpointCatalog>(() => listOrganizationLocalEndpoints(), []);
   const data = info.data;
 
   if (info.loading) return null;
@@ -159,7 +159,7 @@ function OrgLocalModelsSettings() {
   const endpoint = data.endpoints[0];
   if (!endpoint) return null;
 
-  const status = orgLocalModelsStatusChip(endpoint);
+  const status = organizationLocalModelsStatusChip(endpoint);
   const models = endpoint.models;
 
   return (
@@ -183,21 +183,21 @@ function OrgLocalModelsSettings() {
         <p className="form-hint" data-testid="org-local-models-empty">No models installed</p>
       )}
       {endpoint.pull_enabled ? (
-        <OrgModelPullDownload endpointId={endpoint.endpoint_id} onInstalled={info.reload} />
+        <OrganizationModelPullDownload endpointId={endpoint.endpoint_id} onInstalled={info.reload} />
       ) : (
         <p className="form-hint" data-testid="org-local-models-pull-disabled">
           Model downloads are disabled; set FRISKET_ENABLE_MODEL_PULL on the server.
         </p>
       )}
-      <ModelPullHistory loadPulls={orgListModelPulls} idPrefix="org-"
-        fetchPull={orgGetModelPull} cancelPull={orgCancelModelPull} />
+      <ModelPullHistory loadPulls={organizationListModelPulls} idPrefix="org-"
+        fetchPull={organizationGetModelPull} cancelPull={organizationCancelModelPull} />
     </div>
   );
 }
 
-type OrgDownloadPhase = 'idle' | 'confirm' | 'active' | 'error';
+type OrganizationDownloadPhase = 'idle' | 'confirm' | 'active' | 'error';
 
-function OrgModelPullDownload({
+function OrganizationModelPullDownload({
   endpointId,
   onInstalled,
 }: {
@@ -205,7 +205,7 @@ function OrgModelPullDownload({
   onInstalled: () => Promise<void>;
 }) {
   const [modelInput, setModelInput] = useState('');
-  const [phase, setPhase] = useState<OrgDownloadPhase>('idle');
+  const [phase, setPhase] = useState<OrganizationDownloadPhase>('idle');
   const [busy, setBusy] = useState(false);
   const [pull, setPull] = useState<ModelPullDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -216,11 +216,11 @@ function OrgModelPullDownload({
     setBusy(true);
     setError(null);
     try {
-      const result = await orgStartArtifactPull(`ollama/@${endpointId}/${model}`);
+      const result = await organizationStartArtifactPull(`ollama/@${endpointId}/${model}`);
       setPull(result.pull);
       setPhase('active');
     } catch (caught) {
-      // pull_busy (409): another owner's pull for this org is already running
+      // pull_busy (409): another owner's pull for this organization is already running
       // -- show ITS progress instead of a bare error, same disposition as
       // LocalServerGuidance's startDownload.
       if (caught instanceof ApiError && caught.code === 'pull_busy' && isModelPullDto(caught.details?.active)) {
@@ -243,8 +243,8 @@ function OrgModelPullDownload({
       <div className="content-stack org-model-pull-download" data-testid="org-model-pull-download">
         <ModelPullProgress
           pull={pull}
-          fetchPull={orgGetModelPull}
-          cancelPull={orgCancelModelPull}
+          fetchPull={organizationGetModelPull}
+          cancelPull={organizationCancelModelPull}
           onDone={() => {
             setPhase('idle');
             setPull(null);
@@ -319,7 +319,7 @@ function OrgModelPullDownload({
 
 
 export function OrganizationSecretsSettings() {
-  const secrets = useLoader<OrgEnvInfo[]>(() => listOrgEnvVars(), []);
+  const secrets = useLoader<OrganizationEnvInfo[]>(() => listOrganizationEnvVars(), []);
   const entry = useSecretEntryDraft('organization');
   const { name, value, setName, setValue, notice, error: mutationError, setError: setMutationError, saving } = entry;
   const save = async (event: FormEvent) => {
@@ -327,7 +327,7 @@ export function OrganizationSecretsSettings() {
     const submitted = entry.begin();
     if (!submitted) return;
     try {
-      await setOrgEnvVar(submitted.name, submitted.value);
+      await setOrganizationEnvVar(submitted.name, submitted.value);
       if (entry.complete(submitted)) await secrets.reload();
     } catch (caught) {
       entry.fail(submitted, caught);
@@ -368,7 +368,7 @@ export function OrganizationSecretsSettings() {
             type="button"
             aria-label={`Delete ${row.name} secret`}
             title={`Delete ${row.name} secret`}
-            onClick={() => void deleteOrgEnvVar(row.name)
+            onClick={() => void deleteOrganizationEnvVar(row.name)
               .then(secrets.reload)
               .catch((caught) => setMutationError(errorMessage(caught)))}
           >

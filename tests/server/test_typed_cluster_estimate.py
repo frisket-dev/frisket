@@ -57,9 +57,9 @@ def test_cluster_estimate_has_no_provider_or_project_effects(cluster_client, met
 def test_cluster_run_requires_exact_confirmation_before_queueing(cluster_client):
     client, pid, project, request, adapter = cluster_client
     url = f"/api/projects/{pid}/actions/v1/run"
-    quote = client.post(url, json=request)
-    assert quote.status_code == 402, quote.text
-    digest = quote.json()["errors"][0]["details"]["promise_set_hash"]
+    estimate = client.post(url, json=request)
+    assert estimate.status_code == 402, estimate.text
+    digest = estimate.json()["errors"][0]["details"]["promise_set_hash"]
     assert len(digest) == 64
     wrong = client.post(url, json={**request, "confirmation": "0" * 64})
     assert wrong.status_code == 402, wrong.text

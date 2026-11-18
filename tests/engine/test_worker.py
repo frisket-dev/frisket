@@ -794,22 +794,22 @@ class TestCli:
         p2.close()
         q.close()
 
-    @pytest.mark.parametrize("trusted_org_id", [None, 7])
-    def test_missing_consent_principal_distinguishes_local_and_trusted_org(
-        self, tmp_path, trusted_org_id
+    @pytest.mark.parametrize("trusted_organization_id", [None, 7])
+    def test_missing_consent_principal_distinguishes_local_and_trusted_organization(
+        self, tmp_path, trusted_organization_id
     ):
-        """Storage ownership is not a funding-org claim; a real org stays gated."""
+        """Storage ownership is not a funding-organization claim; a real organization stays gated."""
         projects_root = tmp_path / "projects"
         project_root = projects_root / "1"
         project_root.mkdir(parents=True)
         project, project_id, sheet = make_regex_project(
-            project_root, name=f"missing-principal-{trusted_org_id}"
+            project_root, name=f"missing-principal-{trusted_organization_id}"
         )
         project.close()
         queue = SqliteJobQueue(tmp_path / "missing-principal.queue.db")
         queue_payload_extra = {"storage_org_id": 1}
-        if trusted_org_id is not None:
-            queue_payload_extra["org_id"] = trusted_org_id
+        if trusted_organization_id is not None:
+            queue_payload_extra["org_id"] = trusted_organization_id
         _workspace, run_id, job_id = enqueue_regex_project_run(
             project_root,
             queue,
@@ -837,7 +837,7 @@ class TestCli:
         run = reopened.db.execute(
             "SELECT status, completed_rows FROM runs WHERE id=?", (run_id,)
         ).fetchone()
-        if trusted_org_id is None:
+        if trusted_organization_id is None:
             assert errors == []
             assert dict(run) == {"status": "completed", "completed_rows": 2}
         else:

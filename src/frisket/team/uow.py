@@ -32,7 +32,7 @@ class TeamUnitOfWork:
         self.transaction = self.connection.begin()
         self.auth = IdentityStore(
             self.connection,
-            provision_org_id=self.org_id,
+            provision_organization_id=self.org_id,
         )
         self.audit = AuditStore(self.connection)
         return self

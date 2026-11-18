@@ -41,8 +41,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.credential_use import CredentialUseContext
@@ -123,12 +123,12 @@ def _test_offering(*, unit_rate: str = "0.02") -> CommercialOffering:
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.transcription.audio_minute",
             terms_version="test.synthetic.terms.v1",
             unit_rate=unit_rate,
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding(),
+            rounding=CommercialEstimateRounding(),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -953,7 +953,7 @@ def test_settlement_rates_at_pinned_terms_not_a_changed_injected_offer(
     _record_call(project, run_id, row_id=1, compute_seconds=77.0, audio_seconds=600.0)
 
     changed_offer = _test_offering(unit_rate="0.20")
-    assert changed_offer.quote.unit_rate != attempt.cost_basis.unit_rate
+    assert changed_offer.estimate.unit_rate != attempt.cost_basis.unit_rate
     settlement = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert settlement["unit_rate"] == "0.02"
     assert settlement["charge_usd"] == "0.2"
@@ -1434,7 +1434,7 @@ def test_all_failed_rows_without_facts_remain_unsettleable(project, consented_ru
     assert settlement["unsettleable"] == "unmetered"
 
 
-def test_all_failed_quoted_rows_still_rate_returned_provider_facts(
+def test_all_failed_estimated_rows_still_rate_returned_provider_facts(
     project, consented_run
 ):
     """Complete failed-call facts remain rated, but successful-row retail is zero."""
@@ -1491,7 +1491,7 @@ def test_row_settlement_invariants_follow_the_pinned_generic_mode(
     assert settlement["unsettleable"] == "row_quote_allocation_mismatch"
 
 
-def test_a_replayed_batch_cannot_flip_a_failed_quoted_row_to_succeeded(
+def test_a_replayed_batch_cannot_flip_a_failed_estimated_row_to_succeeded(
     project, consented_run
 ):
     """``attempt_row_authorizations.terminal_outcome`` is write-once.
@@ -1702,7 +1702,7 @@ def test_no_settlement_table_was_added(project):
     assert not [c for c in columns if "rate" in c or "charge" in c or "price" in c]
 
 
-def test_injected_row_terms_charge_only_successful_quoted_allocations(
+def test_injected_row_terms_charge_only_successful_estimated_allocations(
     project,
 ):
     """Forty one-minute rows are confirmed; only 38 finish successfully.

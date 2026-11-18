@@ -17,8 +17,8 @@ from typing import Any
 from frisket.ops.enclosures import ENCLOSURE_DOWNLOAD_KIND, mark_enclosure_queued
 from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs.queue import JobQueue
-from frisket.server.sources.rss import ensure_rss_poller
-from frisket.server.sources.runtime import get_source_poller
+from frisket.server.sources.rss import ensure_rss_feed_checker
+from frisket.server.sources.runtime import get_feed_checker
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
@@ -60,7 +60,7 @@ def register_source_poll_handler(
     workspace_root: str | Path,
     queue: JobQueue | None = None,
     fetch: Callable[[str], str] | None = None,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     prepare_enclosures_for_search: bool = False,
 ) -> HandlerRegistration:
@@ -76,7 +76,7 @@ def register_source_poll_handler(
             project_id, project = open_payload_project(
                 payload,
                 workspace_root=root,
-                workspace_root_storage_org_id=workspace_root_storage_org_id,
+                workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 project_opener=project_opener,
             )
             # The claimed location decided WHERE, so the follow-up jobs this
@@ -192,7 +192,7 @@ def register_source_poll_handler(
                 project=project,
                 project_id=project_id,
                 workspace_root=project_root,
-                storage_org_id=_coerce_storage_org_id(payload),
+                storage_org_id=_coerce_storage_organization_id(payload),
                 source=source_after,
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=list(summary.get("enclosure_row_ids") or []),
@@ -210,7 +210,7 @@ def register_source_poll_handler(
                         alerts=alerts,
                         project_id=project_id,
                         workspace_root=project_root,
-                        storage_org_id=_coerce_storage_org_id(payload),
+                        storage_org_id=_coerce_storage_organization_id(payload),
                         trigger_ref={"source_run_id": materialization["source_run_id"]},
                     )
 
@@ -226,7 +226,7 @@ def register_source_poll_handler(
                         queue,
                         workspace_root=project_root,
                         project_id=project_id,
-                        storage_org_id=_coerce_storage_org_id(payload),
+                        storage_org_id=_coerce_storage_organization_id(payload),
                         result=evaluation["notification"],
                         project_opener=project_opener,
                     )
@@ -237,7 +237,7 @@ def register_source_poll_handler(
                 project=project,
                 project_id=project_id,
                 workspace_root=project_root,
-                storage_org_id=_coerce_storage_org_id(payload),
+                storage_org_id=_coerce_storage_organization_id(payload),
                 sheet_id=int(summary["sheet_id"]),
                 row_ids=[int(r) for r in summary.get("row_ids") or []],
                 trigger_ref={
@@ -292,7 +292,7 @@ def _source_poll_action(
     }
 
 
-def _coerce_storage_org_id(payload: dict[str, Any]) -> int | None:
+def _coerce_storage_organization_id(payload: dict[str, Any]) -> int | None:
     value = payload.get("storage_org_id")
     try:
         return None if value is None else int(value)
@@ -313,7 +313,7 @@ def _source_poll_job_identity(queue: JobQueue | None, payload: dict[str, Any]) -
                 SOURCE_POLL_KIND,
                 statuses=("running",),
                 project_id=project_id,
-                storage_org_id=_coerce_storage_org_id(payload),
+                storage_org_id=_coerce_storage_organization_id(payload),
                 source_id=source_id,
                 workspace_root=workspace_root,
             )
@@ -542,9 +542,9 @@ def _source_due(row: Any, *, now: datetime) -> bool:
 
 
 def _source_kind_supported(kind: Any) -> bool:
-    ensure_rss_poller()
+    ensure_rss_feed_checker()
     source_kind = str(kind or "").strip()
-    return get_source_poller(source_kind) is not None
+    return get_feed_checker(source_kind) is not None
 
 
 def _source_stale_for_notification(row: Any, *, now: datetime) -> bool:

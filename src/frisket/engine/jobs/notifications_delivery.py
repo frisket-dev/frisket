@@ -44,7 +44,7 @@ from .project_opener import (
     project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
 )
 from frisket.engine.store.transactions import write_transaction
 
@@ -80,7 +80,7 @@ def enqueue_notification_delivery(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_org_id(storage_org_id),
+                storage_org_id=require_opener_storage_organization_id(storage_org_id),
                 project_slug=project_id,
             ),
             bundle,
@@ -192,7 +192,9 @@ def register_notification_handlers(
                 payload.get("workspace_root") or workspace
             )
             handler_project_id = str(payload["project_id"])
-            handler_storage_org_id = payload.get("storage_org_id", storage_org_id)
+            handler_storage_organization_id = payload.get(
+                "storage_org_id", storage_org_id
+            )
             project_key = None
         else:
             # With an injected opener, the hosted composition derives the
@@ -208,11 +210,11 @@ def register_notification_handlers(
                     payload,
                     workspace_root=workspace,
                     require_storage_identity=True,
-                    workspace_root_storage_org_id=storage_org_id,
+                    workspace_root_storage_organization_id=storage_org_id,
                 )
             )
             handler_workspace_root = handler_project_root
-            handler_storage_org_id = claimed.storage_org_id
+            handler_storage_organization_id = claimed.storage_org_id
             project_key = claimed
         try:
             runtime = (
@@ -241,7 +243,7 @@ def register_notification_handlers(
             # already knows whether this is the last attempt; re-reading the
             # job row here raced recovery/requeue.
             final_attempt=bool(payload.get("job_final_attempt")),
-            storage_org_id=handler_storage_org_id,
+            storage_org_id=handler_storage_organization_id,
             project_key=project_key,
             project_opener=project_opener,
         )
@@ -286,7 +288,7 @@ def deliver_notification_request(
 ) -> dict[str, Any]:
     if project_key is None and storage_org_id is not None:
         project_key = ProjectStorageKey(
-            storage_org_id=require_opener_storage_org_id(storage_org_id),
+            storage_org_id=require_opener_storage_organization_id(storage_org_id),
             project_slug=project_id,
         )
     bundle = Path(workspace_root) / f"{project_id}.frisket"
@@ -295,7 +297,7 @@ def deliver_notification_request(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_org_id(storage_org_id),
+                storage_org_id=require_opener_storage_organization_id(storage_org_id),
                 project_slug=project_id,
             ),
             bundle,
@@ -815,10 +817,10 @@ def _recovery_targets(
     Without an opener this keeps the historical flat scan of ``workspace``
     and carries no identity. With an opener every open must be keyed, so the
     identity has to come from somewhere trustworthy: either the caller's
-    DECLARED ``storage_org_id`` (a per-org root), or — for the global hosted
+    DECLARED ``storage_org_id`` (a per-organization root), or — for the global hosted
     recovery root, which is ``<data_dir>/projects`` and not pre-selected per
-    org — the per-org subdirectory layout that root is defined to have.
-    Directories that are not a positive integer org id are not part of that
+    organization — the per-organization subdirectory layout that root is defined to have.
+    Directories that are not a positive integer organization id are not part of that
     layout and are skipped rather than opened under a guessed key.
     """
     if project_opener is None:
@@ -827,7 +829,7 @@ def _recovery_targets(
     if project_id is not None:
         validate_project_slug(project_id)
     if storage_org_id is not None:
-        org_id = require_opener_storage_org_id(storage_org_id)
+        org_id = require_opener_storage_organization_id(storage_org_id)
         paths = project_bundle_paths(
             workspace, project_id=project_id, require_slug=True
         )
@@ -836,15 +838,15 @@ def _recovery_targets(
             for path in paths
         ]
     targets: list[tuple[ProjectStorageKey | None, Path]] = []
-    for org_dir in sorted(workspace.iterdir()) if workspace.exists() else []:
-        if not org_dir.is_dir():
+    for organization_dir in sorted(workspace.iterdir()) if workspace.exists() else []:
+        if not organization_dir.is_dir():
             continue
         try:
-            org_id = require_opener_storage_org_id(int(org_dir.name))
+            org_id = require_opener_storage_organization_id(int(organization_dir.name))
         except ValueError:
             continue
         for path in project_bundle_paths(
-            org_dir, project_id=project_id, require_slug=True
+            organization_dir, project_id=project_id, require_slug=True
         ):
             targets.append(
                 (ProjectStorageKey(storage_org_id=org_id, project_slug=path.stem), path)

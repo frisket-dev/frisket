@@ -155,13 +155,13 @@ export async function stubV1ActionRun({
 export function seedGeneratedCellEvidence({
   pid,
   sheetId,
-  outputColumnName,
+  generatedColumnName,
   outputValue,
   producerKind,
 }: {
   pid: string;
   sheetId: number;
-  outputColumnName: string;
+  generatedColumnName: string;
   outputValue: string;
   producerKind: string;
 }): SeededEvidenceCell {
@@ -169,7 +169,7 @@ export function seedGeneratedCellEvidence({
     pid,
     sheetId,
     mode: 'generated',
-    columnName: outputColumnName,
+    columnName: generatedColumnName,
     value: outputValue,
     producerKind,
   });

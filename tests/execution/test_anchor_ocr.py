@@ -277,7 +277,7 @@ def test_cloud_pdf_companion_uploads_original_without_local_rasters(
             calls.append(attempt)
             assert attempt.payer.account_id == 41
             assert attempt.payer.route_revision == route.route_revision
-            assert attempt.quote_authority.maximum_charge_micro is None
+            assert attempt.estimate_authority.maximum_charge_micro is None
             [upload] = request["uploads"]
             uploaded = upload.stream.read()
             assert upload.content_type == "application/pdf"
@@ -494,7 +494,7 @@ def test_cloud_ocr_reserves_durable_request_before_transport(tmp_path):
             assert checkpoint["state"] == "reserved"
             assert attempt.request_id.startswith("cloud_row_")
             assert attempt.request_id != checkpoint["id"]
-            assert attempt.quote_authority.maximum_charge_micro is None
+            assert attempt.estimate_authority.maximum_charge_micro is None
             self.calls.append((attempt, request))
             return CloudExecutionResponse(
                 execution_id="cloud-ocr-1",
@@ -1038,7 +1038,7 @@ def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
 
         # (1) Pin this consent-mechanics anchor to an explicit zero threshold:
         # both cost and egress gate before anything runs. Default under-limit
-        # preapproval is covered separately; this test needs the exact-confirm
+        # allowance is covered separately; this test needs the exact-confirm
         # path in order to inspect its durable worker proof below.
         deps = ExecutorDeps(
             consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0"))
@@ -1239,7 +1239,7 @@ def test_anchor_ocr_credential_use_fence_refuses_before_the_call(tmp_path, monke
     # dispatch reading a different answer than the fence, which is the class of
     # divergence this fence exists to catch.
     monkeypatch.setattr(
-        "frisket.ops.ocr_engines_hosted._datalab_credential",
+        "frisket.ops.ocr_engines_remote._datalab_credential",
         lambda ctx: ResolvedCredential("a-platform-key", "platform_key"),
     )
     try:
@@ -1261,12 +1261,12 @@ def test_anchor_ocr_credential_use_fence_refuses_before_the_call(tmp_path, monke
         project.close()
 
 
-def test_anchor_ocr_org_byok_consent_refuses_the_deployments_env_key(
+def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
     tmp_path, monkeypatch
 ):
     """The BYOK consent, made checkable (the credential-use fence critical 3).
 
-    The scenario, exactly: an org consents under ``cost_posture='org_key'`` —
+    The scenario, exactly: an organization consents under ``cost_posture='org_key'`` —
     the dialog says "billed to your organization's provider key" — and the
     DEPLOYMENT's process environment also holds a ``DATALAB_API_KEY``. The
     selector honestly reports ``local`` because that env key is what resolves;
@@ -1296,7 +1296,7 @@ def test_anchor_ocr_org_byok_consent_refuses_the_deployments_env_key(
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
-    # The hosted org composition, resolved for real: the resolver pins
+    # The hosted organization composition, resolved for real: the resolver pins
     # credential_source='org_byok' and cost_posture='org_key' from ONE funding
     # fact, so the route row this run is consented under is the row a hosted
     # BYOK deployment would actually write.

@@ -1,15 +1,15 @@
 """Open identity control-plane access for the worker.
 
-Org BYOK provider keys are CONTROL-PLANE rows, not project rows: they live in
+Organization BYOK provider keys are CONTROL-PLANE rows, not project rows: they live in
 `frisket.team.schema.org_keys` (open identity), envelope-encrypted with the open
 AEAD module `frisket.security.secrets`. The open team worker genuinely needs
-them — a queued run for org N must resolve that org's Anthropic/OpenAI key
+them — a queued run for organization N must resolve that organization's Anthropic/OpenAI key
 before it can call a model, and the per-project seam
 (`frisket.store.project.Project.provider_model_keys`) is NOT a substitute: it
 only knows keys a project carries in its own bundle.
 
 That is why this module exists in the OPEN tree: before the split the
-worker reached org keys through an external edition's bootstrap +
+worker reached organization keys through an external edition's bootstrap +
 `HostedSecretAccessService`, which made the open worker unable to run without
 that external package.
 
@@ -29,14 +29,14 @@ from frisket.team.security.secrets import decrypt_secret
 from frisket.team.schema import org_keys
 
 # The providers a run's model router can be keyed for. Mirrors the provider
-# names written by the org-BYOK routes.
+# names written by the organization-BYOK routes.
 MODEL_KEY_PROVIDERS = tuple(
     p.id for p in providers_for(scope="organization", category="llm")
 )
 SEARCH_KEY_PROVIDERS = tuple(
     p.id for p in providers_for(scope="organization", category="search")
 )
-ORG_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="organization"))
+ORGANIZATION_KEY_PROVIDERS = tuple(p.id for p in providers_for(scope="organization"))
 
 # Engines are cached per URL: a worker resolves keys once per claimed job and
 # must not open a fresh pool every time.
@@ -60,14 +60,14 @@ def control_plane_engine(database_url: str) -> sa.Engine:
     return engine
 
 
-def org_provider_key_plaintext(
+def organization_provider_key_plaintext(
     engine: sa.Engine,
     *,
     org_id: int,
     provider: str,
     decryptor: Callable[[str], str] = decrypt_secret,
 ) -> str | None:
-    """Decrypt one org's stored key for `provider`, or None if it has none."""
+    """Decrypt one organization's stored key for `provider`, or None if it has none."""
     provider = provider.strip().lower()
     with engine.connect() as cx:
         row = cx.execute(
@@ -81,17 +81,17 @@ def org_provider_key_plaintext(
     return decryptor(row.encrypted)
 
 
-def org_provider_keys(
+def organization_provider_keys(
     engine: sa.Engine,
     *,
     org_id: int,
     providers: tuple[str, ...] = MODEL_KEY_PROVIDERS,
     decryptor: Callable[[str], str] = decrypt_secret,
 ) -> dict[str, str]:
-    """Every provider key this org has stored, decrypted for runtime use."""
+    """Every provider key this organization has stored, decrypted for runtime use."""
     keys: dict[str, str] = {}
     for provider in providers:
-        key = org_provider_key_plaintext(
+        key = organization_provider_key_plaintext(
             engine, org_id=org_id, provider=provider, decryptor=decryptor
         )
         if key:
@@ -99,7 +99,7 @@ def org_provider_keys(
     return keys
 
 
-class TeamOrgKeyCredentialPort:
+class TeamOrganizationKeyCredentialPort:
     """Open worker credential composition using the team's per-instance AEAD key."""
 
     def __init__(self, decryptor: Callable[[str], str]):
@@ -110,14 +110,14 @@ class TeamOrgKeyCredentialPort:
     ) -> Mapping[str, str]:
         if not control_database_url:
             return {}
-        return org_provider_keys(
+        return organization_provider_keys(
             control_plane_engine(control_database_url),
             org_id=org_id,
             decryptor=self._decryptor,
         )
 
 
-class TeamOrgSearchKeyCredentialPort:
+class TeamOrganizationSearchKeyCredentialPort:
     """Team worker lookup restricted to the two supported search providers."""
 
     def __init__(self, decryptor: Callable[[str], str]):
@@ -128,7 +128,7 @@ class TeamOrgSearchKeyCredentialPort:
     ) -> Mapping[str, str]:
         if not control_database_url:
             return {}
-        return org_provider_keys(
+        return organization_provider_keys(
             control_plane_engine(control_database_url),
             org_id=org_id,
             providers=SEARCH_KEY_PROVIDERS,

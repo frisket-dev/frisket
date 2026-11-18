@@ -181,7 +181,7 @@ class Reservation:
 
     ``make_conflict`` reuses the primary idempotency key with different
     params; ``go_stale`` invalidates the completed run's outputs (typically
-    hides an output column) so replaying the primary spec is refused.
+    hides a generated column) so replaying the primary spec is refused.
     """
 
     make_conflict: Callable[[Seeded], dict[str, Any]]

@@ -239,7 +239,7 @@ def test_remote_without_allow_remote_blocks_before_any_embed(make_project):
     project.close()
 
 
-def test_single_text_and_one_term_lens_hash_identically():
+def test_single_text_and_one_term_view_hash_identically():
     # The composed query saves as a manual_text_query lens; a single `text` and a
     # single one-weight term canonicalize to the SAME spec hash (identity/replay).
     # query_spec_hash normalizes internally, so pass the RAW query (allow_row_cell

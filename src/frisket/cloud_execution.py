@@ -117,7 +117,7 @@ class CloudPayerSubject:
 
 
 @dataclass(frozen=True, slots=True)
-class CloudQuoteAuthority:
+class CloudEstimateAuthority:
     """Existing local consent that may answer one exact Cloud quote.
 
     Presence means the action/Ask gate already authorized this route.
@@ -150,7 +150,7 @@ class CloudExecutionAttempt:
 
     request_id: str
     payer: CloudPayerSubject
-    quote_authority: CloudQuoteAuthority | None
+    estimate_authority: CloudEstimateAuthority | None
 
     def __post_init__(self) -> None:
         if (
@@ -335,11 +335,11 @@ class CloudExecutionTransportProvider(Protocol):
     ) -> CloudExecutionTransport | None: ...
 
 
-def cloud_quote_authority_for_row(
+def cloud_estimate_authority_for_row(
     cost_basis: object,
     *,
     row_id: int,
-) -> CloudQuoteAuthority:
+) -> CloudEstimateAuthority:
     """Carry approximate approval to Cloud without turning its estimate into a cap.
 
     The selected cohort remains fixed; Cloud checks actual funds independently
@@ -361,9 +361,9 @@ def cloud_quote_authority_for_row(
                 "cloud_quote_unbound",
                 "Cloud execution row is absent from its admitted quote",
             )
-        return CloudQuoteAuthority(maximum_charge_micro=None)
+        return CloudEstimateAuthority(maximum_charge_micro=None)
     if isinstance(cost_basis, UnpriceableCost):
-        return CloudQuoteAuthority(maximum_charge_micro=None)
+        return CloudEstimateAuthority(maximum_charge_micro=None)
 
     if isinstance(cost_basis, OperatorBorneZeroCost):
         raise CloudExecutionRefused(
@@ -548,9 +548,9 @@ class HttpCloudExecutionTransport:
             with self._response_errors(response):
                 if self._error_code(response) != "needs_confirmation":
                     self._raise_error(response)
-                challenge = self._parse_quote(response)
-                authority = attempt.quote_authority
-                if authority is None or not self._quote_is_authorized(
+                challenge = self._parse_estimate(response)
+                authority = attempt.estimate_authority
+                if authority is None or not self._estimate_is_authorized(
                     attempt, challenge, authority
                 ):
                     raise CloudConfirmationRequired(challenge)
@@ -740,7 +740,7 @@ class HttpCloudExecutionTransport:
             ) from None
 
     @staticmethod
-    def _parse_quote(response: httpx.Response) -> CloudQuoteChallenge:
+    def _parse_estimate(response: httpx.Response) -> CloudQuoteChallenge:
         try:
             return CloudQuoteChallenge.model_validate(response.json())
         except (ValueError, TypeError, ValidationError):
@@ -757,26 +757,26 @@ class HttpCloudExecutionTransport:
         return payload.get("error") if isinstance(payload, dict) else None
 
     @staticmethod
-    def _quote_is_authorized(
+    def _estimate_is_authorized(
         attempt: CloudExecutionAttempt,
         challenge: CloudQuoteChallenge,
-        authority: CloudQuoteAuthority,
+        authority: CloudEstimateAuthority,
     ) -> bool:
         payer = attempt.payer
-        quote = challenge.quote
+        estimate = challenge.quote
         if (
-            quote.account_id != payer.account_id
-            or quote.route_revision != payer.route_revision
-            or quote.lane != payer.lane
-            or quote.provider != payer.provider
-            or quote.engine != payer.engine
+            estimate.account_id != payer.account_id
+            or estimate.route_revision != payer.route_revision
+            or estimate.lane != payer.lane
+            or estimate.provider != payer.provider
+            or estimate.engine != payer.engine
         ):
             return False
         ceiling = authority.maximum_charge_micro
         spend = (
-            quote.provider_cost_micro
+            estimate.provider_cost_micro
             if payer.lane == "account_key"
-            else quote.estimated_charge_micro
+            else estimate.estimated_charge_micro
         )
         return ceiling is None or (spend is not None and spend <= ceiling)
 

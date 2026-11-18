@@ -1,6 +1,6 @@
 // RED-FIRST (authored 2026-06-13): general sheet filtering is not implemented.
 // The gate requires a grid filter control backed by GET /sheets/{id}/data so
-// paging and saved views observe the same filtered row set.
+// paging and views observe the same filtered row set.
 
 import { expect, test } from '@playwright/test';
 import {

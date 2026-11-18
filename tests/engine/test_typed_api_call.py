@@ -63,10 +63,14 @@ def _install_handler(monkeypatch, handler, action_id="map.api_call"):
 
 
 def _confirmed(project, body, router):
-    quote = run_action_spec(project, body, project_id="api", router=router)
-    assert quote.status == "needs_confirmation", quote.errors
-    body = {**body, "confirmation": quote.errors[0].details["promise_set_hash"]}
-    return run_action_spec(project, body, project_id="api", router=router), body, quote
+    estimate = run_action_spec(project, body, project_id="api", router=router)
+    assert estimate.status == "needs_confirmation", estimate.errors
+    body = {**body, "confirmation": estimate.errors[0].details["promise_set_hash"]}
+    return (
+        run_action_spec(project, body, project_id="api", router=router),
+        body,
+        estimate,
+    )
 
 
 @pytest.mark.parametrize(
@@ -182,12 +186,12 @@ def test_http_and_routed_capabilities_keep_unknown_total_and_both_provider_facts
         "params": {"query": "address", "selected": "nominatim"},
         "idempotency_key": "mixed-http",
     }
-    quote = run(body)
-    assert quote.status == "needs_confirmation", quote.errors
-    assert quote.errors[0].details["estimate"]["cost"] is None
-    assert quote.errors[0].details["estimate"]["cost_source"] == "unknown"
+    estimate = run(body)
+    assert estimate.status == "needs_confirmation", estimate.errors
+    assert estimate.errors[0].details["estimate"]["cost"] is None
+    assert estimate.errors[0].details["estimate"]["cost_source"] == "unknown"
     assert calls == []
-    body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    body["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     result = run(body)
     assert result.status == "completed", result.errors
     assert len(calls) == 2
@@ -224,10 +228,10 @@ def test_http_and_routed_capabilities_keep_unknown_total_and_both_provider_facts
         "params": {"column": receipt.outputs[0].name},
         "idempotency_key": "mixed-backfill",
     }
-    quote = run(backfill)
-    assert quote.status == "needs_confirmation", quote.errors
-    assert quote.errors[0].details["estimate"]["cost"] is None
-    backfill["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    estimate = run(backfill)
+    assert estimate.status == "needs_confirmation", estimate.errors
+    assert estimate.errors[0].details["estimate"]["cost"] is None
+    backfill["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     successor = run(backfill)
     assert successor.status == "completed", successor.errors
     assert len(calls) == 4
@@ -277,10 +281,10 @@ def test_queued_http_request_replay_redelivery_and_backfill(
         "idempotency_key": "http-queue",
     }
     url = f"/api/projects/{project_id}/actions/v1/run"
-    quote = client.post(url, json=body).json()
-    assert quote["status"] == "needs_confirmation", quote
+    estimate = client.post(url, json=body).json()
+    assert estimate["status"] == "needs_confirmation", estimate
     assert calls == []
-    body["confirmation"] = quote["errors"][0]["details"]["promise_set_hash"]
+    body["confirmation"] = estimate["errors"][0]["details"]["promise_set_hash"]
     queued = client.post(url, json=body).json()
     assert queued["status"] == "queued", queued
     job = client.app.state.workspace.queue.get(queued["job_id"])
@@ -299,11 +303,12 @@ def test_queued_http_request_replay_redelivery_and_backfill(
         monkeypatch.setattr(runs, "queued_v1_finalize_action_result", die)
         with pytest.raises(ProcessDeath):
             client.app.state.workspace.registry.get("project.run")(
-                payload, JobHandlerContext.from_claimed_job(trusted_org_id=None)
+                payload,
+                JobHandlerContext.from_claimed_job(trusted_organization_id=None),
             )
         monkeypatch.setattr(runs, "queued_v1_finalize_action_result", original)
         client.app.state.workspace.registry.get("project.run")(
-            payload, JobHandlerContext.from_claimed_job(trusted_org_id=None)
+            payload, JobHandlerContext.from_claimed_job(trusted_organization_id=None)
         )
     else:
         drain_queue(client)
@@ -314,7 +319,7 @@ def test_queued_http_request_replay_redelivery_and_backfill(
     assert output["default_hidden"] and not output["hidden"]
     # A completed worker redelivery reconstructs only receipt facts, not HTTP.
     client.app.state.workspace.registry.get("project.run")(
-        payload, JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        payload, JobHandlerContext.from_claimed_job(trusted_organization_id=None)
     )
     replay = client.post(url, json=body).json()
     assert (

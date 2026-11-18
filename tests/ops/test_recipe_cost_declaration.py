@@ -53,7 +53,7 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
-from frisket.engine.runner.confirmation_context import ConsentQuoteRefused
+from frisket.engine.runner.confirmation_context import ConsentEstimateRefused
 from frisket.engine.store import Project
 from frisket.ops.base import Recipe
 from http_test_helpers import queued_python_run_spec, v1_action_from_canonical_run_spec
@@ -446,7 +446,7 @@ def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
         raising=False,
     )
 
-    # No CostGate, no ConsentQuoteRefused: the run is admitted.
+    # No CostGate, no ConsentEstimateRefused: the run is admitted.
     validated = _validate(project, spec, program=recipe, confirmed=False)
     assert validated.unrouted_confirmation_hash is None
 
@@ -465,6 +465,6 @@ def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
         },
         raising=False,
     )
-    with pytest.raises(ConsentQuoteRefused) as refused:
+    with pytest.raises(ConsentEstimateRefused) as refused:
         _validate(project, metered, program=metered_recipe, confirmed=False)
     assert refused.value.key == "throughput_hint_rows_per_second"

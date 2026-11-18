@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 
 from frisket.ops import media_proxy as media_proxy_config
 from frisket.server.provider_config import ENV_VAR
-from frisket.team.control_plane import ORG_KEY_PROVIDERS
+from frisket.team.control_plane import ORGANIZATION_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.http_helpers import invite_http_error
 from frisket.team.identity_service import IdentityAuthService
@@ -48,7 +48,7 @@ from frisket.team.security.secrets import key_hint
 
 # Invited accounts join by opening the printed link; there is no email
 # transport behind this surface, so the link lives as long as the invite
-# window itself (InviteService.create_org_invite's 7 days).
+# window itself (InviteService.create_organization_invite's 7 days).
 INVITE_LINK_TTL_MINUTES = 7 * 24 * 60
 
 
@@ -133,7 +133,7 @@ def register_admin_api_routes(
     def admin_create_user(request: Request, body: AdminUserBody) -> dict[str, Any]:
         actor = require_admin(request)
         try:
-            invited = invites.create_org_invite(
+            invited = invites.create_organization_invite(
                 email=body.email,
                 actor_user_id=int(actor["id"]),
                 role=body.role,
@@ -158,7 +158,7 @@ def register_admin_api_routes(
         actor = require_admin(request)
         clean_email = email.lower().strip()
         clean_role = body.role.lower().strip()
-        if clean_role not in InviteService.ORG_ROLES:
+        if clean_role not in InviteService.ORGANIZATION_ROLES:
             raise HTTPException(400, "role must be member or owner")
         with locked_transaction(engine, lock_scope=("org-membership", org_id)) as cx:
             require_owner_in_transaction(cx, actor)
@@ -257,7 +257,7 @@ def register_admin_api_routes(
                     "env_var": ENV_VAR.get(provider),
                     "env_present": bool(os.environ.get(ENV_VAR.get(provider, ""))),
                 }
-                for provider in ORG_KEY_PROVIDERS
+                for provider in ORGANIZATION_KEY_PROVIDERS
             ]
         }
 
@@ -267,7 +267,7 @@ def register_admin_api_routes(
     ) -> dict[str, Any]:
         actor = require_admin(request)
         clean_provider = provider.lower().strip()
-        if clean_provider not in ORG_KEY_PROVIDERS:
+        if clean_provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         value = body.key
         if not value.strip():
@@ -357,7 +357,7 @@ def register_admin_api_routes(
     def admin_delete_secret(provider: str, request: Request) -> dict[str, Any]:
         actor = require_admin(request)
         clean_provider = provider.lower().strip()
-        if clean_provider not in ORG_KEY_PROVIDERS:
+        if clean_provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         with locked_transaction(
             engine, lock_scope=("org-key", org_id, clean_provider)

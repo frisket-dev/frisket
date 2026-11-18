@@ -4,7 +4,7 @@ REDESIGN (2026-06-27): media.fetch_url moved from a hand-rolled per-row plain
 action to a recipe-based reserved-MapRunner op (the same base as
 media.transcribe / media.ytdlp_download). These tests assert the NEW
 reserved-MapRunner SHAPE — a run-based receipt (run_id, per-row results, partial
-status from run stats), a single "file" output column, and reservation-based
+status from run stats), a single "file" generated column, and reservation-based
 idempotency replay — while still asserting the SEMANTIC outcome: each row's URL
 is fetched, the blob is stored, downloaded rows carry media cells, failed rows
 carry none, and the action is partial when some rows fail / failed when all do.
@@ -15,9 +15,9 @@ reserved-MapRunner shape, not a weakening):
     outcomes now live in the run `results` table, exactly like transcribe. We
     instead assert the run-based receipt status (partial/failed) and the absence
     of those columns.
-  - Output column type is statically "file" (the media cell still carries its
+  - Generated column type is statically "file" (the media cell still carries its
     mime); the old post-download type inference is gone.
-  - An existing output column name is now an `output_column_exists` precheck
+  - An existing generated column name is now an `output_column_exists` precheck
     error (like youtube_download), replacing the old
     `output_column_type_mismatch` / existing-column reuse path.
   - Per-row download attempts run as a concurrent MapRunner map, so we assert the
@@ -183,7 +183,7 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
         "link",
         "text",
     ]
-    # Reserved-MapRunner error surface: an existing output column is now an
+    # Reserved-MapRunner error surface: an existing generated column is now an
     # output_column_exists precheck (replacing output_column_type_mismatch), and
     # reservation idempotency adds idempotency_in_progress.
     assert {error.code for error in entry.errors} >= {
@@ -332,11 +332,11 @@ def test_media_fetch_url_materializes_direct_youtube_and_html_rows(
         project.close()
 
 
-def test_media_fetch_url_rejects_existing_output_column_before_network(
+def test_media_fetch_url_rejects_existing_generated_column_before_network(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    # Reserved-MapRunner shape: an existing output column name is refused by the
+    # Reserved-MapRunner shape: an existing generated column name is refused by the
     # precheck (output_column_exists) before any network call — replacing the old
     # output_column_type_mismatch / existing-column reuse path.
     project, sheet_id, _row_ids = _seed_url_project(tmp_path)

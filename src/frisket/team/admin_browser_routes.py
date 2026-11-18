@@ -278,8 +278,8 @@ def register_admin_browser_routes(
     ) -> dict[str, Any]:
         actor = require_admin(request)
         try:
-            membership.require_org(body.org_id)
-            invited = invites.create_org_invite(
+            membership.require_organization(body.org_id)
+            invited = invites.create_organization_invite(
                 email=body.email,
                 actor_user_id=int(actor["id"]),
                 operator_actor=actor.get("auth") == "operator",
@@ -324,7 +324,7 @@ def register_admin_browser_routes(
                 actor=actor,
                 user_id=user_id,
                 role=body.role,
-                requested_org_id=body.org_id,
+                requested_organization_id=body.org_id,
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
@@ -343,12 +343,12 @@ def register_admin_browser_routes(
         actor = require_admin(request)
         query = AdminBrowserTargetOrgQuery.model_validate({"org_id": target_org_id})
         try:
-            membership.require_org(query.org_id)
+            membership.require_organization(query.org_id)
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
         clean_email = email.lower().strip()
         try:
-            revoked = invites.revoke_org_invite(
+            revoked = invites.revoke_organization_invite(
                 email=clean_email,
                 actor_user_id=int(actor["id"]),
                 operator_actor=actor.get("auth") == "operator",
@@ -380,7 +380,7 @@ def register_admin_browser_routes(
             result = membership.remove_user(
                 actor=actor,
                 user_ref=user_ref,
-                requested_org_id=query.org_id,
+                requested_organization_id=query.org_id,
             )
         except AdminMembershipError as exc:
             raise _membership_http_error(exc) from exc
@@ -531,7 +531,7 @@ def register_admin_browser_routes(
                 )
             )
         with engine.connect() as cx:
-            org_rows = cx.execute(
+            organization_rows = cx.execute(
                 sa.select(orgs.c.id, orgs.c.name)
                 .where(orgs.c.id == org_id)
                 .order_by(orgs.c.id)
@@ -568,7 +568,7 @@ def register_admin_browser_routes(
                 .scalars()
                 .all()
             )
-        org_names = {int(row.id): str(row.name) for row in org_rows}
+        organization_names = {int(row.id): str(row.name) for row in organization_rows}
         project_names = {
             (int(row.org_id), str(row.slug)): str(row.name) for row in project_rows
         }
@@ -587,7 +587,9 @@ def register_admin_browser_routes(
                     else None,
                     "actor_email": str(row.actor_email) if row.actor_email else None,
                     "org_id": int(row.org_id) if row.org_id is not None else None,
-                    "org_name": org_names.get(int(row.org_id)) if row.org_id else None,
+                    "org_name": organization_names.get(int(row.org_id))
+                    if row.org_id
+                    else None,
                     "project_id": project_id,
                     "project_name": (
                         project_names.get((int(row.org_id), str(project_id)))
@@ -610,7 +612,8 @@ def register_admin_browser_routes(
             "events": events,
             "filters": {
                 "orgs": [
-                    {"id": int(row.id), "name": str(row.name)} for row in org_rows
+                    {"id": int(row.id), "name": str(row.name)}
+                    for row in organization_rows
                 ],
                 "projects": [
                     {

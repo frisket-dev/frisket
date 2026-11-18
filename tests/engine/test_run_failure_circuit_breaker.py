@@ -111,12 +111,12 @@ def _run_confirmed(runner: MapRunner, spec: dict[str, Any]):
 
     The canonical classify spec is bound to its explicit typed program by the
     fixtures on both the quote and the confirmed dispatch."""
-    with pytest.raises(CostGate) as quote:
+    with pytest.raises(CostGate) as estimate:
         prepare_model_run(runner, spec)
-    assert quote.value.promise_set_hash
+    assert estimate.value.promise_set_hash
     confirmed_spec = {
         **spec,
-        "consented_promise_set_hash": quote.value.promise_set_hash,
+        "consented_promise_set_hash": estimate.value.promise_set_hash,
     }
     return asyncio.run(run_with_output_claim(runner, confirmed_spec, confirmed=True))
 

@@ -205,7 +205,7 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     && response.url().endsWith(`/api/projects/${projectId}/actions/v1/preview`)
   ));
   await page.getByTestId('generated-action-preview').click();
-  // This known tiny Cloud charge is covered by ordinary cost preapproval.
+  // This known tiny Cloud charge is covered by ordinary allowance.
   const admission = await admitted;
   expect(admission.status()).toBe(202);
   expect(admission.request().postDataJSON()).not.toHaveProperty('confirmation');

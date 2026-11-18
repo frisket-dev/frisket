@@ -242,8 +242,8 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
     )
     project_id = "org-fence-proof"
 
-    # A second org cannot be created through the singleton bootstrap API, so
-    # the cross-org credential is possible only through this direct fixture.
+    # A second organization cannot be created through the singleton bootstrap API, so
+    # the cross-organization credential is possible only through this direct fixture.
     token = "frisket_pat_cross_org_fixture"
     with app.state.control_engine.begin() as cx:
         owner_id = cx.execute(
@@ -411,7 +411,9 @@ def test_out_of_scope_pat_is_unauthorized_before_team_route_dispatch(
     ) == {"invites": []}
 
 
-def test_dual_member_cannot_use_org_two_pat_on_org_one_routes(tmp_path: Path) -> None:
+def test_dual_member_cannot_use_organization_two_pat_on_organization_one_routes(
+    tmp_path: Path,
+) -> None:
     app = create_team_app(
         _config(tmp_path), send_magic_email=_mail, oidc_exchange=_oidc
     )
@@ -607,7 +609,7 @@ def test_membership_admin_preserves_last_owner(tmp_path: Path) -> None:
     with app.state.control_engine.connect() as cx:
         rows = dict(cx.exec_driver_sql("SELECT email, id FROM users").all())
     owner_id, member_id = rows["owner@example.com"], rows["member@example.com"]
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
 
     def set_role(user_id: int, role: str) -> int:
         return owner.patch(
@@ -798,7 +800,7 @@ def test_outer_policy_refuses_an_unclassified_route() -> None:
         )
 
 
-def test_concurrent_cold_boot_converges_to_one_org(tmp_path: Path) -> None:
+def test_concurrent_cold_boot_converges_to_one_organization(tmp_path: Path) -> None:
     config = _config(tmp_path)
 
     def boot():
@@ -845,7 +847,7 @@ def test_team_and_queue_sqlite_bootstrap_share_one_process_lock(
     assert acquired[0] == acquired[1]
 
 
-def test_independent_process_boots_converge_to_one_org(tmp_path: Path) -> None:
+def test_independent_process_boots_converge_to_one_organization(tmp_path: Path) -> None:
     url = f"sqlite:///{tmp_path / 'process.db'}"
     code = (
         "import sys; from pathlib import Path; "

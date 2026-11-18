@@ -11,14 +11,14 @@ from frisket.execution.attempt import attempt_settlement
 from frisket.execution.price_book import (
     OperatorBorne,
     live_cost_fact,
-    quote_ocr,
+    estimate_ocr,
     settle,
 )
 from frisket.execution.promise_compiler import PricedCostBasis, UnpriceableCost
 
 
-def _quote(pages=1, engine="gemini/gemini-3.5-flash-lite"):
-    return quote_ocr(
+def _estimate(pages=1, engine="gemini/gemini-3.5-flash-lite"):
+    return estimate_ocr(
         target_id="remote-api:gemini",
         engine=engine,
         funding=OperatorBorne(),
@@ -27,8 +27,8 @@ def _quote(pages=1, engine="gemini/gemini-3.5-flash-lite"):
     )
 
 
-def test_vlm_quote_scales_with_pages_and_matches_dispatch_rate():
-    one, three = _quote(), _quote(3)
+def test_vlm_estimate_scales_with_pages_and_matches_dispatch_rate():
+    one, three = _estimate(), _estimate(3)
     assert isinstance(one, PricedCostBasis)
     assert isinstance(three, PricedCostBasis)
     assert one.bound == Decimal("0.0114688")
@@ -47,8 +47,8 @@ def test_vlm_quote_scales_with_pages_and_matches_dispatch_rate():
 
 
 def test_missing_pages_or_model_rates_remain_unknown():
-    assert isinstance(_quote(None), UnpriceableCost)
-    assert isinstance(_quote(engine="gemini/unpriced-model"), UnpriceableCost)
+    assert isinstance(_estimate(None), UnpriceableCost)
+    assert isinstance(_estimate(engine="gemini/unpriced-model"), UnpriceableCost)
 
 
 @pytest.mark.parametrize(
@@ -65,7 +65,7 @@ def test_missing_pages_or_model_rates_remain_unknown():
     ],
 )
 def test_vlm_settlement_uses_complete_actual_costs_not_estimate(costs, expected):
-    basis = {"kind": "priced", **asdict(_quote(2))}
+    basis = {"kind": "priced", **asdict(_estimate(2))}
     receipt = settle(
         cost_basis=basis,
         metered_units=[{"pages": 1}, {"pages": 1}],
@@ -93,7 +93,7 @@ def test_attempt_settlement_reads_recorded_provider_costs():
             [(1, "ours", 0.03), (2, "ours", 0.02), (3, "other", 10)],
         )
         kwargs = dict(
-            cost_basis={"kind": "priced", **asdict(_quote(2))},
+            cost_basis={"kind": "priced", **asdict(_estimate(2))},
             price_card_version=None,
             run_reclaimed=False,
             terminal_status="completed",

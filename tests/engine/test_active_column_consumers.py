@@ -5,7 +5,7 @@ import pytest
 from frisket.engine.executor.page_capture import (
     CapturePlan,
     _resolve_web_capture_page_inputs,
-    _web_capture_page_add_output_column,
+    _web_capture_page_add_generated_column,
 )
 from frisket.contracts.action import ActionError
 from frisket.engine.store.changes import start_change
@@ -83,7 +83,7 @@ def test_capture_distinguishes_live_hidden_from_undone_name(project, undone):
         max_bytes=1000,
         timeout_ms=1000,
         full_page=True,
-        output_column_type="file",
+        generated_column_type="file",
         primary_role="html",
         links_sheet_name="",
         output_names={"page": "page"},
@@ -92,12 +92,12 @@ def test_capture_distinguishes_live_hidden_from_undone_name(project, undone):
     resolved = _resolve_web_capture_page_inputs(project, "web.capture_page", plan)
     if undone:
         assert not isinstance(resolved, ActionError)
-        current = _web_capture_page_add_output_column(project, plan)
+        current = _web_capture_page_add_generated_column(project, plan)
         assert current != old
         assert project.get_column(old)["active"] == 0
     else:
         assert isinstance(resolved, ActionError)
         assert resolved.code == "output_column_exists"
         with pytest.raises(ValueError, match="reserved by a hidden column"):
-            _web_capture_page_add_output_column(project, plan)
+            _web_capture_page_add_generated_column(project, plan)
         assert project.get_column(old)["hidden"] == 1

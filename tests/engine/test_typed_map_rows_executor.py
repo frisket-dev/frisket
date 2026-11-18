@@ -280,7 +280,7 @@ def test_plan_resolves_semantic_refs_and_logical_output_names(
     }
 
 
-def test_expected_output_columns_refuses_a_target_created_after_preparation(
+def test_expected_generated_columns_refuses_a_target_created_after_preparation(
     project: tuple[Project, int, list[int]],
 ) -> None:
     store, sheet_id, row_ids = project
@@ -304,7 +304,7 @@ def test_expected_output_columns_refuses_a_target_created_after_preparation(
     assert error.value.code in {"output_target_changed", "output_column_exists"}
 
 
-def test_expected_output_columns_are_part_of_the_typed_request_identity(
+def test_expected_generated_columns_are_part_of_the_typed_request_identity(
     project: tuple[Project, int, list[int]],
 ) -> None:
     store, sheet_id, row_ids = project

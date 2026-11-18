@@ -82,8 +82,8 @@ def test_paid_cluster_stale_source_receipt_preserves_actual_cost(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project, sheet, source, execute = cluster_project
     router, adapter = _remote_embedding_router()
-    quote = execute(router=router, options={"method": "semantic"})
-    assert quote.status == "needs_confirmation", quote.model_dump()
+    estimate = execute(router=router, options={"method": "semantic"})
+    assert estimate.status == "needs_confirmation", estimate.model_dump()
 
     def change_source():
         replace_test_source_cells(
@@ -95,7 +95,7 @@ def test_paid_cluster_stale_source_receipt_preserves_actual_cost(
     result = execute(
         router=router,
         options={"method": "semantic"},
-        confirmation=quote.errors[0].details["promise_set_hash"],
+        confirmation=estimate.errors[0].details["promise_set_hash"],
     )
     assert result.status == "failed", result.model_dump()
     assert len(adapter.calls) == 1
@@ -125,9 +125,9 @@ def test_cluster_ambiguous_remote_attempt_has_durable_retry_fence(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project, sheet, source, execute = cluster_project
     router, adapter = _ambiguous_remote_embedding_router()
-    quote = execute(router=router, options={"method": "semantic"})
-    assert quote.status == "needs_confirmation"
-    confirmation = quote.errors[0].details["promise_set_hash"]
+    estimate = execute(router=router, options={"method": "semantic"})
+    assert estimate.status == "needs_confirmation"
+    confirmation = estimate.errors[0].details["promise_set_hash"]
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmation
     )

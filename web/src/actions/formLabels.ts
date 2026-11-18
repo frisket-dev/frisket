@@ -2,7 +2,7 @@ import type { ActionParam } from '../api/types';
 
 /** Labels shared by custom action forms and their exported presentation. */
 export const FORM_LABELS = {
-  outputColumns: 'Columns it creates',
+  generatedColumns: 'Columns it creates',
   outputDetails: 'Output details',
   citations: 'Citations',
   citationSources: 'Citation sources',
@@ -36,7 +36,7 @@ export function customFormParams(kind: string, params: readonly ActionParam[]): 
   };
   switch (kind) {
     case 'map.extract':
-      return [field('source'), field('engine'), field('fields', FORM_LABELS.outputColumns),
+      return [field('source'), field('engine'), field('fields', FORM_LABELS.generatedColumns),
         field('instruction'), field('include_confidence'),
         { name: 'citation_mode', label: FORM_LABELS.citations, choiceOptions: [
             { value: 'none', label: 'Off' }, { value: 'cite', label: 'Cite sources' },

@@ -28,7 +28,7 @@ def _seed_sheet(client: TestClient) -> tuple[str, int]:
     return pid, resp.json()["sheet_id"]
 
 
-def _seed_ai_column(client: TestClient, pid: str, sheet_id: int) -> int:
+def _seed_generated_column(client: TestClient, pid: str, sheet_id: int) -> int:
     project = client.app.state.workspace.get(pid)
     source_row_id = project.visible_row_ids(sheet_id)[0]
     col_id = project.add_column(sheet_id, "summary", ai_generated=True)
@@ -67,7 +67,7 @@ def _added_row_result(body: dict) -> tuple[int, int]:
 def test_add_row_undo_hides_row_and_redo_restores_it(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid, sheet_id = _seed_sheet(client)
-    ai_col_id = _seed_ai_column(client, pid, sheet_id)
+    ai_col_id = _seed_generated_column(client, pid, sheet_id)
 
     add = post_row_add_as_v1_action(client, pid, sheet_id, {"name": "Grace"})
     assert add.status_code == 200, add.text

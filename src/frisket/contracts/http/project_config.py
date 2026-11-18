@@ -149,7 +149,7 @@ class ProjectNetworkResponse(WireModel):
         alias="schemaVersion"
     )
     mode: Literal["inherit", "on", "off"]
-    # Materialized in every project bundle; None means the built-in org
+    # Materialized in every project bundle; None means the built-in organization
     # default of "on" remains in effect.
     org_default: Literal["on", "off"] | None
     effective: Literal["on", "off"]

@@ -7,7 +7,7 @@ import { usePdfBatchPreview } from '../../src/components/importWorkspace/pdfBatc
 afterEach(cleanup);
 
 const selection: PdfImportOcrSelection = { kind: 'engine_model', engine: 'remote-ocr', model: 'vision-v1' };
-const quote: PdfImportPreviewEstimate = {
+const previewEstimate: PdfImportPreviewEstimate = {
   ocr_action_params: { engine: 'remote-ocr', model: 'vision-v1' }, cached: false,
   estimate: { cost: 0.1, rows: 1, requires_confirmation: true, promise_set_hash: 'quoted-token' },
 };
@@ -37,7 +37,7 @@ it('executes only the quoted engine/model, draft, file, page and token', async (
   const requestSelection = view.estimate.mock.calls[0][4];
   expect(requestSelection).toEqual(selection);
   expect(requestSelection).not.toBe(selection);
-  await act(async () => { view.resolveEstimate(quote); await pending; });
+  await act(async () => { view.resolveEstimate(previewEstimate); await pending; });
   const consent = view.result.current.consent!;
   expect(consent.intent).toMatchObject({
     projectId: 'project-1', draftId: 'draft-1', fileId: 'file-7', page: 3, selection,
@@ -59,7 +59,7 @@ it.each(['selection', 'draft'] as const)('retires a deferred quote when its %s c
     ? snapshot({ ...selection, model: 'vision-v2' }) : snapshot(selection, 'draft-2') });
   expect(signal.aborted).toBe(true);
   expect(view.result.current.running).toBe(false);
-  await act(async () => { view.resolveEstimate(quote); await pending; });
+  await act(async () => { view.resolveEstimate(previewEstimate); await pending; });
   expect(view.result.current.consent).toBeNull();
   expect(view.result.current.running).toBe(false);
   expect(view.start).not.toHaveBeenCalled();
@@ -70,7 +70,7 @@ it('cannot confirm an obsolete quote after engine change or cancellation', async
   const view = setup();
   let pending!: Promise<void>;
   act(() => { pending = view.result.current.start('file-7', 1); });
-  await act(async () => { view.resolveEstimate(quote); await pending; });
+  await act(async () => { view.resolveEstimate(previewEstimate); await pending; });
   const consent = view.result.current.consent!;
   view.rerender({ draft: snapshot({ kind: 'engine', engine: 'rapidocr' }) });
   expect(view.result.current.consent).toBeNull();
@@ -84,7 +84,7 @@ it('aborts an executing preview on unmount and ignores its late completion', asy
   view.start.mockReturnValueOnce(new Promise<void>((resolve) => { release = resolve; }));
   let pending!: Promise<void>;
   act(() => { pending = view.result.current.start('file-7', 1); });
-  await act(async () => { view.resolveEstimate(quote); await pending; });
+  await act(async () => { view.resolveEstimate(previewEstimate); await pending; });
   const refresh = vi.fn();
   let executing!: Promise<void>;
   act(() => { executing = view.result.current.confirm(view.result.current.consent!, refresh); });

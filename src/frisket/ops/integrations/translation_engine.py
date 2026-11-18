@@ -226,7 +226,7 @@ class TranslationEngine:
         """
         from frisket.credentials import resolve_credential_for_use
         from frisket.ops.integrations.translate_common import (
-            hosted_translate_cost,
+            remote_translate_cost,
             normalize_language,
         )
 
@@ -322,7 +322,7 @@ class TranslationEngine:
 
             def observe(result):
                 results, char_count = result
-                actual_cost = hosted_translate_cost(engine, char_count)
+                actual_cost = remote_translate_cost(engine, char_count)
                 return PurchaseObservation(
                     result=results,
                     usage={"characters": char_count},
@@ -340,7 +340,7 @@ class TranslationEngine:
                         "target_language": target,
                     },
                     credential_source=credential.source,
-                    estimated_cost_usd=hosted_translate_cost(engine, len(text)),
+                    estimated_cost_usd=remote_translate_cost(engine, len(text)),
                     context=ctx,
                 ),
                 policy=policy_for_context(ctx),
@@ -356,9 +356,9 @@ class TranslationEngine:
             if detected_raw is None and source_code:
                 detected_raw = source
             # Real/estimated spend from the pinned per-character rate. When the
-            # rate is unconfigured hosted_translate_cost returns None -> record
+            # rate is unconfigured remote_translate_cost returns None -> record
             # the cost as UNKNOWN, never a fake 0.
-            cost = hosted_translate_cost(engine, char_count)
+            cost = remote_translate_cost(engine, char_count)
             provider = "deepl" if engine == "deepl" else "google"
             fact = ModelCallMeta.provider_call(
                 capability="translate",

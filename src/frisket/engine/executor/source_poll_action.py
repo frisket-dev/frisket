@@ -46,13 +46,16 @@ from frisket.engine.store.keyed_publication import (
 from frisket.engine.store.op_log import append_op, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
-from frisket.server.sources.rss import ensure_rss_poller, rss_poller_for_fetch_override
+from frisket.server.sources.rss import (
+    ensure_rss_feed_checker,
+    rss_feed_checker_for_fetch_override,
+)
 from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
     encode_cursor,
-    get_source_poller,
+    get_feed_checker,
 )
 
 logger = logging.getLogger("frisket.executor")
@@ -69,7 +72,7 @@ class _PollRefused(Exception):
         self.error = error
 
 
-class _SourcePoller:
+class _FeedChecker:
     def __init__(
         self,
         project: Project,
@@ -91,7 +94,7 @@ class _SourcePoller:
             raise RuntimeError("source polling capability may be called only once")
         self._called = True
         source = TypeAdapter(SourcePollSelector).validate_python(source)
-        ensure_rss_poller()
+        ensure_rss_feed_checker()
         resolved = _resolve_and_poll_source(
             self._project,
             self._action,
@@ -130,7 +133,7 @@ def run_typed_source_poll_action(
     envelope = _typed_params_envelope(bound)
 
     def resolve(project_: Project, params: Any) -> Any:
-        capability = _SourcePoller(
+        capability = _FeedChecker(
             project_, envelope, rss_fetcher, on_progress, should_cancel
         )
         try:
@@ -191,7 +194,7 @@ def _resolve_and_poll_source(
     should_cancel=None,
 ) -> dict[str, Any] | ActionError:
     """The source.poll pre-txn resolve (`plain_resolve_fn`): resolve/create the source,
-    select the poller, validate config, then run the whole-source `poller.poll(...)` network
+    select the feed checker, validate config, then run the whole-source `feed_checker.poll(...)` network
     fetch. Pre-poll validation failures (missing source, unsupported kind/config) return an
     ActionError so the core fails receiptless; a poll exception is CAPTURED into the resolved
     payload (poll_error) so the in-txn perform writes the persisted failed receipt + error
@@ -216,12 +219,12 @@ def _resolve_and_poll_source(
             field="params",
             details={"source_id": source_id},
         )
-    poller = rss_poller_for_fetch_override(
+    feed_checker = rss_feed_checker_for_fetch_override(
         source_kind,
         rss_fetcher,
-    ) or get_source_poller(source_kind)
-    if poller is None:
-        # The create path pre-checks the poller in _resolve_source_poll_source, so only an
+    ) or get_feed_checker(source_kind)
+    if feed_checker is None:
+        # The create path pre-checks the feed checker in _resolve_source_poll_source, so only an
         # existing source_id with an unsupported kind reaches here (nothing to roll back).
         return ActionError(
             code="unsupported_source_kind",
@@ -230,8 +233,8 @@ def _resolve_and_poll_source(
             field="params",
             details={"source_kind": source_kind},
         )
-    source_for_poller = _source_poll_source_dict(source_before)
-    config_error = poller.validate_config(source_for_poller)
+    source_for_feed_checker = _source_poll_source_dict(source_before)
+    config_error = feed_checker.validate_config(source_for_feed_checker)
     if config_error:
         if resolved.get("created"):
             SourceStore(project).delete_source(source_id)
@@ -247,9 +250,9 @@ def _resolve_and_poll_source(
     poll_result: SourcePollResult | None = None
     poll_error: str | None = None
     try:
-        candidate = poller.poll(
+        candidate = feed_checker.poll(
             SourcePollContext(
-                source=source_for_poller,
+                source=source_for_feed_checker,
                 cursor_before=cursor_before_text,
                 on_progress=on_progress,
                 should_cancel=should_cancel,
@@ -482,7 +485,7 @@ def _resolve_source_poll_source(
                 field="params",
             )
         return {"source": dict(source), "created": False}
-    if get_source_poller(selector.kind) is None:
+    if get_feed_checker(selector.kind) is None:
         return ActionError(
             code="unsupported_source_kind",
             message="Frisket cannot poll this feed type",

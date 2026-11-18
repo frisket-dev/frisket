@@ -18,8 +18,8 @@ from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.runner import validation
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     default_pricing_policy,
 )
 from frisket.engine.runner.validation import (
@@ -52,8 +52,8 @@ def _route_rows(project, run_id: int):
 class _OneMicroPolicy:
     policy_id = "test.changed-claims.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=1,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -183,7 +183,7 @@ def _validate(
 
 
 def _validate_gateway_claims(project, spec, **kwargs):
-    """Exercise gateway claims above explicit zero test preapproval."""
+    """Exercise gateway claims above explicit zero test allowance."""
     return _validate(
         project,
         spec,

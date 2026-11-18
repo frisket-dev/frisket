@@ -103,8 +103,8 @@ def test_native_hosted_selector_distinguishes_platform_and_byok_credentials(tmp_
         CommercialOffering,
         CommercialOfferingMatch,
         CommercialPresentation,
-        CommercialQuoteRounding,
-        CommercialQuoteTerms,
+        CommercialEstimateRounding,
+        CommercialEstimateTerms,
         CommercialSettlementTerms,
     )
     from frisket.execution.credential_use import CredentialUseContext
@@ -139,12 +139,12 @@ def test_native_hosted_selector_distinguishes_platform_and_byok_credentials(tmp_
                         capability="classify",
                         engine="openai-decisions",
                     ),
-                    quote=CommercialQuoteTerms(
+                    estimate=CommercialEstimateTerms(
                         pricing_key="decisions",
                         terms_version="v1",
                         unit_rate="0.000001",
                         quantity_unit="input_token",
-                        rounding=CommercialQuoteRounding(),
+                        rounding=CommercialEstimateRounding(),
                     ),
                     settlement=CommercialSettlementTerms(
                         meter_key="input_tokens",

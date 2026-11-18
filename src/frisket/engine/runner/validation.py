@@ -33,7 +33,7 @@ from frisket.engine.runner.confirmation_context import (
     RunnerScope,
     apply_rating,
     mint_confirmation_hash,
-    quoted_usd,
+    estimated_usd,
     rate_estimate,
     recipe_confirmation,
 )
@@ -53,8 +53,8 @@ from frisket.execution.claim_labels import (
 # Compatibility re-export for downstream users of this module.
 from frisket.engine.runner.confirmation_context import (  # noqa: F401
     KNOWN_DISPLAY_KEYS,
-    ConsentQuote,
-    ConsentQuoteRefused,
+    ConsentEstimate,
+    ConsentEstimateRefused,
 )
 from frisket.engine.runner.confirmation_echo import refuse_unless_exact_echo
 from frisket.engine.runner.network_policy import remote_capability_for_spec
@@ -273,7 +273,7 @@ def _confirmation_facts(
         **estimate,
         "requires_confirmation": not (
             getattr(recipe, "external_cost_is_known_zero", False)
-            and quoted_usd(estimate) == 0
+            and estimated_usd(estimate) == 0
         ),
         "remote_capability": remote_capability,
     }
@@ -628,7 +628,7 @@ class _ValidatedSpec:
     consent_basis: str = CONSENT_BASIS_CONFIRMED
     # Legacy actions persist the exact hash and quote shown by their 402 gate.
     unrouted_confirmation_hash: str | None = None
-    unrouted_confirmation_quote: dict[str, Any] | None = None
+    unrouted_confirmation_estimate: dict[str, Any] | None = None
     # A resume confirmation advances an existing chain, never a fresh resolution.
     resume_confirmation: ResumeClaimConfirmation | None = None
 
@@ -645,7 +645,7 @@ class TrustedConsentContext:
 
 
 @dataclass(frozen=True, slots=True)
-class TrustedConsentApproval:
+class TrustedConsentGrant:
     grant_basis: str
 
 
@@ -654,7 +654,7 @@ class TrustedConsentRefusal:
     reason: str
 
 
-TrustedConsentDecision = TrustedConsentApproval | TrustedConsentRefusal
+TrustedConsentDecision = TrustedConsentGrant | TrustedConsentRefusal
 TrustedConsentAuthorizer = Callable[[TrustedConsentContext], TrustedConsentDecision]
 
 
@@ -662,7 +662,7 @@ class TrustedConsentRefused(ValueError):
     """A server-owned derived grant did not cover the actual normal run."""
 
 
-def _bind_rated_quote(
+def _bind_rated_estimate(
     resolved: ResolvedExecution,
     estimate: Mapping[str, Any],
 ) -> ResolvedExecution:
@@ -671,9 +671,9 @@ def _bind_rated_quote(
     The quote must change the promise-set hash when tariffs change. Prefer a
     non-cost claim so settlement's provider cost basis remains untouched.
     """
-    quote = ConsentQuote.from_estimate(estimate)
+    consent_estimate = ConsentEstimate.from_estimate(estimate)
     quote_json = json.dumps(
-        quote.model_dump(mode="json"),
+        consent_estimate.model_dump(mode="json"),
         sort_keys=True,
         separators=(",", ":"),
         allow_nan=False,
@@ -1006,7 +1006,7 @@ def _estimate_run(
         if pricing_policy is None:
             raise TypeError("estimate_run requires a pricing_policy for routed work")
         rated = confirmation_estimate(recipe, spec, out, policy=pricing_policy)
-        bound_resolution = _bind_rated_quote(resolution, rated)
+        bound_resolution = _bind_rated_estimate(resolution, rated)
         uncovered = project_uncovered_user_claims(
             project,
             bound_resolution.promise_set,
@@ -1079,7 +1079,7 @@ def _estimate_run(
                 out,
                 policy=pricing_policy,
             )
-            bound_resolution = _bind_rated_quote(resolution, rated)
+            bound_resolution = _bind_rated_estimate(resolution, rated)
             uncovered = project_uncovered_user_claims(
                 project,
                 bound_resolution.promise_set,
@@ -1130,7 +1130,7 @@ def _estimate_run(
         }
         return _EstimateRunResult(
             out,
-            _bind_rated_quote(resolution, out)
+            _bind_rated_estimate(resolution, out)
             if isinstance(resolution, ResolvedExecution)
             else None,
         )
@@ -1150,7 +1150,7 @@ def _estimate_run(
     }
     return _EstimateRunResult(
         out,
-        _bind_rated_quote(resolution, out)
+        _bind_rated_estimate(resolution, out)
         if isinstance(resolution, ResolvedExecution)
         else None,
     )
@@ -1308,7 +1308,7 @@ def validate_spec(
     consent_required = False
     consent_basis = CONSENT_BASIS_CONFIRMED
     unrouted_confirmation_hash: str | None = None
-    unrouted_confirmation_quote: dict[str, Any] | None = None
+    unrouted_confirmation_estimate: dict[str, Any] | None = None
     resume_confirmation: ResumeClaimConfirmation | None = None
     if resume_run_id is None:
         outcome = resolve_for_action(
@@ -1384,12 +1384,12 @@ def validate_spec(
             if isinstance(trusted_decision, TrustedConsentRefusal):
                 raise TrustedConsentRefused(trusted_decision.reason)
             if trusted_decision is not None and not isinstance(
-                trusted_decision, TrustedConsentApproval
+                trusted_decision, TrustedConsentGrant
             ):
                 raise TypeError(
                     "trusted consent authorizer returned an invalid decision"
                 )
-            if isinstance(trusted_decision, TrustedConsentApproval):
+            if isinstance(trusted_decision, TrustedConsentGrant):
                 if not trusted_decision.grant_basis.strip():
                     raise ValueError("trusted consent grant basis must not be empty")
                 consent_required = True
@@ -1418,7 +1418,7 @@ def validate_spec(
                     echoed_hash=spec.get("consented_promise_set_hash"),
                     expected_hash=set_hash,
                     refuse=lambda: ClaimsGate(
-                        quoted_usd(est),
+                        estimated_usd(est),
                         gate_usd=float(consent_coverage.threshold_usd),
                         claims=claims_payload,
                         promise_set_hash=set_hash,
@@ -1453,14 +1453,16 @@ def validate_spec(
             gate_usd = float(consent_coverage.threshold_usd)
             est = confirmation_estimate(recipe, spec, est, policy=pricing_policy)
             # Gate on billed cost, not provider cost.
-            quoted = quoted_usd(est)
+            estimated = estimated_usd(est)
             requires_confirmation = not replay_strict_cannot_egress and (
-                quoted is None or quoted > gate_usd
+                estimated is None or estimated > gate_usd
             )
             if not replay_strict_cannot_egress and (
-                requires_confirmation or quoted != 0 or est.get("requires_confirmation")
+                requires_confirmation
+                or estimated != 0
+                or est.get("requires_confirmation")
             ):
-                # Preapproval and explicit confirmation bind the same exact quote.
+                # Allowance and explicit confirmation bind the same exact quote.
                 context = confirmation_context(
                     project,
                     recipe,
@@ -1474,7 +1476,7 @@ def validate_spec(
                     echoed_hash=spec.get("consented_promise_set_hash"),
                     expected_hash=context_hash,
                     refuse=lambda: ClaimsGate(
-                        quoted,
+                        estimated,
                         promise_set_hash=context_hash,
                         remote_claim=bool(est.get("requires_confirmation")),
                         gate_usd=gate_usd,
@@ -1491,7 +1493,9 @@ def validate_spec(
                         else CONSENT_BASIS_PREAPPROVED
                     )
                     # Persist the same projection that was hashed.
-                    unrouted_confirmation_quote = context.quote.model_dump(mode="json")
+                    unrouted_confirmation_estimate = context.quote.model_dump(
+                        mode="json"
+                    )
     elif explicit_resume_scope is not None:
         # Gate only the rows added by this backfill. Keep the estimate separate
         # from downstream accounting, and retain the resolution a consent binds.
@@ -1526,7 +1530,7 @@ def validate_spec(
                     echoed_hash=spec.get("consented_promise_set_hash"),
                     expected_hash=set_hash,
                     refuse=lambda: ClaimsGate(
-                        quoted_usd(backfill_est),
+                        estimated_usd(backfill_est),
                         gate_usd=float(consent_coverage.threshold_usd),
                         claims=claims_payload,
                         promise_set_hash=set_hash,
@@ -1543,14 +1547,14 @@ def validate_spec(
             backfill_est = confirmation_estimate(
                 recipe, spec, backfill_est, policy=pricing_policy
             )
-            backfill_quoted = quoted_usd(backfill_est)
+            backfill_estimated = estimated_usd(backfill_est)
             requires_confirmation = not replay_strict_cannot_egress and (
-                backfill_quoted is None
-                or backfill_quoted > float(consent_coverage.threshold_usd)
+                backfill_estimated is None
+                or backfill_estimated > float(consent_coverage.threshold_usd)
             )
             if not replay_strict_cannot_egress and (
                 requires_confirmation
-                or backfill_quoted != 0
+                or backfill_estimated != 0
                 or backfill_est.get("requires_confirmation")
             ):
                 context = confirmation_context(
@@ -1572,7 +1576,7 @@ def validate_spec(
                 if isinstance(spec.get("_frisket_queued_action_run"), Mapping):
                     if not queued_resume:
                         raise ClaimsGate(
-                            backfill_quoted,
+                            backfill_estimated,
                             gate_usd=float(consent_coverage.threshold_usd),
                             promise_set_hash=context_hash,
                             remote_claim=bool(
@@ -1586,7 +1590,7 @@ def validate_spec(
                         echoed_hash=spec.get("consented_promise_set_hash"),
                         expected_hash=context_hash,
                         refuse=lambda: ClaimsGate(
-                            backfill_quoted,
+                            backfill_estimated,
                             gate_usd=float(consent_coverage.threshold_usd),
                             promise_set_hash=context_hash,
                             remote_claim=bool(
@@ -1608,7 +1612,9 @@ def validate_spec(
                         else CONSENT_BASIS_PREAPPROVED
                     )
                     # Persist the same projection that was hashed.
-                    unrouted_confirmation_quote = context.quote.model_dump(mode="json")
+                    unrouted_confirmation_estimate = context.quote.model_dump(
+                        mode="json"
+                    )
 
     # Keep the refusal guard for paths that do not estimate. An unavailable
     # execution must be configured before it can offer meaningful consent.
@@ -1674,7 +1680,7 @@ def validate_spec(
         consent_required=consent_required,
         consent_basis=consent_basis,
         unrouted_confirmation_hash=unrouted_confirmation_hash,
-        unrouted_confirmation_quote=unrouted_confirmation_quote,
+        unrouted_confirmation_estimate=unrouted_confirmation_estimate,
         resume_confirmation=resume_confirmation,
     )
 
@@ -1783,7 +1789,7 @@ def persist_resolved_execution(
             actor=coverage.principal,
             grant_basis=validated.consent_basis,
             # Dispatch needs the rated projection to reconstruct the digest.
-            quote=validated.unrouted_confirmation_quote,
+            estimate=validated.unrouted_confirmation_estimate,
             txn=txn,
         )
         return

@@ -21,7 +21,7 @@ def register_enclosure_download_handler(
     *,
     workspace_root: str | Path,
     fetch: Callable[[str], tuple[bytes, str, str, str | None]] | None = None,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     on_downloaded: Callable[[str, int, int], None] | None = None,
 ) -> HandlerRegistration:
@@ -38,7 +38,7 @@ def register_enclosure_download_handler(
             project_id, project = open_payload_project(
                 payload,
                 workspace_root=root,
-                workspace_root_storage_org_id=workspace_root_storage_org_id,
+                workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 project_opener=project_opener,
             )
         try:

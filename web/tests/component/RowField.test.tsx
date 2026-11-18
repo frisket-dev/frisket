@@ -348,7 +348,7 @@ describe('row drawer field action rail', () => {
     expect(onEdit).not.toHaveBeenCalled();
   });
 
-  it('reveals copy + explain on hover for an AI column and opens the explain panel', () => {
+  it('reveals copy + explain on hover for a generated column and opens the explain panel', () => {
     const col = columnDef({ id: 'topic', name: 'topic', type: 'text', ai: aiMeta() });
     const provenance: Record<string, CellProvenance> = {
       topic: {
@@ -379,7 +379,7 @@ describe('row drawer field action rail', () => {
     const field = screen.getByTestId('row-field-topic');
 
     expect(within(field).getByTestId('cell-action-explain')).not.toBeVisible();
-    // an AI column offers explain, not the raw-column edit button
+    // a generated column offers explain, not the raw-column edit button
     fireEvent.mouseEnter(field);
     const explain = within(field).getByTestId('cell-action-explain');
     expect(explain).toHaveAttribute('aria-label', 'Explain topic cell');

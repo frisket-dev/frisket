@@ -528,21 +528,21 @@ def _commercial_pricing_hint(
     from the immutable offering and pinned into the cost basis at resolution.
     """
 
-    rate = Decimal(offering.quote.unit_rate)
+    rate = Decimal(offering.estimate.unit_rate)
     presentation = offering.presentation
     return {
-        "key": offering.quote.pricing_key,
+        "key": offering.estimate.pricing_key,
         "label": presentation.billing_label,
         "provider": target.operator,
-        "unit": offering.quote.quantity_unit,
+        "unit": offering.estimate.quantity_unit,
         "unit_price_usd": float(rate),
-        "unit_price_usd_string": offering.quote.unit_rate,
+        "unit_price_usd_string": offering.estimate.unit_rate,
         "env_var": None,
         "billable": True,
         "external_api": target.egress_class not in {"none", "operator_lan"},
         "cost_source": "pricing_data",
         "description": presentation.venue_label,
-        "terms_version": offering.quote.terms_version,
+        "terms_version": offering.estimate.terms_version,
         "charge_authority": offering.charge_authority,
         "venue_label": presentation.venue_label,
         "billing_label": presentation.billing_label,
@@ -752,7 +752,7 @@ def _project_execution_composition_engines(
 
 def _configured_llm_providers(
     project: Project | None,
-    org_provider_keys: Mapping[str, str] | None = None,
+    organization_provider_keys: Mapping[str, str] | None = None,
     *,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
@@ -760,15 +760,15 @@ def _configured_llm_providers(
     """LLM chat providers that have a usable key across the SAME sources
     execution resolves: the effective router (including app-injected keys),
     process env, the workspace AI-Providers file
-    (``resolve_effective_keys``), per-project keys, AND any team/org-injected
-    keys (``Workspace.org_provider_keys()``,
+    (``resolve_effective_keys``), per-project keys, AND any team/organization-injected
+    keys (``Workspace.organization_provider_keys()``,
     the SAME ``_provider_keys_resolver()`` call ``router_for`` uses at
     execution time), plus whether an ordinary explicit local endpoint exists.
     Env-only would miss keys configured through the product
     UI (server/workspace.py:router_for). The workspace root is the project
     bundle's parent in the local layout (``<root>/<pid>.frisket``); a
     non-flat edition degrades gracefully to env + project keys via the
-    guards. ``org_provider_keys`` is caller-supplied (threaded from the
+    guards. ``organization_provider_keys`` is caller-supplied (threaded from the
     route, server/routes/actions.py) rather than resolved here, since only
     the route has the ``Workspace`` in scope — this function stays
     ``Project``-only otherwise, matching every other call site (tests,
@@ -790,8 +790,8 @@ def _configured_llm_providers(
             )
         except Exception:
             pass
-    if org_provider_keys:
-        providers.update(k for k in org_provider_keys if k in keyed)
+    if organization_provider_keys:
+        providers.update(k for k in organization_provider_keys if k in keyed)
     if has_local_model_endpoint:
         providers.add("ollama")
     if project is None:
@@ -928,7 +928,7 @@ def _recipe_engines(
     action_kind: str,
     sidecar_capabilities: dict[str, Any],
     project: Project | None = None,
-    org_provider_keys: Mapping[str, str] | None = None,
+    organization_provider_keys: Mapping[str, str] | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
     credential_context: Any = None,
@@ -957,7 +957,7 @@ def _recipe_engines(
         classify_declarations = _table_decls(CLASSIFY_ENGINE_TABLE)
         llm_providers = _configured_llm_providers(
             project,
-            org_provider_keys,
+            organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
@@ -1146,7 +1146,7 @@ def _recipe_engines(
         # Match execution's effective provider-key overlay.
         llm_providers = _configured_llm_providers(
             project,
-            org_provider_keys,
+            organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
@@ -1262,7 +1262,7 @@ def _recipe_engines(
 
         configured_providers = _configured_llm_providers(
             project,
-            org_provider_keys,
+            organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
@@ -1462,7 +1462,7 @@ def _recipe_engines(
             raise RuntimeError("Indra OCR must use a pinned HF snapshot")
         ocr_llm_providers = _configured_llm_providers(
             project,
-            org_provider_keys,
+            organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
@@ -1660,7 +1660,7 @@ def _recipe_engines(
         )
         llm_providers = _configured_llm_providers(
             project,
-            org_provider_keys,
+            organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
         )
@@ -1850,7 +1850,7 @@ def _url_classification_launcher_hints() -> dict[str, dict[str, Any]]:
 def project_action_catalog_launcher_hints(
     sidecar_capabilities: dict[str, Any],
     project: Project | None = None,
-    org_provider_keys: Mapping[str, str] | None = None,
+    organization_provider_keys: Mapping[str, str] | None = None,
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
@@ -1937,7 +1937,7 @@ def project_action_catalog_launcher_hints(
             else action_kind,
             sidecar_capabilities,
             project=project,
-            org_provider_keys=org_provider_keys,
+            organization_provider_keys=organization_provider_keys,
             has_local_model_endpoint=has_local_model_endpoint,
             effective_router=effective_router,
             credential_context=execution_composition.credential_use_context
@@ -2021,7 +2021,7 @@ def project_action_catalog_launcher_hints(
 def action_catalog_payload_with_launcher_hints(
     sidecar_capabilities: dict[str, Any],
     project: Project | None = None,
-    org_provider_keys: Mapping[str, str] | None = None,
+    organization_provider_keys: Mapping[str, str] | None = None,
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
     effective_router: Any = None,
@@ -2031,7 +2031,7 @@ def action_catalog_payload_with_launcher_hints(
     launcher_hints = project_action_catalog_launcher_hints(
         sidecar_capabilities,
         project=project,
-        org_provider_keys=org_provider_keys,
+        organization_provider_keys=organization_provider_keys,
         execution_composition=execution_composition,
         has_local_model_endpoint=has_local_model_endpoint,
         effective_router=effective_router,
@@ -2157,7 +2157,7 @@ def project_action_catalog_payload_with_launcher_hints(
     project: Project,
     *,
     sidecar_capabilities: dict[str, Any],
-    org_provider_keys: Mapping[str, str] | None = None,
+    organization_provider_keys: Mapping[str, str] | None = None,
     connected_account_resolver_configured: bool = True,
     execution_composition: ExecutionComposition | None = None,
     has_local_model_endpoint: bool = False,
@@ -2167,7 +2167,7 @@ def project_action_catalog_payload_with_launcher_hints(
     payload = action_catalog_payload_with_launcher_hints(
         sidecar_capabilities,
         project=project,
-        org_provider_keys=org_provider_keys,
+        organization_provider_keys=organization_provider_keys,
         execution_composition=execution_composition,
         has_local_model_endpoint=has_local_model_endpoint,
         effective_router=effective_router,

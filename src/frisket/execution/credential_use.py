@@ -28,13 +28,13 @@ The three positions, kept apart on purpose:
 
 **Why the classes are not two.** Collapsing ``local``, ``project_key`` and
 ``org_byok`` into one ``operator_key`` class would make a BYOK consent
-uncheckable, which is the one consent it most needs to be. An org confirms
+uncheckable, which is the one consent it most needs to be. An organization confirms
 "billed to your organization's provider key" (``cost_posture='org_key'``); the
 deployment env also holds a ``DATALAB_API_KEY``; the selector reports ``local``
 because a process-env key is what resolved; the fence compares
 ``operator_key`` to ``operator_key`` and passes — every page is sent and billed
-on the OPERATOR'S shared key, and the user's actual claim ("my org's key pays,
-and my documents go out under my org's account") was never checked at all. So
+on the OPERATOR'S shared key, and the user's actual claim ("my organization's key pays,
+and my documents go out under my organization's account") was never checked at all. So
 each of the user's own credentials is now its own class, the BYOK consent
 accepts exactly the BYOK class, and the "any of my own keys" latitude survives
 where it was genuinely offered: the operator-borne posture, whose dialog says

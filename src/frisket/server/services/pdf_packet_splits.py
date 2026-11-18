@@ -136,8 +136,8 @@ class _PacketSession:
     analysis_revision: int = 0
     example_pages: tuple[int, ...] = ()
     sheet_scope: dict[str, Any] | None = None
-    ocr_quote: Any = None
-    sample_quote: Any = None
+    ocr_estimate: Any = None
+    sample_estimate: Any = None
     commit_result: dict[str, Any] | None = None
     commit_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
     admission_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -829,7 +829,7 @@ class PdfPacketSplitService:
                 preview_runs=self._preview_runs,
                 inventory_path=self._ocr_inventory(session, source),
             )
-            quoted = coordinator.estimate_sample(
+            estimated = coordinator.estimate_sample(
                 project_id=session.project_id,
                 sources=session.sources,
                 source_key=source.key,
@@ -839,19 +839,19 @@ class PdfPacketSplitService:
                 force_rescan=body.force_rescan,
                 request_context=request_context,
             )
-            target = quoted["target"]
-            token = quoted["plan_token"]
-            if quoted["pages"] == 0:
+            target = estimated["target"]
+            token = estimated["plan_token"]
+            if estimated["pages"] == 0:
                 cached = self._cached_sample_payload(session, target)
                 if cached is not None:
                     self._record_cached_sample(
                         session.id, params["engine"], {**cached, "page": page}
                     )
-            session.sample_quote = (
+            session.sample_estimate = (
                 token,
                 target,
                 page,
-                quoted,
+                estimated,
                 session.analysis_revision,
                 body.force_rescan,
             )
@@ -860,8 +860,8 @@ class PdfPacketSplitService:
                 "engine": params["engine"],
                 "scope": "sample",
                 "pages": [page],
-                "cached_pages": [page] if quoted["pages"] == 0 else [],
-                "estimate": quoted.get("estimate") if quoted["pages"] else None,
+                "cached_pages": [page] if estimated["pages"] == 0 else [],
+                "estimate": estimated.get("estimate") if estimated["pages"] else None,
             }
 
     def _cached_sample_payload(
@@ -940,7 +940,7 @@ class PdfPacketSplitService:
                             session.native_text[page] = session.native_pages[page][
                                 "text"
                             ]
-            session.ocr_quote = None
+            session.ocr_estimate = None
             session.analysis_revision += 1
         raise PdfPacketSplitRouteError(409, "document text changed; refresh and retry")
 
@@ -999,7 +999,7 @@ class PdfPacketSplitService:
                 preview_runs=self._preview_runs,
                 inventory_path=self._ocr_inventory(session),
             )
-            holder = coordinator.quote(
+            holder = coordinator.estimate(
                 project_id=project_id,
                 sources=session.sources,
                 revision=revision,
@@ -1019,7 +1019,7 @@ class PdfPacketSplitService:
                     raise PdfPacketSplitRouteError(
                         409, "packet analysis changed; refresh and retry"
                     )
-                session.ocr_quote = holder
+                session.ocr_estimate = holder
             return {
                 "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
                 "split_id": split_id,
@@ -1066,7 +1066,7 @@ class PdfPacketSplitService:
             )
             params = packet_ocr_params(body.ocr_selection.model_dump(mode="json"))
             self._refuse_running_ocr(session, params["engine"])
-            saved = session.sample_quote
+            saved = session.sample_estimate
             if (
                 saved is None
                 or saved[2] != page
@@ -1365,7 +1365,7 @@ class PdfPacketSplitService:
                     PdfPacketOcrCoordinator,
                 )
 
-                if session.ocr_quote is None or body.ocr_selection is None:
+                if session.ocr_estimate is None or body.ocr_selection is None:
                     raise PdfPacketSplitRouteError(409, "estimate OCR before import")
                 coordinator = PdfPacketOcrCoordinator(
                     self._workspace,
@@ -1374,7 +1374,7 @@ class PdfPacketSplitService:
                 )
                 try:
                     preparation = coordinator.approve(
-                        session.ocr_quote,
+                        session.ocr_estimate,
                         project_id=project_id,
                         sources=session.sources,
                         revision=session.analysis_revision,
@@ -1384,7 +1384,7 @@ class PdfPacketSplitService:
                     )
                 except ValueError as exc:
                     raise PdfPacketSplitRouteError(409, str(exc)) from exc
-                native_pages = session.ocr_quote.native_files
+                native_pages = session.ocr_estimate.native_files
             try:
                 committed = self._committer.start(
                     project_id,

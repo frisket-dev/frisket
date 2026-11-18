@@ -4,11 +4,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SavedView } from '../../src/api/open';
-import type { SavedViewsConfirmation } from '../../src/state/savedViewsStore';
+import type { View } from '../../src/api/open';
+import type { ViewsConfirmation } from '../../src/state/viewsStore';
 import { ViewsPanel } from '../../src/workspace/ViewsPanel';
 
-const view: SavedView = {
+const view: View = {
   id: 17,
   name: 'Open rows',
   sheet_id: 1,
@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 function FailureHarness({ saving = false }: { saving?: boolean }) {
-  const [confirmation, setConfirmation] = useState<SavedViewsConfirmation | null>(null);
+  const [confirmation, setConfirmation] = useState<ViewsConfirmation | null>(null);
   const [confirmationError, setConfirmationError] = useState<string | null>(null);
   return (
     <ViewsPanel

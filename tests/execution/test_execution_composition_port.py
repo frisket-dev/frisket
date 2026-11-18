@@ -21,7 +21,7 @@ from frisket.engine.executor.actions import (
     _default_map_runner_factory,
 )
 from frisket.engine.runner import validation
-from frisket.engine.runner.confirmation_context import quoted_usd
+from frisket.engine.runner.confirmation_context import estimated_usd
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.credential_use import CredentialOwner, CredentialUseContext
@@ -30,13 +30,13 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.price_book import ByokZero, PlatformMetered
-from frisket.execution.pricing_policy import QuoteFacts, RatedQuote
+from frisket.execution.pricing_policy import EstimateFacts, RatedEstimate
 from frisket.execution.provider import (
     CompositionFacts,
     ExecutionComposition,
@@ -57,7 +57,7 @@ def test_request_context_is_typed_detached_and_passed_by_identity(make_project) 
     context = ExecutionCompositionContext(
         storage_key=None,
         run_id=None,
-        trusted_job_org_id=ExecutionCompositionContext.direct().trusted_job_org_id,
+        trusted_job_organization_id=ExecutionCompositionContext.direct().trusted_job_organization_id,
         edition_snapshot=snapshot,
     )
     snapshot["funding"]["reservation"] = 99
@@ -239,7 +239,7 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
     )
     assert project.provider_model_keys() == {}
 
-    org_router = ModelRouter(
+    organization_router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "org-key"},
         key_sources={"openai": "org_byok"},
@@ -290,12 +290,12 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
                         capability="transcribe",
                         engine="openai/whisper-1",
                     ),
-                    quote=CommercialQuoteTerms(
+                    estimate=CommercialEstimateTerms(
                         pricing_key="test.synthetic.transcription.audio_minute",
                         terms_version="test.synthetic.terms.v1",
                         unit_rate="0.02",
                         quantity_unit="audio_minute",
-                        rounding=CommercialQuoteRounding("half_even", 6),
+                        rounding=CommercialEstimateRounding("half_even", 6),
                     ),
                     settlement=CommercialSettlementTerms(
                         meter_key="audio_seconds",
@@ -325,22 +325,22 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
     workspace._uses_open_execution_composition = False
     workspace._execution_composition_factory = factory
     direct_context = ExecutionCompositionContext.direct()
-    org_composition = workspace.execution_composition_for(
-        project, org_router, direct_context
+    organization_composition = workspace.execution_composition_for(
+        project, organization_router, direct_context
     )
     platform_composition = workspace.execution_composition_for(
         project, platform_router, direct_context
     )
-    assert calls == [org_router, platform_router]
-    assert org_composition is not platform_composition
+    assert calls == [organization_router, platform_router]
+    assert organization_composition is not platform_composition
 
     spec = transcription_spec(sheet_id, source="audio", engine="openai/whisper-1")
     recipe = transcription_program(spec)
-    org_resolution = resolve_for_action(
+    organization_resolution = resolve_for_action(
         project,
         spec,
         recipe,
-        composition=org_composition,
+        composition=organization_composition,
     )
     platform_resolution = resolve_for_action(
         project,
@@ -348,10 +348,10 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
         recipe,
         composition=platform_composition,
     )
-    assert isinstance(org_resolution, ResolvedExecution)
+    assert isinstance(organization_resolution, ResolvedExecution)
     assert isinstance(platform_resolution, ResolvedExecution)
-    assert not isinstance(org_resolution, Refusal)
-    assert org_resolution.resolution.facts.cost_posture == "org_key"
+    assert not isinstance(organization_resolution, Refusal)
+    assert organization_resolution.resolution.facts.cost_posture == "org_key"
     assert platform_resolution.resolution.facts.cost_posture == "platform_metered"
 
     class SyntheticOfferingPolicy:
@@ -359,9 +359,9 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
 
         policy_id = "test.synthetic-offering.v1"
 
-        def rate(self, facts: QuoteFacts) -> RatedQuote:
+        def rate(self, facts: EstimateFacts) -> RatedEstimate:
             offered = facts.pricing_key == "test.synthetic.transcription.audio_minute"
-            return RatedQuote(
+            return RatedEstimate(
                 billed_cost=(facts.provider_cost or 0) if offered else 0,
                 provider_cost=facts.provider_cost,
                 lane="published_sku" if offered else "byok",
@@ -370,10 +370,10 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
 
     policy = SyntheticOfferingPolicy()
 
-    org_estimate = validation.estimate_run(
+    organization_estimate = validation.estimate_run(
         project,
         spec,
-        composition=org_composition,
+        composition=organization_composition,
         program=recipe,
         pricing_policy=policy,
     )
@@ -384,24 +384,24 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
         program=recipe,
         pricing_policy=policy,
     )
-    assert quoted_usd(org_estimate) == 0
-    assert quoted_usd(platform_estimate) > 0
+    assert estimated_usd(organization_estimate) == 0
+    assert estimated_usd(platform_estimate) > 0
 
     # The authority is used by both fresh admission (with the prepared
     # binding) and resume admission (provider re-deref).  Both must hold the
     # very same provider that produced resolution, not rebuild from project S.
-    org_runner = _default_map_runner_factory(
+    organization_runner = _default_map_runner_factory(
         project,
-        org_router,
-        execution_composition=org_composition,
+        organization_router,
+        execution_composition=organization_composition,
     )
     platform_runner = _default_map_runner_factory(
         project,
         platform_router,
         execution_composition=platform_composition,
     )
-    assert org_runner.execution_composition is org_composition
-    assert org_runner.authority.composition is org_composition
+    assert organization_runner.execution_composition is organization_composition
+    assert organization_runner.authority.composition is organization_composition
     assert platform_runner.execution_composition is platform_composition
     assert platform_runner.authority.composition is platform_composition
 
@@ -419,9 +419,9 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
 
     custom_factory = _composition_bound_map_runner_factory(
         lambda _project, _router: CustomRunner(),
-        org_composition,
+        organization_composition,
     )
-    custom_runner = custom_factory(project, org_router)
-    assert custom_runner.execution_composition is org_composition
-    assert custom_runner.authority.composition is org_composition
+    custom_runner = custom_factory(project, organization_router)
+    assert custom_runner.execution_composition is organization_composition
+    assert custom_runner.authority.composition is organization_composition
     project.close()

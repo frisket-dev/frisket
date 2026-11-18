@@ -1135,25 +1135,25 @@ def test_datalab_to_markdown_engine_consults_project_keys_not_just_env(
     assert engines["datalab"]["available"] is True
 
 
-# --- Team/org-injected provider keys reach the catalog
+# --- Team/organization-injected provider keys reach the catalog
 
 
-def test_workspace_org_provider_keys_exposes_the_resolver_result(tmp_path):
+def test_workspace_organization_provider_keys_exposes_the_resolver_result(tmp_path):
     from frisket.server.workspace import Workspace
 
     ws_no_resolver = Workspace(tmp_path / "ws1")
-    assert ws_no_resolver.org_provider_keys() == {}
+    assert ws_no_resolver.organization_provider_keys() == {}
 
     ws_with_resolver = Workspace(
         tmp_path / "ws2", provider_keys_resolver=lambda: {"openai": "org-key"}
     )
-    assert ws_with_resolver.org_provider_keys() == {"openai": "org-key"}
+    assert ws_with_resolver.organization_provider_keys() == {"openai": "org-key"}
 
 
-def test_configured_llm_providers_consults_org_provider_keys(monkeypatch):
+def test_configured_llm_providers_consults_organization_provider_keys(monkeypatch):
     """The catalog's LLM-provider availability (map.translate's 'llm' engine,
     media.ocr's openai/gemini remote tier) must see a team-edition
-    org-injected key (Workspace.org_provider_keys(), the SAME resolver
+    organization-injected key (Workspace.organization_provider_keys(), the SAME resolver
     router_for() consults at run time) — not just env/project/workspace-file
     keys. Without this, a key that WORKS at run time reported 'unavailable'
     at catalog time."""
@@ -1162,15 +1162,17 @@ def test_configured_llm_providers_consults_org_provider_keys(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    providers = _configured_llm_providers(None, org_provider_keys=None)
+    providers = _configured_llm_providers(None, organization_provider_keys=None)
     assert "openai" not in providers
 
-    providers = _configured_llm_providers(None, org_provider_keys={"openai": "org-key"})
+    providers = _configured_llm_providers(
+        None, organization_provider_keys={"openai": "org-key"}
+    )
     assert "openai" in providers
 
     # Only recognized provider keys are unioned in (not arbitrary strings).
     providers = _configured_llm_providers(
-        None, org_provider_keys={"not_a_real_provider": "x"}
+        None, organization_provider_keys={"not_a_real_provider": "x"}
     )
     assert "not_a_real_provider" not in providers
 
@@ -1193,14 +1195,17 @@ def test_explicit_local_endpoint_enables_generic_llm_engines(monkeypatch):
     assert engines["llm"]["available"] is True
 
 
-def test_recipe_engines_ocr_llm_tier_consults_org_provider_keys(monkeypatch):
+def test_recipe_engines_ocr_llm_tier_consults_organization_provider_keys(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     engines = {
         e["id"]: e
         for e in _recipe_engines(
-            "media.ocr", {}, project=None, org_provider_keys={"openai": "org-key"}
+            "media.ocr",
+            {},
+            project=None,
+            organization_provider_keys={"openai": "org-key"},
         )
     }
     openai_engines = [
@@ -1210,7 +1215,9 @@ def test_recipe_engines_ocr_llm_tier_consults_org_provider_keys(monkeypatch):
     assert all(row["available"] for row in openai_engines)
 
 
-def test_recipe_engines_translate_llm_tier_consults_org_provider_keys(monkeypatch):
+def test_recipe_engines_translate_llm_tier_consults_organization_provider_keys(
+    monkeypatch,
+):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -1218,7 +1225,10 @@ def test_recipe_engines_translate_llm_tier_consults_org_provider_keys(monkeypatc
     engines = {
         e["id"]: e
         for e in _recipe_engines(
-            "map.translate", {}, project=None, org_provider_keys={"gemini": "org-key"}
+            "map.translate",
+            {},
+            project=None,
+            organization_provider_keys={"gemini": "org-key"},
         )
     }
     assert engines["llm"]["available"] is True
@@ -1314,7 +1324,7 @@ def test_classify_catalog_projects_pinned_local_classifier_setup(
     assert engines["jeff"]["error"] == "Install the pinned Jeff 0.8B model."
 
 
-def test_project_action_catalog_payload_threads_org_provider_keys(monkeypatch):
+def test_project_action_catalog_payload_threads_organization_provider_keys(monkeypatch):
     """End-to-end through the payload builder (server/routes/actions.py's
     call shape) — not just the inner _recipe_engines helper."""
     from frisket.server.action_catalog_hints import (
@@ -1333,7 +1343,7 @@ def test_project_action_catalog_payload_threads_org_provider_keys(monkeypatch):
     payload = project_action_catalog_payload_with_launcher_hints(
         _StubProject(),
         sidecar_capabilities={},
-        org_provider_keys={"openai": "org-key"},
+        organization_provider_keys={"openai": "org-key"},
     )
     ocr_entry = next(a for a in payload["actions"] if a["kind"] == "media.ocr")
     engines = {e["id"]: e for e in ocr_entry["ui_hints"]["engines"]}
@@ -1351,7 +1361,7 @@ async def test_ocr_dispatch_finishes_accepted_page_but_refuses_next_purchase(
     import asyncio
 
     from frisket.ops.base import OpContext
-    from frisket.ops.ocr_engines_hosted import ocr_datalab
+    from frisket.ops.ocr_engines_remote import ocr_datalab
 
     monkeypatch.setenv("DATALAB_API_KEY", "test-key")
     cancelled = False

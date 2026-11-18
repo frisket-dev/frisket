@@ -227,11 +227,11 @@ export function resolveRowCacheScope(input: {
   parentRowId?: string | null;
   filter?: GridFilterSpec | null;
   sort?: GridSortSpec | null;
-  lensRowIds?: number[] | null;
+  viewRowIds?: number[] | null;
   scopeRowIds?: number[] | null;
   selection?: SheetDataOptions['selection'];
 }): SheetDataOptions {
-  if (input.lensRowIds != null) return { rowIds: input.lensRowIds };
+  if (input.viewRowIds != null) return { rowIds: input.viewRowIds };
   if (input.selection) return { selection: input.selection };
   return {
     ...(input.scopeRowIds != null ? { scopeRowIds: input.scopeRowIds } : {}),

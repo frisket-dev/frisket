@@ -382,7 +382,7 @@
       "exclude": [
         "frisket.ops.integrations.translation_engine",
         "frisket.engine.executor.document_convert",
-        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.ocr_engines_remote",
         "frisket.ops.opendocrouter"
       ],
       "forbidden_members": [
@@ -470,7 +470,7 @@
         "frisket.engine.executor.geocode_capability",
         "frisket.engine.executor.census_capability",
         "frisket.sdk.ops.transcription.hosted",
-        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.ocr_engines_remote",
         "frisket.ops.opendocrouter",
         "frisket.ops.integrations.translation_engine"
       ],

@@ -12,14 +12,14 @@ vi.mock('../../src/api/open', async (importOriginal) => {
     getMe: vi.fn(),
     getRuntimeConfig: vi.fn(),
     updateProfile: vi.fn(),
-    updateLocalCostPreapproval: vi.fn(),
+    updateLocalAllowance: vi.fn(),
   };
 });
 
 import {
   getMe,
   getRuntimeConfig,
-  updateLocalCostPreapproval,
+  updateLocalAllowance,
   updateProfile,
 } from '../../src/api/open';
 import { PersonalProfileSettings } from '../../src/settings/PersonalSettings';
@@ -88,36 +88,36 @@ describe('personal profile pre-approval settings', () => {
     render(<PersonalProfileSettings identityMode={false} />);
     const save = await screen.findByRole('button', { name: /^save$/i });
     expect(save).toBeDisabled();
-    expect(updateLocalCostPreapproval).not.toHaveBeenCalled();
+    expect(updateLocalAllowance).not.toHaveBeenCalled();
 
     resolveRuntime(runtimeConfig({ cost_preapproval_usd: '0' }));
-    const amount = await screen.findByTestId('personal-cost-preapproval');
+    const amount = await screen.findByTestId('personal-allowance');
     await waitFor(() => expect(amount).toHaveValue(0));
     fireEvent.change(screen.getByTestId('personal-display-name'), { target: { value: 'Desk' } });
     fireEvent.click(save);
 
     await waitFor(() => expect(screen.getByText('Profile saved')).toBeInTheDocument());
-    expect(updateLocalCostPreapproval).not.toHaveBeenCalled();
+    expect(updateLocalAllowance).not.toHaveBeenCalled();
   });
 
   it('retains a saved local amount and does not resubmit it with a later name save', async () => {
     (getMe as Mock).mockResolvedValue(profile({ email: 'Local workspace', display_name: '' }));
     (getRuntimeConfig as Mock).mockResolvedValue(runtimeConfig({ cost_preapproval_usd: '0' }));
-    (updateLocalCostPreapproval as Mock).mockResolvedValue(
+    (updateLocalAllowance as Mock).mockResolvedValue(
       runtimeConfig({ cost_preapproval_usd: '3.25' }),
     );
 
     render(<PersonalProfileSettings identityMode={false} />);
-    const amount = await screen.findByTestId('personal-cost-preapproval');
+    const amount = await screen.findByTestId('personal-allowance');
     await waitFor(() => expect(amount).toHaveValue(0));
     fireEvent.change(amount, { target: { value: '3.25' } });
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
 
-    await waitFor(() => expect(updateLocalCostPreapproval).toHaveBeenCalledWith('3.25'));
+    await waitFor(() => expect(updateLocalAllowance).toHaveBeenCalledWith('3.25'));
     expect(amount).toHaveValue(3.25);
     fireEvent.change(screen.getByTestId('personal-display-name'), { target: { value: 'Desk' } });
     fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
     await waitFor(() => expect(screen.getByText('Profile saved')).toBeInTheDocument());
-    expect(updateLocalCostPreapproval).toHaveBeenCalledTimes(1);
+    expect(updateLocalAllowance).toHaveBeenCalledTimes(1);
   });
 });

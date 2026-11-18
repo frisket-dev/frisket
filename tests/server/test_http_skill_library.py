@@ -139,7 +139,9 @@ def test_skill_library_refuses_invalid_or_unsupported_packages_and_enforces_auth
     assert denied.post("/api/skills", json={"content": SKILL}).status_code == 403
 
 
-def test_team_library_factory_isolated_by_authorized_request_tenant(tmp_path) -> None:
+def test_team_library_factory_isolated_by_authorized_request_organization(
+    tmp_path,
+) -> None:
     app = FastAPI()
     resolved: list[str] = []
 
@@ -148,9 +150,9 @@ def test_team_library_factory_isolated_by_authorized_request_tenant(tmp_path) ->
             raise HTTPException(403, "organization administrator required")
 
     def library_for(request: Request) -> SkillLibrary:
-        org = request.headers["x-org"]
-        resolved.append(org)
-        return SkillLibrary(tmp_path / "organizations" / org)
+        organization = request.headers["x-org"]
+        resolved.append(organization)
+        return SkillLibrary(tmp_path / "organizations" / organization)
 
     register_skill_routes(app, library=library_for, require_manager=require_manager)
     client = TestClient(app)

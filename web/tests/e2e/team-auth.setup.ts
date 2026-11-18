@@ -1,4 +1,4 @@
-// Real single-org team admin session, seeded once per run before the
+// Real single-organization team admin session, seeded once per run before the
 // team-only specs (see scripts/e2e/e2e_team_seed.py for why: two of them,
 // admin-users and audit-log-viewer, navigate straight to /admin without
 // mocking /api/me themselves, so they need a real authenticated cookie

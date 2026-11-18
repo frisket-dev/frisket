@@ -109,7 +109,7 @@ describe('search preparation notice projection', () => {
       batches: [], indexing: { status: 'idle', job_id: null, error: null },
     });
     const workspace = vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({ pulls: [] });
-    const organization = vi.spyOn(openApi, 'orgListModelPulls').mockResolvedValue({ pulls: [] });
+    const organization = vi.spyOn(openApi, 'organizationListModelPulls').mockResolvedValue({ pulls: [] });
     renderHook(() => useSearchPreparationNotice('project-1', scope));
     await waitFor(() => expect(preparation).toHaveBeenCalled());
     expect(workspace).toHaveBeenCalledTimes(scope === 'workspace' ? 1 : 0);

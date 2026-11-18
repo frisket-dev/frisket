@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { SavedView } from '../api/types';
+import type { View } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useSelector } from '../bind/useSelector';
 import { routePath } from '../routes';
@@ -8,7 +8,7 @@ import { PanelError, PanelLoading } from './PanelPrimitives';
 import { useLoader } from '../hooks/useLoader';
 
 /** Project-wide views use paginated results; they never pretend to be one sheet. */
-export function ViewResults({ view, onClose }: { view: SavedView; onClose(): void }) {
+export function ViewResults({ view, onClose }: { view: View; onClose(): void }) {
   const { projectApi, projectData, chromePreferences: { projectId } } = useWorkspaceStores();
   const sheets = useSelector(projectData.store, (state) => state.sheets);
   const [offset, setOffset] = useState(0);

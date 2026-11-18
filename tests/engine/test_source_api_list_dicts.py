@@ -19,13 +19,13 @@ from frisket.engine.jobs import (
 from frisket.server.sources.api_list_dicts import (
     API_LIST_DICTS_KIND,
     ApiListDictsHttpResponse,
-    ApiListDictsPoller,
+    ApiListDictsFeedChecker,
 )
 from frisket.server.sources.runtime import (
     SourcePollContext,
-    get_source_poller,
-    register_source_poller,
-    unregister_source_poller,
+    get_feed_checker,
+    register_feed_checker,
+    unregister_feed_checker,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -52,15 +52,15 @@ class FakeHttpGet:
 
 
 @pytest.fixture
-def restore_api_poller() -> Iterator[None]:
-    previous = get_source_poller(API_LIST_DICTS_KIND)
+def restore_api_feed_checker() -> Iterator[None]:
+    previous = get_feed_checker(API_LIST_DICTS_KIND)
     try:
         yield
     finally:
         if previous is None:
-            unregister_source_poller(API_LIST_DICTS_KIND)
+            unregister_feed_checker(API_LIST_DICTS_KIND)
         else:
-            register_source_poller(previous, replace=True)
+            register_feed_checker(previous, replace=True)
 
 
 def _source_poll_action(
@@ -151,7 +151,7 @@ def _table_count(project: Project, table: str) -> int:
 
 def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
     make_project,
-    restore_api_poller: None,
+    restore_api_feed_checker: None,
 ) -> None:
     first_payload = {
         "results": [
@@ -199,8 +199,8 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
             _response_json(third_payload),
         ]
     )
-    register_source_poller(
-        ApiListDictsPoller(http_get=fake_http, now=lambda: FIXED_FETCHED_AT),
+    register_feed_checker(
+        ApiListDictsFeedChecker(http_get=fake_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
 
@@ -350,7 +350,7 @@ def test_api_list_dicts_source_poll_materializes_rows_dedupes_and_drifts(
 
 
 def test_api_list_dicts_skips_non_dict_items_with_warning() -> None:
-    poller = ApiListDictsPoller(
+    feed_checker = ApiListDictsFeedChecker(
         http_get=FakeHttpGet(
             [
                 _response_json(
@@ -367,7 +367,7 @@ def test_api_list_dicts_skips_non_dict_items_with_warning() -> None:
         now=lambda: FIXED_FETCHED_AT,
     )
 
-    result = poller.poll(
+    result = feed_checker.poll(
         SourcePollContext(
             source=_api_source({"updated_at_path": None}), cursor_before=None
         )
@@ -385,26 +385,26 @@ def test_api_list_dicts_invalid_identity_falls_back_with_warning() -> None:
         {"id": [], "name": "List"},
         {"id": {}, "name": "Object"},
     ]
-    poller = ApiListDictsPoller(
+    feed_checker = ApiListDictsFeedChecker(
         http_get=FakeHttpGet([_response_json({"results": fallback_records})]),
         now=lambda: FIXED_FETCHED_AT,
     )
 
     source = _api_source({"updated_at_path": None})
-    result = poller.poll(SourcePollContext(source=source, cursor_before=None))
+    result = feed_checker.poll(SourcePollContext(source=source, cursor_before=None))
 
     item_ids = [item.stable_item_id() for item in result.items]
     assert len(set(item_ids)) == 3
     assert all(isinstance(item_id, str) for item_id in item_ids)
     assert all(item_id.startswith("sha256:") for item_id in item_ids)
 
-    missing_id_poller = ApiListDictsPoller(
+    missing_id_feed_checker = ApiListDictsFeedChecker(
         http_get=FakeHttpGet(
             [_response_json({"results": [{"name": "Missing identity"}]})]
         ),
         now=lambda: FIXED_FETCHED_AT,
     )
-    missing_result = missing_id_poller.poll(
+    missing_result = missing_id_feed_checker.poll(
         SourcePollContext(source=source, cursor_before=None)
     )
 
@@ -418,7 +418,7 @@ def test_api_list_dicts_invalid_identity_falls_back_with_warning() -> None:
 
 def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     make_project,
-    restore_api_poller: None,
+    restore_api_feed_checker: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     append_sizes: list[int] = []
@@ -432,8 +432,8 @@ def test_api_list_dicts_solo_materializes_legacy_item_cap_plus_one(
     records = [
         {"id": f"case-{index:05d}", "name": f"Case {index}"} for index in range(10_001)
     ]
-    register_source_poller(
-        ApiListDictsPoller(
+    register_feed_checker(
+        ApiListDictsFeedChecker(
             http_get=FakeHttpGet([_response_json({"results": records})]),
             now=lambda: FIXED_FETCHED_AT,
         ),
@@ -482,12 +482,12 @@ def test_api_list_dicts_operator_can_raise_remote_response_byte_guard() -> None:
             "max_items": 1,
         }
     )
-    poller = ApiListDictsPoller(
+    feed_checker = ApiListDictsFeedChecker(
         http_get=FakeHttpGet([response]),
         now=lambda: FIXED_FETCHED_AT,
     )
 
-    result = poller.poll(SourcePollContext(source=source, cursor_before=None))
+    result = feed_checker.poll(SourcePollContext(source=source, cursor_before=None))
 
     assert len(result.items) == 1
     assert len(result.items[0].row["payload"]) == 5_000_000
@@ -497,7 +497,7 @@ def test_api_list_dicts_operator_can_raise_remote_response_byte_guard() -> None:
 
 def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
     make_project,
-    restore_api_poller: None,
+    restore_api_feed_checker: None,
 ) -> None:
     project = make_project("Invalid")
     invalid = run_action_spec(
@@ -525,8 +525,8 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
             )
         ]
     )
-    register_source_poller(
-        ApiListDictsPoller(http_get=capped_http, now=lambda: FIXED_FETCHED_AT),
+    register_feed_checker(
+        ApiListDictsFeedChecker(http_get=capped_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
     capped_project = make_project("Capped")
@@ -568,8 +568,8 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
     oversized_http = FakeHttpGet(
         [ApiListDictsHttpResponse(status_code=200, body=b'{"rows": []}xxxxx')]
     )
-    register_source_poller(
-        ApiListDictsPoller(http_get=oversized_http, now=lambda: FIXED_FETCHED_AT),
+    register_feed_checker(
+        ApiListDictsFeedChecker(http_get=oversized_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
     failed_project = make_project("Oversized")
@@ -600,7 +600,7 @@ def test_api_list_dicts_validation_root_array_caps_and_failure_receipts(
 def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     tmp_path: Path,
     make_project,
-    restore_api_poller: None,
+    restore_api_feed_checker: None,
 ) -> None:
     failing_http = FakeHttpGet(
         [
@@ -609,8 +609,8 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
             )
         ]
     )
-    register_source_poller(
-        ApiListDictsPoller(http_get=failing_http, now=lambda: FIXED_FETCHED_AT),
+    register_feed_checker(
+        ApiListDictsFeedChecker(http_get=failing_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
     failed_project = make_project("Failed")
@@ -645,8 +645,8 @@ def test_api_list_dicts_provider_failure_redacts_and_scheduled_dispatches(
     scheduled_http = FakeHttpGet(
         [_response_json({"results": [{"id": "sched-1", "name": "Scheduled"}]})]
     )
-    register_source_poller(
-        ApiListDictsPoller(http_get=scheduled_http, now=lambda: FIXED_FETCHED_AT),
+    register_feed_checker(
+        ApiListDictsFeedChecker(http_get=scheduled_http, now=lambda: FIXED_FETCHED_AT),
         replace=True,
     )
     workspace = tmp_path / "ws"

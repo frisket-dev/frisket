@@ -3,8 +3,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { PdfSplitSetup } from '../../src/components/pdfSplit/PdfSplitSetup';
 
-const api = vi.hoisted(() => ({ create: vi.fn(), remove: vi.fn(), get: vi.fn(), token: vi.fn(), quote: vi.fn(), sampleQuote: vi.fn(), sampleStart: vi.fn(), page: vi.fn().mockResolvedValue({ page: 1, preview_text: '' }) }));
-vi.mock('../../src/api/pdfPacketSplits', () => ({ createPdfPacketSplitFromSheet: api.create, getPdfPacketSheetScopeToken: api.token, deletePdfPacketSplit: api.remove, getPdfPacketSplit: api.get, getPdfPacketPage: api.page, estimatePdfPacketBatchOcr: api.quote, estimatePdfPacketOcr: api.sampleQuote, startPdfPacketOcr: api.sampleStart, pdfPacketThumbnailUrl: () => '' }));
+const api = vi.hoisted(() => ({ create: vi.fn(), remove: vi.fn(), get: vi.fn(), token: vi.fn(), estimate: vi.fn(), sampleEstimate: vi.fn(), sampleStart: vi.fn(), page: vi.fn().mockResolvedValue({ page: 1, preview_text: '' }) }));
+vi.mock('../../src/api/pdfPacketSplits', () => ({ createPdfPacketSplitFromSheet: api.create, getPdfPacketSheetScopeToken: api.token, deletePdfPacketSplit: api.remove, getPdfPacketSplit: api.get, getPdfPacketPage: api.page, estimatePdfPacketBatchOcr: api.estimate, estimatePdfPacketOcr: api.sampleEstimate, startPdfPacketOcr: api.sampleStart, pdfPacketThumbnailUrl: () => '' }));
 vi.mock('../../src/components/importWorkspace/pdfPacket/PdfPacketReview', () => ({ PdfPacketReview: ({ snapshot, onSnapshotChange, onReviewed }: { snapshot: Record<string, unknown>; onSnapshotChange(value: unknown): void; onReviewed(value: Record<string, number[]>): void }) => <div><button onClick={() => onSnapshotChange({ ...snapshot, analysis_revision: 10 })}>New revision</button><button onClick={() => onSnapshotChange({ ...snapshot, analysis_revision: 9 })}>Old revision</button><button onClick={() => onReviewed({ r: [1] })}>Apply review</button></div> }));
 vi.mock('../../src/components/CostGateModal', () => ({ CostGateModal: ({ onConfirm }: { onConfirm(): void }) => <button onClick={onConfirm}>Approve quoted OCR</button> }));
 vi.mock('../../src/engine-selector/SelectorField', () => ({ SelectorField: () => null }));
@@ -38,7 +38,7 @@ it('routes missing text through Check text and applies the explicit none policy'
 it('passes the exact approved quote hash with OCR policy and engine', async () => {
   api.create.mockResolvedValueOnce({ ...base, analysis_revision: 7, sources: [{ ...base.sources[0], text_category: 'missing' }] });
   api.remove.mockResolvedValue(undefined);
-  api.quote.mockResolvedValue({ pages: 3, estimate: { requires_confirmation: true, promise_set_hash: 'quoted-plan' } });
+  api.estimate.mockResolvedValue({ pages: 3, estimate: { requires_confirmation: true, promise_set_hash: 'quoted-plan' } });
   const apply = vi.fn().mockResolvedValue(undefined);
   const { fireEvent } = await import('@testing-library/react');
   render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 10, columns: [{ id: '2', name: 'media', type: 'file' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={apply} />);
@@ -52,14 +52,14 @@ it('passes the exact approved quote hash with OCR policy and engine', async () =
 it('binds a cached sample OCR page without a provider job', async () => {
   api.create.mockResolvedValueOnce({ ...base, sources: [{ ...base.sources[0], text_category: 'missing' }] });
   api.remove.mockResolvedValue(undefined);
-  api.sampleQuote.mockResolvedValue({ cached_pages: [1], estimate: null });
+  api.sampleEstimate.mockResolvedValue({ cached_pages: [1], estimate: null });
   api.sampleStart.mockResolvedValue({ status: 'cached', job_id: null, kind: 'ocr_sample', total: 0 });
   api.get.mockResolvedValue(base);
   const { fireEvent } = await import('@testing-library/react');
   render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 10, columns: [{ id: '2', name: 'media', type: 'file' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={async () => {}} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Check text →' }));
   fireEvent.click(screen.getByRole('button', { name: 'OCR preview' }));
-  await waitFor(() => expect(api.sampleQuote).toHaveBeenCalled());
+  await waitFor(() => expect(api.sampleEstimate).toHaveBeenCalled());
   await waitFor(() => expect(api.sampleStart).toHaveBeenCalledWith('p', 's', expect.objectContaining({ scope: 'sample', force_rescan: false }), expect.anything()));
 });
 it('keeps the sheet dialog mounted while reviewing boundaries', async () => {
@@ -83,7 +83,7 @@ it('bounds the visible exclusion list', async () => {
 it('finishes a sample even if OCR changes its source text category', async () => {
   api.create.mockResolvedValueOnce({ ...base, analysis_revision: 1, jobs: [], sources: [{ ...base.sources[0], text_category: 'missing' }] });
   api.remove.mockResolvedValue(undefined);
-  api.sampleQuote.mockResolvedValue({ cached_pages: [], estimate: { requires_confirmation: false } });
+  api.sampleEstimate.mockResolvedValue({ cached_pages: [], estimate: { requires_confirmation: false } });
   api.sampleStart.mockResolvedValue({ job_id: 'job-1' });
   api.get.mockResolvedValue({ ...base, analysis_revision: 2, jobs: [{ job_id: 'job-1', progress: { status: 'done', error: null } }] });
   const { fireEvent } = await import('@testing-library/react');
@@ -131,7 +131,7 @@ it('does not schedule OCR when pages have usable text and Check text is skipped'
   render(<PdfSplitSetup projectId="p" sheet={{ id: '1', name: 'Sheet', rowCount: 1, columns: [{ id: '2', name: 'media', type: 'file' }] }} selection={{ sheetId: '1', rowIds: [], rowIndexes: [] }} getSheetRows={vi.fn().mockResolvedValue({ rows: [] })} view={{}} onClose={() => {}} onApply={apply} />);
   fireEvent.click(await screen.findByRole('button', { name: 'Create 3 rows' }));
   await waitFor(() => expect(apply).toHaveBeenCalledWith(expect.objectContaining({ ocrPolicy: 'none', ocrConfirmation: null, starts: {} })));
-  expect(api.quote).not.toHaveBeenCalled();
+  expect(api.estimate).not.toHaveBeenCalled();
 });
 
 it('keeps a newer review revision when an older snapshot arrives', async () => {

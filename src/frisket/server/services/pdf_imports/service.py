@@ -52,9 +52,9 @@ from .storage import (
     SCHEMA_VERSION,
     now,
 )
-from frisket.server.services.pdf_import_ocr_approval import (
-    PDF_IMPORT_OCR_APPROVAL_SCHEMA,
-    PdfImportOcrApprovalError,
+from frisket.server.services.pdf_import_ocr_consent import (
+    PDF_IMPORT_OCR_CONSENT_SCHEMA,
+    PdfImportOcrConsentError,
     PdfImportOcrGrant,
 )
 
@@ -187,7 +187,7 @@ class PdfImportService:
         ]
         | None = None,
         quality_assessor: Callable[..., Sequence[Any]] | None = None,
-        batch_ocr_quoter: Callable[[str, Mapping[str, Any], Any], Mapping[str, Any]]
+        batch_ocr_estimator: Callable[[str, Mapping[str, Any], Any], Mapping[str, Any]]
         | None = None,
         semantic_setup_resolver: Callable[[str, Any], Mapping[str, Any]] | None = None,
         on_commit_ready: Callable[[str, str, str, int], None] | None = None,
@@ -198,7 +198,7 @@ class PdfImportService:
         self._preview_runs = preview_runs
         self._destination_matcher = destination_matcher
         self._quality_assessor = quality_assessor
-        self._batch_ocr_quoter = batch_ocr_quoter
+        self._batch_ocr_estimator = batch_ocr_estimator
         self._semantic_setup_resolver = semantic_setup_resolver
         self._on_commit_ready = on_commit_ready
         self._store.purge_expired()
@@ -1184,7 +1184,7 @@ class PdfImportService:
             binding = self._batch_ocr_binding(
                 header, inventory, action_params=action_params, ocr_policy=ocr_policy
             )
-            estimate, authorization = self._quote_batch_ocr(
+            estimate, authorization = self._estimate_batch_ocr(
                 project_id,
                 binding,
                 request_context=request_context,
@@ -1447,10 +1447,12 @@ class PdfImportService:
                             "batch OCR estimate no longer matches the selected PDFs",
                         )
                     if remote_work:
-                        current_estimate, current_authorization = self._quote_batch_ocr(
-                            project_id,
-                            current_binding,
-                            request_context=request_context,
+                        current_estimate, current_authorization = (
+                            self._estimate_batch_ocr(
+                                project_id,
+                                current_binding,
+                                request_context=request_context,
+                            )
                         )
                         if current_estimate != batch_ocr.get(
                             "estimate"
@@ -2348,7 +2350,7 @@ class PdfImportService:
             },
         }
 
-    def _quote_batch_ocr(
+    def _estimate_batch_ocr(
         self,
         project_id: str,
         binding: Mapping[str, Any],
@@ -2368,31 +2370,33 @@ class PdfImportService:
                 requires_confirmation=False,
             ).model_dump(mode="json", exclude_unset=True)
             return estimate, None
-        if self._batch_ocr_quoter is None:
+        if self._batch_ocr_estimator is None:
             raise PdfImportDraftError(503, "batch OCR estimate is unavailable")
         try:
-            quoted = dict(self._batch_ocr_quoter(project_id, binding, request_context))
-            estimate = ActionEstimate.model_validate(quoted["estimate"]).model_dump(
+            estimated = dict(
+                self._batch_ocr_estimator(project_id, binding, request_context)
+            )
+            estimate = ActionEstimate.model_validate(estimated["estimate"]).model_dump(
                 mode="json", exclude_unset=True
             )
-            grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+            grant = PdfImportOcrGrant.from_mapping(estimated["authorization"])
             authorization = grant.as_mapping()
-        except PdfImportOcrApprovalError as exc:
+        except PdfImportOcrConsentError as exc:
             raise PdfImportDraftError(409, str(exc)) from exc
         except (KeyError, TypeError, ValueError) as exc:
             raise PdfImportDraftError(503, "batch OCR estimate is invalid") from exc
         if (
-            authorization.get("schema_version") != PDF_IMPORT_OCR_APPROVAL_SCHEMA
+            authorization.get("schema_version") != PDF_IMPORT_OCR_CONSENT_SCHEMA
             or authorization.get("scope_hash") != binding["manifest_hash"]
             or not isinstance(authorization.get("actor"), str)
             or not authorization["actor"]
         ):
             raise PdfImportDraftError(503, "batch OCR estimate is invalid")
-        approval_hash = authorization.get("promise_set_hash")
-        if not isinstance(approval_hash, str) or len(approval_hash) != 64:
+        consent_hash = authorization.get("promise_set_hash")
+        if not isinstance(consent_hash, str) or len(consent_hash) != 64:
             raise PdfImportDraftError(503, "batch OCR estimate is invalid")
         if estimate.get("requires_confirmation"):
-            if estimate.get("promise_set_hash") != approval_hash:
+            if estimate.get("promise_set_hash") != consent_hash:
                 raise PdfImportDraftError(503, "batch OCR estimate is invalid")
             if estimate.get("billed_cost") is None:
                 raise PdfImportDraftError(

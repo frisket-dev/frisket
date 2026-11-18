@@ -176,10 +176,10 @@ describe('saved View asynchronous opening', () => {
     const pending = deferred<ReturnType<typeof view>[]>();
     vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
     let opening!: Promise<void>;
-    act(() => { opening = model().openSavedView(1); });
+    act(() => { opening = model().openView(1); });
     act(() => model().selectSheet('2'));
     await act(async () => { pending.resolve([view(1)]); await opening; });
-    expect(stores().gridView.store.get().activeSavedViewId).toBeNull();
+    expect(stores().gridView.store.get().activeViewId).toBeNull();
     expect(stores().gridView.store.get().applied.selection).toBeUndefined();
   });
   it('lets the newer same-sheet opening win when the older definition arrives last', async () => {
@@ -188,7 +188,7 @@ describe('saved View asynchronous opening', () => {
     const newer = deferred<ReturnType<typeof view>[]>();
     vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise).mockResolvedValue([view(1), view(2)]);
     let a!: Promise<void>; let b!: Promise<void>;
-    act(() => { a = model().openSavedView(1); b = model().openSavedView(2); });
+    act(() => { a = model().openView(1); b = model().openView(2); });
     await act(async () => { newer.resolve([view(2)]); await b; });
     expect(stores().gridView.store.get().applied.selection?.limit).toBe(2);
     await act(async () => { older.resolve([view(1)]); await a; });
@@ -199,7 +199,7 @@ describe('saved View asynchronous opening', () => {
     const pending = deferred<ReturnType<typeof view>[]>();
     vi.spyOn(stores().projectApi, 'listViews').mockReturnValueOnce(pending.promise);
     let opening!: Promise<void>;
-    act(() => { opening = model().openSavedView(1); model().mainViewModel.clearViewSelection(); });
+    act(() => { opening = model().openView(1); model().mainViewModel.clearViewSelection(); });
     await act(async () => { pending.resolve([view(1)]); await opening; });
     expect(stores().gridView.store.get().applied.selection).toBeUndefined();
   });

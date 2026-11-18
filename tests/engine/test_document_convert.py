@@ -422,7 +422,7 @@ def test_datalab_halts_without_credential_consent(project, monkeypatch):
     _stub_datalab(monkeypatch, convert_impl=convert_impl)
     value = _datalab_pdf(project)
     sheet, cid, row_id = _seed(project, value, coltype="file")
-    # Admit real org-BYOK terms; dispatch must not borrow the deployment key.
+    # Admit real organization-BYOK terms; dispatch must not borrow the deployment key.
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
     )

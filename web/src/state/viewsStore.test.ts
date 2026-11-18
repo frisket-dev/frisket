@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createSavedViewsStore, createSavedViewsState } from './savedViewsStore';
-import type { SavedView } from '../api/open';
+import { createViewsStore, createViewsState } from './viewsStore';
+import type { View } from '../api/open';
 
-const view = (id: number, name: string, sheetId = 1): SavedView => ({
+const view = (id: number, name: string, sheetId = 1): View => ({
   id,
   name,
   sheet_id: sheetId,
@@ -11,10 +11,10 @@ const view = (id: number, name: string, sheetId = 1): SavedView => ({
   op_id: null,
 });
 
-describe('createSavedViewsStore', () => {
+describe('createViewsStore', () => {
   it('starts in the sheet-neutral list state', () => {
-    const { store } = createSavedViewsStore();
-    expect(store.get()).toEqual(createSavedViewsState());
+    const { store } = createViewsStore();
+    expect(store.get()).toEqual(createViewsState());
   });
 
   it('has explicit list, create, and edit states; only the mutation owner can publish a save', () => {
@@ -30,7 +30,7 @@ describe('createSavedViewsStore', () => {
       beginEditorMutation,
       completeEditorMutation,
       consumePublication,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const existing = view(1, 'Open only');
 
     resetForSheet(1);
@@ -87,7 +87,7 @@ describe('createSavedViewsStore', () => {
       setViewName,
       beginEditorMutation,
       completeEditorMutation,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const sheetAResponse = view(1, 'Created on Sheet A', 1);
     const sheetBExisting = view(2, 'Sheet B existing', 2);
 
@@ -127,7 +127,7 @@ describe('createSavedViewsStore', () => {
       beginEditorMutation,
       completeEditorMutation,
       failEditorMutation,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const existing = view(1, 'Original');
 
     resetForSheet(1);
@@ -161,7 +161,7 @@ describe('createSavedViewsStore', () => {
 
   it('refuses duplicate editor submissions and preserves the editor after its current request fails', () => {
     const { store, resetForSheet, startCreating, setViewName, beginEditorMutation, failEditorMutation } =
-      createSavedViewsStore();
+      createViewsStore();
 
     resetForSheet(1);
     startCreating();
@@ -176,7 +176,7 @@ describe('createSavedViewsStore', () => {
   });
 
   it('resets editor and list state for the new sheet and accepts only the current load token', () => {
-    const { store, resetForSheet, beginViewsLoad, receiveViews, startEditingView } = createSavedViewsStore();
+    const { store, resetForSheet, beginViewsLoad, receiveViews, startEditingView } = createViewsStore();
     const sheetAView = view(1, 'Sheet A', 1);
     const sheetBView = view(2, 'Sheet B', 2);
     const freshSheetAView = view(3, 'Sheet A refreshed', 1);
@@ -213,7 +213,7 @@ describe('createSavedViewsStore', () => {
 
   it('keeps the Saved Views list sheet-scoped without owning active-grid attribution', () => {
     const { store, resetForSheet, beginViewsLoad, receiveViews, removeView } =
-      createSavedViewsStore();
+      createViewsStore();
     const sheetAView = view(1, 'Sheet A', 1);
     const replacement = view(2, 'Replacement', 1);
 
@@ -250,7 +250,7 @@ describe('createSavedViewsStore', () => {
       beginEditorMutation,
       completeEditorMutation,
       removeView,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const existing = view(1, 'Existing');
     const created = view(2, 'Created');
 
@@ -281,9 +281,9 @@ describe('createSavedViewsStore', () => {
       openDefinitionUpdate,
       beginConfirmationMutation,
       completeDefinitionUpdate,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const original = view(1, 'Open only');
-    const updated: SavedView = {
+    const updated: View = {
       ...view(1, 'Open only'),
       spec: { selection: { scope: { kind: 'sheet', sheet_id: 1 }, filters: [{ column_id: 1, condition: { eq: 'closed' } }], order: [{ column_id: 2, dir: 'asc' }], limit: null }, presentation: {} },
     };
@@ -317,7 +317,7 @@ describe('createSavedViewsStore', () => {
       beginConfirmationMutation,
       failConfirmationMutation,
       completeDeleteMutation,
-    } = createSavedViewsStore();
+    } = createViewsStore();
     const first = view(1, 'First');
     const second = view(2, 'Second');
 

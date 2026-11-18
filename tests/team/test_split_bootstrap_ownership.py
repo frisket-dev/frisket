@@ -2,7 +2,7 @@
 
 frisket.team.schema.metadata owns the identity and control-plane state
 needed to bootstrap a team instance independently: identities, membership
-and access, project registration, org credentials, and audit/diagnostic
+and access, project registration, organization credentials, and audit/diagnostic
 records. Funding, quota, settlement, and signup-admission policy are
 separate deployment concerns and must not be fused into those identity
 rows. An outer composition may attach such policy through separate
@@ -62,11 +62,11 @@ EXCLUDED_DEPLOYMENT_POLICY_TABLES = frozenset(
 
 # Columns that must be ABSENT from identity: they are deployment policy
 # (billing, funding, spend), not identity.
-ORGS_BILLING_POLICY_COLUMNS = frozenset(
+ORGANIZATIONS_BILLING_POLICY_COLUMNS = frozenset(
     {"credits_micro", "grace_micro", "quota_period", "quota_micro"}
 )
 PROJECTS_FUNDING_POLICY_COLUMNS = frozenset({"funding_account_id"})
-ORG_KEYS_SPEND_POLICY_COLUMNS = frozenset({"spend_cap_micro", "spent_micro"})
+ORGANIZATION_KEYS_SPEND_POLICY_COLUMNS = frozenset({"spend_cap_micro", "spent_micro"})
 
 # Columns that must be PRESENT in identity.
 USERS_OPEN_COLUMNS = frozenset(
@@ -80,7 +80,7 @@ USERS_OPEN_COLUMNS = frozenset(
         "created_at",
     }
 )
-ORGS_OPEN_COLUMNS = frozenset(
+ORGANIZATIONS_OPEN_COLUMNS = frozenset(
     {"id", "name", "display_name", "welcome_message", "support_contact"}
 )
 PROJECTS_OPEN_COLUMNS = frozenset(
@@ -95,7 +95,7 @@ PROJECTS_OPEN_COLUMNS = frozenset(
         "created_at",
     }
 )
-ORG_KEYS_OPEN_COLUMNS = frozenset(
+ORGANIZATION_KEYS_OPEN_COLUMNS = frozenset(
     {"id", "org_id", "provider", "encrypted", "hint", "created_at"}
 )
 
@@ -209,14 +209,14 @@ def test_identity_tables_shed_the_deployment_policy_columns() -> None:
         f" unexpected={sorted(users_cols - USERS_OPEN_COLUMNS)}"
     )
 
-    orgs_cols = set(identity_md.tables["orgs"].c.keys())
-    assert not (orgs_cols & ORGS_BILLING_POLICY_COLUMNS), (
+    organizations_cols = set(identity_md.tables["orgs"].c.keys())
+    assert not (organizations_cols & ORGANIZATIONS_BILLING_POLICY_COLUMNS), (
         "identity orgs still carries deployment-policy columns"
-        f" {sorted(orgs_cols & ORGS_BILLING_POLICY_COLUMNS)}"
+        f" {sorted(organizations_cols & ORGANIZATIONS_BILLING_POLICY_COLUMNS)}"
         " (shared deployment-policy split)"
     )
-    assert ORGS_OPEN_COLUMNS <= orgs_cols, (
-        f"identity orgs is missing open columns {sorted(ORGS_OPEN_COLUMNS - orgs_cols)}"
+    assert ORGANIZATIONS_OPEN_COLUMNS <= organizations_cols, (
+        f"identity orgs is missing open columns {sorted(ORGANIZATIONS_OPEN_COLUMNS - organizations_cols)}"
     )
 
     projects_cols = set(identity_md.tables["projects"].c.keys())
@@ -229,15 +229,15 @@ def test_identity_tables_shed_the_deployment_policy_columns() -> None:
         f" {sorted(PROJECTS_OPEN_COLUMNS - projects_cols)}"
     )
 
-    org_keys_cols = set(identity_md.tables["org_keys"].c.keys())
-    assert not (org_keys_cols & ORG_KEYS_SPEND_POLICY_COLUMNS), (
+    organization_keys_cols = set(identity_md.tables["org_keys"].c.keys())
+    assert not (organization_keys_cols & ORGANIZATION_KEYS_SPEND_POLICY_COLUMNS), (
         "identity org_keys still carries spend-policy columns"
-        f" {sorted(org_keys_cols & ORG_KEYS_SPEND_POLICY_COLUMNS)}"
+        f" {sorted(organization_keys_cols & ORGANIZATION_KEYS_SPEND_POLICY_COLUMNS)}"
         " (shared deployment-policy split)"
     )
-    assert ORG_KEYS_OPEN_COLUMNS <= org_keys_cols, (
+    assert ORGANIZATION_KEYS_OPEN_COLUMNS <= organization_keys_cols, (
         "identity org_keys is missing open columns"
-        f" {sorted(ORG_KEYS_OPEN_COLUMNS - org_keys_cols)}"
+        f" {sorted(ORGANIZATION_KEYS_OPEN_COLUMNS - organization_keys_cols)}"
     )
 
 
@@ -388,7 +388,7 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     verify.dispose()
 
 
-def test_v6_identity_schema_upgrades_user_preapproval_without_reset(
+def test_v6_identity_schema_upgrades_user_allowance_without_reset(
     tmp_path: Path,
 ) -> None:
     from frisket.team.bootstrap import init_identity_schema

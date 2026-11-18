@@ -45,7 +45,7 @@ class PdfTable:
     warnings: list[str] = field(default_factory=list)
 
 
-_RESERVED_OUTPUT_COLUMNS = frozenset(
+_RESERVED_GENERATED_COLUMNS = frozenset(
     {
         "source_row_id",
         "source_filename",
@@ -133,7 +133,7 @@ def _to_pdf_tables(result: Any) -> list[PdfTable]:
 
 def _normalize_table_header(values: list[str]) -> list[str]:
     names: list[str] = []
-    used = set(_RESERVED_OUTPUT_COLUMNS)
+    used = set(_RESERVED_GENERATED_COLUMNS)
     for index, value in enumerate(values, start=1):
         base = value.strip() or f"column_{index}"
         name = base

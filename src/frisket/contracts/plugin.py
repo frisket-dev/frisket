@@ -724,7 +724,7 @@ def load_plugin_manifest_file(path: Path) -> LoadedPluginManifest:
         reason = str(first_error.get("msg", "validation error"))
         detail = f"{location}: {reason}" if location else reason
         # A bad `writes` item gets its own code so install/plugin.load
-        # callers can distinguish "this plugin's declared output columns are
+        # callers can distinguish "this plugin's declared generated columns are
         # malformed" from the general manifest-shape catch-all.
         if "writes" in loc:
             code = "plugin_manifest_writes_invalid"

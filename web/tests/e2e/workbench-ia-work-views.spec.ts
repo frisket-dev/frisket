@@ -289,7 +289,7 @@ test('grid header: the funnel opens an inline filter row that filters live via t
   await page.getByTestId('inline-filter-clear').click();
   await expect(page.getByTestId('sheet-stats')).toContainText('4 rows');
 
-  // Friendly filters, advanced sort, and saved views stay reachable through
+  // Friendly filters, advanced sort, and views stay reachable through
   // the caret/sidebar and toolbar-overflow homes.
   await openFriendlyFilterSidebar(page, columns, 'status');
   await openToolbarOverflow(page);

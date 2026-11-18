@@ -308,7 +308,7 @@ class ActionPreviewRunService:
             )
             if isinstance(trusted_decision, validation.TrustedConsentRefusal):
                 raise validation.TrustedConsentRefused(trusted_decision.reason)
-            if not isinstance(trusted_decision, validation.TrustedConsentApproval):
+            if not isinstance(trusted_decision, validation.TrustedConsentGrant):
                 raise TypeError(
                     "trusted consent authorizer returned an invalid decision"
                 )
@@ -545,7 +545,7 @@ class ActionPreviewRunService:
         request_context: Any = None,
         on_finished: Callable[[], None] | None = None,
         comparison: dict[str, Any] | None = None,
-        quote_only: bool = False,
+        estimate_only: bool = False,
     ) -> ActionPreviewRunResponse:
         kind = action_id_from_request(body) if isinstance(body, dict) else None
         if not action_available_in_edition(kind, self._workspace.edition):
@@ -741,7 +741,7 @@ class ActionPreviewRunService:
         except CostGate as exc:
             from frisket.engine.executor.action_support import _claims_gate_details
 
-            if quote_only:
+            if estimate_only:
                 details = _claims_gate_details(exc)
                 if not isinstance(exc.estimate_details, dict) or not details.get(
                     "promise_set_hash"
@@ -754,7 +754,7 @@ class ActionPreviewRunService:
                             plan.action_kind,
                         ),
                     )
-                return _comparison_quote_response(
+                return _comparison_estimate_response(
                     {**exc.estimate_details, **details, "requires_confirmation": True}
                 )
             return _error_response(
@@ -798,7 +798,7 @@ class ActionPreviewRunService:
                 _preview_error("invalid_preview", str(exc), plan.action_kind),
             )
 
-        if quote_only:
+        if estimate_only:
             from frisket.engine.runner.confirmation_context import (
                 BILLED_COST_KEY,
                 POLICY_ID_KEY,
@@ -812,7 +812,7 @@ class ActionPreviewRunService:
                     estimate,
                     policy=runner.pricing_policy,
                 )
-            return _comparison_quote_response(
+            return _comparison_estimate_response(
                 {**estimate, "rows": sample_total, "requires_confirmation": False}
             )
 
@@ -1022,7 +1022,7 @@ class ActionPreviewRunService:
             comparison=comparison,
         )
 
-    def quote_compare_preview(
+    def estimate_compare_preview(
         self, project_id: str, body: dict[str, Any], *, request_context: Any = None
     ) -> ActionPreviewRunResponse:
         action = body.get("action") if isinstance(body, dict) else None
@@ -1043,7 +1043,7 @@ class ActionPreviewRunService:
             action,
             request_context=request_context,
             comparison=comparison,
-            quote_only=True,
+            estimate_only=True,
         )
 
     def evaluation_preview(self, project_id: str, preview_id: str) -> dict[str, Any]:
@@ -1186,7 +1186,7 @@ class ActionPreviewRunService:
             return None
 
 
-def _comparison_quote_response(estimate: dict[str, Any]) -> ActionPreviewRunResponse:
+def _comparison_estimate_response(estimate: dict[str, Any]) -> ActionPreviewRunResponse:
     from frisket.contracts.http.action_estimate_validation import ActionEstimate
 
     # Keep the same closed, rated money/claims schema as normal action estimates.
@@ -1195,14 +1195,14 @@ def _comparison_quote_response(estimate: dict[str, Any]) -> ActionPreviewRunResp
         for key, value in estimate.items()
         if key in ActionEstimate.model_fields
     }
-    quote = ActionEstimate.model_validate(fields).model_dump(
+    closed_estimate = ActionEstimate.model_validate(fields).model_dump(
         mode="json", exclude_unset=True
     )
     return ActionPreviewRunResponse(
         status_code=200,
         payload={
             "schema_version": "frisket.action_compare_quote.v1",
-            "estimate": quote,
+            "estimate": closed_estimate,
         },
     )
 
@@ -1309,18 +1309,18 @@ def _preview_column_payload(column: PreviewColumn) -> dict[str, Any]:
         "column_type": column.column_type,
         "format": column.format,
         "hidden": column.hidden,
-        "overwrites_column_id": column.overwrites_column_id,
+        "overwrites_column_id": column.replaces_column_id,
     }
 
 
 def _scratch_claims(project, plan: ScratchActionPreviewPlan):
     from frisket.contracts.http.action_estimate_validation import ActionEstimate
     from frisket.engine.runner.confirmation_context import rate_estimate
-    from frisket.engine.runner.validation import _bind_rated_quote
+    from frisket.engine.runner.validation import _bind_rated_estimate
     from frisket.execution.pricing_policy import default_pricing_policy
 
     estimate = rate_estimate(plan.estimate, policy=default_pricing_policy())
-    resolved = _bind_rated_quote(plan.resolved_execution, estimate)
+    resolved = _bind_rated_estimate(plan.resolved_execution, estimate)
     uncovered = project_uncovered_user_claims(
         project,
         resolved.promise_set,

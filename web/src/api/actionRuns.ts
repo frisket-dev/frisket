@@ -54,7 +54,7 @@ class ActionRunsApi {
   /** Context for runs started this session, so status reads can fill the UI
    * fields the backend endpoint does not carry. */
   private runMeta = new Map<string, RunContext>();
-  /** Last run spec by project/sheet/column for AI column drawers. */
+  /** Last run spec by project/sheet/column for generated column drawers. */
   private colRunInfo = new Map<string, ColumnRunInfo>();
   /** One execution key per in-memory proposal, stable across a 402 retry. */
   private proposalIdempotencyKeys = new WeakMap<ActionProposal, string>();
@@ -279,9 +279,9 @@ class ActionRunsApi {
       rowIds: actionExecutionRowIds(req) ?? null,
     });
     throwIfActionAborted(invocation.signal);
-    const outputColumnId = namedResult.ref?.column_id ?? namedResult.column_id;
-    if (typeof outputColumnId === 'number') {
-      this.rememberColumnRunInfo(invocation.projectId, String(outputColumnId), {
+    const generatedColumnId = namedResult.ref?.column_id ?? namedResult.column_id;
+    if (typeof generatedColumnId === 'number') {
+      this.rememberColumnRunInfo(invocation.projectId, String(generatedColumnId), {
         runId,
         actionName,
         prompt: String(extraction.params.instruction ?? ''),

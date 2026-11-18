@@ -103,7 +103,7 @@ def _payload(key: ProjectStorageKey, request_id: int) -> dict[str, Any]:
     }
 
 
-def test_runtime_factory_is_tenant_bound_for_same_slug_projects(
+def test_runtime_factory_is_organization_bound_for_same_slug_projects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

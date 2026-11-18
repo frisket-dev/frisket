@@ -9,7 +9,7 @@ import {
   getMe,
   getRuntimeConfig,
   updateRuntimeConfig,
-  updateLocalCostPreapproval,
+  updateLocalAllowance,
   signOut,
   updateProfile,
   type RuntimeConfig,
@@ -56,21 +56,21 @@ export function PersonalProfileSettings({
     [],
   );
   const [displayName, setDisplayName] = useState<string | null>(null);
-  const [costPreapproval, setCostPreapproval] = useState<string | null>(null);
+  const [allowance, setAllowance] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const runtime = useLoader<RuntimeConfig>(() => getRuntimeConfig(), []);
   const displayNameValue = displayName ?? me?.display_name ?? '';
-  const costPreapprovalValue = costPreapproval
+  const allowanceValue = allowance
     ?? (identityMode
       ? me?.cost_preapproval_usd ?? '2'
       : runtime.data?.cost_preapproval_usd ?? '2');
   const displayNameChanged = displayName !== null && displayName !== (me?.display_name ?? '');
-  const persistedCostPreapproval = identityMode
+  const persistedAllowance = identityMode
     ? me?.cost_preapproval_usd
     : runtime.data?.cost_preapproval_usd;
-  const costPreapprovalChanged = costPreapproval !== null
-    && costPreapproval !== (persistedCostPreapproval ?? '');
+  const allowanceChanged = allowance !== null
+    && allowance !== (persistedAllowance ?? '');
   const localRuntimeLoading = !identityMode && runtime.loading;
 
   const save = async (event: FormEvent) => {
@@ -85,12 +85,12 @@ export function PersonalProfileSettings({
       if (identityMode) {
         const patch = {
           ...(displayNameChanged ? { display_name: displayNameValue } : {}),
-          ...(costPreapprovalChanged ? { cost_preapproval_usd: costPreapprovalValue } : {}),
+          ...(allowanceChanged ? { cost_preapproval_usd: allowanceValue } : {}),
         };
         if (Object.keys(patch).length) updated = await updateProfile(patch);
       } else {
-        if (costPreapprovalChanged) {
-          runtime.setData(await updateLocalCostPreapproval(costPreapprovalValue));
+        if (allowanceChanged) {
+          runtime.setData(await updateLocalAllowance(allowanceValue));
         }
         updated = {
           email: me?.email ?? 'Local workspace',
@@ -102,7 +102,7 @@ export function PersonalProfileSettings({
         localStorage.setItem('frisket.personal_display_name', updated.display_name ?? '');
       }
       setDisplayName(null);
-      setCostPreapproval(null);
+      setAllowance(null);
       setNotice('Profile saved');
     } catch (caught) {
       setNotice(errorMessage(caught));
@@ -136,13 +136,13 @@ export function PersonalProfileSettings({
         <FormField label="Allowance per run (USD)" >
 
           <TextInput
-            data-testid="personal-cost-preapproval"
+            data-testid="personal-allowance"
             type="number"
             min="0"
             step="0.000001"
             inputMode="decimal"
-            value={costPreapprovalValue}
-            onChange={(event) => setCostPreapproval(event.currentTarget.value)}
+            value={allowanceValue}
+            onChange={(event) => setAllowance(event.currentTarget.value)}
           />
           <small className="form-hint">
             Frisket always shows an estimate. Runs at or below this amount can use

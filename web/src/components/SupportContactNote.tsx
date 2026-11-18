@@ -1,7 +1,7 @@
 import './ApplicationGuidance.css';
 /**
  * Operator support-contact slot for error surfaces. The `support_contact` field
- * itself is owned by the org schema (display_name, welcome_message,
+ * itself is owned by the organization schema (display_name, welcome_message,
  * support_contact — hosted/schema.py). This component is only the SLOT: it
  * reads whatever a caller passes optionally and renders nothing until that
  * value exists. No schema, fetch, or global store is introduced here.

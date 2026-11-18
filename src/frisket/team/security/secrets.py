@@ -1,4 +1,4 @@
-"""Envelope encryption for secrets at rest (org-supplied BYO API keys,
+"""Envelope encryption for secrets at rest (organization-supplied BYO API keys,
 project-scoped provider keys, plugin env vars). This open-core module contains
 no tenant or billing policy.
 

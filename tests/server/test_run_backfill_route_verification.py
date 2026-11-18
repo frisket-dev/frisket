@@ -52,8 +52,8 @@ from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     install_pricing_policy,
 )
 from frisket.server.app import create_app
@@ -61,12 +61,12 @@ from http_test_helpers import drain_queue, run_worker_until_job_terminal
 
 
 class _AboveLimitPolicy:
-    """Keep consent-path coverage above the default preapproval threshold."""
+    """Keep consent-path coverage above the default allowance threshold."""
 
     policy_id = "test.backfill-route.above-limit.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=2_000_001,
             provider_cost=facts.provider_cost,
             lane="cost_plus",

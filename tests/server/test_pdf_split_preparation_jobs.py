@@ -67,13 +67,13 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
     class Destination(PdfPacketDestination):
         sheet_id: int | None = None
 
-    quote = adapter.quote(targets=[read], plan_token="reviewed-plan")
-    adapter.approve(quote, confirmation=quote["estimate"]["promise_set_hash"])
+    estimate = adapter.estimate(targets=[read], plan_token="reviewed-plan")
+    adapter.approve(estimate, confirmation=estimate["estimate"]["promise_set_hash"])
     facts = {
         "kind": "pdf_split_source_pages",
         "plan_token": "reviewed-plan",
         "ocr_action_params": dict(read.ocr_action_params),
-        "ocr_authorization": quote["authorization"],
+        "ocr_authorization": estimate["authorization"],
         "semantic_search": True,
         "semantic_setup_confirmation": "reviewed-semantic-download",
     }

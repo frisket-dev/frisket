@@ -82,7 +82,7 @@ PNG_1X1 = (
 )
 
 
-def _pin_zero_preapproval(client: TestClient) -> None:
+def _pin_zero_allowance(client: TestClient) -> None:
     workspace = client.app.state.workspace
 
     def executor_deps(project_id: str, _request: Any) -> ExecutorDeps:
@@ -104,7 +104,7 @@ def _post_after_exact_confirmation(
 ):
     """Exercise the real HTTP 402 -> exact-token retry protocol."""
 
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     gated = client.post(path, params=params, json=action)
     assert gated.status_code == 402, gated.text
     gated_result = ActionResult.model_validate(gated.json())
@@ -200,9 +200,9 @@ def test_ytdlp_download_wire_kind_uses_queued_placement(tmp_path) -> None:
         "output_names": {"video": "media"},
         "idempotency_key": "ytdlp-download@queued-placement",
     }
-    # Local yt-dlp is operator-borne work: even zero preapproval must queue
+    # Local yt-dlp is operator-borne work: even zero allowance must queue
     # the first request without a purchase/confirmation retry.
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     response = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
         json=action_body,
@@ -472,7 +472,7 @@ def test_v1_queued_llm_ner_uses_shared_cost_confirmation(
     tmp_path,
 ) -> None:
     client = TestClient(create_app(tmp_path / "ws", run_status_grace_seconds=3600.0))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id, sheet_id = _seed_ner_project(client)
     route_response = client.patch(
         f"/api/projects/{project_id}/model-routes",

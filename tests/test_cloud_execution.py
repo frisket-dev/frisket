@@ -21,11 +21,11 @@ from frisket.cloud_execution import (
     CloudMediaExecutionBinding,
     CloudMediaUpload,
     CloudPayerSubject,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
     CloudConfirmationRequired,
     HttpCloudExecutionTransport,
     cloud_execution_accounting,
-    cloud_quote_authority_for_row,
+    cloud_estimate_authority_for_row,
     cloud_llm_execution,
     cloud_llm_execution_scope,
     cloud_media_execution,
@@ -79,7 +79,7 @@ def test_cloud_attempt_carries_durable_id_and_exact_payer_without_a_secret():
     attempt = CloudExecutionAttempt(
         request_id="cloud-request-1",
         payer=_payer(),
-        quote_authority=CloudQuoteAuthority(maximum_charge_micro=25_000),
+        estimate_authority=CloudEstimateAuthority(maximum_charge_micro=25_000),
     )
 
     assert attempt.request_id == "cloud-request-1"
@@ -151,7 +151,7 @@ def test_cloud_ocr_usage_accepts_known_shape_or_explicitly_unknown_usage():
             CloudOCRUsage.model_validate(usage)
 
 
-def test_cloud_row_quote_authority_keeps_cohort_without_price_cap():
+def test_cloud_row_estimate_authority_keeps_cohort_without_price_cap():
     basis = PricedCostBasis(
         pricing_key="cloud.ocr",
         unit_rate="0.0025",
@@ -168,13 +168,13 @@ def test_cloud_row_quote_authority_keeps_cohort_without_price_cap():
         row_quote_quantities=((11, "2"), (12, "3")),
     )
 
-    authority = cloud_quote_authority_for_row(basis, row_id=11)
+    authority = cloud_estimate_authority_for_row(basis, row_id=11)
 
     assert authority.maximum_charge_micro is None
 
 
 def test_cloud_unknown_cost_consent_is_explicitly_unbounded():
-    authority = cloud_quote_authority_for_row(UnpriceableCost(), row_id=11)
+    authority = cloud_estimate_authority_for_row(UnpriceableCost(), row_id=11)
 
     assert authority.maximum_charge_micro is None
 
@@ -195,7 +195,7 @@ def test_cloud_priced_unknown_quantity_consent_is_explicitly_unbounded():
         charge_authority="frisket_cloud_receipt",
     )
 
-    authority = cloud_quote_authority_for_row(basis, row_id=11)
+    authority = cloud_estimate_authority_for_row(basis, row_id=11)
 
     assert authority.maximum_charge_micro is None
 
@@ -217,7 +217,7 @@ def test_cloud_fractional_unit_approval_does_not_become_a_price_cap():
         row_quote_quantities=((11, "10.5"),),
     )
 
-    authority = cloud_quote_authority_for_row(basis, row_id=11)
+    authority = cloud_estimate_authority_for_row(basis, row_id=11)
 
     assert authority.maximum_charge_micro is None
 
@@ -306,7 +306,7 @@ async def test_cloud_pdf_companion_http_poll_and_recovery_keep_one_purchase(tmp_
     attempt = CloudExecutionAttempt(
         "one-pdf-purchase",
         replace(_payer(), engine="pp-ocrv6", provider="frisket_models"),
-        CloudQuoteAuthority(5000),
+        CloudEstimateAuthority(5000),
     )
     result = await transport.execute_media(
         attempt,
@@ -347,7 +347,7 @@ def _store(tmp_path) -> CloudConnectionStore:
     return store
 
 
-def _quote(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
+def _estimate(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
     return CloudQuoteChallenge(
         error="needs_confirmation",
         confirmation="quote-confirmation",
@@ -364,17 +364,17 @@ def _quote(*, charge_micro: int | None = 25_000) -> CloudQuoteChallenge:
     )
 
 
-def _account_key_quote(
+def _account_key_estimate(
     *,
     provider_cost_micro: int | None,
 ) -> CloudQuoteChallenge:
-    quote = _quote(charge_micro=0).quote.model_copy(
+    estimate = _estimate(charge_micro=0).quote.model_copy(
         update={"lane": "account_key", "provider_cost_micro": provider_cost_micro}
     )
     return CloudQuoteChallenge(
         error="needs_confirmation",
         confirmation="account-key-confirmation",
-        quote=quote,
+        quote=estimate,
     )
 
 
@@ -388,7 +388,7 @@ def _llm_request() -> CloudLLMRequest:
 
 
 @pytest.mark.asyncio
-async def test_http_transport_echoes_only_an_exact_authorized_quote(tmp_path):
+async def test_http_transport_echoes_only_an_exact_authorized_estimate(tmp_path):
     seen: list[tuple[str | None, str, str]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -400,7 +400,7 @@ async def test_http_transport_echoes_only_an_exact_authorized_quote(tmp_path):
             )
         )
         if len(seen) == 1:
-            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+            return httpx.Response(409, json=_estimate().model_dump(mode="json"))
         return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
 
     transport = HttpCloudExecutionTransport(
@@ -409,7 +409,7 @@ async def test_http_transport_echoes_only_an_exact_authorized_quote(tmp_path):
         http_transport=httpx.MockTransport(handler),
     )
     attempt = CloudExecutionAttempt(
-        "durable-request-1", _payer(), CloudQuoteAuthority(25_000)
+        "durable-request-1", _payer(), CloudEstimateAuthority(25_000)
     )
 
     response = await transport.execute_llm(attempt, _llm_request())
@@ -422,14 +422,14 @@ async def test_http_transport_echoes_only_an_exact_authorized_quote(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
+async def test_http_transport_does_not_echo_estimate_above_local_ceiling(tmp_path):
     requests = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal requests
         requests += 1
         return httpx.Response(
-            409, json=_quote(charge_micro=25_001).model_dump(mode="json")
+            409, json=_estimate(charge_micro=25_001).model_dump(mode="json")
         )
 
     transport = HttpCloudExecutionTransport(
@@ -438,7 +438,7 @@ async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
         http_transport=httpx.MockTransport(handler),
     )
     attempt = CloudExecutionAttempt(
-        "durable-request-1", _payer(), CloudQuoteAuthority(25_000)
+        "durable-request-1", _payer(), CloudEstimateAuthority(25_000)
     )
 
     with pytest.raises(CloudConfirmationRequired):
@@ -446,22 +446,22 @@ async def test_http_transport_does_not_echo_quote_above_local_ceiling(tmp_path):
     assert requests == 1
 
 
-def test_account_key_quote_ceiling_binds_provider_cost_not_zero_cloud_charge():
-    authority = CloudQuoteAuthority(25_000)
+def test_account_key_estimate_ceiling_binds_provider_cost_not_zero_cloud_charge():
+    authority = CloudEstimateAuthority(25_000)
     attempt = CloudExecutionAttempt(
         "durable-request-1",
         replace(_payer(), lane="account_key"),
         authority,
     )
 
-    assert HttpCloudExecutionTransport._quote_is_authorized(
-        attempt, _account_key_quote(provider_cost_micro=25_000), authority
+    assert HttpCloudExecutionTransport._estimate_is_authorized(
+        attempt, _account_key_estimate(provider_cost_micro=25_000), authority
     )
-    assert not HttpCloudExecutionTransport._quote_is_authorized(
-        attempt, _account_key_quote(provider_cost_micro=25_001), authority
+    assert not HttpCloudExecutionTransport._estimate_is_authorized(
+        attempt, _account_key_estimate(provider_cost_micro=25_001), authority
     )
-    assert not HttpCloudExecutionTransport._quote_is_authorized(
-        attempt, _account_key_quote(provider_cost_micro=None), authority
+    assert not HttpCloudExecutionTransport._estimate_is_authorized(
+        attempt, _account_key_estimate(provider_cost_micro=None), authority
     )
 
 
@@ -937,7 +937,7 @@ async def _media_request_parts(request: httpx.Request):
 
 async def _execute_admission_test_media(transport, request_id="media-admission"):
     return await transport.execute_media(
-        CloudExecutionAttempt(request_id, _payer(), CloudQuoteAuthority(25_000)),
+        CloudExecutionAttempt(request_id, _payer(), CloudEstimateAuthority(25_000)),
         capability="ocr",
         engine=_payer().engine,
         options=CloudOCROptions(geometry=True),
@@ -1010,7 +1010,7 @@ async def test_parallel_media_admission_waits_for_capacity_without_losing_files(
 
 
 @pytest.mark.asyncio
-async def test_media_admission_retry_keeps_quote_confirmation_and_complete_body(
+async def test_media_admission_retry_keeps_estimate_confirmation_and_complete_body(
     tmp_path, monkeypatch
 ):
     real_sleep = asyncio.sleep
@@ -1032,7 +1032,7 @@ async def test_media_admission_retry_keeps_quote_confirmation_and_complete_body(
         if len(seen) in {1, 3}:
             return httpx.Response(429, json=_admission_refusal())
         if len(seen) == 2:
-            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+            return httpx.Response(409, json=_estimate().model_dump(mode="json"))
         return httpx.Response(200, json=_response().model_dump(mode="json"))
 
     transport = HttpCloudExecutionTransport(
@@ -1403,7 +1403,9 @@ async def test_cloud_terminal_failure_keeps_response_correlation_and_receipt(
 
 
 @pytest.mark.asyncio
-async def test_cloud_lost_confirmed_response_reuses_exact_quote_and_purchase(tmp_path):
+async def test_cloud_lost_confirmed_response_reuses_exact_estimate_and_purchase(
+    tmp_path,
+):
     seen = []
 
     def handler(request):
@@ -1415,7 +1417,7 @@ async def test_cloud_lost_confirmed_response_reuses_exact_quote_and_purchase(tmp
             )
         )
         if len(seen) == 1:
-            return httpx.Response(409, json=_quote().model_dump(mode="json"))
+            return httpx.Response(409, json=_estimate().model_dump(mode="json"))
         if len(seen) == 2:
             raise httpx.ReadTimeout("response lost after charge", request=request)
         return httpx.Response(200, json=_llm_response().model_dump(mode="json"))
@@ -1429,7 +1431,7 @@ async def test_cloud_lost_confirmed_response_reuses_exact_quote_and_purchase(tmp
         CloudExecutionAttempt(
             "durable-purchase",
             _payer(),
-            CloudQuoteAuthority(maximum_charge_micro=25_000),
+            CloudEstimateAuthority(maximum_charge_micro=25_000),
         ),
         _llm_request(),
     )
@@ -1596,7 +1598,7 @@ async def test_update_required_keeps_instruction_and_never_retries_cloud_purchas
         http_transport=httpx.MockTransport(handler),
     )
     attempt = CloudExecutionAttempt(
-        "update-required", _payer(), CloudQuoteAuthority(None)
+        "update-required", _payer(), CloudEstimateAuthority(None)
     )
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,

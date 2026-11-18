@@ -6,7 +6,7 @@ just used that same gemini key successfully.
 Root cause: UI-entered workspace keys (<ws>/.frisket/provider_keys.json) are resolved ONLY in the server process
 (server/workspace.py::router_for via provider_config.resolve_effective_keys).
 Queued action runs execute in the WORKER process (frisket.cli worker), whose
-handler (jobs/runs.py::handle) resolves keys only for the hosted org-BYOK
+handler (jobs/runs.py::handle) resolves keys only for the hosted organization-BYOK
 branch (org_id + control DB) and leaves ``keys=None`` in the local tier — so
 the run router is env-only and the per-row calls raise the missing-key
 remediation the user saw.
@@ -119,7 +119,7 @@ def test_local_run_search_uses_workspace_search_credentials(
     )
 
 
-def test_org_run_search_uses_only_its_search_credential_port(
+def test_organization_run_search_uses_only_its_search_credential_port(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("EXA_API_KEY", "worker-env-must-not-leak")
@@ -133,7 +133,7 @@ def test_org_run_search_uses_only_its_search_credential_port(
 
     keys = run_jobs.resolve_run_search_credentials(
         tmp_path,
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+        handler_context=JobHandlerContext.from_claimed_job(trusted_organization_id=7),
         ports=WorkerPorts(search_credential_port=SearchPort()),
         control_database_url="postgres://control",
         allow_local_credentials=False,
@@ -144,7 +144,9 @@ def test_org_run_search_uses_only_its_search_credential_port(
     assert (
         run_jobs.build_run_search_service(
             tmp_path,
-            handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+            handler_context=JobHandlerContext.from_claimed_job(
+                trusted_organization_id=7
+            ),
             ports=WorkerPorts(search_credential_port=SearchPort()),
             control_database_url="postgres://control",
             allow_local_credentials=False,
@@ -153,10 +155,10 @@ def test_org_run_search_uses_only_its_search_credential_port(
     )
 
 
-def test_org_run_search_without_explicit_port_fails_closed(tmp_path) -> None:
+def test_organization_run_search_without_explicit_port_fails_closed(tmp_path) -> None:
     keys = run_jobs.resolve_run_search_credentials(
         tmp_path,
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=7),
+        handler_context=JobHandlerContext.from_claimed_job(trusted_organization_id=7),
         ports=WorkerPorts(),
         control_database_url="postgres://control",
         allow_local_credentials=False,
@@ -165,7 +167,7 @@ def test_org_run_search_without_explicit_port_fails_closed(tmp_path) -> None:
     assert keys == {}
 
 
-def test_hosted_job_without_trusted_org_never_reads_local_search_keys(
+def test_hosted_job_without_trusted_organization_never_reads_local_search_keys(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("EXA_API_KEY", "worker-env-must-not-leak")
@@ -173,7 +175,9 @@ def test_hosted_job_without_trusted_org_never_reads_local_search_keys(
 
     keys = run_jobs.resolve_run_search_credentials(
         tmp_path,
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=None),
+        handler_context=JobHandlerContext.from_claimed_job(
+            trusted_organization_id=None
+        ),
         ports=WorkerPorts(),
         control_database_url="postgres://control",
         allow_local_credentials=False,
@@ -182,12 +186,12 @@ def test_hosted_job_without_trusted_org_never_reads_local_search_keys(
     assert keys == {}
 
 
-def test_org_without_control_db_never_claims_an_org_key_was_read(
+def test_organization_without_control_db_never_claims_an_organization_key_was_read(
     tmp_path, monkeypatch
 ) -> None:
     """The ``org_byok`` label is evidence of a control-plane key read.
 
-    A malformed hosted worker with an org id but no control DB can only see
+    A malformed hosted worker with an organization id but no control DB can only see
     operator environment infrastructure. Labeling that fallback ``org_byok``
     zero-rated a credential the organization neither supplied nor owned.
     """
@@ -196,7 +200,7 @@ def test_org_without_control_db_never_claims_an_org_key_was_read(
     keys, source = run_jobs.resolve_run_keys(
         tmp_path / "ws",
         org_id=7,
-        credentials=_OrgCredentialsPort(),
+        credentials=_OrganizationCredentialsPort(),
         control_database_url=None,
     )
 
@@ -320,24 +324,24 @@ def test_explicit_empty_endpoint_authority_clears_injected_endpoints(tmp_path) -
 
 
 # ---------------------------------------------------------------------------
-# Org-run local-server carve-out.
+# Organization-run local-server carve-out.
 #
 # Rationale: the local-server URL is operator DEPLOYMENT INFRASTRUCTURE — the
-# same category as FRISKET_MODELS_URL, which every org run already reads
+# same category as FRISKET_MODELS_URL, which every organization run already reads
 # straight from the process env regardless of use_env_keys — not a tenant
-# credential. Org runs build routers with use_env_keys=False specifically to
+# credential. Organization runs build routers with use_env_keys=False specifically to
 # keep the WORKER PROCESS's env (ANTHROPIC_API_KEY etc.) out of tenant runs;
 # that gate must keep doing exactly that for API keys while still letting the
-# compose-preset OLLAMA_URL reach the org run's router, since without this
+# compose-preset OLLAMA_URL reach the organization run's router, since without this
 # carve-out a team operator's `docker compose --profile ollama up` is dead
-# config: org runs never see it and the adapter silently targets
+# config: organization runs never see it and the adapter silently targets
 # localhost:11434 inside the worker's own container.
 # ---------------------------------------------------------------------------
 
 
-class _OrgCredentialsPort:
+class _OrganizationCredentialsPort:
     """Fake credentials port standing in for the hosted control-plane
-    lookup: returns whatever org BYOK rows the test wants, independent of
+    lookup: returns whatever organization BYOK rows the test wants, independent of
     the process env."""
 
     def __init__(self, provider_keys: dict[str, str] | None = None) -> None:
@@ -347,10 +351,12 @@ class _OrgCredentialsPort:
         return dict(self._provider_keys)
 
 
-def test_org_run_router_takes_local_server_url_from_env(tmp_path, monkeypatch) -> None:
-    """(a) An org run (use_env_keys=False) with env OLLAMA_URL set builds a
+def test_organization_run_router_takes_local_server_url_from_env(
+    tmp_path, monkeypatch
+) -> None:
+    """(a) An organization run (use_env_keys=False) with env OLLAMA_URL set builds a
     router whose ollama adapter targets that URL — the compose 'ollama'
-    profile's OLLAMA_URL must reach team org runs, not just local-tier ones."""
+    profile's OLLAMA_URL must reach team organization runs, not just local-tier ones."""
     monkeypatch.setenv("OLLAMA_URL", "http://ollama:11434")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     root = tmp_path / "ws"
@@ -359,7 +365,7 @@ def test_org_run_router_takes_local_server_url_from_env(tmp_path, monkeypatch) -
     keys, source = run_jobs.resolve_run_keys(
         root,
         org_id=7,
-        credentials=_OrgCredentialsPort(),
+        credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
     router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
@@ -375,10 +381,12 @@ def test_org_run_router_takes_local_server_url_from_env(tmp_path, monkeypatch) -
     assert router.local_endpoints[0].origin == "http://ollama:11434"
 
 
-def test_org_run_api_keys_stay_excluded_from_env(tmp_path, monkeypatch) -> None:
-    """(b) The same org run with env ANTHROPIC_API_KEY set does NOT pick up
+def test_organization_run_api_keys_stay_excluded_from_env(
+    tmp_path, monkeypatch
+) -> None:
+    """(b) The same organization run with env ANTHROPIC_API_KEY set does NOT pick up
     an anthropic adapter/key from env — the carve-out is local-server-URL
-    only; API-key gating for org runs is unchanged."""
+    only; API-key gating for organization runs is unchanged."""
     monkeypatch.setenv("OLLAMA_URL", "http://ollama:11434")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-worker-process-secret")
     root = tmp_path / "ws"
@@ -387,7 +395,7 @@ def test_org_run_api_keys_stay_excluded_from_env(tmp_path, monkeypatch) -> None:
     keys, source = run_jobs.resolve_run_keys(
         root,
         org_id=7,
-        credentials=_OrgCredentialsPort(),  # no anthropic BYOK row configured
+        credentials=_OrganizationCredentialsPort(),  # no anthropic BYOK row configured
         control_database_url="postgres://x",
     )
     router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
@@ -403,11 +411,11 @@ def test_org_run_api_keys_stay_excluded_from_env(tmp_path, monkeypatch) -> None:
     assert keys is None or "anthropic" not in keys
 
 
-def test_org_run_rejects_invalid_env_local_server_url_without_fallback(
+def test_organization_run_rejects_invalid_env_local_server_url_without_fallback(
     tmp_path, monkeypatch
 ) -> None:
     """(c) An env OLLAMA_URL that fails origin-only validation (path-bearing,
-    per normalize_ollama_url) is rejected for org runs without inventing a
+    per normalize_ollama_url) is rejected for organization runs without inventing a
     fallback endpoint."""
     monkeypatch.setenv("OLLAMA_URL", "http://evil.example/llm/path")
     root = tmp_path / "ws"
@@ -416,7 +424,7 @@ def test_org_run_rejects_invalid_env_local_server_url_without_fallback(
     keys, source = run_jobs.resolve_run_keys(
         root,
         org_id=7,
-        credentials=_OrgCredentialsPort(),
+        credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
     router = run_jobs._router_for(  # noqa: SLF001 - white-box seam
@@ -439,18 +447,18 @@ def _make_project(root: Path):
 
 
 # ---------------------------------------------------------------------------
-# Org env-bundle carve-out threading: org runs get the whole validated env
+# Organization env-bundle carve-out threading: organization runs get the whole validated env
 # bundle -- origin AND tokens -- not a lone URL.
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_run_local_endpoints_org_carries_tokens_atomically(
+def test_resolve_run_local_endpoints_organization_carries_tokens_atomically(
     tmp_path, monkeypatch
 ) -> None:
-    """An org run's resolved local_endpoint bundle carries the inference
+    """An organization run's resolved local_endpoint bundle carries the inference
     token, not just the origin. Threading only a lone URL string would
     mean a real split-host deployment's token never
-    reached org-run routers even though the origin did."""
+    reached organization-run routers even though the origin did."""
     monkeypatch.setenv("OLLAMA_URL", "https://llm.heavy.internal")
     monkeypatch.setenv("FRISKET_LLM_TOKEN", "org-inference-secret")
     root = tmp_path / "ws"
@@ -464,11 +472,11 @@ def test_resolve_run_local_endpoints_org_carries_tokens_atomically(
     assert endpoint.source == "env"
 
 
-def test_router_for_org_run_threads_the_resolved_local_endpoint(
+def test_router_for_organization_run_threads_the_resolved_local_endpoint(
     tmp_path, monkeypatch
 ) -> None:
     """End-to-end at the router seam: a router built through _router_for with
-    the resolved org bundle actually carries the token as its bearer."""
+    the resolved organization bundle actually carries the token as its bearer."""
     monkeypatch.setenv("OLLAMA_URL", "https://llm.heavy.internal")
     monkeypatch.setenv("FRISKET_LLM_TOKEN", "org-inference-secret")
     root = tmp_path / "ws"
@@ -477,7 +485,7 @@ def test_router_for_org_run_threads_the_resolved_local_endpoint(
     keys, source = run_jobs.resolve_run_keys(
         root,
         org_id=7,
-        credentials=_OrgCredentialsPort(),
+        credentials=_OrganizationCredentialsPort(),
         control_database_url="postgres://x",
     )
     endpoints = run_jobs.resolve_run_local_endpoints(root, org_id=7)
@@ -499,10 +507,10 @@ def test_router_for_org_run_threads_the_resolved_local_endpoint(
     assert adapter.api_key == "org-inference-secret"
 
 
-def test_resolve_run_local_endpoints_org_rejects_token_with_invalid_origin(
+def test_resolve_run_local_endpoints_organization_rejects_token_with_invalid_origin(
     tmp_path, monkeypatch
 ) -> None:
-    """The atomic-bundle rule applies to org runs too: a token configured
+    """The atomic-bundle rule applies to organization runs too: a token configured
     alongside an invalid (path-bearing) origin must not ride a fallback
     origin -- the whole env bundle is rejected, tokenless default origin."""
     monkeypatch.setenv("OLLAMA_URL", "http://evil.example/llm/path")
@@ -517,7 +525,7 @@ def test_resolve_run_local_endpoints_local_tier_uses_full_resolution(
 ) -> None:
     """Local-tier (org_id=None) runs resolve through the SAME atomic bundle
     logic Workspace.router_for uses (env, then file, then default) -- not
-    the org-only env carve-out."""
+    the organization-only env carve-out."""
     monkeypatch.delenv("OLLAMA_URL", raising=False)
     from frisket.server import provider_config
 

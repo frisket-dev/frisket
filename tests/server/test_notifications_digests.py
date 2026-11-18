@@ -437,10 +437,10 @@ def test_notification_digest_handler_uses_payload_workspace_root(
     tmp_path: Path,
 ) -> None:
     registered_root = tmp_path / "data" / "projects"
-    org_root = registered_root / "1"
-    org_root.mkdir(parents=True)
+    organization_root = registered_root / "1"
+    organization_root.mkdir(parents=True)
     project_id = "hosted-digest-root"
-    project = _create_project(org_root, project_id)
+    project = _create_project(organization_root, project_id)
     _slack, email = _channels(project)
     route = project.create_notification_route(
         name="Hosted digest",
@@ -468,7 +468,7 @@ def test_notification_digest_handler_uses_payload_workspace_root(
     assert (
         enqueue_due_notification_digests(
             queue,
-            workspace_root=org_root,
+            workspace_root=organization_root,
             project_id=project_id,
             now=datetime(2026, 6, 30, 9, 5, tzinfo=UTC),
         )
@@ -478,7 +478,7 @@ def test_notification_digest_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-digest-root")
     assert worker.run_once() is True
 
-    project = _open_project(org_root, project_id)
+    project = _open_project(organization_root, project_id)
     try:
         rows = project.db.execute("SELECT * FROM notification_digest_runs").fetchall()
         assert len(rows) == 1

@@ -61,7 +61,7 @@ def _bound(sheet_id: int, handler=custom, *, key="custom-backfill"):
 @pytest.fixture
 def seeded(tmp_path, monkeypatch):
     # This fixture exercises the explicit consent round-trip. Keep the local
-    # project from inheriting an operator's standing preapproval threshold.
+    # project from inheriting an operator's standing allowance threshold.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)

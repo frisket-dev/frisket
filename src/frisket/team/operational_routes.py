@@ -59,7 +59,7 @@ from frisket.team.admin_browser_service import (
     AdminMembershipNotFound,
     AdminMembershipService,
 )
-from frisket.team.control_plane import ORG_KEY_PROVIDERS
+from frisket.team.control_plane import ORGANIZATION_KEY_PROVIDERS
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.diagnostics import sanitize_text
 from frisket.team.observability_routes import sanitize_client_tree
@@ -73,7 +73,9 @@ from frisket.team.schema import (
 from frisket.team.secret_box import TeamSecretBox
 
 _ENV_NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]{0,127}$")
-_RESERVED_ORG_ENV_NAMES = frozenset({"FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"})
+_RESERVED_ORGANIZATION_ENV_NAMES = frozenset(
+    {"FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"}
+)
 
 
 def _admin_membership_http_error(exc: AdminMembershipError) -> HTTPException:
@@ -133,7 +135,7 @@ def register_operational_routes(
     ) -> dict[str, str]:
         actor = require_owner(request)
         provider, value = body.provider.lower().strip(), body.key
-        if provider not in ORG_KEY_PROVIDERS:
+        if provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         if not value.strip():
             raise HTTPException(400, "provider key must not be empty")
@@ -184,7 +186,7 @@ def register_operational_routes(
     )
     def delete_org_key(provider: str, request: Request) -> dict[str, bool]:
         actor = require_owner(request)
-        if provider not in ORG_KEY_PROVIDERS:
+        if provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         with locked_transaction(engine, lock_scope=("org-key", org_id, provider)) as cx:
             require_owner_in_transaction(cx, actor)
@@ -213,7 +215,7 @@ def register_operational_routes(
     ) -> dict[str, Any]:
         actor = require_owner(request)
         provider = body.provider.lower().strip()
-        if provider not in ORG_KEY_PROVIDERS:
+        if provider not in ORGANIZATION_KEY_PROVIDERS:
             raise HTTPException(400, "unsupported provider")
         candidate = body.key.strip()
         if candidate:
@@ -275,7 +277,7 @@ def register_operational_routes(
         name, value = body.name.strip().upper(), body.value
         if not _ENV_NAME_RE.fullmatch(name):
             raise HTTPException(400, "invalid environment variable name")
-        if name in _RESERVED_ORG_ENV_NAMES:
+        if name in _RESERVED_ORGANIZATION_ENV_NAMES:
             raise HTTPException(
                 400, "this environment variable is managed by Models gateway"
             )
@@ -327,7 +329,7 @@ def register_operational_routes(
         canonical = name.strip().upper()
         if not _ENV_NAME_RE.fullmatch(canonical):
             raise HTTPException(400, "invalid environment variable name")
-        if canonical in _RESERVED_ORG_ENV_NAMES:
+        if canonical in _RESERVED_ORGANIZATION_ENV_NAMES:
             raise HTTPException(
                 400, "this environment variable is managed by Models gateway"
             )
@@ -351,10 +353,10 @@ def register_operational_routes(
         return {"deleted": bool(result.rowcount)}
 
     # ---------- team local-model catalog + provisioning ----------
-    # The team tier's live local-model surface. Org surfaces resolve ONLY
+    # The team tier's live local-model surface. Organization surfaces resolve ONLY
     # the operator env bundle (`provider_config.resolve_env_local_endpoint`)
     # -- never a per-workspace file, which is local-tier UI infrastructure
-    # with no org analogue.
+    # with no organization analogue.
 
     @app.get(
         "/api/org/local-endpoints",
@@ -380,7 +382,7 @@ def register_operational_routes(
             ],
         }
 
-    def _org_enqueue_pull_and_respond(
+    def _organization_enqueue_pull_and_respond(
         *,
         canonical: str,
         endpoint_id: str | None,
@@ -552,7 +554,7 @@ def register_operational_routes(
                         },
                     )
                 payload_extra["unpinned_acknowledged"] = True
-        return _org_enqueue_pull_and_respond(
+        return _organization_enqueue_pull_and_respond(
             canonical=art.canonical,
             endpoint_id=endpoint_id,
             endpoint_origin=endpoint_origin,
@@ -591,7 +593,7 @@ def register_operational_routes(
                     "message": "the requested engine setup is not supported",
                 },
             )
-        return _org_enqueue_pull_and_respond(
+        return _organization_enqueue_pull_and_respond(
             canonical=body.setup_ref,
             endpoint_id=None,
             endpoint_origin=None,

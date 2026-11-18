@@ -856,7 +856,7 @@ def test_semantic_join_remote_embedder_gates_before_any_embed_call(
     assert run_count == 0
 
 
-def test_semantic_join_tiny_known_zero_quote_is_preapproved(tmp_path, monkeypatch):
+def test_semantic_join_tiny_known_zero_estimate_is_preapproved(tmp_path, monkeypatch):
     """A known billed $0.0 quote is at-or-below the standing threshold.
 
     Unknown-cost remote embeddings remain gated by the preceding test. This

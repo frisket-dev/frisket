@@ -16,7 +16,7 @@ from frisket.engine.store.staleness import compute_sync_states
 
 
 def build_lineage_dag(project: Any) -> dict[str, Any]:
-    """The Monitor Lineage DAG: sources -> sheets -> AI columns.
+    """The Monitor Lineage DAG: sources -> sheets -> generated columns.
 
     Generalizes ProjectDebugService.debug's lineage shape (sheets + columns +
     current-run provenance) with a sources tier (``sources.sheet_id``) and

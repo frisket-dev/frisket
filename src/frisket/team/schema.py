@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 
 # This metadata owns identity and control-plane state only: identities,
-# membership and access, project registration, org credentials, and
+# membership and access, project registration, organization credentials, and
 # audit/diagnostic records. Funding, quota, settlement, and admission policy
 # are separate deployment concerns, attached by an outer composition through
 # their own metadata keyed on these tables' stable identity IDs — never
@@ -84,12 +84,12 @@ orgs = sa.Table(
     sa.Column("name", sa.String, nullable=False),
     # Instance identity for third-party/self-hosted deployments. All
     # nullable — unset means "use the generic frisket default", so our own
-    # hosted org is not special-cased; it is just the first configured
+    # hosted organization is not special-cased; it is just the first configured
     # instance.
     sa.Column("display_name", sa.String),
     sa.Column("welcome_message", sa.Text),
     sa.Column("support_contact", sa.String),
-    # Org-wide network default for projects whose network mode is "inherit":
+    # Organization-wide network default for projects whose network mode is "inherit":
     # "on" | "off"; NULL means "on". Materialized into each project bundle
     # (Project.set_network_policy org_default) the same way `sensitive`
     # syncs, because the gate reads bundle-side.
@@ -180,7 +180,7 @@ pending_invites = sa.Table(
     metadata,
     sa.Column("email", sa.String, primary_key=True),
     sa.Column("org_id", sa.Integer, sa.ForeignKey("orgs.id"), nullable=False),
-    # Org role granted on acceptance: "member" (default) or "owner".
+    # Organization role granted on acceptance: "member" (default) or "owner".
     sa.Column(
         "role",
         sa.String,
@@ -213,9 +213,9 @@ project_invites = sa.Table(
 )
 
 # Per-project RBAC: editor / reviewer / viewer scoped to a single project,
-# distinct from the org-level owner/member membership. A row
+# distinct from the organization-level owner/member membership. A row
 # grants `user_id` the role `role` on (org_id, slug). Absence of a row means
-# the user falls back to their org default (owner => owner, otherwise no project
+# the user falls back to their organization default (owner => owner, otherwise no project
 # access). The project roles form a strict capability ladder:
 #   viewer   - read only (GET)
 #   reviewer - read + accept/reject review actions, but cannot run ops or mutate
@@ -252,12 +252,12 @@ project_creation_intents = sa.Table(
     ),
 )
 
-# API tokens / PATs: org-scoped bearer credentials for programmatic access.
+# API tokens / PATs: organization-scoped bearer credentials for programmatic access.
 # The plaintext token (`frisket_pat_<rand>`) is returned exactly once at
 # creation; only its sha256 hex digest is stored. `prefix` is a display
 # handle (scheme + first chars of the random part) - enough to recognize a
 # token in a list, never enough to authenticate. A token acts AS its
-# creating user within its org, so the existing per-project RBAC ladder
+# creating user within its organization, so the existing per-project RBAC ladder
 # applies unchanged. Revocation is a tombstone (revoked_at) so the audit
 # trail keeps the row.
 api_tokens = sa.Table(
@@ -280,7 +280,7 @@ api_tokens = sa.Table(
 # administration (`frisket-control token mint` -> `frisket remote link`).
 # The plaintext (`frisket_operator_<rand>`) is printed exactly once at mint
 # time; only its sha256 hex digest is stored. An operator token carries
-# org-owner power over the admin API, authenticated entirely apart from
+# organization-owner power over the admin API, authenticated entirely apart from
 # sessions/PATs. Rotation and revocation are tombstones (revoked_at) so the
 # audit trail keeps every credential ever issued.
 operator_tokens = sa.Table(
@@ -370,7 +370,7 @@ client_errors = sa.Table(
     ),
 )
 
-# BYO API keys: org-supplied provider keys, envelope-encrypted at rest. The
+# BYO API keys: organization-supplied provider keys, envelope-encrypted at rest. The
 # plaintext is write-only - stored encrypted, never read back over the API.
 # Metered spend caps against a key are commerce policy and live outside this
 # tree, in a deployment's own accounting.
@@ -388,7 +388,7 @@ org_keys = sa.Table(
     sa.UniqueConstraint("org_id", "provider"),
 )
 
-# Custom org environment variables: write-only encrypted metadata separate
+# Custom organization environment variables: write-only encrypted metadata separate
 # from provider API keys. These are NOT injected into sandboxed Python by
 # default; future trusted integrations can opt in explicitly.
 org_env_vars = sa.Table(

@@ -1,14 +1,14 @@
-"""The to_markdown org-BYOK credential-use anchor — the twin of
+"""The to_markdown organization-BYOK credential-use anchor — the twin of
 ``tests/execution/test_anchor_ocr.py``'s
-``test_anchor_ocr_org_byok_consent_refuses_the_deployments_env_key``, for the
+``test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key``, for the
 Datalab conversion dispatch.
 
-The scenario, exactly: an org consents under ``cost_posture='org_key'`` — the
+The scenario, exactly: an organization consents under ``cost_posture='org_key'`` — the
 dialog says "billed to your organization's provider key" — and the
 DEPLOYMENT's process environment also holds a ``DATALAB_API_KEY``. The
 selector honestly reports ``local`` because that env key is what resolves;
 without the pre-effect credential-USE fence, that mismatch would silently
-bill the deployment's shared key against a consent naming the org's own.
+bill the deployment's shared key against a consent naming the organization's own.
 
 NOTHING is stubbed here except the HTTP boundary: the selector, the fence and
 the halt are all real, and the assertion that no request was issued is what
@@ -96,7 +96,7 @@ def _route_rows(project, run_id: int):
     ).fetchall()
 
 
-def test_anchor_to_markdown_org_byok_consent_refuses_the_deployments_env_key(
+def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_env_key(
     tmp_path, monkeypatch
 ):
     """The BYOK consent, made checkable — for a second Datalab-backed
@@ -119,7 +119,7 @@ def test_anchor_to_markdown_org_byok_consent_refuses_the_deployments_env_key(
 
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
-    # The hosted org composition, resolved for real: the resolver pins
+    # The hosted organization composition, resolved for real: the resolver pins
     # credential_source='org_byok' and cost_posture='org_key' from ONE
     # funding fact, so the route row this run is consented under is the row
     # a hosted BYOK deployment would actually write.

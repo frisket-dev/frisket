@@ -20,7 +20,7 @@ def persist_hosted_accepted_accounting(
     Direct calls may have no run ledger. Routed calls bind the fact to their
     execution epoch before writing it. The writer consumes transient route
     observations, so pass a deep copy and retain the original envelope for the
-    later returned-row write that attaches its final charge and output column.
+    later returned-row write that attaches its final charge and generated column.
     """
     run_id = (ctx.extras or {}).get("run_id")
     row_id = (ctx.extras or {}).get("row_id")

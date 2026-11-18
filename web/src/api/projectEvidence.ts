@@ -50,15 +50,15 @@ function mapTextAnnotationLayer(raw: unknown): TextAnnotationLayer[] {
   const layerFamily = typeof raw.layer_family === 'string' ? raw.layer_family : '';
   if (!toggleKey || !layerFamily) return [];
   const producer = isRecord(raw.producer) ? raw.producer : {};
-  const outputColumn = isRecord(raw.output_column) ? raw.output_column : {};
+  const generatedColumn = isRecord(raw.output_column) ? raw.output_column : {};
   const common = {
     toggleKey,
     layerFamily,
     producerKind: typeof producer.kind === 'string' ? producer.kind : null,
     producerEngine: typeof producer.engine === 'string' ? producer.engine : null,
-    outputColumn: {
-      id: String(outputColumn.id ?? ''),
-      name: typeof outputColumn.name === 'string' ? outputColumn.name : null,
+    generatedColumn: {
+      id: String(generatedColumn.id ?? ''),
+      name: typeof generatedColumn.name === 'string' ? generatedColumn.name : null,
     },
   };
   if (raw.positioned === true) {

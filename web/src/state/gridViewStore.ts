@@ -68,7 +68,7 @@ interface GridViewState {
   wrapText: boolean;
   /** The Saved View definition currently represented by the grid.  This is
    * retained while edited so the UI can show Modified and explicitly save. */
-  activeSavedViewId: number | null;
+  activeViewId: number | null;
   presentationEdited: boolean;
   /** Survives sheet switches by design-of-record: no reset path clears it.
    *  The sheetId guard in selectInlineFilterOpen/selectInlineFilterColumn masks
@@ -103,7 +103,7 @@ function createGridViewState(): GridViewState {
     columnGroupsVersion: 0,
     rowHeight: ROW_HEIGHTS.some((h) => h.value === storedRowHeight) ? storedRowHeight : 34,
     wrapText: localStorage.getItem('frisket:wrap-text') === '1',
-    activeSavedViewId: null,
+    activeViewId: null,
     presentationEdited: false,
     inlineFilter: { sheetId: '', open: false, column: '' },
   };
@@ -126,10 +126,10 @@ export interface GridViewSortApplication {
   sort: GridSortSpec;
 }
 
-/** = the SavedViewGridState shape minus the fields
+/** = the ViewGridState shape minus the fields
  *  that stayed on the legacy reducer (that action also clears selectedRows/
  *  rowDrawer/columnDrawer — composed at the bind layer, not here). */
-export interface GridViewSavedViewApplication {
+export interface ViewApplication {
   scopeRowIds?: number[] | null;
   selection?: ViewSelection | null;
   viewId: number;
@@ -149,8 +149,8 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
   applySort(spec: GridViewSortApplication): void;
   clearFilter(): void;
   clearSort(): void;
-  applySavedViewGrid(grid: GridViewSavedViewApplication): void;
-  clearActiveSavedView(viewId?: number): void;
+  applyViewGrid(grid: ViewApplication): void;
+  clearActiveView(viewId?: number): void;
   setSelection(selection: ViewSelection | null): void;
   /** = the grid-owned fields of the 'selectSheet' reducer case:
    *  sortPanelOpen/
@@ -169,7 +169,7 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
   setColumnOrder(sheetId: string, order: string[]): void;
   setFrozenColumnCount(sheetId: string, count: number): void;
   setHiddenColumns(sheetId: string, names: string[]): void;
-  reconcileSavedViewHiddenColumns(viewId: number, sheetId: string, names: string[]): void;
+  reconcileViewHiddenColumns(viewId: number, sheetId: string, names: string[]): void;
   setColumnGroupSpecs(specs: ColumnGroupViewSpec[]): void;
 } {
   const store = createStore<GridViewState>(createGridViewState());
@@ -218,14 +218,14 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
       }));
     },
 
-    applySavedViewGrid(grid) {
+    applyViewGrid(grid) {
       store.set((s) => ({
         ...s,
         draft: {
           sortColumn: grid.draftSortColumn,
           sortDirection: grid.draftSortDirection,
         },
-        // A saved view restores a filter SPEC and nothing else: the spelling
+        // A view restores a filter SPEC and nothing else: the spelling
         // the user originally clicked was never persisted, so the chip falls
         // back to naming the type rather than carrying a stale one.
         applied: { filter: grid.filter, sort: grid.sort, filterColumnIds: bindColumns(Object.keys(grid.filter ?? {})), sortColumnIds: bindColumns((grid.sort ?? []).map((item) => item.column)), selection: grid.selection ?? null, filterValueLabel: null, ...(grid.scopeRowIds != null ? { scopeRowIds: grid.scopeRowIds } : {}) },
@@ -233,7 +233,7 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
         hiddenColumnsBySheet: { ...s.hiddenColumnsBySheet, [grid.sheetId]: grid.hiddenColumns },
         columnGroupSpecs: grid.columnGroupSpecs,
         columnGroupsVersion: s.columnGroupsVersion + 1,
-        activeSavedViewId: grid.viewId,
+        activeViewId: grid.viewId,
         presentationEdited: false,
       }));
     },
@@ -242,10 +242,10 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
       store.set((s) => ({ ...s, applied: { ...s.applied, selection } }));
     },
 
-    clearActiveSavedView(viewId) {
+    clearActiveView(viewId) {
       store.set((s) => (
-        s.activeSavedViewId !== null && (viewId === undefined || s.activeSavedViewId === viewId)
-          ? { ...s, activeSavedViewId: null }
+        s.activeViewId !== null && (viewId === undefined || s.activeViewId === viewId)
+          ? { ...s, activeViewId: null }
           : s
       ));
     },
@@ -256,7 +256,7 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
         sortPanelOpen: false,
         applied: { filter: null, sort: null, filterValueLabel: null },
         draft: { ...s.draft, sortDirection: 'asc' },
-        activeSavedViewId: null,
+        activeViewId: null,
         presentationEdited: false,
       }));
     },
@@ -318,9 +318,9 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
         };
       });
     },
-    reconcileSavedViewHiddenColumns(viewId, sheetId, names) {
+    reconcileViewHiddenColumns(viewId, sheetId, names) {
       store.set((s) => {
-        if (s.activeSavedViewId !== viewId || s.presentationEdited) return s;
+        if (s.activeViewId !== viewId || s.presentationEdited) return s;
         const previous = s.hiddenColumnsBySheet[sheetId] ?? [];
         if (JSON.stringify(previous) === JSON.stringify(names)) return s;
         return {

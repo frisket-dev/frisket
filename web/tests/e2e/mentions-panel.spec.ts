@@ -323,7 +323,7 @@ test('2 — a multi-form group discloses its spellings; grouped and exact filter
 // label (`zephyr holdings corp.`, lower-case, shorter of its two forms) sorts
 // last of 121 — page 1 shows 100 of them and never the target.
 
-const DEMO3_ORGS = [
+const DEMO3_ORGANIZATIONS = [
   'Aardvark', 'Alder', 'Amber', 'Anchor', 'Arbor', 'Ashford', 'Aspen', 'Atlas', 'Auburn', 'Avalon',
   'Bayside', 'Beacon', 'Birchwood', 'Bison', 'Blackstone', 'Bluefield', 'Bramble', 'Brentwood',
   'Briarwood', 'Bridgeport', 'Cardinal', 'Cascade', 'Cedar', 'Chestnut', 'Clearwater', 'Copper',
@@ -346,7 +346,7 @@ const DEMO3_ORGS = [
  *  spellings) sorts last and so lands on page 2. Shared by demo 3 (server
  *  search reaches it) and demo 6 (paging to it survives a filter click). */
 const demo3Rows = (): string[] => [
-  ...DEMO3_ORGS.map((org) => `${org} Holdings Corporation filed a permit with the board.`),
+  ...DEMO3_ORGANIZATIONS.map((organization) => `${organization} Holdings Corporation filed a permit with the board.`),
   'Zephyr Holdings Corporation and zephyr holdings corp. both appear on the filing.',
 ];
 
@@ -367,8 +367,8 @@ test('3 — a spelling beyond the first page is found by server search, with who
   // The organization section opens on the top 25 of 121 — its heading states
   // the full count while the rest is one "Show more" away — and the target
   // (which sorts last) is not among them.
-  const orgToggle = panel.getByTestId('mentions-type-toggle-organization');
-  await expect(orgToggle).toContainText('121', { timeout: 30_000 });
+  const organizationToggle = panel.getByTestId('mentions-type-toggle-organization');
+  await expect(organizationToggle).toContainText('121', { timeout: 30_000 });
   await expect(panel.getByTestId('mentions-group-row')).toHaveCount(25);
   await expect(panel.getByTestId('mentions-show-more-organization')).toHaveText('Show 96 more');
   const target = panel.getByTestId('mentions-group-organization-fingerprint-corp-holdings-zephyr');
@@ -387,7 +387,7 @@ test('3 — a spelling beyond the first page is found by server search, with who
   // The whole group comes back through the one matching spelling, with its
   // full-sheet counts (2 mentions), not a count of the matched spelling only.
   // The section now holds exactly it, and its heading count follows.
-  await expect(orgToggle).toContainText('1');
+  await expect(organizationToggle).toContainText('1');
   await expect(panel.getByTestId('mentions-group-row')).toHaveCount(1);
   await expect(panel.getByTestId('mentions-show-more-organization')).toHaveCount(0);
   await expect(target).toContainText('zephyr holdings corp.');
@@ -410,7 +410,7 @@ test('3 — a spelling beyond the first page is found by server search, with who
 // Demo 4 — a saved mention-filtered view survives leaving and coming back
 // (the regression guard for the `entity_eq` silent-drop the review flagged).
 
-test('4 — a saved view keeps its entity_eq mention filter through leave and restore', async ({
+test('4 — a view keeps its entity_eq mention filter through leave and restore', async ({
   page,
   request,
 }) => {
@@ -459,7 +459,7 @@ test('4 — a saved view keeps its entity_eq mention filter through leave and re
   expect(restoredRows).toBe(5);
 
   // Still applied, and still described as a mention filter in both chips.
-  // The TOOLBAR chip drops back to naming the type: a saved view persists the
+  // The TOOLBAR chip drops back to naming the type: a view persists the
   // filter SPEC, never the spelling that was clicked to make it, so carrying
   // one here would mean inventing it. The in-panel chip still names the
   // spelling because it resolves it from the groups it just loaded.
@@ -573,8 +573,8 @@ test('6 — filtering by a group that only exists on page 2 keeps both pages loa
   // Page 1: the organization section opens on 25 of 121, its heading stating
   // the full count, and the target group is genuinely not among them.
   const target = panel.getByTestId('mentions-group-organization-fingerprint-corp-holdings-zephyr');
-  const orgToggle = panel.getByTestId('mentions-type-toggle-organization');
-  await expect(orgToggle).toContainText('121', { timeout: 30_000 });
+  const organizationToggle = panel.getByTestId('mentions-type-toggle-organization');
+  await expect(organizationToggle).toContainText('121', { timeout: 30_000 });
   await expect(panel.getByTestId('mentions-group-row')).toHaveCount(25);
   await expect(target).toHaveCount(0);
 

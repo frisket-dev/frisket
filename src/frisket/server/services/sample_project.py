@@ -32,7 +32,7 @@ SAMPLE_MULTILINGUAL_SHEET_NAME = "Multilingual names"
 SAMPLE_AGENCY_PAYMENTS_SHEET_NAME = "Agency payments"
 SAMPLE_SMALL_MODEL_LAB_SHEET_NAME = "Small model lab"
 # Kept in the response for the existing HTTP contract. There is intentionally
-# no blank output column in the sheet.
+# no blank generated column in the sheet.
 SAMPLE_BLANK_COLUMN = ""
 
 _SITE_ROOT = "https://frisket-dev.github.io/frisket-samples/riverton"

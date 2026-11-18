@@ -78,7 +78,7 @@ const auditEvents = [
   },
 ];
 
-test('admin audit feed shows event details and filters by org, project, user, and action', async ({ page }) => {
+test('admin audit feed shows event details and filters by organization, project, user, and action', async ({ page }) => {
   const auditRequests: URL[] = [];
 
   await page.route('**/api/admin/overview', async (route) => {
@@ -123,12 +123,12 @@ test('admin audit feed shows event details and filters by org, project, user, an
   await page.route('**/api/admin/browser/audit?*', async (route) => {
     const url = new URL(route.request().url());
     auditRequests.push(url);
-    const orgId = url.searchParams.get('org_id');
+    const organizationId = url.searchParams.get('org_id');
     const projectId = url.searchParams.get('project_id');
     const user = url.searchParams.get('user')?.toLowerCase() ?? '';
     const action = url.searchParams.get('action');
     const events = auditEvents.filter((event) => {
-      if (orgId && String(event.org_id ?? '') !== orgId) return false;
+      if (organizationId && String(event.org_id ?? '') !== organizationId) return false;
       if (projectId && String(event.project_id ?? '') !== projectId) return false;
       if (action && event.action !== action) return false;
       if (user) {

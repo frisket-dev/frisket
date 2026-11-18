@@ -8,7 +8,7 @@ const stack = teamStack();
 // They are red under the
 // local-only harness (web/playwright/playwright.config.ts forces FRISKET_EDITION=local,
 // where those routes/settings are structurally unreachable) — this
-// config boots the real single-org team ASGI entrypoint instead
+// config boots the real single-organization team ASGI entrypoint instead
 // (frisket.team.asgi:app, via playwright.team-stack.ts) so they can run.
 // A type-only import (erased at build time, see `import type` above) plus a
 // plain config object — NOT `defineConfig(...)` — deliberately: this exact

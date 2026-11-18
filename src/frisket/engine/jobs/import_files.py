@@ -60,7 +60,7 @@ def register_import_files_handler(
     workspace_root: str | Path,
     queue: JobQueue,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     on_terminal_import: Callable[[str, str, int], None] | None = None,
 ) -> HandlerRegistration:
@@ -91,7 +91,7 @@ def register_import_files_handler(
         project_id, project_root, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=require_storage_identity
             or project_opener is not None,
         )
@@ -114,8 +114,8 @@ def register_import_files_handler(
             claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
             if isinstance(claimed, ProjectStorageKey):
                 continuation["storage_org_id"] = claimed.storage_org_id
-            if isinstance(context.trusted_job_org_id, int):
-                continuation["org_id"] = context.trusted_job_org_id
+            if isinstance(context.trusted_job_organization_id, int):
+                continuation["org_id"] = context.trusted_job_organization_id
             return continuation
 
         def schedule_metadata(receipt_id: str) -> None:

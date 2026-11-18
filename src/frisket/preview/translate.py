@@ -33,7 +33,7 @@ from frisket.preview.common import (
     ComparePreviewError,
     billable_engine_error,
 )
-from frisket.ops.integrations.translate_common import HOSTED_TRANSLATE_ENGINES
+from frisket.ops.integrations.translate_common import REMOTE_TRANSLATE_ENGINES
 from frisket.ops.base import OpContext
 from frisket.ops.integrations.translation_engine import TranslationEngine
 from frisket.redaction import canonical_error_code, redact_text, safe_error
@@ -48,7 +48,7 @@ MAX_SAMPLE_CHARS = 20_000
 
 # Engines that reach off-box / bill money. The scratch preview REFUSES these
 # outright and names map.translate instead (mirrors ocr/transcribe compare).
-_REMOTE_ENGINES = frozenset({"llm", *HOSTED_TRANSLATE_ENGINES})
+_REMOTE_ENGINES = frozenset({"llm", *REMOTE_TRANSLATE_ENGINES})
 
 
 class TranslateComparePreviewError(ComparePreviewError):

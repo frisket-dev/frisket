@@ -18,7 +18,7 @@ from frisket.actions.types import ActionRequest
 @pytest.fixture(autouse=True)
 def _always_challenge_metered_actions(monkeypatch):
     # These tests prove explicit request-level confirmation. Do not let the
-    # process-wide standing preapproval threshold make a local fixture run
+    # process-wide standing allowance threshold make a local fixture run
     # straight through its intended challenge.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
 

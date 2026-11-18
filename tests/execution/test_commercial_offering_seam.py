@@ -16,8 +16,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.credential_use import CredentialUseContext
@@ -58,12 +58,12 @@ def _offer(
 ) -> CommercialOffering:
     return CommercialOffering(
         match=CommercialOfferingMatch(target_id, "transcribe", engine),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.offer.audio_minute",
             terms_version=terms_version,
             unit_rate=rate,
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding("half_even", 6),
+            rounding=CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key=meter_key,
@@ -188,7 +188,7 @@ def test_included_execution_match_must_be_exact() -> None:
 
 def test_unknown_rounding_mode_is_rejected_at_the_carrier_boundary() -> None:
     with pytest.raises(ValueError, match="unknown quote rounding mode"):
-        CommercialQuoteRounding("invented", 2)  # type: ignore[arg-type]
+        CommercialEstimateRounding("invented", 2)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize(
@@ -206,12 +206,12 @@ def test_free_public_apis_cannot_be_priced_by_an_injected_offer(
     with pytest.raises(ValueError, match="free public APIs"):
         CommercialOffering(
             match=CommercialOfferingMatch(target_id, capability, engine),
-            quote=CommercialQuoteTerms(
+            estimate=CommercialEstimateTerms(
                 pricing_key="invented.free-api.price",
                 terms_version="invented.v1",
                 unit_rate="0.01",
                 quantity_unit="row",
-                rounding=CommercialQuoteRounding(),
+                rounding=CommercialEstimateRounding(),
             ),
             settlement=CommercialSettlementTerms(
                 meter_key=meter_key,

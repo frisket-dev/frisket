@@ -8,7 +8,7 @@ import type {
 
 export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
   return {
-    listOrgLocalEndpoints(options: RequestOptions = {}): Promise<LocalEndpointCatalog> {
+    listOrganizationLocalEndpoints(options: RequestOptions = {}): Promise<LocalEndpointCatalog> {
       return httpContract(
         'outer.list_org_local_endpoints.get',
         {
@@ -18,7 +18,7 @@ export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
       );
     },
 
-    orgStartArtifactPull(
+    organizationStartArtifactPull(
       ref: string,
       unpinnedAcknowledged = false,
       options: RequestOptions = {},
@@ -33,7 +33,7 @@ export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
       ));
     },
 
-    orgListModelPulls(options: RequestOptions = {}): Promise<{ pulls: ModelPullDto[] }> {
+    organizationListModelPulls(options: RequestOptions = {}): Promise<{ pulls: ModelPullDto[] }> {
       return httpContract(
         'outer.list_org_model_pulls.get',
         {
@@ -43,7 +43,7 @@ export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
       );
     },
 
-    orgGetModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
+    organizationGetModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.get_org_model_pull.get',
         {
@@ -54,7 +54,7 @@ export function createTeamLocalModelsApi(errorFactory?: ContractErrorFactory) {
       ).then((pull) => observeSetup('organization', pull));
     },
 
-    orgCancelModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
+    organizationCancelModelPull(id: number, options: RequestOptions = {}): Promise<ModelPullDto> {
       return httpContract(
         'outer.cancel_org_model_pull.post',
         {

@@ -13,8 +13,8 @@ const searchProject = vi.fn();
 const startEngineSetup = vi.fn();
 const listModelPulls = vi.fn();
 const getModelPull = vi.fn();
-const orgListModelPulls = vi.fn();
-const orgGetModelPull = vi.fn();
+const organizationListModelPulls = vi.fn();
+const organizationGetModelPull = vi.fn();
 const createSearchPreparation = vi.fn();
 const listSearchPreparations = vi.fn();
 const getSearchPreparation = vi.fn();
@@ -31,8 +31,8 @@ vi.mock('../../src/api/open', async (importOriginal) => ({
   searchProject: (...args: unknown[]) => searchProject(...args),
   listModelPulls: (...args: unknown[]) => listModelPulls(...args),
   getModelPull: (...args: unknown[]) => getModelPull(...args),
-  orgListModelPulls: (...args: unknown[]) => orgListModelPulls(...args),
-  orgGetModelPull: (...args: unknown[]) => orgGetModelPull(...args),
+  organizationListModelPulls: (...args: unknown[]) => organizationListModelPulls(...args),
+  organizationGetModelPull: (...args: unknown[]) => organizationGetModelPull(...args),
 }));
 
 vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
@@ -42,7 +42,7 @@ vi.mock('../../src/api/engineSetup', async (importOriginal) => ({
 
 vi.mock('../../src/api/modelPullOperations', () => ({
   readModelPull: (scope: string, id: number) =>
-    scope === 'organization' ? orgGetModelPull(id) : getModelPull(id),
+    scope === 'organization' ? organizationGetModelPull(id) : getModelPull(id),
 }));
 
 vi.mock('../../src/api/searchPreparation', async (importOriginal) => ({
@@ -233,8 +233,8 @@ beforeEach(() => {
   startEngineSetup.mockReset();
   listModelPulls.mockReset();
   getModelPull.mockReset();
-  orgListModelPulls.mockReset();
-  orgGetModelPull.mockReset();
+  organizationListModelPulls.mockReset();
+  organizationGetModelPull.mockReset();
   createSearchPreparation.mockReset();
   listSearchPreparations.mockReset();
   getSearchPreparation.mockReset();
@@ -252,7 +252,7 @@ beforeEach(() => {
   saveView.mockResolvedValue({ id: 4 });
   createAlert.mockResolvedValue({});
   listModelPulls.mockResolvedValue({ pulls: [] });
-  orgListModelPulls.mockResolvedValue({ pulls: [] });
+  organizationListModelPulls.mockResolvedValue({ pulls: [] });
   listSearchPreparations.mockResolvedValue({ batches: [] });
 });
 
@@ -739,7 +739,7 @@ describe('located palette search', () => {
   });
 
   it('restores approval only for the current sheet when Search opens', async () => {
-    const awaitingApproval = {
+    const awaitingConsent = {
       schemaVersion: 'frisket.search_preparation.v1',
       id: 'prep-awaiting-approval',
       sheet_id: 2,
@@ -755,12 +755,12 @@ describe('located palette search', () => {
     searchProject.mockResolvedValue(completeResponse);
     listSearchPreparations.mockResolvedValue({
       batches: [
-        { ...awaitingApproval, id: 'prep-other-sheet', sheet_id: 1 },
-        { ...awaitingApproval, id: 'prep-complete', status: 'complete' },
-        awaitingApproval,
+        { ...awaitingConsent, id: 'prep-other-sheet', sheet_id: 1 },
+        { ...awaitingConsent, id: 'prep-complete', status: 'complete' },
+        awaitingConsent,
       ],
     });
-    getSearchPreparation.mockImplementation(async (_project, id) => ({ ...awaitingApproval, id }));
+    getSearchPreparation.mockImplementation(async (_project, id) => ({ ...awaitingConsent, id }));
 
     render(<PaletteHarness activeSearchSheetId="2" />);
 

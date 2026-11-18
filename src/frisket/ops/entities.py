@@ -63,7 +63,7 @@ ENTITY_MODEL_ITEM_SCHEMA: dict[str, Any] = {
 }
 
 # What we STORE. Shared by output_fields() across all three engines so
-# `map.ner`'s output column schema never drifts from what
+# `map.ner`'s generated column schema never drifts from what
 # canonicalize_entities() actually produces. `score` is nullable: spaCy has no
 # per-span confidence and reports it honestly as null rather than a fabricated
 # number.

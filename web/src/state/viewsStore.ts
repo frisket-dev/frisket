@@ -1,58 +1,58 @@
 // Owns the sheet-scoped saved-view list, create/rename editor, and explicit
 // definition/delete confirmations. It does not own the grid state that a
-// saved view describes, nor does it perform persistence: the workspace
+// view describes, nor does it perform persistence: the workspace
 // controller supplies both.
 
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
-import type { SavedView } from '../api/open';
+import type { View } from '../api/open';
 
-type SavedViewsSheetId = string | number | null;
+type ViewsSheetId = string | number | null;
 
-export type SavedViewsEditor =
+export type ViewsEditor =
   | { kind: 'create' }
-  | { kind: 'edit'; view: SavedView };
+  | { kind: 'edit'; view: View };
 
-const savedViewsEditorMutationTicket = Symbol('savedViewsEditorMutationTicket');
+const viewsEditorMutationTicket = Symbol('viewsEditorMutationTicket');
 
 /**
  * A store-owned capability for one editor submission. Controllers may retain
  * and return it, but cannot construct a ticket for a different editor.
  */
-type SavedViewsEditorMutationTicket = {
-  readonly [savedViewsEditorMutationTicket]: true;
+type ViewsEditorMutationTicket = {
+  readonly [viewsEditorMutationTicket]: true;
 };
 
-export interface SavedViewsPublication {
-  viewId: SavedView['id'];
+export interface ViewsPublication {
+  viewId: View['id'];
   /** The affected row's name survives a deletion publication. */
   viewName: string;
   /** Where the panel should restore focus after this publication. */
-  focusViewId: SavedView['id'] | null;
+  focusViewId: View['id'] | null;
   action: 'created' | 'renamed' | 'updated' | 'deleted';
   token: number;
 }
 
-export type SavedViewsConfirmation =
-  | { kind: 'update-definition'; view: SavedView }
-  | { kind: 'delete'; view: SavedView };
+export type ViewsConfirmation =
+  | { kind: 'update-definition'; view: View }
+  | { kind: 'delete'; view: View };
 
-interface SavedViewsState {
-  activeSheetId: SavedViewsSheetId;
-  views: SavedView[];
+interface ViewsState {
+  activeSheetId: ViewsSheetId;
+  views: View[];
   viewName: string;
-  editor: SavedViewsEditor | null;
+  editor: ViewsEditor | null;
   /** A current editor submission is in flight; its controls must stay inert. */
   isSaving: boolean;
   /** Store-owned so an in-flight confirmation survives a Discover remount. */
-  confirmation: SavedViewsConfirmation | null;
+  confirmation: ViewsConfirmation | null;
   /** A failed confirmation request remains visible in its native dialog. */
   confirmationError: string | null;
   /** The latest accepted editor publication, for the list's success feedback. */
-  lastPublication: SavedViewsPublication | null;
+  lastPublication: ViewsPublication | null;
 }
 
-export function createSavedViewsState(): SavedViewsState {
+export function createViewsState(): ViewsState {
   return {
     activeSheetId: null,
     views: [],
@@ -65,44 +65,44 @@ export function createSavedViewsState(): SavedViewsState {
   };
 }
 
-export function createSavedViewsStore(): {
-  store: Store<SavedViewsState>;
-  resetForSheet(sheetId: SavedViewsSheetId): void;
-  beginViewsLoad(sheetId: SavedViewsSheetId): number;
-  isViewsLoadCurrent(sheetId: SavedViewsSheetId, token: number): boolean;
-  receiveViews(sheetId: SavedViewsSheetId, token: number, views: SavedView[]): void;
+export function createViewsStore(): {
+  store: Store<ViewsState>;
+  resetForSheet(sheetId: ViewsSheetId): void;
+  beginViewsLoad(sheetId: ViewsSheetId): number;
+  isViewsLoadCurrent(sheetId: ViewsSheetId, token: number): boolean;
+  receiveViews(sheetId: ViewsSheetId, token: number, views: View[]): void;
   startCreating(): void;
   setViewName(name: string): void;
-  startEditingView(view: SavedView): void;
+  startEditingView(view: View): void;
   cancelEditor(): void;
-  beginEditorMutation(): SavedViewsEditorMutationTicket | null;
-  completeEditorMutation(ticket: SavedViewsEditorMutationTicket, saved: SavedView): void;
-  failEditorMutation(ticket: SavedViewsEditorMutationTicket): void;
-  openDefinitionUpdate(view: SavedView): void;
-  openDeleteConfirmation(view: SavedView): void;
+  beginEditorMutation(): ViewsEditorMutationTicket | null;
+  completeEditorMutation(ticket: ViewsEditorMutationTicket, saved: View): void;
+  failEditorMutation(ticket: ViewsEditorMutationTicket): void;
+  openDefinitionUpdate(view: View): void;
+  openDeleteConfirmation(view: View): void;
   cancelConfirmation(): void;
-  beginConfirmationMutation(): SavedViewsEditorMutationTicket | null;
-  completeDefinitionUpdate(ticket: SavedViewsEditorMutationTicket, saved: SavedView): void;
-  completeDeleteMutation(ticket: SavedViewsEditorMutationTicket): void;
-  failConfirmationMutation(ticket: SavedViewsEditorMutationTicket, message: string): void;
+  beginConfirmationMutation(): ViewsEditorMutationTicket | null;
+  completeDefinitionUpdate(ticket: ViewsEditorMutationTicket, saved: View): void;
+  completeDeleteMutation(ticket: ViewsEditorMutationTicket): void;
+  failConfirmationMutation(ticket: ViewsEditorMutationTicket, message: string): void;
   consumePublication(token: number): void;
-  removeView(viewId: SavedView['id']): void;
+  removeView(viewId: View['id']): void;
 } {
-  const store = createStore<SavedViewsState>(createSavedViewsState());
+  const store = createStore<ViewsState>(createViewsState());
   let nextViewsLoadToken = 0;
   let activeViewsLoadToken: number | null = null;
   let nextEditorToken = 0;
   let nextPublicationToken = 0;
   let activeEditorToken = 0;
   let activeEditorMutation: {
-    ticket: SavedViewsEditorMutationTicket;
-    sheetId: SavedViewsSheetId;
+    ticket: ViewsEditorMutationTicket;
+    sheetId: ViewsSheetId;
     editorToken: number;
-    editor: SavedViewsEditor | null;
-    confirmation: SavedViewsConfirmation | null;
+    editor: ViewsEditor | null;
+    confirmation: ViewsConfirmation | null;
   } | null = null;
 
-  const replaceEditor = (editor: SavedViewsEditor | null, viewName: string) => {
+  const replaceEditor = (editor: ViewsEditor | null, viewName: string) => {
     // Opening or closing an editor revokes an older request's authority to
     // change whichever editor now occupies this sheet.
     activeEditorMutation = null;
@@ -117,7 +117,7 @@ export function createSavedViewsStore(): {
     }));
   };
 
-  const ownsEditorMutation = (ticket: SavedViewsEditorMutationTicket) => {
+  const ownsEditorMutation = (ticket: ViewsEditorMutationTicket) => {
     const mutation = activeEditorMutation;
     const state = store.get();
     return mutation !== null
@@ -128,11 +128,11 @@ export function createSavedViewsStore(): {
   };
 
   const publish = (
-    state: SavedViewsState,
-    action: SavedViewsPublication['action'],
-    view: SavedView,
-    focusViewId: SavedView['id'] | null = view.id,
-  ): SavedViewsState => ({
+    state: ViewsState,
+    action: ViewsPublication['action'],
+    view: View,
+    focusViewId: View['id'] | null = view.id,
+  ): ViewsState => ({
     ...state,
     lastPublication: {
       viewId: view.id,
@@ -201,7 +201,7 @@ export function createSavedViewsStore(): {
       const state = store.get();
       if (!state.editor || state.isSaving || state.activeSheetId === null) return null;
 
-      const ticket = { [savedViewsEditorMutationTicket]: true } as SavedViewsEditorMutationTicket;
+      const ticket = { [viewsEditorMutationTicket]: true } as ViewsEditorMutationTicket;
       activeEditorMutation = {
         ticket,
         sheetId: state.activeSheetId,
@@ -277,7 +277,7 @@ export function createSavedViewsStore(): {
     beginConfirmationMutation() {
       const state = store.get();
       if (!state.confirmation || state.isSaving || state.activeSheetId === null) return null;
-      const ticket = { [savedViewsEditorMutationTicket]: true } as SavedViewsEditorMutationTicket;
+      const ticket = { [viewsEditorMutationTicket]: true } as ViewsEditorMutationTicket;
       activeEditorMutation = {
         ticket,
         sheetId: state.activeSheetId,
@@ -355,4 +355,4 @@ export function createSavedViewsStore(): {
   };
 }
 
-export type SavedViewsStoreHandle = ReturnType<typeof createSavedViewsStore>;
+export type ViewsStoreHandle = ReturnType<typeof createViewsStore>;

@@ -140,7 +140,7 @@ def test_typed_free_download_identity_and_stale_replay(tmp_path, monkeypatch):
     try:
         action = _youtube_action(sheet_id=sheet_id)
         router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-        # Free downloads do not require approval, even at zero preapproval.
+        # Free downloads do not require approval, even at zero allowance.
         monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
         result = run_action_spec(project, action, project_id=PROJECT_ID, router=router)
         assert result.status == "completed", result.errors
@@ -390,7 +390,7 @@ def test_media_download_action_passes_arbitrary_http_domain_to_ytdlp(
         project.close()
 
 
-def test_media_download_overwrite_existing_intent_reuses_ai_column_but_protects_source(
+def test_media_download_overwrite_existing_intent_reuses_generated_column_but_protects_source(
     tmp_path: Path,
     monkeypatch,
 ) -> None:

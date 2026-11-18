@@ -101,7 +101,7 @@ def _audit_actions(app: Any) -> list[str]:
     return list(rows)
 
 
-def test_org_provider_key_save_requires_a_validation_receipt(tmp_path) -> None:
+def test_organization_provider_key_save_requires_a_validation_receipt(tmp_path) -> None:
     async def accepted(_provider: str, _key: str) -> bool:
         return True
 
@@ -124,7 +124,7 @@ def test_org_provider_key_save_requires_a_validation_receipt(tmp_path) -> None:
     assert saved.status_code == 200, saved.text
 
 
-def test_org_env_rejects_models_gateway_pair(tmp_path) -> None:
+def test_organization_env_rejects_models_gateway_pair(tmp_path) -> None:
     app = _app(tmp_path)
     owner = _owner(app)
     for name in ("FRISKET_MODELS_URL", "FRISKET_MODELS_TOKEN"):
@@ -334,7 +334,7 @@ def test_pull_happy_path_enqueues_and_audits(tmp_path, monkeypatch) -> None:
     job = workspace.queue.get(row.job_id)
     assert job is not None
     assert job.kind == "model.pull"
-    assert job.org_id == str(app.state.team_org_id)
+    assert job.org_id == str(app.state.team_organization_id)
 
     assert "model_pull_requested" in _audit_actions(app)
     with app.state.control_engine.connect() as cx:
@@ -691,9 +691,11 @@ def test_cancel_member_is_forbidden(tmp_path, monkeypatch) -> None:
     assert resp.status_code == 403, resp.text
 
 
-def test_cancel_scoped_wrong_org_job_is_not_cancelled(tmp_path, monkeypatch) -> None:
+def test_cancel_scoped_wrong_organization_job_is_not_cancelled(
+    tmp_path, monkeypatch
+) -> None:
     """The cancel route resolves the queue job through ``cancel_scoped`` --
-    a job that exists but belongs to a DIFFERENT org must not be flipped even
+    a job that exists but belongs to a DIFFERENT organization must not be flipped even
     if a pull row somehow pointed at it (defense in depth over the queue
     primitive itself, mirrored from tests/test_queue_scoped_access.py)."""
     monkeypatch.setenv("OLLAMA_URL", ORIGIN)
@@ -707,15 +709,15 @@ def test_cancel_scoped_wrong_org_job_is_not_cancelled(tmp_path, monkeypatch) -> 
 
     workspace = app.state.workspace
     row = store.get(workspace.queue.engine, created["id"])
-    other_org_job_id = row.job_id
+    other_organization_job_id = row.job_id
 
     assert (
         workspace.queue.cancel_scoped(
-            other_org_job_id, org_id="not-this-org", kind="model.pull"
+            other_organization_job_id, org_id="not-this-org", kind="model.pull"
         )
         is False
     )
-    assert workspace.queue.get(other_org_job_id).status != "cancelled"
+    assert workspace.queue.get(other_organization_job_id).status != "cancelled"
 
 
 def test_cancel_refuses_without_audit_or_stamp_when_queue_cancel_does_not_succeed(
@@ -802,7 +804,7 @@ def test_cancel_not_found_returns_404(tmp_path, monkeypatch) -> None:
 # --- artifact-generic team pull (/api/org/models/pull) ---------------------
 
 
-def test_org_artifact_pull_opus_mt_skips_daemon_and_audits(
+def test_organization_artifact_pull_opus_mt_skips_daemon_and_audits(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
@@ -825,11 +827,13 @@ def test_org_artifact_pull_opus_mt_skips_daemon_and_audits(
     row = store.get(workspace.queue.engine, pull["id"])
     job = workspace.queue.get(row.job_id)
     assert job.kind == "model.pull"
-    assert job.org_id == str(app.state.team_org_id)
+    assert job.org_id == str(app.state.team_organization_id)
     assert "model_pull_requested" in _audit_actions(app)
 
 
-def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> None:
+def test_organization_engine_setup_requires_owner_deduplicates_and_audits(
+    tmp_path,
+) -> None:
     from frisket.engine.jobs.engine_setup import PARAKEET_TDT_SETUP_REF
 
     app = _app(tmp_path)
@@ -867,7 +871,7 @@ def test_org_engine_setup_requires_owner_deduplicates_and_audits(tmp_path) -> No
         "engine-setup:embeddinggemma-2.local@1",
     ],
 )
-def test_org_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
+def test_organization_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
     app = _app(tmp_path)
     response = _owner(app).post("/api/org/models/setup", json={"setup_ref": setup_ref})
     assert response.status_code == 202, response.text
@@ -875,7 +879,9 @@ def test_org_local_engine_setup_is_allowlisted(tmp_path, setup_ref) -> None:
     assert "engine_setup_requested" in _audit_actions(app)
 
 
-def test_org_engine_setup_keeps_docling_outside_team_allowlist(tmp_path) -> None:
+def test_organization_engine_setup_keeps_docling_outside_team_allowlist(
+    tmp_path,
+) -> None:
     app = _app(tmp_path)
 
     response = _owner(app).post(
@@ -887,7 +893,9 @@ def test_org_engine_setup_keeps_docling_outside_team_allowlist(tmp_path) -> None
     assert response.json()["detail"]["code"] == "unknown_engine_setup"
 
 
-def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> None:
+def test_organization_completed_artifact_never_advertises_unowned_remove(
+    tmp_path,
+) -> None:
     app = _app(tmp_path)
     workspace = app.state.workspace
     row, _ = store.create_or_get_active(
@@ -912,7 +920,7 @@ def test_org_completed_artifact_never_advertises_unowned_remove(tmp_path) -> Non
     assert completed["capabilities"]["remove"] is False
 
 
-def test_org_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> None:
+def test_organization_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     app = _app(tmp_path)
     member = _member(app)
@@ -920,7 +928,9 @@ def test_org_artifact_pull_member_forbidden(tmp_path, monkeypatch) -> None:
     assert resp.status_code == 403
 
 
-def test_org_artifact_pull_unpinned_hf_requires_ack(tmp_path, monkeypatch) -> None:
+def test_organization_artifact_pull_unpinned_hf_requires_ack(
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("FRISKET_ENABLE_MODEL_PULL", "1")
     app = _app(tmp_path)
     owner = _owner(app)

@@ -147,10 +147,10 @@ def test_fresh_mode_b_prepare_commits_column_op_run_and_pointer(project: Project
     assert project.db.in_transaction is False
 
 
-def test_append_op_failure_rolls_back_new_output_column(
+def test_append_op_failure_rolls_back_new_generated_column(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ):
-    """Pre-fix red: a second connection saw 1 durable orphan output column."""
+    """Pre-fix red: a second connection saw 1 durable orphan generated column."""
 
     sheet_id, _ = _seed(project)
     before = _durable_state(project, output_name="agency_clean")
@@ -206,7 +206,7 @@ def test_pointer_failure_rolls_back_column_op_and_started_run(
     assert project.db.in_transaction is False
 
 
-def test_reused_ai_column_converges_inside_mode_b_transaction(project: Project):
+def test_reused_generated_column_converges_inside_mode_b_transaction(project: Project):
     sheet_id, row_ids = _seed(project)
     output_id = project.add_column(
         sheet_id,

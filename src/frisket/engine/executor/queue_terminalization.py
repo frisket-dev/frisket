@@ -14,10 +14,10 @@ CLI, team app, cloud compose) gets the hook with its declared storage roots.
 
 Storage routing is DECLARED registration config, never ambient: the hosted
 branch resolves a claimed ``ProjectStorageKey`` against the registered
-``workspace_root`` (+ optional ``workspace_root_storage_org_id``) using the
-same three-way rule as ``claimed_project_location`` — org-scoped root and a
+``workspace_root`` (+ optional ``workspace_root_storage_organization_id``) using the
+same three-way rule as ``claimed_project_location`` — organization-scoped root and a
 matching claim resolves directly under the root, a mismatched claim fails
-closed, an unscoped root appends the claim's org id. (This replaced a
+closed, an unscoped root appends the claim's organization id. (This replaced a
 ``FRISKET_DATA_DIR`` env read that contradicted the queue module's own
 declared-not-ambient doctrine.) Payload/workspace_root fields stay
 caller-controlled diagnostics that must never select a hosted tenant's
@@ -50,11 +50,11 @@ class RunTerminalization:
         self,
         *,
         workspace_root: str | Path,
-        workspace_root_storage_org_id: int | None = None,
+        workspace_root_storage_organization_id: int | None = None,
         project_opener: ProjectOpener | None = None,
     ) -> None:
         self._workspace_root = Path(workspace_root)
-        self._storage_org_id = workspace_root_storage_org_id
+        self._storage_organization_id = workspace_root_storage_organization_id
         self._project_opener = project_opener
 
     def __call__(self, event: str, job: Job, *, hosted: bool) -> None:
@@ -75,10 +75,10 @@ class RunTerminalization:
                 project_root = claimed_project_root(
                     storage_key,
                     workspace_root=self._workspace_root,
-                    workspace_root_storage_org_id=self._storage_org_id,
+                    workspace_root_storage_organization_id=self._storage_organization_id,
                 )
             except ValueError:
-                return None  # claim belongs to another org's storage root
+                return None  # claim belongs to another organization's storage root
             return (
                 storage_key.project_slug,
                 project_root / f"{storage_key.project_slug}.frisket",
@@ -153,7 +153,7 @@ def register_queue_terminalization(
     queue: JobQueue,
     *,
     workspace_root: str | Path,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> None:
     """Register the product terminalization hook on an open queue.
@@ -168,7 +168,7 @@ def register_queue_terminalization(
     set_hook(
         RunTerminalization(
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             project_opener=project_opener,
         )
     )

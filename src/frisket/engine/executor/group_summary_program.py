@@ -15,7 +15,7 @@ class GroupSummaryProgram(Recipe):
         super().__init__(
             name=params.action_kind,
             version="group_summary.v1",
-            keep_zero_success_output_columns=True,
+            keep_zero_success_generated_columns=True,
             # Preserve ordered, incremental group publication and bound one
             # potentially large group prompt in memory at a time.
             max_concurrency=1,

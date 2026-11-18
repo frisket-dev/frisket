@@ -386,10 +386,10 @@ def commercial_offering_basis_terms(
 ) -> dict[str, Any]:
     """The exact offering terms copied into a cost basis and live fact."""
     return {
-        "terms_version": offering.quote.terms_version,
-        "quantity_unit": offering.quote.quantity_unit,
-        "quantity_rounding_mode": offering.quote.rounding.mode,
-        "quantity_rounding_decimal_places": (offering.quote.rounding.decimal_places),
+        "terms_version": offering.estimate.terms_version,
+        "quantity_unit": offering.estimate.quantity_unit,
+        "quantity_rounding_mode": offering.estimate.rounding.mode,
+        "quantity_rounding_decimal_places": (offering.estimate.rounding.decimal_places),
         "meter_key": offering.settlement.meter_key,
         "meter_units_per_quantity_unit": (
             offering.settlement.meter_units_per_quantity_unit
@@ -405,8 +405,8 @@ def offering_matches_cost_basis(
 ) -> bool:
     """Whether the current injected offer is exactly the one consent pinned."""
     return (
-        basis.pricing_key == offering.quote.pricing_key
-        and basis.unit_rate == decimal_str(offering.quote.unit_rate)
+        basis.pricing_key == offering.estimate.pricing_key
+        and basis.unit_rate == decimal_str(offering.estimate.unit_rate)
         and all(
             getattr(basis, key) == value
             for key, value in commercial_offering_basis_terms(offering).items()
@@ -424,7 +424,7 @@ def _rounded_quantity(value: Any, *, mode: str, decimal_places: int | None) -> D
     return quantity.quantize(quantum, rounding=rounding)
 
 
-def quote_commercial_offering(
+def estimate_commercial_offering(
     *,
     offering: CommercialOffering,
     metered_quantity: float | int | None,
@@ -432,13 +432,13 @@ def quote_commercial_offering(
 ) -> CostBasis:
     """Mint a basis from an injected offer without consulting funding/SKUs."""
     scale = _to_decimal(offering.settlement.meter_units_per_quantity_unit)
-    rounding = offering.quote.rounding
-    row_quotes: tuple[tuple[int, str], ...] | None = None
+    rounding = offering.estimate.rounding
+    row_estimates: tuple[tuple[int, str], ...] | None = None
     quantity: Decimal | None
     if row_metered_quantities is not None:
         allocations: list[tuple[int, str]] = []
         raw_quantity_total = Decimal(0)
-        quoted_quantity_total = Decimal(0)
+        estimated_quantity_total = Decimal(0)
         for row_id, raw_metered in sorted(row_metered_quantities.items()):
             if isinstance(row_id, bool) or not isinstance(row_id, int) or row_id <= 0:
                 raise ValueError("row quote ids must be positive integers")
@@ -453,10 +453,10 @@ def quote_commercial_offering(
             )
             if offering.settlement.row_settlement_mode == "quoted_successful_rows":
                 allocations.append((row_id, decimal_str(row_quantity)))
-                quoted_quantity_total += row_quantity
+                estimated_quantity_total += row_quantity
         if offering.settlement.row_settlement_mode == "quoted_successful_rows":
-            quantity = quoted_quantity_total
-            row_quotes = tuple(allocations)
+            quantity = estimated_quantity_total
+            row_estimates = tuple(allocations)
         else:
             # Non-row settlement still benefits from the authoritative row scan,
             # but its quote is one aggregate quantity and carries no row pin.
@@ -478,11 +478,11 @@ def quote_commercial_offering(
             decimal_places=rounding.decimal_places,
         )
     return PricedCostBasis(
-        pricing_key=offering.quote.pricing_key,
-        unit_rate=decimal_str(offering.quote.unit_rate),
+        pricing_key=offering.estimate.pricing_key,
+        unit_rate=decimal_str(offering.estimate.unit_rate),
         estimated_quantity=(None if quantity is None else decimal_str(quantity)),
         **commercial_offering_basis_terms(offering),
-        row_quote_quantities=row_quotes,
+        row_quote_quantities=row_estimates,
     )
 
 
@@ -511,7 +511,7 @@ def _require_offering_match(
 # ---------------------------------------------------------------------------
 
 
-def quote_transcription(
+def estimate_transcription(
     *,
     target_id: str,
     engine: str,
@@ -533,7 +533,7 @@ def quote_transcription(
             capability=CAPABILITY_TRANSCRIBE,
             engine=engine,
         )
-        return quote_commercial_offering(
+        return estimate_commercial_offering(
             offering=offering,
             metered_quantity=audio_seconds,
             row_metered_quantities=row_audio_seconds,
@@ -551,13 +551,13 @@ def quote_transcription(
     if audio_seconds is None:
         return UnpriceableCost()
 
-    quoted_rate = byok_audio_second_rate(engine)
-    if quoted_rate.rate is None:
+    estimated_rate = byok_audio_second_rate(engine)
+    if estimated_rate.rate is None:
         return UnpriceableCost()
     try:
         return PricedCostBasis(
             pricing_key=sku,
-            unit_rate=decimal_str(quoted_rate.rate),
+            unit_rate=decimal_str(estimated_rate.rate),
             estimated_quantity=decimal_str(round(float(audio_seconds), 3)),
             **_provider_direct_terms(CAPABILITY_TRANSCRIBE, sku),
         )
@@ -565,7 +565,7 @@ def quote_transcription(
         return UnpriceableCost()
 
 
-def _quote_provider_usage(capability: str, sku: str, quantity) -> CostBasis:
+def _estimate_provider_usage(capability: str, sku: str, quantity) -> CostBasis:
     rate = catalog_list_price(sku)
     if quantity is None or rate is None:
         return ProviderUsageCost(pricing_key=sku)
@@ -579,7 +579,7 @@ def _quote_provider_usage(capability: str, sku: str, quantity) -> CostBasis:
     )
 
 
-def quote_ocr(
+def estimate_ocr(
     *,
     target_id: str,
     engine: str,
@@ -589,7 +589,7 @@ def quote_ocr(
     row_pages: Mapping[int, int] | None = None,
 ) -> CostBasis:
     """The cost-basis mint for an OCR invocation — the per-page sibling
-    of :func:`quote_transcription`.
+    of :func:`estimate_transcription`.
 
     ``pages is None`` means the page count is not knowable before the run (a
     PDF whose ingest probe recorded no page count), which is genuinely
@@ -609,7 +609,7 @@ def quote_ocr(
             capability=CAPABILITY_OCR,
             engine=engine,
         )
-        return quote_commercial_offering(
+        return estimate_commercial_offering(
             offering=offering,
             metered_quantity=pages,
             row_metered_quantities=row_pages,
@@ -627,7 +627,7 @@ def quote_ocr(
         # already owns that compute and no per-request meter exists.
         return OperatorBorneZeroCost()
     if target_id == "opendocrouter":
-        return _quote_provider_usage(CAPABILITY_OCR, sku, pages)
+        return _estimate_provider_usage(CAPABILITY_OCR, sku, pages)
     if pages is None:
         return UnpriceableCost()
     terms = _provider_direct_terms(CAPABILITY_OCR, sku)
@@ -646,7 +646,7 @@ def quote_ocr(
     )
 
 
-def _quote_catalog_sku(
+def _estimate_catalog_sku(
     *,
     capability: str,
     target_id: str,
@@ -676,7 +676,7 @@ def _quote_catalog_sku(
             capability=capability,
             engine=engine,
         )
-        return quote_commercial_offering(
+        return estimate_commercial_offering(
             offering=offering,
             metered_quantity=quantity,
         )
@@ -686,7 +686,7 @@ def _quote_catalog_sku(
     if sku is None:
         return OperatorBorneZeroCost()
     if target_id == "opendocrouter" or sku == OPENAI_DECISIONS_INPUT_TOKEN:
-        return _quote_provider_usage(capability, sku, quantity)
+        return _estimate_provider_usage(capability, sku, quantity)
     if quantity is None:
         return UnpriceableCost()
     rate = catalog_list_price(sku)
@@ -703,7 +703,7 @@ def _quote_catalog_sku(
         return UnpriceableCost()
 
 
-def quote_classify(
+def estimate_classify(
     *,
     target_id: str,
     engine: str,
@@ -712,7 +712,7 @@ def quote_classify(
     input_tokens: int | None,
 ) -> CostBasis:
     """Quote decision input costs; provider usage settles variable cache rates."""
-    return _quote_catalog_sku(
+    return _estimate_catalog_sku(
         capability=CAPABILITY_CLASSIFY,
         target_id=target_id,
         engine=engine,
@@ -722,7 +722,7 @@ def quote_classify(
     )
 
 
-def quote_translate(
+def estimate_translate(
     *,
     target_id: str,
     engine: str,
@@ -731,7 +731,7 @@ def quote_translate(
     characters: int | None,
 ) -> CostBasis:
     """THE cost-basis mint for a translate invocation — the per-CHARACTER
-    sibling of :func:`quote_ocr`.
+    sibling of :func:`estimate_ocr`.
 
     ``characters`` is the count of SOURCE characters about to egress, which is
     what both hosted providers bill on. DeepL reports its own
@@ -744,7 +744,7 @@ def quote_translate(
     ``TRANSLATE_ENGINE_TABLE`` (its pricing is two units and a
     ``PricedCostBasis`` carries one), so it refuses at resolution.
     """
-    return _quote_catalog_sku(
+    return _estimate_catalog_sku(
         capability=CAPABILITY_TRANSLATE,
         target_id=target_id,
         engine=engine,
@@ -754,7 +754,7 @@ def quote_translate(
     )
 
 
-def quote_to_markdown(
+def estimate_to_markdown(
     *,
     target_id: str,
     engine: str,
@@ -778,12 +778,12 @@ def quote_to_markdown(
             capability=CAPABILITY_TO_MARKDOWN,
             engine=engine,
         )
-        return quote_commercial_offering(
+        return estimate_commercial_offering(
             offering=offering,
             metered_quantity=pages,
             row_metered_quantities=row_pages,
         )
-    return _quote_catalog_sku(
+    return _estimate_catalog_sku(
         capability=CAPABILITY_TO_MARKDOWN,
         target_id=target_id,
         engine=engine,
@@ -793,7 +793,7 @@ def quote_to_markdown(
     )
 
 
-def quote_geocode(
+def estimate_geocode(
     *,
     target_id: str,
     engine: str,
@@ -807,7 +807,7 @@ def quote_geocode(
     Nominatim has no price: it is a free public API, so its egress claim stays
     while the cost basis is absent.
     """
-    return _quote_catalog_sku(
+    return _estimate_catalog_sku(
         capability=CAPABILITY_GEOCODE,
         target_id=target_id,
         engine=engine,
@@ -817,7 +817,7 @@ def quote_geocode(
     )
 
 
-def quote_census(
+def estimate_census(
     *,
     target_id: str,
     engine: str,
@@ -832,7 +832,7 @@ def quote_census(
     downstream composition may carry its own exact offering through this
     generic capability mint.
     """
-    return _quote_catalog_sku(
+    return _estimate_catalog_sku(
         capability=CAPABILITY_CENSUS,
         target_id=target_id,
         engine=engine,
@@ -865,8 +865,8 @@ def live_cost_fact(
     """
     if offering is not None:
         return {
-            "pricing_key": offering.quote.pricing_key,
-            "unit_rate": decimal_str(offering.quote.unit_rate),
+            "pricing_key": offering.estimate.pricing_key,
+            "unit_rate": decimal_str(offering.estimate.unit_rate),
             **commercial_offering_basis_terms(offering),
         }
     if isinstance(funding, PlatformMetered):

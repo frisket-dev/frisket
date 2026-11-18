@@ -36,12 +36,12 @@ class IdentitySessionService:
         *,
         token_service: Any,
         admin_emails: Callable[[], set[str]] | None = None,
-        is_org_owner: Callable[[int, int], bool] | None = None,
+        is_organization_owner: Callable[[int, int], bool] | None = None,
     ):
         self._uow_factory = uow_factory
         self._tokens = token_service
         self._admin_emails = admin_emails or (lambda: set())
-        self._is_org_owner = is_org_owner
+        self._is_organization_owner = is_organization_owner
 
     def resolve_user(
         self,
@@ -82,8 +82,8 @@ class IdentitySessionService:
         )
         if user.get("auth") == "pat":
             raise SessionForbidden("admin routes require a browser session")
-        if self._is_org_owner is not None:
-            allowed = self._is_org_owner(int(user["id"]), int(user["org_id"]))
+        if self._is_organization_owner is not None:
+            allowed = self._is_organization_owner(int(user["id"]), int(user["org_id"]))
         else:
             allowed = user["email"] in self._admin_emails()
         if not allowed:
@@ -114,9 +114,9 @@ class IdentitySessionService:
     def instance_identity(self) -> dict[str, Any]:
         """Public, unauthenticated branding for the pre-auth sign-in page.
 
-        Sourced from the first configured org (lowest id) — our own hosted
-        deployment is not special-cased, it is just whichever org happens to
-        be first when there is no signed-in user's org to read yet.
+        Sourced from the first configured organization (lowest id) — our own hosted
+        deployment is not special-cased, it is just whichever organization happens to
+        be first when there is no signed-in user's organization to read yet.
         """
         with self._uow_factory() as uow:
             identity = uow.auth.first_instance_identity()
@@ -125,10 +125,10 @@ class IdentitySessionService:
             "support_contact": identity["support_contact"],
         }
 
-    def org_identity(self, user: dict[str, Any]) -> dict[str, Any]:
-        """The signed-in user's own org identity, for `/api/me`."""
+    def organization_identity(self, user: dict[str, Any]) -> dict[str, Any]:
+        """The signed-in user's own organization identity, for `/api/me`."""
         with self._uow_factory() as uow:
-            identity = uow.auth.identity_for_org(int(user["org_id"]))
+            identity = uow.auth.identity_for_organization(int(user["org_id"]))
         if identity is None:
             identity = {
                 "display_name": None,
@@ -185,6 +185,6 @@ class IdentitySessionService:
                     raise ValueError("signed-in user no longer exists")
             if threshold is None:
                 return updated
-            return uow.auth.update_cost_preapproval(
+            return uow.auth.update_allowance(
                 user_id=int(user["id"]), threshold_usd=threshold
             )

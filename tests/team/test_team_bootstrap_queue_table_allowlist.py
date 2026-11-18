@@ -96,9 +96,9 @@ def test_team_bootstrap_accepts_a_database_carrying_model_pulls_created_by_anoth
             )
             cx.execute(sa.text("CREATE TABLE model_pulls (id INTEGER PRIMARY KEY)"))
 
-        from frisket.team.team_bootstrap import initialize_team_schema_and_org
+        from frisket.team.team_bootstrap import initialize_team_schema_and_organization
 
-        initialize_team_schema_and_org(engine, organization_name="acme")
+        initialize_team_schema_and_organization(engine, organization_name="acme")
 
         with engine.connect() as cx2:
             tables = set(sa.inspect(cx2).get_table_names())

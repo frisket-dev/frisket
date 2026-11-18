@@ -226,10 +226,10 @@ export function CreateEmbeddingIndexDialog({
   const modelSummary = providerLabel(selectedCard, form);
   const refreshSummary = refreshPolicyLabel(remoteSelected, form, selectedCard);
   const inputRate = selectedCard?.pricing?.inputUsdPerMillionTokens ?? null;
-  const costQuoteKey = `${sheet.id}:${sheet.rowCount}:${form.sourceColumns.join('\u0000')}:${inputRate ?? 'unknown'}`;
+  const costEstimateKey = `${sheet.id}:${sheet.rowCount}:${form.sourceColumns.join('\u0000')}:${inputRate ?? 'unknown'}`;
   const costEstimateEligible = remoteSelected && inputRate != null && form.sourceColumns.length > 0;
-  const costQuote = useLoader(async (): Promise<{ key: string; estimate: EmbeddingCostEstimate | null }> => {
-    const key = costQuoteKey;
+  const costEstimateLoad = useLoader(async (): Promise<{ key: string; estimate: EmbeddingCostEstimate | null }> => {
+    const key = costEstimateKey;
     try {
       const limit = Math.min(EMBEDDING_COST_SAMPLE_ROWS, sheet.rowCount);
       const page = await (limit > 0
@@ -247,13 +247,13 @@ export function CreateEmbeddingIndexDialog({
     } catch {
       return { key, estimate: null };
     }
-  }, [apiPort, costEstimateEligible, costQuoteKey, form.sourceColumns, inputRate, sheet], {
+  }, [apiPort, costEstimateEligible, costEstimateKey, form.sourceColumns, inputRate, sheet], {
     keepPreviousData: true,
     enabled: costEstimateEligible && inputRate != null,
   }).data;
-  const visibleCostQuote = costQuote?.key === costQuoteKey ? costQuote : null;
-  const costEstimate = visibleCostQuote?.estimate ?? null;
-  const costEstimateLoading = costEstimateEligible && visibleCostQuote == null;
+  const visibleCostEstimateLoad = costEstimateLoad?.key === costEstimateKey ? costEstimateLoad : null;
+  const costEstimate = visibleCostEstimateLoad?.estimate ?? null;
+  const costEstimateLoading = costEstimateEligible && visibleCostEstimateLoad == null;
 
   const goNext = () => {
     if (!canAdvance) return;

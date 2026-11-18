@@ -19,7 +19,7 @@ import type { Store } from '../store/types';
  *
  * Nine members whose ONLY dispatch site was an unreachable runActCommand
  * switch case (view.grid/map/graph, discover.toggle, wrap.toggle,
- * rowHeight.cycle, savedViews.toggle, provenance.toggle, palette.open) were
+ * rowHeight.cycle, viewsStore.toggle, provenance.toggle, palette.open) were
  * deleted, the same disposition the reachability discriminator
  * (reachability.test.ts) earlier forced for `workView.set`. Their FEATURES
  * all live via other paths (toolbar wrap button, ⋯ overflow menu, ⌘K palette

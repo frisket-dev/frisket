@@ -40,7 +40,7 @@ def _me_payload(
         "display_name": user.get("name"),
         "avatar_seed": f"user:{user['email']}",
         "cost_preapproval_usd": user.get("cost_preapproval_usd"),
-        "instance": session.org_identity(user),
+        "instance": session.organization_identity(user),
     }
     payload.update(session.me_contributions(user))
     return payload
@@ -83,7 +83,7 @@ def register_session_routes(
     )
     def instance_info() -> InstanceInfoResponse:
         # Unauthenticated: the sign-in page needs branding before there is a
-        # session to read an org from.
+        # session to read an organization from.
         return InstanceInfoResponse.model_validate(session.instance_identity())
 
     @app.patch(

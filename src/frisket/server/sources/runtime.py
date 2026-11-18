@@ -1,6 +1,6 @@
-"""Host-owned source poller envelope.
+"""Host-owned feed checker envelope.
 
-Pollers normalize provider data into ``SourcePollResult``. They do not receive a
+Feed checkers normalize provider data into ``SourcePollResult``. They do not receive a
 Project handle; the executor owns dedupe, row materialization, source_runs, and
 receipts.
 """
@@ -74,29 +74,29 @@ class SourcePoller(Protocol):
     def poll(self, ctx: SourcePollContext) -> SourcePollResult: ...
 
 
-_POLLERS: dict[str, SourcePoller] = {}
+_FEED_CHECKERS: dict[str, SourcePoller] = {}
 
 
-def register_source_poller(poller: SourcePoller, *, replace: bool = False) -> None:
-    kind = str(poller.kind).strip()
+def register_feed_checker(feed_checker: SourcePoller, *, replace: bool = False) -> None:
+    kind = str(feed_checker.kind).strip()
     if not kind:
         raise ValueError("source poller kind must be non-empty")
-    existing = _POLLERS.get(kind)
-    if existing is not None and existing is not poller and not replace:
+    existing = _FEED_CHECKERS.get(kind)
+    if existing is not None and existing is not feed_checker and not replace:
         raise ValueError(f"source poller kind already registered: {kind}")
-    _POLLERS[kind] = poller
+    _FEED_CHECKERS[kind] = feed_checker
 
 
-def unregister_source_poller(kind: str) -> None:
-    _POLLERS.pop(kind, None)
+def unregister_feed_checker(kind: str) -> None:
+    _FEED_CHECKERS.pop(kind, None)
 
 
-def get_source_poller(kind: str) -> SourcePoller | None:
-    return _POLLERS.get(kind)
+def get_feed_checker(kind: str) -> SourcePoller | None:
+    return _FEED_CHECKERS.get(kind)
 
 
 def registered_source_kinds() -> tuple[str, ...]:
-    return tuple(sorted(_POLLERS))
+    return tuple(sorted(_FEED_CHECKERS))
 
 
 def encode_cursor(value: str | dict[str, Any] | None) -> str | None:

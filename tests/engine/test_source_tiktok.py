@@ -10,10 +10,10 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
 from frisket.server.sources.runtime import (
     SourcePollContext,
-    get_source_poller,
-    register_source_poller,
+    get_feed_checker,
+    register_feed_checker,
 )
-from frisket.server.sources.tiktok import TikTokProfilePoller, list_tiktok_profile
+from frisket.server.sources.tiktok import TikTokProfileFeedChecker, list_tiktok_profile
 
 
 def source(url="https://www.tiktok.com/@example", **config):
@@ -53,7 +53,7 @@ def test_profile_references_normalize_and_limits_reach_provider(url):
         calls.append((url, item_cap))
         return {"title": "example", "entries": [entry(), entry("1234567891")]}
 
-    result = TikTokProfilePoller(provider).poll(
+    result = TikTokProfileFeedChecker(provider).poll(
         SourcePollContext(source(url, max_items_per_poll=1), None)
     )
     assert calls == [("https://www.tiktok.com/@example", 1)]
@@ -77,12 +77,12 @@ def test_profile_references_normalize_and_limits_reach_provider(url):
     ],
 )
 def test_non_profiles_are_rejected(url):
-    assert TikTokProfilePoller().validate_config(source(url))
+    assert TikTokProfileFeedChecker().validate_config(source(url))
 
 
 @pytest.mark.parametrize("limit", [True, 0, -1, "5"])
 def test_invalid_limits_rejected(limit):
-    assert TikTokProfilePoller().validate_config(source(max_items_per_poll=limit))
+    assert TikTokProfileFeedChecker().validate_config(source(max_items_per_poll=limit))
 
 
 def test_provider_requests_flat_metadata_without_downloading(monkeypatch):
@@ -119,7 +119,7 @@ def test_provider_requests_flat_metadata_without_downloading(monkeypatch):
 @pytest.mark.parametrize("listing", [None, {}, {"entries": None}])
 def test_failed_listing_is_not_an_empty_success(listing):
     with pytest.raises(RuntimeError, match="did not return a profile listing"):
-        TikTokProfilePoller(lambda *a, **kw: listing).poll(
+        TikTokProfileFeedChecker(lambda *a, **kw: listing).poll(
             SourcePollContext(source(), None)
         )
 
@@ -129,25 +129,25 @@ def test_provider_errors_are_redacted_and_empty_profile_is_valid():
         raise RuntimeError("cookie=secret token=hidden unavailable")
 
     with pytest.raises(RuntimeError) as error:
-        TikTokProfilePoller(fail).poll(SourcePollContext(source(), None))
+        TikTokProfileFeedChecker(fail).poll(SourcePollContext(source(), None))
     assert "secret" not in str(error.value)
     assert "hidden" not in str(error.value)
-    result = TikTokProfilePoller(lambda *a, **kw: {"entries": []}).poll(
+    result = TikTokProfileFeedChecker(lambda *a, **kw: {"entries": []}).poll(
         SourcePollContext(source(), None)
     )
     assert result.items == []
 
 
 def test_poll_materializes_and_deduplicates_through_normal_source_host(tmp_path):
-    previous = get_source_poller("tiktok_profile")
+    previous = get_feed_checker("tiktok_profile")
     listings = iter(
         [
             {"title": "Example newsroom", "entries": [entry(), entry()]},
             {"title": "Example newsroom", "entries": [entry(), entry("1234567891")]},
         ]
     )
-    register_source_poller(
-        TikTokProfilePoller(lambda *a, **kw: next(listings)), replace=True
+    register_feed_checker(
+        TikTokProfileFeedChecker(lambda *a, **kw: next(listings)), replace=True
     )
     try:
         with closing(Project.create(tmp_path / "tiktok")) as project:
@@ -200,7 +200,7 @@ def test_poll_materializes_and_deduplicates_through_normal_source_host(tmp_path)
             )
     finally:
         assert previous is not None
-        register_source_poller(previous, replace=True)
+        register_feed_checker(previous, replace=True)
 
 
 def test_flat_listing_reports_actual_item_progress_and_honors_stop(monkeypatch):
@@ -231,8 +231,8 @@ def test_flat_listing_reports_actual_item_progress_and_honors_stop(monkeypatch):
 
     monkeypatch.setattr(yt_dlp.YoutubeDL, "extract_info", extract_info)
     progress = []
-    poller = TikTokProfilePoller()
-    result = poller.poll(
+    feed_checker = TikTokProfileFeedChecker()
+    result = feed_checker.poll(
         SourcePollContext(
             source(max_items_per_poll=2),
             None,
@@ -242,4 +242,4 @@ def test_flat_listing_reports_actual_item_progress_and_honors_stop(monkeypatch):
     assert progress == [(1, 2), (2, 2)]
     assert len(result.items) == 2
     with pytest.raises(RuntimeError, match="cancelled"):
-        poller.poll(SourcePollContext(source(), None, should_cancel=lambda: True))
+        feed_checker.poll(SourcePollContext(source(), None, should_cancel=lambda: True))

@@ -46,8 +46,8 @@ from typing import TYPE_CHECKING, Any, Mapping, Union
 
 from frisket.execution.commercial import (
     CeilingMode,
-    CommercialQuoteRounding,
-    QuoteRoundingMode,
+    CommercialEstimateRounding,
+    EstimateRoundingMode,
     RowSettlementMode,
 )
 from frisket.execution.promises import (
@@ -109,7 +109,7 @@ class PricedCostBasis:
     estimated_quantity: Union[int, str, None]
     quantity_unit: str
     terms_version: str | None
-    quantity_rounding_mode: QuoteRoundingMode
+    quantity_rounding_mode: EstimateRoundingMode
     quantity_rounding_decimal_places: int | None
     meter_key: str
     meter_units_per_quantity_unit: str
@@ -143,7 +143,7 @@ class PricedCostBasis:
         _require_clean("charge_authority", self.charge_authority)
         if self.terms_version is not None:
             _require_clean("terms_version", self.terms_version)
-        CommercialQuoteRounding(
+        CommercialEstimateRounding(
             mode=self.quantity_rounding_mode,
             decimal_places=self.quantity_rounding_decimal_places,
         )

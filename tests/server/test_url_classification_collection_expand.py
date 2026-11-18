@@ -123,15 +123,15 @@ def test_watch_url_is_not_a_collection() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The shared enumerator: same providers/shaper as the recurring pollers
+# The shared enumerator: same providers/shaper as the recurring feed checkers
 # ---------------------------------------------------------------------------
 
 
-def test_youtube_collection_enumerators_are_the_poller_kinds() -> None:
+def test_youtube_collection_enumerators_are_the_feed_checker_kinds() -> None:
     assert YOUTUBE_COLLECTION_ENUMERATORS == {"youtube_channel", "youtube_playlist"}
 
 
-def test_enumerate_channel_shares_the_poller_provider_seam() -> None:
+def test_enumerate_channel_shares_the_feed_checker_provider_seam() -> None:
     provider = _FakeChannelProvider(_entries(3), preview_count=3)
     result = enumerate_youtube_collection(
         "youtube_channel", CHANNEL_URL, item_cap=1000, provider=provider
@@ -139,7 +139,7 @@ def test_enumerate_channel_shares_the_poller_provider_seam() -> None:
     assert provider.calls, "the injected provider must be consulted (no network)"
     assert result.preview_count == 3
     assert len(result.rows) == 3
-    # Rows carry the poller's shaped fields (video_id + watch url + title).
+    # Rows carry the feed checker's shaped fields (video_id + watch url + title).
     first = result.rows[0]
     assert first["video_id"] == "vid0000000"
     assert first["url"] == "https://www.youtube.com/watch?v=vid0000000"
@@ -161,7 +161,7 @@ def test_enumerate_channel_honors_item_cap_above_legacy_provider_clamp() -> None
     assert result.truncated is False
 
 
-def test_enumerate_playlist_shares_the_poller_provider_seam() -> None:
+def test_enumerate_playlist_shares_the_feed_checker_provider_seam() -> None:
     provider = _FakePlaylistProvider(_entries(5), preview_count=5)
     result = enumerate_youtube_collection(
         "youtube_playlist", PLAYLIST_URL, item_cap=1000, provider=provider
@@ -182,9 +182,9 @@ def test_enumerate_preview_count_is_total_even_when_entries_truncated() -> None:
     assert result.truncated is True
 
 
-def test_enumerate_defaults_to_the_real_poller_providers() -> None:
+def test_enumerate_defaults_to_the_real_feed_checker_providers() -> None:
     # No provider injected -> the shared enumerator uses the SAME real yt-dlp
-    # provider functions the pollers use (identity check, no call/network).
+    # provider functions the feed checkers use (identity check, no call/network).
     from frisket.server.sources import youtube as youtube_module
 
     assert youtube_module.list_youtube_channel_with_ytdlp is (

@@ -27,7 +27,7 @@ from frisket.team.schema import (
     operator_tokens,
     users,
 )
-from frisket.team.team_bootstrap import initialize_team_schema_and_org
+from frisket.team.team_bootstrap import initialize_team_schema_and_organization
 
 
 def _app(tmp_path: Path, **overrides: Any):
@@ -45,7 +45,7 @@ def _app(tmp_path: Path, **overrides: Any):
 
 def _engine(tmp_path: Path) -> sa.Engine:
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'control.db'}", future=True)
-    initialize_team_schema_and_org(engine, organization_name="Ops Desk")
+    initialize_team_schema_and_organization(engine, organization_name="Ops Desk")
     return engine
 
 
@@ -145,7 +145,7 @@ def test_control_cli_standalone_data_dir_fallback(
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     engine = sa.create_engine(f"sqlite:///{data_dir / 'server.sqlite3'}", future=True)
-    initialize_team_schema_and_org(engine, organization_name="Ops Desk")
+    initialize_team_schema_and_organization(engine, organization_name="Ops Desk")
     monkeypatch.delenv("FRISKET_TEAM_DATABASE_URL", raising=False)
     monkeypatch.setenv("FRISKET_DATA_DIR", str(data_dir))
     assert resolve_control_database_url() == f"sqlite:///{data_dir / 'server.sqlite3'}"
@@ -176,7 +176,7 @@ def test_unclaimed_server_admits_only_the_operator_admin_api(
     assert ping.status_code == 200, ping.text
     assert ping.json()["org"] == "Ops Desk"
     assert ping.json()["token_label"] == "install"
-    # Only /api/admin/* passes pre-claim; org-owner power does not open the
+    # Only /api/admin/* passes pre-claim; organization-owner power does not open the
     # rest of the unclaimed server.
     assert client.get("/api/me", headers=bearer).status_code == 503
     assert (

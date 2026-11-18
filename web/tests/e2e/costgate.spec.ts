@@ -133,10 +133,10 @@ test('expensive run trips the 402 cost gate modal', async ({ page }) => {
     await expectCostGateContribution(
       page.getByTestId('workbench-contribution-frisket-core-view-cost-gate'),
     );
-    const quotedCost = page.getByTestId('cost-gate-estimate');
-    await expect(quotedCost).toContainText('$');
-    const quoteText = await quotedCost.innerText();
-    const dollars = Number(quoteText.match(/\$([\d,.]+)/)?.[1]?.replaceAll(',', ''));
+    const estimatedCost = page.getByTestId('cost-gate-estimate');
+    await expect(estimatedCost).toContainText('$');
+    const estimateText = await estimatedCost.innerText();
+    const dollars = Number(estimateText.match(/\$([\d,.]+)/)?.[1]?.replaceAll(',', ''));
     expect(dollars).toBeGreaterThan(2);
 
     // The server-issued confirmation token enables the deliberate retry. This

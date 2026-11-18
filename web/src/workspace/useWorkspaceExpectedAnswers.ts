@@ -64,7 +64,7 @@ export function useWorkspaceExpectedAnswers(projectId: string, sheet: SheetMeta 
   const [revision, setRevision] = useState(0);
   const [join, setJoin] = useState<{ actionId?: string; link?: EvaluationLink; step?: 'columns' } | null>(null);
   const refresh = useCallback(() => setRevision((value) => value + 1), []);
-  // Output columns may exist before a run's comparison context is ready.
+  // Generated columns may exist before a run's comparison context is ready.
   // Retry a pending context on the existing job completion signal.
   const identity = (target: SheetMeta) => ({ id: target.id, rowCount: target.rowCount,
     anchors: target.columns.filter(column => column.latestRunId)

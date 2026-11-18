@@ -747,7 +747,7 @@ describe('GeneratedActionForm', () => {
     })).toBe(false);
   });
 
-  it('accepts a generated action that writes existing cells without new output columns', () => {
+  it('accepts a generated action that writes existing cells without new generated columns', () => {
     const entry = generatedEntry('map.template');
     expect(isGeneratedActionCatalogEntry({
       ...entry,

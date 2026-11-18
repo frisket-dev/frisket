@@ -30,7 +30,7 @@ function hostContext(): WorkbenchHostContext {
     identity: { projectId: 'project', activeSheetId: sheet.id, routePath: '/p/project', activeRegion: null, activeContributionId: null },
     selection: { selectedRowIds: ['11'], activeRowId: '11', activeCell: null, activeColumnId: null,
       activeSourceId: null, activeEntityId: null, activeEvidenceLinkId: null },
-    gridState: { filter: null, sort: null, lensId: null, columnOrder: [], frozenColumns: 0, dataVersion: 0 },
+    gridState: { filter: null, sort: null, viewId: null, columnOrder: [], frozenColumns: 0, dataVersion: 0 },
     gridFilter: { applySpec: vi.fn(), applyBbox: vi.fn(), applyValue: vi.fn(), applyEntity: vi.fn(), clear: vi.fn() },
     navigation: { openSheet: vi.fn(), openRow: vi.fn(), openColumn: vi.fn(), openSource: vi.fn(), openEvidence: vi.fn(),
       openMap: vi.fn(), openGraph: vi.fn(), openActionRoute: vi.fn(), openMainViewContribution: vi.fn() },

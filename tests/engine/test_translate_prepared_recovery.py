@@ -84,7 +84,7 @@ def test_prepared_translate_retry_recovery_and_backfill_keep_typed_authority(
         job = workspace.queue.get(queued["job_id"])
         payload = {**deepcopy(job.payload), "job_id": job.id}
         handler = workspace.registry.get("project.run")
-        context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
 
         async def before_dispatch(*args, **kwargs):
             raise ProcessDeath()

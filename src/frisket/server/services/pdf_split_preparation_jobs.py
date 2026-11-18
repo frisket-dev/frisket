@@ -20,7 +20,7 @@ from frisket.engine.store.pdf_split_text import (
     capture_pdf_split_text_identities,
     publish_pdf_split_pages,
 )
-from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
+from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrGrant
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationSummary
 from frisket.server.services.pdf_split_preparation import (
     PdfSplitChildBinding,

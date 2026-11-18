@@ -120,14 +120,14 @@ describe('PDF packet split API', () => {
       }));
     vi.stubGlobal('fetch', fetchMock);
 
-    const quoted = await estimatePdfPacketOcr('p', 's', {
+    const estimated = await estimatePdfPacketOcr('p', 's', {
       engine: 'rapidocr', scope: 'sample', pages: [17],
     });
     const cached = await estimatePdfPacketOcr('p', 's', {
       engine: 'rapidocr', scope: 'sample', pages: [17],
     });
 
-    expect(quoted.estimate).toMatchObject({
+    expect(estimated.estimate).toMatchObject({
       billed_cost: 250_000,
       policy_id: 'hosted.v1',
       promise_set_hash: 'quote-1',

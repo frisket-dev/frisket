@@ -1,5 +1,5 @@
 import { httpContract, type HttpContractSuccessResponse } from './httpContract';
-import type { SavedView, SavedViewCreateInput, SavedViewDefinitionReplaceInput, SavedViewRenameInput, ViewResolved } from './types';
+import type { View, ViewCreateInput, ViewDefinitionReplaceInput, ViewRenameInput, ViewResolved } from './types';
 import { isRecord } from './wireValues';
 
 /** Structural twin of the generated contract's recursive JSON leaf. The
@@ -37,44 +37,44 @@ export function toWireJsonObject(value: Record<string, unknown>): { [key: string
   return out;
 }
 
-type SavedViewListWire = HttpContractSuccessResponse<'tenant.list_views.get'>;
-type SavedViewRowWire = SavedViewListWire[number];
-function definitionBody(body: SavedViewDefinitionReplaceInput) {
+type ViewListWire = HttpContractSuccessResponse<'tenant.list_views.get'>;
+type ViewRowWire = ViewListWire[number];
+function definitionBody(body: ViewDefinitionReplaceInput) {
   return { selection: body.selection, presentation: toWireJsonObject({ ...body.presentation }) };
 }
-function toSavedView(wire: SavedViewRowWire): SavedView {
+function toView(wire: ViewRowWire): View {
   const spec = wire.spec;
   if (!isRecord(spec.selection) || !isRecord(spec.presentation)) {
     if (wire.unavailable_reason) return { ...wire, spec: null };
     throw new Error('View is missing its selection or presentation.');
   }
-  return { ...wire, spec: spec as unknown as SavedView['spec'] };
+  return { ...wire, spec: spec as unknown as View['spec'] };
 }
-export function createViewsLensesApi(projectId: string) {
+export function createViewsApi(projectId: string) {
   return {
     async listViews(sheetId?: string) {
       return httpContract('tenant.list_views.get', {
         pathParams: { pid: projectId },
         query: { sheet_id: sheetId ? Number(sheetId) : undefined },
-      }, (wire) => wire.map(toSavedView));
+      }, (wire) => wire.map(toView));
     },
-    async saveView(input: SavedViewCreateInput) {
+    async saveView(input: ViewCreateInput) {
       return httpContract('tenant.create_view.post', {
         pathParams: { pid: projectId },
         body: { name: input.name, ...definitionBody(input) },
-      }, toSavedView);
+      }, toView);
     },
-    async renameView(viewId: number, input: SavedViewRenameInput) {
+    async renameView(viewId: number, input: ViewRenameInput) {
       return httpContract('tenant.patch_view.patch', {
         pathParams: { pid: projectId, view_id: viewId },
         body: input,
-      }, toSavedView);
+      }, toView);
     },
-    async replaceViewDefinition(viewId: number, input: SavedViewDefinitionReplaceInput) {
+    async replaceViewDefinition(viewId: number, input: ViewDefinitionReplaceInput) {
       return httpContract('tenant.replace_view_definition.put', {
         pathParams: { pid: projectId, view_id: viewId },
         body: definitionBody(input),
-      }, toSavedView);
+      }, toView);
     },
     async deleteView(viewId: number): Promise<void> {
       await httpContract('tenant.delete_view_ep.delete', {

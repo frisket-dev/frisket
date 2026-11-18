@@ -439,10 +439,10 @@ class TestClaimedProjectLocation:
     """Trusted handler path resolution for claimed storage identity.
 
     A claimed ProjectStorageKey always beats mutable payload fields; the
-    directory comes from registration config. workspace_root_storage_org_id
-    declares an org-scoped root (hosted per-org Workspace) so a matching
+    directory comes from registration config. workspace_root_storage_organization_id
+    declares an organization-scoped root (hosted per-organization Workspace) so a matching
     claim resolves directly under it instead of double-nesting, and a claim
-    for another org fails closed.
+    for another organization fails closed.
     """
 
     def _payload(self, key):
@@ -455,7 +455,7 @@ class TestClaimedProjectLocation:
             "workspace_root": "/attacker/root",
         }
 
-    def test_global_root_appends_claimed_org(self, tmp_path):
+    def test_global_root_appends_claimed_organization(self, tmp_path):
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
@@ -469,23 +469,27 @@ class TestClaimedProjectLocation:
         assert root == tmp_path / "7"
         assert path == tmp_path / "7" / "proj.frisket"
 
-    def test_declared_org_scoped_root_resolves_without_double_nesting(self, tmp_path):
+    def test_declared_organization_scoped_root_resolves_without_double_nesting(
+        self, tmp_path
+    ):
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
         key = ProjectStorageKey(storage_org_id=7, project_slug="proj")
-        org_root = tmp_path / "7"
+        organization_root = tmp_path / "7"
         slug, root, path = claimed_project_location(
             self._payload(key),
-            workspace_root=org_root,
+            workspace_root=organization_root,
             require_storage_identity=False,
-            workspace_root_storage_org_id=7,
+            workspace_root_storage_organization_id=7,
         )
         assert slug == "proj"
-        assert root == org_root
-        assert path == org_root / "proj.frisket"
+        assert root == organization_root
+        assert path == organization_root / "proj.frisket"
 
-    def test_declared_org_scoped_root_rejects_cross_org_claim(self, tmp_path):
+    def test_declared_organization_scoped_root_rejects_cross_organization_claim(
+        self, tmp_path
+    ):
         from frisket.engine.jobs.queue import claimed_project_location
         from frisket.project_identity import ProjectStorageKey
 
@@ -495,7 +499,7 @@ class TestClaimedProjectLocation:
                 self._payload(key),
                 workspace_root=tmp_path / "7",
                 require_storage_identity=False,
-                workspace_root_storage_org_id=7,
+                workspace_root_storage_organization_id=7,
             )
 
     def test_missing_claim_fails_closed_when_identity_required(self, tmp_path):

@@ -85,7 +85,7 @@ describe('row drawer json image-blob thumbnails', () => {
   it('renders bounded preview bytes without inventing blob URLs and visibly retains omitted frame times', () => {
     const inline = 'data:image/jpeg;base64,/9j/2Q==';
     render(<PreviewFieldValue preview={{
-      column: { name: 'frames', columnType: 'json', format: null, hidden: false, overwritesColumnId: null },
+      column: { name: 'frames', columnType: 'json', format: null, hidden: false, replacesColumnId: null },
       cell: { value: JSON.stringify([
       { t: 1, image: { inline_data_url: inline, mime: 'image/jpeg', filename: 'preview.jpg' } },
       { t: 2, image: { preview_omitted: true, mime: 'image/jpeg', filename: 'omitted.jpg' } },

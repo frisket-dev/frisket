@@ -2239,7 +2239,7 @@ class ActionRequest(BaseModel):
 
     @field_validator("expected_output_columns")
     @classmethod
-    def _valid_expected_output_columns(
+    def _valid_expected_generated_columns(
         cls, value: dict[str, int | None] | None
     ) -> dict[str, int | None] | None:
         if value is None:

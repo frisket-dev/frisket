@@ -39,7 +39,7 @@ interface PreviewViewDeps {
 /** An in-memory action preview: a small sample computed server-side and held
  *  HERE in store memory only (never persisted, cleared on sheet switch). While
  *  `running` the banner shows progress; once `done` the grid pages EXACTLY the
- *  sampled row ids (the lensRowIds seam) and overlays the sampled columns/values
+ *  sampled row ids (the viewRowIds seam) and overlays the sampled columns/values
  *  — no op/run/column/cell is ever written. Closing drops this object; "Run for
  *  real" fires the normal run from `req`. null = no preview open. */
 export interface PreviewGridView {

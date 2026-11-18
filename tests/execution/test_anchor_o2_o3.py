@@ -2,7 +2,7 @@
 
 IMPORTANT SCOPE MARKER: these are POSTURE FIXTURES, not hosted-composition
 tests. O2 and O3 are cloud offerings whose dynamic resolver, platform
-credentials, and org context are not part of the open tree, so the hosted
+credentials, and organization context are not part of the open tree, so the hosted
 composition cannot run here. What CAN run here is the shared mechanics: an
 offering configures the architecture rather than forking it.
 
@@ -172,7 +172,7 @@ O2_SNAPSHOT = {
 def test_anchor_o2_gate_renders_cost_and_egress_claims(project):
     """O2's gate has cost and egress claims on first consent. Both rows are
     user claims, neither is covered by the default
-    preapproval threshold, and the rendered copy speaks the metered posture."""
+    allowance threshold, and the rendered copy speaks the metered posture."""
     promise_set = compile_route_promises(O2_FACTS, O2_COST)
     uncovered = project_uncovered_user_claims(project, promise_set)
     assert sorted(p.field for p in uncovered) == ["cost", "egress_class"]
@@ -286,7 +286,7 @@ def test_anchor_o3_credential_divergence_is_recorded_and_settlement_visible(
     project,
 ):
     """O3's hard case: a silent fallback to the platform key must never be
-    settled as if it were the org's own bill.
+    settled as if it were the organization's own bill.
 
     The FIRST line of defence is before the effect: the
     adapter's selected credential class is checked against the consented one

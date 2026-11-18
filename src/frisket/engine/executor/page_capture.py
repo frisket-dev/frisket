@@ -84,7 +84,7 @@ class CapturePlan:
     max_bytes: int
     timeout_ms: int
     full_page: bool
-    output_column_type: str
+    generated_column_type: str
     primary_role: str
     output_names: dict[str, str]
     request: dict[str, Any]
@@ -270,7 +270,7 @@ def _resolve_web_capture_page_inputs(
             )
         if (
             output_column is not None
-            and output_column["type"] != params.output_column_type
+            and output_column["type"] != params.generated_column_type
         ):
             return ActionError(
                 code="output_column_type_mismatch",
@@ -280,7 +280,7 @@ def _resolve_web_capture_page_inputs(
                 details={
                     "column": params.output_name,
                     "current_type": output_column["type"],
-                    "expected_type": params.output_column_type,
+                    "expected_type": params.generated_column_type,
                 },
             )
     values, value_refs = project.get_values_with_refs(
@@ -650,7 +650,7 @@ def _finalize_web_capture_page(
 
     try:
         project.db.execute("BEGIN IMMEDIATE")
-        output_column_id = _web_capture_page_add_output_column(project, params)
+        output_column_id = _web_capture_page_add_generated_column(project, params)
         blob_refs_by_row: dict[int, dict[str, Any]] = {}
         for row in captured:
             output = row.get("blob_output")
@@ -860,7 +860,7 @@ def _finalize_web_capture_page_links(
     return _result_from_receipt(receipt)
 
 
-def _web_capture_page_add_output_column(
+def _web_capture_page_add_generated_column(
     project: Project,
     params: CapturePlan,
 ) -> int:
@@ -871,9 +871,9 @@ def _web_capture_page_add_output_column(
     if row is not None:
         if row["hidden"]:
             raise ValueError("output name is reserved by a hidden column")
-        if row["type"] != params.output_column_type:
+        if row["type"] != params.generated_column_type:
             raise ValueError(
-                f"generated column is {row['type']}, expected {params.output_column_type}"
+                f"generated column is {row['type']}, expected {params.generated_column_type}"
             )
         return int(row["id"])
     cur = project.db.execute(
@@ -883,7 +883,7 @@ def _web_capture_page_add_output_column(
         (
             params.sheet_id,
             params.output_name,
-            params.output_column_type,
+            params.generated_column_type,
             params.sheet_id,
         ),
     )
@@ -989,7 +989,7 @@ def _web_capture_page_output_ref(
         "kind": "web_capture_page_output_column",
         "sheet_id": params.sheet_id,
         "column_id": output_column_id,
-        "column_type": params.output_column_type,
+        "column_type": params.generated_column_type,
         "name": params.output_name,
         "row_ids": row_ids,
         "captured_rows": [

@@ -4,7 +4,7 @@ import type { PreviewOverlayColumn } from '../../src/api/types';
 import { previewColumnDef, previewGridCell } from '../../src/grid/previewCells';
 
 const column: PreviewOverlayColumn = {
-  name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: null,
+  name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, replacesColumnId: null,
 };
 const timeline = {
   schema_version: 'frisket.timeline_points.v1',
@@ -13,8 +13,8 @@ const timeline = {
 };
 
 describe('preview cell presentation', () => {
-  it.each([null, 'existing-text-column'])('uses the sampled descriptor for target %s', (overwritesColumnId) => {
-    const descriptor = { ...column, overwritesColumnId, hidden: true };
+  it.each([null, 'existing-text-column'])('uses the sampled descriptor for target %s', (replacesColumnId) => {
+    const descriptor = { ...column, replacesColumnId, hidden: true };
     expect(previewColumnDef(descriptor)).toEqual({
       id: '__preview::Cuts', name: 'Cuts', type: 'timeline_points', format: null, defaultHidden: true,
     });

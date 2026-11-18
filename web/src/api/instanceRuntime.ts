@@ -39,7 +39,7 @@ export function createInstanceRuntimeApi() {
     updateRuntimeConfig(
       cacheMode: RuntimeConfig['cache_mode'] | undefined,
       confirmed: boolean,
-      costPreapprovalUsd?: string,
+      allowanceUsd?: string,
       options: RequestOptions = {},
     ): Promise<RuntimeConfig> {
       return httpContract(
@@ -47,7 +47,7 @@ export function createInstanceRuntimeApi() {
         {
           body: {
             cache_mode: cacheMode,
-            cost_preapproval_usd: costPreapprovalUsd,
+            cost_preapproval_usd: allowanceUsd,
             confirmed,
           },
           signal: options.signal,

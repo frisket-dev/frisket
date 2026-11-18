@@ -1,12 +1,12 @@
-"""Seed a real single-org team admin session for Playwright storageState.
+"""Seed a real single-organization team admin session for Playwright storageState.
 
 Two of the eight non-core team specs (admin-users, audit-log-viewer) navigate
 straight to `/admin` without mocking `/api/me` themselves, so they need a REAL
-authenticated session against the real single-org team backend
+authenticated session against the real single-organization team backend
 (`frisket.team.asgi:app`) already established before the browser loads the
 page — the same schema/org `create_team_app` provisions on boot
-(`frisket.team.team_bootstrap.initialize_team_schema_and_org`, always org id
-1 for the single-org team edition).
+(`frisket.team.team_bootstrap.initialize_team_schema_and_organization`, always organization id
+1 for the single-organization team edition).
 
 This claims the fresh workspace's first owner and writes a session directly
 into the sqlite DB `frisket.team.asgi:app` is already serving from
@@ -69,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     now = datetime.now(UTC)
     expires_at = now + SESSION_LIFETIME
     with engine.begin() as cx:
-        store = IdentityStore(cx, provision_org_id=1)
+        store = IdentityStore(cx, provision_organization_id=1)
         user = store.ensure_user_for_login(admin_email)
         token = store.create_session(
             user_id=int(user["id"]), created_at=now, expires_at=expires_at

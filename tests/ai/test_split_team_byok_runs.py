@@ -138,7 +138,7 @@ def _project(client: TestClient) -> tuple[str, int]:
     return pid, int(imported.json()["sheet_id"])
 
 
-def _save_org_key(client: TestClient, *, key: str = SECRET) -> None:
+def _save_organization_key(client: TestClient, *, key: str = SECRET) -> None:
     validated = client.post(
         "/api/org/keys/validate", json={"provider": "openai", "key": key}
     )
@@ -230,7 +230,7 @@ def test_http_configured_byok_drives_sync_and_queued_runtime_without_double_coun
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    _save_org_key(client)
+    _save_organization_key(client)
     pid, sheet_id = _project(client)
     project = app.state.workspace.get(pid)
 
@@ -500,7 +500,7 @@ def test_direct_reduce_quota_error_keeps_named_resumable_receipt_over_http(
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    _save_org_key(client)
+    _save_organization_key(client)
     pid, sheet_id = _project(client)
     before_jobs = app.state.workspace.queue.list_project_jobs(pid)
 
@@ -543,7 +543,7 @@ def test_provider_quota_error_is_named_resumable_and_does_not_become_402(
     app = _app(tmp_path, monkeypatch)
     client = TestClient(app)
     _login(client, app)
-    _save_org_key(client)
+    _save_organization_key(client)
     pid, sheet_id = _project(client)
     started = post_v1_action_with_exact_confirmation(
         client,

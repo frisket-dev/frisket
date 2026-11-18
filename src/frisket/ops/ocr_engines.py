@@ -31,7 +31,7 @@ from frisket.execution.purchases import (
 )
 from frisket.ops.base import OpContext, RecipeInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
-from frisket.ops import ocr_engines_hosted as hosted
+from frisket.ops import ocr_engines_remote as hosted
 from frisket.ops import ocr_engines_local as local
 from frisket.ops import ocr_engines_sidecar as sidecar
 

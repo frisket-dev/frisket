@@ -26,7 +26,7 @@ export interface WorkbenchHostContext {
   gridState: {
     filter: GridFilterSpec | null;
     sort: GridSortSpec | null;
-    lensId: number | null;
+    viewId: number | null;
     columnOrder: string[];
     frozenColumns: number;
     /** Monotonic counter over "the rows behind this sheet changed" — the same

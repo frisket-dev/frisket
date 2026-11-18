@@ -95,12 +95,12 @@ async function selectAllExpectedRows(page: import('@playwright/test').Page) {
   await expect(page.getByLabel('Comparison rows', { exact: true })).toHaveValue('expected');
 }
 
-async function openFirstComparisonRow(page: import('@playwright/test').Page, expectedLens = true) {
+async function openFirstComparisonRow(page: import('@playwright/test').Page, expectedView = true) {
   const grid = page.getByTestId('action-compare-grid');
   await expect(grid.locator('canvas').first()).toBeVisible();
   const box = await grid.boundingBox();
   if (!box) throw new Error('Comparison grid has no visible bounds');
-  await page.mouse.dblclick(box.x + 40 + 140 + (expectedLens ? 140 : 0) + 85, box.y + 28 + 34 + 17);
+  await page.mouse.dblclick(box.x + 40 + 140 + (expectedView ? 140 : 0) + 85, box.y + 28 + 34 + 17);
   await expect(page.getByTestId('comparison-review')).toBeVisible();
 }
 

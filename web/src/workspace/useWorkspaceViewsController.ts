@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { ProjectInfo, SavedView, SheetMeta, GridSortDirection } from '../api/open';
+import type { ProjectInfo, View, SheetMeta, GridSortDirection } from '../api/open';
 import { canEditProject } from '../api/projectRole';
 import { useCurrentViewSelection } from '../bind/useCurrentViewSelection';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useProjectDataResource } from '../bind/useRouteHandle';
-import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
+import { useViewsHandle } from '../bind/useViewsHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
-import { applySavedViewTransition, clearViewSelectionTransition } from '../state/workspaceTransitions';
-import { SAVED_VIEWS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
+import { applyViewTransition, clearViewSelectionTransition } from '../state/workspaceTransitions';
+import { VIEWS_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import {
   normalizeGridFilterSpec, normalizeGridSortSpec, normalizeColumnOrder,
   exactViewHiddenColumns, columnOrderKey, hiddenColumnsKey,
@@ -22,7 +22,7 @@ import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
 
 /** Saved-view mutations retain their existing editor and confirmation tickets. */
-export function useWorkspaceSavedViewsController({
+export function useWorkspaceViewsController({
   project, sheet, currentViewColumns, chromeState, visibility, showError,
 }: {
   project: ProjectInfo;
@@ -36,7 +36,7 @@ export function useWorkspaceSavedViewsController({
   const openGeneration = useRef(0);
   useEffect(() => () => { openGeneration.current += 1; }, [sheet?.id]);
   const projectData = useProjectDataResource();
-  const savedViews = useSavedViewsHandle();
+  const viewsStore = useViewsHandle();
   const gridView = useGridViewHandle();
   const detail = useDetailHandle();
   const selection = useSelectionHandle();
@@ -44,92 +44,92 @@ export function useWorkspaceSavedViewsController({
   const columnGroupSpecs = useSelector(gridView.store, (state) => state.columnGroupSpecs);
   const { openDiscover } = chromeState;
   const { isContributionHidden, revealContribution } = visibility;
-  const views = useSelector(savedViews.store, (s) => s.views);
-  const viewName = useSelector(savedViews.store, (s) => s.viewName);
-  const savedViewsEditor = useSelector(savedViews.store, (s) => s.editor);
-  const savedViewsSaving = useSelector(savedViews.store, (s) => s.isSaving);
-  const savedViewsConfirmation = useSelector(savedViews.store, (s) => s.confirmation);
-  const savedViewsConfirmationError = useSelector(savedViews.store, (s) => s.confirmationError);
-  const savedViewsLastPublication = useSelector(savedViews.store, (s) => s.lastPublication);
-  const activeSavedViewId = useSelector(gridView.store, (s) => s.activeSavedViewId);
+  const views = useSelector(viewsStore.store, (s) => s.views);
+  const viewName = useSelector(viewsStore.store, (s) => s.viewName);
+  const viewsEditor = useSelector(viewsStore.store, (s) => s.editor);
+  const viewsSaving = useSelector(viewsStore.store, (s) => s.isSaving);
+  const viewsConfirmation = useSelector(viewsStore.store, (s) => s.confirmation);
+  const viewsConfirmationError = useSelector(viewsStore.store, (s) => s.confirmationError);
+  const viewsLastPublication = useSelector(viewsStore.store, (s) => s.lastPublication);
+  const activeViewId = useSelector(gridView.store, (s) => s.activeViewId);
 
   useEffect(() => {
-    if (activeSavedViewId !== null && !views.some((view) => view.id === activeSavedViewId)) {
-      gridView.clearActiveSavedView(activeSavedViewId);
+    if (activeViewId !== null && !views.some((view) => view.id === activeViewId)) {
+      gridView.clearActiveView(activeViewId);
     }
-  }, [activeSavedViewId, gridView, views]);
+  }, [activeViewId, gridView, views]);
 
-  const currentSavedViewsSheetId = sheet?.id ?? null;
-  const canCreateSavedView = currentSavedViewsSheetId !== null && canEditProject(project);
+  const currentViewsSheetId = sheet?.id ?? null;
+  const canCreateView = currentViewsSheetId !== null && canEditProject(project);
 
   const loadViewsForSheet = useCallback(
     async (sheetId: string) => {
       const numericSheetId = Number(sheetId);
       const storeSheetId = Number.isFinite(numericSheetId) ? numericSheetId : sheetId;
-      const token = savedViews.beginViewsLoad(storeSheetId);
+      const token = viewsStore.beginViewsLoad(storeSheetId);
       try {
         const loadedViews = (await projectApi.listViews()).filter((view) => view.sheet_id === null || String(view.sheet_id) === sheetId);
-        savedViews.receiveViews(storeSheetId, token, loadedViews);
+        viewsStore.receiveViews(storeSheetId, token, loadedViews);
       } catch (error: unknown) {
-        if (savedViews.isViewsLoadCurrent(storeSheetId, token)) {
+        if (viewsStore.isViewsLoadCurrent(storeSheetId, token)) {
           showError(error instanceof Error ? error.message : String(error));
         }
       }
     },
-    [projectApi, savedViews, showError],
+    [projectApi, viewsStore, showError],
   );
 
   useEffect(() => {
-    if (currentSavedViewsSheetId === null) {
-      savedViews.resetForSheet(null);
+    if (currentViewsSheetId === null) {
+      viewsStore.resetForSheet(null);
       return;
     }
-    const numericSheetId = Number(currentSavedViewsSheetId);
-    savedViews.resetForSheet(
-      Number.isFinite(numericSheetId) ? numericSheetId : currentSavedViewsSheetId,
+    const numericSheetId = Number(currentViewsSheetId);
+    viewsStore.resetForSheet(
+      Number.isFinite(numericSheetId) ? numericSheetId : currentViewsSheetId,
     );
-    void loadViewsForSheet(currentSavedViewsSheetId);
-  }, [currentSavedViewsSheetId, loadViewsForSheet, savedViews]);
+    void loadViewsForSheet(currentViewsSheetId);
+  }, [currentViewsSheetId, loadViewsForSheet, viewsStore]);
 
   useEffect(() => {
-    const refresh = () => { if (currentSavedViewsSheetId) void loadViewsForSheet(currentSavedViewsSheetId); };
+    const refresh = () => { if (currentViewsSheetId) void loadViewsForSheet(currentViewsSheetId); };
     window.addEventListener('frisket:views-changed', refresh);
     return () => window.removeEventListener('frisket:views-changed', refresh);
-  }, [currentSavedViewsSheetId, loadViewsForSheet]);
+  }, [currentViewsSheetId, loadViewsForSheet]);
 
   const ensureViewsLoaded = useCallback(() => {
-    if (currentSavedViewsSheetId === null) return Promise.resolve();
-    return loadViewsForSheet(currentSavedViewsSheetId);
-  }, [currentSavedViewsSheetId, loadViewsForSheet]);
+    if (currentViewsSheetId === null) return Promise.resolve();
+    return loadViewsForSheet(currentViewsSheetId);
+  }, [currentViewsSheetId, loadViewsForSheet]);
 
-  const startCreatingSavedView = useCallback(
+  const startCreatingView = useCallback(
     (defaultName = '') => {
-      if (!canCreateSavedView) return;
-      savedViews.startCreating();
-      if (defaultName) savedViews.setViewName(defaultName);
+      if (!canCreateView) return;
+      viewsStore.startCreating();
+      if (defaultName) viewsStore.setViewName(defaultName);
     },
-    [canCreateSavedView, savedViews],
+    [canCreateView, viewsStore],
   );
 
-  const revealSavedViewsContribution = useCallback(() => {
-    if (isContributionHidden(SAVED_VIEWS_CONTRIBUTION_ID)) {
-      revealContribution(SAVED_VIEWS_CONTRIBUTION_ID);
+  const revealViewsContribution = useCallback(() => {
+    if (isContributionHidden(VIEWS_CONTRIBUTION_ID)) {
+      revealContribution(VIEWS_CONTRIBUTION_ID);
     }
   }, [isContributionHidden, revealContribution]);
 
-  const openSavedViews = useCallback(() => {
-    revealSavedViewsContribution();
+  const openViews = useCallback(() => {
+    revealViewsContribution();
     openDiscover('Views');
     void ensureViewsLoaded();
-  }, [ensureViewsLoaded, openDiscover, revealSavedViewsContribution]);
+  }, [ensureViewsLoaded, openDiscover, revealViewsContribution]);
 
-  const openNewSavedView = useCallback(
+  const openNewView = useCallback(
     (defaultName = '') => {
-      if (!canCreateSavedView) return;
-      startCreatingSavedView(defaultName);
-      openSavedViews();
+      if (!canCreateView) return;
+      startCreatingView(defaultName);
+      openViews();
     },
-    [canCreateSavedView, openSavedViews, startCreatingSavedView],
+    [canCreateView, openViews, startCreatingView],
   );
 
   const currentSelection = useCurrentViewSelection(sheet);
@@ -140,93 +140,93 @@ export function useWorkspaceSavedViewsController({
       presentation: presentationFromGrid(sheet, currentViewColumns, columnGroupSpecs),
     };
   }, [currentSelection, currentViewColumns, columnGroupSpecs, sheet]);
-  const activeView = views.find((view) => view.id === activeSavedViewId);
+  const activeView = views.find((view) => view.id === activeViewId);
   const currentDefinition = useMemo(() => sheet ? currentViewDefinition() : null, [sheet, currentViewDefinition]);
   const viewModified = !!activeView?.spec && !!currentDefinition && !sameViewDefinition(activeView.spec, currentDefinition);
 
   const saveCurrentView = useCallback(() => {
     const name = viewName.trim();
     if (!sheet || !name) return;
-    const ticket = savedViews.beginEditorMutation();
+    const ticket = viewsStore.beginEditorMutation();
     if (!ticket) return;
     void projectApi
       .saveView({ name, ...currentViewDefinition() })
       .then((saved) => {
-        savedViews.completeEditorMutation(ticket, saved);
+        viewsStore.completeEditorMutation(ticket, saved);
       })
       .catch((e: Error) => {
-        savedViews.failEditorMutation(ticket);
+        viewsStore.failEditorMutation(ticket);
         showError(e.message);
       });
-  }, [currentViewDefinition, projectApi, savedViews, sheet, showError, viewName]);
+  }, [currentViewDefinition, projectApi, viewsStore, sheet, showError, viewName]);
 
-  const renameSavedView = useCallback(() => {
+  const renameView = useCallback(() => {
     const name = viewName.trim();
-    if (savedViewsEditor?.kind !== 'edit' || !name) return;
-    const ticket = savedViews.beginEditorMutation();
+    if (viewsEditor?.kind !== 'edit' || !name) return;
+    const ticket = viewsStore.beginEditorMutation();
     if (!ticket) return;
     void projectApi
-      .renameView(savedViewsEditor.view.id, { name })
+      .renameView(viewsEditor.view.id, { name })
       .then((updated) => {
-        savedViews.completeEditorMutation(ticket, updated);
+        viewsStore.completeEditorMutation(ticket, updated);
       })
       .catch((e: Error) => {
-        savedViews.failEditorMutation(ticket);
+        viewsStore.failEditorMutation(ticket);
         showError(e.message);
       });
-  }, [projectApi, savedViews, savedViewsEditor, showError, viewName]);
+  }, [projectApi, viewsStore, viewsEditor, showError, viewName]);
 
-  const startSavedViewDefinitionUpdate = useCallback(
-    (view: SavedView) => {
-      if (!canCreateSavedView || view.sheet_id === null || String(view.sheet_id) !== sheet?.id) return;
-      savedViews.openDefinitionUpdate(view);
+  const startViewDefinitionUpdate = useCallback(
+    (view: View) => {
+      if (!canCreateView || view.sheet_id === null || String(view.sheet_id) !== sheet?.id) return;
+      viewsStore.openDefinitionUpdate(view);
     },
-    [canCreateSavedView, savedViews, sheet?.id],
+    [canCreateView, viewsStore, sheet?.id],
   );
 
-  const replaceSavedViewDefinition = useCallback(() => {
-    const confirmation = savedViews.store.get().confirmation;
-    if (confirmation?.kind !== 'update-definition' || !canCreateSavedView || !sheet) return;
-    const ticket = savedViews.beginConfirmationMutation();
+  const replaceViewDefinition = useCallback(() => {
+    const confirmation = viewsStore.store.get().confirmation;
+    if (confirmation?.kind !== 'update-definition' || !canCreateView || !sheet) return;
+    const ticket = viewsStore.beginConfirmationMutation();
     if (!ticket) return;
     void projectApi
       .replaceViewDefinition(confirmation.view.id, currentViewDefinition())
       .then((updated) => {
-        savedViews.completeDefinitionUpdate(ticket, updated);
+        viewsStore.completeDefinitionUpdate(ticket, updated);
       })
       .catch((error: unknown) => {
-        savedViews.failConfirmationMutation(
+        viewsStore.failConfirmationMutation(
           ticket,
           error instanceof Error ? error.message : String(error),
         );
       });
-  }, [canCreateSavedView, currentViewDefinition, projectApi, savedViews, sheet]);
+  }, [canCreateView, currentViewDefinition, projectApi, viewsStore, sheet]);
 
-  const startSavedViewDelete = useCallback(
-    (view: SavedView) => {
+  const startViewDelete = useCallback(
+    (view: View) => {
       if (!canEditProject(project)) return;
-      savedViews.openDeleteConfirmation(view);
+      viewsStore.openDeleteConfirmation(view);
     },
-    [project, savedViews],
+    [project, viewsStore],
   );
 
   const deleteView = useCallback(() => {
-    const confirmation = savedViews.store.get().confirmation;
-    if (confirmation?.kind !== 'delete' || !canCreateSavedView) return;
-    const ticket = savedViews.beginConfirmationMutation();
+    const confirmation = viewsStore.store.get().confirmation;
+    if (confirmation?.kind !== 'delete' || !canCreateView) return;
+    const ticket = viewsStore.beginConfirmationMutation();
     if (!ticket) return;
     void projectApi
       .deleteView(confirmation.view.id)
       .then(() => {
-        savedViews.completeDeleteMutation(ticket);
+        viewsStore.completeDeleteMutation(ticket);
       })
       .catch((error: unknown) => {
-        savedViews.failConfirmationMutation(
+        viewsStore.failConfirmationMutation(
           ticket,
           error instanceof Error ? error.message : String(error),
         );
       });
-  }, [canCreateSavedView, projectApi, savedViews]);
+  }, [canCreateView, projectApi, viewsStore]);
 
   const addAlertForCurrentView = useCallback(async () => {
     if (!sheet || !canEditProject(project)) return;
@@ -242,8 +242,8 @@ export function useWorkspaceSavedViewsController({
     } catch (error) { showError(error instanceof Error ? error.message : String(error)); }
   }, [activeView, currentViewDefinition, ensureViewsLoaded, isContributionHidden, openDiscover, project, projectApi, revealContribution, sheet, showError, alertCheckLink]);
 
-  const applySavedView = useCallback(
-    (view: SavedView) => {
+  const applyView = useCallback(
+    (view: View) => {
       openGeneration.current += 1;
       if (!sheet || String(view.sheet_id) !== sheet.id) return;
       if (view.unavailable_reason || !view.spec) { showError(view.unavailable_reason ?? 'This view is unavailable.'); return; }
@@ -293,7 +293,7 @@ export function useWorkspaceSavedViewsController({
         draftSortDirection = sort[0].dir;
       }
 
-      applySavedViewTransition({ gridView, detail, selection }, sheet.id, {
+      applyViewTransition({ gridView, detail, selection }, sheet.id, {
         viewId: view.id,
         sheetId: sheet.id,
         scopeRowIds: view.spec.selection.scope.kind === 'sheet' ? view.spec.selection.scope.row_ids : undefined,
@@ -311,7 +311,7 @@ export function useWorkspaceSavedViewsController({
     [detail, gridView, project.id, projectData, selection, sheet, showError],
   );
 
-  const openSavedView = useCallback(async (viewId: number) => {
+  const openView = useCallback(async (viewId: number) => {
     const token = ++openGeneration.current;
     const openingSheet = sheet?.id;
     const isCurrent = () => token === openGeneration.current && route.store.get().sheetId === openingSheet;
@@ -319,10 +319,10 @@ export function useWorkspaceSavedViewsController({
       const view = (await projectApi.listViews(openingSheet)).find((item) => item.id === viewId);
       if (!isCurrent()) return;
       if (!view) throw new Error('This view is unavailable.');
-      applySavedView(view);
+      applyView(view);
       await ensureViewsLoaded();
     } catch (error) { if (isCurrent()) showError(error instanceof Error ? error.message : String(error)); }
-  }, [projectApi, sheet?.id, route, applySavedView, ensureViewsLoaded, showError]);
+  }, [projectApi, sheet?.id, route, applyView, ensureViewsLoaded, showError]);
 
   const clearViewSelection = useCallback(() => {
     openGeneration.current += 1;
@@ -336,16 +336,16 @@ export function useWorkspaceSavedViewsController({
 
   return useMemo(() => ({
     views, viewName, viewModified, currentDefinition,
-    updateViewSelection, clearViewSelection, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
-    savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
-    ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
-    renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addAlertForCurrentView, applySavedView, openSavedView,
+    updateViewSelection, clearViewSelection, viewsEditor, viewsSaving, viewsConfirmation,
+    viewsConfirmationError, viewsLastPublication, activeViewId, canCreateView,
+    ensureViewsLoaded, startCreatingView, openViews, openNewView, saveCurrentView,
+    renameView, startViewDefinitionUpdate, replaceViewDefinition,
+    startViewDelete, deleteView, addAlertForCurrentView, applyView, openView,
   }), [
-    views, viewName, viewModified, currentDefinition, updateViewSelection, clearViewSelection, savedViewsEditor, savedViewsSaving, savedViewsConfirmation,
-    savedViewsConfirmationError, savedViewsLastPublication, activeSavedViewId, canCreateSavedView,
-    ensureViewsLoaded, startCreatingSavedView, openSavedViews, openNewSavedView, saveCurrentView,
-    renameSavedView, startSavedViewDefinitionUpdate, replaceSavedViewDefinition,
-    startSavedViewDelete, deleteView, addAlertForCurrentView, applySavedView, openSavedView,
+    views, viewName, viewModified, currentDefinition, updateViewSelection, clearViewSelection, viewsEditor, viewsSaving, viewsConfirmation,
+    viewsConfirmationError, viewsLastPublication, activeViewId, canCreateView,
+    ensureViewsLoaded, startCreatingView, openViews, openNewView, saveCurrentView,
+    renameView, startViewDefinitionUpdate, replaceViewDefinition,
+    startViewDelete, deleteView, addAlertForCurrentView, applyView, openView,
   ]);
 }

@@ -360,7 +360,7 @@ def _row_error(
 
 def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
     usage = response.usage
-    quote = usage.quote
+    estimate = usage.quote
     return {
         "provider": usage.provider,
         "service": usage.service,
@@ -371,16 +371,16 @@ def _search_usage_dict(response: SearchResponse) -> dict[str, Any]:
         "units": {unit.name: unit.quantity for unit in usage.units},
         "quote": (
             {
-                "provider": quote.provider,
-                "max_results": quote.max_results,
-                "pricing_key": quote.pricing_key,
-                "pricing_label": quote.pricing_label,
-                "unit": quote.unit,
-                "unit_price_usd": quote.unit_price_usd,
-                "estimated_cost_usd": quote.estimated_cost_usd,
-                "cost_source": quote.cost_source,
+                "provider": estimate.provider,
+                "max_results": estimate.max_results,
+                "pricing_key": estimate.pricing_key,
+                "pricing_label": estimate.pricing_label,
+                "unit": estimate.unit,
+                "unit_price_usd": estimate.unit_price_usd,
+                "estimated_cost_usd": estimate.estimated_cost_usd,
+                "cost_source": estimate.cost_source,
             }
-            if quote is not None
+            if estimate is not None
             else None
         ),
     }

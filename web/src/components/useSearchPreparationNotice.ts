@@ -2,7 +2,7 @@ import type { ModelSetupScope } from '../api/engineSetup';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   listModelPulls,
-  orgListModelPulls,
+  organizationListModelPulls,
   type ModelPullDto,
 } from '../api/open';
 import {
@@ -412,7 +412,7 @@ function completedSince(
 async function loadPulls(scope: ModelSetupScope | null, previous: ScopedPull[]): Promise<ScopedPull[]> {
   if (scope === null) return [];
   try {
-    const { pulls } = scope === 'organization' ? await orgListModelPulls() : await listModelPulls();
+    const { pulls } = scope === 'organization' ? await organizationListModelPulls() : await listModelPulls();
     return pulls.map((pull) => ({ pull, scope }));
   } catch {
     return previous.filter((item) => item.scope === scope);

@@ -101,7 +101,7 @@ from frisket.server.services.guide_samples import GuideSampleService
 from frisket.server.routes.table_imports import register_table_import_routes
 from frisket.server.services.table_imports import FrozenTableImport, TableImportService
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
-from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrApprovalQuoter
+from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrConsentEstimator
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.thread_worker import await_thread_worker
 from frisket.documents.text_quality import assess_text_quality
@@ -728,10 +728,10 @@ def create_app(
         register_project_mcp_routes(app, service=ProjectMcpService(ws))
     register_sample_project_routes(app, service=SampleProjectSeedService(ws))
     # Local-tier UI key management (workspace file + validate probe). The
-    # hosted tier builds per-org sub-apps through create_app but must NOT
+    # hosted tier builds per-organization sub-apps through create_app but must NOT
     # expose these: tenant dispatch has no capability gate for the
     # `providers` path segment, so an exposed route is reachable by any
-    # signed-in user of any org (env-key hint leak, non-owner key writes,
+    # signed-in user of any organization (env-key hint leak, non-owner key writes,
     # unmetered validate oracle). Hosted key management is the owner-gated
     # /api/org/keys instead.
     if enable_provider_config:
@@ -781,7 +781,7 @@ def create_app(
         ws,
         preview_runs=action_preview_run_service,
         quality_assessor=assess_text_quality,
-        batch_ocr_quoter=PdfImportOcrApprovalQuoter(ws).quote,
+        batch_ocr_estimator=PdfImportOcrConsentEstimator(ws).estimate,
         on_commit_ready=enqueue_pdf_import_continuation,
     )
     app.state.pdf_import_service = pdf_import_service

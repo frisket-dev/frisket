@@ -11,7 +11,7 @@ from frisket.authoring.project_ask import default_project_ask_model
 from frisket.cloud_execution import (
     CloudExecutionRefused,
     CloudExecutionTransportProvider,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.cloud_targets import CLOUD_LLM_TRANSPORT, cloud_fallback_is_blocked
@@ -148,7 +148,7 @@ class SoloCloudProjectQARuntimePort:
             project,
             transport,
             payer=payer,
-            quote_authority=CloudQuoteAuthority(maximum_charge_micro),
+            estimate_authority=CloudEstimateAuthority(maximum_charge_micro),
             group_key=f"ask:{turn_id}",
             action_kind="project.ask",
             claimless_direct_effect=True,

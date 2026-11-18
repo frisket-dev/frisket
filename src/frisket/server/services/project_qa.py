@@ -828,7 +828,7 @@ class ProjectQAService:
                             store,
                             research,
                             catalog_payload_provider=host.catalog,
-                            quote_provider=host.quote,
+                            estimate_provider=host.estimate,
                             run_action=host.run,
                             wait_child=child_runs.wait,
                             rate_actual_cost=usd_to_micros,

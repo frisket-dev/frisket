@@ -46,7 +46,7 @@ function isDateRangeDataRequest(url: URL, pid: string, sheetId: number): boolean
   return JSON.stringify(JSON.parse(rawFilter)) === JSON.stringify(rangeFilter);
 }
 
-test('date-range filters use date columns and round-trip through saved views', async ({
+test('date-range filters use date columns and round-trip through views', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-date-range-filter'));
@@ -86,14 +86,14 @@ test('date-range filters use date columns and round-trip through saved views', a
   await expect(page.getByTestId('views-panel')).toBeVisible();
   await page.getByTestId('create-saved-view').click();
   await page.getByTestId('view-name-input').fill('Q1 dates');
-  const savedViewResponse = page.waitForResponse((res) =>
+  const viewResponse = page.waitForResponse((res) =>
     res.url().includes(`/api/projects/${pid}/views`) &&
     res.request().method() === 'POST' &&
     res.status() === 200,
   );
   await page.getByTestId('save-view-button').click();
-  const savedView = await (await savedViewResponse).json();
-  expect(savedView.spec.filter).toEqual(rangeFilter);
+  const view = await (await viewResponse).json();
+  expect(view.spec.filter).toEqual(rangeFilter);
 
   const clearedResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
@@ -107,12 +107,12 @@ test('date-range filters use date columns and round-trip through saved views', a
   await clearedResponse;
   await expect(page.getByTestId('active-grid-filter')).toBeHidden();
 
-  const savedViewApplyResponse = page.waitForResponse((res) => {
+  const viewApplyResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     return isDateRangeDataRequest(new URL(res.url()), pid, sheetId);
   });
   await page.getByTestId('apply-saved-view').filter({ hasText: 'Q1 dates' }).click();
-  const restored = await (await savedViewApplyResponse).json();
+  const restored = await (await viewApplyResponse).json();
   expect(restored.total).toBe(3);
 
   await openFriendlyFilterSidebar(page, importedColumns, 'published');

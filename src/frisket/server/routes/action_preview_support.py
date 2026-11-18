@@ -134,7 +134,7 @@ def register_action_preview_run_routes(
             pid: str,
             body: ActionComparePreviewRequest,
         ) -> ActionCompareQuoteResponse | JSONResponse:
-            response = service.quote_compare_preview(
+            response = service.estimate_compare_preview(
                 pid, body.model_dump(mode="json"), request_context=request
             )
             if response.status_code != 200:

@@ -35,7 +35,7 @@ import {
 import { GridViewport } from './GridViewport';
 import { activateSourceLink } from '../components/evidence/sourceLink';
 import {
-  type SavedViewColumnGroup,
+  type ViewColumnGroup,
   type CellValue,
   type ColumnDef,
   type GridFilterSpec,
@@ -102,7 +102,7 @@ const EMPTY_COLUMN_NAMES: string[] = [];
 const EMPTY_COLUMN_ANNOTATIONS: ColumnAnnotation[] = [];
 const GROUP_HEADER_HEIGHT = 28;
 
-export type ColumnGroupViewSpec = SavedViewColumnGroup;
+export type ColumnGroupViewSpec = ViewColumnGroup;
 
 interface ColumnGroupLayoutState {
   label?: string;
@@ -328,11 +328,11 @@ interface SheetGridProps {
   activeSort?: GridSortSpec | null;
   columnOrder?: string[] | null;
   /** Lens-view: page EXACTLY these row ids in ranked order. */
-  lensRowIds?: number[] | null;
+  viewRowIds?: number[] | null;
   /** Per-row {distance, score} for the lens view, keyed by row id — rendered as
    *  trailing result columns so the ranking metric is VISIBLE in the grid. */
-  lensScores?: Record<string, { distance: number | null; score: number | null }> | null;
-  /** In-memory action preview: the sampled output columns. Brand-new outputs
+  viewScores?: Record<string, { distance: number | null; score: number | null }> | null;
+  /** In-memory action preview: the sampled generated columns. Brand-new outputs
    *  append as trailing virtual columns; an output whose name matches a real
    *  column overlays that column's cells in place. */
   previewColumns?: PreviewOverlayColumn[] | null;
@@ -343,7 +343,7 @@ interface SheetGridProps {
   columnGroupsVersion?: number;
   hiddenColumnNames?: string[];
   /** The USER-hidden columns (Google-Sheets-style collapse), a subset of
-   *  hiddenColumnNames. Drives the boundary revive chevrons; the AI column-group
+   *  hiddenColumnNames. Drives the boundary revive chevrons; the generated column-group
    *  justification/confidence hides are excluded (they revive via group toggles). */
   userHiddenColumnNames?: string[];
   /** Revive a hidden run (the whole run revives together). */
@@ -394,7 +394,7 @@ interface SheetGridProps {
   columnAnnotations?: ColumnAnnotation[];
 }
 
-// While a run creates output columns, keep a "New columns" annotation over
+// While a run creates generated columns, keep a "New columns" annotation over
 // them; hold it briefly past terminal so it does not vanish the instant the
 // last row lands, then clear (or on click-dismiss).
 const NEW_COLUMNS_GRACE_MS = 2500;
@@ -403,8 +403,8 @@ const CHILD_CHIP_COL = '__child_chip';
 // Lens-view result columns: the ranking metric, surfaced as real grid
 // columns so distance/score are VISIBLE in the grid (not raw vectors, not
 // only the sidebar). Appended only while a lens view is active.
-const LENS_DISTANCE_COL = '__lens_distance';
-const LENS_SCORE_COL = '__lens_score';
+const VIEW_DISTANCE_COL = '__lens_distance';
+const VIEW_SCORE_COL = '__lens_score';
 // Trailing virtual columns for an in-memory action preview: a brand-new sampled
 // output that doesn't overwrite an existing column is shown as an appended
 // preview column (id prefixed so it never collides with a real column name).
@@ -449,7 +449,7 @@ interface ColumnModel {
   columns: GridColumn[];
   gridColumns: ColumnDef[];
   gridTheme: Partial<Theme>;
-  aiColumnTheme: Partial<Theme>;
+  generatedColumnTheme: Partial<Theme>;
   expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   onColumnResize(column: GridColumn, newSize: number): void;
@@ -480,7 +480,7 @@ function useColumnModel(
   userHiddenColumnNames: string[],
   childSheet: ChildSheetRef | null | undefined,
   columnGroups: NativeColumnGroupsState,
-  lensActive: boolean,
+  viewActive: boolean,
   previewNewColumns: PreviewOverlayColumn[],
   activeSort: GridSortSpec | null | undefined,
   expectedColumns: ExpectedGridColumn[],
@@ -517,7 +517,7 @@ function useColumnModel(
     [sheet.id, storageScope, stored],
   );
 
-  const { gridTheme, aiColumnTheme, expectedColumnTheme, gridCellPalette } = useGridTheme();
+  const { gridTheme, generatedColumnTheme, expectedColumnTheme, gridCellPalette } = useGridTheme();
 
   const sortByName = useMemo(() => {
     const map = new Map<string, GridSortDirection>();
@@ -531,7 +531,7 @@ function useColumnModel(
       const dir = sortByName.get(c.name);
       const title = dir ? `${c.name} ${dir === 'asc' ? '↑' : '↓'}` : c.name;
       // Icon priority (the funnel-when-filtered sprite was dropped — filtered
-      // state now renders in the caret menu): AI columns keep their bolt;
+      // state now renders in the caret menu): generated columns keep their bolt;
       // else the column's type-tag glyph.
       const expected = expectedColumns.some(column => column.id === c.id);
       const icon = expected ? 'typeLink' : c.ai ? 'aiBolt' : typeHeaderIcon(c.type);
@@ -545,7 +545,7 @@ function useColumnModel(
         hasMenu: true,
         menuIcon: GridColumnMenuIcon.Dots,
         ...(icon ? { icon } : {}),
-        ...(expected ? { themeOverride: expectedColumnTheme } : c.ai ? { themeOverride: aiColumnTheme } : {}),
+        ...(expected ? { themeOverride: expectedColumnTheme } : c.ai ? { themeOverride: generatedColumnTheme } : {}),
       };
     });
     // Trailing chip column: each row's derived-row count in the child sheet
@@ -559,16 +559,16 @@ function useColumnModel(
     }
     // Lens-view result columns: the per-row ranking metric, made VISIBLE in the
     // grid as real trailing columns (distance then score).
-    if (lensActive) {
+    if (viewActive) {
       cols.push({
-        id: LENS_DISTANCE_COL,
+        id: VIEW_DISTANCE_COL,
         title: '⌁ distance',
-        width: colWidths[LENS_DISTANCE_COL] ?? 110,
+        width: colWidths[VIEW_DISTANCE_COL] ?? 110,
       });
       cols.push({
-        id: LENS_SCORE_COL,
+        id: VIEW_SCORE_COL,
         title: '⌁ score',
-        width: colWidths[LENS_SCORE_COL] ?? 110,
+        width: colWidths[VIEW_SCORE_COL] ?? 110,
       });
     }
     // Preview: brand-new sampled outputs (no existing column to overwrite) append
@@ -579,11 +579,11 @@ function useColumnModel(
         id,
         title: `◑ ${previewCol.name}`,
         width: colWidths[id] ?? 160,
-        themeOverride: aiColumnTheme,
+        themeOverride: generatedColumnTheme,
       });
     }
     return cols;
-  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, lensActive, aiColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName]);
+  }, [gridColumns, colWidths, childSheet, columnGroups.groupByRunId, viewActive, generatedColumnTheme, expectedColumnTheme, expectedColumns, previewNewColumns, sortByName]);
 
   // The revive chevrons + the add-column "+" ride a DOM band over the canvas
   // header (glide has no per-boundary DOM). A hidden run is a maximal sequence
@@ -632,7 +632,7 @@ function useColumnModel(
     columns,
     gridColumns,
     gridTheme,
-    aiColumnTheme,
+    generatedColumnTheme,
     expectedColumnTheme,
     gridCellPalette,
     onColumnResize,
@@ -854,12 +854,12 @@ function useLiveRunRefresh(runActive: boolean, liveActive: boolean, cache: RowCa
 
 }
 
-/** The run's freshly-created output columns, wrapped in the reusable
+/** The run's freshly-created generated columns, wrapped in the reusable
  *  ColumnAnnotation ("New columns" + a completed/total progress bar while
  *  populating). Cleared on click-dismiss or a short grace after the run
  *  reaches a terminal status. Detection uses an IDLE baseline
  *  (the column ids present the last moment no run was active) so a run's own
- *  new columns are exactly the AI columns pointed at it that the baseline never
+ *  new columns are exactly the generated columns pointed at it that the baseline never
  *  saw — the optimistic run is set BEFORE sheets refresh, so the baseline is
  *  frozen at pre-run columns and never absorbs them. */
 function useRunColumnsAnnotation(
@@ -995,7 +995,7 @@ function useGridHeaderHandlers(
   onColumnOpen: (col: ColumnDef) => void,
   onColumnHeaderMenu: ((request: { column: ColumnDef; columnIndex: number; bounds: Rectangle }) => void) | undefined,
   onHeaderSort: ((col: ColumnDef) => void) | undefined,
-  aiColumnTheme: Partial<Theme>,
+  generatedColumnTheme: Partial<Theme>,
   loadActionRunEntry: SheetGridProps['loadActionRunEntry'],
   entryCallbacks: ActionRunEntryCallbacks,
 ) {
@@ -1164,7 +1164,7 @@ function useGridHeaderHandlers(
       return {
         name: layout.label,
         icon: 'aiBolt',
-        overrideTheme: aiColumnTheme,
+        overrideTheme: generatedColumnTheme,
         actions: [
           {
             title: 'Group options',
@@ -1174,7 +1174,7 @@ function useGridHeaderHandlers(
         ],
       };
     },
-    [columnGroups.groupByKey, columnGroups.layouts, openGroupMenu, aiColumnTheme],
+    [columnGroups.groupByKey, columnGroups.layouts, openGroupMenu, generatedColumnTheme],
   );
 
   const candidateMenuState = groupMenu ?? hoveredGroupMenu;
@@ -1354,7 +1354,7 @@ function useSheetGridController({
   sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
   pendingImportRowCount = 0, importRowRefreshKey = null,
   rowHeight, wrapText, childSheet, parentRowFilter,
-  activeFilter, activeSort, columnOrder, lensRowIds, lensScores, scopeRowIds, viewSelection, citationColumnId,
+  activeFilter, activeSort, columnOrder, viewRowIds, viewScores, scopeRowIds, viewSelection, citationColumnId,
   previewColumns, previewCells,
   rowDrawerOpen = false, frozenColumnCount = 1, columnGroupsStorageScope, columnGroupsVersion,
   hiddenColumnNames = EMPTY_COLUMN_NAMES, userHiddenColumnNames = EMPTY_COLUMN_NAMES,
@@ -1378,13 +1378,13 @@ function useSheetGridController({
     audioPlayback.store.get,
     audioPlayback.store.get,
   );
-  const lensActive = lensRowIds != null;
-  const baseRowCount = lensActive
-    ? lensRowIds.length
+  const viewActive = viewRowIds != null;
+  const baseRowCount = viewActive
+    ? viewRowIds.length
     : parentRowFilter
       ? parentRowFilter.count
       : sheet.rowCount;
-  const lensRowIdsKey = lensActive ? lensRowIds.join(',') : '';
+  const viewRowIdsKey = viewActive ? viewRowIds.join(',') : '';
   const projectedColumnIds = useMemo(
     () => gridReadColumnIds(sheet.columns, hiddenColumnNames),
     [sheet.columns, hiddenColumnNames],
@@ -1397,12 +1397,12 @@ function useSheetGridController({
         scopeRowIds,
         selection: viewSelection,
         sort: activeSort,
-        lensRowIds: lensActive ? (lensRowIdsKey ? lensRowIdsKey.split(',').map(Number) : []) : null,
+        viewRowIds: viewActive ? (viewRowIdsKey ? viewRowIdsKey.split(',').map(Number) : []) : null,
       }),
       columnIds: projectedColumnIds,
       valueMode: 'bounded',
     }),
-    [activeFilter, activeSort, parentRowFilter?.parentRowId, lensActive, lensRowIdsKey, scopeRowIds, projectedColumnIds, viewSelection],
+    [activeFilter, activeSort, parentRowFilter?.parentRowId, viewActive, viewRowIdsKey, scopeRowIds, projectedColumnIds, viewSelection],
   );
   const fallbackRowCacheStore = useMemo(() => createRowCacheStore(), []);
   const cache = useRowCache(
@@ -1421,7 +1421,7 @@ function useSheetGridController({
     refreshImportedRows();
   }, [importRowRefreshKey, refreshImportedRows]);
   const realRowCount = cache.rowCount;
-  const showImportPlaceholders = !lensActive && !parentRowFilter && activeFilter == null
+  const showImportPlaceholders = !viewActive && !parentRowFilter && activeFilter == null
     && scopeRowIds == null;
   const placeholderRowCount = showImportPlaceholders
     ? Math.max(0, Math.floor(pendingImportRowCount))
@@ -1484,14 +1484,14 @@ function useSheetGridController({
     projectApi,
   );
   const previewNewColumns = useMemo(
-    () => (previewColumns ?? []).filter((col) => col.overwritesColumnId == null),
+    () => (previewColumns ?? []).filter((col) => col.replacesColumnId == null),
     [previewColumns],
   );
   const {
     columns,
     gridColumns,
     gridTheme,
-    aiColumnTheme,
+    generatedColumnTheme,
     expectedColumnTheme,
     gridCellPalette,
     onColumnResize: onColumnResizeRaw,
@@ -1507,7 +1507,7 @@ function useSheetGridController({
       userHiddenColumnNames,
       childSheet,
       columnGroups,
-      lensActive,
+      viewActive,
       previewNewColumns,
       activeSort,
       expectedColumns,
@@ -1542,17 +1542,17 @@ function useSheetGridController({
       else onColumnHeaderMenu?.(request);
     },
     (column) => { if (!expectedById.has(column.id)) { if (onHeaderSort) onHeaderSort(column); else onColumnOpen(column); } },
-    aiColumnTheme,
+    generatedColumnTheme,
     loadActionRunEntry,
     { onCompareActionRun, onCheckExpected },
   );
 
   const previewColumnAt = useCallback((col: number) => {
-    const previewBase = gridColumns.length + (childSheet ? 1 : 0) + (lensActive ? 2 : 0);
+    const previewBase = gridColumns.length + (childSheet ? 1 : 0) + (viewActive ? 2 : 0);
     if (col >= previewBase) return previewNewColumns[col - previewBase];
     const def = gridColumns[col];
-    return def && previewColumns?.find((column) => column.overwritesColumnId === def.id);
-  }, [gridColumns, childSheet, lensActive, previewNewColumns, previewColumns]);
+    return def && previewColumns?.find((column) => column.replacesColumnId === def.id);
+  }, [gridColumns, childSheet, viewActive, previewNewColumns, previewColumns]);
 
   const previewAt = useCallback(([col, rowIdx]: Item): PreviewCellDetail | null => {
     const column = previewColumnAt(col);
@@ -1680,12 +1680,12 @@ function useSheetGridController({
           ...(n > 0 ? { cursor: 'pointer' } : {}),
         };
       }
-      const lensBase = gridColumns.length + (childSheet ? 1 : 0);
-      if (lensActive && col >= lensBase && col < lensBase + 2) {
+      const viewBase = gridColumns.length + (childSheet ? 1 : 0);
+      if (viewActive && col >= viewBase && col < viewBase + 2) {
         const row = cache.getRow(rowIdx);
         if (row === undefined) return { kind: GridCellKind.Loading, allowOverlay: false };
-        const metric = lensScores?.[row.id] ?? null;
-        const value = col === lensBase ? metric?.distance ?? null : metric?.score ?? null;
+        const metric = viewScores?.[row.id] ?? null;
+        const value = col === viewBase ? metric?.distance ?? null : metric?.score ?? null;
         const text = value == null ? '—' : value.toFixed(3);
         return {
           kind: GridCellKind.Text,
@@ -1695,7 +1695,7 @@ function useSheetGridController({
           readonly: true,
         };
       }
-      const previewBase = lensBase + (lensActive ? 2 : 0);
+      const previewBase = viewBase + (viewActive ? 2 : 0);
       if (previewNewColumns.length && col >= previewBase) {
         const previewCol = previewNewColumns[col - previewBase];
         if (!previewCol) return { kind: GridCellKind.Loading, allowOverlay: false };
@@ -1781,8 +1781,8 @@ function useSheetGridController({
       backgroundPendingRowIds,
       priorityReadingRowId,
       childSheet,
-      lensActive,
-      lensScores,
+      viewActive,
+      viewScores,
       previewNewColumns,
       previewCells,
       previewAt,

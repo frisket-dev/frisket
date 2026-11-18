@@ -1185,7 +1185,7 @@ def test_packet_apply_delegates_per_source_ranges_to_durable_committer(tmp_path)
     service.shutdown()
 
 
-def test_batch_ocr_quote_is_bound_to_apply_settings(tmp_path):
+def test_batch_ocr_estimate_is_bound_to_apply_settings(tmp_path):
     from contextlib import nullcontext
     from frisket.contracts.http.pdf_packet_splits import (
         PdfPacketBatchOcrEstimateRequest,
@@ -1221,7 +1221,7 @@ def test_batch_ocr_quote_is_bound_to_apply_settings(tmp_path):
         "positions": {"engine": "native", "blocks": []},
     }
     selection = {"kind": "engine", "engine": "rapidocr"}
-    quote = service.estimate_batch_ocr(
+    estimate = service.estimate_batch_ocr(
         project_id,
         split_id,
         PdfPacketBatchOcrEstimateRequest(
@@ -1230,7 +1230,7 @@ def test_batch_ocr_quote_is_bound_to_apply_settings(tmp_path):
             ocr_selection=selection,
         ),
     )
-    assert quote["pages"] == 0
+    assert estimate["pages"] == 0
 
     class Committer:
         def start(self, pid, **kwargs):
@@ -1640,10 +1640,10 @@ def test_packet_service_sample_ocr_publishes_original_and_maps_page(
     from frisket.ai.llm import LLMResponse
     from frisket.engine.store.document_text import resolve_document_text_selection
     from frisket.engine.store.prepared_content import PreparedContentStore
-    from frisket.ops.ocr_engines_hosted import ocr_coordinate_profile
-    from tests.server.test_pdf_packet_ocr import _quote_fixture
+    from frisket.ops.ocr_engines_remote import ocr_coordinate_profile
+    from tests.server.test_pdf_packet_ocr import _estimate_fixture
 
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     workspace = coordinator.workspace

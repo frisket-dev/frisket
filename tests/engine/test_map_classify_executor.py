@@ -363,7 +363,7 @@ CASES = [
             ),
         ),
         expect_counts={
-            # five output columns: beat + justification + confidence,
+            # five generated columns: beat + justification + confidence,
             # risk_score + justification (score confidence is not routed)
             "columns": 5,
             "runs": 1,

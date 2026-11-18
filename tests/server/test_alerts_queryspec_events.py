@@ -64,7 +64,7 @@ def _check_alert(client: TestClient, pid: str, alert_id: int) -> dict[str, Any]:
     return body
 
 
-def test_query_lens_alert_and_notification_candidate_helpers_are_versioned() -> None:
+def test_query_view_alert_and_notification_candidate_helpers_are_versioned() -> None:
     fts_query = normalize_query_spec(
         {"kind": "fts", "q": "budget", "limit": 25},
         scope={"kind": "project"},

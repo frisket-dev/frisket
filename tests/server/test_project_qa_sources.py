@@ -156,7 +156,7 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         project,
         turn,
         store,
-        quote_provider=lambda _action: {
+        estimate_provider=lambda _action: {
             "estimate": {
                 "billed_cost": 17,
                 "policy_id": "normal-policy",

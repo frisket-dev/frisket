@@ -317,8 +317,8 @@ def _project_payload(
     claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
     if isinstance(claimed, ProjectStorageKey):
         result["storage_org_id"] = claimed.storage_org_id
-    if isinstance(context.trusted_job_org_id, int):
-        result["org_id"] = context.trusted_job_org_id
+    if isinstance(context.trusted_job_organization_id, int):
+        result["org_id"] = context.trusted_job_organization_id
     return result
 
 
@@ -593,7 +593,7 @@ def register_import_table_handler(
     workspace_root: str | Path,
     queue: JobQueue,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
@@ -615,7 +615,7 @@ def register_import_table_handler(
         project_id, project_root, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=require_storage_identity
             or project_opener is not None,
         )
@@ -661,7 +661,7 @@ def register_import_table_analysis_handler(
     run_analysis: TableAnalysisRunner | None,
     workspace_root: str | Path,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     """Run the server-composed table scanner on the ordinary worker queue.
@@ -690,7 +690,7 @@ def register_import_table_analysis_handler(
         project_id, _project_root, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=require_storage_identity
             or project_opener is not None,
         )

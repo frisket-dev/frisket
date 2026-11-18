@@ -4,7 +4,7 @@ from fastapi.routing import APIRoute
 from frisket.server.app import create_app
 
 
-def test_saved_view_routes_have_one_authority(tmp_path):
+def test_view_routes_have_one_authority(tmp_path):
     app = create_app(tmp_path / "workspace")
     routes = {
         (route.path, method): route.name

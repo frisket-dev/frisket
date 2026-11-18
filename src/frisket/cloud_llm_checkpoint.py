@@ -11,7 +11,7 @@ from frisket.cloud_execution import (
     CloudExecutionRefused,
     CloudExecutionTransport,
     CloudPayerSubject,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
     CloudModelCapability,
     cloud_execution_accounting,
     cloud_llm_estimated_spend_micro,
@@ -50,7 +50,7 @@ class CloudLLMCheckpointCoordinator:
         transport: CloudExecutionTransport,
         *,
         payer: CloudPayerSubject,
-        quote_authority: CloudQuoteAuthority,
+        estimate_authority: CloudEstimateAuthority,
         group_key: str,
         action_kind: str,
         run_id: int | None = None,
@@ -63,7 +63,7 @@ class CloudLLMCheckpointCoordinator:
             raise TypeError("Cloud LLM transport is invalid")
         if not isinstance(payer, CloudPayerSubject):
             raise TypeError("Cloud LLM payer is invalid")
-        if not isinstance(quote_authority, CloudQuoteAuthority):
+        if not isinstance(estimate_authority, CloudEstimateAuthority):
             raise TypeError("Cloud LLM quote authority is invalid")
         if capability not in {"llm.complete", "ocr"}:
             raise ValueError("Cloud model checkpoint capability is invalid")
@@ -73,7 +73,7 @@ class CloudLLMCheckpointCoordinator:
         self.project = project
         self.transport = transport
         self.payer = payer
-        self.quote_authority = quote_authority
+        self.estimate_authority = estimate_authority
         self.group_key = group_key
         self.action_kind = action_kind
         self.run_id = run_id
@@ -184,7 +184,7 @@ class CloudLLMCheckpointCoordinator:
         attempt = CloudExecutionAttempt(
             request_id=checkpoint_id,
             payer=self.payer,
-            quote_authority=self._remaining_authority(store, unit_key),
+            estimate_authority=self._remaining_authority(store, unit_key),
         )
         if not created and row["state"] == "returned":
             response = self._response(row)
@@ -284,10 +284,10 @@ class CloudLLMCheckpointCoordinator:
 
     def _remaining_authority(
         self, store: EffectCheckpointStore, unit_key: str
-    ) -> CloudQuoteAuthority:
-        ceiling = self.quote_authority.maximum_charge_micro
+    ) -> CloudEstimateAuthority:
+        ceiling = self.estimate_authority.maximum_charge_micro
         if ceiling is None:
-            return self.quote_authority
+            return self.estimate_authority
         spent = 0
         for row in store.list_group(family=_FAMILY, group_key=self.group_key):
             if row.get("unit_key") == unit_key or row["state"] != "returned":
@@ -296,7 +296,7 @@ class CloudLLMCheckpointCoordinator:
             prior_attempt = CloudExecutionAttempt(
                 request_id=str(row["id"]),
                 payer=self.payer,
-                quote_authority=None,
+                estimate_authority=None,
             )
             accounting = cloud_execution_accounting(
                 prior_attempt, response, capability=self.capability
@@ -332,7 +332,7 @@ class CloudLLMCheckpointCoordinator:
                 "cloud_quote_exhausted",
                 "Prior Cloud LLM calls exhausted the admitted allowance",
             )
-        return CloudQuoteAuthority(maximum_charge_micro=ceiling - spent)
+        return CloudEstimateAuthority(maximum_charge_micro=ceiling - spent)
 
     def _verify_row(
         self,

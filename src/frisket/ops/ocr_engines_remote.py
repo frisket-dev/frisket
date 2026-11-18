@@ -231,7 +231,7 @@ async def ocr_datalab(pages: list[Path], ctx: OpContext, usage: dict) -> list[di
     # Check the credential class selected by this dispatch against the
     # class named by consent before the first page leaves the machine.
     # Hosted environment credentials have already normalized to the
-    # platform class + deployment owner here. An org-BYOK consent that
+    # platform class + deployment owner here. An organization-BYOK consent that
     # selects that deployment key still refuses without spending.
     admission = routed_admission_in_scope(ctx.extras)
     if admission is not None:
@@ -371,7 +371,7 @@ async def ocr_vlm(
     routed = routed_admission_in_scope(ctx.extras)
     if routed is not None:
         # §3.5 pre-effect USE constraint for direct provider routes: the router
-        # genuinely chooses among a project key, an org BYOK key and the
+        # genuinely chooses among a project key, an organization BYOK key and the
         # platform's own. Cloud model routes have no local provider credential
         # to inspect; their admitted payer is verified by cloud_runtime_binding
         # and the Cloud service selects the exact account-key/platform-key lane.

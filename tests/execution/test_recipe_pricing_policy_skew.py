@@ -25,9 +25,9 @@ from typing import Any
 import pytest
 
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
+    EstimateFacts,
     Rating,
-    RatedQuote,
+    RatedEstimate,
     Unpriceable,
     _reset_pricing_policy_for_tests,
     install_pricing_policy,
@@ -55,10 +55,10 @@ class _Tariff:
         self.policy_id = policy_id
         self.multiplier = multiplier
 
-    def rate(self, facts: QuoteFacts) -> Rating:
+    def rate(self, facts: EstimateFacts) -> Rating:
         if facts.provider_cost is None:
             return Unpriceable(reason="no provider cost", policy_id=self.policy_id)
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost * self.multiplier,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -99,8 +99,8 @@ def test_a_reinstalled_tariff_refuses_the_dispatch_and_names_both_policies(
     )
     action = _classify_action(sheet_id)
     run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
-    quoted = json.loads(_consent_rows(project)[0]["quote_json"])
-    assert quoted["policy_id"] == "test.tariff.v1"
+    estimated = json.loads(_consent_rows(project)[0]["quote_json"])
+    assert estimated["policy_id"] == "test.tariff.v1"
 
     _reprice(_Tariff("test.tariff.v2", 4))
     drain_queue(client, worker_id="tariff-skew")
@@ -155,7 +155,7 @@ def test_a_withdrawn_tariff_refuses_too_and_names_the_identity_policy(
     assert len(adapter.calls) == 0
 
 
-def test_a_sibling_quoted_under_the_current_policy_still_proves(
+def test_a_sibling_estimated_under_the_current_policy_still_proves(
     tmp_path, monkeypatch
 ) -> None:
     """The fence is PER CANDIDATE, like every other unusable-record skip here.

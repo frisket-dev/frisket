@@ -236,7 +236,7 @@ it('shows authoritative public outcome counters in job detail', () => {
 });
 
 
-it('shows the job sheet and output columns, with navigation to that sheet', () => {
+it('shows the job sheet and generated columns, with navigation to that sheet', () => {
   const job: DockActionJob = {
     schemaVersion: 'frisket.job.v1', projectId: 'project-a', jobId: 3,
     kind: 'action.run', runId: null, status: 'failed',
@@ -246,7 +246,7 @@ it('shows the job sheet and output columns, with navigation to that sheet', () =
     error: 'Provider unavailable',
     context: {
       sheetId: '42', sheetName: 'Court filings',
-      outputColumns: [{ id: '7', name: 'case_number' }, { id: '8', name: 'plaintiff' }],
+      generatedColumns: [{ id: '7', name: 'case_number' }, { id: '8', name: 'plaintiff' }],
     },
   };
   const view = render(<WorkbenchJobSplitPanel jobs={[job]} loading={false} error={null} mode="errors" />);
@@ -255,7 +255,7 @@ it('shows the job sheet and output columns, with navigation to that sheet', () =
   expect(window.location.pathname).toBe('/p/project-a/s/42');
 
   view.rerender(<WorkbenchJobSplitPanel jobs={[{
-    ...job, context: { sheetId: '42', sheetName: null, outputColumns: [] },
+    ...job, context: { sheetId: '42', sheetName: null, generatedColumns: [] },
   }]} loading={false} error={null} mode="errors" />);
   expect(screen.getByText('Sheet 42')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Court filings' })).not.toBeInTheDocument();

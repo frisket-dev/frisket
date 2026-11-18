@@ -559,7 +559,7 @@ def _run_fixture(
     )
 
 
-def _output_columns(project: Project, sheet_id: int) -> dict[str, int]:
+def _generated_columns(project: Project, sheet_id: int) -> dict[str, int]:
     return {
         str(row["name"]): int(row["id"])
         for row in project.db.execute(
@@ -653,7 +653,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     )
     assert first.done and first.failed == 0
     first_op_id = _run_op_id(project, first.run_id)
-    columns = _output_columns(project, sheet_id)
+    columns = _generated_columns(project, sheet_id)
     assert set(columns) == {
         "generated_text",
         "generated_number",

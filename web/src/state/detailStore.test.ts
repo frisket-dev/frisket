@@ -5,12 +5,12 @@ import type { ColumnDef, PreviewCellDetail, Row } from '../api/open';
 const row = (id: string): Row => ({ id, index: 0 }) as unknown as Row;
 const column = (id: string): ColumnDef => ({ id, name: id, type: 'text' }) as unknown as ColumnDef;
 const preview: PreviewCellDetail = {
-  column: { name: 'sample', columnType: 'text', format: null, hidden: false, overwritesColumnId: null },
+  column: { name: 'sample', columnType: 'text', format: null, hidden: false, replacesColumnId: null },
   cell: { value: null, error: 'preview failed' },
 };
 
 describe('createDetailStore', () => {
-  it.each(['closeAll', 'clearRowDrawer', 'closeDrawers', 'clearForGridTransition', 'clearForSavedView'] as const)(
+  it.each(['closeAll', 'clearRowDrawer', 'closeDrawers', 'clearForGridTransition', 'clearForView'] as const)(
     '%s drops the sampled detail with its row', (method) => {
       const detail = createDetailStore();
       detail.openRow(row('r1'), preview);
@@ -193,16 +193,16 @@ describe('createDetailStore', () => {
     expect(s.childFilter).toBeNull();
     expect(s.rowDrawer).toBeNull();
     // Pins an intentional asymmetry: applyGridFilter/applyGridSort never
-    // cleared columnDrawer — only applySavedViewGrid did (clearForSavedView).
+    // cleared columnDrawer — only applyViewGrid did (clearForView).
     expect(s.columnDrawer).not.toBeNull();
   });
 
-  it('clearForSavedView (= former applySavedViewGrid detail half): clears rowDrawer + columnDrawer, NOT childFilter', () => {
-    const { store, openRow, openColumn, setChildFilter, clearForSavedView } = createDetailStore();
+  it('clearForView (= former applyViewGrid detail half): clears rowDrawer + columnDrawer, NOT childFilter', () => {
+    const { store, openRow, openColumn, setChildFilter, clearForView } = createDetailStore();
     openRow(row('r1'));
     openColumn(column('c1'));
     setChildFilter({ sheetId: 's1', parentSheetName: 'p', parentRowId: '1', parentRowIndex: 0, count: 1 });
-    clearForSavedView();
+    clearForView();
     const s = store.get();
     expect(s.rowDrawer).toBeNull();
     expect(s.columnDrawer).toBeNull();

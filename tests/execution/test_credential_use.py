@@ -124,7 +124,7 @@ def test_the_whole_source_vocabulary_is_classified_explicitly():
 def test_the_users_own_key_satisfies_an_operator_borne_consent():
     """The product sentence: a run consented as "billed to your own account"
     accepts ANY of the operator's own credentials — the env key, the project
-    key, the org's BYOK key — because that dialog names no particular one.
+    key, the organization's BYOK key — because that dialog names no particular one.
     The fence RETURNS which one it was, so the ledger records the credential
     that actually ran the work rather than a collapsed family name."""
     for source, expected in (
@@ -143,8 +143,8 @@ def test_the_users_own_key_satisfies_an_operator_borne_consent():
         )
 
 
-def test_an_env_key_never_satisfies_an_org_byok_consent():
-    """THE critical this split exists for. An org confirms "billed to your
+def test_an_env_key_never_satisfies_an_organization_byok_consent():
+    """THE critical this split exists for. An organization confirms "billed to your
     organization's provider key"; the deployment's process environment also
     holds a key for the same provider; the selector honestly reports ``local``
     because that env key is what resolved. Under one collapsed
@@ -166,7 +166,7 @@ def test_an_env_key_never_satisfies_an_org_byok_consent():
     assert "refusing before the call" in message
 
 
-def test_a_project_key_never_satisfies_an_org_byok_consent():
+def test_a_project_key_never_satisfies_an_organization_byok_consent():
     """The same rule for the other non-BYOK credential of the user's: a key
     in this project's secrets store is not the organization's key, and a
     consent that named the organization's key is not evidence for it."""
@@ -179,9 +179,9 @@ def test_a_project_key_never_satisfies_an_org_byok_consent():
         )
 
 
-def test_the_org_byok_key_satisfies_its_own_consent():
+def test_the_organization_byok_key_satisfies_its_own_consent():
     """The fence is not merely restrictive: the credential the BYOK consent
-    actually named passes, so a correctly-configured org run dispatches."""
+    actually named passes, so a correctly-configured organization run dispatches."""
     assert (
         require_consented_credential(
             cost_posture="org_key",
@@ -308,7 +308,7 @@ def test_hosted_class_without_both_owner_facts_refuses():
         )
 
 
-def test_request_posture_must_equal_the_quote_posture():
+def test_request_posture_must_equal_the_estimate_posture():
     owner = CredentialOwner.deployment("hosted-prod")
     with pytest.raises(CredentialUseRefusal, match="context and quote disagree"):
         require_consented_credential(

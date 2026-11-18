@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// The org (team-tier) local model server card renders inside
+// The organization (team-tier) local model server card renders inside
 // OrganizationAiProvidersSettings, backed by GET /api/org/local-endpoints.
 // Covers: an empty endpoint collection hides the card, installed models,
 // the unenforced auth
@@ -19,17 +19,17 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   return {
     ...actual,
     providerCatalog: vi.fn(),
-    listOrgKeys: vi.fn(),
-    listOrgLocalEndpoints: vi.fn(),
-    orgStartArtifactPull: vi.fn(),
-    orgListModelPulls: vi.fn(),
-    orgGetModelPull: vi.fn(),
-    orgCancelModelPull: vi.fn(),
+    listOrganizationKeys: vi.fn(),
+    listOrganizationLocalEndpoints: vi.fn(),
+    organizationStartArtifactPull: vi.fn(),
+    organizationListModelPulls: vi.fn(),
+    organizationGetModelPull: vi.fn(),
+    organizationCancelModelPull: vi.fn(),
   };
 });
 
 import { OrganizationAiProvidersSettings } from '../../src/settings/OrganizationSettings';
-import { ApiError, listOrgLocalEndpoints, listOrgKeys, orgCancelModelPull, orgGetModelPull, orgListModelPulls, orgStartArtifactPull, providerCatalog } from '../../src/api/open';
+import { ApiError, listOrganizationLocalEndpoints, listOrganizationKeys, organizationCancelModelPull, organizationGetModelPull, organizationListModelPulls, organizationStartArtifactPull, providerCatalog } from '../../src/api/open';
 import type { LocalEndpointCatalog, LocalHttpEndpointEntry, ModelPullDto } from '../../src/api/types';
 
 
@@ -97,10 +97,10 @@ function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
   };
 }
 
-async function renderOrgAiProviders() {
+async function renderOrganizationAiProviders() {
   (providerCatalog as unknown as Mock).mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'organization', providers: [] });
-  (listOrgKeys as unknown as Mock).mockResolvedValue([]);
-  (orgListModelPulls as unknown as Mock).mockResolvedValue({ pulls: [] });
+  (listOrganizationKeys as unknown as Mock).mockResolvedValue([]);
+  (organizationListModelPulls as unknown as Mock).mockResolvedValue({ pulls: [] });
   render(<OrganizationAiProvidersSettings />);
   return screen.findByTestId('organization-ai-providers-settings');
 }
@@ -110,21 +110,21 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
+describe('OrganizationLocalModelsSettings (organization AI-providers section)', () => {
   it('renders nothing when the operator has not configured a local endpoint', async () => {
-    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([]));
-    await renderOrgAiProviders();
+    (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([]));
+    await renderOrganizationAiProviders();
 
-    await waitFor(() => expect(listOrgLocalEndpoints).toHaveBeenCalled());
+    await waitFor(() => expect(listOrganizationLocalEndpoints).toHaveBeenCalled());
     expect(screen.queryByTestId('org-local-models-settings')).not.toBeInTheDocument();
   });
 
   it('shows origin, status chip, and installed models when configured + reachable', async () => {
-    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
+    (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
       models: models('qwen3:8b', 'llama3:8b'),
       installed_models: ['qwen3:8b', 'llama3:8b'],
     })]));
-    await renderOrgAiProviders();
+    await renderOrganizationAiProviders();
 
     const card = await screen.findByTestId('org-local-models-settings');
     expect(card).toHaveTextContent('llm.example.internal');
@@ -136,12 +136,12 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
   });
 
   it('renders a warning-tone chip with the front-door copy when auth is unenforced', async () => {
-    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
+    (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
       auth_status: 'unenforced',
       models: [],
       pull_enabled: false,
     })]));
-    await renderOrgAiProviders();
+    await renderOrganizationAiProviders();
 
     const chip = await screen.findByTestId('org-local-models-status');
     expect(chip).toHaveAttribute('data-tone', 'warning');
@@ -150,11 +150,11 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
   });
 
   it('shows the quiet disabled note (no Download button) when pull_enabled is false', async () => {
-    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
+    (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint({
       models: models('qwen3:8b'),
       pull_enabled: false,
     })]));
-    await renderOrgAiProviders();
+    await renderOrganizationAiProviders();
 
     await screen.findByTestId('org-local-models-settings');
     expect(screen.getByTestId('org-local-models-pull-disabled')).toHaveTextContent(
@@ -166,17 +166,17 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
   it('keeps active and recent organization downloads on organization routes', async () => {
     const active = pull({ id: 41 });
     const completed = pull({ id: 40, status: 'done', resolved_size: 1024 });
-    (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint()]));
-    (orgListModelPulls as unknown as Mock).mockResolvedValueOnce({ pulls: [active, completed] });
-    (orgGetModelPull as unknown as Mock).mockResolvedValue(active);
-    (orgCancelModelPull as unknown as Mock).mockResolvedValue({});
-    await renderOrgAiProviders();
+    (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(catalog([endpoint()]));
+    (organizationListModelPulls as unknown as Mock).mockResolvedValueOnce({ pulls: [active, completed] });
+    (organizationGetModelPull as unknown as Mock).mockResolvedValue(active);
+    (organizationCancelModelPull as unknown as Mock).mockResolvedValue({});
+    await renderOrganizationAiProviders();
 
     await screen.findByTestId('org-model-pull-list');
     expect(await screen.findByTestId('org-model-pull-history-40')).toHaveTextContent('done');
     await userEvent.click(await screen.findByTestId('model-pull-cancel'));
-    expect(orgCancelModelPull).toHaveBeenCalledWith(41);
-    await waitFor(() => expect(orgGetModelPull).toHaveBeenCalledWith(41), { timeout: 2500 });
+    expect(organizationCancelModelPull).toHaveBeenCalledWith(41);
+    await waitFor(() => expect(organizationGetModelPull).toHaveBeenCalledWith(41), { timeout: 2500 });
   });
 
   describe('owner download flow', () => {
@@ -185,12 +185,12 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
     }
 
     it('lets the owner type a model name, confirm, and see live progress', async () => {
-      (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
-      (orgStartArtifactPull as unknown as Mock).mockResolvedValue({
+      (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
+      (organizationStartArtifactPull as unknown as Mock).mockResolvedValue({
         pull: pull({}),
         deduplicated: false,
       });
-      await renderOrgAiProviders();
+      await renderOrganizationAiProviders();
 
       await screen.findByTestId('org-local-models-settings');
       const input = screen.getByTestId('org-model-pull-input');
@@ -202,11 +202,11 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
       await userEvent.click(startBtn);
 
       // Confirmation gate before the request fires.
-      expect(orgStartArtifactPull).not.toHaveBeenCalled();
+      expect(organizationStartArtifactPull).not.toHaveBeenCalled();
       await userEvent.click(screen.getByTestId('org-model-pull-confirm'));
 
       await waitFor(() =>
-        expect(orgStartArtifactPull).toHaveBeenCalledWith(
+        expect(organizationStartArtifactPull).toHaveBeenCalledWith(
           'ollama/@local-a1b2c3d4e5f6/qwen3:8b',
         ),
       );
@@ -214,12 +214,12 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
     });
 
     it('surfaces a 409 pull_busy error by showing the already-active pull instead of a bare error', async () => {
-      (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
+      (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
       const active = pull({ id: 42, model: 'ollama/@local-a1b2c3d4e5f6/llama3:70b', display_name: 'llama3:70b' });
-      (orgStartArtifactPull as unknown as Mock).mockRejectedValue(
+      (organizationStartArtifactPull as unknown as Mock).mockRejectedValue(
         new ApiError(409, 'a pull is already in progress', 'pull_busy', { active }),
       );
-      await renderOrgAiProviders();
+      await renderOrganizationAiProviders();
 
       await screen.findByTestId('org-local-models-settings');
       await userEvent.type(screen.getByTestId('org-model-pull-input'), 'qwen3:8b');
@@ -232,11 +232,11 @@ describe('OrgLocalModelsSettings (organization AI-providers section)', () => {
     });
 
     it('surfaces a member 403 as the download flow error message rather than hiding the button', async () => {
-      (listOrgLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
-      (orgStartArtifactPull as unknown as Mock).mockRejectedValue(
+      (listOrganizationLocalEndpoints as unknown as Mock).mockResolvedValue(reachableWithPull());
+      (organizationStartArtifactPull as unknown as Mock).mockRejectedValue(
         new ApiError(403, 'owner permission required', 'forbidden'),
       );
-      await renderOrgAiProviders();
+      await renderOrganizationAiProviders();
 
       await screen.findByTestId('org-local-models-settings');
       await userEvent.type(screen.getByTestId('org-model-pull-input'), 'qwen3:8b');

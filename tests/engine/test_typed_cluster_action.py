@@ -72,13 +72,13 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
         hint=key_hint("sk-test-cluster"),
         spend_cap_micro=1_000_000,
     )
-    quote = execute(router=router, options={"method": "semantic"})
-    assert quote.status == "needs_confirmation", "\n".join(
-        error.message for error in quote.errors
+    estimate = execute(router=router, options={"method": "semantic"})
+    assert estimate.status == "needs_confirmation", "\n".join(
+        error.message for error in estimate.errors
     )
     assert adapter.calls == []
     assert [column["name"] for column in project.columns(sheet)] == ["name"]
-    confirmed = quote.errors[0].details["promise_set_hash"]
+    confirmed = estimate.errors[0].details["promise_set_hash"]
     result = execute(
         router=router, options={"method": "semantic"}, confirmation=confirmed
     )
@@ -201,14 +201,14 @@ def test_source_change_during_paid_clustering_preserves_cost_not_output(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project, sheet, source, execute = cluster_project
     router, adapter = _remote_embedding_router()
-    quote = execute(router=router, options={"method": "semantic"})
+    estimate = execute(router=router, options={"method": "semantic"})
     adapter.on_embed = lambda: project.add_rows(
         sheet, [{"name": "New name"}], {"name": source}
     )
     result = execute(
         router=router,
         options={"method": "semantic"},
-        confirmation=quote.errors[0].details["promise_set_hash"],
+        confirmation=estimate.errors[0].details["promise_set_hash"],
     )
     assert result.status == "failed", result.model_dump()
     assert result.errors[0].code == "stale_input"
@@ -239,8 +239,8 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project, sheet, source, execute = cluster_project
     router, adapter = _remote_embedding_router()
-    quote = execute(router=router, options={"method": "semantic"})
-    confirmation = quote.errors[0].details["promise_set_hash"]
+    estimate = execute(router=router, options={"method": "semantic"})
+    confirmation = estimate.errors[0].details["promise_set_hash"]
     original = RetrievalStore.put_representations
 
     def broken_cache(self, representations):

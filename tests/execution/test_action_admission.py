@@ -13,20 +13,20 @@ from frisket.engine.executor.action_families.runs import _guard_backfill_run_spe
 from frisket.engine.store import Project
 from frisket.execution.action_admission import action_admission_error
 from frisket.server.sources.runtime import (
-    get_source_poller,
-    register_source_poller,
-    unregister_source_poller,
+    get_feed_checker,
+    register_feed_checker,
+    unregister_feed_checker,
 )
-from frisket.server.sources.tiktok import TikTokProfilePoller
+from frisket.server.sources.tiktok import TikTokProfileFeedChecker
 
 
 def test_direct_source_poll_checks_network_before_creating_source_or_dispatching(
     tmp_path,
 ):
     calls = []
-    previous = get_source_poller("tiktok_profile")
-    register_source_poller(
-        TikTokProfilePoller(lambda *a, **kw: calls.append(a) or {"entries": []}),
+    previous = get_feed_checker("tiktok_profile")
+    register_feed_checker(
+        TikTokProfileFeedChecker(lambda *a, **kw: calls.append(a) or {"entries": []}),
         replace=True,
     )
     try:
@@ -55,9 +55,9 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
             assert project.db.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0
     finally:
         if previous is not None:
-            register_source_poller(previous, replace=True)
+            register_feed_checker(previous, replace=True)
         else:
-            unregister_source_poller("tiktok_profile")
+            unregister_feed_checker("tiktok_profile")
 
 
 def test_network_off_still_allows_local_action(tmp_path):

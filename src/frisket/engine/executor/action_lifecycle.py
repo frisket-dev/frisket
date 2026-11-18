@@ -767,8 +767,8 @@ def _terminalize_unclaimed_prepared_run(
             # unclaimed prepared run, then let the caller release its receipt
             # reservation.
             generation_claim_token=None,
-            keep_zero_success_output_columns=bool(
-                prepared_run.recipe.keep_zero_success_output_columns
+            keep_zero_success_generated_columns=bool(
+                prepared_run.recipe.keep_zero_success_generated_columns
             ),
             terminal_attempt_id=terminal_attempt_id,
             terminal_attempt_state=(

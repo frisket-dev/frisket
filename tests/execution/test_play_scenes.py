@@ -1,6 +1,6 @@
 """Named execution-scene tests not already pinned by the lane suites:
 
-- Scene 5 — "Free, but it leaves the box": an answered preapproval covers the
+- Scene 5 — "Free, but it leaves the box": an answered allowance covers the
   selected gateway provider even when the retail quote is zero.
 - Scene 7 — "The three refusals": three failures, three vocabularies, three
   remedies — never one blurred "unavailable".
@@ -172,20 +172,20 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
         workspace_root=root,
         router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         require_storage_identity=True,
-        workspace_root_storage_org_id=41,
+        workspace_root_storage_organization_id=41,
         execution_composition_factory=factory,
     )
     handler = registry.get("project.run")
     assert handler is not None
     result = handler(
-        dict(payload), JobHandlerContext.from_claimed_job(trusted_org_id=73)
+        dict(payload), JobHandlerContext.from_claimed_job(trusted_organization_id=73)
     )
     assert result["status"] == "completed"
     assert len(observed) == 1
     context = observed[0]
     assert context.storage_key == storage_key
     assert context.run_id == run_id
-    assert context.trusted_job_org_id == 73
+    assert context.trusted_job_organization_id == 73
     assert context.edition_snapshot == snapshot
     assert adapter_stub == [{"engine": "faster_whisper"}]
 
@@ -199,13 +199,13 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
         workspace_root=root,
         router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         require_storage_identity=True,
-        workspace_root_storage_org_id=41,
+        workspace_root_storage_organization_id=41,
         execution_composition_factory=unexpected_factory,
     )
     replay_handler = replay_registry.get("project.run")
     assert replay_handler is not None
     replay = replay_handler(
-        dict(payload), JobHandlerContext.from_claimed_job(trusted_org_id=73)
+        dict(payload), JobHandlerContext.from_claimed_job(trusted_organization_id=73)
     )
     assert replay["status"] == "completed"
     assert replay["skipped"] is True
@@ -251,7 +251,7 @@ def _prepare_queued_run(
 # ---------------------------------------------------------------------------
 
 
-def test_scene5_free_gateway_uses_preapproval_for_its_selected_provider(
+def test_scene5_free_gateway_uses_allowance_for_its_selected_provider(
     workspace, monkeypatch
 ):
     """A saved spend approval includes sending this run's data to the provider

@@ -1,6 +1,6 @@
 import { toWireJsonObject } from '../api/viewsLenses';
 import { normalizeGridFilterSpec } from './gridColumnState';
-import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, SavedViewDefinitionInput, ViewPresentation, SavedViewColumnGroup } from '../api/types';
+import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, ViewDefinitionInput, ViewPresentation, ViewColumnGroup } from '../api/types';
 
 /** Resolve display names at the browser boundary; saved definitions use stable IDs. */
 export function selectionFromGrid(sheet: SheetMeta, filter: GridFilterSpec | null, sort: GridSortSpec | null, rowIds: number[] | null, base?: ViewSelection | null, bindings?: { filterColumnIds?: Record<string, number>; sortColumnIds?: Record<string, number> }): ViewSelection {
@@ -30,7 +30,7 @@ export function gridFromSelection(sheet: SheetMeta, selection: ViewSelection): {
   };
 }
 
-export function sameViewDefinition(a: SavedViewDefinitionInput, b: SavedViewDefinitionInput): boolean {
+export function sameViewDefinition(a: ViewDefinitionInput, b: ViewDefinitionInput): boolean {
   const canonical = (value: unknown): string => {
     if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
     if (value !== null && typeof value === 'object') return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${canonical(child)}`).join(',')}}`;
@@ -40,7 +40,7 @@ export function sameViewDefinition(a: SavedViewDefinitionInput, b: SavedViewDefi
 }
 
 /** Layout references are IDs on disk; grid-local names are resolved only at the boundary. */
-export function presentationFromGrid(sheet: SheetMeta, columns: string[] | null, groups: SavedViewColumnGroup[]): ViewPresentation {
+export function presentationFromGrid(sheet: SheetMeta, columns: string[] | null, groups: ViewColumnGroup[]): ViewPresentation {
   const ids = (names: string[]) => names.flatMap(name => {
     const column = sheet.columns.find(item => item.name === name);
     return column ? [Number(column.id)] : [];
@@ -49,7 +49,7 @@ export function presentationFromGrid(sheet: SheetMeta, columns: string[] | null,
     column_groups: groups.length ? groups.map(group => ({ ...group, columns: ids(group.columns) })) : null };
 }
 
-export function gridFromPresentation(sheet: SheetMeta, presentation: ViewPresentation): { columns: string[] | null; groups: SavedViewColumnGroup[] } {
+export function gridFromPresentation(sheet: SheetMeta, presentation: ViewPresentation): { columns: string[] | null; groups: ViewColumnGroup[] } {
   const names = (ids: number[]) => ids.flatMap(id => {
     const column = sheet.columns.find(item => Number(item.id) === id);
     return column ? [column.name] : [];

@@ -219,7 +219,7 @@ def test_routed_pdf_warning_reads_real_project_column_rows(
         "confirmation_estimate",
         lambda _recipe, _spec, out, **_kwargs: out,
     )
-    monkeypatch.setattr(validation, "_bind_rated_quote", lambda route, _out: route)
+    monkeypatch.setattr(validation, "_bind_rated_estimate", lambda route, _out: route)
     monkeypatch.setattr(
         validation, "project_uncovered_user_claims", lambda *_args, **_kwargs: []
     )

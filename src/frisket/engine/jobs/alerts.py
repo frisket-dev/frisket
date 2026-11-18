@@ -277,7 +277,7 @@ def register_alert_evaluate_handler(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
@@ -290,19 +290,19 @@ def register_alert_evaluate_handler(
         if project_opener is None:
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
-            delivery_storage_org_id = payload.get(
-                "storage_org_id", workspace_root_storage_org_id
+            delivery_storage_organization_id = payload.get(
+                "storage_org_id", workspace_root_storage_organization_id
             )
         else:
             project_id, project_root, project_path = claimed_project_location(
                 payload,
                 workspace_root=root,
-                workspace_root_storage_org_id=workspace_root_storage_org_id,
+                workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 require_storage_identity=True,
             )
             claimed = claimed_opener_key(payload)
             project = project_opener(claimed, project_path)
-            delivery_storage_org_id = claimed.storage_org_id
+            delivery_storage_organization_id = claimed.storage_org_id
 
         def continue_after_indexing(processed: int) -> dict:
             from .search_index import index_work_marker
@@ -313,10 +313,10 @@ def register_alert_evaluate_handler(
                 "trigger_ref": payload.get("trigger_ref") or {},
                 "workspace_root": str(project_root),
             }
-            if delivery_storage_org_id is not None:
-                continuation["storage_org_id"] = delivery_storage_org_id
-            if isinstance(context.trusted_job_org_id, int):
-                continuation["org_id"] = context.trusted_job_org_id
+            if delivery_storage_organization_id is not None:
+                continuation["storage_org_id"] = delivery_storage_organization_id
+            if isinstance(context.trusted_job_organization_id, int):
+                continuation["org_id"] = context.trusted_job_organization_id
             marker = index_work_marker(project, include_preparation=False) or "repair"
             trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
@@ -382,7 +382,7 @@ def register_alert_evaluate_handler(
                 queue,
                 workspace_root=project_root,
                 project_id=project_id,
-                storage_org_id=delivery_storage_org_id,
+                storage_org_id=delivery_storage_organization_id,
                 result=evaluation["notification"],
                 project_opener=project_opener,
             )

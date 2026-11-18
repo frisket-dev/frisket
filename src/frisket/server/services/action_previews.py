@@ -60,7 +60,7 @@ def _prepared_model_estimate(
         ActionScope,
         action_confirmation,
         mint_confirmation_hash,
-        quoted_usd,
+        estimated_usd,
         rate_estimate,
     )
 
@@ -74,7 +74,7 @@ def _prepared_model_estimate(
             estimate=estimate,
         )
     )
-    price = quoted_usd(estimate)
+    price = estimated_usd(estimate)
     return ActionEstimate.model_validate(
         {
             **{
@@ -365,9 +365,9 @@ class ActionPreviewService:
                     policy=runner.pricing_policy,
                 )
                 if not recipe.consumes_resolution:
-                    from frisket.engine.runner.confirmation_context import quoted_usd
+                    from frisket.engine.runner.confirmation_context import estimated_usd
 
-                    price = quoted_usd(estimate)
+                    price = estimated_usd(estimate)
                     estimate["requires_confirmation"] = price is None or price > float(
                         coverage.threshold_usd
                     )

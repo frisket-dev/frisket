@@ -63,14 +63,14 @@ def _normalize_retention_policy(data: object | None = None) -> dict[str, Any]:
 SUPPORTED_NETWORK_POLICY_MODES = ("inherit", "on", "off")
 
 
-# The org default is a two-state effective value; "inherit" is only a
-# project-level deferral, never an org value.
-SUPPORTED_NETWORK_ORG_DEFAULTS = ("on", "off")
+# The organization default is a two-state effective value; "inherit" is only a
+# project-level deferral, never an organization value.
+SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS = ("on", "off")
 
 
 DEFAULT_NETWORK_POLICY: dict[str, Any] = {
     "mode": "inherit",
-    # Team edition materializes the org default into the bundle (the same
+    # Team edition materializes the organization default into the bundle (the same
     # reason `sensitive` syncs): the gate reads policy from the Project at
     # validate/dispatch/replay time, where no control-plane handle exists.
     # Local edition never writes it — None resolves to "on".
@@ -91,7 +91,7 @@ def _normalize_network_policy(data: object | None = None) -> dict[str, Any]:
         policy["mode"] = mode
     if "org_default" in data and data["org_default"] is not None:
         org_default = str(data["org_default"])
-        if org_default not in SUPPORTED_NETWORK_ORG_DEFAULTS:
+        if org_default not in SUPPORTED_NETWORK_ORGANIZATION_DEFAULTS:
             raise ValueError(f"unsupported network org default: {org_default}")
         policy["org_default"] = org_default
     return policy
@@ -372,7 +372,7 @@ def set_network_policy(
 def effective_network_policy(project: Any) -> str:
     """The gate's two-state read: ``"on"`` or ``"off"``.
 
-    ``project mode -> org default -> "on"``. The un-configured state is
+    ``project mode -> organization default -> "on"``. The un-configured state is
     ``on`` (turnkey: existing remote-engine workflows keep working; the
     off-switch is an explicit choice)."""
     policy = project.network_policy()

@@ -29,7 +29,7 @@ export function createSelectionStore(): {
   setSelectedColumnId(id: string | null): void;
   /** = every transition that resets selectedRows to
    *  emptySelectedRows(sheetId): applyGridFilter/applyGridSort/
-   *  applySavedViewGrid/clearGridFilter/clearGridSort/selectSheet/
+   *  applyViewGrid/clearGridFilter/clearGridSort/selectSheet/
    *  confirmDeleteRows.
    *  The caller decides WHETHER to call this (e.g. clearGridFilter/
    *  clearGridSort only call it when a sheetId is known). */

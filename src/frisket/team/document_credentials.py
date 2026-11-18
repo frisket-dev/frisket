@@ -10,7 +10,7 @@ from typing import Any
 from frisket.credentials import ResolvedCredential, resolve_credential_with_source
 from frisket.execution.credential_use import CredentialOwner
 from frisket.provider_definitions import providers_for
-from frisket.team.control_plane import control_plane_engine, org_provider_keys
+from frisket.team.control_plane import control_plane_engine, organization_provider_keys
 
 _DOCUMENT_ENV = {
     p.env_var: p.id for p in providers_for(category="document", scope="organization")
@@ -33,7 +33,7 @@ class OrganizationDocumentCredentials:
         provider = _DOCUMENT_ENV.get(name)
         if provider is None:
             return resolve_credential_with_source(project, name)
-        # Project overrides match the Team LLM policy. A missing org key must
+        # Project overrides match the Team LLM policy. A missing organization key must
         # never silently select the deployment operator's paid API key.
         project_key = resolve_credential_with_source(project, name, env={})
         if project_key is not None:
@@ -48,7 +48,7 @@ class OrganizationDocumentCredentials:
         )
 
 
-class TeamOrgDocumentCredentialPort:
+class TeamOrganizationDocumentCredentialPort:
     def __init__(self, decryptor: Callable[[str], str]):
         self._decryptor = decryptor
 
@@ -56,7 +56,7 @@ class TeamOrgDocumentCredentialPort:
         self, *, org_id: int, control_database_url: str | None
     ) -> OrganizationDocumentCredentials:
         keys = (
-            org_provider_keys(
+            organization_provider_keys(
                 control_plane_engine(control_database_url),
                 org_id=org_id,
                 providers=tuple(_DOCUMENT_ENV.values()),

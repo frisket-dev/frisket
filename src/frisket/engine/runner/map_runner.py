@@ -573,7 +573,7 @@ class MapRunner:
             or validated.recipe.consumes_resolution
             or validated.resolved_execution is not None
         ):
-            # A fresh atomic family is one lifecycle unit: output columns, op,
+            # A fresh atomic family is one lifecycle unit: generated columns, op,
             # undo provenance, run row/scope, and the initial live pointer must
             # either all exist or none of them may. A SAVEPOINT composes with a
             # caller-owned transaction while committing on release when this is
@@ -1045,8 +1045,8 @@ class MapRunner:
                     out_cols if finalization_out_cols is None else finalization_out_cols
                 ),
                 generation_claim_token=claim_token,
-                keep_zero_success_output_columns=(
-                    recipe.keep_zero_success_output_columns
+                keep_zero_success_generated_columns=(
+                    recipe.keep_zero_success_generated_columns
                 ),
                 halted_code=code,
                 halted_reason=reason,
@@ -1075,8 +1075,8 @@ class MapRunner:
                 status="cancelled",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                keep_zero_success_output_columns=(
-                    recipe.keep_zero_success_output_columns
+                keep_zero_success_generated_columns=(
+                    recipe.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,
@@ -1110,7 +1110,7 @@ class MapRunner:
                 finalization_out_cols={
                     name: column_id
                     for name, column_id in out_cols.items()
-                    if int(column_id) in prepared.created_output_column_ids
+                    if int(column_id) in prepared.created_generated_column_ids
                 },
                 never_point_column_ids=frozenset(
                     int(column_id) for column_id in prepared.out_cols.values()
@@ -1122,7 +1122,7 @@ class MapRunner:
                 )
 
                 retire_unbound_created_columns(
-                    self.project, op_id, prepared.created_output_column_ids
+                    self.project, op_id, prepared.created_generated_column_ids
                 )
             raise
         if not cancelled():
@@ -1362,8 +1362,8 @@ class MapRunner:
                             else "completed"
                         ),
                         out_cols=out_cols,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         auto_verify=bool(recipe.auto_verify),
                         writer_attempt_id=attempt.attempt_id,
@@ -1391,8 +1391,8 @@ class MapRunner:
                         ),
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         auto_verify=bool(recipe.auto_verify),
                         defer_generation_seal=defer_generation_seal,
@@ -1421,8 +1421,8 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         writer_attempt_id=attempt.attempt_id,
                         claim_token=claim_token,
@@ -1438,8 +1438,8 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         terminal_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
@@ -1469,8 +1469,8 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1491,8 +1491,8 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1530,8 +1530,8 @@ class MapRunner:
                         run_id=run_id,
                         status="cancelled",
                         out_cols=out_cols,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1549,8 +1549,8 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
-                        keep_zero_success_output_columns=(
-                            recipe.keep_zero_success_output_columns
+                        keep_zero_success_generated_columns=(
+                            recipe.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -2334,8 +2334,8 @@ class MapRunner:
                 run_id=run_id,
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
-                keep_zero_success_output_columns=(
-                    recipe.keep_zero_success_output_columns
+                keep_zero_success_generated_columns=(
+                    recipe.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,
@@ -2366,8 +2366,8 @@ class MapRunner:
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
-                keep_zero_success_output_columns=(
-                    recipe.keep_zero_success_output_columns
+                keep_zero_success_generated_columns=(
+                    recipe.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,

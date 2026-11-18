@@ -82,7 +82,7 @@ function FieldRow({
   /** Extract: render the required (*) toggle after the field name. */
   showRequired?: boolean;
   required?: boolean;
-  /** Declared, non-editable output column (plugin @plugin.op writes, core
+  /** Declared, non-editable generated column (plugin @plugin.op writes, core
    *  recipe output contract): name/type/description render as static text and
    *  there is no delete affordance — the action owns its outputs. */
   readOnly?: boolean;
@@ -218,7 +218,7 @@ export function OutputFieldsEditor({
   /** Classify: one category column whose NAME is the destination — the row
    *  hides name/type/delete and the labels textarea is the whole editor. */
   usesFieldNameDestination: boolean;
-  /** Declared (non-user-defined) output columns render read-only. */
+  /** Declared (non-user-defined) generated columns render read-only. */
   outputFieldsReadOnly: boolean;
   /** Comparison/Replace freezes names, types, labels, and nested schema. */
   structureLocked?: boolean;
@@ -298,7 +298,7 @@ export function OutputFieldsEditor({
     <>
       <div className="form-label-row">
         <span className="form-label" data-testid="output-fields-label">
-          {usesFieldNameDestination ? FORM_LABELS.outputDetails : FORM_LABELS.outputColumns}
+          {usesFieldNameDestination ? FORM_LABELS.outputDetails : FORM_LABELS.generatedColumns}
         </span>
         <div className="control-row">
           {!usesFieldNameDestination && !outputFieldsReadOnly && !structureLocked

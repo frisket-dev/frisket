@@ -398,7 +398,7 @@ def test_router_constructor_fence_resolves_relative_imports_without_banning_anno
         "frisket.engine.executor.geocode_capability",
         "frisket.engine.executor.census_capability",
         "frisket.sdk.ops.transcription.hosted",
-        "frisket.ops.ocr_engines_hosted",
+        "frisket.ops.ocr_engines_remote",
         "frisket.ops.opendocrouter",
         "frisket.ops.integrations.translation_engine",
     ],

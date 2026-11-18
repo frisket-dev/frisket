@@ -737,7 +737,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(tmp_path) 
         service = SearchPreparationService.__new__(SearchPreparationService)
         service.workspace = SimpleNamespace(
             get=lambda _project_id: project,
-            queue_storage_org_id=None,
+            queue_storage_organization_id=None,
         )
         service.store = Store()
         service._plan = lambda *_args, **_kwargs: changed

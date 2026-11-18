@@ -18,8 +18,8 @@ from frisket.server.sources.runtime import (
     SourcePollContext,
     SourcePollItem,
     SourcePollResult,
-    get_source_poller,
-    register_source_poller,
+    get_feed_checker,
+    register_feed_checker,
 )
 
 
@@ -27,7 +27,7 @@ RSS_KIND = "rss"
 
 
 @dataclass
-class RssPoller:
+class RssFeedChecker:
     fetch: Callable[[str], str] | None = None
     kind: str = RSS_KIND
 
@@ -97,24 +97,24 @@ class RssPoller:
         )
 
 
-def register_rss_poller(*, replace: bool = False) -> RssPoller:
-    poller = RssPoller()
-    register_source_poller(poller, replace=replace)
-    return poller
+def register_rss_feed_checker(*, replace: bool = False) -> RssFeedChecker:
+    feed_checker = RssFeedChecker()
+    register_feed_checker(feed_checker, replace=replace)
+    return feed_checker
 
 
-def ensure_rss_poller() -> None:
-    if get_source_poller(RSS_KIND) is None:
-        register_rss_poller()
+def ensure_rss_feed_checker() -> None:
+    if get_feed_checker(RSS_KIND) is None:
+        register_rss_feed_checker()
 
 
-def rss_poller_for_fetch_override(
+def rss_feed_checker_for_fetch_override(
     source_kind: str,
     fetch: Callable[[str], str] | None,
-) -> RssPoller | None:
+) -> RssFeedChecker | None:
     if source_kind != RSS_KIND or fetch is None:
         return None
-    return RssPoller(fetch=fetch)
+    return RssFeedChecker(fetch=fetch)
 
 
 def _cursor_dict(raw: str | None) -> dict[str, str]:

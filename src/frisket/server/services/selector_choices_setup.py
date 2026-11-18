@@ -63,7 +63,7 @@ class SelectorSetupService:
         workspace_configured = (
             workspace_status.get("source") == "local_file" or source == "workspace"
         )
-        org_configured = source == "organization"
+        organization_configured = source == "organization"
         platform_configured = source == "platform"
         env_name = ENV_VAR[provider]
         return {
@@ -104,7 +104,7 @@ class SelectorSetupService:
                 },
                 {
                     "scope": "organization",
-                    "configured": org_configured or platform_configured,
+                    "configured": organization_configured or platform_configured,
                     "can_mutate": capabilities.configure_organization_credentials
                     and not platform_configured
                     and definition is not None
@@ -112,7 +112,7 @@ class SelectorSetupService:
                     "source": "platform"
                     if platform_configured
                     else "organization"
-                    if org_configured
+                    if organization_configured
                     else "missing",
                     "environment_names": [env_name],
                     "settings_location": "organization_ai_providers",

@@ -11,7 +11,7 @@ from frisket.engine.runner.validation import (
 )
 from frisket.execution.pricing_policy import (
     PersistedRating,
-    RatedQuote,
+    RatedEstimate,
     Unpriceable,
     _reset_pricing_policy_for_tests,
     install_pricing_policy,
@@ -34,7 +34,7 @@ class BrowserTariff:
             return Unpriceable(
                 reason="browser tariff unavailable", policy_id=self.policy_id
             )
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=self.billed,
             provider_cost=facts.provider_cost,
             lane="cost_plus",

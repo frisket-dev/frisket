@@ -106,7 +106,7 @@ def _conflicting_params_action(seeded: dict[str, Any]) -> dict[str, Any]:
     return _map_regex_extract_action(seeded["sheet_id"], output_name="other_phone")
 
 
-def _rename_output_column(project: Project, seeded: dict[str, Any]) -> None:
+def _rename_generated_column(project: Project, seeded: dict[str, Any]) -> None:
     project.db.execute(
         "UPDATE columns SET name='renamed_phone' WHERE sheet_id=? AND name='phone'",
         (seeded["sheet_id"],),
@@ -248,14 +248,14 @@ CASES = [
             ),
             # regex_extract is completed-only (accepted_run_statuses default),
             # so its replay is expected-scope strict:
-            # a replay whose output column was renamed away fails stale_replay,
+            # a replay whose generated column was renamed away fails stale_replay,
             # same as any other expected-scope op.
             Gate(
                 "stale_replay_renamed_output",
                 _make_action,
                 "stale_replay",
                 after_primary_run=True,
-                prepare=_rename_output_column,
+                prepare=_rename_generated_column,
             ),
         ),
         expect_counts={

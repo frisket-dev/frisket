@@ -304,7 +304,7 @@ def test_network_and_secret_conflict_responses_preserve_existing_wire_bytes(
     )
     project.db.commit()
 
-    # Local GET/PATCH retain the materialized (possibly null) org default.
+    # Local GET/PATCH retain the materialized (possibly null) organization default.
     initial = client.get(f"/api/projects/{pid}/network")
     assert initial.status_code == 200, initial.text
     assert initial.json()["org_default"] is None

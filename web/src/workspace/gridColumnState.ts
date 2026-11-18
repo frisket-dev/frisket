@@ -38,13 +38,13 @@ const isGridFilterRelativeDateValue = (
 // the code below used to assume that: the saved-view normalizer's catch-all
 // did `String(raw)` and the chip label did `${column} ${operator} ${value}`.
 // Handing either an entity payload produced the literal "[object Object]" —
-// once in a saved view's persisted spec, and once on screen. Hence an explicit
+// once in a view's persisted spec, and once on screen. Hence an explicit
 // branch in BOTH, plus the parse/validate pair below. Relative dates likewise
-// need an explicit round-trip branch so saved views stay dynamic.
+// need an explicit round-trip branch so views stay dynamic.
 // ---------------------------------------------------------------------------
 
 /** The sentinel a malformed `entity_eq` normalizes to. It is deliberately NOT
- *  a drop: dropping the condition would silently WIDEN a saved view's row set
+ *  a drop: dropping the condition would silently WIDEN a view's row set
  *  (the user sees more rows than they saved, with no indication why). An empty
  *  `type` fails `entity_eq`'s "type must be a non-empty string" rule, so the
  *  chip renders as an explicit invalid-filter label and the server rejects the
@@ -52,10 +52,10 @@ const isGridFilterRelativeDateValue = (
 export const INVALID_ENTITY_FILTER_VALUE: GridFilterEntityValue = { type: '' };
 /** An intentionally server-invalid sentinel for malformed saved multi-selects.
  * Keeping the column condition prevents restoration from silently widening the
- * saved view to every row. */
+ * view to every row. */
 export const INVALID_IN_FILTER_VALUE: string[] = [];
 /** An intentionally server-invalid sentinel for a malformed collection filter.
- * As with scalar multi-selects, preserving it prevents a saved view from
+ * As with scalar multi-selects, preserving it prevents a view from
  * silently widening to every row. */
 const INVALID_LIST_CONTAINS_ANY_FILTER_VALUE: GridFilterListSelector[] = [];
 
@@ -302,7 +302,7 @@ export function hasCustomColumnOrder(order: string[] | null | undefined, sheet: 
 
 /**
  * Keep sibling outputs from one AI run contiguous in the default grid order.
- * A saved view or drag order is intentional and remains exact.
+ * A view or drag order is intentional and remains exact.
  */
 export function coalesceDefaultRunColumnGroups(
   order: string[] | null | undefined,
@@ -449,11 +449,11 @@ export function normalizeGridFilterSpec(value: unknown): GridFilterSpec | null {
           && values.length <= 100;
         out[column] = { in: valid ? [...new Set(values)] : INVALID_IN_FILTER_VALUE };
       } else if (operator === 'group_eq') {
-        // Fail closed on malformed selectors instead of widening a saved view.
+        // Fail closed on malformed selectors instead of widening a view.
         out[column] = { ...out[column], group_eq: groupFilterValue(raw) ?? { kind: 'value', value_json: '' } };
       } else if (operator === 'entity_eq') {
         // The structured branch. Without it the catch-all below would write
-        // the string "[object Object]" back into the saved view and into the
+        // the string "[object Object]" back into the view and into the
         // request, turning a mention filter into a text match that can never
         // hit. A payload that fails the closed contract is kept as the invalid
         // sentinel rather than dropped — see INVALID_ENTITY_FILTER_VALUE.
@@ -526,7 +526,7 @@ function entityFilterLabel(
     // show a comparison key nobody wrote. `valueLabel` is the spelling the
     // clicked group is known by, carried alongside the applied filter from the
     // one site that has it (the Mentions panel's group click, via
-    // gridViewStore's applied.filterValueLabel). Without it — a saved view
+    // gridViewStore's applied.filterValueLabel). Without it — a view
     // restored, or a filter applied from anywhere else — the chip names the
     // TYPE rather than inventing a spelling.
     return valueLabel

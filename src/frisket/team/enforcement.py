@@ -103,7 +103,7 @@ class ProjectAccess(Protocol):
 
 ResolveUser = Callable[[Request], dict[str, Any] | None]
 AdminEmails = Callable[[], set[str]]
-OrgRole = Callable[[int, int], str | None]
+OrganizationRole = Callable[[int, int], str | None]
 DenyCodeExecution = Callable[..., bool]
 
 
@@ -240,14 +240,14 @@ class _Enforcer:
         resolve_user: ResolveUser,
         admin_emails: AdminEmails,
         project_access: ProjectAccess,
-        org_role: OrgRole | None,
+        organization_role: OrganizationRole | None,
         deny_code_execution: DenyCodeExecution | None,
     ) -> None:
         self._app = app
         self._resolve_user = resolve_user
         self._admin_emails = admin_emails
         self._project_access = project_access
-        self._org_role = org_role
+        self._organization_role = organization_role
         self._deny_code_execution = deny_code_execution
         self._policy = _compile(app, self.resolvers())
 
@@ -436,15 +436,17 @@ class _Enforcer:
             policy.required_project_role = "editor"
 
     def _policy_org_spend(self, policy: _Evaluation) -> None:
-        """Org-wide usage is an org-administration view.
+        """Organization-wide usage is an organization-administration view.
 
-        With an ``org_role`` port injected, the org's own owner/admin see it.
+        With an ``organization_role`` port injected, the organization's own owner/admin see it.
         Without one the open default is fail-closed: only a server admin
         (``admin_emails``) may read another member's usage.
         """
 
-        if self._org_role is not None:
-            role = self._org_role(int(policy.user["id"]), int(policy.user["org_id"]))
+        if self._organization_role is not None:
+            role = self._organization_role(
+                int(policy.user["id"]), int(policy.user["org_id"])
+            )
             if role in ("owner", "admin"):
                 return
         elif policy.user["email"] in self._admin_emails():
@@ -601,7 +603,7 @@ def protect_core_app(
     resolve_user: ResolveUser,
     admin_emails: AdminEmails,
     project_access: ProjectAccess,
-    org_role: OrgRole | None = None,
+    organization_role: OrganizationRole | None = None,
     deny_code_execution: DenyCodeExecution | None = None,
 ) -> FastAPI:
     """Install open enforcement on ONE core app and return it.
@@ -615,8 +617,8 @@ def protect_core_app(
       ``org_id`` and ``auth == "pat"`` for token actors.
     * ``admin_emails`` — ``() -> set[str]``; an empty set means no admin.
     * ``project_access`` — the project identity + role-ladder port.
-    * ``org_role`` — optional ``(user_id, org_id) -> role``; without it the
-      org-wide usage view is restricted to server admins.
+    * ``organization_role`` — optional ``(user_id, org_id) -> role``; without it the
+      organization-wide usage view is restricted to server admins.
     * ``deny_code_execution`` — optional deployment policy; without it a team
       server (which runs its own workers) allows code recipes.
 
@@ -630,7 +632,7 @@ def protect_core_app(
         resolve_user=resolve_user,
         admin_emails=admin_emails,
         project_access=project_access,
-        org_role=org_role,
+        organization_role=organization_role,
         deny_code_execution=deny_code_execution,
     )
     app.add_middleware(TeamEnforcementMiddleware, enforcer=enforcer)
@@ -643,7 +645,7 @@ __all__ = [
     "CORE_ROUTE_OWNER",
     "AdminEmails",
     "DenyCodeExecution",
-    "OrgRole",
+    "OrganizationRole",
     "ProjectAccess",
     "ResolveUser",
     "TeamEnforcementError",

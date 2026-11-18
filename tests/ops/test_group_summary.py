@@ -27,7 +27,7 @@ def test_grouping_keeps_order_contributors_and_selected_values():
     ] == [9, 3, 7]
 
 
-def test_same_actual_messages_drive_quote_hash_even_when_price_is_unchanged(
+def test_same_actual_messages_drive_estimate_hash_even_when_price_is_unchanged(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -53,7 +53,7 @@ def test_same_actual_messages_drive_quote_hash_even_when_price_is_unchanged(
     assert changed["resolved_prompt_hash"] != estimate["resolved_prompt_hash"]
 
 
-def test_unknown_group_quote_never_claims_zero(monkeypatch):
+def test_unknown_group_estimate_never_claims_zero(monkeypatch):
     monkeypatch.setattr(
         "frisket.ops.group_summary.model_pricing", lambda _: SimpleNamespace(price=None)
     )

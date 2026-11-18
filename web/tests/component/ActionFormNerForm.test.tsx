@@ -266,7 +266,7 @@ describe('C2 — one output control', () => {
     expect(screen.queryByLabelText('Output Name')).not.toBeInTheDocument();
   });
 
-  it('offers exactly one control writing the output column name', () => {
+  it('offers exactly one control writing the generated column name', () => {
     const { container } = mountNer();
 
     const outputControls = container.querySelectorAll(

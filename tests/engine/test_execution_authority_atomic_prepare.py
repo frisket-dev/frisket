@@ -51,7 +51,7 @@ def _edition_request(snapshot: dict[str, Any]) -> SimpleNamespace:
     context = ExecutionCompositionContext(
         storage_key=None,
         run_id=None,
-        trusted_job_org_id=direct.trusted_job_org_id,
+        trusted_job_organization_id=direct.trusted_job_organization_id,
         edition_snapshot=snapshot,
     )
     return SimpleNamespace(state=SimpleNamespace(execution_composition_context=context))
@@ -217,7 +217,7 @@ def _workspace(tmp_path: Path, *, require_confirmation: bool = False) -> Workspa
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)
     workspace.create("Execution authority", project_id="authority")
     if require_confirmation:
-        # These replay cases exercise the exact-confirmation path, not preapproval.
+        # These replay cases exercise the exact-confirmation path, not allowance.
         workspace.executor_deps_factory = lambda project_id, _request: ExecutorDeps(
             consent_coverage=ConsentCoverage(
                 instance_principal(workspace.get(project_id)), Decimal("0")

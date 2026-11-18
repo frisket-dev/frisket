@@ -1,4 +1,4 @@
-"""Team-edition org network default: the org
+"""Team-edition organization network default: the organization
 default lives on ``orgs.network_default``, the project mode on
 ``projects.network``, and both are materialized into the project bundle (the
 ``sensitive``-sync precedent) so the bundle-side gate resolves ``inherit``
@@ -39,26 +39,28 @@ def team(tmp_path) -> tuple[Any, Any]:
     return app, browser
 
 
-def test_org_default_flows_into_bundles_and_project_mode_overrides(team) -> None:
+def test_organization_default_flows_into_bundles_and_project_mode_overrides(
+    team,
+) -> None:
     app, browser = team
     pid = browser.post("/api/projects", json={"name": "Leak Sheet"}).json()["id"]
     project = app.state.workspace.get(pid)
 
-    # Un-configured: org default unset, effective on.
+    # Un-configured: organization default unset, effective on.
     assert browser.get("/api/org/network").json() == {
         "network_default": None,
         "effective_default": "on",
     }
     assert project.effective_network_policy() == "on"
 
-    # Org flips the default off: the inherit-mode project follows, because
+    # Organization flips the default off: the inherit-mode project follows, because
     # the default is materialized into its bundle.
     response = browser.patch("/api/org/network", json={"network_default": "off"})
     assert response.status_code == 200, response.text
     assert project.network_policy() == {"mode": "inherit", "org_default": "off"}
     assert project.effective_network_policy() == "off"
 
-    # Project owner overrides to on: project mode beats the org default,
+    # Project owner overrides to on: project mode beats the organization default,
     # and the control-plane row records the mode.
     response = browser.patch(f"/api/projects/{pid}/network", json={"mode": "on"})
     assert response.status_code == 200, response.text
@@ -70,16 +72,16 @@ def test_org_default_flows_into_bundles_and_project_mode_overrides(team) -> None
         ).scalar_one()
     assert stored == "on"
 
-    # Back to inherit: the org off applies again.
+    # Back to inherit: the organization off applies again.
     browser.patch(f"/api/projects/{pid}/network", json={"mode": "inherit"})
     assert project.effective_network_policy() == "off"
 
-    # Clearing the org default restores the built-in on.
+    # Clearing the organization default restores the built-in on.
     browser.patch("/api/org/network", json={"network_default": None})
     assert project.effective_network_policy() == "on"
 
 
-def test_org_and_project_network_routes_validate_input(team) -> None:
+def test_organization_and_project_network_routes_validate_input(team) -> None:
     app, browser = team
     pid = browser.post("/api/projects", json={"name": "Validation"}).json()["id"]
     assert (

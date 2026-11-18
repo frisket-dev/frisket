@@ -21,7 +21,7 @@ from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
     _TypedMapBatchProgram,
-    _require_expected_output_columns,
+    _require_expected_generated_columns,
     _typed_plan_error,
     _typed_receipt,
     _typed_replay_error,
@@ -60,7 +60,7 @@ class StagedScopeChanged(Exception):
 class _StagedBatchProgram(_TypedMapBatchProgram):
     allow_all_empty_input = True
     defer_generation_seal = True
-    keep_zero_success_output_columns = True
+    keep_zero_success_generated_columns = True
 
     def bind_stage(self, spool, batch_size, capture_offset):
         self._spool = spool
@@ -370,7 +370,7 @@ def run_inferred_batch(
         # actual descriptor, before preparing a managed run.
         field = plan.program._resolved_output_fields[0]
         _, preconditions = resolve_row_output_targets(project, bound.request, (field,))
-        _require_expected_output_columns(bound.request, preconditions)
+        _require_expected_generated_columns(bound.request, preconditions)
         target = next(
             (target for target in preconditions.values() if target is not None), None
         )

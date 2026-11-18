@@ -1,6 +1,6 @@
 /* ============================================================================
    Preview run surface: a disposable main-view tab + scope banner. Reuses the
-   real sheet grid (scoped via lensRowIds), so previews render every cell type
+   real sheet grid (scoped via viewRowIds), so previews render every cell type
    for free; Commit keeps the written results, Discard undoes the run.
    ========================================================================== */
 

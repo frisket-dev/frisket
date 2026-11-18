@@ -174,7 +174,7 @@ def test_plugin_does_not_read_reserved_core_credential(client) -> None:
 
     metadata = {"requires_secrets": ["OPENAI_API_KEY"]}
     # Reserved core credential: fail-closed missing, never resolved from the
-    # global namespace or org fallback.
+    # global namespace or organization fallback.
     assert _missing_project_plugin_secrets(
         project, plugin_id="demo.plugin", metadata=metadata
     ) == ["OPENAI_API_KEY"]

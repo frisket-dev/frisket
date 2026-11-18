@@ -347,7 +347,7 @@ class _BoundDocumentConverter:
                     f"{DATALAB_ENGINE!r}, or one of {sorted(SIDECAR_ENGINES)!r})",
                 )
         if cost_meta is not None:
-            self._store_hosted_accounting(cost_meta)
+            self._store_remote_accounting(cost_meta)
         markdown = markdown.strip()
         # Record the ACTUAL read for EVERY engine that ran, naming the engine so
         # local/sidecar provenance survives; the fact rides the publication cell
@@ -569,7 +569,7 @@ class _BoundDocumentConverter:
         )
         # Preserve a paid receipt even if Cloud returned a result for the wrong
         # capability.  The row still fails, but its provider fact is durable.
-        self._store_hosted_accounting(accounting)
+        self._store_remote_accounting(accounting)
         result = response.result
         if not isinstance(result, CloudDocumentConvertResult):
             raise HostedEngineError(
@@ -665,7 +665,7 @@ class _BoundDocumentConverter:
             raise ValueError("document sidecar returned an invalid document")
         if not all(isinstance(page, bool) for page in ocr_used):
             raise ValueError("document sidecar returned invalid per-page OCR usage")
-        self._store_hosted_accounting(
+        self._store_remote_accounting(
             {
                 "model_calls": [
                     ModelCallMeta.sidecar(
@@ -864,7 +864,7 @@ class _BoundDocumentConverter:
                 f"{exc}; select an authorized credential before resuming",
             ) from exc
 
-    def _store_hosted_accounting(self, meta: dict[str, Any]) -> None:
+    def _store_remote_accounting(self, meta: dict[str, Any]) -> None:
         """Bind the terminal fact to the pinned route (§6 epoch invariant) and
         surface it to the host writer.  Re-binding the enriched terminal fact
         is what makes its durable cost_source agree with what the route

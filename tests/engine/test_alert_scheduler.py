@@ -173,7 +173,7 @@ def test_clock_changes_membership_without_data_write(scene, monkeypatch):
     )
 
 
-def test_queue_prefix_is_literal_and_tenant_scoped(scene):
+def test_queue_prefix_is_literal_and_organization_scoped(scene):
     _, _, _, _, _, queue, _ = scene
     queue.enqueue(
         "watch.evaluate",

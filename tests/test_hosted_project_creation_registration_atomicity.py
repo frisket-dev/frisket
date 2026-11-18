@@ -422,7 +422,7 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One org member cannot replay another member's creation operation."""
+    """One organization member cannot replay another member's creation operation."""
 
     app, _config, client = _hosted_app(tmp_path, monkeypatch)
     engine = app.state.control_engine
@@ -440,12 +440,12 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
         assert created.json()["id"] == "owner-project"
 
         client.cookies.clear()
-        member_id, member_org_id = _sign_in(
+        member_id, member_organization_id = _sign_in(
             client,
             engine,
             email=_MEMBER_EMAIL,
         )
-        assert member_org_id == org_id
+        assert member_organization_id == org_id
         second = _post_project(
             client,
             operation_key=_CROSS_ACTOR_KEY,
@@ -704,12 +704,12 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
             confirm_name=project_name,
         )
         client.cookies.clear()
-        member_id, member_org_id = _sign_in(
+        member_id, member_organization_id = _sign_in(
             client,
             engine,
             email=_MEMBER_EMAIL,
         )
-        assert member_org_id == org_id
+        assert member_organization_id == org_id
         replacement = _post_project(
             client,
             operation_key=_REPLACEMENT_KEY,
@@ -732,8 +732,8 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
         ]
 
         client.cookies.clear()
-        replay_owner_id, replay_org_id = _sign_in(client, engine)
-        assert (replay_owner_id, replay_org_id) == (owner_id, org_id)
+        replay_owner_id, replay_organization_id = _sign_in(client, engine)
+        assert (replay_owner_id, replay_organization_id) == (owner_id, org_id)
         replayed = _post_project(
             client,
             operation_key=_REPLACED_MAPPING_KEY,
@@ -850,12 +850,12 @@ def test_completed_operation_replay_preserves_newer_project_role(
         assert invited.status_code == 200, invited.text
 
         client.cookies.clear()
-        member_id, member_org_id = _sign_in(
+        member_id, member_organization_id = _sign_in(
             client,
             engine,
             email=_MEMBER_EMAIL,
         )
-        assert member_org_id == org_id
+        assert member_organization_id == org_id
         created = _post_project(
             client,
             operation_key=_ROLE_REPLAY_KEY,
@@ -870,8 +870,8 @@ def test_completed_operation_replay_preserves_newer_project_role(
         assert granted_owner.status_code == 200, granted_owner.text
 
         client.cookies.clear()
-        replay_owner_id, replay_org_id = _sign_in(client, engine)
-        assert (replay_owner_id, replay_org_id) == (owner_id, org_id)
+        replay_owner_id, replay_organization_id = _sign_in(client, engine)
+        assert (replay_owner_id, replay_organization_id) == (owner_id, org_id)
         changed = client.post(
             f"/api/projects/{project_id}/members",
             json={"email": _MEMBER_EMAIL, "role": "viewer"},
@@ -894,12 +894,12 @@ def test_completed_operation_replay_preserves_newer_project_role(
         ]
 
         client.cookies.clear()
-        replay_member_id, replay_member_org_id = _sign_in(
+        replay_member_id, replay_member_organization_id = _sign_in(
             client,
             engine,
             email=_MEMBER_EMAIL,
         )
-        assert (replay_member_id, replay_member_org_id) == (member_id, org_id)
+        assert (replay_member_id, replay_member_organization_id) == (member_id, org_id)
         replayed = _post_project(
             client,
             operation_key=_ROLE_REPLAY_KEY,

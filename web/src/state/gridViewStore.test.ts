@@ -27,7 +27,7 @@ describe('createGridViewStore — unit', () => {
     expect(s.columnGroupsVersion).toBe(0);
     expect(s.rowHeight).toBe(34);
     expect(s.wrapText).toBe(false);
-    expect(s.activeSavedViewId).toBeNull();
+    expect(s.activeViewId).toBeNull();
     expect(s.inlineFilter).toEqual({ sheetId: '', open: false, column: '' });
   });
 
@@ -114,13 +114,13 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().applied.filterValueLabel).toBeNull();
   });
 
-  it('applySavedViewGrid restores a filter spec with NO label — a saved view remembers no spelling', () => {
-    const { store, applyFilter, applySavedViewGrid } = createGridViewStore();
+  it('applyViewGrid restores a filter spec with NO label — a view remembers no spelling', () => {
+    const { store, applyFilter, applyViewGrid } = createGridViewStore();
     applyFilter({
       filter: acmeGroupFilter,
       filterValueLabel: 'Acme Corp.',
     });
-    applySavedViewGrid({
+    applyViewGrid({
       viewId: 1,
       sheetId: 'sheet-1',
       filter: acmeGroupFilter,
@@ -157,9 +157,9 @@ describe('createGridViewStore — unit', () => {
     expect(store.get().draft.sortColumn).toBe('name'); // unchanged
   });
 
-  it('applySavedViewGrid replaces sort draft and applied state, keys columnOrderBySheet by sheetId, and bumps columnGroupsVersion', () => {
-    const { store, applySavedViewGrid } = createGridViewStore();
-    applySavedViewGrid({
+  it('applyViewGrid replaces sort draft and applied state, keys columnOrderBySheet by sheetId, and bumps columnGroupsVersion', () => {
+    const { store, applyViewGrid } = createGridViewStore();
+    applyViewGrid({
       viewId: 1,
       sheetId: 'sheet-1',
       filter: { status: { eq: 'open' } },
@@ -175,8 +175,8 @@ describe('createGridViewStore — unit', () => {
     expect(s.columnOrderBySheet).toEqual({ 'sheet-1': ['name', 'status'] });
     expect(s.columnGroupsVersion).toBe(1);
 
-    // A second sheet's saved view keys in ALONGSIDE the first, not replacing it.
-    applySavedViewGrid({
+    // A second sheet's view keys in ALONGSIDE the first, not replacing it.
+    applyViewGrid({
       viewId: 2,
       sheetId: 'sheet-2',
       filter: null,
@@ -195,14 +195,14 @@ describe('createGridViewStore — unit', () => {
   it('keeps Active only while the saved definition is unchanged', () => {
     const {
       store,
-      applySavedViewGrid,
+      applyViewGrid,
       applyFilter,
-      reconcileSavedViewHiddenColumns,
+      reconcileViewHiddenColumns,
       setColumnGroupSpecs,
       setHiddenColumns,
     } =
       createGridViewStore();
-    applySavedViewGrid({
+    applyViewGrid({
       viewId: 7,
       sheetId: 'sheet-1',
       filter: { status: { eq: 'open' } },
@@ -213,23 +213,23 @@ describe('createGridViewStore — unit', () => {
       hiddenColumns: ['later'],
       columnGroupSpecs: [],
     });
-    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().activeViewId).toBe(7);
 
     // Grid hydration can re-publish the same groups and must not erase the
     // active attribution; local changes remain attached as Modified.
     setColumnGroupSpecs([]);
-    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().activeViewId).toBe(7);
     applyFilter({ filter: { status: { eq: 'open' } } });
-    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().activeViewId).toBe(7);
     setHiddenColumns('sheet-1', ['later']);
-    expect(store.get().activeSavedViewId).toBe(7);
-    reconcileSavedViewHiddenColumns(7, 'sheet-1', ['later', 'new-column']);
+    expect(store.get().activeViewId).toBe(7);
+    reconcileViewHiddenColumns(7, 'sheet-1', ['later', 'new-column']);
     expect(store.get().hiddenColumnsBySheet['sheet-1']).toEqual(['later', 'new-column']);
-    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().activeViewId).toBe(7);
     setHiddenColumns('sheet-1', []);
-    expect(store.get().activeSavedViewId).toBe(7);
+    expect(store.get().activeViewId).toBe(7);
     expect(store.get().presentationEdited).toBe(true);
-    reconcileSavedViewHiddenColumns(7, 'sheet-1', ['stale-column']);
+    reconcileViewHiddenColumns(7, 'sheet-1', ['stale-column']);
     expect(store.get().hiddenColumnsBySheet['sheet-1']).toEqual([]);
   });
 
@@ -316,7 +316,7 @@ describe('createGridViewStore — unit', () => {
     expect(s.hiddenColumnsBySheet).toEqual({ 'sheet-1': ['b'] });
   });
 
-  it('setColumnGroupSpecs sets the specs WITHOUT bumping columnGroupsVersion (unlike applySavedViewGrid)', () => {
+  it('setColumnGroupSpecs sets the specs WITHOUT bumping columnGroupsVersion (unlike applyViewGrid)', () => {
     const { store, setColumnGroupSpecs } = createGridViewStore();
     const specs = [{ run_id: 1, label: 'g', columns: ['a'], show_confidence: true, show_justification: true }];
     setColumnGroupSpecs(specs);

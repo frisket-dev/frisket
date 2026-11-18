@@ -1299,7 +1299,7 @@ def _result_metadata(project: Project, column_id: int, row_ids: list[int]) -> di
 def _result_attempted_rows(
     project: Project, column_id: int, row_ids: list[int]
 ) -> set[int]:
-    """Return visible rows with any persisted attempt for one output column."""
+    """Return visible rows with any persisted attempt for one generated column."""
 
     attempted: set[int] = set()
     for start in range(0, len(row_ids), 400):

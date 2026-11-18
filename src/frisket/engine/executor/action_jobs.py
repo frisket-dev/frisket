@@ -1336,7 +1336,7 @@ def reconcile_exhausted_action_run_jobs(
     *,
     workspace_root: str | Path,
     limit: int = 1000,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> int:
     """Terminalize receipts for exhausted ``action.run`` jobs.
@@ -1376,7 +1376,7 @@ def reconcile_exhausted_action_run_jobs(
                 project_root = claimed_project_root(
                     storage_key,
                     workspace_root=root,
-                    workspace_root_storage_org_id=workspace_root_storage_org_id,
+                    workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 )
             except ValueError:
                 continue

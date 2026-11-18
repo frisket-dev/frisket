@@ -54,7 +54,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
   const [ocrSelection, setOcrSelection] = useState<PdfImportOcrSelection>({ kind: 'engine', engine: 'rapidocr' });
   const [ocrPolicyAccepted, setOcrPolicyAccepted] = useState(false);
   const [ocrConfirmation, setOcrConfirmation] = useState<string | null>(null);
-  const [ocrQuote, setOcrQuote] = useState<{ estimate: RunEstimate; pages: number } | null>(null);
+  const [ocrEstimate, setOcrEstimate] = useState<{ estimate: RunEstimate; pages: number } | null>(null);
   const [previewRows, setPreviewRows] = useState<Row[]>([]);
   const [previewText, setPreviewText] = useState<Record<string, string>>({});
   const [previewKinds, setPreviewKinds] = useState<Record<string, 'native' | 'ocr' | null>>({});
@@ -93,7 +93,7 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
       if (controller.signal.aborted) return;
       setSession(null); setReviewing(false); setCheckingText(false); setCheckRequired(false);
       setSampleSourceKey(null); setSampleTextSource('native'); setPolicy('missing_or_suspicious');
-      setOcrConfirmation(null); setOcrPolicyAccepted(false); setOcrQuote(null); setPreviewText({}); setPreviewKinds({}); setPreviewRows([]); setError(null);
+      setOcrConfirmation(null); setOcrPolicyAccepted(false); setOcrEstimate(null); setPreviewText({}); setPreviewKinds({}); setPreviewRows([]); setError(null);
       idempotencyKey.current = crypto.randomUUID();
       try {
         if (scope === 'selected') {
@@ -232,22 +232,22 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); }
     finally { if (!signal?.aborted) setBusy(false); }
   };
-  const quoteSampleOcr = async (forceRescan = false) => {
+  const estimateSampleOcr = async (forceRescan = false) => {
     if (!session || !sample) return;
     setBusy(true); setError(null);
     const signal = actionLifetime.current?.signal;
     try {
       setSampleRescan(forceRescan);
-      const quote = await estimatePdfPacketOcr(projectId, session.split_id, { ocr_selection: ocrSelection, force_rescan: forceRescan, scope: 'sample', pages: [sample.display_start] }, { signal });
+      const estimate = await estimatePdfPacketOcr(projectId, session.split_id, { ocr_selection: ocrSelection, force_rescan: forceRescan, scope: 'sample', pages: [sample.display_start] }, { signal });
       if (signal?.aborted) return;
-      if (!forceRescan && !quote.estimate && quote.cached_pages.includes(sample.display_start)) {
+      if (!forceRescan && !estimate.estimate && estimate.cached_pages.includes(sample.display_start)) {
         // Bind the cached result to this original without starting provider work.
         await startSampleOcr(undefined, false);
-      } else if (!quote.estimate) {
+      } else if (!estimate.estimate) {
         throw new Error('The OCR estimate reported no work and no cached page.');
-      } else if (quote.estimate.requires_confirmation) {
-        if (!quote.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
-        setSampleConsent(quote.estimate);
+      } else if (estimate.estimate.requires_confirmation) {
+        if (!estimate.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
+        setSampleConsent(estimate.estimate);
       } else await startSampleOcr(undefined, forceRescan);
     } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); } finally { if (!signal?.aborted) setBusy(false); }
   };
@@ -282,18 +282,18 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
       await apply({}, { policy, confirmation }).catch(() => undefined);
     }
   };
-  const quoteOcr = async () => {
+  const estimateOcr = async () => {
     if (!session) return;
     if (policy === 'none') { await advanceFromCheck(null); return; }
     setBusy(true); setError(null);
     const signal = actionLifetime.current?.signal;
     try {
-      const quote = await estimatePdfPacketBatchOcr(projectId, session.split_id, { expected_analysis_revision: session.analysis_revision, ocr_policy: policy, ocr_selection: ocrSelection }, { signal });
+      const estimate = await estimatePdfPacketBatchOcr(projectId, session.split_id, { expected_analysis_revision: session.analysis_revision, ocr_policy: policy, ocr_selection: ocrSelection }, { signal });
       if (signal?.aborted) return;
-      if (quote.pages > 0 && !quote.estimate) throw new Error('An OCR estimate is required before continuing.');
-      if (quote.estimate?.requires_confirmation) {
-        if (!quote.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
-        setOcrQuote({ estimate: quote.estimate, pages: quote.pages });
+      if (estimate.pages > 0 && !estimate.estimate) throw new Error('An OCR estimate is required before continuing.');
+      if (estimate.estimate?.requires_confirmation) {
+        if (!estimate.estimate.promise_set_hash) throw new Error('The OCR estimate did not include its authorization token.');
+        setOcrEstimate({ estimate: estimate.estimate, pages: estimate.pages });
       } else await advanceFromCheck(null);
     } catch (e) { if (!signal?.aborted) setError(errorMessage(e)); } finally { if (!signal?.aborted) setBusy(false); }
   };
@@ -305,14 +305,14 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     projectId={projectId} stages={stages} sources={needsTextSources} totalSourceCount={sources.length} sample={sample} samplePage={samplePage?.page === sample.display_start ? samplePage : null}
     thumbnailUrl={pdfPacketThumbnailUrl(projectId, session.split_id, sample.display_start)}
     textSource={sampleTextSource} selection={ocrSelection} policy={policy} busy={busy} sampleJob={sampleJob}
-    sampleConsent={sampleConsent} quote={ocrQuote} error={error}
+    sampleConsent={sampleConsent} ocrEstimate={ocrEstimate} error={error}
     primaryLabel={organization === 'split_documents' ? 'Find documents →' : destination === 'replace'
       ? `Replace ${count(sources.length, 'row')} with ${pageCount}` : `Create ${count(pageCount, 'row')}`}
     onSource={(key) => { setSampleSourceKey(key); setSampleTextSource('native'); }}
     onTextSource={setSampleTextSource}
     onPreview={() => ocrSelection.kind === 'engine' && samplePage?.ocr_text != null && samplePage.ocr_engine === ocrSelection.engine
-      ? setSampleTextSource('ocr') : void quoteSampleOcr()}
-    onRescan={() => void quoteSampleOcr(true)}
+      ? setSampleTextSource('ocr') : void estimateSampleOcr()}
+    onRescan={() => void estimateSampleOcr(true)}
     onSelection={(value) => {
       setOcrSelection((old) => JSON.stringify(old) === JSON.stringify(value) ? old : value);
       if (JSON.stringify(ocrSelection) !== JSON.stringify(value)) { setOcrConfirmation(null); setOcrPolicyAccepted(false); setSampleTextSource('native'); }
@@ -320,9 +320,9 @@ export function PdfSplitSetup({ projectId, sheet, fileColumnId, selection, view,
     onPolicy={(value) => { setPolicy(value); setOcrConfirmation(null); setOcrPolicyAccepted(false); }}
     onCancelSampleConsent={() => setSampleConsent(null)}
     onConfirmSampleConsent={() => { const hash = sampleConsent?.promise_set_hash; setSampleConsent(null); if (hash) void startSampleOcr(hash); }}
-    onCancelQuote={() => setOcrQuote(null)}
-    onConfirmQuote={() => { const hash = ocrQuote?.estimate.promise_set_hash; setOcrQuote(null); if (hash) void advanceFromCheck(hash); }}
-    onBack={() => setCheckingText(false)} onClose={onClose} onContinue={() => void quoteOcr()} /></Modal>;
+    onCancelEstimate={() => setOcrEstimate(null)}
+    onConfirmEstimate={() => { const hash = ocrEstimate?.estimate.promise_set_hash; setOcrEstimate(null); if (hash) void advanceFromCheck(hash); }}
+    onBack={() => setCheckingText(false)} onClose={onClose} onContinue={() => void estimateOcr()} /></Modal>;
   if (reviewing && session) return <Modal title="Split PDFs" hideHeader className="import-workspace import-workspace-panel-flush" onClose={closeModal}><div className="pdf-batch-flow">
     <PdfPacketReview projectId={projectId} snapshot={session} onClose={onClose} registerCloseRequest={registerReviewClose}
       headerSubtitle={`${sheet.name} · ${count(sources.length, 'PDF')} · ${count(pageCount, 'page')}`}

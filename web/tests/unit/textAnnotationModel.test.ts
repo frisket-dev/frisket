@@ -46,7 +46,7 @@ function positionedLayer(
     layerFamily: 'entities',
     producerKind: 'map.ner',
     producerEngine: 'gliner',
-    outputColumn: { id: '12', name: 'entities' },
+    generatedColumn: { id: '12', name: 'entities' },
     positioned: true,
     spans: spans.map((s) => ({
       occurrenceId: s.occurrenceId,
@@ -65,7 +65,7 @@ const DIRTY_LAYER: TextAnnotationLayer = {
   layerFamily: 'entities',
   producerKind: 'map.ner',
   producerEngine: 'spacy',
-  outputColumn: { id: '12', name: 'entities' },
+  generatedColumn: { id: '12', name: 'entities' },
   positioned: false,
   unpositioned: { reason: 'content_hash_mismatch', total: 9 },
 };

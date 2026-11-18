@@ -133,12 +133,12 @@ def test_transcription_returned_cost_survives_scope_teardown_failure(
         transcribe_engines, "transcription_execution_scope", bad_cleanup
     )
     request = {"engine": "openai/whisper-1"}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(request),
     )
-    assert quote.status_code == 200, quote.text
-    token = quote.json()["estimate"]["promise_set_hash"]
+    assert estimate.status_code == 200, estimate.text
+    token = estimate.json()["estimate"]["promise_set_hash"]
     response = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch",
         **_multipart({**request, "confirmation": token}),

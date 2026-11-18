@@ -1,7 +1,7 @@
 // Instance identity: lets a third-party operator's own display name/support
 // contact replace our hardcoded branding on the pre-auth sign-in page and in
 // app chrome (BrandLink), without special-casing our own hosted deployment — it
-// is simply whichever org is configured first. Local tier has no `/api/instance`
+// is simply whichever organization is configured first. Local tier has no `/api/instance`
 // (404, same as `/api/me`) and mock mode never calls it, so both fall back to
 // the generic default below.
 import { useEffect, useState } from 'react';

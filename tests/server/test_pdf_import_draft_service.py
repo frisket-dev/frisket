@@ -915,10 +915,10 @@ def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
 def test_paid_ocr_commit_requires_current_import_scope_confirmation(
     tmp_path: Path, monkeypatch
 ) -> None:
-    quoted = []
+    estimated = []
 
-    def quote(_project_id, binding, _request_context):
-        quoted.append(dict(binding))
+    def estimator(_project_id, binding, _request_context):
+        estimated.append(dict(binding))
         promise_hash = "a" * 64
         return {
             "estimate": {
@@ -978,7 +978,7 @@ def test_paid_ocr_commit_requires_current_import_scope_confirmation(
         }
 
     _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_quoter=quote
+        tmp_path, monkeypatch, batch_ocr_estimator=estimator
     )
     draft_id, _ = _declared(service, project_id)
     status = service.upload(
@@ -1009,8 +1009,8 @@ def test_paid_ocr_commit_requires_current_import_scope_confirmation(
     assert estimate["advisory"] is False
     assert estimate["revision"] == service.status(project_id, draft_id)["revision"]
     assert estimate["estimate"]["billed_cost"] == 160_000
-    assert quoted[0]["selected_count"] == 2
-    assert quoted[0]["known_pages"] == 8
+    assert estimated[0]["selected_count"] == 2
+    assert estimated[0]["known_pages"] == 8
 
     for confirmation in (None, "b" * 64):
         with pytest.raises(PdfImportDraftError, match="OCR consent"):
@@ -1031,7 +1031,7 @@ def test_paid_ocr_commit_requires_current_import_scope_confirmation(
     assert frozen.ocr_authorization is not None
     assert frozen.ocr_authorization.actor == "user:test"
     assert frozen.ocr_authorization.scope["page_count"] == 8
-    assert len(quoted) == 4
+    assert len(estimated) == 4
 
 
 def test_paid_ocr_freeze_rejects_route_or_price_change(
@@ -1039,7 +1039,7 @@ def test_paid_ocr_freeze_rejects_route_or_price_change(
 ) -> None:
     calls = 0
 
-    def quote(_project_id, binding, _request_context):
+    def estimator(_project_id, binding, _request_context):
         nonlocal calls
         calls += 1
         promise_hash = ("a" if calls == 1 else "b") * 64
@@ -1101,7 +1101,7 @@ def test_paid_ocr_freeze_rejects_route_or_price_change(
         }
 
     _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_quoter=quote
+        tmp_path, monkeypatch, batch_ocr_estimator=estimator
     )
     draft_id, _ = _declared(service, project_id)
     status = service.upload(
@@ -1139,7 +1139,7 @@ def test_paid_ocr_freeze_rejects_route_or_price_change(
         )
 
 
-def test_remote_ocr_with_no_effective_work_needs_no_quote(
+def test_remote_ocr_with_no_effective_work_needs_no_estimate(
     tmp_path: Path, monkeypatch
 ) -> None:
     _workspace, project_id, service = _service(tmp_path, monkeypatch)
@@ -1189,10 +1189,10 @@ def test_paid_ocr_all_excludes_unreadable_pdf_but_keeps_import_row(
     tmp_path: Path, monkeypatch
 ) -> None:
     corrupt_pdf = b"%PDF-corrupt".ljust(len(PDF), b"x")
-    quoted = []
+    estimated = []
 
-    def quote(_project_id, binding, _request_context):
-        quoted.append(dict(binding))
+    def estimator(_project_id, binding, _request_context):
+        estimated.append(dict(binding))
         promise_hash = "a" * 64
         child = binding["child_partitions"][0]
         return {
@@ -1252,7 +1252,7 @@ def test_paid_ocr_all_excludes_unreadable_pdf_but_keeps_import_row(
         }
 
     _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_quoter=quote
+        tmp_path, monkeypatch, batch_ocr_estimator=estimator
     )
 
     def analyze(path):
@@ -1307,9 +1307,9 @@ def test_paid_ocr_all_excludes_unreadable_pdf_but_keeps_import_row(
         ocr_confirmation="a" * 64,
     )
 
-    assert quoted[0]["selected_count"] == 1
-    assert quoted[0]["known_pages"] == 4
-    assert quoted[0]["child_partitions"][0]["row_pages"] == {1: 4}
+    assert estimated[0]["selected_count"] == 1
+    assert estimated[0]["known_pages"] == 4
+    assert estimated[0]["child_partitions"][0]["row_pages"] == {1: 4}
     occurrences = frozen.page_occurrences()
     assert [(row.category, row.ocr_selected) for row in occurrences] == [
         ("missing", True),

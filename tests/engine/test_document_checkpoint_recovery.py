@@ -75,16 +75,18 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
             "idempotency_key": "document-returned-recovery",
         }
         endpoint = f"/api/projects/{project_id}/actions/v1/run"
-        quote = client.post(endpoint, json=body)
-        assert quote.status_code == 402, quote.text
-        body["confirmation"] = quote.json()["errors"][0]["details"]["promise_set_hash"]
+        estimate = client.post(endpoint, json=body)
+        assert estimate.status_code == 402, estimate.text
+        body["confirmation"] = estimate.json()["errors"][0]["details"][
+            "promise_set_hash"
+        ]
         queued = client.post(endpoint, json=body)
         assert queued.status_code == 200, queued.text
         queued = queued.json()
         job = workspace.queue.get(queued["job_id"])
         payload = {**deepcopy(job.payload), "job_id": job.id}
         handler = workspace.registry.get("project.run")
-        context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
 
         def crash(*args, **kwargs):
             raise InterruptedAfterConversion()

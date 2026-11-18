@@ -24,7 +24,7 @@ from .coordinates import (
     inference_image_size,
 )
 from .region_locator import (
-    HostedVLMRegionLocator,
+    RemoteVLMRegionLocator,
     ImageAsset,
     LocatedRegion,
     LocateRegionsRequest,
@@ -48,7 +48,7 @@ __all__ = [
     "DecodedBoundingBox",
     "GEMINI_COORDINATE_PROFILE",
     "GENERIC_COORDINATE_PROFILE",
-    "HostedVLMRegionLocator",
+    "RemoteVLMRegionLocator",
     "ImageAsset",
     "ImageDetail",
     "LocatedRegion",

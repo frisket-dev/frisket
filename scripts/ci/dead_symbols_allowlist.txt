@@ -186,7 +186,7 @@ src/frisket/server/services/search_preparation.py::SearchPreparationService.batc
 src/frisket/server/services/search_preparation.py::SearchPreparationService.create_from_pdf_import  test-only
 src/frisket/server/services/search_preparation.py::SearchPreparationService.recover_pdf_import  frisket-cloud
 src/frisket/server/sources/runtime.py::registered_source_kinds  unreferenced
-src/frisket/server/sources/runtime.py::unregister_source_poller  test-only
+src/frisket/server/sources/runtime.py::unregister_feed_checker  test-only
 src/frisket/table_import/conversion.py::convert_row  unreferenced
 src/frisket/table_import/reader.py::_RawRows  unreferenced
 src/frisket/team/bootstrap.py::init_identity_schema  frisket-cloud

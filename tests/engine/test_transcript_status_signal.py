@@ -358,7 +358,7 @@ def test_multi_transcribe_newest_run_wins_over_an_older_full_success(
         project.close()
 
 
-def test_rename_proofing_output_column_identified_by_run_not_name(
+def test_rename_proofing_generated_column_identified_by_run_not_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The transcript OUTPUT column is identified via

@@ -602,10 +602,10 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
         *,
         max_results: int = 6,
         timeout: float = 20.0,
-        quote=None,
+        estimate=None,
     ) -> SearchResponse:
         del timeout
-        quote = quote or service.quote(max_results=max_results)
+        estimate = estimate or service.estimate(max_results=max_results)
         calls.append(query)
         return SearchResponse(
             provider=service.provider,
@@ -625,10 +625,10 @@ def test_research_answer_uses_configured_search_and_receipts_its_cost(
                 service=f"{service.provider}.search",
                 request_count=1,
                 provider_reported_cost_usd=None,
-                provider_cost_usd=quote.estimated_cost_usd,
+                provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
-                units=(SearchUsageUnit(name=quote.unit, quantity=1),),
-                quote=quote,
+                units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
+                quote=estimate,
             ),
         )
 
@@ -696,9 +696,9 @@ def test_research_answer_receipts_failed_paid_search_as_unknown_cost(
         *,
         max_results: int = 6,
         timeout: float = 20.0,
-        quote=None,
+        estimate=None,
     ) -> SearchResponse:
-        del max_results, timeout, quote
+        del max_results, timeout, estimate
         raise SearchProviderError("exa", "quota", "Exa quota unavailable.")
 
     monkeypatch.setattr(SearchService, "search", fail_search)
@@ -819,7 +819,7 @@ def test_unconfirmed_run_pauses_before_model_or_search_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
-        # Exercise explicit confirmation independently of the default preapproval.
+        # Exercise explicit confirmation independently of the default allowance.
         env.run_kwargs["deps"] = ExecutorDeps(
             consent_coverage=ConsentCoverage(
                 instance_principal(env.project), Decimal("0")

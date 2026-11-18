@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from frisket.cloud_execution import (
     CloudPayerSubject,
     cloud_llm_estimated_spend_micro,
-    cloud_quote_authority_for_row,
+    cloud_estimate_authority_for_row,
 )
 from frisket.contracts.http.cloud_connection import CloudLLMRequest, CloudTokenPrice
 from frisket.engine.runner.map_runner import (
@@ -96,7 +96,7 @@ def test_cloud_row_request_is_project_unique_and_new_intent_uses_new_key(make_pr
         second.close()
 
 
-def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
+def test_action_llm_estimate_uses_the_cloud_wire_payload_formula():
     price = CloudTokenPrice(
         kind="tokens",
         input_micro_per_million_tokens=100_000_000,
@@ -123,7 +123,7 @@ def test_action_llm_quote_uses_the_cloud_wire_payload_formula():
         {1: call},
         recipe=SimpleNamespace(),
     )
-    authority = cloud_quote_authority_for_row(basis, row_id=1)
+    authority = cloud_estimate_authority_for_row(basis, row_id=1)
     expected = cloud_llm_estimated_spend_micro(
         CloudLLMRequest(
             model=_payer().engine,
@@ -192,7 +192,9 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
     )
     assert basis.terms_version == "route-1"
     assert basis.charge_authority == "frisket_cloud_receipt"
-    assert cloud_quote_authority_for_row(basis, row_id=1).maximum_charge_micro is None
+    assert (
+        cloud_estimate_authority_for_row(basis, row_id=1).maximum_charge_micro is None
+    )
 
     agent_basis, agent_quantity = _llm_cost_basis(
         SimpleNamespace(provider=Provider()),
@@ -204,7 +206,7 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
     assert agent_basis.estimated_quantity is None
 
 
-def test_llm_quote_helper_includes_tools_in_the_canonical_wire_payload():
+def test_llm_estimate_helper_includes_tools_in_the_canonical_wire_payload():
     price = CloudTokenPrice(
         kind="tokens",
         input_micro_per_million_tokens=100_000_000,

@@ -13,7 +13,7 @@ class Provenance:
     receipt outputs and the host-built ActionOutputs.
 
     `named_result_refs` is the typed "list column -> child table" seam: array-typed
-    output columns advertise a feedable `named_result` ref (built via
+    generated columns advertise a feedable `named_result` ref (built via
     `frisket.executor.recordsets.feedable_named_result_ref`) that may feed
     derive.table_from_list. They appear as extra receipt outputs (keyed by `route`)
     and as extra `named_result` ActionOutputs, alongside the column outputs. A general

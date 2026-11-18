@@ -51,16 +51,16 @@ async function installAndActivateEnvPlugin(
   expect(activated.ok()).toBeTruthy();
 }
 
-test('project plugin secrets save through Project Secrets without org env or plaintext echo', async ({
+test('project plugin secrets save through Project Secrets without organization env or plaintext echo', async ({
   page,
 }) => {
   const projectId = await createProject(page.request, uniqueName('plugin-env'));
   await importCsv(page.request, projectId, 'cities.csv', 'city\nPittsburgh\n');
   await installAndActivateEnvPlugin(page.request, projectId);
 
-  let orgEnvRouteUsed = false;
+  let organizationEnvRouteUsed = false;
   await page.route('**/api/org/env**', async (route) => {
-    orgEnvRouteUsed = true;
+    organizationEnvRouteUsed = true;
     await route.abort();
   });
 
@@ -93,7 +93,7 @@ test('project plugin secrets save through Project Secrets without org env or pla
     configured: true,
     hint: '...alue',
   });
-  expect(orgEnvRouteUsed).toBe(false);
+  expect(organizationEnvRouteUsed).toBe(false);
 
   await page.getByLabel(`Delete ${SECRET_NAME} secret`).click();
   await expect(section).toContainText('Missing');

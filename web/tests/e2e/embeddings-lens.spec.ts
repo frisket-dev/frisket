@@ -38,18 +38,18 @@ function makeIndex(sheetId: number) {
   });
 }
 
-interface LensStubs {
+interface ViewStubs {
   setAnchorStale(value: boolean): void;
   /** Force the next resolve to 400 with this typed code (e.g. embedding_index_incomplete). */
   setResolveError(code: string | null): void;
 }
 
-async function stubEmbeddingsAndLenses(
+async function stubEmbeddingsAndViews(
   page: Page,
   pid: string,
   sheetId: number,
-): Promise<LensStubs> {
-  const lenses: Array<Record<string, unknown>> = [{
+): Promise<ViewStubs> {
+  const views: Array<Record<string, unknown>> = [{
     id: 1,
     name: 'Similar to kitten',
     sheet_id: sheetId,
@@ -102,8 +102,8 @@ async function stubEmbeddingsAndLenses(
   await page.route(new RegExp(`/api/projects/${pid}/lenses(\\?[^/]*)?$`), async (route) => {
     if (route.request().method() === 'POST') {
       const body = route.request().postDataJSON() as Record<string, unknown>;
-      const lens = {
-        id: lenses.length + 1,
+      const view = {
+        id: views.length + 1,
         name: body.name,
         sheet_id: sheetId,
         spec: {
@@ -111,22 +111,22 @@ async function stubEmbeddingsAndLenses(
           query: body.query,
           presentation: body.presentation ?? {},
         },
-        op_id: 10 + lenses.length,
+        op_id: 10 + views.length,
         created_at: '2026-06-21T00:00:00Z',
         updated_at: '2026-06-21T00:00:00Z',
       };
-      lenses.push(lens);
+      views.push(view);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(lens),
+        body: JSON.stringify(view),
       });
       return;
     }
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(lenses),
+      body: JSON.stringify(views),
     });
   });
 
@@ -149,12 +149,12 @@ async function stubEmbeddingsAndLenses(
       return;
     }
     const url = new URL(route.request().url());
-    const lensId = Number(url.pathname.split('/').slice(-2)[0]);
+    const viewId = Number(url.pathname.split('/').slice(-2)[0]);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        lens_id: lensId,
+        lens_id: viewId,
         schema_version: 'frisket.query_preview.v1',
         sheet_id: sheetId,
         query: { kind: 'embedding_similarity', embedding_index_id: INDEX_ID, anchor: { kind: 'row', row_id: 2 } },
@@ -183,7 +183,7 @@ async function stubEmbeddingsAndLenses(
   };
 }
 
-async function openEmbeddingLenses(page: Page) {
+async function openEmbeddingViews(page: Page) {
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
   await expect(page.getByTestId('embedding-lens-1')).toBeVisible();
@@ -194,9 +194,9 @@ async function openEmbeddingLenses(page: Page) {
 test('opening a lens resolves it and renders the ranked rows with distance/score', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  await stubEmbeddingsAndLenses(page, pid, sheetId);
+  await stubEmbeddingsAndViews(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openEmbeddingLenses(page);
+  await openEmbeddingViews(page);
   await page.getByTestId('embedding-lens-open-1').click();
 
   const results = page.getByTestId('embedding-lens-results-1');
@@ -211,9 +211,9 @@ test('opening a lens resolves it and renders the ranked rows with distance/score
 test('a stale-anchor resolve shows a refresh-needed message rather than a crash', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  const { setAnchorStale } = await stubEmbeddingsAndLenses(page, pid, sheetId);
+  const { setAnchorStale } = await stubEmbeddingsAndViews(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openEmbeddingLenses(page);
+  await openEmbeddingViews(page);
 
   setAnchorStale(true);
   await page.getByTestId('embedding-lens-open-1').click();
@@ -229,9 +229,9 @@ test('a stale-anchor resolve shows a refresh-needed message rather than a crash'
 test('an incomplete-index resolve shows refresh-needed, not a raw error', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-lens'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\npuppy\n');
-  const { setResolveError } = await stubEmbeddingsAndLenses(page, pid, sheetId);
+  const { setResolveError } = await stubEmbeddingsAndViews(page, pid, sheetId);
   await page.goto(`/p/${pid}`);
-  await openEmbeddingLenses(page);
+  await openEmbeddingViews(page);
 
   // an appended unembedded row -> the backend gate returns embedding_index_incomplete
   setResolveError('embedding_index_incomplete');

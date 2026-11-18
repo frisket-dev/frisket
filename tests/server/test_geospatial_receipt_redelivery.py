@@ -79,7 +79,8 @@ def test_completed_queue_redelivery_preserves_actual_provider_summary(
     ws = client.app.state.workspace
     job = ws.queue.get(queued["job_id"])
     result = ws.registry.get("project.run")(
-        deepcopy(job.payload), JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        deepcopy(job.payload),
+        JobHandlerContext.from_claimed_job(trusted_organization_id=None),
     )
     assert result["skipped"] is True
     after = receipts.parsed_by_id(queued["receipt_id"])
@@ -113,7 +114,7 @@ def test_crash_after_run_finish_before_first_receipt_recovers_actual_facts(
     job = ws.queue.get(queued["job_id"])
     payload = {**deepcopy(job.payload), "job_id": job.id}
     handler = ws.registry.get("project.run")
-    context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+    context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
     original = runs.queued_v1_finalize_action_result
 
     def crash_before_finalizing(*args, **kwargs):
@@ -262,7 +263,7 @@ def test_recovered_summary_counts_actual_http_without_inventing_charges(
     for _ in range(2):
         result = ws.registry.get("project.run")(
             deepcopy(job.payload),
-            JobHandlerContext.from_claimed_job(trusted_org_id=None),
+            JobHandlerContext.from_claimed_job(trusted_organization_id=None),
         )
         assert result["skipped"] is True
         assert (

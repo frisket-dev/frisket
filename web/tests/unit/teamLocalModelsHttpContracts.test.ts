@@ -9,11 +9,11 @@ vi.mock("pluralize", () => ({
 
 import {
   ApiError,
-  listOrgLocalEndpoints,
-  orgCancelModelPull,
-  orgGetModelPull,
-  orgListModelPulls,
-  orgStartArtifactPull,
+  listOrganizationLocalEndpoints,
+  organizationCancelModelPull,
+  organizationGetModelPull,
+  organizationListModelPulls,
+  organizationStartArtifactPull,
 } from "../../src/api/real";
 import { httpContract } from "../../src/api/httpContract";
 
@@ -98,11 +98,11 @@ describe("team-local model generated HTTP transport", () => {
       }),
     );
 
-    await listOrgLocalEndpoints();
-    await orgStartArtifactPull("hf:owner/model@sha/model.gguf", true);
-    await orgListModelPulls();
-    await orgGetModelPull(7);
-    await expect(orgCancelModelPull(7)).resolves.toEqual(pull);
+    await listOrganizationLocalEndpoints();
+    await organizationStartArtifactPull("hf:owner/model@sha/model.gguf", true);
+    await organizationListModelPulls();
+    await organizationGetModelPull(7);
+    await expect(organizationCancelModelPull(7)).resolves.toEqual(pull);
 
     expect(
       requests.map((request) => [request.input, request.init?.method]),
@@ -154,7 +154,7 @@ describe("team-local model generated HTTP transport", () => {
         endpoints: [],
       })),
     );
-    await expect(listOrgLocalEndpoints()).resolves.toEqual({
+    await expect(listOrganizationLocalEndpoints()).resolves.toEqual({
       schemaVersion: "frisket.local_endpoints.v1",
       endpoints: [],
     });
@@ -166,7 +166,7 @@ describe("team-local model generated HTTP transport", () => {
       vi.fn(async () => jsonResponse({ detail: "teapot" }, 418)),
     );
     await expect(
-      orgStartArtifactPull("ollama/@local-a1b2c3d4e5f6/smollm:135m"),
+      organizationStartArtifactPull("ollama/@local-a1b2c3d4e5f6/smollm:135m"),
     ).rejects.toMatchObject({
       name: ApiError.name,
       status: 418,
@@ -185,7 +185,7 @@ describe("team-local model generated HTTP transport", () => {
       ),
     );
     await expect(
-      orgStartArtifactPull("ollama/@local-a1b2c3d4e5f6/smollm:135m"),
+      organizationStartArtifactPull("ollama/@local-a1b2c3d4e5f6/smollm:135m"),
     ).rejects.toMatchObject({
       name: ApiError.name,
       status: 409,

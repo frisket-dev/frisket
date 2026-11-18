@@ -150,8 +150,8 @@ function dockDetailRows(job: DockActionJob): Array<[string, ReactNode]> {
         kind: 'project', projectId: job.projectId, sheetId: context.sheetId,
       })}>{context.sheetName}</Button>
     ) : `Sheet ${context.sheetId}`]] as Array<[string, ReactNode]>) : []),
-    ...(context?.outputColumns.length
-      ? ([['Generated columns', context.outputColumns.map((column) => column.name).join(', ')]] as Array<[string, ReactNode]>)
+    ...(context?.generatedColumns.length
+      ? ([['Generated columns', context.generatedColumns.map((column) => column.name).join(', ')]] as Array<[string, ReactNode]>)
       : []),
     ['Queue id', String(job.jobId)],
     ['Run id', job.runId ?? '—'],

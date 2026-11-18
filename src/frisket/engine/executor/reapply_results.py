@@ -10,7 +10,7 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.map_rows_action import (
     TypedMapRowsPlanError,
-    _require_expected_output_columns,
+    _require_expected_generated_columns,
     resolve_row_output_targets,
     typed_request_hash,
 )
@@ -159,7 +159,7 @@ def reapply_results(project, project_id, bound):
                 names, preconditions = resolve_row_output_targets(
                     project, target_request, fields
                 )
-                _require_expected_output_columns(target_request, preconditions)
+                _require_expected_generated_columns(target_request, preconditions)
                 for field in fields:
                     target = preconditions[names[field.key]]
                     if target is not None and not covers_sheet:

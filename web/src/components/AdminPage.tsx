@@ -34,9 +34,9 @@ import {
   type AdminJob,
   type AdminJobs,
   type AdminOverview,
-  type AdminOrgRole,
+  type AdminOrganizationRole,
   type AdminUsers,
-  type AdminUsersOrg,
+  type AdminUsersOrganization,
 } from '../api/open';
 import { BrandLink } from './BrandLink';
 import { useEditionModule } from '../editions/module';
@@ -171,12 +171,12 @@ function adminJobActionMetadata(job: AdminJob): {
 function adminJobIdentity(job: AdminJob): string {
   const bits = [`queue item ${job.id}`];
   const refs = job.refs ?? {};
-  const orgId = refString(refs, 'org_id');
+  const organizationId = refString(refs, 'org_id');
   const projectId = refString(refs, 'project_id');
   const runId = refString(refs, 'run_id');
   const sourceId = refString(refs, 'source_id');
   const sheetId = refString(refs, 'sheet_id');
-  if (orgId) bits.push(`organization ${orgId}`);
+  if (organizationId) bits.push(`organization ${organizationId}`);
   if (projectId) bits.push(`project ${projectId}`);
   if (runId) bits.push(`run ${runId}`);
   if (sourceId) bits.push(`source ${sourceId}`);
@@ -280,7 +280,7 @@ function AdminAuditSection() {
   );
 }
 
-type PendingInviteConfirm = { orgId: number; orgName: string; email: string };
+type PendingInviteConfirm = { organizationId: number; organizationName: string; email: string };
 
 interface AdminUsersAction {
   busy: string | null;
@@ -388,25 +388,25 @@ function AdminUsersPanel({
   error: string | null;
   onRefresh(): void;
 }) {
-  const orgs = users?.orgs ?? [];
+  const organizations = users?.orgs ?? [];
   const assignableRoles = users?.capabilities.assignable_roles ?? [];
   const magicLinkTtlMinutes = users?.capabilities.magic_link_ttl_minutes;
   const inviteTtlDays = users?.capabilities.invite_ttl_days;
-  const defaultOrgId = orgs[0]?.id ?? 0;
-  const [selectedOrgId, setSelectedOrgId] = useState('');
+  const defaultOrganizationId = organizations[0]?.id ?? 0;
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [pendingInvite, setPendingInvite] = useState<PendingInviteConfirm | null>(null);
   const [action, setAction] = useState<AdminUsersAction>(ADMIN_USERS_ACTION_IDLE);
   const { busy, error: actionError, notice } = action;
-  const activeOrgId = Number(selectedOrgId || defaultOrgId);
+  const activeOrganizationId = Number(selectedOrganizationId || defaultOrganizationId);
 
   const userRows = useMemo(
-    () => users?.orgs?.flatMap((org) => org.users.map((user) => ({ org, user }))) ?? [],
+    () => users?.orgs?.flatMap((organization) => organization.users.map((user) => ({ organization, user }))) ?? [],
     [users],
   );
   const inviteRows = useMemo(
-    () => users?.orgs?.flatMap((org) => (
-      org.pending_invites.map((invite) => ({ org, invite }))
+    () => users?.orgs?.flatMap((organization) => (
+      organization.pending_invites.map((invite) => ({ organization, invite }))
     )) ?? [],
     [users],
   );
@@ -429,42 +429,42 @@ function AdminUsersPanel({
   }
 
   // Step 1 of 2: show a confirm panel before anything is sent, so an admin
-  // inviting a batch of reporters sees exactly which org each email lands in
+  // inviting a batch of reporters sees exactly which organization each email lands in
   // instead of silently minting per-person orgs.
   const submitInvite = (event: FormEvent) => {
     event.preventDefault();
     const email = inviteEmail.trim();
-    if (!email || !activeOrgId) return;
-    const org = orgs.find((item) => item.id === activeOrgId);
-    setPendingInvite({ orgId: activeOrgId, orgName: org?.name ?? `organization ${activeOrgId}`, email });
+    if (!email || !activeOrganizationId) return;
+    const organization = organizations.find((item) => item.id === activeOrganizationId);
+    setPendingInvite({ organizationId: activeOrganizationId, organizationName: organization?.name ?? `organization ${activeOrganizationId}`, email });
     setAction((current) => ({ ...current, error: null, notice: null }));
   };
 
   const confirmInvite = () => {
     if (!pendingInvite) return;
-    const { orgId, email } = pendingInvite;
+    const { organizationId, email } = pendingInvite;
     void runAction('Invite queued', async () => {
-      await inviteAdminUser(orgId, email);
+      await inviteAdminUser(organizationId, email);
     }, { clearInviteEmail: true });
   };
 
   const cancelInvite = () => setPendingInvite(null);
 
-  const changeRole = (org: AdminUsersOrg, userId: number, role: AdminOrgRole) => {
+  const changeRole = (organization: AdminUsersOrganization, userId: number, role: AdminOrganizationRole) => {
     void runAction('Role updated', async () => {
-      await updateAdminUserRole(org.id, userId, role);
+      await updateAdminUserRole(organization.id, userId, role);
     });
   };
 
-  const revokeUser = (org: AdminUsersOrg, userId: number) => {
+  const revokeUser = (organization: AdminUsersOrganization, userId: number) => {
     void runAction('User access revoked', async () => {
-      await removeAdminUser(org.id, userId);
+      await removeAdminUser(organization.id, userId);
     });
   };
 
-  const revokeInvite = (org: AdminUsersOrg, email: string) => {
+  const revokeInvite = (organization: AdminUsersOrganization, email: string) => {
     void runAction('Invite revoked', async () => {
-      await revokeAdminInvite(org.id, email);
+      await revokeAdminInvite(organization.id, email);
     });
   };
 
@@ -488,12 +488,12 @@ function AdminUsersPanel({
           aria-label="Invite organization"
           className="form-input row-height-select"
           data-testid="admin-invite-org"
-          value={String(activeOrgId || '')}
-          onChange={(event) => setSelectedOrgId(event.target.value)}
-          disabled={orgs.length === 0 || busy !== null || pendingInvite !== null}
+          value={String(activeOrganizationId || '')}
+          onChange={(event) => setSelectedOrganizationId(event.target.value)}
+          disabled={organizations.length === 0 || busy !== null || pendingInvite !== null}
         >
-          {orgs.map((org) => (
-            <option key={org.id} value={org.id}>{org.name}</option>
+          {organizations.map((organization) => (
+            <option key={organization.id} value={organization.id}>{organization.name}</option>
           ))}
         </PanelSelect>
         <TextInput
@@ -506,14 +506,14 @@ function AdminUsersPanel({
           onChange={(event) => (
             setInviteEmail(event.target.value)
           )}
-          disabled={orgs.length === 0 || busy !== null || pendingInvite !== null}
+          disabled={organizations.length === 0 || busy !== null || pendingInvite !== null}
         />
         <Button
           type="submit"
 
           data-testid="admin-invite-submit"
           disabled={
-            !inviteEmail.trim() || !activeOrgId || busy !== null || pendingInvite !== null
+            !inviteEmail.trim() || !activeOrganizationId || busy !== null || pendingInvite !== null
           }
         >
           Invite
@@ -522,7 +522,7 @@ function AdminUsersPanel({
       {pendingInvite && (
         <div className="account-note" data-testid="admin-invite-confirm">
           This adds <strong>{pendingInvite.email}</strong> to{' '}
-          <strong>{pendingInvite.orgName}</strong>.
+          <strong>{pendingInvite.organizationName}</strong>.
           <div className="admin-job-actions">
             <Button
               type="button"
@@ -594,11 +594,11 @@ function AdminUsersTable({
 }: {
   users: AdminUsers | null;
   error: string | null;
-  userRows: { org: AdminUsersOrg; user: AdminUsersOrg['users'][number] }[];
+  userRows: { organization: AdminUsersOrganization; user: AdminUsersOrganization['users'][number] }[];
   busy: string | null;
-  assignableRoles: readonly AdminOrgRole[];
-  onChangeRole(org: AdminUsersOrg, userId: number, role: AdminOrgRole): void;
-  onRevoke(org: AdminUsersOrg, userId: number): void;
+  assignableRoles: readonly AdminOrganizationRole[];
+  onChangeRole(organization: AdminUsersOrganization, userId: number, role: AdminOrganizationRole): void;
+  onRevoke(organization: AdminUsersOrganization, userId: number): void;
 }) {
   return (
     <table className="admin-table admin-users-table" data-testid="admin-users-table">
@@ -620,9 +620,9 @@ function AdminUsersTable({
           </tr>
         ) : userRows.length === 0 ? (
           <tr><td colSpan={5} className="picker-empty">No users yet.</td></tr>
-        ) : userRows.map(({ org, user }) => (
-          <tr key={`${org.id}:${user.user_id}`}>
-            <td>{org.name}</td>
+        ) : userRows.map(({ organization, user }) => (
+          <tr key={`${organization.id}:${user.user_id}`}>
+            <td>{organization.name}</td>
             <td>{user.email}</td>
             <td>
               <PanelSelect
@@ -635,7 +635,7 @@ function AdminUsersTable({
                   const role = assignableRoles.find(
                     (candidate) => candidate === event.target.value,
                   );
-                  if (role) onChangeRole(org, user.user_id, role);
+                  if (role) onChangeRole(organization, user.user_id, role);
                 }}
               >
                 {assignableRoles.map((role) => (
@@ -650,7 +650,7 @@ function AdminUsersTable({
 
                 data-testid={`admin-user-revoke-${user.user_id}`}
                 disabled={busy !== null}
-                onClick={() => onRevoke(org, user.user_id)}
+                onClick={() => onRevoke(organization, user.user_id)}
               >
                 Remove membership
               </Button>
@@ -673,9 +673,9 @@ function AdminInvitesTable({
 }: {
   users: AdminUsers | null;
   error: string | null;
-  inviteRows: { org: AdminUsersOrg; invite: AdminUsersOrg['pending_invites'][number] }[];
+  inviteRows: { organization: AdminUsersOrganization; invite: AdminUsersOrganization['pending_invites'][number] }[];
   busy: string | null;
-  onRevoke(org: AdminUsersOrg, email: string): void;
+  onRevoke(organization: AdminUsersOrganization, email: string): void;
 }) {
   return (
     <table className="admin-table admin-invites-table" data-testid="admin-invites-table">
@@ -696,9 +696,9 @@ function AdminInvitesTable({
           </tr>
         ) : inviteRows.length === 0 ? (
           <tr><td colSpan={4} className="picker-empty">No pending invites.</td></tr>
-        ) : inviteRows.map(({ org, invite }) => (
-          <tr key={`${org.id}:${invite.email}`}>
-            <td>{org.name}</td>
+        ) : inviteRows.map(({ organization, invite }) => (
+          <tr key={`${organization.id}:${invite.email}`}>
+            <td>{organization.name}</td>
             <td>{invite.email}</td>
             <td>{invite.expires_at ?? '—'}</td>
             <td>
@@ -707,7 +707,7 @@ function AdminInvitesTable({
 
                 data-testid={`admin-invite-revoke-${invite.email}`}
                 disabled={busy !== null}
-                onClick={() => onRevoke(org, invite.email)}
+                onClick={() => onRevoke(organization, invite.email)}
               >
                 Revoke
               </Button>
@@ -728,20 +728,20 @@ function AdminAuditPanel({
   error: string | null;
   onRefresh(filters?: AdminAuditFilters): Promise<void> | void;
 }) {
-  const [orgId, setOrgId] = useState('');
+  const [organizationId, setOrganizationId] = useState('');
   const [projectId, setProjectId] = useState('');
   const [userFilter, setUserFilter] = useState('');
   const [action, setAction] = useState('');
   const events = auditLog?.events ?? [];
-  const orgs = auditLog?.filters?.orgs ?? [];
+  const organizations = auditLog?.filters?.orgs ?? [];
   const allProjects = auditLog?.filters?.projects ?? [];
   const actions = auditLog?.filters?.actions ?? [];
-  const projects = orgId
-    ? allProjects.filter((project) => String(project.org_id) === orgId)
+  const projects = organizationId
+    ? allProjects.filter((project) => String(project.org_id) === organizationId)
     : allProjects;
 
   const currentFilters = (): AdminAuditFilters => ({
-    orgId: orgId || undefined,
+    organizationId: organizationId || undefined,
     projectId: projectId || undefined,
     user: userFilter.trim() || undefined,
     action: action || undefined,
@@ -754,15 +754,15 @@ function AdminAuditPanel({
   };
 
   const clearFilters = () => {
-    setOrgId('');
+    setOrganizationId('');
     setProjectId('');
     setUserFilter('');
     setAction('');
     void onRefresh({ limit: 100 });
   };
 
-  const changeOrg = (value: string) => {
-    setOrgId(value);
+  const changeOrganization = (value: string) => {
+    setOrganizationId(value);
     const selectedProject = allProjects.find((project) => project.project_id === projectId);
     if (value && selectedProject && String(selectedProject.org_id) !== value) {
       setProjectId('');
@@ -786,12 +786,12 @@ function AdminAuditPanel({
           aria-label="Audit organization"
           className="form-input"
           data-testid="admin-audit-org-filter"
-          value={orgId}
-          onChange={(event) => changeOrg(event.target.value)}
+          value={organizationId}
+          onChange={(event) => changeOrganization(event.target.value)}
         >
           <option value="">All organizations</option>
-          {orgs.map((org) => (
-            <option key={org.id} value={org.id}>{org.name}</option>
+          {organizations.map((organization) => (
+            <option key={organization.id} value={organization.id}>{organization.name}</option>
           ))}
         </PanelSelect>
         <PanelSelect

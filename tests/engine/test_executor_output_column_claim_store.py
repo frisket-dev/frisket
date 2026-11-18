@@ -19,7 +19,7 @@ def _seed_project(tmp_path: Path) -> tuple[Project, int, dict[str, int]]:
     return project, sheet_id, columns
 
 
-def test_output_column_claim_store_preserves_claim_lifecycle(
+def test_generated_column_claim_store_preserves_claim_lifecycle(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, columns = _seed_project(tmp_path)
@@ -82,7 +82,7 @@ def test_output_column_claim_store_preserves_claim_lifecycle(
     assert store.active_for_columns([columns["summary"]]) is None
 
 
-def test_output_column_claim_store_releases_by_receipt_and_claim_token(
+def test_generated_column_claim_store_releases_by_receipt_and_claim_token(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, _columns = _seed_project(tmp_path)

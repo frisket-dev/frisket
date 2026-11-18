@@ -426,7 +426,7 @@ def test_google_sheets_returned_checkpoint_recovers_same_queue_job_once(
     with pytest.raises(_CrashAfterReturned):
         handler(
             handler_payload,
-            JobHandlerContext.from_claimed_job(trusted_org_id=None),
+            JobHandlerContext.from_claimed_job(trusted_organization_id=None),
         )
     monkeypatch.setattr(EffectCheckpointStore, "complete", real_complete)
     queue.acknowledge_handler_exit(

@@ -1,4 +1,4 @@
-"""Source poller host package."""
+"""Feed checker host package."""
 
 from .runtime import (
     SourcePollContext,
@@ -6,30 +6,35 @@ from .runtime import (
     SourcePollResult,
     SourcePoller,
     encode_cursor,
-    get_source_poller,
-    register_source_poller,
+    get_feed_checker,
+    register_feed_checker,
     registered_source_kinds,
-    unregister_source_poller,
+    unregister_feed_checker,
 )
 from .api_list_dicts import (
     API_LIST_DICTS_KIND,
     ApiListDictsHttpResponse,
-    ApiListDictsPoller,
-    register_api_list_dicts_poller,
+    ApiListDictsFeedChecker,
+    register_api_list_dicts_feed_checker,
 )
 from .courtlistener import (
     COURTLISTENER_DOCKET_KIND,
     CourtListenerDocketListing,
-    CourtListenerDocketPoller,
-    register_courtlistener_docket_poller,
+    CourtListenerDocketFeedChecker,
+    register_courtlistener_docket_feed_checker,
 )
-from .rss import RSS_KIND, RssPoller, ensure_rss_poller, register_rss_poller
-from .tiktok import TIKTOK_PROFILE_KIND, TikTokProfilePoller
+from .rss import (
+    RSS_KIND,
+    RssFeedChecker,
+    ensure_rss_feed_checker,
+    register_rss_feed_checker,
+)
+from .tiktok import TIKTOK_PROFILE_KIND, TikTokProfileFeedChecker
 from .youtube import (
     YOUTUBE_CHANNEL_KIND,
     YOUTUBE_PLAYLIST_KIND,
     YouTubeChannelListing,
-    YouTubeCollectionPoller,
+    YouTubeCollectionFeedChecker,
     YouTubePlaylistListing,
 )
 
@@ -40,26 +45,26 @@ __all__ = [
     "SourcePoller",
     "API_LIST_DICTS_KIND",
     "ApiListDictsHttpResponse",
-    "ApiListDictsPoller",
+    "ApiListDictsFeedChecker",
     "COURTLISTENER_DOCKET_KIND",
     "CourtListenerDocketListing",
-    "CourtListenerDocketPoller",
+    "CourtListenerDocketFeedChecker",
     "RSS_KIND",
-    "RssPoller",
+    "RssFeedChecker",
     "TIKTOK_PROFILE_KIND",
-    "TikTokProfilePoller",
+    "TikTokProfileFeedChecker",
     "YOUTUBE_CHANNEL_KIND",
     "YOUTUBE_PLAYLIST_KIND",
     "YouTubeChannelListing",
-    "YouTubeCollectionPoller",
+    "YouTubeCollectionFeedChecker",
     "YouTubePlaylistListing",
     "encode_cursor",
-    "get_source_poller",
-    "ensure_rss_poller",
-    "register_api_list_dicts_poller",
-    "register_courtlistener_docket_poller",
-    "register_rss_poller",
-    "register_source_poller",
+    "get_feed_checker",
+    "ensure_rss_feed_checker",
+    "register_api_list_dicts_feed_checker",
+    "register_courtlistener_docket_feed_checker",
+    "register_rss_feed_checker",
+    "register_feed_checker",
     "registered_source_kinds",
-    "unregister_source_poller",
+    "unregister_feed_checker",
 ]

@@ -3,31 +3,34 @@
 import pytest
 
 from frisket.execution.attempt import cost_basis_from_promises
-from frisket.execution.price_book import OperatorBorne, quote_ocr, settle
+from frisket.execution.price_book import OperatorBorne, estimate_ocr, settle
 from frisket.execution.promise_compiler import ProviderUsageCost, UnpriceableCost
 
 ENGINE = "opendocrouter/rednote-hilab/dots.mocr"
 
 
-def test_unknown_provider_quote_survives_promise_roundtrip():
-    quote = quote_ocr(
+def test_unknown_provider_estimate_survives_promise_roundtrip():
+    estimate = estimate_ocr(
         target_id="opendocrouter",
         engine=ENGINE,
         funding=OperatorBorne(),
         offering=None,
         pages=None,
     )
-    assert isinstance(quote, ProviderUsageCost)
-    assert isinstance(quote, UnpriceableCost)
+    assert isinstance(estimate, ProviderUsageCost)
+    assert isinstance(estimate, UnpriceableCost)
     restored = cost_basis_from_promises(
         [
             {
                 "field": "cost",
-                "basis": {"kind": "provider_usage", "pricing_key": quote.pricing_key},
+                "basis": {
+                    "kind": "provider_usage",
+                    "pricing_key": estimate.pricing_key,
+                },
             }
         ]
     )
-    assert restored == quote
+    assert restored == estimate
 
 
 @pytest.mark.parametrize("key", [None, "", " bad ", 42])

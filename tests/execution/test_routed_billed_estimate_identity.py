@@ -17,7 +17,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.consent_coverage import ConsentCoverage
-from frisket.execution.pricing_policy import QuoteFacts, RatedQuote
+from frisket.execution.pricing_policy import EstimateFacts, RatedEstimate
 from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
@@ -39,12 +39,12 @@ class _CountingTariff:
     def __init__(self, policy_id: str, multiplier: int) -> None:
         self.policy_id = policy_id
         self.multiplier = multiplier
-        self.facts: list[QuoteFacts] = []
+        self.facts: list[EstimateFacts] = []
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
         self.facts.append(facts)
         assert facts.provider_cost is not None
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost * self.multiplier,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -86,7 +86,7 @@ def _cost_promise(resolved: ResolvedExecution):
     )
 
 
-def _quote_promise(resolved: ResolvedExecution):
+def _estimate_promise(resolved: ResolvedExecution):
     return next(
         promise
         for promise in resolved.promise_set.promises
@@ -136,7 +136,7 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
         resolution=resolved,
         consent_coverage=coverage,
     )
-    first_bound = validation._bind_rated_quote(resolved, first_estimate)
+    first_bound = validation._bind_rated_estimate(resolved, first_estimate)
     first_hash = consented_set_hash(first_bound.promise_set)
     assert first_estimate["promise_set_hash"] == first_hash
     assert len(first_policy.facts) == 1
@@ -158,7 +158,7 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
         resolution=resolved,
         consent_coverage=coverage,
     )
-    second_bound = validation._bind_rated_quote(resolved, second_estimate)
+    second_bound = validation._bind_rated_estimate(resolved, second_estimate)
     second_hash = consented_set_hash(second_bound.promise_set)
 
     assert len(second_policy.facts) == 1
@@ -180,10 +180,16 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
     assert first_cost.basis == second_cost.basis == original_cost.basis
     assert first_cost.value == second_cost.value == original_cost.value
 
-    first_quote_promise = _quote_promise(first_bound)
-    second_quote_promise = _quote_promise(second_bound)
-    assert first_quote_promise.field == second_quote_promise.field == "egress_class"
-    first_quote = json.loads(first_quote_promise.basis["consent_quote_json"])
-    second_quote = json.loads(second_quote_promise.basis["consent_quote_json"])
-    assert first_quote["policy_id"] == "test.tariff.v1"
-    assert second_quote["policy_id"] == "test.tariff.v2"
+    first_estimate_promise = _estimate_promise(first_bound)
+    second_estimate_promise = _estimate_promise(second_bound)
+    assert (
+        first_estimate_promise.field == second_estimate_promise.field == "egress_class"
+    )
+    first_consent_estimate = json.loads(
+        first_estimate_promise.basis["consent_quote_json"]
+    )
+    second_consent_estimate = json.loads(
+        second_estimate_promise.basis["consent_quote_json"]
+    )
+    assert first_consent_estimate["policy_id"] == "test.tariff.v1"
+    assert second_consent_estimate["policy_id"] == "test.tariff.v2"

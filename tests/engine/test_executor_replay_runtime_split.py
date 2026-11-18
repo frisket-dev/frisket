@@ -216,11 +216,13 @@ def test_result_from_receipt_reconstructs_map_columns(
             "output_names": {"api_result": "HTTP response"},
             "idempotency_key": "api-receipt-projection",
         }
-        quote = run_action_spec(project, request, project_id="project-1", router=router)
-        assert quote.status == "needs_confirmation", quote.errors
+        estimate = run_action_spec(
+            project, request, project_id="project-1", router=router
+        )
+        assert estimate.status == "needs_confirmation", estimate.errors
         completed = run_action_spec(
             project,
-            {**request, "confirmation": quote.errors[0].details["promise_set_hash"]},
+            {**request, "confirmation": estimate.errors[0].details["promise_set_hash"]},
             project_id="project-1",
             router=router,
         )

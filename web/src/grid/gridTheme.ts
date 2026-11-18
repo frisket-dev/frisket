@@ -113,7 +113,7 @@ export function readGridDifferenceTheme(): Partial<Theme> {
  *  the documented light/dark fallback while older themes lack that token.
  *
  *  ONE derived object covers both header treatments Glide paints for an
- *  AI-generated column: this is passed as each AI column's own
+ *  AI-generated column: this is passed as each generated column's own
  *  `themeOverride` (SheetGrid.tsx's `columns` memo) AND, unchanged, as the
  *  op-group banner's `overrideTheme` (getGroupDetails in
  *  useGridHeaderHandlers) — previously the banner had its OWN hardcoded hex
@@ -123,7 +123,7 @@ export function readGridDifferenceTheme(): Partial<Theme> {
  *  overrideTheme leak at all, so it stayed correctly dark) — the "one header
  *  light, its neighbor dark" symptom. Reusing this single object for both
  *  removes the second definition instead of just recoloring it. */
-export function readAiColumnTheme(): Partial<Theme> {
+export function readGeneratedColumnTheme(): Partial<Theme> {
   const s = tokens();
   const bg = v(s, '--ai-bg', '#eee7fb');
   const accent = v(s, '--ai', '#7c5ce6');

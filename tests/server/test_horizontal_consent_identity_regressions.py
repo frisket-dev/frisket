@@ -112,7 +112,7 @@ def test_confirmation_echo_keeps_scope_and_reads_edited_content(
     gated = client.post(f"/api/projects/{project_id}/actions/v1/run", json=action)
     assert gated.status_code == 402, gated.text
     details = gated.json()["errors"][0]["details"]
-    quoted_estimate = details["estimate"]
+    gate_estimate = details["estimate"]
     confirmation_hash = details["promise_set_hash"]
 
     edited = post_cell_edit_as_v1_action(
@@ -146,9 +146,7 @@ def test_confirmation_echo_keeps_scope_and_reads_edited_content(
         key: value
         for key, value in estimated_after_edit.json()["estimate"].items()
         if key in estimate_fields
-    } == {
-        key: value for key, value in quoted_estimate.items() if key in estimate_fields
-    }
+    } == {key: value for key, value in gate_estimate.items() if key in estimate_fields}
 
     confirmed = deepcopy(action)
     confirmed["confirmation"] = confirmation_hash
@@ -177,7 +175,7 @@ def test_confirmation_echo_keeps_scope_and_reads_edited_content(
     assert "A" * 800 not in str(adapter.calls[0].messages)
 
 
-def test_exact_match_consent_does_not_cross_to_a_different_equal_quote_row(
+def test_exact_match_consent_does_not_cross_to_a_different_equal_estimate_row(
     tmp_path, gateway_env, run_engine_stub
 ) -> None:
     """Consent to send row A cannot silently authorize equal-price row B."""
@@ -479,14 +477,14 @@ def _consented_unrouted_run(tmp_path, monkeypatch, *, name: str, key: str):
     return adapter, project, run_id, row_id, stored_spec
 
 
-def test_unrouted_dispatch_refuses_when_the_live_quote_cannot_be_projected(
+def test_unrouted_dispatch_refuses_when_the_live_estimate_cannot_be_projected(
     tmp_path, monkeypatch
 ) -> None:
     """An unprojectable live estimate is a REFUSAL, not an exception.
 
     Validation can refuse a malformed estimate outright — a 400 the user can
     act on. Dispatch has no such seat: its only modeled outcomes are admit and
-    ``consent_missing``. Letting ``ConsentQuoteRefused`` escape here would be
+    ``consent_missing``. Letting ``ConsentEstimateRefused`` escape here would be
     strictly worse than a mismatch, because the same estimate throws on every
     retry: the consented run would become permanently unrunnable rather than
     re-confirmable, and the receipt would carry an unhandled exception instead

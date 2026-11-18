@@ -680,7 +680,7 @@ def test_trusted_automatic_ready_media_still_admits_without_downloads(
     assert len(service.get(project_id, batch_id).jobs) == 1
     if origin == "import":
         # The same receipt remains stable after action admission changed the
-        # project cursor by creating ordinary output columns.
+        # project cursor by creating ordinary generated columns.
         assert (
             service.create_after_import(
                 project_id, receipt_id="receipt:trusted-import", sheet_id=sheet
@@ -1662,7 +1662,7 @@ def test_recovery_adopts_unbound_real_action_reservation(tmp_path, monkeypatch) 
     assert service.store.children(batch.id)[0].job_id is None
 
     # Simulate another process/restart advancing after action admission but
-    # before the coordinator bound its child. Output columns now exist, so a
+    # before the coordinator bound its child. Generated columns now exist, so a
     # fresh request would have different replacement preconditions.
     service._advance(batch)
 

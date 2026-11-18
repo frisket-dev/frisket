@@ -24,7 +24,7 @@ from frisket.server.workspace import Workspace
 
 
 @pytest.fixture(autouse=True)
-def _pin_zero_standing_preapproval(monkeypatch: pytest.MonkeyPatch) -> None:
+def _pin_zero_standing_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep positive-cost fixtures on their explicit-confirmation path."""
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -44,7 +44,7 @@ def _edition_request(snapshot: dict[str, Any]) -> SimpleNamespace:
     context = ExecutionCompositionContext(
         storage_key=None,
         run_id=None,
-        trusted_job_org_id=direct.trusted_job_org_id,
+        trusted_job_organization_id=direct.trusted_job_organization_id,
         edition_snapshot=snapshot,
     )
     return SimpleNamespace(state=SimpleNamespace(execution_composition_context=context))
@@ -73,7 +73,7 @@ PRECOMMIT_BOUNDARY_TARGETS = {
     5: "frisket.engine.store.project.Project.set_undo_info",
     6: "frisket.engine.store.runs.RunResultStore.start_run",
     7: "frisket.engine.store.runs.RunResultStore.point_column_at_run",
-    8: "frisket.engine.runner.preparation.retire_dropped_output_columns",
+    8: "frisket.engine.runner.preparation.retire_dropped_generated_columns",
     9: "frisket.engine.runner.validation.persist_resolved_execution",
     10: (
         "frisket.engine.executor.action_reservations._mark_queued_action_run_prepared"
@@ -256,7 +256,7 @@ def _confirmed_action(
     service: ActionRunService,
     action: dict[str, Any],
 ) -> dict[str, Any]:
-    # This fixture prices geocode; free Census calls are preapproved.
+    # This fixture prices geocode; free Census calls are covered by the allowance.
     if _action_kind(action) != "enrich.geocode":
         return action
     challenge = service.run_action("authority", action)
@@ -659,11 +659,11 @@ def _prepared_tuple(
         (attempt_id,),
     ).fetchall()
     cost_basis = json.loads(attempt["cost_basis_json"])
-    row_quotes = cost_basis.get("row_quote_quantities", [])
+    row_estimates = cost_basis.get("row_quote_quantities", [])
     assert [
         (int(value["row_id"]), str(value["quoted_quantity"]))
         for value in row_authorizations
-    ] == [(int(value["row_id"]), str(value["quantity"])) for value in row_quotes]
+    ] == [(int(value["row_id"]), str(value["quantity"])) for value in row_estimates]
     assert all(value["terminal_outcome"] is None for value in row_authorizations)
     claims = project.db.execute(
         "SELECT c.*, col.name AS column_name, col.type AS column_type, "
@@ -842,7 +842,7 @@ def test_routed_preparation_process_death_is_all_or_nothing(
         "format-retype",
     ),
 )
-def test_unowned_output_column_is_refused_before_writer_mutation(
+def test_unowned_generated_column_is_refused_before_writer_mutation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     output_writer_variant: str,

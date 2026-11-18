@@ -12,7 +12,7 @@ from frisket.ai.map.find_source import (
     accepted_window_candidates,
     locate_unique_match,
 )
-from frisket.ai.vision.region_locator import HostedVLMRegionLocator, LocatedRegion
+from frisket.ai.vision.region_locator import RemoteVLMRegionLocator, LocatedRegion
 from frisket.contracts.action import ActionError
 from frisket.engine.executor.find_plan import FindOperation
 from frisket.engine.executor.map_find_planning import (
@@ -97,7 +97,7 @@ async def scan_find_plans(
         source_index, unit_positions = source_positions[source_key]
         if isinstance(plan, ImageFindPlan):
             try:
-                located = await HostedVLMRegionLocator(router).locate(plan.request)
+                located = await RemoteVLMRegionLocator(router).locate(plan.request)
             except BaseException as exc:
                 record_returned(getattr(exc, "wire_calls", ()) or ())
                 if not isinstance(exc, Exception):

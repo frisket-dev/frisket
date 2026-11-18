@@ -20,7 +20,7 @@ class _ReachedRouter(RuntimeError):
     pass
 
 
-def test_funding_org_id_stays_injectable_queue_metadata() -> None:
+def test_funding_organization_id_stays_injectable_queue_metadata() -> None:
     """Hosted composition may inject a funding owner distinct from storage."""
 
     def router_for(_project):

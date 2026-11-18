@@ -30,7 +30,7 @@ def add_view(
     sheet_id: int | None = None,
     commit: bool = True,
 ) -> int:
-    """Create a saved view and log it as an op.
+    """Create a view and log it as an op.
 
     A view is a named, reusable filter/sort over a sheet. Unlike an
     ephemeral grid setting, creating one appends an op (kind='view') so the

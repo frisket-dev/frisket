@@ -13,13 +13,13 @@ vi.mock('pluralize', () => ({
 
 const mocks = vi.hoisted(() => ({
   getRuntimeConfig: vi.fn(),
-  listOrgKeys: vi.fn(),
+  listOrganizationKeys: vi.fn(),
   listProviders: vi.fn(),
 }));
 
 vi.mock('../../src/api/open', () => ({
   getRuntimeConfig: mocks.getRuntimeConfig,
-  listOrgKeys: mocks.listOrgKeys,
+  listOrganizationKeys: mocks.listOrganizationKeys,
   listProviders: mocks.listProviders,
   onRuntimeConfigChanged: vi.fn(() => () => undefined),
 }));
@@ -177,7 +177,7 @@ describe('project provider-key generated HTTP contracts', () => {
       cache_mode_editable: false,
     });
     mocks.listProviders.mockResolvedValue({ providers: [] });
-    mocks.listOrgKeys.mockResolvedValue([]);
+    mocks.listOrganizationKeys.mockResolvedValue([]);
     const requests: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       requests.push(String(input));

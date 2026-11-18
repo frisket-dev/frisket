@@ -1,5 +1,5 @@
 // RED-FIRST (authored 2026-06-13): column drag/reorder should affect the active
-// grid layout and saved views, not the canonical backend column schema order.
+// grid layout and views, not the canonical backend column schema order.
 
 import { expect, test, type Page } from '@playwright/test';
 import {

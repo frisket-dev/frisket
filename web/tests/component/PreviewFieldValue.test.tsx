@@ -13,7 +13,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const column = columnDef({ id: 'existing', name: 'Cuts', type: 'text' });
 const sheet = { id: '1', name: 'Videos', columns: [column], rowCount: 1 } as SheetMeta;
 const sample: PreviewCellDetail = {
-  column: { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: 'existing' },
+  column: { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, replacesColumnId: 'existing' },
   cell: {
     value: {
       schema_version: 'frisket.timeline_points.v1',
@@ -37,8 +37,8 @@ function inspect(preview: PreviewCellDetail | null) {
 }
 
 describe('sampled detail inspection', () => {
-  it.each([null, 'existing'])('renders ephemeral timestamps for target %s without resolving an artifact', (overwritesColumnId) => {
-    const { container, fetch, edit, retry } = inspect({ ...sample, column: { ...sample.column, overwritesColumnId } });
+  it.each([null, 'existing'])('renders ephemeral timestamps for target %s without resolving an artifact', (replacesColumnId) => {
+    const { container, fetch, edit, retry } = inspect({ ...sample, column: { ...sample.column, replacesColumnId } });
     expect(screen.getByTestId('preview-field-value')).toHaveTextContent('0:12.500');
     expect(screen.getByTestId('preview-field-value')).toHaveTextContent('0:30 total');
     expect(screen.getByTitle('source_artifact:never-persisted').tagName).toBe('SPAN');

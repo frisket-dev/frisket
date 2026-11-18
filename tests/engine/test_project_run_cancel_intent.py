@@ -77,7 +77,7 @@ class _CancelWorkspace:
         self.queue = _LiveQueue(job)
         self.active_runs: dict[tuple[str, int], object] = {}
         self.run_jobs: dict[tuple[str, int], int] = {}
-        self.queue_storage_org_id = None
+        self.queue_storage_organization_id = None
 
     def get(self, project_id: str) -> Project:
         assert project_id == self.project_id

@@ -14,19 +14,19 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { quotedCost, quotedUsd } from '../../src/actions/quotedCost';
+import { estimatedCost, estimatedUsd } from '../../src/actions/estimatedCost';
 import { runEstimateFromV1Wire } from '../../src/api/real';
 
-describe('quotedCost — three states', () => {
+describe('estimatedCost — three states', () => {
   it('a rated quote reads the BILLED figure, in micro-dollars', () => {
     expect(
-      quotedCost({ cost: 0.11, rows: 4, billed_cost: 210_000, policy_id: 'acme.v1' }),
+      estimatedCost({ cost: 0.11, rows: 4, billed_cost: 210_000, policy_id: 'acme.v1' }),
     ).toEqual({ usd: 0.21, refused: false });
   });
 
   it('the open edition bills the provider cost, so the two agree', () => {
     expect(
-      quotedCost({ cost: 0.11, rows: 4, billed_cost: 110_000, policy_id: 'identity' }),
+      estimatedCost({ cost: 0.11, rows: 4, billed_cost: 110_000, policy_id: 'identity' }),
     ).toEqual({ usd: 0.11, refused: false });
   });
 
@@ -35,7 +35,7 @@ describe('quotedCost — three states', () => {
     // means the deployment said it cannot bill from this run; falling back to
     // `cost` would show a confident figure it has already disowned.
     expect(
-      quotedCost({ cost: 0.11, rows: 4, billed_cost: null, policy_id: 'acme.v1' }),
+      estimatedCost({ cost: 0.11, rows: 4, billed_cost: null, policy_id: 'acme.v1' }),
     ).toEqual({ usd: null, refused: true });
   });
 
@@ -43,17 +43,17 @@ describe('quotedCost — three states', () => {
     // Every current producer rates before a 402. A missing verdict is an old
     // or malformed envelope, never permission to render provider cost as the
     // deployment's billed quote.
-    expect(quotedCost({ cost: 0.11, rows: 4 })).toEqual({ usd: null, refused: true });
-    expect(quotedCost({ cost: null, rows: 4 })).toEqual({ usd: null, refused: true });
+    expect(estimatedCost({ cost: 0.11, rows: 4 })).toEqual({ usd: null, refused: true });
+    expect(estimatedCost({ cost: null, rows: 4 })).toEqual({ usd: null, refused: true });
   });
 
   it('an absent estimate is not a price', () => {
-    expect(quotedCost(null)).toEqual({ usd: null, refused: false });
-    expect(quotedUsd(undefined)).toBeNull();
+    expect(estimatedCost(null)).toEqual({ usd: null, refused: false });
+    expect(estimatedUsd(undefined)).toBeNull();
   });
 
   it('zero is a price, not an absence', () => {
-    expect(quotedCost({ cost: 0, rows: 1, billed_cost: 0, policy_id: 'x' })).toEqual({
+    expect(estimatedCost({ cost: 0, rows: 1, billed_cost: 0, policy_id: 'x' })).toEqual({
       usd: 0,
       refused: false,
     });
@@ -63,7 +63,7 @@ describe('quotedCost — three states', () => {
     // Defensive: the server never sends one (the field is required and
     // min_length=1), but falling back would turn a malformed payload's
     // provider figure into a billed quote.
-    expect(quotedCost({ cost: 0.11, rows: 1, policy_id: '', billed_cost: null })).toEqual({
+    expect(estimatedCost({ cost: 0.11, rows: 1, policy_id: '', billed_cost: null })).toEqual({
       usd: null,
       refused: true,
     });
@@ -71,7 +71,7 @@ describe('quotedCost — three states', () => {
 
   it('a malformed billed amount refuses rather than rendering it', () => {
     expect(
-      quotedCost({ cost: 0.11, rows: 1, policy_id: 'acme.v1', billed_cost: -1 }),
+      estimatedCost({ cost: 0.11, rows: 1, policy_id: 'acme.v1', billed_cost: -1 }),
     ).toEqual({ usd: null, refused: true });
   });
 });
@@ -99,7 +99,7 @@ describe('the estimate endpoint projection', () => {
     expect(projected.cost_source).toBe('commercial_offering');
     // ...and the selector then reads the billed figure off it, which is the
     // whole point of carrying them.
-    expect(quotedCost(projected).usd).toBe(0.21);
+    expect(estimatedCost(projected).usd).toBe(0.21);
   });
 
   it('carries free-public-API provenance without turning it into a price', () => {
@@ -117,7 +117,7 @@ describe('the estimate endpoint projection', () => {
     const projected = runEstimateFromV1Wire({ rows: 1, cost: 0.11 });
     expect(projected.billed_cost).toBeUndefined();
     expect(projected.policy_id).toBeUndefined();
-    expect(quotedCost(projected)).toEqual({ usd: null, refused: true });
+    expect(estimatedCost(projected)).toEqual({ usd: null, refused: true });
   });
 
   it('carries a DECLINED verdict rather than flattening it to absent', () => {
@@ -127,6 +127,6 @@ describe('the estimate endpoint projection', () => {
       billed_cost: null,
       policy_id: 'acme.cost_plus.v1',
     });
-    expect(quotedCost(projected)).toEqual({ usd: null, refused: true });
+    expect(estimatedCost(projected)).toEqual({ usd: null, refused: true });
   });
 });

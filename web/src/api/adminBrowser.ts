@@ -23,8 +23,8 @@ type AdminBrowserErrorsWire =
 
 export type AdminHealth = AdminBrowserHealthWire;
 export type AdminUsers = AdminBrowserUsersWire;
-export type AdminUsersOrg = AdminUsers['orgs'][number];
-export type AdminOrgRole = AdminUsers['capabilities']['assignable_roles'][number];
+export type AdminUsersOrganization = AdminUsers['orgs'][number];
+export type AdminOrganizationRole = AdminUsers['capabilities']['assignable_roles'][number];
 export type AdminJob = AdminBrowserJobsWire['jobs'][number];
 export type AdminJobs = AdminBrowserJobsWire;
 type AdminJobActionResult = AdminBrowserCancelWire;
@@ -36,7 +36,7 @@ export type AdminAuditLog = AdminBrowserAuditWire;
 /** Domain conveniences only; generated transport retains snake_case query keys. */
 export interface AdminAuditFilters {
   limit?: number;
-  orgId?: string;
+  organizationId?: string;
   projectId?: string;
   user?: string;
   action?: string;
@@ -49,10 +49,10 @@ function optionsFor(options: RequestOptions) {
 }
 
 function auditQuery(filters: AdminAuditFilters) {
-  const orgId = Number(filters.orgId?.trim());
+  const organizationId = Number(filters.organizationId?.trim());
   return {
     limit: filters.limit ?? 100,
-    org_id: Number.isFinite(orgId) && orgId > 0 ? orgId : undefined,
+    org_id: Number.isFinite(organizationId) && organizationId > 0 ? organizationId : undefined,
     project_id: filters.projectId?.trim() || undefined,
     user: filters.user?.trim() || undefined,
     action: filters.action?.trim() || undefined,
@@ -74,54 +74,54 @@ export function createAdminBrowserApi() {
       );
     },
     inviteAdminUser(
-      orgId: number,
+      organizationId: number,
       email: string,
       options: RequestOptions = {},
     ): Promise<AdminBrowserInviteWire> {
       return httpContract(
         'outer.admin_browser_invite_user.post',
         {
-          body: { org_id: orgId, email },
+          body: { org_id: organizationId, email },
           ...optionsFor(options),
         },
       );
     },
     updateAdminUserRole(
-      orgId: number,
+      organizationId: number,
       userId: number,
-      role: AdminOrgRole,
+      role: AdminOrganizationRole,
       options: RequestOptions = {},
     ): Promise<AdminBrowserRoleWire> {
       return httpContract(
         'outer.admin_browser_update_user_role.patch',
         {
-          pathParams: { user_id: userId }, body: { org_id: orgId, role },
+          pathParams: { user_id: userId }, body: { org_id: organizationId, role },
           ...optionsFor(options),
         },
       );
     },
     removeAdminUser(
-      orgId: number,
+      organizationId: number,
       userId: number,
       options: RequestOptions = {},
     ): Promise<AdminBrowserRemoveWire> {
       return httpContract(
         'outer.admin_browser_remove_user.delete',
         {
-          pathParams: { user_ref: String(userId) }, query: { org_id: orgId },
+          pathParams: { user_ref: String(userId) }, query: { org_id: organizationId },
           ...optionsFor(options),
         },
       );
     },
     revokeAdminInvite(
-      orgId: number,
+      organizationId: number,
       email: string,
       options: RequestOptions = {},
     ): Promise<AdminBrowserRevokeWire> {
       return httpContract(
         'outer.admin_browser_revoke_invite.delete',
         {
-          pathParams: { email }, query: { org_id: orgId },
+          pathParams: { email }, query: { org_id: organizationId },
           ...optionsFor(options),
         },
       );

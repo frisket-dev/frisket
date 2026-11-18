@@ -36,7 +36,7 @@ def _batch_history_op_run_payloads(
     The history list previously showed only kind/label/status; callers need
     the complete record, including its ID and deep link. Batched (one
     op_id-partitioned window-function query
-    for the latest run per op + one IN-list query for every output column
+    for the latest run per op + one IN-list query for every generated column
     those runs wrote) rather than two extra queries PER op — a page of 50
     ops would otherwise run 100+ queries (the per-row lookup pattern was found on
     the first cut of this endpoint). No per-row/trace reads here (those

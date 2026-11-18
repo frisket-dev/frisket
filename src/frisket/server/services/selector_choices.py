@@ -434,7 +434,7 @@ class SelectorChoiceService:
             project,
             sidecar_capabilities={"catalog_from_composition": True},
             execution_composition=composition,
-            org_provider_keys=self._workspace.org_provider_keys(),
+            organization_provider_keys=self._workspace.organization_provider_keys(),
             has_local_model_endpoint=bool(router.local_endpoints),
             effective_router=router,
             connected_account_resolver_configured=(

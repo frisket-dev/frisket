@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@t
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { ProjectSecretsSettings } from '../../src/settings/ProjectIntegrationSettings';
 import { OrganizationSecretsSettings } from '../../src/settings/OrganizationSettings';
-import { getRuntimeConfig, listOrgEnvVars, setOrgEnvVar } from '../../src/api/open';
+import { getRuntimeConfig, listOrganizationEnvVars, setOrganizationEnvVar } from '../../src/api/open';
 import { useSecretEntryDraft } from '../../src/settings/useSecretEntryDraft';
 
 const projectApi = vi.hoisted(() => ({
@@ -14,7 +14,7 @@ const projectApi = vi.hoisted(() => ({
 vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => ({ projectApi }) }));
 vi.mock('../../src/api/open', async (original) => ({
   ...await original<typeof import('../../src/api/open')>(),
-  getRuntimeConfig: vi.fn(), listOrgEnvVars: vi.fn(), setOrgEnvVar: vi.fn(),
+  getRuntimeConfig: vi.fn(), listOrganizationEnvVars: vi.fn(), setOrganizationEnvVar: vi.fn(),
 }));
 
 const emptySecrets = { schemaVersion: 'frisket.project_secrets.v1', secrets: [], conflicts: [] };
@@ -23,13 +23,13 @@ const cases = [
   { scope: 'project', name: 'Project secret name', value: 'Project secret value',
     render: () => render(<ProjectSecretsSettings project={owner} />), save: projectApi.setProjectSecret },
   { scope: 'organization', name: 'Secret name', value: 'Secret value',
-    render: () => render(<OrganizationSecretsSettings />), save: vi.mocked(setOrgEnvVar) as Mock },
+    render: () => render(<OrganizationSecretsSettings />), save: vi.mocked(setOrganizationEnvVar) as Mock },
 ];
 
 beforeEach(() => {
   projectApi.getProjectSecrets.mockResolvedValue(emptySecrets);
   vi.mocked(getRuntimeConfig).mockResolvedValue({ plugins_available: false } as Awaited<ReturnType<typeof getRuntimeConfig>>);
-  vi.mocked(listOrgEnvVars).mockResolvedValue([]);
+  vi.mocked(listOrganizationEnvVars).mockResolvedValue([]);
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 

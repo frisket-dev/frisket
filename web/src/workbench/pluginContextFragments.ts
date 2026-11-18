@@ -120,7 +120,7 @@ function buildGridReadFragment(
     sort: hostContext.gridState.sort,
     visibleColumnIds: [...hostContext.gridState.columnOrder],
     frozenColumnCount: hostContext.gridState.frozenColumns,
-    activeLensId: hostContext.gridState.lensId,
+    activeLensId: hostContext.gridState.viewId,
   };
 }
 

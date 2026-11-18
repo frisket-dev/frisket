@@ -89,7 +89,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
     const requests = pollRequests.current;
     return () => { mounted.current = false; requests.forEach((controller) => controller.abort()); };
   }, []);
-  const org = setup.scope === 'organization';
+  const organization = setup.scope === 'organization';
   const fetchPull = async (id: number): Promise<ModelPullDto> => {
     const controller = new AbortController(); pollRequests.current.add(controller);
     try {
@@ -109,7 +109,7 @@ function DownloadSetupPanel({ setup, activeOperation, onChanged, sharedProgress 
     try {
       const result = setup.kind === 'engine_setup'
         ? await startEngineSetup(setup.scope, setup.setup_ref, request.signal)
-        : org ? await teamModels.orgStartArtifactPull(setup.setup_ref, false, { signal: request.signal })
+        : organization ? await teamModels.organizationStartArtifactPull(setup.setup_ref, false, { signal: request.signal })
           : await downloads.startArtifactPull(setup.setup_ref, false, { signal: request.signal });
       if (!request.isCurrent()) return;
       setPull(result.pull); onChanged();

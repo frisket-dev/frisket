@@ -55,12 +55,12 @@ describe("organization provider generated HTTP port", () => {
     const api = await organizationProvidersApi();
 
     await api.providerCatalog(options);
-    await api.listOrgKeys(options);
+    await api.listOrganizationKeys(options);
     await expect(
-      api.setOrgKey("open/ai", "secret", "validation-token", options),
+      api.setOrganizationKey("open/ai", "secret", "validation-token", options),
     ).resolves.toBeUndefined();
-    await api.validateOrgKey("open/ai", "secret", options);
-    await expect(api.deleteOrgKey("open/ai", options)).resolves.toBeUndefined();
+    await api.validateOrganizationKey("open/ai", "secret", options);
+    await expect(api.deleteOrganizationKey("open/ai", options)).resolves.toBeUndefined();
 
     expect(
       requests.map((request) => [request.input, request.init?.method]),
@@ -98,14 +98,14 @@ describe("organization provider generated HTTP port", () => {
     );
     const api = await organizationProvidersApi();
 
-    await expect(api.validateOrgKey("bogus")).rejects.toMatchObject({
+    await expect(api.validateOrganizationKey("bogus")).rejects.toMatchObject({
       name: "ApiError",
       status: 400,
       message: "unsupported provider",
       code: undefined,
       details: undefined,
     } satisfies Partial<ApiError>);
-    await expect(api.validateOrgKey("bogus")).rejects.toMatchObject({
+    await expect(api.validateOrganizationKey("bogus")).rejects.toMatchObject({
       name: "ApiError",
       status: 418,
       message: "teapot",
@@ -125,8 +125,8 @@ describe("organization provider generated HTTP port", () => {
       vi.fn(async () => responses.shift()!),
     );
 
-    await expect(real.setOrgKey("openai", "secret")).resolves.toBeUndefined();
-    await expect(real.deleteOrgKey("openai")).resolves.toBeUndefined();
+    await expect(real.setOrganizationKey("openai", "secret")).resolves.toBeUndefined();
+    await expect(real.deleteOrganizationKey("openai")).resolves.toBeUndefined();
   });
 
 });

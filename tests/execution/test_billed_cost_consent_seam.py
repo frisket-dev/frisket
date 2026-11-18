@@ -1,4 +1,4 @@
-"""Rated estimates drive preapproval and display, not a hard spend ceiling.
+"""Rated estimates drive allowance and display, not a hard spend ceiling.
 
 Authored work identity still binds consent; returned provider facts determine
 actual accounting independently of persisted estimate display fields.
@@ -17,10 +17,10 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.runner.confirmation_context import (
-    ConsentQuote,
-    ConsentQuoteRefused,
-    quote_facts,
-    quoted_usd,
+    ConsentEstimate,
+    ConsentEstimateRefused,
+    estimate_facts,
+    estimated_usd,
     rate_estimate,
 )
 from frisket.execution.pricing_policy import (
@@ -30,9 +30,9 @@ from frisket.execution.pricing_policy import (
     default_pricing_policy,
     install_pricing_policy,
     PricingPolicy,
-    QuoteFacts,
+    EstimateFacts,
     Rating,
-    RatedQuote,
+    RatedEstimate,
     Unpriceable,
     usd_to_micros,
 )
@@ -61,10 +61,10 @@ class _CostPlusPolicy:
 
     policy_id = "test.cost_plus.v1"
 
-    def rate(self, facts: QuoteFacts) -> Rating:
+    def rate(self, facts: EstimateFacts) -> Rating:
         if facts.provider_cost is None:
             return Unpriceable(reason="no provider cost", policy_id=self.policy_id)
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost * 2,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -115,18 +115,20 @@ def test_the_identity_policy_bills_exactly_the_provider_cost() -> None:
     assert rated["billed_cost"] == usd_to_micros(PROVIDER_COST_USD) == 110_000
 
 
-def test_rate_provenance_survives_policy_and_quote_projection_by_value() -> None:
+def test_rate_provenance_survives_policy_and_estimate_projection_by_value() -> None:
     estimate = {
         **_ESTIMATE,
         "cost_source": "pricing_data",
         "pricing_key": "openai/gpt-4o-mini.tokens",
     }
     rated = rate_estimate(estimate, policy=_CostPlusPolicy())
-    facts = quote_facts(rated)
-    quote = ConsentQuote.from_estimate(rated)
+    facts = estimate_facts(rated)
+    consent_estimate = ConsentEstimate.from_estimate(rated)
 
-    assert facts.cost_source == quote.cost_source == "pricing_data"
-    assert facts.pricing_key == quote.pricing_key == "openai/gpt-4o-mini.tokens"
+    assert facts.cost_source == consent_estimate.cost_source == "pricing_data"
+    assert (
+        facts.pricing_key == consent_estimate.pricing_key == "openai/gpt-4o-mini.tokens"
+    )
     assert rated["cost_source"] == estimate["cost_source"]
     assert rated["pricing_key"] == estimate["pricing_key"]
 
@@ -139,7 +141,7 @@ def test_the_identity_policy_never_returns_the_cost_plus_lane() -> None:
     have to declare its lane, and declaring it reds here.
     """
     shapes = [
-        QuoteFacts(
+        EstimateFacts(
             provider_cost=cost,
             cost_source=source,
             pricing_key=key,
@@ -155,7 +157,7 @@ def test_the_identity_policy_never_returns_the_cost_plus_lane() -> None:
         )
     ]
     ratings = [IDENTITY_PRICING_POLICY.rate(facts) for facts in shapes]
-    priced = [r for r in ratings if isinstance(r, RatedQuote)]
+    priced = [r for r in ratings if isinstance(r, RatedEstimate)]
     lanes = {r.lane for r in priced}
     assert "cost_plus" not in lanes
     assert lanes == {"free", "byok"}
@@ -166,7 +168,7 @@ def test_an_unknown_cost_is_unpriceable_not_free() -> None:
     """``Unpriceable`` is a type, not a zero. A run whose cost cannot be
     determined is not a free run — folding it in at 0 is the
     ``cost_actual REAL NOT NULL DEFAULT 0`` defect verbatim."""
-    rating = IDENTITY_PRICING_POLICY.rate(quote_facts({"cost": None}))
+    rating = IDENTITY_PRICING_POLICY.rate(estimate_facts({"cost": None}))
     assert isinstance(rating, Unpriceable)
     rated = rate_estimate(
         {"cost": None, "cost_source": "unknown"}, policy=_CostPlusPolicy()
@@ -259,7 +261,7 @@ def _consent_rows(project) -> list[Any]:
     ).fetchall()
 
 
-def test_the_402_quotes_the_billed_figure_and_persists_it(
+def test_the_402_states_the_billed_figure_and_persists_it(
     tmp_path, monkeypatch
 ) -> None:
     """The user is shown a rated quote, and the consent row records it.
@@ -287,10 +289,10 @@ def test_the_402_quotes_the_billed_figure_and_persists_it(
     rows = _consent_rows(project)
     assert len(rows) == 1, "the confirmed 402 must record exactly one consent"
     stored = json.loads(rows[0]["quote_json"])
-    quote = ConsentQuote.model_validate(stored)
-    assert quote.policy_id == IDENTITY_PRICING_POLICY.policy_id
-    assert quote.billed_cost == estimate["billed_cost"]
-    assert quote.cost == estimate["cost"]
+    consent_estimate = ConsentEstimate.model_validate(stored)
+    assert consent_estimate.policy_id == IDENTITY_PRICING_POLICY.policy_id
+    assert consent_estimate.billed_cost == estimate["billed_cost"]
+    assert consent_estimate.cost == estimate["cost"]
 
     drain_queue(client, worker_id="billed-quote")
     assert len(adapter.calls) == 1, "the consented run must still dispatch"
@@ -330,7 +332,7 @@ def test_queued_consent_from_another_installation_cannot_dispatch(
     assert receipt["errors"][0]["code"] == "consent_missing"
 
 
-def test_severing_the_persisted_quote_refuses_the_dispatch(
+def test_severing_the_persisted_estimate_refuses_the_dispatch(
     tmp_path, monkeypatch
 ) -> None:
     """THE fence for the read half of the split.
@@ -370,7 +372,7 @@ def test_severing_the_persisted_quote_refuses_the_dispatch(
     }
 
 
-def test_a_malformed_persisted_quote_refuses_the_dispatch(
+def test_a_malformed_persisted_estimate_refuses_the_dispatch(
     tmp_path, monkeypatch
 ) -> None:
     """Same modeled refusal for a record that is present but not a quote —
@@ -395,7 +397,7 @@ def test_a_malformed_persisted_quote_refuses_the_dispatch(
     assert len(adapter.calls) == 0
 
 
-def test_a_truncated_quote_blob_refuses_instead_of_escaping(
+def test_a_truncated_estimate_blob_refuses_instead_of_escaping(
     tmp_path, monkeypatch
 ) -> None:
     """A corrupt blob is the modeled refusal, not a raw decode error.
@@ -481,9 +483,9 @@ def test_a_poisoned_rated_field_does_not_deny_a_valid_sibling(
     """A record that decodes but REFUSES at the money projection.
 
     ``billed_cost: -1`` passes JSON and passes pydantic, then refuses inside
-    ``_quote_micros`` — so the failure lands at hash-mint time, not at decode
+    ``_estimate_micros`` — so the failure lands at hash-mint time, not at decode
     time. With the mint outside the per-candidate guard that
-    ``ConsentQuoteRefused`` escaped the whole loop, and one poisoned row denied
+    ``ConsentEstimateRefused`` escaped the whole loop, and one poisoned row denied
     a run that its valid sibling consent authorized.
     """
     adapter, client, project_id, project, sheet_id = _gated_project(
@@ -529,13 +531,13 @@ def test_a_live_estimate_that_cannot_project_still_refuses_by_name(
     from frisket.engine.runner.confirmation_context import (
         BILLED_COST_KEY,
         POLICY_ID_KEY,
-        ConsentQuoteRefused,
+        ConsentEstimateRefused,
     )
 
     assert BILLED_COST_KEY in ("billed_cost",)
     assert POLICY_ID_KEY in ("policy_id",)
-    assert ConsentQuoteRefused("cost", "is not finite").key == "cost"
-    assert ConsentQuoteRefused(BILLED_COST_KEY, "is negative").key == BILLED_COST_KEY
+    assert ConsentEstimateRefused("cost", "is not finite").key == "cost"
+    assert ConsentEstimateRefused(BILLED_COST_KEY, "is negative").key == BILLED_COST_KEY
 
 
 def test_recorded_estimate_is_not_dispatch_or_accounting_authority(
@@ -551,10 +553,13 @@ def test_recorded_estimate_is_not_dispatch_or_accounting_authority(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    quote = json.loads(row["quote_json"])
-    quote["billed_cost"] = int(quote["billed_cost"] or 0) + 100_000
+    consent_estimate = json.loads(row["quote_json"])
+    consent_estimate["billed_cost"] = (
+        int(consent_estimate["billed_cost"] or 0) + 100_000
+    )
     project.db.execute(
-        "UPDATE consents SET quote_json=? WHERE id=?", (json.dumps(quote), row["id"])
+        "UPDATE consents SET quote_json=? WHERE id=?",
+        (json.dumps(consent_estimate), row["id"]),
     )
     project.db.commit()
 
@@ -580,11 +585,12 @@ def test_a_tampered_neutral_fact_in_the_record_is_ignored(
     _run_id, receipt_id = _confirm_and_enqueue(client, project_id, action)
 
     (row,) = _consent_rows(project)
-    quote = json.loads(row["quote_json"])
-    quote["cost"] = (quote["cost"] or 0.0) + 5.0
-    quote["rows"] = int(quote["rows"] or 0) + 99
+    consent_estimate = json.loads(row["quote_json"])
+    consent_estimate["cost"] = (consent_estimate["cost"] or 0.0) + 5.0
+    consent_estimate["rows"] = int(consent_estimate["rows"] or 0) + 99
     project.db.execute(
-        "UPDATE consents SET quote_json=? WHERE id=?", (json.dumps(quote), row["id"])
+        "UPDATE consents SET quote_json=? WHERE id=?",
+        (json.dumps(consent_estimate), row["id"]),
     )
     project.db.commit()
 
@@ -612,17 +618,17 @@ def test_a_declined_price_gates_as_unknown_not_as_the_provider_cost() -> None:
     are required at this boundary.
     """
     declined = {"cost": 0.5, "policy_id": "acme.v1", "billed_cost": None}
-    assert quoted_usd(declined) is None
+    assert estimated_usd(declined) is None
 
     # ...and it is genuinely a different state from an old-shape envelope
     # beside it. Every current producer rates before a 402; falling back here
     # would turn a provider figure into a billed quote without an authority.
-    with pytest.raises(ConsentQuoteRefused, match="policy_id"):
-        quoted_usd({"cost": 0.5})
-    with pytest.raises(ConsentQuoteRefused, match="billed_cost"):
-        quoted_usd({"cost": 0.5, "policy_id": "acme.v1"})
+    with pytest.raises(ConsentEstimateRefused, match="policy_id"):
+        estimated_usd({"cost": 0.5})
+    with pytest.raises(ConsentEstimateRefused, match="billed_cost"):
+        estimated_usd({"cost": 0.5, "policy_id": "acme.v1"})
     assert (
-        quoted_usd({"cost": 0.5, "policy_id": "acme.v1", "billed_cost": 1_000_000})
+        estimated_usd({"cost": 0.5, "policy_id": "acme.v1", "billed_cost": 1_000_000})
         == 1.0
     )
 
@@ -632,7 +638,7 @@ class _DecliningPolicy:
 
     policy_id = "test.declines.v1"
 
-    def rate(self, facts: QuoteFacts) -> Rating:
+    def rate(self, facts: EstimateFacts) -> Rating:
         return Unpriceable(reason="tariff unavailable", policy_id=self.policy_id)
 
 
@@ -696,7 +702,7 @@ def test_a_policy_that_does_not_satisfy_the_port_refuses_at_install() -> None:
     class _Unnamed:
         policy_id = ""
 
-        def rate(self, facts: QuoteFacts) -> Rating:  # pragma: no cover
+        def rate(self, facts: EstimateFacts) -> Rating:  # pragma: no cover
             raise AssertionError
 
     with pytest.raises(ValueError):
@@ -810,7 +816,7 @@ def _handles_a_money_gate(source: str) -> bool:
 
     That payload is the mapping a family attaches to a needs_confirmation
     result. A renderer reads it to produce the figure a human or agent
-    approves; preview admission reads its typed ``ConsentQuote`` projection to
+    approves; preview admission reads its typed ``ConsentEstimate`` projection to
     decide whether a caught gate is the one safe exception. Detected through
     the AST, like the raw-cost read below and for the same reason — the MCP tool
     docstring *describes* ``estimate_details`` in prose, and a roster that reds
@@ -926,7 +932,7 @@ def test_scope_gates_are_excluded_because_they_have_no_price() -> None:
         source = (root / rel).read_text()
         assert not _MONEY_MINT.search(source) and not _handles_a_money_gate(source), (
             f"{rel} now mints, renders, or handles a money confirmation; add it to "
-            "_GATE_MODULES (and make it read through quoted_usd)"
+            "_GATE_MODULES (and make it read through estimated_usd)"
         )
         assert _SCOPE_MINT.search(source), (
             f"{rel} no longer mints a scope confirmation, so the reason it is "
@@ -964,7 +970,7 @@ def test_no_gate_module_reads_the_raw_provider_cost() -> None:
     ]
     assert not offenders, (
         "a money-gate module is reading the PROVIDER cost off an estimate; "
-        "use confirmation_context.quoted_usd, which is identical under the "
+        "use confirmation_context.estimated_usd, which is identical under the "
         "identity policy and correct under a cost-plus one:\n  "
         + "\n  ".join(offenders)
     )
@@ -1000,16 +1006,16 @@ def test_the_gate_handler_detector_reads_code_not_prose() -> None:
     )
 
 
-def test_typed_consent_quote_preserves_each_exact_zero_safety_fact() -> None:
+def test_typed_consent_estimate_preserves_each_exact_zero_safety_fact() -> None:
     """The preview allowance can inspect three independent typed facts.
 
     This guards the non-vacuity of the safe shape: provider zero is not a
     substitute for billed zero, and neither is a substitute for the explicit
     ``free_local`` source. The production handler must project through
-    ``ConsentQuote.from_estimate`` and read these attributes, never re-read the
+    ``ConsentEstimate.from_estimate`` and read these attributes, never re-read the
     raw mapping's provider ``cost``.
     """
-    quote = ConsentQuote.from_estimate(
+    consent_estimate = ConsentEstimate.from_estimate(
         {
             "rows": 1,
             "cost": 0,
@@ -1019,11 +1025,11 @@ def test_typed_consent_quote_preserves_each_exact_zero_safety_fact() -> None:
         }
     )
 
-    assert quote.cost == 0.0
-    assert quote.billed_cost == 0
-    assert quote.cost_source == "free_local"
+    assert consent_estimate.cost == 0.0
+    assert consent_estimate.billed_cost == 0
+    assert consent_estimate.cost_source == "free_local"
     assert not _raw_estimate_cost_reads(
-        "quote = ConsentQuote.from_estimate(estimate)\n"
+        "quote = ConsentEstimate.from_estimate(estimate)\n"
         "safe = (quote.cost == 0 and quote.billed_cost == 0 "
         'and quote.cost_source == "free_local")'
     )
@@ -1032,7 +1038,7 @@ def test_typed_consent_quote_preserves_each_exact_zero_safety_fact() -> None:
 @pytest.mark.parametrize(
     "shape",
     [
-        "quoted = quoted_usd(estimate)",
+        "quoted = estimated_usd(estimate)",
         "gate = CostGate(quoted, estimate_details=estimate)",
         "billed = estimate.get(BILLED_COST_KEY)",
         # The plugin family's manifest read — a DIFFERENT fact, and flagging it

@@ -72,12 +72,12 @@ def register_action_catalog_routes(
                 project,
                 sidecar_capabilities=sidecar_capabilities(),
                 execution_composition=execution_composition,
-                # Without this, a team-edition org key (workspace.py's
-                # org_provider_keys(), the SAME resolver router_for() uses
+                # Without this, a team-edition organization key (workspace.py's
+                # organization_provider_keys(), the SAME resolver router_for() uses
                 # at run time) was invisible to the catalog's availability
                 # hints — an LLM remote engine could run but reported
                 # "unavailable" here.
-                org_provider_keys=workspace.org_provider_keys(),
+                organization_provider_keys=workspace.organization_provider_keys(),
                 has_local_model_endpoint=bool(router.local_endpoints),
                 effective_router=router,
                 # export.google_sheets gate (action_catalog_hints.py

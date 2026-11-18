@@ -44,7 +44,7 @@ from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 # translate/ner never drifted into the declaration tables; translate's
 # hosted roster is pinned here, mirroring the dispatch branches in
 # ops/translate.py (deepl/google_translate hosted vs opus_mt/hy_mt2 local).
-HOSTED_TRANSLATE_ENGINES = frozenset({"deepl", "google_translate"})
+REMOTE_TRANSLATE_ENGINES = frozenset({"deepl", "google_translate"})
 
 
 def _catalog_external_capability(action_kind: str | None) -> str | None:
@@ -216,7 +216,7 @@ def remote_capability_for_spec(
 
     if canonical_kind == "map.translate":
         engine = str(spec.get("engine") or "llm")
-        if engine in HOSTED_TRANSLATE_ENGINES:
+        if engine in REMOTE_TRANSLATE_ENGINES:
             return f"engine:{engine}"
     else:
         engine = spec.get("engine")

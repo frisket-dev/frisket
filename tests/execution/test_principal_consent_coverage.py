@@ -40,7 +40,7 @@ def _paid_claims() -> PromiseSet:
     )
 
 
-def test_same_project_principals_cannot_borrow_preapproval_or_exact_consent(
+def test_same_project_principals_cannot_borrow_allowance_or_exact_consent(
     make_project,
 ) -> None:
     project = make_project("shared")

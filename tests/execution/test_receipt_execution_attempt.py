@@ -113,7 +113,7 @@ def _write(project, attempt, batch, **kwargs):
 @pytest.mark.parametrize(
     "status,remainder", [("completed", "model_error"), ("cancelled", "cancelled")]
 )
-def test_receipt_attempt_prices_actual_calls_and_quoted_rows_without_outputs(
+def test_receipt_attempt_prices_actual_calls_and_estimated_rows_without_outputs(
     project, status, remainder
 ):
     receipt, route = _reserve(project)
@@ -262,7 +262,7 @@ def test_receipt_requires_active_claim_and_exact_reservation(project):
     assert RunResultStore(project).model_calls() == []
 
 
-def test_receipt_claim_cannot_duplicate_dispatch_or_claim_output_columns(project):
+def test_receipt_claim_cannot_duplicate_dispatch_or_claim_generated_columns(project):
     _reserve(project)
     first, second = _mint(project), _mint(project)
     with pytest.raises(AttemptClaimRefused):

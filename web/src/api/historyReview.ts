@@ -167,7 +167,7 @@ function mapHistoryRun(run: WireHistoryRun): HistoryOpRun | undefined {
     startedAt: sqliteTimestampToIso(run.started_at),
     finishedAt: run.finished_at ? sqliteTimestampToIso(run.finished_at) : null,
     workerVersion: run.worker_version,
-    outputColumns: run.output_columns.map((column) => ({
+    generatedColumns: run.output_columns.map((column) => ({
       id: String(column.id),
       name: column.name,
     })),
@@ -479,7 +479,7 @@ export function createHistoryReviewApi(
   };
 
   return {
-    /** Provenance for an AI column: a bounded newest-first run history page. */
+    /** Provenance for a generated column: a bounded newest-first run history page. */
     async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
       return httpContract('tenant.column_runs.get', {
         pathParams: {

@@ -16,7 +16,7 @@ is deliberate and total — there is exactly ONE story, not two parallel paths:
   ``ProjectStorageKey`` (reconstructed by the worker from trusted queue
   columns, never from caller-controlled payload JSON) and the directory comes
   from declared registration config (``workspace_root`` +
-  ``workspace_root_storage_org_id``). An opener never widens this and is
+  ``workspace_root_storage_organization_id``). An opener never widens this and is
   never consulted about it.
 * ``ProjectOpener`` decides **HOW**. It consumes exactly the location that
   ``claimed_project_location`` produced — the claimed key and that bundle
@@ -28,7 +28,7 @@ no opener injected that construction stays a direct, module-local
 ``Project(path)``, byte-for-byte the current open-tier behaviour.
 
 Fail-closed: an injected opener is a tenant-safety mechanism (tombstones,
-per-org blob credentials), so it may only ever be handed a *claimed* identity.
+per-organization blob credentials), so it may only ever be handed a *claimed* identity.
 A payload that reaches an opener-bearing handler without a claimed
 ``ProjectStorageKey`` opens NOTHING — it does not fall back to the
 payload-derived path that the unclaimed branch of ``claimed_project_location``
@@ -48,7 +48,7 @@ __all__ = [
     "claimed_opener_key",
     "open_claimed_project",
     "open_payload_project",
-    "require_opener_storage_org_id",
+    "require_opener_storage_organization_id",
     "project_bundle_paths",
 ]
 
@@ -97,10 +97,10 @@ def open_claimed_project(
     return project_opener(claimed_opener_key(payload), Path(project_path))
 
 
-def require_opener_storage_org_id(storage_org_id: object) -> int:
-    """Fail-closed org identity for scheduler scans that inject an opener.
+def require_opener_storage_organization_id(storage_org_id: object) -> int:
+    """Fail-closed organization identity for scheduler scans that inject an opener.
 
-    A scheduler root travels with its DECLARED storage-org identity (``cli``'s
+    A scheduler root travels with its DECLARED storage-organization identity (``cli``'s
     ``SchedulerRoot``). An opener keys every open by that identity, so a
     missing or nonsensical one must refuse the whole scan rather than open
     some tenant's bundles under a bogus key.
@@ -121,7 +121,7 @@ def open_payload_project(
     payload: object,
     *,
     workspace_root: str | Path,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener,
 ) -> tuple[str, Project]:
     """Trusted slug + open project for a handler that HAS an injected opener.
@@ -141,7 +141,7 @@ def open_payload_project(
         payload,  # type: ignore[arg-type]
         workspace_root=workspace_root,
         require_storage_identity=True,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
     )
     return slug, open_claimed_project(payload, project_path, project_opener)
 

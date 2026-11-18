@@ -10,7 +10,7 @@ import './run-failure-triage.css';
 const PROXY_COMMAND = 'frisket proxy up --run';
 const POLL_INTERVAL_MS = 4000;
 
-// The status probe is org-scoped and 404s on the local tier (no org identity
+// The status probe is organization-scoped and 404s on the local tier (no organization identity
 // to ask). A 404 or any other probe failure is treated the same as "the
 // caller must be the one who runs the proxy" — the operator variant (steps,
 // retry always enabled) never dead-ends behind a broken indicator.
@@ -44,7 +44,7 @@ export function MediaProxyRemediationCard({
           canConfigure: status.canConfigure,
         });
       } catch {
-        // The local tier (no org identity) answers 404 here; other probe
+        // The local tier (no organization identity) answers 404 here; other probe
         // failures (network error, 5xx) degrade the same way — neither the
         // operator variant nor the retry affordance depends on a live
         // status read, so there is nothing to gain by branching on status.

@@ -151,7 +151,7 @@ def _conflicting_rows_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 
 def _rss_source_action(seeded: dict[str, Any]) -> dict[str, Any]:
-    # rss sources are checked by the poller, not by manual source.check.
+    # rss sources are checked by the feed checker, not by manual source.check.
     return _source_check_action(
         seeded["rss_source_id"], idempotency_key="source_check@sha256:rss-source"
     )

@@ -18,15 +18,15 @@ from frisket.engine.jobs import (
     register_source_poll_handler,
 )
 from frisket.server.sources.runtime import (
-    get_source_poller,
-    register_source_poller,
-    unregister_source_poller,
+    get_feed_checker,
+    register_feed_checker,
+    unregister_feed_checker,
 )
 from frisket.server.sources.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
     YOUTUBE_PLAYLIST,
-    YouTubeCollectionPoller,
+    YouTubeCollectionFeedChecker,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -81,15 +81,15 @@ class FakeYouTubeProvider:
 
 
 @pytest.fixture
-def restore_youtube_poller() -> Iterator[None]:
-    previous = get_source_poller(YOUTUBE_PLAYLIST_KIND)
+def restore_youtube_feed_checker() -> Iterator[None]:
+    previous = get_feed_checker(YOUTUBE_PLAYLIST_KIND)
     try:
         yield
     finally:
         if previous is None:
-            unregister_source_poller(YOUTUBE_PLAYLIST_KIND)
+            unregister_feed_checker(YOUTUBE_PLAYLIST_KIND)
         else:
-            register_source_poller(previous, replace=True)
+            register_feed_checker(previous, replace=True)
 
 
 def _source_poll_action(
@@ -175,14 +175,14 @@ def _listing(
 
 def test_youtube_playlist_solo_poll_materializes_legacy_cap_plus_one(
     make_project,
-    restore_youtube_poller: None,
+    restore_youtube_feed_checker: None,
 ) -> None:
     entries = [_video(f"bulk{index:07d}", f"Video {index}") for index in range(501)]
     provider = FakeYouTubeProvider(
         [_listing(entries, pages_fetched=6, playlist_count=501)]
     )
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
     source = _youtube_source()
     source["config"].pop("max_pages_per_poll")
@@ -227,7 +227,7 @@ def test_youtube_playlist_solo_poll_materializes_legacy_cap_plus_one(
 
 def test_default_youtube_playlist_name_resolves_to_channel_and_playlist(
     make_project,
-    restore_youtube_poller: None,
+    restore_youtube_feed_checker: None,
 ) -> None:
     url = f"https://www.youtube.com/playlist?list={PLAYLIST_ID}"
     default_name = f"YouTube playlist: {url.removeprefix('https://www.')[:72]}"
@@ -240,8 +240,8 @@ def test_default_youtube_playlist_name_resolves_to_channel_and_playlist(
             )
         ]
     )
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
     project = make_project("YouTube")
     result = run_action_spec(
@@ -282,7 +282,7 @@ def _video(
 def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
     make_project,
     monkeypatch: pytest.MonkeyPatch,
-    restore_youtube_poller: None,
+    restore_youtube_feed_checker: None,
 ) -> None:
     from frisket.ops import ytdlp
 
@@ -312,8 +312,8 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
             _listing(third_entries, pages_fetched=1),
         ]
     )
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
 
     project = make_project("YouTube")
@@ -480,7 +480,7 @@ def test_youtube_playlist_source_poll_materializes_metadata_rows_and_dedupes(
 
 def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
     make_project,
-    restore_youtube_poller: None,
+    restore_youtube_feed_checker: None,
 ) -> None:
     invalid_project = make_project("Invalid")
     invalid = run_action_spec(
@@ -512,8 +512,8 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
             )
         ]
     )
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=capped_provider),
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=capped_provider),
         replace=True,
     )
     capped_project = make_project("Capped")
@@ -550,8 +550,8 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
             "quota failed api_key=SECRET token=SECRET authorization: Bearer abc123"
         )
 
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=failing_provider),
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=failing_provider),
         replace=True,
     )
     failed_project = make_project("Failed")
@@ -586,13 +586,13 @@ def test_youtube_playlist_validation_caps_and_provider_failure_redaction(
 
 def test_youtube_playlist_scheduled_source_dispatches_generic_source_poll(
     tmp_path: Path,
-    restore_youtube_poller: None,
+    restore_youtube_feed_checker: None,
 ) -> None:
     provider = FakeYouTubeProvider(
         [_listing([_video("sched0012A", "Scheduled upload")], pages_fetched=1)]
     )
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
 
     workspace = tmp_path / "ws"

@@ -160,7 +160,7 @@ def run_typed_group_summary_action(
         ActionScope,
         action_confirmation,
         mint_confirmation_hash,
-        quoted_usd,
+        estimated_usd,
         rate_estimate,
     )
     from frisket.engine.runner.validation import (
@@ -201,7 +201,7 @@ def run_typed_group_summary_action(
             )
         )
     estimate = rate_estimate(prepared.estimate, policy=default_pricing_policy())
-    price = quoted_usd(estimate)
+    price = estimated_usd(estimate)
     token = mint_confirmation_hash(
         action_confirmation(
             family_kind=action.kind,

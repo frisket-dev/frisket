@@ -11,8 +11,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.credential_use import CredentialUseContext
@@ -89,12 +89,12 @@ def _offering(
             capability=capability,
             engine=engine,
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="synthetic.audio-minute",
             terms_version="synthetic.terms.v7",
             unit_rate="0.031",
             quantity_unit="page" if document else "audio_minute",
-            rounding=CommercialQuoteRounding(
+            rounding=CommercialEstimateRounding(
                 mode="half_even",
                 decimal_places=6,
             ),
@@ -542,7 +542,7 @@ def test_project_route_builds_composition_from_the_same_effective_router(
             assert effective_router is router
             return composition
 
-        def org_provider_keys(self):
+        def organization_provider_keys(self):
             return {}
 
     app = FastAPI()

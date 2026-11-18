@@ -49,8 +49,8 @@ from frisket.execution.provider import (
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import persisted_recipe_invocation_halt
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     _reset_pricing_policy_for_tests,
     install_pricing_policy,
 )
@@ -58,12 +58,12 @@ from tests.execution_composition_helpers import open_attempt_authority
 
 
 class _AboveLimitPricingPolicy:
-    """Make normally free gateway work exceed the default preapproval limit."""
+    """Make normally free gateway work exceed the default allowance limit."""
 
     policy_id = "test.worker-route-verification.above-limit.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=5_000_000,  # $5.00 in micro-dollars
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -1011,7 +1011,7 @@ def test_routed_dispatch_reads_sources_through_bounded_live_pages(
     project.add_rows(sheet_id, [{"media": source}] * 4, {"media": source_column["id"]})
     row_ids = project.visible_row_ids(sheet_id)
     run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
-    claim_token, _output_column_ids = _claimed_output_authority(project, run_id)
+    claim_token, _generated_column_ids = _claimed_output_authority(project, run_id)
     looked_up = []
     source_cell = RowSourcePage.cell
 
@@ -1058,7 +1058,7 @@ def test_pending_row_edit_after_admission_uses_current_input_in_fixed_scope(
 
     _root, project, sheet_id = workspace
     run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
-    claim_token, _output_column_ids = _claimed_output_authority(project, run_id)
+    claim_token, _generated_column_ids = _claimed_output_authority(project, run_id)
     row_id = int(project.visible_row_ids(sheet_id)[0])
     source_column = next(
         column for column in project.columns(sheet_id) if column["name"] == "media"

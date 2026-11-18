@@ -61,7 +61,7 @@ def test_geocode_queue_and_replay(tmp_path, monkeypatch):
         queued = response.json()
         assert queued["status"] == "queued"
         # Still the safety half of the old challenge: queueing declares the
-        # output columns but must not reach the provider before the run
+        # generated columns but must not reach the provider before the run
         # executes. (The old `columns == 1` check belonged to the refused
         # state, where nothing had been declared yet.)
         assert not calls

@@ -21,17 +21,17 @@ from frisket.server.services.pdf_split_preparation import (
 
 
 @dataclass(frozen=True)
-class PdfPacketOcrQuote:
+class PdfPacketOcrEstimate:
     public: Mapping[str, Any]
     binding_hash: str
-    quoted: Mapping[str, Any]
+    estimated: Mapping[str, Any]
     native_files: Mapping[str, Mapping[int, Path]]
 
     def snapshot(self, root: Path) -> dict[str, Any]:
         return {
             "public": dict(self.public),
             "binding_hash": self.binding_hash,
-            "quoted": dict(self.quoted),
+            "quoted": dict(self.estimated),
             "native_files": {
                 key: {
                     str(page): str(path.resolve().relative_to(root.resolve()))
@@ -42,7 +42,7 @@ class PdfPacketOcrQuote:
         }
 
     @classmethod
-    def restore(cls, value: Mapping[str, Any], root: Path) -> PdfPacketOcrQuote:
+    def restore(cls, value: Mapping[str, Any], root: Path) -> PdfPacketOcrEstimate:
         files = {}
         for key, pages in value.get("native_files", {}).items():
             files[key] = {}
@@ -209,7 +209,7 @@ class PdfPacketOcrCoordinator:
         self.preview_runs = preview_runs
         self.inventory_path = inventory_path
 
-    def quote(
+    def estimate(
         self,
         *,
         project_id: str,
@@ -222,7 +222,7 @@ class PdfPacketOcrCoordinator:
         manual_text_sources: Collection[str] = (),
         request_context: Any = None,
         should_cancel: Callable[[], bool] | None = None,
-    ) -> PdfPacketOcrQuote:
+    ) -> PdfPacketOcrEstimate:
         params = packet_ocr_params(ocr_selection)
         binding_hash = _binding(sources, revision, ocr_policy, params)
         adapter = PdfSplitPreparationAdapter(
@@ -315,8 +315,8 @@ class PdfPacketOcrCoordinator:
                                 params,
                             )
                         )
-        quoted = (
-            adapter.quote(
+        estimated = (
+            adapter.estimate(
                 targets=targets,
                 plan_token=binding_hash,
                 request_context=request_context,
@@ -335,20 +335,20 @@ class PdfPacketOcrCoordinator:
                 "authorization": None,
             }
         )
-        return PdfPacketOcrQuote(
+        return PdfPacketOcrEstimate(
             public={
-                "pages": quoted["pages"],
-                "estimate": quoted["estimate"],
+                "pages": estimated["pages"],
+                "estimate": estimated["estimate"],
                 "binding_hash": binding_hash,
             },
             binding_hash=binding_hash,
-            quoted=quoted,
+            estimated=estimated,
             native_files=native_files,
         )
 
     def approve(
         self,
-        holder: PdfPacketOcrQuote | None,
+        holder: PdfPacketOcrEstimate | None,
         *,
         project_id: str,
         sources: Sequence[AdmittedPacketSource],
@@ -357,7 +357,7 @@ class PdfPacketOcrCoordinator:
         ocr_selection: Mapping[str, Any],
         confirmation: str | None,
         request_context: Any = None,
-        current: PdfPacketOcrQuote | None = None,
+        current: PdfPacketOcrEstimate | None = None,
     ) -> dict[str, Any] | None:
         params = packet_ocr_params(ocr_selection)
         binding_hash = _binding(sources, revision, ocr_policy, params)
@@ -378,11 +378,11 @@ class PdfPacketOcrCoordinator:
             project_id=project_id,
             admitted_sources={source.key: source for source in sources},
         )
-        authorization = holder.quoted["authorization"]
+        authorization = holder.estimated["authorization"]
         if current is None:
-            adapter.approve(holder.quoted, confirmation=confirmation)
+            adapter.approve(holder.estimated, confirmation=confirmation)
         else:
-            from frisket.server.services.pdf_import_ocr_approval import (
+            from frisket.server.services.pdf_import_ocr_consent import (
                 PdfImportOcrGrant,
             )
             from frisket.server.services.pdf_split_preparation import (
@@ -391,7 +391,7 @@ class PdfPacketOcrCoordinator:
 
             if current.binding_hash != binding_hash:
                 raise ValueError("PDF OCR source plan changed; review the estimate")
-            refreshed = current.quoted["authorization"]
+            refreshed = current.estimated["authorization"]
             if refreshed is None:
                 return None  # Every formerly paid target is now cached.
             if authorization is None:
@@ -511,13 +511,13 @@ class PdfPacketOcrCoordinator:
             page,
             params,
         )
-        quoted = adapter.quote(
+        estimated = adapter.estimate(
             targets=[target],
             plan_token=token,
             request_context=request_context,
             force_rescan=force_rescan,
         )
-        return {**quoted, "target": target, "plan_token": token}
+        return {**estimated, "target": target, "plan_token": token}
 
     def start_sample(
         self,

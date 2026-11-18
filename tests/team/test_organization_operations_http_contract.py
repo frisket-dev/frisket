@@ -19,7 +19,9 @@ async def _mail(_email: str, _link: str) -> bool:
     return True
 
 
-def test_org_env_contract_accepts_public_omissions_and_hosted_additions() -> None:
+def test_organization_env_contract_accepts_public_omissions_and_hosted_additions() -> (
+    None
+):
     listed = OrganizationEnvList.model_validate(
         [
             {"name": "PUBLIC", "hint": "...blic"},
@@ -71,7 +73,7 @@ def _login(client: TestClient, app) -> None:
     sign_in_with_magic_link(app, client, "owner@example.com")
 
 
-def test_org_operations_preserve_public_bytes_and_accept_browser_and_pat_auth(
+def test_organization_operations_preserve_public_bytes_and_accept_browser_and_pat_auth(
     tmp_path: Path,
     monkeypatch,
 ) -> None:

@@ -4,10 +4,10 @@ import { AtSign, Bell, BellRing, BookOpen, Boxes, Database, Images, ListFilter, 
 import { canEditProject } from '../api/projectRole';
 import { DiscoverPanel, type DiscoverTabDescriptor } from '../workbench/DiscoverPanel';
 import { DISCOVER_TABS, type DiscoverTab } from './useWorkspaceChromeState';
-import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, SourcesWorkbenchPanel, SavedViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
+import { EmbeddingsWorkbenchPanel, FriendlyFiltersWorkbenchPanel, MentionsWorkbenchPanel, NotificationsWorkbenchPanel, ResolvedWorkbenchLayoutRegion, SourcesWorkbenchPanel, ViewsWorkbenchPanel, AlertsWorkbenchPanel } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution, type WorkbenchResolvedLayoutRegion } from '../workbench/layout';
 import { PluginPanelHost } from '../workbench/PluginPanelHost';
-import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, SAVED_VIEWS_CONTRIBUTION_ID, SOURCES_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
+import { EMBEDDINGS_CONTRIBUTION_ID, FRIENDLY_FILTERS_CONTRIBUTION_ID, MENTIONS_CONTRIBUTION_ID, NOTIFICATIONS_CONTRIBUTION_ID, VIEWS_CONTRIBUTION_ID, SOURCES_CONTRIBUTION_ID, ALERTS_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -18,7 +18,7 @@ import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetr
 function SidebarContributionBody({ contribution }: { contribution: WorkbenchResolvedLayoutContribution }) {
   const { projectApi } = useWorkspaceStores();
   const {
-    openSavedView,
+    openView,
     leftSidebarPluginPanelDescriptors,
     openSourceHealthMainView,
     project,
@@ -32,21 +32,21 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
   const resolvedWorkbenchLayout = useResolvedWorkbenchLayout();
   const { sheet, sheets } = useCurrentSheet();
   const {
-    applySavedView,
-    canCreateSavedView,
-    cancelSavedViewEditor,
-    cancelSavedViewsConfirmation,
-    consumeSavedViewsPublication,
+    applyView,
+    canCreateView,
+    cancelViewEditor,
+    cancelViewsConfirmation,
+    consumeViewsPublication,
     deleteView,
-    replaceSavedViewDefinition,
-    renameSavedView,
+    replaceViewDefinition,
+    renameView,
     saveCurrentView,
-    savedViewsConfirmation,
-    savedViewsConfirmationError,
-    savedViewsEditor,
-    savedViewsLastPublication,
-    savedViewsSaving,
-    activeSavedViewId,
+    viewsConfirmation,
+    viewsConfirmationError,
+    viewsEditor,
+    viewsLastPublication,
+    viewsSaving,
+    activeViewId,
     viewModified,
     currentDefinition,
     updateViewSelection,
@@ -55,10 +55,10 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
     openCellSimilarity,
     selectedRowIdsForSheet,
     setViewName,
-    startCreatingSavedView,
+    startCreatingView,
     startEditingView,
-    startSavedViewDefinitionUpdate,
-    startSavedViewDelete,
+    startViewDefinitionUpdate,
+    startViewDelete,
     viewName,
     views,
   } = useMainViewModel();
@@ -99,35 +99,35 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
           hostContext={workbenchHostContext}
         />
       );
-    case SAVED_VIEWS_CONTRIBUTION_ID:
+    case VIEWS_CONTRIBUTION_ID:
       return (
-        <SavedViewsWorkbenchPanel
+        <ViewsWorkbenchPanel
           views={views}
           viewName={viewName}
-          editor={savedViewsEditor}
-          activeSavedViewId={activeSavedViewId}
+          editor={viewsEditor}
+          activeViewId={activeViewId}
           viewModified={viewModified}
           currentSelection={currentDefinition?.selection}
           onSelectionChange={updateViewSelection}
           onClearSelection={clearViewSelection}
-          isSaving={savedViewsSaving}
-          lastPublication={savedViewsLastPublication}
-          onPublicationConsumed={consumeSavedViewsPublication}
-          confirmation={savedViewsConfirmation}
-          confirmationError={savedViewsConfirmationError}
-          canEdit={canCreateSavedView}
+          isSaving={viewsSaving}
+          lastPublication={viewsLastPublication}
+          onPublicationConsumed={consumeViewsPublication}
+          confirmation={viewsConfirmation}
+          confirmationError={viewsConfirmationError}
+          canEdit={canCreateView}
           onNameChange={setViewName}
-          onStartCreating={() => startCreatingSavedView()}
+          onStartCreating={() => startCreatingView()}
           onSave={saveCurrentView}
-          onUpdate={renameSavedView}
-          onCancel={cancelSavedViewEditor}
+          onUpdate={renameView}
+          onCancel={cancelViewEditor}
           onEdit={startEditingView}
-          onApply={applySavedView}
-          onStartDefinitionUpdate={startSavedViewDefinitionUpdate}
-          onStartDelete={startSavedViewDelete}
-          onConfirmDefinitionUpdate={replaceSavedViewDefinition}
+          onApply={applyView}
+          onStartDefinitionUpdate={startViewDefinitionUpdate}
+          onStartDelete={startViewDelete}
+          onConfirmDefinitionUpdate={replaceViewDefinition}
           onConfirmDelete={deleteView}
-          onCancelConfirmation={cancelSavedViewsConfirmation}
+          onCancelConfirmation={cancelViewsConfirmation}
         />
       );
     case 'frisket.core.panel.watches':
@@ -149,8 +149,8 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
 
             void refreshSheets().then(() => selectSheet(sheetId));
           }}
-          onOpenLens={(lensId) => {
-            void openSavedView(lensId);
+          onOpenView={(viewId) => {
+            void openView(viewId);
           }}
           selectedRowIds={selectedRowIdsForSheet.map(String)}
           onFindSimilar={openCellSimilarity}
@@ -191,7 +191,7 @@ const DISCOVER_TAB_CONTRIBUTION_IDS: Record<DiscoverTab, readonly string[]> = {
   Facets: [FRIENDLY_FILTERS_CONTRIBUTION_ID],
   Mentions: [MENTIONS_CONTRIBUTION_ID],
   Sources: [SOURCES_CONTRIBUTION_ID],
-  Views: [SAVED_VIEWS_CONTRIBUTION_ID],
+  Views: [VIEWS_CONTRIBUTION_ID],
   Watches: [ALERTS_CONTRIBUTION_ID],
   Embeddings: [EMBEDDINGS_CONTRIBUTION_ID],
   Notifications: [NOTIFICATIONS_CONTRIBUTION_ID],

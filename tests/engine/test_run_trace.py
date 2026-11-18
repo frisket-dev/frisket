@@ -570,10 +570,10 @@ def test_trace_records_retry_attempts_with_errors(make_project, monkeypatch):
     )
     runner = MapRunner(p, router, authority=UnroutedOnlyAuthority(p))
     spec = _spec(sheet)
-    with pytest.raises(CostGate) as quote:
+    with pytest.raises(CostGate) as estimate:
         prepare_model_run(runner, spec)
-    assert quote.value.promise_set_hash
-    spec["consented_promise_set_hash"] = quote.value.promise_set_hash
+    assert estimate.value.promise_set_hash
+    spec["consented_promise_set_hash"] = estimate.value.promise_set_hash
     prog = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
     assert prog.done and prog.failed == 0
 

@@ -370,7 +370,7 @@ function ProjectMenuPopover({
     [settingsSections],
   );
   // Ownership line, TIER-HONEST: the local tier has no teams/collaborators, so
-  // it reads "Local workspace" — never a fabricated team or org.
+  // it reads "Local workspace" — never a fabricated team or organization.
   const ownershipLine = identityMode
     ? me?.email
       ? `${me.email} · you own`

@@ -10,7 +10,7 @@ Crucially, the registration here is the *unguarded* composition: the handlers
 are registered directly with an injected ``project_opener`` but WITHOUT the
 strict ``guarded_handler`` wrapper that ``register_production_handlers`` only
 installs under ``require_storage_identity=True`` on a hosted queue. That wrapper
-is exactly what the per-org ``Workspace`` composition does NOT install
+is exactly what the per-organization ``Workspace`` composition does NOT install
 (``frisket.server.workspace.Workspace.__init__`` calls
 ``register_production_handlers`` with the default ``require_storage_identity=
 False``). So this test drives the handler body directly, the way that
@@ -23,9 +23,9 @@ controls the job's request-body fields (``workspace_root`` / ``project_id`` /
 queue columns from which the worker reconstructs the claimed
 ``ProjectStorageKey``. Before the fix, the notification ``_handle`` wrappers
 built the bundle path from those payload fields, so a payload-set
-``workspace_root`` under the attacker's own declared org opened sqlite at an
+``workspace_root`` under the attacker's own declared organization opened sqlite at an
 attacker-chosen directory keyed to the trusted slug — a slug-collision
-cross-org read/write. This test is RED before the fix (no-claim opens instead
+cross-organization read/write. This test is RED before the fix (no-claim opens instead
 of raising; a claimed key does not override a hostile payload) and GREEN after.
 """
 
@@ -81,8 +81,8 @@ def test_notification_handlers_derive_where_from_claimed_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The global, org-unscoped hosted root: <data_dir>/projects. A claim's org
-    # id is its per-org subdirectory here, so the trusted bundle for org 23 /
+    # The global, organization-unscoped hosted root: <data_dir>/projects. A claim's organization
+    # id is its per-organization subdirectory here, so the trusted bundle for organization 23 /
     # slug "trusted" is projects/23/trusted.frisket — NOT anything the payload
     # names.
     global_root = tmp_path / "projects"
@@ -92,7 +92,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
 
     # A hostile bundle the attacker would love the handler to open: a bundle
     # they control, at a slug that collides with a victim's, under their own
-    # declared org. It must NEVER be opened on the claimed path.
+    # declared organization. It must NEVER be opened on the claimed path.
     hostile_root = tmp_path / "attacker-root"
     hostile_bundle = hostile_root / "trusted.frisket"
     Project.create(hostile_bundle, name="Attacker owned").close()
@@ -124,7 +124,7 @@ def test_notification_handlers_derive_where_from_claimed_identity(
 
         hostile_common = {
             "project_id": "trusted",  # slug collides with the victim's
-            "storage_org_id": 999,  # attacker's own declared org
+            "storage_org_id": 999,  # attacker's own declared organization
             "workspace_root": str(hostile_root),  # attacker-controlled directory
         }
         deliver = registry.get("notification.deliver")

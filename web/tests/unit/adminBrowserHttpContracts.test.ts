@@ -28,7 +28,7 @@ describe('admin browser generated HTTP transport', () => {
     await api.revokeAdminInvite(7, 'member@example.com');
     await api.getAdminJobs();
     await api.cancelAdminJob(13);
-    await api.getAdminAuditLog({ limit: 25, orgId: '7', projectId: 'alpha', user: 'member@example.com', action: 'org_member_set' });
+    await api.getAdminAuditLog({ limit: 25, organizationId: '7', projectId: 'alpha', user: 'member@example.com', action: 'org_member_set' });
     await api.getAdminErrors(30);
 
     expect(requests.map((request) => [request.input, request.init?.method, request.init?.body ?? null])).toEqual([

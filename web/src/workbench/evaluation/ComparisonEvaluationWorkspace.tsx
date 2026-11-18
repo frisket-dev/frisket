@@ -26,13 +26,13 @@ import { errorMessage } from '../../hooks/errorMessage';
 interface ComparisonEvaluationWorkspaceProps {
   variantMenuHost?: HTMLElement | null;
   api: EvaluationApi; state: ActionCompareSessionSnapshot; session: ActionCompareSession;
-  initialLens?: 'each_other' | 'expected'; onJoinExpected?(): void; onExpectedAnswersChanged?(): void; onShelved?(): void;
+  initialView?: 'each_other' | 'expected'; onJoinExpected?(): void; onExpectedAnswersChanged?(): void; onShelved?(): void;
   modelField?: string | null; instructionsField?: string | null;
   renderVariantEditor?(props: ActionCompareVariantEditorRenderProps): ReactNode;
   rowScope?: 'sample' | 'all' | 'expected'; rowScopePending?: boolean;
   rowScopeTotal?: number | null;
   dataRevision?: number;
-  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
+  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', view?: 'each_other' | 'expected'): void;
   onOpenVariant(id: string): void; onUseSettings(selection: ActionCompareUseSettings): void;
   renderGrid(evaluation: NonNullable<ActionCompareGridProps['evaluation']>): ReactNode;
 }
@@ -57,7 +57,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const basis = p.state.context.comparison_basis;
   const linkRef = useRef(e.link);
   useLayoutEffect(() => { linkRef.current = e.link; }, [e.link]);
-  const [lens, setLens] = useState<'each_other' | 'expected'>(p.initialLens ?? 'each_other');
+  const [view, setView] = useState<'each_other' | 'expected'>(p.initialView ?? 'each_other');
   const [field, setField] = useState(p.state.context.output_columns[0]?.logical_key ?? '');
   const [filter, setFilter] = useState<EvaluationRowFilter>('all');
   const [menu, setMenu] = useState(false);
@@ -82,7 +82,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const expectedField = e.link?.fields.find((item) => item.logical_key === field);
   const sourceUnavailable = e.link !== null && !isExpectedLinkAvailable(e.link);
   const rule = expectedField?.rule ?? unlinkedRules[field] ?? 'exact';
-  const rows = response && lens === 'expected' ? filteredEvaluationRows(response, field, filter) : p.state.context.sample_row_ids;
+  const rows = response && view === 'expected' ? filteredEvaluationRows(response, field, filter) : p.state.context.sample_row_ids;
   const disagreements = response ? disagreementRows(response, field) : [];
   const unscored = response ? response.variants.reduce((total, variant) => total + (variant.scores[field]?.remaining ?? 0), 0) : 0;
   const modelField = p.modelField ?? ['model', 'engine'].find((name) => name in p.state.context.draft.params);
@@ -271,15 +271,15 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     <div className="comparison-evaluation-toolbar">
       <span>{p.rowScopeTotal && p.rowScopeTotal > p.state.context.sample_row_ids.length
         ? `${p.state.context.sample_row_ids.length} of ${p.rowScopeTotal} ${p.rowScope === 'expected' ? 'with expected answers' : 'rows'}`
-        : lens === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
+        : view === 'expected' && e.link ? `${response?.variants[0]?.scores[field]?.checked ?? 0} with expected answers` : `${p.state.context.sample_row_ids.length} rows`}</span>
       {p.onChangeRowScope && <PanelSelect ariaLabel="Comparison rows" value={p.rowScope ?? 'sample'} disabled={running || p.rowScopePending}
         options={[{ value: 'sample', label: 'Sample · up to 20 rows' }, { value: 'all', label: 'All · up to 500 rows' }, { value: 'expected', label: 'All rows with expected answers · up to 500', disabled: !e.link || sourceUnavailable }]}
-        onValueChange={(value) => { void flushExpected().then((saved) => { if (saved) p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', lens); }); }} />}
+        onValueChange={(value) => { void flushExpected().then((saved) => { if (saved) p.onChangeRowScope?.(value as 'sample' | 'all' | 'expected', view); }); }} />}
       <span>Compare to</span>
-      <Button aria-pressed={lens === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setLens('each_other'); setFilter('all'); }}>Each other</Button>
-      <Button aria-pressed={lens === 'expected'} onClick={() => { setLens('expected'); e.refresh(); }}>✓ Expected answers</Button>
-      {response && lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Variants disagree · {disagreements.length}</Button>}
-      {response && lens === 'expected' && <><Button disabled={scoreBusy} onClick={() => setResultsOpen(true)}>Results</Button>
+      <Button aria-pressed={view === 'each_other'} disabled={p.state.variants.length < 2} title={p.state.variants.length < 2 ? 'Needs two variants' : undefined} onClick={() => { setView('each_other'); setFilter('all'); }}>Each other</Button>
+      <Button aria-pressed={view === 'expected'} onClick={() => { setView('expected'); e.refresh(); }}>✓ Expected answers</Button>
+      {response && view === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Variants disagree · {disagreements.length}</Button>}
+      {response && view === 'expected' && <><Button disabled={scoreBusy} onClick={() => setResultsOpen(true)}>Results</Button>
         {unscored > 0 && <Button disabled={scoreBusy} onClick={() => setQueue({ mode: 'score', rowId: response.row_ids[0] ?? 0, filter: 'to_score' })}>{unscored} to score by hand ›</Button>}
         <Button disabled={!e.link || sourceUnavailable || scoreBusy} onClick={() => setRuleOpen(true)}>{MATCH_RULES.find((item) => item.value === rule)?.label ?? 'Exact'} ▾</Button></>}
       <Button disabled={!evaluated || e.saving} onClick={() => void e.mutate(async () => download(await p.api.downloadCsv(e.request), 'comparison.csv'))}>⤓ CSV</Button>
@@ -289,13 +289,13 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     <div className="comparison-field-toolbar">
       <span>Scoring field</span>
       <div role="group" aria-label="Scoring field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
-      {lens === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={scoreBusy || (value === 'best_misses' && !bestKey)} onClick={() => setFilter(value)}>
+      {view === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={scoreBusy || (value === 'best_misses' && !bestKey)} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}
       </Button>)}</>}
       {e.loading && <span role="status">Scoring…</span>}
     </div>
-    {lens === 'expected' && !e.link && <div className="action-compare-notice"><span>Join a sheet of expected answers to check this action.</span><Button onClick={p.onJoinExpected}>Join expected answers…</Button></div>}
-    {lens === 'expected' && sourceUnavailable && e.link && <div>
+    {view === 'expected' && !e.link && <div className="action-compare-notice"><span>Join a sheet of expected answers to check this action.</span><Button onClick={p.onJoinExpected}>Join expected answers…</Button></div>}
+    {view === 'expected' && sourceUnavailable && e.link && <div>
       <UnavailableExpectedLinks links={[e.link]} onRemove={(id) => { void e.mutate(async () => { await p.api.deleteLink(id); p.onExpectedAnswersChanged?.(); }); }} />
       <Button onClick={p.onJoinExpected}>Edit join…</Button></div>}
     {queue && <ComparisonReview sheetName={p.state.context.sheet.name} fieldLabel={currentField?.current_name ?? field} rowId={queueRow ?? 0}
@@ -317,7 +317,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       source={queueRow === undefined ? null : <ComparisonSources state={p.state} rowId={queueRow} field={field} />}
       onExpectedChange={expectedChanged} onRuleChange={(next) => void changeRule(next)} onAccept={(key) => void decide(key, true)} onReject={(key) => void decide(key, false)}
       onPrevious={() => void moveQueue(-1)} onNext={() => void moveQueue(1)} onClose={() => void closeQueue()} />}
-    <EvaluationGrid render={p.renderGrid} evaluation={{ response, field, lens, rowIds: rows,
+    <EvaluationGrid render={p.renderGrid} evaluation={{ response, field, view, rowIds: rows,
       onOpenRow: (rowId, nextField) => { void flushExpected().then(saved => {
         if (!saved) return;
         const nextRule = e.link?.fields.find(item => item.logical_key === nextField)?.rule ?? unlinkedRules[nextField] ?? 'exact';
@@ -326,7 +326,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       onScoreClick: (key, nextField) => { if (!scoreBusy) void flushExpected().then(saved => { if (saved) { setField(nextField); setFilter(`variant:${key}`); setQueue(null); } }); }, onRuleClick: () => { if (!scoreBusy) setRuleOpen(true); } }} />
     {!queue && p.state.variants.length === 1 && <div className="comparison-try-baseline"><strong>B · try to beat A</strong><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Another model ▾</Button><Button onClick={() => { const id = p.session.addVariant(); if (id) p.onOpenVariant(id); }}>Edit instructions</Button><Button disabled={!modelField || !instructionsField} onClick={() => setSeveralOpen(true)}>Try several…</Button></div>}
     {!queue && <footer className="comparison-footer"><Button disabled={!evaluated || running || e.saving} onClick={() => void shelve()}>🗄 Shelve</Button>
-      {lens === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Check the {disagreements.length} disagreements</Button>}
+      {view === 'each_other' && evaluated >= 2 && <Button onClick={() => setQueue({ mode: 'disagreements', rowId: disagreements[0] ?? 0, filter: 'all' })}>Check the {disagreements.length} disagreements</Button>}
       {response?.link && response.variants.some((variant) => variant.scores[field]?.checked > 0 && variant.scores[field].coverage < 1) && <span>Coverage differs · missing results are not checked</span>}
       {expectedField?.source === 'disagreements' && <span>From disagreements</span>}
       <span className="comparison-footer-spacer" />{bestUse && !handBlocked && <Button disabled={scoreBusy} className="btn-primary" onClick={() => p.onUseSettings(bestUse)}>Use {bestUse.variantLabel}…</Button>}</footer>}

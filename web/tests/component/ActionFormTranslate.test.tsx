@@ -84,14 +84,14 @@ const resolveTranslate: TypedResolveParams = async ({ params }) => {
 
 /** Server-rated quotes per engine: the llm engine is model-metered, a
  *  hosted MT engine carries its own venue/billing presentation. */
-function estimateByEngine(quotes: Record<string, Partial<RunEstimate>>): TypedEstimateAction {
+function estimateByEngine(estimates: Record<string, Partial<RunEstimate>>): TypedEstimateAction {
   return async (request: GeneratedActionRequest) => {
     const engine = typeof request.params.engine === 'string' ? request.params.engine : 'llm';
-    return { cost: 0, rows: 3, llm: engine === 'llm', billed_cost: 0, policy_id: 'open', ...quotes[engine] };
+    return { cost: 0, rows: 3, llm: engine === 'llm', billed_cost: 0, policy_id: 'open', ...estimates[engine] };
   };
 }
 
-const LLM_QUOTE: Partial<RunEstimate> = { cost: 0.01, llm: true, billed_cost: 20_000, policy_id: 'acme.cost_plus.v1' };
+const LLM_ESTIMATE: Partial<RunEstimate> = { cost: 0.01, llm: true, billed_cost: 20_000, policy_id: 'acme.cost_plus.v1' };
 
 function statementsSheet(): SheetMeta {
   return sheetMeta(
@@ -114,7 +114,7 @@ function mountTranslate(options: {
     sheet: statementsSheet(),
     selectedRowIds: options.selectedRowIds,
     resolveParams: resolveTranslate,
-    estimateAction: options.estimate ?? estimateByEngine({ llm: LLM_QUOTE }),
+    estimateAction: options.estimate ?? estimateByEngine({ llm: LLM_ESTIMATE }),
   });
 }
 
@@ -234,7 +234,7 @@ describe('translate form', () => {
     const user = userEvent.setup();
     const { onExecute, estimateAction } = mountTranslate({
       estimate: estimateByEngine({
-        llm: LLM_QUOTE,
+        llm: LLM_ESTIMATE,
         deepl: { cost: null, llm: false, billed_cost: 5_000, policy_id: 'acme.cost_plus.v1',
           venue_label: 'DeepL', billing_label: 'Billed per character' },
       }),

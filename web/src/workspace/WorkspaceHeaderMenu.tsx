@@ -30,7 +30,7 @@ export function WorkspaceHeaderMenuSlot() {
     mapAvailabilityReason,
     mapAvailabilityStatus,
     mapAvailable,
-    canCreateSavedView,
+    canCreateView,
     openHeaderMenuColumnSettings,
     openHeaderMenuSaveView,
     openMapPanel,
@@ -166,7 +166,7 @@ export function WorkspaceHeaderMenuSlot() {
                   onFreezeColumns={(count) => changeFrozenColumnCount(count)}
                   onUnfreezeColumns={() => changeFrozenColumnCount(0)}
                   onOpenSettings={openHeaderMenuColumnSettings}
-                  onSaveView={canCreateSavedView ? openHeaderMenuSaveView : undefined}
+                  onSaveView={canCreateView ? openHeaderMenuSaveView : undefined}
                   onOpenMap={() => {
                     openMapPanel(visibleHeaderMenu.column);
                     closeHeaderMenu();

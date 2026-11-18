@@ -112,7 +112,7 @@ def _admit(runner, plan):
         RouteStore.for_receipt(project, receipt.receipt_id).record_consent(
             action_identity_hash=attempt_identity(plan.program, spec),
             promise_set_hash=prepared.unrouted_confirmation_hash,
-            quote=prepared.unrouted_confirmation_quote,
+            estimate=prepared.unrouted_confirmation_estimate,
             actor=instance_principal(project),
         )
     attempt = runner.authority.mint(
@@ -435,7 +435,7 @@ def test_paid_ocr_preview_acceptance_is_durable_before_poll(
 
 
 @pytest.mark.parametrize("cancel_during_provider", [False, True])
-def test_priced_transcription_preview_settles_only_completed_quoted_rows(
+def test_priced_transcription_preview_settles_only_completed_estimated_rows(
     audio_project, monkeypatch, cancel_during_provider: bool
 ):
     from frisket.contracts.transcription_sidecar import TRANSCRIPTION_CONTRACT_VERSION

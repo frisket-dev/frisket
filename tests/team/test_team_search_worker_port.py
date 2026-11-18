@@ -9,8 +9,8 @@ def test_team_search_port_requests_only_search_provider_keys(monkeypatch) -> Non
         return {"exa": "tenant-key"}
 
     monkeypatch.setattr(control_plane, "control_plane_engine", lambda _url: object())
-    monkeypatch.setattr(control_plane, "org_provider_keys", provider_keys)
-    port = control_plane.TeamOrgSearchKeyCredentialPort(
+    monkeypatch.setattr(control_plane, "organization_provider_keys", provider_keys)
+    port = control_plane.TeamOrganizationSearchKeyCredentialPort(
         lambda value: f"decrypted:{value}"
     )
 

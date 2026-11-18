@@ -35,7 +35,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
-from frisket.server.runtime_settings import save_workspace_cost_preapproval_usd
+from frisket.server.runtime_settings import save_workspace_allowance_usd
 from frisket.server.mcp import HostedBackend, LocalBackend, create_mcp_server
 from frisket.server.mcp import server as mcp_server
 from frisket.server.services.action_runs import ActionRunService
@@ -707,7 +707,7 @@ def test_hosted_backfill_402_challenges_then_binds_the_echoed_hash() -> None:
     assert "confirmation" not in json.loads(requests[0].content)
 
 
-def test_hosted_backfill_does_not_echo_a_quote_without_approval() -> None:
+def test_hosted_backfill_does_not_echo_an_estimate_without_approval() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -1511,7 +1511,7 @@ class TestRunAction:
         assert st["completed"] == 5 and st["failed"] == 0 and st["total"] == 5
         assert st["cost"] == 0.0 and st["live"] is False  # cache hits bill zero
 
-    def test_queued_run_keeps_request_preapproval_at_worker(self, tmp_path):
+    def test_queued_run_keeps_request_allowance_at_worker(self, tmp_path):
         sheet = seed_workspace(tmp_path / "ws", ["small paid request"])
         project = Project(tmp_path / "ws" / "demo.frisket")
         try:
@@ -1633,7 +1633,7 @@ class TestRunAction:
     def test_changed_scope_retry_requires_the_new_402_hash(self, tmp_path):
         root = tmp_path / "ws"
         sheet = seed_workspace(root, ["long text " * 200] * 300)
-        save_workspace_cost_preapproval_usd(root, "0")
+        save_workspace_allowance_usd(root, "0")
         backend = LocalBackend(
             root,
             router=ModelRouter(
@@ -2027,7 +2027,7 @@ class TestBackfillRun:
         texts = ["ok zero", "ok one", "ok two", "boom three", "boom four"]
         root = tmp_path / "ws"
         sheet = seed_workspace(root, texts)
-        save_workspace_cost_preapproval_usd(root, "0")
+        save_workspace_allowance_usd(root, "0")
         adapter = _FlakyAdapter(fail_marker="boom")
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY,

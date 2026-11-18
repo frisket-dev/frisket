@@ -56,8 +56,8 @@ from frisket.engine.executor.queued_actions import (
 from frisket.engine.jobs import HandlerRegistry, Worker, WorkerPorts
 from frisket.engine.jobs.runs import register_project_run_handler
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     install_pricing_policy,
 )
 from frisket.server.app import create_app
@@ -68,12 +68,12 @@ MOVED_KINDS = ("enrich.census_demographics", "enrich.geocode", "map.python")
 
 
 class _AboveLimitPolicy:
-    """Make this request genuinely above the local preapproval threshold."""
+    """Make this request genuinely above the local allowance threshold."""
 
     policy_id = "test.placement.geocode-above-limit.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=2_000_001,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -340,14 +340,14 @@ def test_map_python_queued_launch_returns_before_sandbox_runs(tmp_path: Path) ->
     result = ActionResult.model_validate(response.json())
 
     # HARD CONSTRAINT: launch returns the run handle immediately; the sandbox
-    # has not executed yet -- no output column exists.
+    # has not executed yet -- no generated column exists.
     assert result.status == "queued"
     assert result.action.kind == "map.python"
     assert result.run_id is not None
     assert result.job_id is not None
     assert result.receipt_id is not None
 
-    # HARD CONSTRAINT: the sandbox has not executed -- the output column shell
+    # HARD CONSTRAINT: the sandbox has not executed -- the generated column shell
     # is reserved/claimed synchronously (request-time precheck), but no value
     # has been written for it yet.
     project = client.app.state.workspace.get(project_id)

@@ -376,7 +376,7 @@ def test_control_like_physical_names_publish_and_replay_as_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # This test must observe the request-level consent challenge regardless of
-    # the host's standing preapproval setting.
+    # the host's standing allowance setting.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     project = make_project("control-names")
     sheet_id = project.add_sheet("Rows")
@@ -403,10 +403,10 @@ def test_control_like_physical_names_publish_and_replay_as_values(
         "output_names": {"answer": output_name},
         "idempotency_key": "control-names",
     }
-    quoted = run_action_spec(project, body, project_id="test", router=router)
-    assert quoted.status == "needs_confirmation"
+    estimated = run_action_spec(project, body, project_id="test", router=router)
+    assert estimated.status == "needs_confirmation"
     assert adapter.requests == []
-    body["confirmation"] = quoted.errors[0].details["promise_set_hash"]
+    body["confirmation"] = estimated.errors[0].details["promise_set_hash"]
     result = run_action_spec(project, body, project_id="test", router=router)
     assert result.status == "completed", result.errors
     column = next(c for c in project.columns(sheet_id) if c["name"] == output_name)

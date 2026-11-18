@@ -1,4 +1,4 @@
-"""Output column claim store for action-run output reservations."""
+"""Generated column claim store for action-run output reservations."""
 
 from __future__ import annotations
 

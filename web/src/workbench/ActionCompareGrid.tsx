@@ -73,7 +73,7 @@ export interface ActionCompareGridProps {
   }): void;
   onOpenStructuredValue?(value: ActionCompareStructuredValue): void;
   evaluation?: {
-    response: EvaluationResponse | null; field: string; lens: 'each_other' | 'expected'; rowIds: number[];
+    response: EvaluationResponse | null; field: string; view: 'each_other' | 'expected'; rowIds: number[];
     onOpenRow(rowId: number, field: string): void;
     onScoreClick(key: string, field: string): void;
     onRuleClick(): void;
@@ -185,7 +185,7 @@ function compareColumns(
         },
       };
     });
-  const outputColumns: OutputGridColumn[] = state.variants
+  const generatedColumns: OutputGridColumn[] = state.variants
     .flatMap((variant) => state.context.output_columns.filter((column) => !hidden.has(`output:${column.logical_key}`)).map((column) => {
       const id = `output:${column.logical_key}:${variant.id}`;
       return {
@@ -202,22 +202,22 @@ function compareColumns(
         },
       };
     }));
-  const expectedColumns: ExpectedGridColumn[] = evaluation?.lens === 'expected' && evaluation.response?.link
+  const expectedColumns: ExpectedGridColumn[] = evaluation?.view === 'expected' && evaluation.response?.link
     ? state.context.output_columns.filter((column) => column.logical_key === evaluation.field).map((column) => ({
       kind: 'expected', id: `expected:${column.logical_key}`, logicalKey: column.logical_key,
       column: { id: `expected:${column.logical_key}`, name: 'expected', type: 'text', format: null },
     })) : [];
-  return [...sourceColumns, ...expectedColumns, ...outputColumns];
+  return [...sourceColumns, ...expectedColumns, ...generatedColumns];
 }
 
 export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, frozenColumnCount,
   labelForDraft, onOpenBoundedValue, onOpenStructuredValue, evaluation }: ActionCompareGridProps) {
-  const { gridTheme, aiColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
+  const { gridTheme, generatedColumnTheme, gridCellPalette, differenceTheme } = useGridTheme();
   const evaluationColors = useMemo(() => evaluationTheme(gridTheme), [gridTheme]);
   const variantColumnTheme = useMemo(() => ({
-    ...aiColumnTheme,
+    ...generatedColumnTheme,
     headerIconSize: VARIANT_BADGE_PRESENTATION.size,
-  }), [aiColumnTheme]);
+  }), [generatedColumnTheme]);
   const sampleRowIds = evaluation?.rowIds ?? state.context.sample_row_ids;
   const projectedColumns = useMemo(() => compareColumns(state, evaluation), [state, evaluation]);
   const [widths, setWidths] = useState<Record<string, number>>({});
@@ -240,14 +240,14 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     return {
       id: projected.id,
       title: output
-        ? `${projected.column.name}${evaluation?.lens === 'expected' && projected.logicalKey === evaluation.field && score ? ` · ${scoreLabel(score.accuracy)}${partialHand ? ` · ${score.scored}/${score.scored + score.remaining} scored` : ''}` : ''}`
+        ? `${projected.column.name}${evaluation?.view === 'expected' && projected.logicalKey === evaluation.field && score ? ` · ${scoreLabel(score.accuracy)}${partialHand ? ` · ${score.scored}/${score.scored + score.remaining} scored` : ''}` : ''}`
         : projected.kind === 'expected' ? `expected · ${field?.rule ?? 'exact'}${checked != null ? ` · ${checked} checked` : ''}` : projected.column.name,
       group: projected.kind === 'output' ? `${OUTPUT_GROUP_PREFIX}${projected.variant.id}` : projected.kind === 'expected' ? `${OUTPUT_GROUP_PREFIX}expected` : SOURCE_GROUP,
       width: widths[projected.id] ?? (partialHand || projected.kind === 'expected' ? 240 : output ? DEFAULT_OUTPUT_WIDTH : DEFAULT_SOURCE_WIDTH),
       ...(icon ? { icon } : {}),
       ...(projected.kind === 'expected' ? { themeOverride: { bgHeader: evaluationColors.expected, textHeader: evaluationColors.match } }
         : output ? { themeOverride: { ...variantColumnTheme,
-          ...(evaluation?.lens === 'expected' && evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey) ? { textHeader: evaluationColors.match } : {}),
+          ...(evaluation?.view === 'expected' && evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey) ? { textHeader: evaluationColors.match } : {}),
         } } : {}),
     };
   }), [evaluation, evaluationColors, labelForDraft, projectedColumns, variantColumnTheme, widths]);
@@ -302,7 +302,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
         themeOverride: gridCellPalette.empty,
       };
     }
-    if (projected.kind === 'output' && evaluation?.lens === 'expected') {
+    if (projected.kind === 'output' && evaluation?.view === 'expected') {
       const verdict = evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.verdicts[String(rowId)]?.[projected.logicalKey];
       if (verdict) {
         const text = cell.state === 'error' ? `! Failed · ${cell.error || 'Action failed'}`
@@ -336,7 +336,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       rendered,
       facts,
       comparison,
-      evaluation?.lens !== 'expected' && state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
+      evaluation?.view !== 'expected' && state.highlightDifferences && comparison === 'different' ? differenceTheme : undefined,
     );
     return rendered;
   }, [cellAt, differenceTheme, evaluation, evaluationColors, gridCellPalette, projectId, projectedColumns, sampleRowIds,
@@ -376,7 +376,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
   const drawHeader = useCallback<NonNullable<GridViewportProps['drawHeader']>>((args, drawContent) => {
     drawContent();
     const projected = projectedColumns[args.columnIndex];
-    if (projected?.kind !== 'output' || evaluation?.lens !== 'expected') return;
+    if (projected?.kind !== 'output' || evaluation?.view !== 'expected') return;
     const score = evaluation.response?.variants.find((variant) => variant.key === projected.variant.displayKey)?.scores[projected.logicalKey];
     if (score?.accuracy == null) return;
     const best = evaluation.response?.best[projected.logicalKey]?.includes(projected.variant.displayKey);
@@ -398,9 +398,9 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
     return {
       name: outputName,
       icon: 'aiBolt',
-      overrideTheme: aiColumnTheme,
+      overrideTheme: generatedColumnTheme,
     };
-  }, [aiColumnTheme, outputNames]);
+  }, [generatedColumnTheme, outputNames]);
 
   return <div className="grid-host action-compare-grid" data-testid="action-compare-grid"
     data-group-header-height="28" data-header-height="34">
@@ -419,7 +419,7 @@ export function ActionCompareGrid({ projectId, state, rowHeight, wrapText, froze
       onHeaderClicked={(index) => {
         const projected = projectedColumns[index];
         if (projected?.kind === 'expected') evaluation?.onRuleClick();
-        if (projected?.kind === 'output' && evaluation?.lens === 'expected') evaluation.onScoreClick(projected.variant.displayKey, projected.logicalKey);
+        if (projected?.kind === 'output' && evaluation?.view === 'expected') evaluation.onScoreClick(projected.variant.displayKey, projected.logicalKey);
       }}
       getGroupDetails={getGroupDetails}
     />

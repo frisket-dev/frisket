@@ -70,7 +70,7 @@ export function createDetailStore(): {
   setChildFilter(childFilter: ChildFilter | null): void;
   mergeColumnUpdate(column: ColumnDef): void;
   clearForGridTransition(): void;
-  clearForSavedView(): void;
+  clearForView(): void;
   openHeaderMenu(headerMenu: HeaderMenuState): void;
   closeHeaderMenu(): void;
   setProposalInspect(proposal: ProposalInspectState | null): void;
@@ -173,7 +173,7 @@ export function createDetailStore(): {
      *  (an intentional asymmetry vs. applyGridFilter/Sort,
      *  pinned by state/gridViewStore.test.ts's cross-domain transaction
      *  parity suite). */
-    clearForSavedView() {
+    clearForView() {
       store.set((s) => ({ ...s, rowDrawer: null, rowDrawerPreview: null,
         rowTextTarget: null, columnDrawer: null }));
     },
@@ -189,7 +189,7 @@ export function createDetailStore(): {
     },
 
     /** Also the detail-owned half of the former
-     *  'selectSheet' and applyLens's entry patch (both just closed the
+     *  'selectSheet' and applyView's entry patch (both just closed the
      *  header menu; the bind layer calls this directly for those too). */
     closeHeaderMenu() {
       store.set((s) => (s.headerMenu === null ? s : { ...s, headerMenu: null }));

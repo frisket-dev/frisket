@@ -121,7 +121,7 @@ class EmbeddingRouteService:
             sheet_id,
             queue=self._workspace.queue,
             project_id=project_id,
-            storage_org_id=self._workspace.queue_storage_org_id,
+            storage_org_id=self._workspace.queue_storage_organization_id,
         )
 
     def export_index(

@@ -19,7 +19,7 @@ const value = { schema_version: 'frisket.preview_temporal.v1', column_type: 'tim
 
 it('renders scratch timestamps and labels without artifact links or editable selection', () => {
   const sample: PreviewTableSampleResult = { kind: 'table', previewId: 'sample', status: 'done',
-    progress: { done: 1, total: 1 }, columns: [{ name: 'Markers', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: null }],
+    progress: { done: 1, total: 1 }, columns: [{ name: 'Markers', columnType: 'timeline_points', format: null, hidden: false, replacesColumnId: null }],
     rows: [{ Markers: { value } }], sampled: 1, total: 1, warnings: [], error: null };
   const fetch = vi.fn();
   vi.stubGlobal('fetch', fetch);

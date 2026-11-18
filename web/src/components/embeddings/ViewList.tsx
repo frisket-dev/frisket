@@ -2,35 +2,35 @@ import '../PanelPrimitives.css';
 import '../FormControls.css';
 import { Button } from '../Button';
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, type EmbeddingIndexSummary, type SavedView, type ViewResolved } from '../../api/open';
+import { ApiError, type EmbeddingIndexSummary, type View, type ViewResolved } from '../../api/open';
 import type { EmbeddingApiPort } from '../../api/ports';
-import { useOpenLens } from './openLensContext';
+import { useOpenView } from './openViewContext';
 import { REFRESH_NEEDED_CODES } from './constants';
 import { errorMessage } from '../../hooks/errorMessage';
 import { useAction } from '../../hooks/useAction';
 
-interface LensListProps {
+interface ViewListProps {
   apiPort: EmbeddingApiPort;
   index: EmbeddingIndexSummary;
   reloadKey: number;
 }
 
-export function LensList({ apiPort, index, reloadKey }: LensListProps) {
+export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
   const sheetId = index.sheetId;
-  const [lenses, setLenses] = useState<SavedView[] | null>(null);
+  const [views, setViews] = useState<View[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
   const [resolved, setResolved] = useState<ViewResolved | null>(null);
   const resolveAction = useAction();
   const runResolve = resolveAction.run;
-  const openLensInGrid = useOpenLens();
+  const openViewInGrid = useOpenView();
 
   const load = useCallback(async () => {
     if (sheetId == null) return;
     try {
       const all = await apiPort.listViews(String(sheetId));
-      setLenses(all.filter((lens) => {
-        const query = lens.spec?.selection.similarity ?? {};
+      setViews(all.filter((view) => {
+        const query = view.spec?.selection.similarity ?? {};
         return query.embedding_index_id === index.indexId;
       }));
       setError(null);
@@ -47,13 +47,13 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
   }, [load, reloadKey]);
 
   const open = useCallback(
-    async (lensId: number, name: string) => {
-      openLensInGrid(lensId, name);
-      setOpenId(lensId);
+    async (viewId: number, name: string) => {
+      openViewInGrid(viewId, name);
+      setOpenId(viewId);
       setResolved(null);
       const view = await runResolve(async () => {
         try {
-          return await apiPort.resolveView(lensId, { limit: 20 });
+          return await apiPort.resolveView(viewId, { limit: 20 });
         } catch (caught) {
           if (
             caught instanceof ApiError &&
@@ -69,7 +69,7 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
       });
       if (view !== undefined) setResolved(view);
     },
-    [apiPort, openLensInGrid, runResolve],
+    [apiPort, openViewInGrid, runResolve],
   );
 
   if (sheetId == null) return null;
@@ -80,35 +80,35 @@ export function LensList({ apiPort, index, reloadKey }: LensListProps) {
       </p>
     );
   }
-  if (!lenses || lenses.length === 0) return null;
+  if (!views || views.length === 0) return null;
 
   return (
     <div className="embedding-lenses" data-testid={`embedding-lenses-${index.indexId}`}>
       <span className="form-label">Views</span>
       <ul className="embedding-lens-list">
-        {lenses.map((lens) => (
-          <li key={lens.id} className="embedding-lens" data-testid={`embedding-lens-${lens.id}`}>
+        {views.map((view) => (
+          <li key={view.id} className="embedding-lens" data-testid={`embedding-lens-${view.id}`}>
             <div className="embedding-lens-head">
-              <span className="embedding-lens-name">{lens.name}</span>
+              <span className="embedding-lens-name">{view.name}</span>
               <Button
                 type="button"
 
-                data-testid={`embedding-lens-open-${lens.id}`}
-                disabled={resolveAction.busy && openId === lens.id}
-                onClick={() => void open(lens.id, lens.name)}
+                data-testid={`embedding-lens-open-${view.id}`}
+                disabled={resolveAction.busy && openId === view.id}
+                onClick={() => void open(view.id, view.name)}
               >
-                {resolveAction.busy && openId === lens.id ? 'Opening…' : 'Open'}
+                {resolveAction.busy && openId === view.id ? 'Opening…' : 'Open'}
               </Button>
             </div>
-            {openId === lens.id && resolveAction.error && (
-              <p className="panel-error" data-testid={`embedding-lens-resolve-error-${lens.id}`}>
+            {openId === view.id && resolveAction.error && (
+              <p className="panel-error" data-testid={`embedding-lens-resolve-error-${view.id}`}>
                 {resolveAction.error}
               </p>
             )}
-            {openId === lens.id && resolved && (
+            {openId === view.id && resolved && (
               <ul
                 className="embedding-lens-results"
-                data-testid={`embedding-lens-results-${lens.id}`}
+                data-testid={`embedding-lens-results-${view.id}`}
               >
                 {resolved.refs.length === 0 && (
                   <li className="form-hint">No matching rows.</li>

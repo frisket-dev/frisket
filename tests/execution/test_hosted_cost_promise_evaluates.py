@@ -18,8 +18,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.credential_use import CredentialUseContext
@@ -29,7 +29,7 @@ from frisket.execution.price_book import (
     OperatorBorne,
     PlatformMetered,
     cost_posture_for,
-    quote_transcription,
+    estimate_transcription,
 )
 from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
@@ -86,12 +86,12 @@ def _offering(
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.audio_minute",
             terms_version=terms_version,
             unit_rate=rate,
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding("half_even", 6),
+            rounding=CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key=meter_key,
@@ -213,7 +213,7 @@ def test_platform_funding_without_an_offer_mints_no_price_or_target() -> None:
     provider = _Provider(_target(SYNTHETIC_TARGET_ID))
     composition = _composition(provider, PlatformMetered())
 
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=SYNTHETIC_TARGET_ID,
         engine="parakeet-tdt",
         funding=composition.facts.funding,
@@ -235,7 +235,7 @@ def test_platform_funding_without_an_offer_mints_no_price_or_target() -> None:
     )
 
 
-def test_composition_filtered_target_has_no_estimate_quote(project) -> None:
+def test_composition_filtered_target_has_no_estimate(project) -> None:
     from frisket.engine.runner.validation import (
         ExecutionResolutionRefused,
         estimate_run,
@@ -259,11 +259,11 @@ def test_composition_filtered_target_has_no_estimate_quote(project) -> None:
         )
 
     assert exc_info.value.family == "no_capable_target"
-    assert exc_info.value.refusal.quote_absent is True
+    assert exc_info.value.refusal.estimate_absent is True
     assert provider.connection_calls == []
 
 
-def test_empty_platform_provider_has_no_fallback_estimate_quote(project) -> None:
+def test_empty_platform_provider_has_no_fallback_estimate(project) -> None:
     from frisket.engine.runner.validation import (
         ExecutionResolutionRefused,
         estimate_run,
@@ -301,7 +301,7 @@ def test_empty_platform_provider_has_no_fallback_estimate_quote(project) -> None
         )
 
     assert exc_info.value.family == "no_capable_target"
-    assert exc_info.value.refusal.quote_absent is True
+    assert exc_info.value.refusal.estimate_absent is True
 
 
 def test_exact_injected_offering_admits_without_connection_rate_labels(project):
@@ -313,7 +313,7 @@ def test_exact_injected_offering_admits_without_connection_rate_labels(project):
         target, connection_extra={"protocol": "frisket.transcription.v1"}
     )
     composition = _composition(provider, PlatformMetered(), offering)
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="parakeet-tdt",
         funding=composition.facts.funding,
@@ -358,7 +358,7 @@ def test_exact_included_execution_admits_without_an_offer(project):
             ),
         ),
     )
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="parakeet-tdt",
         funding=composition.facts.funding,
@@ -394,7 +394,7 @@ def test_matched_offer_with_unknown_quantity_pins_terms_and_can_admit(project):
         target, connection_extra={"protocol": "frisket.transcription.v1"}
     )
     composition = _composition(provider, PlatformMetered(), offering)
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="parakeet-tdt",
         funding=composition.facts.funding,
@@ -439,7 +439,7 @@ def test_admission_refuses_when_current_offer_no_longer_matches_pin(project, cur
     provider = _Provider(
         target, connection_extra={"protocol": "frisket.transcription.v1"}
     )
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="parakeet-tdt",
         funding=PlatformMetered(),
@@ -480,7 +480,7 @@ def test_admission_refuses_when_pinned_offer_is_missing(project):
     provider = _Provider(
         target, connection_extra={"protocol": "frisket.transcription.v1"}
     )
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="parakeet-tdt",
         funding=PlatformMetered(),
@@ -583,7 +583,7 @@ def test_sibling_offer_does_not_admit_an_unoffered_own_key_engine(project):
     provider = _Provider(target)
     pinned_engine = "openai/whisper-1"
     pinned_funding = ByokZero()
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine=pinned_engine,
         funding=pinned_funding,
@@ -667,7 +667,7 @@ def test_provider_direct_own_key_estimate_still_admits(project, funding):
     target = _target("remote-api:openai")
     provider = _Provider(target)
     composition = _composition(provider, funding)
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target.id,
         engine="openai/whisper-1",
         funding=funding,

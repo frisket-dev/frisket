@@ -95,7 +95,7 @@ def _resolve(project, spec, *, capability=CAPABILITY_TO_MARKDOWN):
 
 
 @pytest.mark.parametrize("capability", [CAPABILITY_TO_MARKDOWN, CAPABILITY_OCR])
-def test_single_stored_document_and_image_have_exact_selected_page_quote(
+def test_single_stored_document_and_image_have_exact_selected_page_estimate(
     documents, monkeypatch, capability
 ):
     monkeypatch.setenv("DATALAB_API_KEY", "synthetic-document-quote-key")
@@ -113,7 +113,7 @@ def test_single_stored_document_and_image_have_exact_selected_page_quote(
 
 
 @pytest.mark.parametrize("capability", [CAPABILITY_TO_MARKDOWN, CAPABILITY_OCR])
-def test_page_scoped_pdf_rows_quote_only_the_selected_pages(
+def test_page_scoped_pdf_rows_estimate_only_the_selected_pages(
     documents, monkeypatch, capability
 ):
     monkeypatch.setenv("DATALAB_API_KEY", "synthetic-document-quote-key")
@@ -192,7 +192,7 @@ def test_missing_or_invalid_probe_page_count_is_unknown(documents, pages):
     assert _document_quantity_pages(documents[0], spec, _DocumentProgram()) is None
 
 
-def test_unstored_or_cell_mime_spoofed_blob_cannot_quote_one_page(documents):
+def test_unstored_or_cell_mime_spoofed_blob_cannot_estimate_one_page(documents):
     project = documents[0]
     value = _document(project, pages=None)
     value["mime"] = "image/png"

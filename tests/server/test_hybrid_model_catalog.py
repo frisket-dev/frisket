@@ -28,7 +28,7 @@ def _platform_composition_without_execution_offers() -> ExecutionComposition:
 def test_platform_catalog_keeps_model_branch_of_hybrid_actions() -> None:
     hints = project_action_catalog_launcher_hints(
         {},
-        org_provider_keys={"openai": "fixture-key"},
+        organization_provider_keys={"openai": "fixture-key"},
         execution_composition=_platform_composition_without_execution_offers(),
         action_kinds=HYBRID_MODEL_ACTIONS,
     )
@@ -48,7 +48,7 @@ def test_platform_catalog_keeps_model_branch_of_hybrid_actions() -> None:
 def test_platform_model_branch_does_not_admit_an_unoffered_routed_action() -> None:
     hints = project_action_catalog_launcher_hints(
         {},
-        org_provider_keys={"openai": "fixture-key"},
+        organization_provider_keys={"openai": "fixture-key"},
         execution_composition=_platform_composition_without_execution_offers(),
         action_kinds=frozenset({"media.transcribe"}),
     )

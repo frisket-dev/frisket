@@ -4,7 +4,7 @@ A vector is only comparable to another vector produced under the *same*
 comparability contract. ``space_id`` is that contract, hashed: a generated id
 over every parameter that can change vector values or distance semantics
 (model, dimension, dtype, metric, normalization, modality, and the normalized
-vector options). Presentation-only fields (labels, schedule, output column
+vector options). Presentation-only fields (labels, schedule, generated column
 name) are deliberately excluded — they are stored separately on the index or
 receipts and must never fork a space.
 

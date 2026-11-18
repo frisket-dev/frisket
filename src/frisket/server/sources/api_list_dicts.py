@@ -1,4 +1,4 @@
-"""Bounded public JSON API source poller for list-of-dicts payloads."""
+"""Bounded public JSON API feed checker for list-of-dicts payloads."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from frisket.server.sources.runtime import (
     hash_json,
     iso_timestamp,
     provider_error_text,
-    register_source_poller,
+    register_feed_checker,
     text_hash,
 )
 
@@ -100,7 +100,7 @@ class ApiListDictsConfig:
     schema_policy: str
 
 
-class ApiListDictsPoller:
+class ApiListDictsFeedChecker:
     kind = API_LIST_DICTS_KIND
 
     def __init__(
@@ -278,15 +278,15 @@ def fetch_api_list_dicts_get(
             )
 
 
-def register_api_list_dicts_poller(
+def register_api_list_dicts_feed_checker(
     http_get: Callable[..., ApiListDictsHttpResponse] | None = None,
     *,
     now: Callable[[], datetime] | None = None,
     replace: bool = False,
-) -> ApiListDictsPoller:
-    poller = ApiListDictsPoller(http_get=http_get, now=now)
-    register_source_poller(poller, replace=replace)
-    return poller
+) -> ApiListDictsFeedChecker:
+    feed_checker = ApiListDictsFeedChecker(http_get=http_get, now=now)
+    register_feed_checker(feed_checker, replace=replace)
+    return feed_checker
 
 
 def _resolve_config(
@@ -513,4 +513,4 @@ def _redact_url(url: str) -> str:
     return base + ("?<redacted>" if parsed.query else "")
 
 
-register_api_list_dicts_poller()
+register_api_list_dicts_feed_checker()

@@ -20,10 +20,10 @@ from filelock import FileLock
 
 from frisket.ai.llm import CACHE_MODES, CacheMode, resolve_env_cache_mode
 from frisket.local_runtime_config import (
-    DEFAULT_COST_PREAPPROVAL_USD,
+    DEFAULT_ALLOWANCE_USD,
     InvalidLocalRuntimeConfigError,
-    normalize_cost_preapproval_usd,
-    resolve_local_cost_preapproval_usd,
+    normalize_allowance_usd,
+    resolve_local_allowance_usd,
 )
 
 
@@ -67,15 +67,15 @@ def _read_valid_settings(path: Path) -> dict[str, Any]:
         )
     threshold = value.get("cost_preapproval_usd")
     if threshold is not None:
-        _validated_cost_preapproval_usd(threshold)
+        _validated_allowance_usd(threshold)
     return value
 
 
-def _validated_cost_preapproval_usd(value: object) -> str:
+def _validated_allowance_usd(value: object) -> str:
     """Return a canonical, non-negative USD amount safe for the identity wire."""
 
     try:
-        return normalize_cost_preapproval_usd(value)
+        return normalize_allowance_usd(value)
     except InvalidLocalRuntimeConfigError as exc:
         raise InvalidRuntimeSettingsError(f"runtime settings {exc}") from exc
 
@@ -92,14 +92,14 @@ def resolve_workspace_cache_mode(
     return resolve_env_cache_mode(env)
 
 
-def resolve_workspace_cost_preapproval_usd(root: str | Path) -> str:
+def resolve_workspace_allowance_usd(root: str | Path) -> str:
     """Return this local installation's pre-approval amount, defaulting to $2."""
 
     # Keep this server-owned settings document strict about unrelated fields;
     # the shared reader below is intentionally narrower for execution paths.
     _read_valid_settings(runtime_settings_path(root))
     try:
-        return resolve_local_cost_preapproval_usd(root)
+        return resolve_local_allowance_usd(root)
     except InvalidLocalRuntimeConfigError as exc:
         raise InvalidRuntimeSettingsError(str(exc)) from exc
 
@@ -136,10 +136,10 @@ def save_workspace_cache_mode(root: str | Path, mode: CacheMode) -> None:
             raise
 
 
-def save_workspace_cost_preapproval_usd(root: str | Path, amount: str) -> str:
+def save_workspace_allowance_usd(root: str | Path, amount: str) -> str:
     """Persist a local installation's threshold without overwriting other settings."""
 
-    normalized = _validated_cost_preapproval_usd(amount)
+    normalized = _validated_allowance_usd(amount)
     path = runtime_settings_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     gitignore = path.parent / ".gitignore"
@@ -170,10 +170,10 @@ def save_workspace_cost_preapproval_usd(root: str | Path, amount: str) -> str:
 
 __all__ = [
     "InvalidRuntimeSettingsError",
-    "DEFAULT_COST_PREAPPROVAL_USD",
+    "DEFAULT_ALLOWANCE_USD",
     "resolve_workspace_cache_mode",
-    "resolve_workspace_cost_preapproval_usd",
+    "resolve_workspace_allowance_usd",
     "runtime_settings_path",
     "save_workspace_cache_mode",
-    "save_workspace_cost_preapproval_usd",
+    "save_workspace_allowance_usd",
 ]

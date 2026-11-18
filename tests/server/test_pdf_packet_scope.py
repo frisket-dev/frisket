@@ -72,7 +72,7 @@ def test_sheet_scope_freezes_selected_occurrences_and_rejects_stale_anchors(tmp_
         )
 
 
-def test_scope_obeys_grid_filter_sort_and_ranked_lens_order(tmp_path):
+def test_scope_obeys_grid_filter_sort_and_ranked_view_order(tmp_path):
     import json
 
     workspace = Workspace(tmp_path / "workspace", enable_local_model_pull=False)

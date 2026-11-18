@@ -8,14 +8,16 @@ from frisket.cli import owner
 from frisket.team.identity_service import IdentityAuthService
 from frisket.team.local_auth import claim_first_owner
 from frisket.team.schema import sessions
-from frisket.team.team_bootstrap import initialize_team_schema_and_org
+from frisket.team.team_bootstrap import initialize_team_schema_and_organization
 from frisket.team.uow import TeamUnitOfWork
 
 
 def _claimed_database(tmp_path):
     database_url = f"sqlite:///{tmp_path / 'control.sqlite3'}"
     engine = sa.create_engine(database_url, future=True)
-    org_id = initialize_team_schema_and_org(engine, organization_name="Frisket")
+    org_id = initialize_team_schema_and_organization(
+        engine, organization_name="Frisket"
+    )
     claim_first_owner(
         engine,
         org_id=org_id,

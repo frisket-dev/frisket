@@ -283,7 +283,7 @@ export const NOTIFICATIONS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDesc
   'frisket.core.panel.notifications',
 );
 
-export const SAVED_VIEWS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
+export const VIEWS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.saved_views',
 );
 
@@ -439,7 +439,7 @@ export const COST_GATE_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDesc
 
 // The server-side output_column_exists confirm modal — same modalOrPeek
 // host as cost_gate/row_delete_confirm above.
-export const OUTPUT_COLUMN_COLLISION_VIEW_DESCRIPTOR: WorkbenchViewDescriptor =
+export const GENERATED_COLUMN_COLLISION_VIEW_DESCRIPTOR: WorkbenchViewDescriptor =
   firstPartyDescriptor('frisket.core.view.output_column_collision');
 
 export const GRAPH_NEIGHBORHOOD_VIEW_DESCRIPTOR: WorkbenchViewDescriptor = firstPartyDescriptor(

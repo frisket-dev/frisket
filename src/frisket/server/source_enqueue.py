@@ -9,7 +9,7 @@ from frisket.actions.system import typed_action_for_request
 from frisket.contracts.action import ActionOutput, ActionResult
 from frisket.engine.executor.source_poll_action import _source_poll_sheet_id_in_txn
 from frisket.engine.store.sources import SourceStore
-from frisket.server.sources import ensure_rss_poller, get_source_poller
+from frisket.server.sources import ensure_rss_feed_checker, get_feed_checker
 
 
 def queue_source_poll(
@@ -26,11 +26,11 @@ def queue_source_poll(
     if not source["enabled"]:
         raise ValueError("Enable this feed before importing it")
     source["config"] = json.loads(source.get("config") or "{}")
-    ensure_rss_poller()
-    poller = get_source_poller(source["kind"])
-    if poller is None:
+    ensure_rss_feed_checker()
+    feed_checker = get_feed_checker(source["kind"])
+    if feed_checker is None:
         raise ValueError("Frisket cannot poll this feed type")
-    error = poller.validate_config(source)
+    error = feed_checker.validate_config(source)
     if error:
         raise ValueError(error)
     # The source-bound destination is durable before any provider request starts.

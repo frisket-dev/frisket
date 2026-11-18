@@ -448,7 +448,7 @@ def decode_region_response(
     return LocateRegionsResult(regions=tuple(regions), issues=tuple(issues))
 
 
-class HostedVLMRegionLocator:
+class RemoteVLMRegionLocator:
     """Region locator backed by Frisket's existing structured model router."""
 
     supports_detail_schema = True

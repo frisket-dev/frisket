@@ -263,11 +263,11 @@ def test_team_model_pull_audit_wrapper_forwards_claimed_job_context(
 
     queue = SqliteJobQueue(tmp_path / "queue.db")
     registry = HandlerRegistry()
-    observed_orgs: list[object] = []
+    observed_organizations: list[object] = []
 
     def fake_register(registry, *, workspace_root, queue, **kwargs):
         def handle(_payload: dict, handler_context) -> dict:
-            observed_orgs.append(handler_context.trusted_job_org_id)
+            observed_organizations.append(handler_context.trusted_job_organization_id)
             return {"status": "done"}
 
         registry.register(MODEL_PULL_KIND, handle)
@@ -284,7 +284,7 @@ def test_team_model_pull_audit_wrapper_forwards_claimed_job_context(
 
         assert Worker(queue, registry, worker_id="cli-audit-context").run_once()
         assert queue.get(job_id).status == "done"
-        assert observed_orgs == [7001]
+        assert observed_organizations == [7001]
     finally:
         queue.close()
 

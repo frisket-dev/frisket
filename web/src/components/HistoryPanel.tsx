@@ -59,9 +59,9 @@ function rowOutcomeSummary(run: HistoryOpRun): string {
   return `${run.completedRows.toLocaleString()} of ${run.totalRows.toLocaleString()} rows succeeded`;
 }
 
-function outputColumnsSummary(run: HistoryOpRun): string {
-  return run.outputColumns.length > 0
-    ? run.outputColumns.map((c) => c.name).join(', ')
+function generatedColumnsSummary(run: HistoryOpRun): string {
+  return run.generatedColumns.length > 0
+    ? run.generatedColumns.map((c) => c.name).join(', ')
     : '—';
 }
 
@@ -193,7 +193,7 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
                   [
                     'Generated columns',
                     <span key="output-columns" data-testid={`history-output-columns-${op.id}`}>
-                      {outputColumnsSummary(run)}
+                      {generatedColumnsSummary(run)}
                     </span>,
                   ],
                   [

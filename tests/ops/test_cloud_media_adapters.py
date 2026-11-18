@@ -13,7 +13,7 @@ from frisket.cloud_execution import (
     CloudExecutionRefused,
     CloudMediaExecutionBinding,
     CloudPayerSubject,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
 )
 from frisket.contracts.http.cloud_connection import (
     CloudCapabilityRoute,
@@ -73,7 +73,7 @@ def _attempt(*, engine: str = ENGINE) -> CloudExecutionAttempt:
     return CloudExecutionAttempt(
         request_id="durable-request-1",
         payer=_payer(engine=engine),
-        quote_authority=CloudQuoteAuthority(maximum_charge_micro=90_000),
+        estimate_authority=CloudEstimateAuthority(maximum_charge_micro=90_000),
     )
 
 

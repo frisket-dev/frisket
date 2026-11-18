@@ -147,7 +147,7 @@ def test_ocr_vlm_cached_pages_do_not_count_as_requests(tmp_path, include_uncache
 @pytest.mark.parametrize("missing_page", [0, 1, None])
 def test_vlm_ocr_unknown_tokens_survive_page_aggregation(tmp_path, missing_page):
     from frisket.ai.models.accounting import merge_accounting_meta
-    from frisket.ops.ocr_engines_hosted import accumulate_vlm_response_usage
+    from frisket.ops.ocr_engines_remote import accumulate_vlm_response_usage
 
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
     for page in range(2):

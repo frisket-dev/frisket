@@ -36,7 +36,7 @@ it('normalizes quote null optionals while retaining billed price and confirmatio
     estimate: { rows: 1, cost: .01, cost_source: 'pricing_data', billed_cost: 10000, policy_id: 'p', pricing_key: null,
       requires_confirmation: true, promise_set_hash: 'exact' } })));
   const api = createActionComparisonApi('project');
-  const quote = await api.quotePreview({ action: { action_id: 'map.ask', scope: { kind: 'sheet_rows', sheet_id: 3 },
+  const estimate = await api.estimatePreview({ action: { action_id: 'map.ask', scope: { kind: 'sheet_rows', sheet_id: 3 },
     params: {}, output_names: {}, idempotency_key: 'one' }, comparison: { basis: { kind: 'run', run_id: 1, column_id: 2 }, expected_output_signature: 'sig' } });
-  expect(quote.estimate).toMatchObject({ billed_cost: 10000, policy_id: 'p', promise_set_hash: 'exact', pricing_key: undefined });
+  expect(estimate.estimate).toMatchObject({ billed_cost: 10000, policy_id: 'p', promise_set_hash: 'exact', pricing_key: undefined });
 });

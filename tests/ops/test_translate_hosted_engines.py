@@ -31,11 +31,11 @@ from frisket.execution.credential_use import CredentialUseContext
 
 
 @pytest.fixture(autouse=True)
-def _pin_zero_standing_preapproval(monkeypatch: pytest.MonkeyPatch) -> None:
+def _pin_zero_standing_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
     """Hosted translation is a paid provider call, and the cases below that
     assert ``needs_confirmation`` need the gate to fire. The product default
     of $2 already covers these small translations, so they would dispatch
-    instead. Pinning zero standing preapproval keeps the paid-path challenge
+    instead. Pinning zero standing allowance keeps the paid-path challenge
     reachable without changing any assertion.
     """
 
@@ -327,9 +327,9 @@ async def test_deepl_malformed_result_keeps_only_complete_reported_usage(
     if expected is None:
         assert accounting["cost"] is None
     else:
-        from frisket.ops.integrations.translate_common import hosted_translate_cost
+        from frisket.ops.integrations.translate_common import remote_translate_cost
 
-        assert accounting["cost"] == hosted_translate_cost("deepl", expected)
+        assert accounting["cost"] == remote_translate_cost("deepl", expected)
 
 
 @pytest.mark.asyncio
@@ -518,7 +518,7 @@ async def test_recipe_execute_records_unknown_cost_when_rate_missing(
 ) -> None:
     # F6: a hosted engine whose per-character rate is unconfigured records the
     # spend as UNKNOWN (cost=None + cost_source), never a fake 0 that reads as
-    # free. hosted_translate_cost resolves the rate through external_unit_price_usd.
+    # free. remote_translate_cost resolves the rate through external_unit_price_usd.
     import frisket.ai.external_pricing as ep
 
     monkeypatch.setattr(ep, "external_unit_price_usd", lambda key: None)

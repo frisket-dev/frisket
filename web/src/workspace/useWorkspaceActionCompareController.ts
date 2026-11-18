@@ -30,7 +30,7 @@ interface ComparisonTarget {
   sheetId: string;
   selection: ActionCompareCapturedSelection | null;
   sampleRowIds?: number[];
-  initialLens?: 'each_other' | 'expected';
+  initialView?: 'each_other' | 'expected';
   rowScope?: ActionCompareRowScope;
 }
 
@@ -87,7 +87,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   const [rowScopeTotal, setRowScopeTotal] = useState<number | null>(null);
   const [rowScopeBusy, setRowScopeBusy] = useState(false);
   const activeTarget = useRef<ComparisonTarget | null>(null);
-  const [initialLens, setInitialLens] = useState<'each_other' | 'expected'>('each_other');
+  const [initialView, setInitialView] = useState<'each_other' | 'expected'>('each_other');
   const [session, setSession] = useState<ActionCompareSession | null>(null);
   const [actionCompareSetup, setActionCompareSetup] = useState<string | null>(null);
   const sessionRef = useRef<ActionCompareSession | null>(null);
@@ -189,7 +189,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         discardCaptured: id => evaluationApi.discardCapture(id),
       });
       setRowScopeTotal(total);
-      setInitialLens(target.initialLens ?? 'each_other');
+      setInitialView(target.initialView ?? 'each_other');
       setRowScope(resolvedScope);
       activeTarget.current = target;
       sessionRef.current = next;
@@ -215,11 +215,11 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
     else void openTarget(target);
   }, [openTarget]);
 
-  const changeActionCompareRowScope = useCallback((scope: ActionCompareRowScope, lens?: 'each_other' | 'expected') => {
+  const changeActionCompareRowScope = useCallback((scope: ActionCompareRowScope, view?: 'each_other' | 'expected') => {
     const target = activeTarget.current;
     const current = sessionRef.current;
     if (!target || !current || scope === rowScope || operation.current.targetPending) return;
-    const nextTarget = { ...target, sampleRowIds: undefined, rowScope: scope, initialLens: lens ?? target.initialLens };
+    const nextTarget = { ...target, sampleRowIds: undefined, rowScope: scope, initialView: view ?? target.initialView };
     const revision = operation.current.revision + 1;
     operation.current = { revision, targetPending: true };
     setRowScopeBusy(true);
@@ -233,7 +233,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
         activeTarget.current = nextTarget;
         setRowScope(scope);
         setRowScopeTotal(total);
-        setInitialLens(lens ?? target.initialLens ?? 'each_other');
+        setInitialView(view ?? target.initialView ?? 'each_other');
       } catch (error) {
         if (operation.current.revision === revision) showError(error instanceof Error ? error.message : 'Could not change the comparison rows.');
       } finally {
@@ -275,7 +275,7 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   }), [captureSelection]);
   const compareActionRun = useCallback((anchor: ActionRunAnchor, expected = false) => {
     try {
-      requestTarget({ ...targetForRun(anchor), initialLens: expected ? 'expected' : 'each_other' });
+      requestTarget({ ...targetForRun(anchor), initialView: expected ? 'expected' : 'each_other' });
     } catch (error) {
       showError(error instanceof Error ? error.message : 'Could not capture the comparison selection.');
     }
@@ -343,11 +343,11 @@ export function useWorkspaceActionCompareController({ projectId, sheetId, select
   return useMemo(() => ({ actionCompareSetup, startActionCompareSetup, cancelActionCompareSetup, actionCompareSession: session, actionCompareOpen: tab.open, actionCompareActive: tab.active,
     actionCompareCloseWarn: tab.closeWarn, actionComparePendingTarget: pendingTarget,
     rowScopePending: rowScopeBusy || pendingTarget !== null,
-    openActionCompare, compareActionRun, loadActionRunEntry, useActionCompareSettings, initialLens, rowScope, rowScopeTotal, changeActionCompareRowScope,
+    openActionCompare, compareActionRun, loadActionRunEntry, useActionCompareSettings, initialView, rowScope, rowScopeTotal, changeActionCompareRowScope,
     returnToActionCompare, closeActionCompare,
     cancelActionCompareClose, cancelActionCompareRetarget, confirmActionCompareRetarget,
   }), [actionCompareSetup, startActionCompareSetup, cancelActionCompareSetup, cancelActionCompareClose, cancelActionCompareRetarget, closeActionCompare, compareActionRun,
     confirmActionCompareRetarget, loadActionRunEntry, openActionCompare,
     pendingTarget, returnToActionCompare, session, tab.active,
-    initialLens, rowScope, rowScopeTotal, rowScopeBusy, changeActionCompareRowScope, tab.closeWarn, tab.open, useActionCompareSettings]);
+    initialView, rowScope, rowScopeTotal, rowScopeBusy, changeActionCompareRowScope, tab.closeWarn, tab.open, useActionCompareSettings]);
 }

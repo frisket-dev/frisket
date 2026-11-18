@@ -143,7 +143,7 @@ def test_submit_while_run_in_flight_queues_and_executes_after(tmp_path):
     assert _run_row_status(client, pid, run_b) == "completed"
     assert _public_status(client, pid, run_b)["status"] == "completed"
 
-    # Both queued runs produced their output columns; nothing was dropped.
+    # Both queued runs produced their generated columns; nothing was dropped.
     assert {"display_a", "display_b"} <= _column_names(client, pid, sheet_id)
 
     # Both action jobs are drained; derived search maintenance may follow.

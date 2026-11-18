@@ -1,7 +1,7 @@
 """Open identity sign-in: magic links, user-ensure, session issuance.
 
 The open sign-in path is CREDIT-FREE. Signing in means: redeem the link,
-ensure the user and their first org exist, mint a session, append an audit row.
+ensure the user and their first organization exist, mint a session, append an audit row.
 No commerce state is read or written, so this path completes unchanged against a
 deployment whose database has no commerce tables.
 

@@ -6,7 +6,7 @@ function one level below the adapter records whether egress would occur:
 * a deployment environment credential is normalized to
   ``platform_key`` + deployment owner before the fence and executes;
 * a project secret under platform consent refuses before egress;
-* an org-BYOK credential whose live owner equals the quote owner executes;
+* an organization-BYOK credential whose live owner equals the quote owner executes;
 * S!=F (the selected/storage-side owner differs from the funding owner pinned
   by the quote) refuses before egress.
 
@@ -38,7 +38,7 @@ from frisket.execution.credential_use import (
     CredentialUseContext,
 )
 from frisket.ops.base import OpContext, RecipeInvocationHalt
-from frisket.ops.ocr_engines_hosted import (
+from frisket.ops.ocr_engines_remote import (
     _datalab_credential,
     _datalab_credential_parts,
 )

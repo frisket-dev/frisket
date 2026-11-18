@@ -28,7 +28,7 @@ from frisket.execution.targets import (
     require_clean,
 )
 
-QUOTE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
+ESTIMATE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
     CAPABILITY_LLM: "cloud_effective_cost_micro",
     CAPABILITY_CLASSIFY: "input_tokens",
     CAPABILITY_TRANSCRIBE: "audio_seconds",
@@ -39,7 +39,7 @@ QUOTE_METER_KEY_BY_CAPABILITY: dict[str, str] = {
     CAPABILITY_CENSUS: "rows",
 }
 
-QuoteRoundingMode = Literal["exact", "half_even", "half_up"]
+EstimateRoundingMode = Literal["exact", "half_even", "half_up"]
 CeilingMode = Literal["none", "consented_quantity"]
 RowSettlementMode = Literal["all_metered", "quoted_successful_rows"]
 
@@ -112,7 +112,7 @@ class CommercialOfferingMatch:
 
 
 @dataclass(frozen=True)
-class CommercialQuoteRounding:
+class CommercialEstimateRounding:
     """How a measured quote quantity is made durable.
 
     ``exact`` carries the source quantity unchanged and therefore has no
@@ -121,7 +121,7 @@ class CommercialQuoteRounding:
     change a consented quote's arithmetic.
     """
 
-    mode: QuoteRoundingMode = "exact"
+    mode: EstimateRoundingMode = "exact"
     decimal_places: int | None = None
 
     def __post_init__(self) -> None:
@@ -143,22 +143,24 @@ class CommercialQuoteRounding:
 
 
 @dataclass(frozen=True)
-class CommercialQuoteTerms:
+class CommercialEstimateTerms:
     """The public quote identity and arithmetic for one offering."""
 
     pricing_key: str
     terms_version: str
     unit_rate: str
     quantity_unit: str
-    rounding: CommercialQuoteRounding
+    rounding: CommercialEstimateRounding
 
     def __post_init__(self) -> None:
         require_clean("commercial pricing_key", self.pricing_key)
         require_clean("commercial terms_version", self.terms_version)
         require_clean("commercial quantity_unit", self.quantity_unit)
         _decimal_string("commercial unit_rate", self.unit_rate)
-        if not isinstance(self.rounding, CommercialQuoteRounding):
-            raise TypeError("commercial quote rounding must be CommercialQuoteRounding")
+        if not isinstance(self.rounding, CommercialEstimateRounding):
+            raise TypeError(
+                "commercial quote rounding must be CommercialEstimateRounding"
+            )
 
 
 @dataclass(frozen=True)
@@ -205,7 +207,7 @@ class CommercialOffering:
     """One exact target offering injected by a request composition."""
 
     match: CommercialOfferingMatch
-    quote: CommercialQuoteTerms
+    estimate: CommercialEstimateTerms
     settlement: CommercialSettlementTerms
     charge_authority: str
     presentation: CommercialPresentation
@@ -213,8 +215,8 @@ class CommercialOffering:
     def __post_init__(self) -> None:
         if not isinstance(self.match, CommercialOfferingMatch):
             raise TypeError("commercial offering match must be CommercialOfferingMatch")
-        if not isinstance(self.quote, CommercialQuoteTerms):
-            raise TypeError("commercial offering quote must be CommercialQuoteTerms")
+        if not isinstance(self.estimate, CommercialEstimateTerms):
+            raise TypeError("commercial offering quote must be CommercialEstimateTerms")
         if not isinstance(self.settlement, CommercialSettlementTerms):
             raise TypeError(
                 "commercial offering settlement must be CommercialSettlementTerms"
@@ -229,8 +231,8 @@ class CommercialOffering:
             )
         expected_meter = (
             "cloud_effective_cost_micro"
-            if self.quote.quantity_unit == "usd"
-            else QUOTE_METER_KEY_BY_CAPABILITY[self.match.capability]
+            if self.estimate.quantity_unit == "usd"
+            else ESTIMATE_METER_KEY_BY_CAPABILITY[self.match.capability]
         )
         if self.settlement.meter_key != expected_meter:
             raise ValueError(

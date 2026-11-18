@@ -23,8 +23,8 @@ from frisket.server.sources.runtime import (
     SourcePollItem,
     SourcePollResult,
     encode_cursor,
-    register_source_poller,
-    unregister_source_poller,
+    register_feed_checker,
+    unregister_feed_checker,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -33,7 +33,7 @@ from frisket.engine.store.sources import SourceStore
 PROJECT_ID = "project-source-poll-runtime"
 
 
-class FakePoller:
+class FakeFeedChecker:
     kind = "fake"
 
     def __init__(self) -> None:
@@ -136,12 +136,12 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
 ) -> None:
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    poller.items = [
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [
         SourcePollItem(dedupe_key="one", row={"available": True}),
         SourcePollItem(dedupe_key="two", row={"available": False}),
     ]
-    register_source_poller(poller)
+    register_feed_checker(feed_checker)
     project = make_project("Boolean")
     try:
         result = run_action_spec(
@@ -166,16 +166,16 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
         ) == [True, False]
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
     from contextlib import closing
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_feed_checker(feed_checker)
     try:
         with closing(Project.create(tmp_path / "hidden-feed.frisket")) as project:
             source = SourceStore(project).add_source("Feed", kind="fake")
@@ -194,7 +194,7 @@ def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
             )
             assert refused.status == "failed"
             assert refused.errors[0].code == "invalid_input_ref"
-            assert poller.calls == 1
+            assert feed_checker.calls == 1
             assert len(project.sheets(include_hidden=True)) == 1
             assert SourceStore(project).get_source(source)["sheet_id"] == sheet
             assert project.undo() is not None
@@ -206,19 +206,19 @@ def test_poll_hidden_destination_is_unavailable_until_undo(tmp_path):
                 project_id=PROJECT_ID,
             )
             assert resumed.status == "completed", resumed.errors
-            assert poller.calls == 2
+            assert feed_checker.calls == 2
             assert SourceStore(project).get_source(source)["sheet_id"] == sheet
     finally:
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
     from contextlib import closing
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    poller.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [SourcePollItem(dedupe_key="entry", row={"title": "Original"})]
+    register_feed_checker(feed_checker)
     try:
         with closing(Project.create(tmp_path / "renamed-feed.frisket")) as project:
             source = SourceStore(project).add_source("Feed", kind="fake")
@@ -246,7 +246,7 @@ def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
                         "UPDATE columns SET name=? WHERE id=?",
                         (f"renamed_{name}", columns[name]),
                     )
-            poller.items = [
+            feed_checker.items = [
                 SourcePollItem(
                     dedupe_key="entry", row={"title": "Revised", "new_field": "New"}
                 )
@@ -272,15 +272,17 @@ def test_poll_key_column_rename_preserves_binding_and_manual_changes(tmp_path):
             assert after["renamed_source_item_id"] == columns["source_item_id"]
             assert project.get_values(sheet, after["new_field"], [row])[row] == "New"
     finally:
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 class _RenamedPollParams(ActionParams):
     target: str
 
 
-def _renamed_poll(params: _RenamedPollParams, poller: PollCapability) -> PolledSource:
-    result = poller.poll(int(params.target.removeprefix("source:")))
+def _renamed_poll(
+    params: _RenamedPollParams, feed_checker: PollCapability
+) -> PolledSource:
+    result = feed_checker.poll(int(params.target.removeprefix("source:")))
     # A handler's mutable descriptive return cannot overwrite admitted facts.
     result.source_id = 999999
     result.item_count = 999999
@@ -293,9 +295,9 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
 ):
     from frisket.engine.executor.source_poll_action import run_typed_source_poll_action
 
-    poller = FakePoller()
-    poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
+    register_feed_checker(feed_checker)
     project = make_project("Custom")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
@@ -333,16 +335,16 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
         assert run_ref["source_id"] == source_id
         assert run_ref["materialized_rows"] == 1
         assert run_ref["cost_micro"] == 12000
-        assert receipt["provider_use"] == poller.provider_use
-        assert receipt["warnings"] == poller.warnings
+        assert receipt["provider_use"] == feed_checker.provider_use
+        assert receipt["warnings"] == feed_checker.warnings
         assert (
             run_typed_source_poll_action(project, PROJECT_ID, bound).receipt_id
             == result.receipt_id
         )
-        assert poller.calls == 1
+        assert feed_checker.calls == 1
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 @pytest.mark.parametrize("failure", ["value_error", "runtime_error", "wrong_return"])
@@ -359,9 +361,9 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
             raise RuntimeError("secret-author-detail-after-polling")
         return None
 
-    poller = FakePoller()
-    poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Unpublished"})]
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [SourcePollItem(dedupe_key="a", row={"title": "Unpublished"})]
+    register_feed_checker(feed_checker)
     project = make_project("Post poll")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
@@ -399,7 +401,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
             except Exception as error:
                 exceptions.append(f"{type(error).__name__}: {error}")
         observed = {
-            "poll_calls": poller.calls,
+            "poll_calls": feed_checker.calls,
             "receipts": _table_count(project, "receipts"),
             "source_runs": _table_count(project, "source_runs"),
             "exceptions": exceptions,
@@ -410,7 +412,7 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         assert failed.receipt_id is not None, observed
         assert replay.receipt_id == failed.receipt_id
         assert replay.status == "failed"
-        assert poller.calls == 1
+        assert feed_checker.calls == 1
         assert _table_count(project, "source_runs") == 1
         assert _table_count(project, "rows") == 0
         assert SourceStore(project).get_source(source_id)["cursor"] == cursor_before
@@ -419,15 +421,15 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         assert run["receipt_id"] == failed.receipt_id
         assert run["cursor_after"] == run["cursor_before"]
         assert run["cost_micro"] == 12000
-        assert run["warning_count"] == len(poller.warnings)
+        assert run["warning_count"] == len(feed_checker.warnings)
         run_summary = json.loads(run["summary_json"])
-        assert run_summary["artifacts"] == poller.artifacts
-        assert run_summary["summary"] == poller.summary
-        assert failed.warnings == poller.warnings
+        assert run_summary["artifacts"] == feed_checker.artifacts
+        assert run_summary["summary"] == feed_checker.summary
+        assert failed.warnings == feed_checker.warnings
         receipt = _receipt(project, failed.receipt_id)
         assert receipt["status"] == "failed"
-        assert receipt["provider_use"] == poller.provider_use
-        assert receipt["warnings"] == poller.warnings
+        assert receipt["provider_use"] == feed_checker.provider_use
+        assert receipt["warnings"] == feed_checker.warnings
         assert "author failed after polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in json.dumps(receipt)
         assert "secret-author-detail-after-polling" not in run["error"]
@@ -438,17 +440,17 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
             for item in receipt["evidence"]
             if item["ref"]["kind"] == "source_poll_artifacts"
         )
-        assert artifacts["artifacts"] == poller.artifacts
+        assert artifacts["artifacts"] == feed_checker.artifacts
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    register_feed_checker(feed_checker)
     project = make_project("Failure")
     try:
         invalid = run_action_spec(
@@ -462,11 +464,11 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
         assert invalid.status == "failed"
         assert invalid.errors[0].code == "unsupported_source_config"
         assert invalid.receipt_id is None
-        assert poller.calls == 0
+        assert feed_checker.calls == 0
         assert _table_count(project, "sources") == 0
         assert _table_count(project, "source_runs") == 0
 
-        poller.fail = RuntimeError("provider unavailable")
+        feed_checker.fail = RuntimeError("provider unavailable")
         request = _source_poll_action(source=_source(), idempotency_key="new-failed")
         failed = run_action_spec(project, request, project_id=PROJECT_ID)
         assert failed.status == "failed"
@@ -482,24 +484,24 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
         assert receipt["status"] == "failed"
         assert receipt["provider_use"] == []
         assert receipt["warnings"] == []
-        poller.fail = None
+        feed_checker.fail = None
         replay = run_action_spec(project, request, project_id=PROJECT_ID)
         assert replay.status == "failed"
         assert replay.receipt_id == failed.receipt_id
-        assert poller.calls == 1
+        assert feed_checker.calls == 1
         assert _table_count(project, "source_runs") == 1
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypatch):
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.receipts import ReceiptStore
 
-    poller = FakePoller()
-    poller.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [SourcePollItem(dedupe_key="a", row={"title": "Actual"})]
+    register_feed_checker(feed_checker)
     project = make_project("Rollback")
     try:
         source_id = SourceStore(project).add_source(name="Actual", kind="fake")
@@ -514,7 +516,7 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
         )
         assert result.status == "failed"
         assert result.errors[0].code == "project_write_failed"
-        assert poller.calls == 1
+        assert feed_checker.calls == 1
         for table in (
             "source_runs",
             "keyed_observations",
@@ -528,15 +530,15 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
         assert dict(SourceStore(project).get_source(source_id)) == before
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_project):
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.actions import resolve_map_preview
 
-    poller = FakePoller()
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    register_feed_checker(feed_checker)
     project = make_project("Refusal")
     try:
         preview = resolve_map_preview(project, _source_poll_action(source=_source()))
@@ -554,12 +556,12 @@ def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_proj
         )
         assert old.status == "failed"
         assert old.errors[0].code == "invalid_action_request"
-        assert poller.calls == 0
+        assert feed_checker.calls == 0
         assert _table_count(project, "sources") == 0
         assert _table_count(project, "receipts") == 0
     finally:
         project.close()
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
@@ -568,8 +570,8 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
     from frisket.actions.system import root_action_catalog
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    poller.items = [
+    feed_checker = FakeFeedChecker()
+    feed_checker.items = [
         SourcePollItem(
             source_item_id="item-a",
             dedupe_key="a",
@@ -589,10 +591,10 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             raw={"id": "b", "title": "Beta"},
         ),
     ]
-    register_source_poller(poller)
+    register_feed_checker(feed_checker)
     try:
         with pytest.raises(ValueError, match="already registered"):
-            register_source_poller(FakePoller())
+            register_feed_checker(FakeFeedChecker())
         assert encode_cursor({"page": 1, "done": False}) == '{"done":false,"page":1}'
 
         catalog = root_action_catalog()
@@ -638,7 +640,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             )
             assert first.status == "completed"
             assert first.receipt_id is not None
-            assert poller.calls == 1
+            assert feed_checker.calls == 1
             source_id = next(
                 output.ref["source_id"]
                 for output in first.outputs
@@ -682,7 +684,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert receipt["action_kind"] == "source.poll"
             assert receipt["status"] == "completed"
             assert receipt["warnings"] == ["fake warning"]
-            assert receipt["provider_use"] == poller.provider_use
+            assert receipt["provider_use"] == feed_checker.provider_use
             refs = [
                 item["ref"]
                 for item in [*receipt["outputs"], *receipt["evidence"]]
@@ -703,13 +705,13 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             )
             assert replay.status == "completed"
             assert replay.receipt_id == first.receipt_id
-            assert poller.calls == 1
+            assert feed_checker.calls == 1
             assert {
                 table: _table_count(project, table)
                 for table in ("source_runs", "keyed_observations", "rows", "receipts")
             } == before_replay
 
-            poller.items = [
+            feed_checker.items = [
                 SourcePollItem(
                     source_item_id="item-a",
                     dedupe_key="a",
@@ -747,7 +749,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 project_id=PROJECT_ID,
             )
             assert second.status == "completed"
-            assert poller.calls == 2
+            assert feed_checker.calls == 2
             second_run_id = next(
                 output.ref["source_run_id"]
                 for output in second.outputs
@@ -769,7 +771,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert len(_rows(project, sheet_id)) == 3
             assert _table_count(project, "keyed_observations") == 3
 
-            poller.items = [
+            feed_checker.items = [
                 SourcePollItem(
                     source_item_id="item-b",
                     dedupe_key="b",
@@ -789,14 +791,14 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 project_id=PROJECT_ID,
             )
             assert third.status == "completed"
-            assert poller.calls == 3
+            assert feed_checker.calls == 3
             assert [row["title"] for row in _rows(project, sheet_id)] == [
                 "Alpha",
                 "Beta second revision",
                 "Gamma",
             ]
 
-            poller.fail = RuntimeError("provider down")
+            feed_checker.fail = RuntimeError("provider down")
             failed = run_action_spec(
                 project,
                 _source_poll_action(
@@ -816,7 +818,7 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
         finally:
             project.close()
     finally:
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_action(
@@ -903,8 +905,8 @@ def test_source_poll_running_reservation_replays_without_provider_call(
     from frisket.contracts.action import Receipt, ReceiptIO
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    register_feed_checker(feed_checker)
     try:
         project = Project.create(tmp_path / "running-reservation.frisket", name="Run")
         try:
@@ -954,13 +956,13 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             result = run_action_spec(project, action, project_id=PROJECT_ID)
             assert result.status == "running"
             assert result.receipt_id == receipt.receipt_id
-            assert poller.calls == 0
+            assert feed_checker.calls == 0
             assert _table_count(project, "source_runs") == 0
             assert _table_count(project, "keyed_observations") == 0
         finally:
             project.close()
     finally:
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")
 
 
 def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
@@ -969,8 +971,8 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
     from frisket.contracts.action import Receipt, ReceiptIO
     from frisket.engine.executor import run_action_spec
 
-    poller = FakePoller()
-    register_source_poller(poller)
+    feed_checker = FakeFeedChecker()
+    register_feed_checker(feed_checker)
     try:
         project = Project.create(tmp_path / "stale-running.frisket", name="Run")
         try:
@@ -1023,7 +1025,7 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
             result = run_action_spec(project, action, project_id=PROJECT_ID)
             assert result.status == "running"
             assert result.receipt_id == receipt.receipt_id
-            assert poller.calls == 0
+            assert feed_checker.calls == 0
             assert _table_count(project, "receipts") == before_receipts
             assert _table_count(project, "source_runs") == 0
             assert _table_count(project, "keyed_observations") == 0
@@ -1037,4 +1039,4 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
         finally:
             project.close()
     finally:
-        unregister_source_poller("fake")
+        unregister_feed_checker("fake")

@@ -2,7 +2,7 @@
 import type { WorkspaceStores } from './createWorkspaceStores';
 import type {
   GridViewFilterApplication,
-  GridViewSavedViewApplication,
+  ViewApplication,
   GridViewSortApplication,
 } from './gridViewStore';
 import type { DocumentViewState, OpenSplitState, PromotedView, WorkViewKind } from './chromeStore';
@@ -86,14 +86,14 @@ export function clearGridSortTransition(stores: ClearStores, sheetId: string | u
 }
 
 /** A saved definition owns its scope; previous browsing filters do not leak in. */
-export function applySavedViewTransition(
+export function applyViewTransition(
   stores: FilterSortStores,
   sheetId: string,
-  grid: GridViewSavedViewApplication,
+  grid: ViewApplication,
 ): void {
   stores.detail.setChildFilter(null);
-  stores.gridView.applySavedViewGrid(grid);
-  stores.detail.clearForSavedView();
+  stores.gridView.applyViewGrid(grid);
+  stores.detail.clearForView();
   stores.selection.clearRowSelection(sheetId);
 }
 

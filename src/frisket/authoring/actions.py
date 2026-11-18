@@ -189,7 +189,7 @@ def run_status(project_id: str, project: Project, run_id: int) -> dict[str, Any]
         "cost_actual": row["cost_actual"],
         "cost_estimate": row["cost_estimate"],
         "output_columns": ResultGenerationStore(project)
-        .output_columns_for_runs([run_id])
+        .generated_columns_for_runs([run_id])
         .get(run_id, []),
     }
     # Distinct per-row failure messages grouped with counts + example row

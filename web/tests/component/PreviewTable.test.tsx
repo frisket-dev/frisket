@@ -15,7 +15,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const artifact = '/api/projects/table-project/actions/v1/preview/sample/artifacts/abc123';
 function sample(type: string, value: string): PreviewTableSampleResult {
   return { kind: 'table', previewId: 'sample', status: 'done', progress: { done: 1, total: null },
-    columns: [{ name: 'Sample', columnType: type, format: null, hidden: false, overwritesColumnId: null }],
+    columns: [{ name: 'Sample', columnType: type, format: null, hidden: false, replacesColumnId: null }],
     rows: [{ Sample: { value } }], sampled: 1, total: null, error: null, warnings: [] };
 }
 

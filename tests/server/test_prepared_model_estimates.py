@@ -121,7 +121,7 @@ def preview_project(tmp_path):
 
 
 @pytest.mark.parametrize("kind", ["find", "summary"])
-def test_prepared_preview_quotes_actual_arguments_once_and_matches_execution_gate(
+def test_prepared_preview_estimates_actual_arguments_once_and_matches_execution_gate(
     preview_project, monkeypatch, kind
 ):
     from frisket.actions import system

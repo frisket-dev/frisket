@@ -2,7 +2,7 @@ import './action-panel/RunScopeFooter.css';
 import { ConfirmDialog } from './Modal';
 import type { RunEstimate } from '../api/open';
 import { formatUsd } from '../actions/model';
-import { quotedUsd } from '../actions/quotedCost';
+import { estimatedUsd } from '../actions/estimatedCost';
 import { countLabel, formatDuration } from '../format';
 
 interface CostGateModalProps {
@@ -20,7 +20,7 @@ interface CostGateModalProps {
  *  so there is no "waiting for a price" state to lock — the price is in hand
  *  before it mounts. */
 export function CostGateModal({ estimate, message, onConfirm, onCancel }: CostGateModalProps) {
-  const quoted = quotedUsd(estimate);
+  const estimated = estimatedUsd(estimate);
 
   return (
     <ConfirmDialog title="Cost gate" onConfirm={onConfirm} onCancel={onCancel} confirmLabel="Run it"
@@ -36,7 +36,7 @@ export function CostGateModal({ estimate, message, onConfirm, onCancel }: CostGa
           </ul>
         )}
         <div className="cost-line cost-warn" data-testid="cost-gate-estimate">
-          Estimated cost: <strong>{quoted === null ? 'UNKNOWN' : formatUsd(quoted)}</strong>
+          Estimated cost: <strong>{estimated === null ? 'UNKNOWN' : formatUsd(estimated)}</strong>
           {estimate.rows > 0 && <> · {countLabel(estimate.rows, 'row')}</>}
           {estimate.audio_seconds !== undefined && (
             <> · {formatDuration(estimate.audio_seconds * 1000)} of audio</>
