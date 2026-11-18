@@ -5,11 +5,13 @@ import io
 import shutil
 
 import pytest
+from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 
 from frisket.engine.jobs import HandlerRegistry, Worker
 from frisket.engine.jobs.pdf_split import register_pdf_split_handler
 from frisket.engine.store.pdf_split_intake import pdf_split_status, read_pdf_split_plan
+from frisket.server.app import create_app
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports.service import PdfImportService
 from frisket.server.workspace import Workspace
@@ -595,8 +597,6 @@ def test_organized_publication_stages_known_page_text_before_draft_cleanup(
 def test_final_http_commit_publishes_reviewed_pages_on_the_ordinary_import_status(
     tmp_path,
 ):
-    from fastapi.testclient import TestClient
-    from frisket.server.app import create_app
     from frisket.server.services.pdf_import_commit import PdfImportCommitResult
 
     client = TestClient(create_app(tmp_path / "workspace"))
@@ -649,3 +649,63 @@ def test_final_http_commit_publishes_reviewed_pages_on_the_ordinary_import_statu
     assert progress.json()["committed_rows"] == 8
     project = workspace.get(pid)
     assert len(project.visible_row_ids(result.sheet_id)) == 8
+
+
+def test_append_to_an_ordinary_file_import_sheet_continues_its_columns(tmp_path):
+    client = TestClient(create_app(tmp_path / "workspace"))
+    pid = client.post("/api/projects", json={"name": "Uploads"}).json()["id"]
+    workspace = client.app.state.workspace
+    sessions = f"/api/projects/{pid}/import/files/sessions"
+    created = client.post(sessions, json={"sheet_name": "Documents"})
+    assert created.status_code == 200, created.text
+    session = f"{sessions}/{created.json()['import_ref']}"
+    first = _pdf(1)
+    uploaded = client.post(
+        f"{session}/files",
+        files=[
+            ("files", ("first.pdf", first, "application/pdf")),
+            ("logical_paths", (None, "first.pdf")),
+            ("batch_id", (None, "first")),
+        ],
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    assert client.post(f"{session}/seal").status_code == 200
+    worker = Worker(workspace.queue, workspace.registry)
+    while worker.run_once():
+        pass
+    sheet = client.get(session).json()["sheet_id"]
+    project = workspace.get(pid)
+    before = {column["name"]: column["id"] for column in project.columns(sheet)}
+    assert {"filename", "media"} <= set(before)
+
+    service, status = _admit(
+        workspace,
+        pid,
+        tmp_path,
+        [
+            ("first.pdf", first, "application/pdf", {}),
+            ("second.pdf", _pdf(2), "application/pdf", {}),
+        ],
+        destination={"kind": "existing", "sheet_id": sheet},
+        intake=client.app.state.pdf_import_service,
+    )
+    assert status["match"]["matched_count"] == 1
+    frozen = service.freeze_for_commit(
+        pid,
+        status["draft_id"],
+        idempotency_key="append",
+        expected_revision=status["revision"],
+    )
+    result = PdfImportCommitService(workspace, intake=service).commit_frozen(
+        pid, frozen
+    )
+    assert _run(workspace, result)["status"] == "completed"
+
+    after = {column["name"]: column["id"] for column in project.columns(sheet)}
+    assert {name: after[name] for name in before} == before
+    assert not any(name.endswith("-2") for name in after)
+    rows = project.visible_row_ids(sheet)
+    names = project.get_values(sheet, before["filename"], rows)
+    assert [names[row] for row in rows] == ["first.pdf", "second.pdf", "second.pdf"]
+    media = project.get_values(sheet, before["media"], rows)
+    assert all(media[row]["blob"] for row in rows)
