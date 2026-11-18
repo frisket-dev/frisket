@@ -28,7 +28,6 @@ from frisket.engine.executor.actions import _default_map_runner_factory
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
 from frisket.engine.executor.row_file_stage import RowFileStager
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
@@ -178,7 +177,7 @@ async def duplicate_fetch(
 
 
 @pytest.fixture
-def fetch_run(tmp_path, monkeypatch):
+def fetch_run(make_project, monkeypatch):
     calls = []
 
     def download(url, **kwargs):
@@ -186,7 +185,7 @@ def fetch_run(tmp_path, monkeypatch):
         return b"same downloaded bytes", "text/plain", "f.txt", None
 
     monkeypatch.setattr("frisket.ops.enclosures.download_url", download)
-    project = Project.create(tmp_path / "custom-fetch.frisket")
+    project = make_project("custom-fetch")
     sheet = project.add_sheet("Data")
     column = project.add_column(sheet, "url", "text")
     rows = project.add_rows(

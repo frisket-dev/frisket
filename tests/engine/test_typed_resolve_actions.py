@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from contextlib import closing
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import typed_action_for_request
@@ -22,8 +21,8 @@ PROJECT_ID = "typed-resolve-actions"
 
 
 @pytest.fixture
-def text_project(tmp_path: Path):
-    project = Project.create(tmp_path / "resolve.frisket", name="resolve")
+def text_project(make_project):
+    project = make_project("resolve")
     sheet_id = project.add_sheet("data")
     column_id = project.add_column(sheet_id, "source", type="text")
     row_ids = project.add_rows(
@@ -32,7 +31,6 @@ def text_project(tmp_path: Path):
         {"source": column_id},
     )
     yield project, sheet_id, column_id, row_ids
-    project.close()
 
 
 def _request(
@@ -88,23 +86,23 @@ def _counts(project: Project) -> dict[str, int]:
     }
 
 
-def test_empty_column_transform_creates_one_restorable_column(tmp_path):
-    with closing(Project.create(tmp_path / "empty-transform.frisket")) as project:
-        sheet = project.add_sheet("Empty")
-        project.add_column(sheet, "source")
-        result = run_action_spec(
-            project,
-            _request("resolve.substitute", sheet, {"mapping": {"a": "b"}}, key="empty"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        column = result.outputs[0].column_id
-        assert project.get_column(column)["active"] == 1
-        assert project.undo() == result.op_ids[0]
-        assert project.get_column(column)["active"] == 0
-        assert project.redo() == result.op_ids[0]
-        assert project.get_column(column)["active"] == 1
-        assert project.get_values(sheet, column) == {}
+def test_empty_column_transform_creates_one_restorable_column(make_project):
+    project = make_project("empty-transform")
+    sheet = project.add_sheet("Empty")
+    project.add_column(sheet, "source")
+    result = run_action_spec(
+        project,
+        _request("resolve.substitute", sheet, {"mapping": {"a": "b"}}, key="empty"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    column = result.outputs[0].column_id
+    assert project.get_column(column)["active"] == 1
+    assert project.undo() == result.op_ids[0]
+    assert project.get_column(column)["active"] == 0
+    assert project.redo() == result.op_ids[0]
+    assert project.get_column(column)["active"] == 1
+    assert project.get_values(sheet, column) == {}
 
 
 @pytest.mark.parametrize(
@@ -793,102 +791,100 @@ def test_fill_does_not_wait_for_or_fill_failed_and_pending_sources(make_project)
     )
 
 
-def test_column_transform_large_scope_respects_sqlite_bind_limit(tmp_path):
-    with closing(Project.create(tmp_path / "large-transform.frisket")) as project:
-        sheet = project.add_sheet("Rows")
-        source = project.add_column(sheet, "source")
-        project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32766)
-        rows = project.add_rows(sheet, [{"source": "old"}] * 33_000, {"source": source})
-        per_row_family_reads = 0
+def test_column_transform_large_scope_respects_sqlite_bind_limit(make_project):
+    project = make_project("large-transform")
+    sheet = project.add_sheet("Rows")
+    source = project.add_column(sheet, "source")
+    project.db.setlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER, 32766)
+    rows = project.add_rows(sheet, [{"source": "old"}] * 33_000, {"source": source})
+    per_row_family_reads = 0
 
-        def track(sql):
-            nonlocal per_row_family_reads
-            if sql.startswith("SELECT column_id FROM results WHERE run_id="):
-                per_row_family_reads += 1
+    def track(sql):
+        nonlocal per_row_family_reads
+        if sql.startswith("SELECT column_id FROM results WHERE run_id="):
+            per_row_family_reads += 1
 
-        project.db.set_trace_callback(track)
-        try:
-            result = run_action_spec(
-                project,
-                _request(
-                    "resolve.substitute",
-                    sheet,
-                    {"mapping": {"old": "new"}},
-                    key="large",
-                ),
-                project_id=PROJECT_ID,
-            )
-        finally:
-            project.db.set_trace_callback(None)
-        assert per_row_family_reads == 0
-        assert result.status == "completed", result.errors
-        output = result.outputs[0].column_id
-        assert project.get_values(sheet, output, row_ids=[rows[0], rows[-1]]) == {
-            rows[0]: "new",
-            rows[-1]: "new",
-        }
-        assert project.db.execute(
-            "SELECT completed_rows,failed_rows FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()[:] == (33_000, 0)
-
-
-def test_whole_column_transform_refuses_row_retry_and_backfill(tmp_path):
-    from frisket.engine.runner.review import review_runs_page
-    from frisket.server.run_status import public_run_progress
-
-    with closing(Project.create(tmp_path / "transform-retry.frisket")) as project:
-        sheet = project.add_sheet("Rows")
-        source = project.add_column(sheet, "source", type="number")
-        rows = project.add_rows(
-            sheet, [{"source": 2}, {"source": "n/a"}], {"source": source}
-        )
+    project.db.set_trace_callback(track)
+    try:
         result = run_action_spec(
             project,
             _request(
-                "resolve.fill_missing",
+                "resolve.substitute",
                 sheet,
-                {"method": "mean"},
-                key="fill",
+                {"mapping": {"old": "new"}},
+                key="large",
             ),
             project_id=PROJECT_ID,
         )
-        assert result.status == "completed", result.errors
-        run = project.db.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        assert run["completed_rows"] == 1
-        assert run["failed_rows"] == 0
-        public = public_run_progress(run, "completed")
-        assert (
-            public["attempted"],
-            public["succeeded"],
-            public["failed"],
-            public["skipped"],
-        ) == (1, 1, 0, 1)
-        assert (
-            review_runs_page(project, run_id=run["id"])["runs"][0]["retry_supported"]
-            is False
-        )
-        before = _counts(project)
-        for action, params in (
-            ("run.retry", {"source_run_id": run["id"]}),
-            ("run.backfill", {"column": "cleaned"}),
-        ):
-            refused = run_action_spec(
-                project,
-                {
-                    "action_id": action,
-                    "scope": {
-                        "kind": "sheet_rows",
-                        "sheet_id": sheet,
-                        "row_ids": [rows[1]],
-                    },
-                    "params": params,
-                    "idempotency_key": action,
+    finally:
+        project.db.set_trace_callback(None)
+    assert per_row_family_reads == 0
+    assert result.status == "completed", result.errors
+    output = result.outputs[0].column_id
+    assert project.get_values(sheet, output, row_ids=[rows[0], rows[-1]]) == {
+        rows[0]: "new",
+        rows[-1]: "new",
+    }
+    assert project.db.execute(
+        "SELECT completed_rows,failed_rows FROM runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()[:] == (33_000, 0)
+
+
+def test_whole_column_transform_refuses_row_retry_and_backfill(make_project):
+    from frisket.engine.runner.review import review_runs_page
+    from frisket.server.run_status import public_run_progress
+
+    project = make_project("transform-retry")
+    sheet = project.add_sheet("Rows")
+    source = project.add_column(sheet, "source", type="number")
+    rows = project.add_rows(
+        sheet, [{"source": 2}, {"source": "n/a"}], {"source": source}
+    )
+    result = run_action_spec(
+        project,
+        _request(
+            "resolve.fill_missing",
+            sheet,
+            {"method": "mean"},
+            key="fill",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    run = project.db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+    assert run["completed_rows"] == 1
+    assert run["failed_rows"] == 0
+    public = public_run_progress(run, "completed")
+    assert (
+        public["attempted"],
+        public["succeeded"],
+        public["failed"],
+        public["skipped"],
+    ) == (1, 1, 0, 1)
+    assert (
+        review_runs_page(project, run_id=run["id"])["runs"][0]["retry_supported"]
+        is False
+    )
+    before = _counts(project)
+    for action, params in (
+        ("run.retry", {"source_run_id": run["id"]}),
+        ("run.backfill", {"column": "cleaned"}),
+    ):
+        refused = run_action_spec(
+            project,
+            {
+                "action_id": action,
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": sheet,
+                    "row_ids": [rows[1]],
                 },
-                project_id=PROJECT_ID,
-            )
-            assert refused.status == "failed"
-            assert refused.errors[0].code == "run_required"
-            assert "whole column" in refused.errors[0].message
-        assert _counts(project) == before
+                "params": params,
+                "idempotency_key": action,
+            },
+            project_id=PROJECT_ID,
+        )
+        assert refused.status == "failed"
+        assert refused.errors[0].code == "run_required"
+        assert "whole column" in refused.errors[0].message
+    assert _counts(project) == before

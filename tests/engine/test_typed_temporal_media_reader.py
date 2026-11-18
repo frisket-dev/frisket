@@ -20,7 +20,6 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor import table_action
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 from frisket.engine.store.media_splice import (
@@ -36,8 +35,8 @@ class CustomParams(ActionParams):
 
 
 @pytest.fixture
-def media(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "media.frisket")
+def media(make_project, monkeypatch):
+    project = make_project("media")
     sheet = project.add_sheet("Media")
     column = project.add_column(sheet, "recording", "video")
     blob = project.add_blob(

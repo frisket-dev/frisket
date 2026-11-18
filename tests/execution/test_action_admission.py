@@ -60,62 +60,60 @@ def test_direct_source_poll_checks_network_before_creating_source_or_dispatching
             unregister_feed_checker("tiktok_profile")
 
 
-def test_network_off_still_allows_local_action(tmp_path):
-    with closing(Project.create(tmp_path / "local.frisket")) as project:
-        project.set_network_policy(mode="off")
-        assert (
-            action_admission_error(project, ACTION_REGISTRY.get("resolve.fill_missing"))
-            is None
-        )
+def test_network_off_still_allows_local_action(make_project):
+    project = make_project("local")
+    project.set_network_policy(mode="off")
+    assert (
+        action_admission_error(project, ACTION_REGISTRY.get("resolve.fill_missing"))
+        is None
+    )
 
 
-def test_code_gate_uses_resolved_target_on_retry_and_preview(tmp_path, monkeypatch):
+def test_code_gate_uses_resolved_target_on_retry_and_preview(make_project, monkeypatch):
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "0")
-    with closing(Project.create(tmp_path / "policy.frisket")) as project:
-        sheet = project.add_sheet("source")
-        body = project.add_column(sheet, "body")
-        project.add_rows(sheet, [{"body": "content"}], {"body": body})
-        action = ACTION_REGISTRY.get("research.answer")
-        # Use the registered example to retain authoring/validation parity.
-        sample = action.catalog_entry()["examples"][0]
-        sample["scope"] = {"kind": "sheet_rows", "sheet_id": sheet}
-        sample["params"]["source"] = ["body"]
-        error = resolve_map_preview(project, sample)
-        assert error.code == "code_action_disabled"
-        error = _guard_backfill_run_spec(
-            {"action_kind": "research.answer"}, project=project
-        )
-        assert error.code == "code_action_disabled"
+    project = make_project("policy")
+    sheet = project.add_sheet("source")
+    body = project.add_column(sheet, "body")
+    project.add_rows(sheet, [{"body": "content"}], {"body": body})
+    action = ACTION_REGISTRY.get("research.answer")
+    # Use the registered example to retain authoring/validation parity.
+    sample = action.catalog_entry()["examples"][0]
+    sample["scope"] = {"kind": "sheet_rows", "sheet_id": sheet}
+    sample["params"]["source"] = ["body"]
+    error = resolve_map_preview(project, sample)
+    assert error.code == "code_action_disabled"
+    error = _guard_backfill_run_spec(
+        {"action_kind": "research.answer"}, project=project
+    )
+    assert error.code == "code_action_disabled"
 
 
 def test_missing_declared_credentials_refused_without_presentation_schema(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    with closing(Project.create(tmp_path / "keys.frisket")) as project:
-        monkeypatch.setattr(
-            "frisket.credentials.missing_required_credentials", lambda p, keys: keys
-        )
-        action = ACTION_REGISTRY.get("enrich.census_demographics")
-        monkeypatch.setattr(
-            type(action),
-            "catalog_entry",
-            lambda self: pytest.fail(
-                "admission must not generate presentation schemas"
-            ),
-        )
-        error = action_admission_error(project, action)
-        assert error.code == "missing_action_credential"
-        assert error.details["missing_credentials"] == ["CENSUS_API_KEY"]
+    project = make_project("keys")
+    monkeypatch.setattr(
+        "frisket.credentials.missing_required_credentials", lambda p, keys: keys
+    )
+    action = ACTION_REGISTRY.get("enrich.census_demographics")
+    monkeypatch.setattr(
+        type(action),
+        "catalog_entry",
+        lambda self: pytest.fail("admission must not generate presentation schemas"),
+    )
+    error = action_admission_error(project, action)
+    assert error.code == "missing_action_credential"
+    assert error.details["missing_credentials"] == ["CENSUS_API_KEY"]
 
 
-def test_retry_rechecks_actual_inner_action_current_edition(tmp_path, monkeypatch):
+def test_retry_rechecks_actual_inner_action_current_edition(make_project, monkeypatch):
     monkeypatch.setenv("FRISKET_ALLOW_CODE_RECIPES", "1")
-    with closing(Project.create(tmp_path / "edition.frisket")) as project:
-        error = _guard_backfill_run_spec(
-            {"action_kind": "map.mcp_extract"}, project=project, edition="cloud"
-        )
-        assert error.code == "action_unavailable_in_edition"
-        assert error.action_kind == "run.backfill"
+    project = make_project("edition")
+    error = _guard_backfill_run_spec(
+        {"action_kind": "map.mcp_extract"}, project=project, edition="cloud"
+    )
+    assert error.code == "action_unavailable_in_edition"
+    assert error.action_kind == "run.backfill"
 
 
 def test_resolved_plugin_capabilities_do_not_depend_on_builtin_id(monkeypatch):
@@ -150,7 +148,7 @@ def _declare_external(monkeypatch, action_id):
 
 @pytest.mark.parametrize("family", ["ocr", "transcribe"])
 def test_scratch_preview_declared_gate_precedes_media_probe(
-    tmp_path, monkeypatch, family
+    make_project, monkeypatch, family
 ):
     from frisket.server.services.scratch_ocr import paid_ocr_scratch_plan
     from frisket.server.services.scratch_transcribe import paid_transcribe_scratch_plan
@@ -158,19 +156,17 @@ def test_scratch_preview_declared_gate_precedes_media_probe(
 
     action_id = "media.ocr" if family == "ocr" else "media.transcribe"
     _declare_external(monkeypatch, action_id)
-    with closing(Project.create(tmp_path / "scratch.frisket")) as project:
-        project.set_network_policy(mode="off")
-        prepare = (
-            paid_ocr_scratch_plan if family == "ocr" else paid_transcribe_scratch_plan
+    project = make_project("scratch")
+    project.set_network_policy(mode="off")
+    prepare = paid_ocr_scratch_plan if family == "ocr" else paid_transcribe_scratch_plan
+    with pytest.raises(ComparePreviewError) as caught:
+        prepare(
+            project,
+            media_bytes=b"not-media",
+            payload={"engine": "local"},
+            composition=None,
         )
-        with pytest.raises(ComparePreviewError) as caught:
-            prepare(
-                project,
-                media_bytes=b"not-media",
-                payload={"engine": "local"},
-                composition=None,
-            )
-        assert caught.value.code == "network_disabled"
+    assert caught.value.code == "network_disabled"
 
 
 def test_refresh_checks_resolved_derive_action_before_read_or_publish(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -104,8 +103,8 @@ REGISTRY = ActionRegistry(
 
 
 @pytest.fixture
-def project(tmp_path: Path):
-    value = Project.create(tmp_path / "typed-lifecycle.frisket")
+def project(make_project):
+    value = make_project("typed-lifecycle")
     sheet_id = value.add_sheet("data")
     source_id = value.add_column(sheet_id, "source")
     row_ids = value.add_rows(
@@ -114,7 +113,6 @@ def project(tmp_path: Path):
         {"source": source_id},
     )
     yield value, sheet_id, source_id, row_ids
-    value.close()
 
 
 def _request(

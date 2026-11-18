@@ -33,7 +33,6 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner import MapRunner
 from frisket.engine.executor.visual_cuts_read import AdmittedVisualCutsReader
-from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import (
     TimelineError,
     ensure_media_timeline,
@@ -66,8 +65,8 @@ async def alternate_visual_handler(
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "cuts.frisket")
+def source(make_project):
+    project = make_project("cuts")
     sheet = project.add_sheet("Media")
     columns = {
         name: project.add_column(sheet, name, "video") for name in ("video", "copy")

@@ -3,7 +3,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
-from contextlib import closing
 
 import pytest
 from pydantic import BaseModel
@@ -25,7 +24,6 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.executor.ocr_citations import write_ocr_citations
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import resolve_citation_viewer
 from frisket.engine.store.media_blobs import MediaBlobStore, media_cell
 from frisket.engine.store.ocr_word_stream import (
@@ -75,172 +73,168 @@ REGISTRY = ActionRegistry(
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "p.frisket")) as project:
-        sheet = project.add_sheet("documents")
-        source_id = project.add_column(sheet, "document", type="file")
-        source_digest = project.add_blob(
-            b"PDF input", filename="document.pdf", mime="application/pdf"
-        )
-        value = media_cell(
-            source_digest, mime="application/pdf", filename="document.pdf"
-        )
-        [row_id] = project.add_rows(
-            sheet, [{"document": value}], {"document": source_id}
-        )
-        image = {
-            "blob_hash": project.blob_store.put(b"capped PNG"),
-            "mime": "image/png",
-            "filename": "page.png",
-            "size": 10,
-            "width": 600,
-            "height": 600,
-            "source_width": 1200,
-            "source_height": 1200,
-            "downscaled": True,
-            "source_blob": False,
-        }
-        read = {
-            "kind": "ocr_read",
-            "call_id": "ocr-call",
-            "engine": "rapidocr",
-            "ocr_token_granularity": "line",
-            "options": {"dpi": 200},
-            "text": "Hello world",
-            "source": {
-                "sheet_id": sheet,
-                "row_id": row_id,
-                "column_id": source_id,
-                "column_type": "file",
-                "source_column": "document",
-                "blob_hash": source_digest,
-                "filename": "document.pdf",
-                "mime": "application/pdf",
-                "size": 9,
-            },
-            "blocks": [
-                {
-                    "page": 1,
-                    "engine": "rapidocr",
-                    "blocks": [
-                        {
-                            "text": "Hello",
-                            "bbox": [[120, 240], [600, 240], [600, 300], [120, 300]],
-                            "score": 0.9,
-                        },
-                        {"text": "world", "bbox": None},
-                    ],
-                }
-            ],
-            "page_images": {"1": image},
-        }
-        original = _TypedMapRowsProgram.__init__
-        writes = []
+def setup(make_project, monkeypatch):
+    project = make_project("p")
+    sheet = project.add_sheet("documents")
+    source_id = project.add_column(sheet, "document", type="file")
+    source_digest = project.add_blob(
+        b"PDF input", filename="document.pdf", mime="application/pdf"
+    )
+    value = media_cell(source_digest, mime="application/pdf", filename="document.pdf")
+    [row_id] = project.add_rows(sheet, [{"document": value}], {"document": source_id})
+    image = {
+        "blob_hash": project.blob_store.put(b"capped PNG"),
+        "mime": "image/png",
+        "filename": "page.png",
+        "size": 10,
+        "width": 600,
+        "height": 600,
+        "source_width": 1200,
+        "source_height": 1200,
+        "downscaled": True,
+        "source_blob": False,
+    }
+    read = {
+        "kind": "ocr_read",
+        "call_id": "ocr-call",
+        "engine": "rapidocr",
+        "ocr_token_granularity": "line",
+        "options": {"dpi": 200},
+        "text": "Hello world",
+        "source": {
+            "sheet_id": sheet,
+            "row_id": row_id,
+            "column_id": source_id,
+            "column_type": "file",
+            "source_column": "document",
+            "blob_hash": source_digest,
+            "filename": "document.pdf",
+            "mime": "application/pdf",
+            "size": 9,
+        },
+        "blocks": [
+            {
+                "page": 1,
+                "engine": "rapidocr",
+                "blocks": [
+                    {
+                        "text": "Hello",
+                        "bbox": [[120, 240], [600, 240], [600, 300], [120, 300]],
+                        "score": 0.9,
+                    },
+                    {"text": "world", "bbox": None},
+                ],
+            }
+        ],
+        "page_images": {"1": image},
+    }
+    original = _TypedMapRowsProgram.__init__
+    writes = []
 
-        def install_writer(self, *args, **kwargs):
-            original(self, *args, **kwargs)
+    def install_writer(self, *args, **kwargs):
+        original(self, *args, **kwargs)
 
-            def write(
-                current_project, spec, *, batch, run_id, output_columns, **writer_kwargs
-            ):
-                writes.append(run_id)
-                published_read = copy.deepcopy(read)
-                prepared_pages = published_read.pop("prepared_pages", None)
-                if prepared_pages is not None:
-                    from frisket.engine.store.evidence import record_source_artifact
-                    from frisket.engine.store.prepared_content import (
-                        PreparedContentStore,
-                        PreparedPageDraft,
-                    )
-
-                    artifact = record_source_artifact(
-                        current_project,
-                        artifact_kind="file",
-                        media_type=published_read["source"]["mime"],
-                        blob_hash=published_read["source"]["blob_hash"],
-                        filename=published_read["source"]["filename"],
-                        page_count=len(prepared_pages),
-                        source_sheet_id=published_read["source"]["sheet_id"],
-                        source_row_id=published_read["source"]["row_id"],
-                        source_column_id=published_read["source"]["column_id"],
-                    )
-                    ref = PreparedContentStore(current_project).stage_reference(
-                        source_artifact_id=artifact["id"],
-                        producing_op_id=writer_kwargs["op_id"],
-                        pages=[
-                            PreparedPageDraft(
-                                page_number=index,
-                                text=page["text"],
-                                positions=page["positions"],
-                            )
-                            for index, page in enumerate(prepared_pages, 1)
-                        ],
-                    )
-                    read["last_prepared_ref_id"] = ref.ref_id
-                    published_read = {
-                        key: published_read[key]
-                        for key in (
-                            "kind",
-                            "call_id",
-                            "engine",
-                            "ocr_token_granularity",
-                            "options",
-                            "source",
-                            "page_images",
-                        )
-                    }
-                    published_read["prepared_ref_id"] = ref.ref_id
-                batch[0]["row_file_calls"] = [published_read]
-                writer = current_project.db.execute(
-                    "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
-                ).fetchone()[0]
-                columns = {
-                    output_columns[self._output_names[field.key]]
-                    for field in self._resolved_output_fields
-                    if field.annotation is OcrText
-                }
-                write_ocr_citations(
-                    current_project,
-                    spec,
-                    batch=batch,
-                    run_id=run_id,
-                    output_columns=output_columns,
-                    ocr_columns=columns,
-                    writer_attempt_id=read.get("writer_override", writer),
-                    **writer_kwargs,
+        def write(
+            current_project, spec, *, batch, run_id, output_columns, **writer_kwargs
+        ):
+            writes.append(run_id)
+            published_read = copy.deepcopy(read)
+            prepared_pages = published_read.pop("prepared_pages", None)
+            if prepared_pages is not None:
+                from frisket.engine.store.evidence import record_source_artifact
+                from frisket.engine.store.prepared_content import (
+                    PreparedContentStore,
+                    PreparedPageDraft,
                 )
 
-            self.write_result_evidence = write
-
-        monkeypatch.setattr(_TypedMapRowsProgram, "__init__", install_writer)
-
-        def run(key="first", replace=False, emitted="Hello world"):
-            request = ActionRequest(
-                action_id="custom.read",
-                scope=SheetRows(sheet_id=sheet),
-                params={"source": "document", "emitted": emitted},
-                output_names={"text": "recognized"},
-                idempotency_key=key,
-                replace_existing=replace,
+                artifact = record_source_artifact(
+                    current_project,
+                    artifact_kind="file",
+                    media_type=published_read["source"]["mime"],
+                    blob_hash=published_read["source"]["blob_hash"],
+                    filename=published_read["source"]["filename"],
+                    page_count=len(prepared_pages),
+                    source_sheet_id=published_read["source"]["sheet_id"],
+                    source_row_id=published_read["source"]["row_id"],
+                    source_column_id=published_read["source"]["column_id"],
+                )
+                ref = PreparedContentStore(current_project).stage_reference(
+                    source_artifact_id=artifact["id"],
+                    producing_op_id=writer_kwargs["op_id"],
+                    pages=[
+                        PreparedPageDraft(
+                            page_number=index,
+                            text=page["text"],
+                            positions=page["positions"],
+                        )
+                        for index, page in enumerate(prepared_pages, 1)
+                    ],
+                )
+                read["last_prepared_ref_id"] = ref.ref_id
+                published_read = {
+                    key: published_read[key]
+                    for key in (
+                        "kind",
+                        "call_id",
+                        "engine",
+                        "ocr_token_granularity",
+                        "options",
+                        "source",
+                        "page_images",
+                    )
+                }
+                published_read["prepared_ref_id"] = ref.ref_id
+            batch[0]["row_file_calls"] = [published_read]
+            writer = current_project.db.execute(
+                "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+            columns = {
+                output_columns[self._output_names[field.key]]
+                for field in self._resolved_output_fields
+                if field.annotation is OcrText
+            }
+            write_ocr_citations(
+                current_project,
+                spec,
+                batch=batch,
+                run_id=run_id,
+                output_columns=output_columns,
+                ocr_columns=columns,
+                writer_attempt_id=read.get("writer_override", writer),
+                **writer_kwargs,
             )
-            return run_typed_map_rows_action(
-                project,
-                "p",
-                BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
-                None,
-                lambda p, router: MapRunner(
-                    p,
-                    router
-                    or ModelRouter(
-                        model_call_policy=LOCAL_PURCHASE_POLICY,
-                        cache=None,
-                        cache_mode="off",
-                    ),
-                    authority=UnroutedOnlyAuthority(p),
+
+        self.write_result_evidence = write
+
+    monkeypatch.setattr(_TypedMapRowsProgram, "__init__", install_writer)
+
+    def run(key="first", replace=False, emitted="Hello world"):
+        request = ActionRequest(
+            action_id="custom.read",
+            scope=SheetRows(sheet_id=sheet),
+            params={"source": "document", "emitted": emitted},
+            output_names={"text": "recognized"},
+            idempotency_key=key,
+            replace_existing=replace,
+        )
+        return run_typed_map_rows_action(
+            project,
+            "p",
+            BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
+            None,
+            lambda p, router: MapRunner(
+                p,
+                router
+                or ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
                 ),
-            )
+                authority=UnroutedOnlyAuthority(p),
+            ),
+        )
 
-        yield project, sheet, row_id, read, writes, run
+    yield project, sheet, row_id, read, writes, run
 
 
 def test_exact_text_only_custom_output_publishes_original_geometry_and_page_image(

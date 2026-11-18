@@ -1,5 +1,4 @@
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from contextlib import closing
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any
@@ -31,13 +30,12 @@ from tests.engine.test_pdf_table_extraction_executor import (
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.ops.integrations import natural_pdf
 
 
-def test_typed_pdf_read_publishes_host_schema_and_replays(tmp_path, monkeypatch):
+def test_typed_pdf_read_publishes_host_schema_and_replays(make_project, monkeypatch):
     calls = []
 
     def extract(request):
@@ -61,56 +59,48 @@ def test_typed_pdf_read_publishes_host_schema_and_replays(tmp_path, monkeypatch)
             source_schema["$ref"].split("/")[-1]
         ]
     assert source_schema["type"] == "string"
-    with closing(Project.create(tmp_path / "pdf.frisket")) as project:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "pdf", "file")
-        digest = project.add_blob(
-            b"%PDF-1.4\nfixture\n",
-            filename="document.pdf",
-            mime="application/pdf",
-            metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
-        )
-        rows = project.add_rows(
-            sheet,
-            [
-                {
-                    "pdf": media_cell(
-                        digest, mime="application/pdf", filename="document.pdf"
-                    )
-                }
-            ],
-            {"pdf": column},
-        )
-        request = {
-            "action_id": "media.extract_pdf_tables",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "pdf"},
-            "idempotency_key": "pdf",
-        }
-        result = run_action_spec(project, request, project_id="p")
-        assert result.status == "completed", result.model_dump_json()
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        named = next(
-            item.ref
-            for item in receipt.outputs
-            if item.ref.get("kind") == "named_result"
-        )
-        assert named["row_ids"] == rows
-        assert {"vendor", "amount"} <= named["item_schema"]["properties"].keys()
-        assert len(calls) == 1
-        read = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "pdf_table_read"
-        )
-        assert read["columns"] == ["vendor", "amount"]
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.receipt_id == result.receipt_id
-        assert len(calls) == 1
+    project = make_project("pdf")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "pdf", "file")
+    digest = project.add_blob(
+        b"%PDF-1.4\nfixture\n",
+        filename="document.pdf",
+        mime="application/pdf",
+        metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
+    )
+    rows = project.add_rows(
+        sheet,
+        [{"pdf": media_cell(digest, mime="application/pdf", filename="document.pdf")}],
+        {"pdf": column},
+    )
+    request = {
+        "action_id": "media.extract_pdf_tables",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "pdf"},
+        "idempotency_key": "pdf",
+    }
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "completed", result.model_dump_json()
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    named = next(
+        item.ref for item in receipt.outputs if item.ref.get("kind") == "named_result"
+    )
+    assert named["row_ids"] == rows
+    assert {"vendor", "amount"} <= named["item_schema"]["properties"].keys()
+    assert len(calls) == 1
+    read = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "pdf_table_read"
+    )
+    assert read["columns"] == ["vendor", "amount"]
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.receipt_id == result.receipt_id
+    assert len(calls) == 1
 
 
 def test_page_scoped_pdf_read_extracts_one_page_and_reports_physical_page(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from pypdf import PdfReader, PdfWriter
 
@@ -157,88 +147,88 @@ def test_page_scoped_pdf_read_extracts_one_page_and_reports_physical_page(
 
     monkeypatch.setattr(natural_pdf, "extract_pdf_tables", extract)
     monkeypatch.setattr(pdf_tables_read, "enforce_pdf_page_limit", capture_limit)
-    with closing(Project.create(tmp_path / "selected-page.frisket")) as project:
-        sheet = project.add_sheet("Pages")
-        column = project.add_column(sheet, "pdf", "file")
-        digest = project.add_blob(
-            source.getvalue(),
-            filename="two-pages.pdf",
-            mime="application/pdf",
-            metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
-        )
-        cell = media_cell(digest, mime="application/pdf", filename="two-pages.pdf")
-        cell["page"] = 2
-        [row_id] = project.add_rows(sheet, [{"pdf": cell}], {"pdf": column})
+    project = make_project("selected-page")
+    sheet = project.add_sheet("Pages")
+    column = project.add_column(sheet, "pdf", "file")
+    digest = project.add_blob(
+        source.getvalue(),
+        filename="two-pages.pdf",
+        mime="application/pdf",
+        metadata=owned_media_metadata_document(probe={"kind": "pdf", "pages": 2}),
+    )
+    cell = media_cell(digest, mime="application/pdf", filename="two-pages.pdf")
+    cell["page"] = 2
+    [row_id] = project.add_rows(sheet, [{"pdf": cell}], {"pdf": column})
 
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-        )
-        composition = replace(
-            open_execution_composition(
-                project,
-                router,
-                ExecutionCompositionContext.direct(),
-                include_managed_local_models=False,
-            ),
-            limits=ExecutionLimits(max_pdf_pages=1),
-        )
-        result = run_action_spec(
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+    )
+    composition = replace(
+        open_execution_composition(
             project,
-            _extract_pdf_tables_action(
-                sheet,
-                row_ids=[row_id],
-                key="page-scoped-pdf-table",
-            ),
-            project_id="p",
-            router=router,
-            deps=ExecutorDeps(execution_composition=composition),
-        )
+            router,
+            ExecutionCompositionContext.direct(),
+            include_managed_local_models=False,
+        ),
+        limits=ExecutionLimits(max_pdf_pages=1),
+    )
+    result = run_action_spec(
+        project,
+        _extract_pdf_tables_action(
+            sheet,
+            row_ids=[row_id],
+            key="page-scoped-pdf-table",
+        ),
+        project_id="p",
+        router=router,
+        deps=ExecutorDeps(execution_composition=composition),
+    )
 
-        assert result.status == "completed", result.errors
-        assert observed_widths == [222.0]
-        assert measured_pages == [(1, 1)]
-        output = next(
-            item.ref
-            for item in result.outputs
-            if item.ref.get("kind") == "map_result_column"
-        )
-        [record] = project.get_values(
-            sheet, int(output["column_id"]), row_ids=[row_id]
-        )[row_id]
-        assert (record["page_start"], record["page_end"]) == (2, 2)
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        read = next(
-            item.ref
-            for item in receipt.evidence
-            if item.ref.get("kind") == "pdf_table_read"
-        )
-        assert read["input"]["page"] == 2
+    assert result.status == "completed", result.errors
+    assert observed_widths == [222.0]
+    assert measured_pages == [(1, 1)]
+    output = next(
+        item.ref
+        for item in result.outputs
+        if item.ref.get("kind") == "map_result_column"
+    )
+    [record] = project.get_values(sheet, int(output["column_id"]), row_ids=[row_id])[
+        row_id
+    ]
+    assert (record["page_start"], record["page_end"]) == (2, 2)
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    read = next(
+        item.ref
+        for item in receipt.evidence
+        if item.ref.get("kind") == "pdf_table_read"
+    )
+    assert read["input"]["page"] == 2
 
-        admitted = project.get_values(sheet, column, row_ids=[row_id])[row_id]
-        changed = deepcopy(admitted)
-        changed["page"] = 1
-        stale_row = Row({"pdf": changed})
-        reader = AdmittedPdfTablesReader(project)
-        bound = reader.bind_row(
-            stale_row,
-            sheet_id=sheet,
-            row_id=row_id,
-            sources={"pdf": {"column_id": column, "value": admitted}},
-        )
-        with pytest.raises(RowError) as stale:
-            asyncio.run(bound.read(stale_row, ColumnRef("pdf")))
-        assert stale.value.code == "stale_input"
-        asyncio.run(reader.aclose())
-        assert observed_widths == [222.0]
+    admitted = project.get_values(sheet, column, row_ids=[row_id])[row_id]
+    changed = deepcopy(admitted)
+    changed["page"] = 1
+    stale_row = Row({"pdf": changed})
+    reader = AdmittedPdfTablesReader(project)
+    bound = reader.bind_row(
+        stale_row,
+        sheet_id=sheet,
+        row_id=row_id,
+        sources={"pdf": {"column_id": column, "value": admitted}},
+    )
+    with pytest.raises(RowError) as stale:
+        asyncio.run(bound.read(stale_row, ColumnRef("pdf")))
+    assert stale.value.code == "stale_input"
+    asyncio.run(reader.aclose())
+    assert observed_widths == [222.0]
 
 
 @pytest.fixture
-def pdf_source(tmp_path, monkeypatch):
+def pdf_source(make_project, monkeypatch):
     calls = []
     _install_matching_adapter(monkeypatch, calls)
-    with closing(Project.create(tmp_path / "source.frisket")) as project:
-        sheet, rows, column, hashes = _seed_pdf_rows(project)
-        yield project, sheet, rows, column, hashes, calls
+    project = make_project("source")
+    sheet, rows, column, hashes = _seed_pdf_rows(project)
+    yield project, sheet, rows, column, hashes, calls
 
 
 class AlternateParams(ActionParams):

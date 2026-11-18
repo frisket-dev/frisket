@@ -10,7 +10,6 @@ import pytest
 import test_execution_lifecycle_recovery as lifecycle_recovery
 
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_map_row_effect_checkpoint import (
     _ReturnedProviderCall,
@@ -26,115 +25,113 @@ work = lifecycle_recovery.work
 
 
 def test_undo_during_provider_call_retains_usage_and_response_without_publication(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    with closing(Project.create(tmp_path / "undo-return.frisket")) as project:
-        sheet = project.add_sheet("data")
-        source = project.add_column(sheet, "text")
-        rows = project.add_rows(
-            sheet, [{"text": "one"}, {"text": "two"}], {"text": source}
-        )
-        spec, program = _bound(_spec(sheet))
-        provider = _ReturnedProviderCall()
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"anthropic": "test"},
-            use_env_keys=False,
-            cache_mode="off",
-        )
-        router._adapters["anthropic"] = provider
-        runner = _runner(project, router)
-        confirmed = _confirmed_spec(runner, spec, program)
-        run_id, token = _prepare_claimed_run(runner, confirmed, program)
-        complete = provider.complete
+    project = make_project("undo-return")
+    sheet = project.add_sheet("data")
+    source = project.add_column(sheet, "text")
+    rows = project.add_rows(sheet, [{"text": "one"}, {"text": "two"}], {"text": source})
+    spec, program = _bound(_spec(sheet))
+    provider = _ReturnedProviderCall()
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"anthropic": "test"},
+        use_env_keys=False,
+        cache_mode="off",
+    )
+    router._adapters["anthropic"] = provider
+    runner = _runner(project, router)
+    confirmed = _confirmed_spec(runner, spec, program)
+    run_id, token = _prepare_claimed_run(runner, confirmed, program)
+    complete = provider.complete
 
-        async def undo_during_call(request, client):
-            response = await complete(request, client)
-            assert project.undo() is not None
-            from frisket.engine.store.run_lifecycle import require_terminal_writer
-            from frisket.execution.attempt import StaleAttemptWriter
+    async def undo_during_call(request, client):
+        response = await complete(request, client)
+        assert project.undo() is not None
+        from frisket.engine.store.run_lifecycle import require_terminal_writer
+        from frisket.execution.attempt import StaleAttemptWriter
 
-            writer = runner.run_store.get_run(run_id)["current_attempt_id"]
-            for attempt_id, claim, status in (
-                ("other-attempt", token, "cancelled"),
-                (writer, "other-claim", "cancelled"),
-                (writer, token, "completed"),
-            ):
-                with pytest.raises(StaleAttemptWriter):
-                    require_terminal_writer(
-                        project,
-                        run_id=run_id,
-                        writer_attempt_id=attempt_id,
-                        claim_token=claim,
-                        terminal_status=status,
-                    )
-            return response
-
-        monkeypatch.setattr(provider, "complete", undo_during_call)
-        try:
-            progress = asyncio.run(
-                runner.run(
-                    confirmed,
-                    program=program,
-                    confirmed=True,
-                    resume_run_id=run_id,
-                    claim_token=token,
-                )
-            )
-            assert progress.cancelled
-            assert provider.calls == 1
-            run = runner.run_store.get_run(run_id)
-            assert run["status"] == "cancelled"
-            assert run["cost_actual"] > 0
-            assert (
-                project.db.execute(
-                    "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
-                ).fetchone()[0]
-                == 1
-            )
-            checkpoint = runner.run_store.row_effect_checkpoint(run_id, rows[0])
-            assert checkpoint["state"] == "returned"
-            assert checkpoint["accounting_persisted"] is True
-            assert checkpoint["response"]
-            from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-
-            # Re-observing known accounting after finalization is free and does
-            # not require reopening its released output claim.
-            def unexpected_charge(_checkpoint):
-                pytest.fail("already accounted response must not accrue twice")
-
-            assert (
-                EffectCheckpointStore(project.db).account_returned(
-                    checkpoint["id"],
-                    family="row_effect",
-                    group_key=str(run_id),
-                    unit_key=str(rows[0]),
-                    action_kind=spec["action_kind"],
-                    identity=checkpoint["identity"],
-                    payload=checkpoint["response"],
-                    accrue=unexpected_charge,
+        writer = runner.run_store.get_run(run_id)["current_attempt_id"]
+        for attempt_id, claim, status in (
+            ("other-attempt", token, "cancelled"),
+            (writer, "other-claim", "cancelled"),
+            (writer, token, "completed"),
+        ):
+            with pytest.raises(StaleAttemptWriter):
+                require_terminal_writer(
+                    project,
                     run_id=run_id,
-                    writer_attempt_id=checkpoint["authorized_attempt_id"],
-                    claim_token=token,
+                    writer_attempt_id=attempt_id,
+                    claim_token=claim,
+                    terminal_status=status,
                 )
-                == 0.0
+        return response
+
+    monkeypatch.setattr(provider, "complete", undo_during_call)
+    try:
+        progress = asyncio.run(
+            runner.run(
+                confirmed,
+                program=program,
+                confirmed=True,
+                resume_run_id=run_id,
+                claim_token=token,
             )
-            assert (
-                project.db.execute(
-                    "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
-                ).fetchone()[0]
-                == 0
+        )
+        assert progress.cancelled
+        assert provider.calls == 1
+        run = runner.run_store.get_run(run_id)
+        assert run["status"] == "cancelled"
+        assert run["cost_actual"] > 0
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM model_calls WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 1
+        )
+        checkpoint = runner.run_store.row_effect_checkpoint(run_id, rows[0])
+        assert checkpoint["state"] == "returned"
+        assert checkpoint["accounting_persisted"] is True
+        assert checkpoint["response"]
+        from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+
+        # Re-observing known accounting after finalization is free and does
+        # not require reopening its released output claim.
+        def unexpected_charge(_checkpoint):
+            pytest.fail("already accounted response must not accrue twice")
+
+        assert (
+            EffectCheckpointStore(project.db).account_returned(
+                checkpoint["id"],
+                family="row_effect",
+                group_key=str(run_id),
+                unit_key=str(rows[0]),
+                action_kind=spec["action_kind"],
+                identity=checkpoint["identity"],
+                payload=checkpoint["response"],
+                accrue=unexpected_charge,
+                run_id=run_id,
+                writer_attempt_id=checkpoint["authorized_attempt_id"],
+                claim_token=token,
             )
-            assert tuple(
-                project.db.execute(
-                    "SELECT status,publication_closed FROM ops WHERE id=?",
-                    (run["op_id"],),
-                ).fetchone()
-            ) == ("undone", 1)
-            assert {column["name"] for column in project.columns(sheet)} == {"text"}
-        finally:
-            asyncio.run(router.aclose())
+            == 0.0
+        )
+        assert (
+            project.db.execute(
+                "SELECT COUNT(*) FROM results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 0
+        )
+        assert tuple(
+            project.db.execute(
+                "SELECT status,publication_closed FROM ops WHERE id=?",
+                (run["op_id"],),
+            ).fetchone()
+        ) == ("undone", 1)
+        assert {column["name"] for column in project.columns(sheet)} == {"text"}
+    finally:
+        asyncio.run(router.aclose())
 
 
 def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_path):

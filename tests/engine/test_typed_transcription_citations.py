@@ -3,7 +3,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
 import json
-from contextlib import closing
 
 import pytest
 from pydantic import BaseModel
@@ -28,7 +27,6 @@ from frisket.engine.executor.transcription_citations import (
     write_transcription_citations,
 )
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
@@ -88,107 +86,107 @@ REGISTRY = ActionRegistry(
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "p.frisket")) as project:
-        sheet = project.add_sheet("recordings")
-        source_id = project.add_column(sheet, "recording", type="audio")
-        digest = project.add_blob(
-            b"audio fixture",
-            filename="recording.wav",
-            mime="audio/wav",
-            metadata=owned_media_metadata_document(probe={"duration_seconds": 99}),
-        )
-        source_value = media_cell(digest, mime="audio/wav", filename="recording.wav")
-        [row_id] = project.add_rows(
-            sheet, [{"recording": source_value}], {"recording": source_id}
-        )
-        read = {
-            "kind": "transcribe_read",
-            "engine": "faster_whisper",
-            "text": "Hello world",
-            "language": "en",
-            "source": {
-                "sheet_id": sheet,
-                "row_id": row_id,
-                "column_id": source_id,
-                "column_type": "audio",
-                "source_column": "recording",
-                "value": source_value,
-                "duration_ms": 2000,
-            },
-            "segments": [
-                {
-                    "start": 0.1004,
-                    "end": 3,
-                    "text": "Hello world",
-                    "speaker": "S1",
-                    "words": [
-                        {"word": "Hello", "start": -1, "end": 1},
-                        {"word": "world", "start": 1, "end": 3},
-                    ],
-                }
-            ],
-        }
-        calls = []
-        original = _TypedMapRowsProgram.__init__
+def setup(make_project, monkeypatch):
+    project = make_project("p")
+    sheet = project.add_sheet("recordings")
+    source_id = project.add_column(sheet, "recording", type="audio")
+    digest = project.add_blob(
+        b"audio fixture",
+        filename="recording.wav",
+        mime="audio/wav",
+        metadata=owned_media_metadata_document(probe={"duration_seconds": 99}),
+    )
+    source_value = media_cell(digest, mime="audio/wav", filename="recording.wav")
+    [row_id] = project.add_rows(
+        sheet, [{"recording": source_value}], {"recording": source_id}
+    )
+    read = {
+        "kind": "transcribe_read",
+        "engine": "faster_whisper",
+        "text": "Hello world",
+        "language": "en",
+        "source": {
+            "sheet_id": sheet,
+            "row_id": row_id,
+            "column_id": source_id,
+            "column_type": "audio",
+            "source_column": "recording",
+            "value": source_value,
+            "duration_ms": 2000,
+        },
+        "segments": [
+            {
+                "start": 0.1004,
+                "end": 3,
+                "text": "Hello world",
+                "speaker": "S1",
+                "words": [
+                    {"word": "Hello", "start": -1, "end": 1},
+                    {"word": "world", "start": 1, "end": 3},
+                ],
+            }
+        ],
+    }
+    calls = []
+    original = _TypedMapRowsProgram.__init__
 
-        def install_writer(self, *args, **kwargs):
-            original(self, *args, **kwargs)
+    def install_writer(self, *args, **kwargs):
+        original(self, *args, **kwargs)
 
-            def write(
-                current_project, spec, *, batch, run_id, output_columns, **writer_kwargs
-            ):
-                calls.append(run_id)
-                batch[0]["row_file_calls"] = [copy.deepcopy(read)]
-                writer = current_project.db.execute(
-                    "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
-                ).fetchone()[0]
-                columns = {
-                    output_columns[self._output_names[field.key]]
-                    for field in self._resolved_output_fields
-                    if field.annotation is TranscriptText
-                }
-                write_transcription_citations(
-                    current_project,
-                    spec,
-                    batch=batch,
-                    run_id=run_id,
-                    output_columns=output_columns,
-                    transcript_columns=columns,
-                    writer_attempt_id=read.get("writer_override", writer),
-                    **writer_kwargs,
-                )
-
-            self.write_result_evidence = write
-
-        monkeypatch.setattr(_TypedMapRowsProgram, "__init__", install_writer)
-
-        def run(kind="text_only"):
-            request = ActionRequest(
-                action_id=f"custom.{kind}",
-                scope=SheetRows(sheet_id=sheet),
-                params={"source": "recording"},
-                output_names={"speech": "renamed"},
-                idempotency_key=f"speech-{kind}",
+        def write(
+            current_project, spec, *, batch, run_id, output_columns, **writer_kwargs
+        ):
+            calls.append(run_id)
+            batch[0]["row_file_calls"] = [copy.deepcopy(read)]
+            writer = current_project.db.execute(
+                "SELECT current_attempt_id FROM runs WHERE id=?", (run_id,)
+            ).fetchone()[0]
+            columns = {
+                output_columns[self._output_names[field.key]]
+                for field in self._resolved_output_fields
+                if field.annotation is TranscriptText
+            }
+            write_transcription_citations(
+                current_project,
+                spec,
+                batch=batch,
+                run_id=run_id,
+                output_columns=output_columns,
+                transcript_columns=columns,
+                writer_attempt_id=read.get("writer_override", writer),
+                **writer_kwargs,
             )
-            return run_typed_map_rows_action(
-                project,
-                "p",
-                BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
-                None,
-                lambda current_project, router: MapRunner(
-                    current_project,
-                    router
-                    or ModelRouter(
-                        model_call_policy=LOCAL_PURCHASE_POLICY,
-                        cache=None,
-                        cache_mode="off",
-                    ),
-                    authority=UnroutedOnlyAuthority(current_project),
+
+        self.write_result_evidence = write
+
+    monkeypatch.setattr(_TypedMapRowsProgram, "__init__", install_writer)
+
+    def run(kind="text_only"):
+        request = ActionRequest(
+            action_id=f"custom.{kind}",
+            scope=SheetRows(sheet_id=sheet),
+            params={"source": "recording"},
+            output_names={"speech": "renamed"},
+            idempotency_key=f"speech-{kind}",
+        )
+        return run_typed_map_rows_action(
+            project,
+            "p",
+            BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
+            None,
+            lambda current_project, router: MapRunner(
+                current_project,
+                router
+                or ModelRouter(
+                    model_call_policy=LOCAL_PURCHASE_POLICY,
+                    cache=None,
+                    cache_mode="off",
                 ),
-            )
+                authority=UnroutedOnlyAuthority(current_project),
+            ),
+        )
 
-        yield project, sheet, row_id, read, calls, run
+    yield project, sheet, row_id, read, calls, run
 
 
 def test_text_only_renamed_output_has_exact_current_temporal_evidence(setup):
