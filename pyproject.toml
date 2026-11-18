@@ -81,7 +81,7 @@ dependencies = [
     "dateparser>=1.4.0",
     "feedparser>=6.0.12",
     # Cross-platform locking for production critical sections.
-    "filelock>=3.29.1",
+    "filelock>=4.2.1",
     # MCP 2.x removes the FastMCP and in-memory session APIs used by Frisket's
     # server and integration tests. Keep resolution on the tested 1.x SDK
     # until that transport boundary is migrated deliberately.

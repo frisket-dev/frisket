@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
 from frisket.engine.store.media_blobs import media_cell
+from tests.http_test_helpers import connected_client_receive
 
 
 def _seed(client: TestClient, filename: str = "../../clip.mp3"):
@@ -200,7 +201,8 @@ def test_selected_rows_package_only_their_attachments(replay_client, format_):
         assert archive.getinfo(names[0]).compress_type == zipfile.ZIP_STORED
 
 
-def test_archive_is_removed_when_download_disconnects(replay_client):
+@pytest.mark.parametrize("disconnect", ["send_fails", "receive_reports"])
+def test_archive_is_removed_when_download_disconnects(replay_client, disconnect):
     from frisket.server.routes.exports import _ClosingFileResponse
     from frisket.server.services.sheet_export import (
         SheetDatasetExportService,
@@ -227,14 +229,29 @@ def test_archive_is_removed_when_download_disconnects(replay_client):
         filename=export.filename,
     )
 
-    async def send(message):
-        if message["type"] == "http.response.body":
-            raise ConnectionError("client disconnected")
+    if disconnect == "send_fails":
 
-    async def receive():
-        return {"type": "http.disconnect"}
+        async def send(message):
+            if message["type"] == "http.response.body":
+                raise ConnectionError("client disconnected")
 
-    with pytest.raises(ConnectionError, match="client disconnected"):
+        with pytest.raises(ConnectionError, match="client disconnected"):
+            asyncio.run(
+                response(
+                    {"type": "http", "method": "GET", "headers": []},
+                    connected_client_receive(),
+                    send,
+                )
+            )
+    else:
+        # A server reports the closed connection through receive(); the
+        # transfer is abandoned without an error reaching the caller.
+        async def send(message):
+            await asyncio.sleep(0)
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
         asyncio.run(
             response({"type": "http", "method": "GET", "headers": []}, receive, send)
         )
