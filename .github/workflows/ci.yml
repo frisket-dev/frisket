@@ -64,7 +64,7 @@ jobs:
   #     gate stay unconditional regardless of this subset.
   changes:
     needs: queue-tested
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # Every run except an unlabelled pull request runs the complete suite.
       FULL_SUITE: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
@@ -286,7 +286,7 @@ jobs:
   models-gpu-topology:
     needs: changes
     if: ${{ needs.changes.outputs.models_gpu == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -295,7 +295,7 @@ jobs:
   sidecar-contract:
     needs: changes
     if: ${{ needs.changes.outputs.sidecar == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: sidecar
@@ -331,7 +331,7 @@ jobs:
     # Run source-quality and architectural checks once, independently of the
     # pytest shards below.
     if: ${{ needs.changes.outputs.backend == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -389,7 +389,7 @@ jobs:
     # Runs with the complete suite, and on a fast-tier PR only when the
     # selection names tests/engine; other PRs leave this shard to the queue.
     if: ${{ needs.changes.outputs.backend == 'true' && needs.changes.outputs.engine_tests == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -414,7 +414,7 @@ jobs:
     name: Python tests (product surfaces)
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       PYTEST_TARGET: ${{ needs.changes.outputs.surface_tests }}
@@ -462,7 +462,7 @@ jobs:
     # One keyless browser journey through the real local stack: health,
     # project creation, CSV import, deterministic regex action, and persisted
     # result readback. Keep the provider-backed/full e2e suite local-only.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -516,7 +516,7 @@ jobs:
     # provider (`replay_strict_cannot_egress`, engine/runner/validation.py),
     # so no run here can spend or egress. The validation form proof makes no
     # model calls; the full provider-backed suite stays local-only.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -593,7 +593,7 @@ jobs:
     # real-Postgres tests against a service container so that drift (e.g. a
     # model column with no migration helper, or a SQLite-only column type
     # emitted on Postgres) is caught pre-merge.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine
@@ -623,7 +623,7 @@ jobs:
     # the one backend-owned declaration artifact imported by the bundle. Also
     # runs on CI-infra changes. Other backend-only Python changes skip it.
     if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.infra == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -683,7 +683,7 @@ jobs:
     name: ci-pass
     if: ${{ always() }}
     needs: [queue-tested, changes, models-gpu-topology, sidecar-contract, python-quality, test-engine, test, deploy-smoke, e2e-cassette-core, postgres, web]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}
