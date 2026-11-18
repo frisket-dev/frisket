@@ -861,9 +861,11 @@ def test_stall_watch_fires_only_after_the_log_state_stops_changing():
 
 
 def test_tee_terminates_a_silent_process_and_reports_the_last_line(tmp_path):
+    # realtime: the child must outlive the stall window for the watchdog to end it
     script = "import time; print('tests/a.py::test_x', flush=True); time.sleep(30)"
     log = tmp_path / "run.log"
     status, last = suite.tee(
+        # subprocess-boundary: the watchdog terminates a real process group
         [sys.executable, "-c", script],
         cwd=tmp_path,
         env={},
@@ -878,6 +880,7 @@ def test_tee_terminates_a_silent_process_and_reports_the_last_line(tmp_path):
 
 def test_tee_without_a_stall_returns_the_exit_status(tmp_path):
     status, last = suite.tee(
+        # subprocess-boundary: tee reports a real child's exit status
         [sys.executable, "-c", "print('ok')"],
         cwd=tmp_path,
         env={},
