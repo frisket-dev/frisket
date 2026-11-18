@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
 from starlette.requests import Request
 
+from frisket.contracts.http.pdf_imports import PdfImportStatus
 from frisket.server.app import create_app
 from frisket.server.services import import_bulk_sources
 from frisket.server.services.import_bulk import ImportBulkService
@@ -72,7 +73,7 @@ def test_prepare_routes_direct_and_mixed_zip_pdf_selections_without_copying(
         entries: list[dict[str, Any]],
         *,
         source_label: str,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         adopted.append(
             {
                 "paths": [entry["logical_path"] for entry in entries],
@@ -297,7 +298,7 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
             entries: list[dict[str, Any]],
             *,
             source_label: str,
-        ) -> dict[str, Any]:
+        ) -> PdfImportStatus:
             observed.update(
                 staging_dir=staging_dir,
                 entries=entries,
@@ -307,7 +308,7 @@ def test_prepare_offloads_pdf_adoption_and_drains_it_before_cancel_cleanup(
             started.set()
             assert release.wait(timeout=5)
             assert staging_dir.is_dir(), "caller must retain bytes until worker exits"
-            return {"draft_id": "pdf-cancelled"}
+            return PdfImportStatus.model_construct(draft_id="pdf-cancelled")
 
         def discard(self, project_id: str, draft_id: str) -> None:
             self.discarded.append((project_id, draft_id))
@@ -368,14 +369,14 @@ def test_prepare_discards_adopted_pdf_when_request_disconnects(
         entries: list[dict[str, Any]],
         *,
         source_label: str,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         status = service.create(
             selected_project_id,
             expected_files=len(entries),
             expected_bytes=sum(int(entry["size"]) for entry in entries),
             source_label=source_label,
         )
-        adopted.update(status)
+        adopted.update(status.model_dump(mode="json"))
         shutil.rmtree(staging_dir)
         return status
 
@@ -402,9 +403,9 @@ def test_prepare_discards_adopted_pdf_when_request_disconnects(
     assert disconnect_checks == 2
     assert adopted["draft_id"]
     assert (
-        client.app.state.pdf_import_service.status(project_id, adopted["draft_id"])[
-            "state"
-        ]
+        client.app.state.pdf_import_service.status(
+            project_id, adopted["draft_id"]
+        ).state
         == "cancelled"
     )
     assert client.app.state.pdf_import_service.list(project_id) == []

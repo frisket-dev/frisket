@@ -18,9 +18,21 @@ from typing import Any
 
 from filelock import FileLock
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.pdf_imports import (
     PDF_IMPORT_OCCURRENCE_ID_PATTERN,
+    PDF_IMPORT_SCHEMA_VERSION,
+    PdfImportBatchOcrState,
+    PdfImportExtensionCount,
+    PdfImportOcrPreviewEstimate,
+    PdfImportOcrPreviewStart,
+    PdfImportPageResponse,
+    PdfImportReselectResponse,
+    PdfImportReselectResult,
+    PdfImportSample,
+    PdfImportSamplesResponse,
     PdfImportStatus,
+    PdfTextCategory,
 )
 from frisket.engine.store.import_intake import import_admit_lock, import_intake_dir
 from frisket.engine.store.import_inventory import ImportInventory
@@ -192,7 +204,7 @@ class PdfImportService:
         expected_bytes: int,
         source_label: str | None,
         creation_key: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         if creation_key is not None:
             digest = hashlib.sha256(creation_key.encode("utf-8")).hexdigest()
             draft_id = f"pdf-{digest}"
@@ -232,7 +244,7 @@ class PdfImportService:
         expected_bytes: int,
         source_label: str | None,
         draft_id: str,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         if type(expected_files) is not int or expected_files < 1:
             raise PdfImportDraftError(422, "PDF import requires at least one file")
         if type(expected_bytes) is not int or expected_bytes < 0:
@@ -278,7 +290,7 @@ class PdfImportService:
         entries: Sequence[Mapping[str, Any]],
         *,
         source_label: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         """Transfer one unpublished, verified staging roster into PDF ownership."""
 
         staging_dir = Path(staging_dir)
@@ -450,7 +462,7 @@ class PdfImportService:
         *,
         batch_id: str,
         files: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         if (
             not batch_id
             or len(batch_id) > 128
@@ -501,7 +513,7 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, inventory.stats())
 
-    def seal_manifest(self, project_id: str, draft_id: str) -> dict[str, Any]:
+    def seal_manifest(self, project_id: str, draft_id: str) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with (
             self._lock(directory),
@@ -536,7 +548,7 @@ class PdfImportService:
         file_ids: Sequence[str],
         logical_paths: Sequence[str],
         batch_id: str,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         if (
             not batch_id
             or not uploads
@@ -648,7 +660,7 @@ class PdfImportService:
         draft_id: str,
         *,
         limit: int = 8,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         """Analyze one bounded page whose bytes are already draft-owned."""
 
         if type(limit) is not int or not 1 <= limit <= 8:
@@ -715,7 +727,7 @@ class PdfImportService:
                     self._update_matched_category(header, item, analysis)
                     self._save(directory, header)
 
-    def status(self, project_id: str, draft_id: str) -> dict[str, Any]:
+    def status(self, project_id: str, draft_id: str) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with self._lock(directory):
             header = self._header(project_id, directory)
@@ -723,10 +735,10 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
-    def list(self, project_id: str) -> list[dict[str, Any]]:
+    def list(self, project_id: str) -> list[PdfImportStatus]:
         self._purge_expired()
         project = self._workspace.get(project_id)
-        result = []
+        result: list[PdfImportStatus] = []
         for path in sorted(self._root.glob("pdf-*/manifest.json")):
             with self._lock(path.parent):
                 try:
@@ -753,10 +765,10 @@ class PdfImportService:
         project_id: str,
         draft_id: str,
         *,
-        category: str,
+        category: PdfTextCategory,
         cursor: str = "",
         limit: int = 6,
-    ) -> dict[str, Any]:
+    ) -> PdfImportSamplesResponse:
         if category not in {
             "text",
             "suspicious",
@@ -774,18 +786,18 @@ class PdfImportService:
             extension_counts, unlisted_extension_count = (
                 inventory.extension_counts(category) if category == "other" else ([], 0)
             )
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "draft_id": draft_id,
-            "category": category,
-            "items": [
-                self._sample_public(project_id, draft_id, item) for item in items
+        return PdfImportSamplesResponse(
+            schema_version=PDF_IMPORT_SCHEMA_VERSION,
+            draft_id=draft_id,
+            category=category,
+            items=[self._sample_public(project_id, draft_id, item) for item in items],
+            next_cursor=next_cursor,
+            extension_counts=[
+                PdfImportExtensionCount.model_validate(item)
+                for item in extension_counts
             ],
-            "next_cursor": next_cursor,
-            "extension_counts": extension_counts,
-            "unlisted_extension_count": unlisted_extension_count,
-        }
-        return payload
+            unlisted_extension_count=unlisted_extension_count,
+        )
 
     def reconcile_reselection(
         self,
@@ -793,7 +805,7 @@ class PdfImportService:
         draft_id: str,
         *,
         files: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any]:
+    ) -> PdfImportReselectResponse:
         if not 1 <= len(files) <= MAX_MANIFEST_BATCH:
             raise PdfImportDraftError(422, "reselection batch must contain 1..256 PDFs")
         normalized = []
@@ -811,16 +823,15 @@ class PdfImportService:
             if not inventory.stats()["manifest_sealed"]:
                 raise PdfImportDraftError(409, "PDF selection manifest is not sealed")
             items = inventory.reconcile_reselection(normalized)
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "draft_id": draft_id,
-            "items": items,
-        }
-        return payload
+        return PdfImportReselectResponse(
+            schema_version=PDF_IMPORT_SCHEMA_VERSION,
+            draft_id=draft_id,
+            items=[PdfImportReselectResult.model_validate(item) for item in items],
+        )
 
     def page(
         self, project_id: str, draft_id: str, occurrence_id: str, page: int
-    ) -> dict[str, Any]:
+    ) -> PdfImportPageResponse:
         directory, header = self._open(project_id, draft_id)
         selection = header["choices"]["ocr_selection"]
         execution = self._execution_params(selection)
@@ -844,20 +855,20 @@ class PdfImportService:
             native_text, native_text_truncated = read_native_page(
                 directory / "files" / str(item["sha256"]), page=page
             )
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "thumbnail_url": self._thumbnail_url(
+        return PdfImportPageResponse(
+            schema_version=PDF_IMPORT_SCHEMA_VERSION,
+            draft_id=draft_id,
+            occurrence_id=occurrence_id,
+            page=page,
+            thumbnail_url=self._thumbnail_url(
                 project_id, draft_id, occurrence_id, page
             ),
-            "native_text": native_text,
-            "native_text_truncated": native_text_truncated,
-            "ocr_text": cached.get("text") if cached else None,
-            "ocr_blocks": list(cached.get("blocks") or []) if cached else [],
-            "ocr_action_params": self._ocr_action_params(selection) if cached else None,
-        }
+            native_text=native_text,
+            native_text_truncated=native_text_truncated,
+            ocr_text=cached.get("text") if cached else None,
+            ocr_blocks=list(cached.get("blocks") or []) if cached else [],
+            ocr_action_params=self._ocr_action_params(selection) if cached else None,
+        )
 
     def thumbnail(
         self, project_id: str, draft_id: str, occurrence_id: str, page: int
@@ -877,7 +888,7 @@ class PdfImportService:
 
     def set_paused(
         self, project_id: str, draft_id: str, paused: bool
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         directory, header = self._open(project_id, draft_id)
         with self._lock(directory):
             header = self._header(project_id, directory)
@@ -900,7 +911,7 @@ class PdfImportService:
         destination: Mapping[str, Any],
         organization: str = "keep_documents",
         split_starts: dict[str, list[int]] | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         if organization not in {"keep_documents", "pages", "split_documents"}:
             raise PdfImportDraftError(422, "invalid PDF organization")
         if ocr_policy not in {"missing", "missing_or_suspicious", "all", "none"}:
@@ -951,7 +962,7 @@ class PdfImportService:
         draft_id: str,
         *,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with self._lock(directory):
             header = self._header(project_id, directory)
@@ -963,7 +974,7 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
-    def match_destination(self, project_id: str, draft_id: str) -> dict[str, Any]:
+    def match_destination(self, project_id: str, draft_id: str) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with (
             self._lock(directory),
@@ -1100,7 +1111,7 @@ class PdfImportService:
         ocr_selection: Mapping[str, Any],
         ocr_policy: str,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportBatchOcrState:
         directory, _ = self._open(project_id, draft_id)
         with (
             self._lock(directory),
@@ -1145,7 +1156,7 @@ class PdfImportService:
         *,
         ocr_selection: Mapping[str, Any],
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportOcrPreviewEstimate:
         selection = self._ocr_selection(ocr_selection)
         action_params = self._ocr_action_params(selection)
         prepared = self._prepare_preview(
@@ -1159,16 +1170,18 @@ class PdfImportService:
         if prepared["cached"]:
             estimate = None
         else:
-            estimate = self._preview_runs.scratch_estimate(project_id, prepared["plan"])
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "ocr_action_params": action_params,
-            "cached": prepared["cached"] is not None,
-            "estimate": estimate,
-        }
+            estimate = ActionEstimate.model_validate(
+                self._preview_runs.scratch_estimate(project_id, prepared["plan"])
+            )
+        return PdfImportOcrPreviewEstimate(
+            schema_version=PDF_IMPORT_SCHEMA_VERSION,
+            draft_id=draft_id,
+            occurrence_id=occurrence_id,
+            page=page,
+            ocr_action_params=action_params,
+            cached=prepared["cached"] is not None,
+            estimate=estimate,
+        )
 
     def start_ocr_preview(
         self,
@@ -1180,7 +1193,7 @@ class PdfImportService:
         ocr_selection: Mapping[str, Any],
         confirmation: str | None,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfImportOcrPreviewStart:
         selection = self._ocr_selection(ocr_selection)
         action_params = self._ocr_action_params(selection)
         prepared = self._prepare_preview(
@@ -1192,20 +1205,22 @@ class PdfImportService:
             request_context=request_context,
         )
         if prepared["cached"]:
-            return {
-                "schema_version": SCHEMA_VERSION,
-                "draft_id": draft_id,
-                "occurrence_id": occurrence_id,
-                "page": page,
-                "ocr_action_params": action_params,
-                "job_id": None,
-                "status": "done",
-                "receipt_id": prepared["cached"].get("receipt_id"),
-                "estimate": None,
-                "needs_confirmation": False,
-            }
+            return PdfImportOcrPreviewStart(
+                schema_version=PDF_IMPORT_SCHEMA_VERSION,
+                draft_id=draft_id,
+                occurrence_id=occurrence_id,
+                page=page,
+                ocr_action_params=action_params,
+                job_id=None,
+                status="done",
+                receipt_id=prepared["cached"].get("receipt_id"),
+                estimate=None,
+                needs_confirmation=False,
+            )
         plan = prepared["plan"]
-        estimate = self._preview_runs.scratch_estimate(project_id, plan)
+        estimate = ActionEstimate.model_validate(
+            self._preview_runs.scratch_estimate(project_id, plan)
+        )
         started = self._preview_runs.start_scratch_preview(
             project_id,
             plan,
@@ -1256,18 +1271,18 @@ class PdfImportService:
         if lost_state is not None:
             self._preview_runs.cancel_preview(project_id, str(payload["preview_id"]))
             raise PdfImportDraftError(409, f"PDF import is {lost_state}")
-        return {
-            "schema_version": SCHEMA_VERSION,
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "ocr_action_params": action_params,
-            "job_id": str(payload["preview_id"]),
-            "status": "running",
-            "receipt_id": payload.get("receipt_id"),
-            "estimate": estimate,
-            "needs_confirmation": False,
-        }
+        return PdfImportOcrPreviewStart(
+            schema_version=PDF_IMPORT_SCHEMA_VERSION,
+            draft_id=draft_id,
+            occurrence_id=occurrence_id,
+            page=page,
+            ocr_action_params=action_params,
+            job_id=str(payload["preview_id"]),
+            status="running",
+            receipt_id=payload.get("receipt_id"),
+            estimate=estimate,
+            needs_confirmation=False,
+        )
 
     def freeze_for_commit(
         self,
@@ -1392,7 +1407,7 @@ class PdfImportService:
 
     def reopen_commit(
         self, project_id: str, draft_id: str, *, idempotency_key: str
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         """Return a draft whose publication was refused before any plan existed."""
 
         directory, _ = self._open(project_id, draft_id)
@@ -1423,7 +1438,7 @@ class PdfImportService:
         *,
         idempotency_key: str,
         result: Mapping[str, Any],
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         """Mark the draft published once its import plan was admitted."""
 
         directory, _ = self._open(project_id, draft_id)
@@ -1443,7 +1458,7 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
-    def discard(self, project_id: str, draft_id: str) -> dict[str, Any]:
+    def discard(self, project_id: str, draft_id: str) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with self._files_lock(directory), self._lock(directory):
             header = self._header(project_id, directory)
@@ -1988,27 +2003,27 @@ class PdfImportService:
 
     def _sample_public(
         self, project_id: str, draft_id: str, item: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {
-            "occurrence_id": item["occurrence_id"],
-            "logical_path": item["logical_path"],
-            "filename": item["filename"],
-            "size": item["size"],
-            "page_count": item.get("page_count"),
-            "category": item["category"],
-            "analysis_state": item["analysis_state"],
-            "sample_pages": item["sample_pages"],
-            "thumbnail_url": (
+    ) -> PdfImportSample:
+        return PdfImportSample(
+            occurrence_id=item["occurrence_id"],
+            logical_path=item["logical_path"],
+            filename=item["filename"],
+            size=item["size"],
+            page_count=item.get("page_count"),
+            category=item["category"],
+            analysis_state=item["analysis_state"],
+            sample_pages=item["sample_pages"],
+            thumbnail_url=(
                 self._thumbnail_url(project_id, draft_id, str(item["occurrence_id"]), 1)
                 if item.get("page_count")
                 else None
             ),
-            "error": item.get("error") if item["category"] == "unreadable" else None,
-        }
+            error=item.get("error") if item["category"] == "unreadable" else None,
+        )
 
     def _snapshot(
         self, header: Mapping[str, Any], stats: Mapping[str, int]
-    ) -> dict[str, Any]:
+    ) -> PdfImportStatus:
         from .organization import organization_summary
 
         categories = {
@@ -2069,7 +2084,7 @@ class PdfImportService:
             "cleanup": dict(header["cleanup"]),
             "commit": PdfImportService._public_commit(header.get("commit")),
         }
-        return PdfImportStatus.model_validate(payload).model_dump(mode="json")
+        return PdfImportStatus.model_validate(payload)
 
     @staticmethod
     def _public_commit(value: Any) -> dict[str, Any] | None:

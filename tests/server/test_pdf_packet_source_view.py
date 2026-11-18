@@ -36,9 +36,9 @@ def test_source_view_serves_retained_bytes_without_publishing_blob(tmp_path):
         page_end=1,
         open_source=lambda: nullcontext(path),
     )
-    split_id = service.create_from_sources(project_id, [source], organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, [source], organization="pages"
+    ).split_id
     app = FastAPI()
     register_pdf_packet_source_routes(app, service=service)
     with TestClient(app) as client:

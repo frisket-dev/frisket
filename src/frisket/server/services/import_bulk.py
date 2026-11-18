@@ -9,6 +9,7 @@ import logging
 from pathlib import PurePosixPath
 from typing import Any
 
+from frisket.contracts.http.pdf_imports import PdfImportStatus
 from frisket.engine.executor import ExecutorDeps
 from frisket.server.services import import_bulk_sources
 from frisket.server.services.import_bulk_execute import BulkExecutor
@@ -84,9 +85,9 @@ class ImportBulkService:
             if pdf_count >= 1:
                 if self.pdf_import_service is None:
                     raise RuntimeError("PDF import service is unavailable")
-                adopted: dict[str, Any] | None = None
+                adopted: PdfImportStatus | None = None
 
-                def adopt() -> dict[str, Any]:
+                def adopt() -> PdfImportStatus:
                     nonlocal adopted
                     adopted = self.pdf_import_service.adopt_staged(
                         project_id,
@@ -112,19 +113,16 @@ class ImportBulkService:
             import_bulk_sources.fsync_directory(staging.root)
 
     async def discard_prepared(self, project_id: str, prepared: dict[str, Any]) -> None:
-        if prepared.get("kind") == "pdf_import" and isinstance(
-            prepared.get("draft"), dict
-        ):
+        if prepared["kind"] == "pdf_import":
             await self._discard_pdf_import(project_id, prepared["draft"])
 
-    async def _discard_pdf_import(self, project_id: str, draft: dict[str, Any]) -> None:
-        draft_id = draft.get("draft_id")
-        if not isinstance(draft_id, str) or not draft_id:
-            raise RuntimeError("adopted PDF import has no draft identity")
+    async def _discard_pdf_import(
+        self, project_id: str, draft: PdfImportStatus
+    ) -> None:
         await await_thread_worker(
             self.pdf_import_service.discard,
             project_id,
-            draft_id,
+            draft.draft_id,
         )
 
     def execute(

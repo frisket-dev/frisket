@@ -34,23 +34,24 @@ def test_reimport_matches_original_with_visible_split_children(
     if organization == "split_documents":
         from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
 
-        with PdfDraftInventory(
-            service._root / status["draft_id"] / "inventory.db"
-        ) as inv:
+        with PdfDraftInventory(service._root / status.draft_id / "inventory.db") as inv:
             occurrence = inv.staged_page(after=0, limit=1)[0]["occurrence_id"]
         status = service.update_choices(
             pid,
-            status["draft_id"],
-            expected_revision=status["revision"],
-            **{**status["choices"], "split_starts": {occurrence: [1, 2]}},
+            status.draft_id,
+            expected_revision=status.revision,
+            **{
+                **status.choices.model_dump(mode="json"),
+                "split_starts": {occurrence: [1, 2]},
+            },
         )
         if existing:
-            status = service.match_destination(pid, status["draft_id"])
+            status = service.match_destination(pid, status.draft_id)
     frozen = service.freeze_for_commit(
         pid,
-        status["draft_id"],
+        status.draft_id,
         idempotency_key="one",
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
     )
     result = PdfImportCommitService(workspace, intake=service).commit_frozen(
         pid, frozen
@@ -65,20 +66,20 @@ def test_reimport_matches_original_with_visible_split_children(
         organization="pages",
         destination={"kind": "existing", "sheet_id": sheet},
     )
-    assert status2["match"]["matched_count"] == 1
-    assert status2["match"]["new_count"] == 0
+    assert status2.match.matched_count == 1
+    assert status2.match.new_count == 0
     with pytest.raises(PdfImportDraftError, match="Nothing new to import") as exc:
         service2.freeze_for_commit(
             pid,
-            status2["draft_id"],
+            status2.draft_id,
             idempotency_key="two",
-            expected_revision=status2["revision"],
+            expected_revision=status2.revision,
         )
     assert exc.value.status_code == 409
     project.db.execute("UPDATE rows SET hidden=1 WHERE sheet_id=?", (sheet,))
     project.db.commit()
-    status3 = service2.match_destination(pid, status2["draft_id"])
-    assert status3["match"]["matched_count"] == 0
+    status3 = service2.match_destination(pid, status2.draft_id)
+    assert status3.match.matched_count == 0
 
 
 def test_reimport_uses_name_and_original_size_and_current_child(tmp_path):
@@ -88,9 +89,9 @@ def test_reimport_uses_name_and_original_size_and_current_child(tmp_path):
     service, status = _admit(workspace, pid, tmp_path / "one", [original])
     frozen = service.freeze_for_commit(
         pid,
-        status["draft_id"],
+        status.draft_id,
         idempotency_key="one",
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
     )
     result = PdfImportCommitService(workspace, intake=service).commit_frozen(
         pid, frozen
@@ -106,17 +107,14 @@ def test_reimport_uses_name_and_original_size_and_current_child(tmp_path):
         files,
         destination={"kind": "existing", "sheet_id": sheet},
     )
-    assert status2["match"]["matched_count"] == 1
-    assert status2["match"]["new_count"] == 1
+    assert status2.match.matched_count == 1
+    assert status2.match.new_count == 1
     rows = project.visible_row_ids(sheet)
     project.db.execute(
         "UPDATE rows SET hidden=1 WHERE sheet_id=? AND id<>?", (sheet, rows[0])
     )
     project.db.commit()
-    assert (
-        service2.match_destination(pid, status2["draft_id"])["match"]["matched_count"]
-        == 1
-    )
+    assert service2.match_destination(pid, status2.draft_id).match.matched_count == 1
     media = next(col["id"] for col in project.columns(sheet) if col["name"] == "media")
     project.apply_edits(
         [
@@ -131,7 +129,4 @@ def test_reimport_uses_name_and_original_size_and_current_child(tmp_path):
             }
         ]
     )
-    assert (
-        service2.match_destination(pid, status2["draft_id"])["match"]["matched_count"]
-        == 0
-    )
+    assert service2.match_destination(pid, status2.draft_id).match.matched_count == 0

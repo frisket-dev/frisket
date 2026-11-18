@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.contracts.http.pdf_packet_splits import (
+    PdfPacketCandidatesResponse,
+    PdfPacketJobStartResponse,
+    PdfPacketOcrEstimateResponse,
+    PdfPacketPageResponse,
+    PdfPacketSheetScopeResponse,
+    PdfPacketSplitStatus,
+)
 from frisket.server.routes.pdf_packet_splits import register_pdf_packet_split_routes
 
 
@@ -14,60 +21,62 @@ def _progress(status: str = "running", done: int = 0, total: int = 4) -> dict:
     return {"status": status, "done": done, "total": total, "error": None}
 
 
-def _status() -> dict[str, Any]:
-    return {
-        "schema_version": "frisket.pdf_packet_split.v1",
-        "split_id": "split-1",
-        "status": "preparing",
-        "organization": "split_documents",
-        "text_categories": {},
-        "sources": [
-            {
-                "key": "source-1",
+def _status() -> PdfPacketSplitStatus:
+    return PdfPacketSplitStatus.model_validate(
+        {
+            "schema_version": "frisket.pdf_packet_split.v1",
+            "split_id": "split-1",
+            "status": "preparing",
+            "organization": "split_documents",
+            "text_categories": {},
+            "sources": [
+                {
+                    "key": "source-1",
+                    "blob_hash": "a" * 64,
+                    "filename": "packet.pdf",
+                    "size": 17,
+                    "page_count": 4,
+                    "page_start": 1,
+                    "page_end": 4,
+                    "display_start": 1,
+                    "source_url": None,
+                    "source_sheet_id": None,
+                    "source_row_id": None,
+                    "source_column_id": None,
+                    "prepared_page_count": 0,
+                    "has_prepared": False,
+                    "prepared_complete": False,
+                    "text_category": None,
+                    "manual_text_preview": None,
+                }
+            ],
+            "fixed_starts": [1],
+            "example_pages": [],
+            "sheet_scope": None,
+            "packet": {
                 "blob_hash": "a" * 64,
                 "filename": "packet.pdf",
+                "mime": "application/pdf",
                 "size": 17,
                 "page_count": 4,
-                "page_start": 1,
-                "page_end": 4,
-                "display_start": 1,
-                "source_url": None,
-                "source_sheet_id": None,
-                "source_row_id": None,
-                "source_column_id": None,
-                "prepared_page_count": 0,
-                "has_prepared": False,
-                "prepared_complete": False,
-                "text_category": None,
-                "manual_text_preview": None,
-            }
-        ],
-        "fixed_starts": [1],
-        "example_pages": [],
-        "sheet_scope": None,
-        "packet": {
-            "blob_hash": "a" * 64,
-            "filename": "packet.pdf",
-            "mime": "application/pdf",
-            "size": 17,
-            "page_count": 4,
-        },
-        "prepare": {
-            "job_id": "prepare-1",
-            "progress": _progress(),
-            "pages_ready": [1],
-            "native_text_pages": [1, 2],
-            "text_pages_read": [],
-            "visual_pages_ready": 1,
-        },
-        "text_source": "unconfirmed",
-        "ocr_engine": None,
-        "ocr_pages": [],
-        "jobs": [],
-        "analysis_revision": 1,
-        "expires_at": "2026-10-09T01:00:00Z",
-        "commit_result": None,
-    }
+            },
+            "prepare": {
+                "job_id": "prepare-1",
+                "progress": _progress(),
+                "pages_ready": [1],
+                "native_text_pages": [1, 2],
+                "text_pages_read": [],
+                "visual_pages_ready": 1,
+            },
+            "text_source": "unconfirmed",
+            "ocr_engine": None,
+            "ocr_pages": [],
+            "jobs": [],
+            "analysis_revision": 1,
+            "expires_at": "2026-10-09T01:00:00Z",
+            "commit_result": None,
+        }
+    )
 
 
 class _Service:
@@ -83,7 +92,9 @@ class _Service:
 
     def sheet_scope_token(self, pid, body):
         self.calls.append(("scope_token", pid, body.sheet_id, body.scope))
-        return {"schema_version": "frisket.pdf_packet_split.v1", "order_hash": "a" * 64}
+        return PdfPacketSheetScopeResponse(
+            schema_version="frisket.pdf_packet_split.v1", order_hash="a" * 64
+        )
 
     def create_from_sheet(self, pid, body, *, admission_lease=None):
         self.calls.append(
@@ -101,83 +112,91 @@ class _Service:
         return _status()
 
     def page(self, pid, split_id, page):
-        return {
-            "schema_version": "frisket.pdf_packet_split.v1",
-            "split_id": split_id,
-            "page": page,
-            "source_key": "source-1",
-            "local_page": page,
-            "thumbnail_ready": True,
-            "thumbnail_url": f"/thumb/{page}",
-            "native_text": "native",
-            "ocr_text": None,
-            "ocr_blocks": [],
-            "ocr_engine": None,
-        }
+        return PdfPacketPageResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_packet_split.v1",
+                "split_id": split_id,
+                "page": page,
+                "source_key": "source-1",
+                "local_page": page,
+                "thumbnail_ready": True,
+                "thumbnail_url": f"/thumb/{page}",
+                "native_text": "native",
+                "ocr_text": None,
+                "ocr_blocks": [],
+                "ocr_engine": None,
+            }
+        )
 
     def thumbnail(self, pid, split_id, page):
         return SimpleNamespace(path=self.thumb, close=lambda: None)
 
     def estimate_ocr(self, pid, split_id, body, *, request_context=None):
         self.calls.append(("estimate", body.engine, body.scope, body.pages))
-        return {
-            "schema_version": "frisket.pdf_packet_split.v1",
-            "engine": body.engine,
-            "scope": body.scope,
-            "pages": body.pages or [1, 2, 3, 4],
-            "cached_pages": [],
-            "estimate": {
-                "rows": 1,
-                "cost": 0.0,
-                "cost_source": "free_public_api",
-                "billed_cost": 0,
-                "policy_id": "frisket.identity.v1",
-                "promise_set_hash": "free",
-            },
-        }
+        return PdfPacketOcrEstimateResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_packet_split.v1",
+                "engine": body.engine,
+                "scope": body.scope,
+                "pages": body.pages or [1, 2, 3, 4],
+                "cached_pages": [],
+                "estimate": {
+                    "rows": 1,
+                    "cost": 0.0,
+                    "cost_source": "free_public_api",
+                    "billed_cost": 0,
+                    "policy_id": "frisket.identity.v1",
+                    "promise_set_hash": "free",
+                },
+            }
+        )
 
     def start_ocr(self, pid, split_id, body, *, request_context=None):
-        return {
-            "schema_version": "frisket.pdf_packet_split.v1",
-            "split_id": split_id,
-            "job_id": "ocr-1",
-            "kind": "ocr_sample",
-            "total": len(body.pages or []),
-            "receipt_id": None,
-        }
+        return PdfPacketJobStartResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_packet_split.v1",
+                "split_id": split_id,
+                "job_id": "ocr-1",
+                "kind": "ocr_sample",
+                "total": len(body.pages or []),
+                "receipt_id": None,
+            }
+        )
 
     def cancel_job(self, pid, split_id, job_id):
         return _status()
 
     def select_text_source(self, pid, split_id, body):
         value = _status()
-        value["text_source"] = body.kind
-        value["ocr_engine"] = body.engine
-        value["ocr_pages"] = [1, 3] if body.kind == "ocr" else []
+        value.text_source = body.kind
+        value.ocr_engine = body.engine
+        value.ocr_pages = [1, 3] if body.kind == "ocr" else []
         return value
 
     def candidates(self, pid, split_id, body):
         self.calls.append(("candidates", body.confirmed_starts, body.rejected))
-        return {
-            "schema_version": "frisket.pdf_packet_split.v1",
-            "split_id": split_id,
-            "analysis_revision": 2,
-            "clusters": [{"id": 0, "confirmed_pages": [1]}],
-            "pages": [
-                {
-                    "page": 3,
-                    "visual_score": 92.5,
-                    "closest_confirmed_page": 1,
-                    "kind_id": 0,
-                    "matched_phrase_ids": ["letter"],
-                    "suggested": True,
-                }
-            ],
-            "suggested_pages": [3],
-            "unsure_pages": [2],
-            "phrase_counts": {"letter": 1},
-            "accept_all_scope": "packet",
-        }
+        return PdfPacketCandidatesResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_packet_split.v1",
+                "split_id": split_id,
+                "analysis_revision": 2,
+                "clusters": [{"id": 0, "confirmed_pages": [1]}],
+                "pages": [
+                    {
+                        "page": 3,
+                        "visual_score": 92.5,
+                        "closest_confirmed_page": 1,
+                        "kind_id": 0,
+                        "matched_phrase_ids": ["letter"],
+                        "suggested": True,
+                    }
+                ],
+                "suggested_pages": [3],
+                "unsure_pages": [2],
+                "phrase_counts": {"letter": 1},
+                "accept_all_scope": "packet",
+            }
+        )
 
     def commit(
         self,
@@ -190,14 +209,16 @@ class _Service:
     ):
         assert admission_lease is None
         self.calls.append(("commit", body.confirmed_starts, body.destination.name))
-        return {
-            "schema_version": "frisket.pdf_packet_split.v1",
-            "split_id": split_id,
-            "job_id": "commit-1",
-            "kind": "commit",
-            "total": len(body.confirmed_starts),
-            "receipt_id": "receipt-1",
-        }
+        return PdfPacketJobStartResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_packet_split.v1",
+                "split_id": split_id,
+                "job_id": "commit-1",
+                "kind": "commit",
+                "total": len(body.confirmed_starts),
+                "receipt_id": "receipt-1",
+            }
+        )
 
     def close(self, pid, split_id):
         self.calls.append(("close", pid, split_id))
@@ -218,7 +239,7 @@ def test_pdf_packet_split_http_contract(tmp_path: Path) -> None:
         data={"request_id": "upload-1"},
     )
     assert created.status_code == 202, created.text
-    assert created.json() == _status()
+    assert created.json() == _status().model_dump(mode="json")
     assert service.calls[0][:3] == ("create", "p", "packet.pdf")
     assert service.calls[0][4] == "upload-1"
 

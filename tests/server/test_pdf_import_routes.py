@@ -7,6 +7,14 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket.contracts.http.pdf_imports import (
+    PdfImportBatchOcrState,
+    PdfImportOcrPreviewEstimate,
+    PdfImportOcrPreviewStart,
+    PdfImportPageResponse,
+    PdfImportSamplesResponse,
+    PdfImportStatus,
+)
 from frisket.server.route_errors import register_route_error_handler
 from frisket.server.routes.pdf_imports import register_pdf_import_routes
 from frisket.server.services.pdf_imports import PdfImportService
@@ -15,118 +23,120 @@ from frisket.server.workspace import Workspace
 
 
 def _status(revision=1):
-    return {
-        "schema_version": "frisket.pdf_import.v1",
-        "id": "pdf-one",
-        "draft_id": "pdf-one",
-        "state": "open",
-        "paused": False,
-        "revision": revision,
-        "created_at": "2026-10-18T00:00:00Z",
-        "updated_at": "2026-10-18T00:00:00Z",
-        "expires_at": "2026-10-19T00:00:00Z",
-        "source_label": "Evidence",
-        "preflight": {"state": "ready", "free_bytes": 1000},
-        "manifest": {
-            "files_done": 2,
-            "files_total": 2,
-            "bytes_done": 20,
-            "bytes_total": 20,
-            "sealed": True,
-        },
-        "upload": {
-            "files_done": 0,
-            "files_total": 2,
-            "bytes_done": 0,
-            "bytes_total": 20,
-            "sealed": False,
-        },
-        "analysis": {"files_done": 0, "files_total": 2},
-        "category_counts": {
-            "text": 0,
-            "suspicious": 0,
-            "missing": 0,
-            "image": 0,
-            "other": 0,
-            "unreadable": 0,
-            "unchecked": 2,
-        },
-        "sample_ready_counts": {
-            "text": 0,
-            "suspicious": 0,
-            "missing": 0,
-            "image": 0,
-            "other": 0,
-            "unreadable": 0,
-        },
-        "can_review_text": False,
-        "choices": {
-            "ocr_policy": "missing_or_suspicious",
-            "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
-            "semantic_search": True,
-            "semantic_setup_confirmation": None,
-            "destination": {"kind": "new", "sheet_name": "Evidence"},
-        },
-        "match": {
-            "state": "idle",
-            "sheet_id": None,
-            "checked": 0,
-            "total": 0,
-            "matched_count": 0,
-            "new_count": 0,
-            "new_category_counts": {
+    return PdfImportStatus.model_validate(
+        {
+            "schema_version": "frisket.pdf_import.v1",
+            "id": "pdf-one",
+            "draft_id": "pdf-one",
+            "state": "open",
+            "paused": False,
+            "revision": revision,
+            "created_at": "2026-10-18T00:00:00Z",
+            "updated_at": "2026-10-18T00:00:00Z",
+            "expires_at": "2026-10-19T00:00:00Z",
+            "source_label": "Evidence",
+            "preflight": {"state": "ready", "free_bytes": 1000},
+            "manifest": {
+                "files_done": 2,
+                "files_total": 2,
+                "bytes_done": 20,
+                "bytes_total": 20,
+                "sealed": True,
+            },
+            "upload": {
+                "files_done": 0,
+                "files_total": 2,
+                "bytes_done": 0,
+                "bytes_total": 20,
+                "sealed": False,
+            },
+            "analysis": {"files_done": 0, "files_total": 2},
+            "category_counts": {
                 "text": 0,
                 "suspicious": 0,
                 "missing": 0,
                 "image": 0,
                 "other": 0,
                 "unreadable": 0,
-                "unchecked": 0,
+                "unchecked": 2,
             },
-            "error": None,
-        },
-        "batch_ocr": {
-            "state": "idle",
-            "revision": None,
-            "advisory": False,
-            "ocr_action_params": None,
-            "ocr_policy": None,
-            "manifest_revision": None,
-            "manifest_hash": None,
-            "selected_through": 0,
-            "selected_count": 0,
-            "estimate": None,
-            "needs_confirmation": False,
-        },
-        "semantic_setup": {
-            "setup_ref": "engine-setup:semantic.local@1",
-            "display_name": "Local semantic search",
-            "ready": False,
-            "runtime_ready": True,
-            "download_bytes": 123,
-            "additional_runtime_download": False,
-            "needs_confirmation": True,
-            "confirmation_hash": "setup-hash",
-            "license": "Apache-2.0",
-            "source_url": "https://example.test/model",
-            "available": True,
-        },
-        "organization_summary": {
-            "pdf_count": 0,
-            "eligible_pdf_count": 0,
-            "page_count": 0,
-            "output_rows": None,
-            "new_output_rows": None,
-            "category_rows": {},
-            "new_category_rows": {},
-            "max_interactive_pages": 5000,
-            "split_supported": False,
-            "split_limit_reason": None,
-        },
-        "preview_jobs": [],
-        "cleanup": {"bytes_done": 0, "bytes_total": 0},
-        "commit": None,
-    }
+            "sample_ready_counts": {
+                "text": 0,
+                "suspicious": 0,
+                "missing": 0,
+                "image": 0,
+                "other": 0,
+                "unreadable": 0,
+            },
+            "can_review_text": False,
+            "choices": {
+                "ocr_policy": "missing_or_suspicious",
+                "ocr_selection": {"kind": "engine", "engine": "rapidocr"},
+                "semantic_search": True,
+                "semantic_setup_confirmation": None,
+                "destination": {"kind": "new", "sheet_name": "Evidence"},
+            },
+            "match": {
+                "state": "idle",
+                "sheet_id": None,
+                "checked": 0,
+                "total": 0,
+                "matched_count": 0,
+                "new_count": 0,
+                "new_category_counts": {
+                    "text": 0,
+                    "suspicious": 0,
+                    "missing": 0,
+                    "image": 0,
+                    "other": 0,
+                    "unreadable": 0,
+                    "unchecked": 0,
+                },
+                "error": None,
+            },
+            "batch_ocr": {
+                "state": "idle",
+                "revision": None,
+                "advisory": False,
+                "ocr_action_params": None,
+                "ocr_policy": None,
+                "manifest_revision": None,
+                "manifest_hash": None,
+                "selected_through": 0,
+                "selected_count": 0,
+                "estimate": None,
+                "needs_confirmation": False,
+            },
+            "semantic_setup": {
+                "setup_ref": "engine-setup:semantic.local@1",
+                "display_name": "Local semantic search",
+                "ready": False,
+                "runtime_ready": True,
+                "download_bytes": 123,
+                "additional_runtime_download": False,
+                "needs_confirmation": True,
+                "confirmation_hash": "setup-hash",
+                "license": "Apache-2.0",
+                "source_url": "https://example.test/model",
+                "available": True,
+            },
+            "organization_summary": {
+                "pdf_count": 0,
+                "eligible_pdf_count": 0,
+                "page_count": 0,
+                "output_rows": None,
+                "new_output_rows": None,
+                "category_rows": {},
+                "new_category_rows": {},
+                "max_interactive_pages": 5000,
+                "split_supported": False,
+                "split_limit_reason": None,
+            },
+            "preview_jobs": [],
+            "cleanup": {"bytes_done": 0, "bytes_total": 0},
+            "commit": None,
+        }
+    )
 
 
 def _capabilities(_request, _project_id):
@@ -222,14 +232,14 @@ class _Service:
     def analyze_staged(self, pid, draft_id, **kwargs):
         self.calls.append(("analyze", pid, draft_id, kwargs))
         value = _status(5)
-        value["upload"]["files_done"] = 2
-        value["upload"]["sealed"] = True
-        value["analysis"]["files_done"] = 2
+        value.upload.files_done = 2
+        value.upload.sealed = True
+        value.analysis.files_done = 2
         return value
 
     def set_paused(self, pid, draft_id, paused):
         value = _status(2)
-        value["paused"] = paused
+        value.paused = paused
         return value
 
     def update_choices(self, pid, draft_id, **kwargs):
@@ -242,90 +252,100 @@ class _Service:
         return _status(2)
 
     def samples(self, pid, draft_id, **kwargs):
-        return {
-            "schema_version": "frisket.pdf_import.v1",
-            "draft_id": draft_id,
-            "category": kwargs["category"],
-            "items": [],
-            "next_cursor": None,
-            "extension_counts": [],
-            "unlisted_extension_count": 0,
-        }
+        return PdfImportSamplesResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_import.v1",
+                "draft_id": draft_id,
+                "category": kwargs["category"],
+                "items": [],
+                "next_cursor": None,
+                "extension_counts": [],
+                "unlisted_extension_count": 0,
+            }
+        )
 
     def page(self, pid, draft_id, occurrence_id, page):
-        return {
-            "schema_version": "frisket.pdf_import.v1",
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "thumbnail_url": "/thumb",
-            "native_text": "native",
-            "native_text_truncated": False,
-            "ocr_text": None,
-            "ocr_blocks": [],
-            "ocr_action_params": None,
-        }
+        return PdfImportPageResponse.model_validate(
+            {
+                "schema_version": "frisket.pdf_import.v1",
+                "draft_id": draft_id,
+                "occurrence_id": occurrence_id,
+                "page": page,
+                "thumbnail_url": "/thumb",
+                "native_text": "native",
+                "native_text_truncated": False,
+                "ocr_text": None,
+                "ocr_blocks": [],
+                "ocr_action_params": None,
+            }
+        )
 
     def thumbnail(self, *args):
         return SimpleNamespace(path=self.thumb, close=lambda: None)
 
     def estimate_batch_ocr(self, pid, draft_id, **kwargs):
-        return {
-            "state": "ready",
-            "revision": 5,
-            "advisory": False,
-            "ocr_action_params": {"engine": "rapidocr"},
-            "ocr_policy": "all",
-            "manifest_revision": 1,
-            "manifest_hash": "a" * 64,
-            "selected_through": 2,
-            "selected_count": 2,
-            "estimate": {
-                "rows": 2,
-                "cost": 0.0,
-                "cost_source": "local",
-                "billed_cost": 0,
-                "policy_id": "local",
-            },
-            "needs_confirmation": False,
-        }
+        return PdfImportBatchOcrState.model_validate(
+            {
+                "state": "ready",
+                "revision": 5,
+                "advisory": False,
+                "ocr_action_params": {"engine": "rapidocr"},
+                "ocr_policy": "all",
+                "manifest_revision": 1,
+                "manifest_hash": "a" * 64,
+                "selected_through": 2,
+                "selected_count": 2,
+                "estimate": {
+                    "rows": 2,
+                    "cost": 0.0,
+                    "cost_source": "local",
+                    "billed_cost": 0,
+                    "policy_id": "local",
+                },
+                "needs_confirmation": False,
+            }
+        )
 
     def estimate_ocr_preview(self, pid, draft_id, occurrence_id, page, **kwargs):
-        return {
-            "schema_version": "frisket.pdf_import.v1",
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "ocr_action_params": {"engine": "rapidocr"},
-            "cached": False,
-            "estimate": {
-                "rows": 1,
-                "cost": 0.0,
-                "cost_source": "local",
-                "billed_cost": 0,
-                "policy_id": "local",
-            },
-        }
+        return PdfImportOcrPreviewEstimate.model_validate(
+            {
+                "schema_version": "frisket.pdf_import.v1",
+                "draft_id": draft_id,
+                "occurrence_id": occurrence_id,
+                "page": page,
+                "ocr_action_params": {"engine": "rapidocr"},
+                "cached": False,
+                "estimate": {
+                    "rows": 1,
+                    "cost": 0.0,
+                    "cost_source": "local",
+                    "billed_cost": 0,
+                    "policy_id": "local",
+                },
+            }
+        )
 
     def start_ocr_preview(self, pid, draft_id, occurrence_id, page, **kwargs):
-        return {
-            "schema_version": "frisket.pdf_import.v1",
-            "draft_id": draft_id,
-            "occurrence_id": occurrence_id,
-            "page": page,
-            "ocr_action_params": {"engine": "rapidocr"},
-            "job_id": "preview-1",
-            "status": "running",
-            "receipt_id": None,
-            "estimate": {
-                "rows": 1,
-                "cost": 0.0,
-                "cost_source": "local",
-                "billed_cost": 0,
-                "policy_id": "local",
-            },
-            "needs_confirmation": False,
-        }
+        return PdfImportOcrPreviewStart.model_validate(
+            {
+                "schema_version": "frisket.pdf_import.v1",
+                "draft_id": draft_id,
+                "occurrence_id": occurrence_id,
+                "page": page,
+                "ocr_action_params": {"engine": "rapidocr"},
+                "job_id": "preview-1",
+                "status": "running",
+                "receipt_id": None,
+                "estimate": {
+                    "rows": 1,
+                    "cost": 0.0,
+                    "cost_source": "local",
+                    "billed_cost": 0,
+                    "policy_id": "local",
+                },
+                "needs_confirmation": False,
+            }
+        )
 
     def freeze_for_commit(self, pid, draft_id, **kwargs):
         self.calls.append(("commit", pid, draft_id, kwargs))
@@ -339,7 +359,7 @@ class _Service:
 
     def discard(self, pid, draft_id):
         value = _status(2)
-        value["state"] = "cancelled"
+        value.state = "cancelled"
         return value
 
 

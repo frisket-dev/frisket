@@ -235,7 +235,7 @@ def test_pdf_creation_recovers_process_exit_before_manifest(tmp_path):
         source_label="Crash",
         creation_key="crash",
     )
-    assert draft["state"] == "open"
+    assert draft.state == "open"
     assert len(pdf.list(pid)) == 1
 
 

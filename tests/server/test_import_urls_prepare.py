@@ -268,7 +268,7 @@ def test_url_preparation_adopts_real_inventory_without_publishing(
     draft = response.json()["draft"]
     assert draft["manifest"]["files_total"] == 2
     draft = service.analyze_staged(pid, draft["draft_id"])
-    directory = workspace.root / ".pdf_import_drafts" / draft["draft_id"]
+    directory = workspace.root / ".pdf_import_drafts" / draft.draft_id
     with PdfDraftInventory(directory / "inventory.db") as inventory:
         items = inventory.staged_page(after=0, limit=10)
     assert len(items) == 2

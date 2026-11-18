@@ -257,7 +257,7 @@ def _declared(service, project_id):
         expected_bytes=2 * len(PDF),
         source_label="Evidence",
     )
-    draft_id = created["draft_id"]
+    draft_id = created.draft_id
     status = service.append_manifest(
         project_id,
         draft_id,
@@ -277,7 +277,7 @@ def _declared(service, project_id):
             },
         ],
     )
-    assert status["manifest"]["files_done"] == 2
+    assert status.manifest.files_done == 2
     return draft_id, service.seal_manifest(project_id, draft_id)
 
 
@@ -295,19 +295,19 @@ def test_pdf_draft_stages_outside_project_and_recovers_bounded_status(
         logical_paths=["north/one.pdf", "south/two.pdf"],
         batch_id="upload-1",
     )
-    assert status["upload"]["files_done"] == 2
-    assert status["category_counts"]["missing"] == 2
-    assert status["can_review_text"] is True
-    assert "files" not in status
+    assert status.upload.files_done == 2
+    assert status.category_counts.missing == 2
+    assert status.can_review_text is True
+    assert "files" not in status.model_dump(mode="json")
     assert project.sheets() == []
     assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
     directory = workspace.root / ".pdf_import_drafts" / draft_id
     assert directory.is_dir() and project.path not in directory.parents
     recovered = PdfImportService(workspace).status(project_id, draft_id)
-    assert recovered["revision"] == status["revision"]
+    assert recovered.revision == status.revision
     samples = service.samples(project_id, draft_id, category="missing", limit=1)
-    assert len(samples["items"]) == 1
-    assert samples["next_cursor"] is not None
+    assert len(samples.items) == 1
+    assert samples.next_cursor is not None
 
 
 def test_adopted_server_staging_publishes_all_bytes_before_bounded_analysis(
@@ -329,24 +329,27 @@ def test_adopted_server_staging_publishes_all_bytes_before_bounded_analysis(
     )
 
     assert not staging.exists()
-    assert adopted["manifest"]["files_done"] == 3
-    assert adopted["manifest"]["sealed"] is True
-    assert adopted["upload"]["files_done"] == 3
-    assert adopted["upload"]["sealed"] is True
-    assert adopted["analysis"] == {"files_done": 0, "files_total": 3}
-    assert adopted["category_counts"]["unchecked"] == 3
-    directory = workspace.root / ".pdf_import_drafts" / adopted["draft_id"]
+    assert adopted.manifest.files_done == 3
+    assert adopted.manifest.sealed is True
+    assert adopted.upload.files_done == 3
+    assert adopted.upload.sealed is True
+    assert adopted.analysis.model_dump(mode="json") == {
+        "files_done": 0,
+        "files_total": 3,
+    }
+    assert adopted.category_counts.unchecked == 3
+    directory = workspace.root / ".pdf_import_drafts" / adopted.draft_id
     assert {path.name for path in (directory / "files").iterdir()} == {
         str(entry["sha256"]) for entry in entries
     }
 
-    first = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
-    assert first["analysis"]["files_done"] == 2
-    second = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
-    assert second["analysis"]["files_done"] == 3
-    replay = service.analyze_staged(project_id, adopted["draft_id"], limit=2)
-    assert replay["revision"] == second["revision"]
-    assert replay["category_counts"] == {
+    first = service.analyze_staged(project_id, adopted.draft_id, limit=2)
+    assert first.analysis.files_done == 2
+    second = service.analyze_staged(project_id, adopted.draft_id, limit=2)
+    assert second.analysis.files_done == 3
+    replay = service.analyze_staged(project_id, adopted.draft_id, limit=2)
+    assert replay.revision == second.revision
+    assert replay.category_counts.model_dump(mode="json") == {
         "text": 0,
         "suspicious": 0,
         "missing": 2,
@@ -436,20 +439,20 @@ def test_overlapping_staged_analysis_runs_each_occurrence_once(
         first = executor.submit(
             service.analyze_staged,
             project_id,
-            adopted["draft_id"],
+            adopted.draft_id,
             limit=1,
         )
         assert started.wait(5)
         second = executor.submit(
             service.analyze_staged,
             project_id,
-            adopted["draft_id"],
+            adopted.draft_id,
             limit=1,
         )
         assert second_lock_attempt.wait(5)
         release.set()
-        assert first.result(timeout=5)["analysis"]["files_done"] == 1
-        assert second.result(timeout=5)["analysis"]["files_done"] == 1
+        assert first.result(timeout=5).analysis.files_done == 1
+        assert second.result(timeout=5).analysis.files_done == 1
     assert calls == 1
 
 
@@ -494,7 +497,7 @@ def test_mixed_files_keep_mime_preview_and_extension_counts(
         expected_bytes=sum(len(payload) for _, _, payload in declared),
         source_label="Mixed evidence",
     )
-    draft_id = created["draft_id"]
+    draft_id = created.draft_id
     service.append_manifest(
         project_id,
         draft_id,
@@ -526,7 +529,7 @@ def test_mixed_files_keep_mime_preview_and_extension_counts(
         logical_paths=[item[1] for item in declared],
         batch_id="mixed-upload",
     )
-    assert status["category_counts"] == {
+    assert status.category_counts.model_dump(mode="json") == {
         "text": 0,
         "suspicious": 0,
         "missing": 1,
@@ -551,11 +554,11 @@ def test_mixed_files_keep_mime_preview_and_extension_counts(
         logical_paths=[item[1] for item in declared],
         batch_id="mixed-upload",
     )
-    assert replay["revision"] == status["revision"]
+    assert replay.revision == status.revision
 
     image_page = service.page(project_id, draft_id, "image", 1)
-    assert image_page["native_text"] == ""
-    assert image_page["native_text_truncated"] is False
+    assert image_page.native_text == ""
+    assert image_page.native_text_truncated is False
     lease = service.thumbnail(project_id, draft_id, "image", 1)
     try:
         assert lease.path.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
@@ -565,11 +568,11 @@ def test_mixed_files_keep_mime_preview_and_extension_counts(
         service.page(project_id, draft_id, "other", 1)
 
     other = service.samples(project_id, draft_id, category="other")
-    assert other["extension_counts"] == [
+    assert [item.model_dump(mode="json") for item in other.extension_counts] == [
         {"extension": ".eps", "count": 1},
         {"extension": ".txt", "count": 1},
     ]
-    assert other["unlisted_extension_count"] == 0
+    assert other.unlisted_extension_count == 0
 
     assert workspace.get(project_id).sheets() == []
 
@@ -595,8 +598,8 @@ def test_upload_replay_discard_and_late_upload_fence(
         logical_paths=["north/one.pdf"],
         batch_id="upload-1",
     )
-    assert replay["revision"] == first["revision"]
-    assert service.discard(project_id, draft_id)["state"] == "cancelled"
+    assert replay.revision == first.revision
+    assert service.discard(project_id, draft_id).state == "cancelled"
     with pytest.raises(PdfImportDraftError, match="cancelled"):
         service.upload(
             project_id,
@@ -640,14 +643,14 @@ def test_slow_analysis_does_not_block_status_or_cancel(
         )
         assert started.wait(5)
         pending = service.status(project_id, draft_id)
-        assert pending["upload"]["files_done"] == 1
-        assert pending["analysis"]["files_done"] == 0
+        assert pending.upload.files_done == 1
+        assert pending.analysis.files_done == 0
         discarded = executor.submit(service.discard, project_id, draft_id)
         assert not discarded.done()
         release.set()
-        assert discarded.result(timeout=5)["state"] == "cancelled"
-        assert future.result(timeout=5)["state"] in {"open", "cancelled"}
-        assert service.status(project_id, draft_id)["state"] == "cancelled"
+        assert discarded.result(timeout=5).state == "cancelled"
+        assert future.result(timeout=5).state in {"open", "cancelled"}
+        assert service.status(project_id, draft_id).state == "cancelled"
 
 
 def test_status_reconciles_preview_registry_terminal_state(
@@ -681,7 +684,7 @@ def test_status_reconciles_preview_registry_terminal_state(
     ]
     service._store.write_header(manifest_path.parent, header)
     status = service.status(project_id, draft_id)
-    assert status["preview_jobs"] == [
+    assert [job.model_dump(mode="json") for job in status.preview_jobs] == [
         {
             **header["preview_jobs"][0],
             "status": "done",
@@ -720,17 +723,17 @@ def test_destination_match_uses_bounded_current_value_projection(
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
         ocr_policy="none",
         ocr_selection={"kind": "engine", "engine": "rapidocr"},
         semantic_search=True,
-        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        semantic_setup_confirmation=status.semantic_setup.confirmation_hash,
         destination={"kind": "existing", "sheet_id": sheet_id},
     )
     matched = service.match_destination(project_id, draft_id)
-    assert matched["match"]["checked"] == 2
-    assert matched["match"]["matched_count"] == 1
-    assert matched["match"]["new_count"] == 1
+    assert matched.match.checked == 2
+    assert matched.match.matched_count == 1
+    assert matched.match.new_count == 1
 
 
 def test_upload_preserves_full_roster_destination_match(
@@ -745,15 +748,15 @@ def test_upload_preserves_full_roster_destination_match(
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
         ocr_policy="none",
         ocr_selection={"kind": "engine", "engine": "rapidocr"},
         semantic_search=True,
-        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        semantic_setup_confirmation=status.semantic_setup.confirmation_hash,
         destination={"kind": "existing", "sheet_id": 7},
     )
     matched = service.match_destination(project_id, draft_id)
-    assert matched["match"]["new_category_counts"]["unchecked"] == 1
+    assert matched.match.new_category_counts.unchecked == 1
     uploaded = service.upload(
         project_id,
         draft_id,
@@ -762,10 +765,10 @@ def test_upload_preserves_full_roster_destination_match(
         logical_paths=["south/two.pdf"],
         batch_id="upload-after-match",
     )
-    assert uploaded["match"]["state"] == "ready"
-    assert uploaded["match"]["matched_count"] == 1
-    assert uploaded["match"]["new_category_counts"]["unchecked"] == 0
-    assert uploaded["match"]["new_category_counts"]["missing"] == 1
+    assert uploaded.match.state == "ready"
+    assert uploaded.match.matched_count == 1
+    assert uploaded.match.new_category_counts.unchecked == 0
+    assert uploaded.match.new_category_counts.missing == 1
     assert workspace.get(project_id).sheets() == []
 
 
@@ -781,7 +784,7 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
     with pytest.raises(PdfImportDraftError, match="safe relative paths"):
         service.append_manifest(
             project_id,
-            created["draft_id"],
+            created.draft_id,
             batch_id="bad",
             files=[
                 {
@@ -793,7 +796,7 @@ def test_manifest_scope_and_preflight_are_enforced(tmp_path: Path, monkeypatch) 
             ],
         )
     with pytest.raises(PdfImportDraftError, match="incomplete"):
-        service.seal_manifest(project_id, created["draft_id"])
+        service.seal_manifest(project_id, created.draft_id)
 
 
 def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
@@ -806,7 +809,7 @@ def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
         expected_bytes=2 * len(PDF),
         source_label="Folder",
     )
-    draft_id = created["draft_id"]
+    draft_id = created.draft_id
     with pytest.raises(PdfImportDraftError, match="ignored system file"):
         service.append_manifest(
             project_id,
@@ -827,7 +830,7 @@ def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
                 },
             ],
         )
-    assert service.status(project_id, draft_id)["manifest"]["files_done"] == 0
+    assert service.status(project_id, draft_id).manifest.files_done == 0
 
     admitted = service.append_manifest(
         project_id,
@@ -843,7 +846,7 @@ def test_junk_manifest_is_rejected_atomically_without_consuming_ordinals(
             for occurrence_id in ("one", "two")
         ],
     )
-    assert admitted["manifest"]["files_done"] == 2
+    assert admitted.manifest.files_done == 2
     directory = workspace.root / ".pdf_import_drafts" / draft_id
     with PdfDraftInventory(directory / "inventory.db") as inventory:
         assert [
@@ -930,11 +933,11 @@ def test_page_uses_current_ocr_engine_and_settings_cache(
                 {"text": text, "blocks": [], "ocr_action_params": params},
             )
 
-    assert service.page(project_id, draft_id, "one", 1)["ocr_text"] == "rapid text"
+    assert service.page(project_id, draft_id, "one", 1).ocr_text == "rapid text"
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
         ocr_policy="all",
         ocr_selection={
             "kind": "engine_model",
@@ -945,11 +948,11 @@ def test_page_uses_current_ocr_engine_and_settings_cache(
         semantic_setup_confirmation=None,
         destination={"kind": "new", "sheet_name": "PDFs"},
     )
-    assert status["choices"]["ocr_selection"]["engine"] == "llm"
+    assert status.choices.ocr_selection.engine == "llm"
     page = service.page(project_id, draft_id, "one", 1)
-    assert page["ocr_text"] == "llm text"
+    assert page.ocr_text == "llm text"
     # The page names the reviewed choice the cached text was read under.
-    assert page["ocr_action_params"] == {
+    assert page.ocr_action_params == {
         "engine": "llm",
         "model": "openai/gpt-4.1-mini",
     }
@@ -971,11 +974,11 @@ def test_failed_first_freeze_removes_unpublished_projection(
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
         ocr_policy="none",
         ocr_selection={"kind": "engine", "engine": "rapidocr"},
         semantic_search=True,
-        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
+        semantic_setup_confirmation=status.semantic_setup.confirmation_hash,
         destination={"kind": "new", "sheet_name": "PDFs"},
     )
     original_projection = PdfDraftInventory.initialize_commit_projection
@@ -992,10 +995,10 @@ def test_failed_first_freeze_removes_unpublished_projection(
             project_id,
             draft_id,
             idempotency_key="freeze-failure",
-            expected_revision=status["revision"],
+            expected_revision=status.revision,
         )
     directory = workspace.root / ".pdf_import_drafts" / draft_id
-    assert service.status(project_id, draft_id)["state"] == "open"
+    assert service.status(project_id, draft_id).state == "open"
     with sqlite3.connect(directory / "inventory.db") as db:
         assert db.execute("SELECT COUNT(*) FROM pdf_commit_projection").fetchone() == (
             0,
@@ -1012,7 +1015,7 @@ def test_reselection_preserves_duplicate_occurrences(
         expected_bytes=2 * len(PDF),
         source_label=None,
     )
-    draft_id = created["draft_id"]
+    draft_id = created.draft_id
     service.append_manifest(
         project_id,
         draft_id,
@@ -1044,7 +1047,7 @@ def test_reselection_preserves_duplicate_occurrences(
             },
         ],
     )
-    assert [item["occurrence_id"] for item in reconciled["items"]] == ["one", "two"]
+    assert [item.occurrence_id for item in reconciled.items] == ["one", "two"]
 
 
 def test_single_pdf_uses_shared_organization_choices(tmp_path, monkeypatch):
@@ -1052,21 +1055,24 @@ def test_single_pdf_uses_shared_organization_choices(tmp_path, monkeypatch):
     status = service.create(
         project_id, expected_files=1, expected_bytes=len(PDF), source_label="One PDF"
     )
-    assert status["choices"]["organization"] == "keep_documents"
+    assert status.choices.organization == "keep_documents"
     changed = service.update_choices(
         project_id,
-        status["draft_id"],
-        expected_revision=status["revision"],
-        **{**status["choices"], "organization": "pages"},
+        status.draft_id,
+        expected_revision=status.revision,
+        **{**status.choices.model_dump(mode="json"), "organization": "pages"},
     )
-    assert changed["choices"]["organization"] == "pages"
+    assert changed.choices.organization == "pages"
     assert workspace.get(project_id).sheets() == []
     with pytest.raises(PdfImportDraftError, match="organization"):
         service.update_choices(
             project_id,
-            status["draft_id"],
-            expected_revision=changed["revision"],
-            **{**changed["choices"], "organization": "merge_everything"},
+            status.draft_id,
+            expected_revision=changed.revision,
+            **{
+                **changed.choices.model_dump(mode="json"),
+                "organization": "merge_everything",
+            },
         )
 
 
@@ -1075,7 +1081,7 @@ def test_reviewed_pdf_sources_borrow_staging_until_discard(tmp_path, monkeypatch
     status = service.create(
         project_id, expected_files=1, expected_bytes=len(PDF), source_label=None
     )
-    draft_id = status["draft_id"]
+    draft_id = status.draft_id
     service.append_manifest(
         project_id,
         draft_id,
@@ -1099,20 +1105,20 @@ def test_reviewed_pdf_sources_borrow_staging_until_discard(tmp_path, monkeypatch
         batch_id="one",
     )
     status = service.analyze_staged(project_id, draft_id)
-    sources = service.reviewed_sources(project_id, draft_id, status["revision"])
+    sources = service.reviewed_sources(project_id, draft_id, status.revision)
     assert [(s.key, s.filename, s.page_start, s.page_end) for s in sources] == [
         ("one", "one.pdf", 1, 4)
     ]
     with sources[0].open_source() as path:
         assert path.read_bytes() == PDF
     with pytest.raises(PdfImportDraftError, match="changed"):
-        service.reviewed_sources(project_id, draft_id, status["revision"] - 1)
+        service.reviewed_sources(project_id, draft_id, status.revision - 1)
     with sources[0].open_source() as pinned:
         with ThreadPoolExecutor(max_workers=1) as pool:
             discarded = pool.submit(service.discard, project_id, draft_id).result(
                 timeout=2
             )
-        assert discarded["state"] == "cancelled"
+        assert discarded.state == "cancelled"
         assert pinned.read_bytes() == PDF
     assert not pinned.exists()
     with pytest.raises(PdfImportDraftError, match="available"):
@@ -1137,11 +1143,11 @@ def test_organization_summary_counts_child_rows_and_omits_matched_sources(
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
-        **{**status["choices"], "organization": "pages"},
+        expected_revision=status.revision,
+        **{**status.choices.model_dump(mode="json"), "organization": "pages"},
     )
-    summary = status["organization_summary"]
-    assert (summary["pdf_count"], summary["page_count"], summary["output_rows"]) == (
+    summary = status.organization_summary
+    assert (summary.pdf_count, summary.page_count, summary.output_rows) == (
         2,
         8,
         8,
@@ -1149,32 +1155,32 @@ def test_organization_summary_counts_child_rows_and_omits_matched_sources(
     directory = workspace.root / ".pdf_import_drafts" / draft_id
     with PdfDraftInventory(directory / "inventory.db") as inventory:
         inventory.mark_matches(["one"])
-    summary = service.status(project_id, draft_id)["organization_summary"]
-    assert summary["category_rows"] == {"missing": 8}
-    assert summary["new_category_rows"] == {"missing": 4}
-    assert summary["new_output_rows"] == 4
+    summary = service.status(project_id, draft_id).organization_summary
+    assert summary.category_rows == {"missing": 8}
+    assert summary.new_category_rows == {"missing": 4}
+    assert summary.new_output_rows == 4
     with pytest.raises(PdfImportDraftError, match="organization changed"):
         service.reviewed_sources(
-            project_id, draft_id, status["revision"], "split_documents"
+            project_id, draft_id, status.revision, "split_documents"
         )
     status = service.update_choices(
         project_id,
         draft_id,
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
         **{
-            **status["choices"],
+            **status.choices.model_dump(mode="json"),
             "organization": "split_documents",
             "split_starts": {"one": [1, 3], "two": [1]},
         },
     )
-    assert status["organization_summary"]["output_rows"] == 3
-    assert status["organization_summary"]["new_output_rows"] == 1
+    assert status.organization_summary.output_rows == 3
+    assert status.organization_summary.new_output_rows == 1
     with pytest.raises(PdfImportDraftError, match="page order"):
         service.update_choices(
             project_id,
             draft_id,
-            expected_revision=status["revision"],
-            **{**status["choices"], "split_starts": {"one": [2]}},
+            expected_revision=status.revision,
+            **{**status.choices.model_dump(mode="json"), "split_starts": {"one": [2]}},
         )
 
 
@@ -1199,7 +1205,7 @@ def test_matched_pdfs_do_not_use_interactive_review_capacity(tmp_path, monkeypat
         },
     )
     status = service.adopt_staged(project_id, staged, entries)
-    draft_id = status["draft_id"]
+    draft_id = status.draft_id
     status = service.analyze_staged(project_id, draft_id)
     with PdfDraftInventory(
         workspace.root / ".pdf_import_drafts" / draft_id / "inventory.db"
@@ -1207,9 +1213,9 @@ def test_matched_pdfs_do_not_use_interactive_review_capacity(tmp_path, monkeypat
         first = inventory.staged_page(after=0, limit=1)[0]["occurrence_id"]
         inventory.mark_matches([first])
     status = service.status(project_id, draft_id)
-    assert status["organization_summary"]["page_count"] == 2001
-    assert status["organization_summary"]["split_supported"] is True
-    sources = service.reviewed_sources(project_id, draft_id, status["revision"])
+    assert status.organization_summary.page_count == 2001
+    assert status.organization_summary.split_supported is True
+    sources = service.reviewed_sources(project_id, draft_id, status.revision)
     assert [(source.filename, source.page_count) for source in sources] == [
         ("new.pdf", 2)
     ]
@@ -1243,7 +1249,7 @@ def test_list_surfaces_a_draft_whose_status_does_not_validate(
     workspace, project_id, service = _service(tmp_path, monkeypatch)
     healthy, _ = _declared(service, project_id)
     broken, _ = _declared(service, project_id)
-    assert {item["draft_id"] for item in service.list(project_id)} == {healthy, broken}
+    assert {item.draft_id for item in service.list(project_id)} == {healthy, broken}
     manifest = workspace.root / ".pdf_import_drafts" / broken / "manifest.json"
     header = json.loads(manifest.read_text())
     header["choices"]["ocr_policy"] = "sometimes"
@@ -1251,4 +1257,4 @@ def test_list_surfaces_a_draft_whose_status_does_not_validate(
     with pytest.raises(ValueError, match="ocr_policy"):
         service.list(project_id)
     manifest.unlink()
-    assert [item["draft_id"] for item in service.list(project_id)] == [healthy]
+    assert [item.draft_id for item in service.list(project_id)] == [healthy]

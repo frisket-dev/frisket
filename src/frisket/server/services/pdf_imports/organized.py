@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+from frisket.contracts.http.pdf_imports import PdfImportBatchOcrState
 from frisket.contracts.http.pdf_packet_splits import PdfPacketDestination
 from frisket.pdf_packets.source_map import SourceMap, SourceOccurrence
 from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrConsentError
@@ -122,7 +123,7 @@ def prepare_page_estimate(
 
 def estimate_pages(
     service, project_id, directory, header, inventory, *, request_context=None
-):
+) -> PdfImportBatchOcrState:
     _coordinator, holder, _sources, _cached = prepare_page_estimate(
         service,
         project_id,
@@ -159,7 +160,7 @@ def estimate_pages(
         "needs_confirmation": bool(estimate.get("requires_confirmation")),
     }
     service._save(directory, header)
-    return dict(header["batch_ocr"])
+    return PdfImportBatchOcrState.model_validate(header["batch_ocr"])
 
 
 def approve_pages(
