@@ -2,6 +2,7 @@
 """Run the Python suite: one full run per machine, failures classified.
 
   suite.py [--wait] [--known FILE]            full suite, machine-wide lock
+           [--stall-minutes N] [--memory-max SIZE]
   suite.py -- tests/engine -k foo             targeted run, no lock, -n <= 4
 
 The full suite takes an exclusive lock file (pid + worktree) under the user
@@ -10,6 +11,14 @@ whose pid is no longer alive is stale and is taken over. Workers are sized
 from CPU count minus the current load average (at most 8; targeted at most 4);
 a full run never drops below 4 workers (half the CPUs on small machines, at
 least 2), because a starved single worker takes hours.
+
+A full run also has two guards (targeted runs have neither). ``--stall-minutes
+N`` (default 20, 0 disables) terminates the pytest process group when its log
+has not grown for N minutes, prints "stalled: no output for N minutes" with the
+last output line, and exits 5. ``--memory-max SIZE`` (such as ``11G``; default
+70% of physical memory, 0 disables) starts pytest under ``systemd-run --user
+--scope -p MemoryMax=SIZE`` on Linux; when ``systemd-run`` or the user manager
+is unavailable the run proceeds uncapped and one line says so.
 
 Tests run on the main checkout's ``.venv`` with ``PYTHONPATH=<worktree>/src``,
 so this works unchanged from any lane worktree. Output is teed to a log, and
@@ -24,8 +33,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 import xml.etree.ElementTree as ElementTree
 from dataclasses import dataclass, field
@@ -39,6 +51,10 @@ FULL_CAP = 8
 TARGETED_CAP = 4
 WAIT_SECONDS = 15
 KNOWN_DEFAULT = Path("scripts/dev/known_local_failures.txt")
+STALL_MINUTES_DEFAULT = 20.0
+STALL_EXIT = 5
+MEMORY_FRACTION = 0.7
+SIZE_UNITS = {"K": 2**10, "M": 2**20, "G": 2**30, "T": 2**40}
 PYTEST_FLAGS = ("-q", "--dist", "loadfile", "-p", "no:cacheprovider", "-rfE")
 
 
@@ -210,23 +226,152 @@ def report(
     return "\n".join(lines)
 
 
-def tee(command: list[str], *, cwd: Path, env: dict, log: Path) -> int:
+class StallWatch:
+    """Reports a stall once the observed log state is unchanged for ``seconds``."""
+
+    def __init__(self, seconds: float, clock: Callable[[], float] = time.monotonic):
+        self.seconds = seconds
+        self.clock = clock
+        self.state: object = None
+        self.changed = clock()
+
+    def stalled(self, state: object) -> bool:
+        if state != self.state:
+            self.state, self.changed = state, self.clock()
+        return self.clock() - self.changed >= self.seconds
+
+
+def parse_size(text: str) -> int:
+    """Bytes in a size such as ``11G``, ``512M`` or a plain byte count."""
+    text = text.strip().upper().removesuffix("B")
+    unit = SIZE_UNITS.get(text[-1:], 1)
+    number = text[:-1] if text[-1:] in SIZE_UNITS else text
+    return int(float(number) * unit)
+
+
+def memory_limit(requested: Optional[str], physical: Optional[int]) -> int:
+    """Bytes for MemoryMax; 0 means no cap."""
+    if requested is not None:
+        return parse_size(requested)
+    return int(physical * MEMORY_FRACTION) if physical else 0
+
+
+def physical_memory() -> Optional[int]:
+    try:
+        return os.sysconf("SC_PHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def user_scope_available() -> bool:
+    if not sys.platform.startswith("linux") or not shutil.which("systemd-run"):
+        return False
+    try:
+        probe = subprocess.run(
+            ["systemd-run", "--user", "--scope", "--collect", "--quiet", "true"],
+            capture_output=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
+
+
+def with_memory_cap(
+    command: list[str], limit: int, available: Callable[[], bool] = user_scope_available
+) -> tuple[list[str], str]:
+    """The command under a systemd scope capped at ``limit`` bytes, and a note."""
+    if limit <= 0:
+        return command, "memory cap: off (disabled)"
+    if not available():
+        return (
+            command,
+            "memory cap: off (systemd-run or the user manager is unavailable)",
+        )
+    capped = [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--collect",
+        "--quiet",
+        "-p",
+        f"MemoryMax={limit}",
+        *command,
+    ]
+    return capped, f"memory cap: MemoryMax={limit / 2**30:.1f}G"
+
+
+def stop_group(process: subprocess.Popen, grace: float = 10.0) -> None:
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=grace)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def tee(
+    command: list[str],
+    *,
+    cwd: Path,
+    env: dict,
+    log: Path,
+    stall_seconds: float = 0,
+    poll_seconds: float = 30,
+) -> tuple[int, Optional[str]]:
+    """Run and tee the command; (status, last line) when the stall watchdog fired.
+
+    The command runs in its own process group so a stall or Ctrl-C ends every
+    worker. With ``stall_seconds`` > 0 the log's size and mtime are polled; a
+    log that stops changing for that long terminates the group.
+    """
+    stalled = threading.Event()
+    last = ""
     with (
-        log.open("w") as sink,
+        log.open("w", buffering=1) as sink,
         subprocess.Popen(
             command,
             cwd=cwd,
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True,
+            start_new_session=True,
         ) as process,
     ):
         assert process.stdout is not None
-        for line in process.stdout:
-            sys.stdout.write(line)
-            sink.write(line)
-    return process.returncode
+        done = threading.Event()
+
+        def watch() -> None:
+            watch_state = StallWatch(stall_seconds)
+            while not done.wait(poll_seconds):
+                info = log.stat()
+                if watch_state.stalled((info.st_size, info.st_mtime_ns)):
+                    stalled.set()
+                    stop_group(process)
+                    return
+
+        watcher = threading.Thread(target=watch, daemon=True)
+        if stall_seconds > 0:
+            watcher.start()
+        fd = process.stdout.fileno()
+        try:
+            while chunk := os.read(fd, 65536):
+                text = chunk.decode(errors="replace")
+                sys.stdout.write(text)
+                sink.write(text)
+                lines = [line for line in text.splitlines() if line.strip()]
+                last = lines[-1] if lines else last
+        except KeyboardInterrupt:
+            stop_group(process)
+            raise
+        finally:
+            done.set()
+        process.wait()
+    return process.returncode, (last or "(no output)") if stalled.is_set() else None
 
 
 def acquire(path: Path, worktree: Path, *, wait: bool) -> bool:
@@ -260,6 +405,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument(
         "-n", type=int, dest="workers", help="override the worker count"
+    )
+    parser.add_argument(
+        "--stall-minutes",
+        type=float,
+        default=STALL_MINUTES_DEFAULT,
+        help="full run: terminate pytest after this many minutes without output "
+        "(default 20; 0 disables)",
+    )
+    parser.add_argument(
+        "--memory-max",
+        help="full run: MemoryMax for pytest, such as 11G (default: 70%% of "
+        "physical memory; 0 disables)",
     )
     parser.add_argument(
         "pytest_args", nargs="*", help="after --: a targeted pytest selection"
@@ -326,13 +483,31 @@ def main(argv: Optional[list[str]] = None) -> int:
             "junit_family=xunit1",
             *args.pytest_args,
         ]
+        if not targeted:
+            command, note = with_memory_cap(
+                command, memory_limit(args.memory_max, physical_memory())
+            )
+            print(f"suite.py: {note}", flush=True)
         env = {**os.environ, "PYTHONPATH": str(worktree / "src")}
         print(f"suite.py: {' '.join(command)}\nsuite.py: log {log}", flush=True)
-        status = tee(command, cwd=worktree, env=env, log=log)
+        status, stall = tee(
+            command,
+            cwd=worktree,
+            env=env,
+            log=log,
+            stall_seconds=0 if targeted else args.stall_minutes * 60,
+        )
     finally:
         if not targeted:
             release_lock(lock)
 
+    if stall is not None:
+        print(
+            f"suite.py: stalled: no output for {args.stall_minutes:g} minutes; "
+            f"terminated pytest. Last line: {stall}\nsuite.py: log {log}",
+            file=sys.stderr,
+        )
+        return STALL_EXIT
     if status not in (0, 1) or not junit.is_file():
         print(f"suite.py: pytest exited {status} without a classifiable run; see {log}")
         return status or 2

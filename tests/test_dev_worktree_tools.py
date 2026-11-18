@@ -756,3 +756,176 @@ def test_land_wait_names_the_ejecting_check_and_flags_infrastructure(
     [view] = runner.ran("gh", "run", "view")
     assert runner.calls[view][0][3] == "41"
     assert _mutations(runner) == [QUEUE_MERGE]
+
+
+def test_blocked_merge_state_waits_when_the_pr_has_a_queue_entry():
+    queued = _pr(queue=True, merge_state="BLOCKED", entry=_entry(2))
+    assert land.merge_gate(queued) == "ok"
+    with pytest.raises(land.LandStop, match="branch protection"):
+        land.merge_gate(_pr(queue=True, merge_state="BLOCKED"))
+
+
+def test_land_wait_keeps_waiting_while_blocked_behind_another_queue_entry():
+    runner = _github(
+        _pr(queue=True, merge_state="BLOCKED", entry=_entry(2)),
+        _pr(queue=True, merge_state="BLOCKED", entry=_entry(1)),
+        _pr(queue=True, state="MERGED"),
+    )
+    assert _land(runner, wait=True) == 0
+    assert not runner.ran("gh", "pr", "merge")
+
+
+class _FlakyPolls:
+    """Fails the first graphql polls after the initial read with a gh error."""
+
+    def __init__(self, inner: FakeRunner, stderr: str, failures: int):
+        self.inner, self.stderr, self.failures = inner, stderr, failures
+        self.graphql_calls = 0
+
+    def __call__(self, args, *, cwd=None, check=True, env=None):
+        if list(args[:3]) == ["gh", "api", "graphql"]:
+            self.graphql_calls += 1
+            if self.graphql_calls > 2 and self.failures > 0:
+                self.failures -= 1
+                raise subprocess.CalledProcessError(1, args, "", self.stderr)
+        return self.inner(args, cwd=cwd, check=check, env=env)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def _polled(stderr: str, failures: int) -> tuple[_FlakyPolls, list[float]]:
+    pauses: list[float] = []
+    runner = _FlakyPolls(
+        _github(
+            _pr(queue=True),
+            _pr(queue=True, entry=_entry(1)),
+            _pr(queue=True, entry=_entry(1)),
+            _pr(queue=True, state="MERGED"),
+        ),
+        stderr,
+        failures,
+    )
+    return runner, pauses
+
+
+def _wait(runner, pauses: list[float]) -> int:
+    return land.Lander(
+        runner,
+        repo="owner/repo",
+        remote="origin",
+        dry_run=False,
+        number=7,
+        wait=True,
+        sleep=pauses.append,
+        poll_seconds=1,
+        timeout_seconds=50,
+    ).land()
+
+
+def test_land_wait_retries_a_transient_network_error_during_polling():
+    runner, pauses = _polled("error connecting to api.github.com", 2)
+    assert _wait(runner, pauses) == 0
+    assert pauses.count(land.RETRY_PAUSE_SECONDS) == 2
+
+
+def test_land_wait_gives_up_after_bounded_transient_retries():
+    runner, pauses = _polled("dial tcp: i/o timeout", 99)
+    with pytest.raises(land.LandStop, match="timeout"):
+        _wait(runner, pauses)
+    assert pauses.count(land.RETRY_PAUSE_SECONDS) == land.POLL_RETRIES - 1
+
+
+def test_land_wait_stops_at_once_on_a_real_api_error():
+    runner, pauses = _polled("HTTP 401: Bad credentials", 1)
+    with pytest.raises(land.LandStop, match="Bad credentials"):
+        _wait(runner, pauses)
+    assert land.RETRY_PAUSE_SECONDS not in pauses
+
+
+# ---------- suite.py watchdog and memory cap ----------
+
+
+def test_stall_watch_fires_only_after_the_log_state_stops_changing():
+    now = [0.0]
+    watch = suite.StallWatch(60, clock=lambda: now[0])
+    assert not watch.stalled((10, 1))
+    now[0] = 50
+    assert not watch.stalled((10, 1))
+    now[0] = 55
+    assert not watch.stalled((20, 2))
+    now[0] = 114
+    assert not watch.stalled((20, 2))
+    now[0] = 115
+    assert watch.stalled((20, 2))
+
+
+def test_tee_terminates_a_silent_process_and_reports_the_last_line(tmp_path):
+    # realtime: the child must outlive the stall window for the watchdog to end it
+    script = "import time; print('tests/a.py::test_x', flush=True); time.sleep(30)"
+    log = tmp_path / "run.log"
+    status, last = suite.tee(
+        # subprocess-boundary: the watchdog terminates a real process group
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env={},
+        log=log,
+        stall_seconds=0.4,
+        poll_seconds=0.1,
+    )
+    assert status != 0
+    assert last == "tests/a.py::test_x"
+    assert "test_x" in log.read_text()
+
+
+def test_tee_without_a_stall_returns_the_exit_status(tmp_path):
+    status, last = suite.tee(
+        # subprocess-boundary: tee reports a real child's exit status
+        [sys.executable, "-c", "print('ok')"],
+        cwd=tmp_path,
+        env={},
+        log=tmp_path / "run.log",
+        stall_seconds=5,
+        poll_seconds=0.1,
+    )
+    assert (status, last) == (0, None)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("11G", 11 * 2**30), ("512m", 512 * 2**20), ("1024", 1024), ("0", 0)],
+)
+def test_parse_size(text, expected):
+    assert suite.parse_size(text) == expected
+
+
+def test_memory_limit_defaults_to_seventy_percent_of_physical_memory():
+    assert suite.memory_limit(None, 1000) == 700
+    assert suite.memory_limit("2G", 1000) == 2 * 2**30
+    assert suite.memory_limit("0", 1000) == 0
+    assert suite.memory_limit(None, None) == 0
+
+
+def test_memory_cap_wraps_the_command_in_a_user_scope():
+    command, note = suite.with_memory_cap(["pytest"], 4096, lambda: True)
+    assert command == [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--collect",
+        "--quiet",
+        "-p",
+        "MemoryMax=4096",
+        "pytest",
+    ]
+    assert "MemoryMax=4096" in note or "MemoryMax=" in note
+
+
+def test_memory_cap_is_off_when_disabled_or_systemd_is_unavailable():
+    assert suite.with_memory_cap(["pytest"], 0, lambda: True) == (
+        ["pytest"],
+        "memory cap: off (disabled)",
+    )
+    command, note = suite.with_memory_cap(["pytest"], 4096, lambda: False)
+    assert command == ["pytest"]
+    assert note.startswith("memory cap: off")
