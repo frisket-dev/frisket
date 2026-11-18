@@ -50,6 +50,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from frisket.contracts.http.diagnostics import DiagnosticsReport
+from frisket.server.services.pdf_imports.storage import unreadable_drafts_report
 from frisket.server.workspace import Workspace
 
 
@@ -82,7 +83,10 @@ def register_diagnose_routes(
     def diagnose() -> dict:
         # No project parameter of any kind: there is nothing here for a caller
         # to name past the gate.
-        return _run(None, None)
+        report = _run(None, None)
+        # Workspace-wide, so never part of a project's diagnostics.
+        report["info"]["import_drafts"] = unreadable_drafts_report(workspace.root)
+        return report
 
     @app.get("/api/projects/{pid}/diagnose", response_model=DiagnosticsReport)
     def project_diagnose(pid: str) -> dict:

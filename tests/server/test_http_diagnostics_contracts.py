@@ -85,7 +85,17 @@ def test_diagnose_routes_preserve_open_json_and_project_path_decoding(
     }
     assert workspace_response.status_code == 200, workspace_response.text
     assert project_response.status_code == 200, project_response.text
-    assert workspace_response.json() == expected
+    # Only the workspace report counts drafts that no project can list.
+    assert workspace_response.json() == {
+        **expected,
+        "info": {
+            **expected["info"],
+            "import_drafts": {
+                "unreadable": 0,
+                "summary": "every import draft can be read",
+            },
+        },
+    }
     assert project_response.json() == expected
     assert workspace.projects == ["project id%"]
     assert calls == [(None, None), ({"id": "project id%"}, "project id%")]

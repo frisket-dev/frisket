@@ -1470,3 +1470,14 @@ def test_pages_read_on_this_machine_leave_one_receipt_for_their_pass(flow):
         ).fetchone()[0]
         == 1
     )
+
+
+def test_workspace_diagnostics_count_drafts_no_project_can_list(flow):
+    client, pid, _provider = flow
+    draft = _draft(client, pid, [("scan.pdf", _blank_pdf(300))])
+    root = client.app.state.workspace.root / ".pdf_import_drafts"
+    (root / draft.rsplit("/", 1)[1] / "manifest.json").write_text("{not json")
+    report = client.get("/api/diagnose").json()["info"]["import_drafts"]
+    assert report["unreadable"] == 1
+    project = client.get(f"/api/projects/{pid}/diagnose").json()["info"]
+    assert "import_drafts" not in project

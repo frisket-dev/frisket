@@ -25,6 +25,7 @@ from frisket.server.services.pdf_packet_ocr import packet_ocr_params
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
 from frisket.server.services.pdf_imports.analysis import analyze_pdf
 from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
+from frisket.server.services.pdf_imports.storage import unreadable_drafts_report
 from frisket.server.services.pdf_imports.previews import (
     preview_settings,
     read_native_page,
@@ -1271,8 +1272,6 @@ def test_list_reports_a_draft_that_does_not_validate_beside_healthy_drafts(
 def test_a_draft_with_no_readable_owner_is_logged_once_and_counted_for_the_operator(
     tmp_path: Path, monkeypatch, caplog
 ) -> None:
-    from frisket.operability.diagnostics import run_diagnostics
-
     workspace, project_id, service = _service(tmp_path, monkeypatch)
     healthy, _ = _declared(service, project_id)
     unknown, _ = _declared(service, project_id)
@@ -1285,6 +1284,7 @@ def test_a_draft_with_no_readable_owner_is_logged_once_and_counted_for_the_opera
             assert listed.unreadable == []
     logged = [r for r in caplog.records if r.getMessage() == "pdf_draft_unreadable"]
     assert len(logged) == 1
-    report = run_diagnostics(workspace_root=workspace.root)["info"]["import_drafts"]
-    assert report["unreadable"] == 1
-    assert report["summary"] == "1 import draft(s) could not be read"
+    assert unreadable_drafts_report(workspace.root) == {
+        "unreadable": 1,
+        "summary": "1 import draft(s) could not be read",
+    }

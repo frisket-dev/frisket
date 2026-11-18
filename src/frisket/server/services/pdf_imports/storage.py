@@ -215,19 +215,29 @@ def draft_owner(header: Any) -> tuple[str, str]:
     return project_id, storage_identity
 
 
-def unreadable_draft_count(workspace_root: Path) -> int:
-    """Drafts whose header cannot be read well enough to name their owner."""
-    count = 0
-    for path in (Path(workspace_root) / ".pdf_import_drafts").glob(
-        "pdf-*/manifest.json"
-    ):
+def unreadable_drafts_report(workspace_root: Path) -> dict[str, Any]:
+    """Import drafts whose header no longer names its project.
+
+    No project lists them, since they may belong to any project, so the
+    workspace diagnostics are where an operator finds them.
+    """
+    unreadable = 0
+    drafts = Path(workspace_root) / ".pdf_import_drafts"
+    for path in drafts.glob("pdf-*/manifest.json"):
         try:
             draft_owner(json.loads(path.read_text("utf-8")))
         except FileNotFoundError:
             continue
         except (OSError, ValueError, KeyError, TypeError):
-            count += 1
-    return count
+            unreadable += 1
+    return {
+        "unreadable": unreadable,
+        "summary": (
+            f"{unreadable} import draft(s) could not be read"
+            if unreadable
+            else "every import draft can be read"
+        ),
+    }
 
 
 def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
@@ -248,7 +258,7 @@ def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
 __all__ = [
     "PdfDraftStore",
     "draft_owner",
-    "unreadable_draft_count",
+    "unreadable_drafts_report",
     "PdfImportDraftError",
     "SCHEMA_VERSION",
     "now",
