@@ -452,10 +452,13 @@ Parallel work happens in git worktrees that share the main checkout's
   fast-forwarded, then the lane worktree and branches removed. `--dry-run`
   prints the plan. With a merge queue the merge command enqueues the PR
   (`--auto`) and a behind branch is left alone; the script exits 4 with the
-  queue position, and `--wait` polls until the PR is MERGED (then it
-  fast-forwards and cleans up) or leaves the queue (it names the failing
-  check, exit 1). Without a queue a behind branch is updated and the script
-  exits 3. Re-running on an already-queued or already-merged PR resumes.
+  queue position. Pending checks stop the script (exit 1), except that
+  `--wait` requests auto-merge anyway and polls until the PR is MERGED (then
+  it fast-forwards and cleans up), a required check fails, the PR conflicts
+  with its base, or it leaves the queue (it names the failing check, and
+  says when its log shows a dependency download or network timeout; exit 1).
+  Without a queue a behind branch is updated and the script exits 3.
+  Re-running on an already-queued or already-merged PR resumes.
 
 #### Smell reservoir
 

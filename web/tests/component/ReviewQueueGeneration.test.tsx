@@ -103,6 +103,18 @@ it.each([true, false])('reapplies saved results into new columns with retry capa
   await waitFor(() => expect(changed).toHaveBeenCalled());
 });
 
+it('says when a requested run has no results to review', async () => {
+  const listReviewRuns = vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
+    schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 0,
+    hasMore: false, nextOffset: null, runs: [],
+  });
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReviewQueue onClose={vi.fn()} onChanged={vi.fn()} runId="12" />
+  </WorkspaceStoresContext.Provider>);
+  expect(await screen.findByRole('alert')).toHaveTextContent('Run #12 has no results to review.');
+  expect(listReviewRuns).toHaveBeenCalledWith(0, 1, { runId: '12' });
+});
+
 function mount(onClose = vi.fn(), reviewOptions = options) {
   return render(<WorkspaceStoresContext.Provider value={stores}>
     <ReviewSession runId="9" options={reviewOptions} onChanged={vi.fn()} onClose={onClose}

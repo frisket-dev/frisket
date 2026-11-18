@@ -58,9 +58,8 @@ paid or external runs.
 - Money/consent code carries facts by value end to end; a bare
   `confirmed` boolean is never consent. Changes on that seam ship a
   regression that fails when a consumer drops one of those facts.
-- After this pre-public follow-up round, schema changes require data-preserving
-  migrations; reset or reseed only during explicitly authorized maintenance,
-  never as a routine upgrade.
+- Schema changes require data-preserving migrations; reset or reseed only
+  during explicitly authorized maintenance, never as a routine upgrade.
 - Prefer deleting dead code over commenting it out; a change that only
   adds is worth a second look. (gate: check_dead_symbols.py)
 - A path that supersedes another deletes the old one in the same change;

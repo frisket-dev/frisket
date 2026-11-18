@@ -40,7 +40,7 @@ COUNTRIES_CSV = "country\n" + "\n".join(
 COUNCIL_AUDIO_PROJECT_NAME = "Council audio"
 COUNCIL_AUDIO_SAMPLE = SAMPLE_COUNCIL_AUDIO[0]
 
-MODEL = "gemini/gemini-2.5-flash"
+MODEL = "gemini/gemini-3.5-flash-lite"
 
 
 def action_key(kind: str, params: dict, row_scope: dict | None = None) -> str:

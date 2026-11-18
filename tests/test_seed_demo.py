@@ -7,6 +7,7 @@ import pytest
 
 from frisket.actions.registry import NEW_ACTION_IDS
 from frisket.actions.system import validate_root_action
+from frisket.ai.llm.pricing import model_pricing
 from scripts.e2e import seed_demo
 
 
@@ -488,6 +489,9 @@ def test_demo_emitted_actions_pass_real_root_validation(
         assert validated.ok, (action_id, validated.error)
         if action_id == "research.web_search":
             assert payload["params"]["model"] == seed_demo.MODEL
+        model = payload["params"].get("model")
+        if model is not None:
+            assert model_pricing(model).price is not None, (action_id, model)
         assert ("action_id" in payload) == (action_id in NEW_ACTION_IDS)
         emitted.append(action_id)
         return httpx.Response(200, json={"status": "completed", "run_id": None})

@@ -181,6 +181,51 @@ class TestRunsAndPointers:
         assert json.loads(call["model_ids"]) == ["parakeet-tdt"]
         assert json.loads(call["units"]) == {"audio_seconds": 1.0}
 
+    def test_model_calls_recorded_in_one_second_keep_their_recorded_order(
+        self, project
+    ):
+        sheet, _ = make_sheet(project, 1)
+        out_col = project.add_column(sheet, "label", ai_generated=True)
+        op = project.append_op("map")
+        run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=1)
+        rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
+        recorded = ["call-d", "call-a", "call-c", "call-b"]
+        write_claimed_test_results(
+            project,
+            run,
+            [
+                {
+                    "row_id": rid,
+                    "column_id": out_col,
+                    "value": "x",
+                    "model_calls": [
+                        {
+                            "id": call_id,
+                            "fact_version": "frisket.model-call-fact.v1",
+                            "capability": "classify",
+                            "engine": "fixture",
+                            "provider": "fixture",
+                            "provider_kind": "test",
+                            "credential_source": "platform_key",
+                            "provider_cost_usd": 0.001,
+                        }
+                        for call_id in recorded
+                    ],
+                }
+            ],
+        )
+        project.db.execute(
+            "UPDATE model_calls SET created_at='2026-01-01 00:00:00' WHERE run_id=?",
+            (run,),
+        )
+        store = RunResultStore(project)
+        assert [call["id"] for call in store.model_calls(run)] == recorded
+        assert [call["id"] for call in store.model_calls()] == recorded
+        cost = project.db.execute(
+            "SELECT cost_actual FROM runs WHERE id=?", (run,)
+        ).fetchone()[0]
+        assert cost == pytest.approx(0.004)
+
     def test_rerun_creates_new_version_old_kept(self, project):
         sheet, _ = make_sheet(project, 2)
         out_col = project.add_column(sheet, "label", ai_generated=True)

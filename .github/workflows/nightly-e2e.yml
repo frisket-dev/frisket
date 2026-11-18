@@ -37,6 +37,7 @@ env:
   # been reconciled with a run on this runner (CONTRIBUTING.md, Browser suite).
   E2E_KNOWN_FAILURES_ENFORCE: "false"
   SHARDS: "4"
+  UV_HTTP_TIMEOUT: "120"
 
 jobs:
   # A scheduled night is skipped when main has not moved since the last

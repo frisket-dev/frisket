@@ -311,6 +311,7 @@ def _pr(
     mergeable: str = "MERGEABLE",
     queue: bool = False,
     entry: dict | None = None,
+    auto: bool = False,
 ) -> dict:
     contexts = [_check("ci-pass")] if checks is None else checks
     return {
@@ -325,6 +326,7 @@ def _pr(
         "mergeStateStatus": merge_state,
         "mergeCommit": {"oid": MERGED} if state == "MERGED" else None,
         "mergeQueueEntry": entry,
+        "autoMergeRequest": {"enabledAt": "2026-01-01T00:00:00Z"} if auto else None,
         "_queue": queue,
         "commits": {
             "nodes": [
@@ -356,6 +358,7 @@ def _github(*states: dict) -> FakeRunner:
             ("gh", "pr", "merge"): (0, ""),
             ("gh", "pr", "update-branch"): (0, ""),
             ("gh", "run", "list"): (0, "[]"),
+            ("gh", "run", "view"): (0, ""),
             ("git", "worktree", "list"): (0, PORCELAIN),
             ("git", "worktree", "remove"): (0, ""),
             ("git", "symbolic-ref"): (0, "main"),
@@ -635,3 +638,121 @@ def test_land_without_a_queue_still_updates_a_behind_branch_and_merges_directly(
     direct = _github(_pr(), _pr(state="MERGED"))
     assert _land(direct, wait=True) == 0
     assert all("--auto" not in args for args in _mutations(direct))
+
+
+PENDING = [_check("deterministic-source", status="IN_PROGRESS", conclusion=None)]
+
+
+def test_land_without_wait_stops_on_pending_checks_and_says_pending():
+    runner = _github(_pr(queue=True, checks=PENDING, merge_state="BLOCKED"))
+    with pytest.raises(land.LandStop, match="still pending") as stop:
+        _land(runner)
+    assert "deterministic-source: in_progress" in str(stop.value)
+    assert "--wait" in str(stop.value)
+    assert stop.value.code == 1
+    assert _mutations(runner) == []
+
+
+def test_land_wait_queues_a_pending_pr_then_follows_it_to_merged():
+    runner = _github(
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED"),
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED", auto=True),
+        _pr(queue=True, auto=True),
+        _pr(queue=True, entry=_entry(1)),
+        _pr(queue=True, state="MERGED"),
+    )
+    assert _land(runner, wait=True) == 0
+    assert _mutations(runner) == [
+        QUEUE_MERGE,
+        ["git", "fetch", "origin", "main"],
+        ["git", "merge", "--ff-only", "origin/main"],
+        ["git", "worktree", "remove", str(LANE)],
+        ["git", "branch", "-D", "wt/lane"],
+        ["git", "push", "origin", "--delete", "wt/lane"],
+    ]
+
+
+def test_land_wait_does_not_request_auto_merge_twice():
+    runner = _github(
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED", auto=True),
+        _pr(queue=True, state="MERGED"),
+    )
+    assert _land(runner, wait=True) == 0
+    assert not runner.ran("gh", "pr", "merge")
+
+
+def test_land_wait_stops_when_a_pending_required_check_fails():
+    failed = [_check("deterministic-source", conclusion="FAILURE")]
+    runner = _github(
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED"),
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED", auto=True),
+        _pr(queue=True, checks=failed, merge_state="BLOCKED", auto=True),
+    )
+    with pytest.raises(land.LandStop, match="failed") as stop:
+        _land(runner, wait=True)
+    assert "deterministic-source: failure" in str(stop.value)
+    assert stop.value.code == 1
+    assert _mutations(runner) == [QUEUE_MERGE]
+
+
+def test_land_wait_stops_when_the_pr_starts_conflicting():
+    runner = _github(
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED"),
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED", auto=True),
+        _pr(queue=True, auto=True, mergeable="CONFLICTING", merge_state="DIRTY"),
+    )
+    with pytest.raises(land.LandStop, match="conflicts with its base") as stop:
+        _land(runner, wait=True)
+    assert stop.value.code == 1
+    assert _mutations(runner) == [QUEUE_MERGE]
+
+
+def test_land_wait_refuses_to_queue_a_conflicting_pending_pr():
+    runner = _github(
+        _pr(queue=True, checks=PENDING, mergeable="CONFLICTING", merge_state="DIRTY")
+    )
+    with pytest.raises(land.LandStop, match="conflicts with its base"):
+        _land(runner, wait=True)
+    assert _mutations(runner) == []
+
+
+@pytest.mark.parametrize(
+    ("log", "infrastructure"),
+    [
+        (
+            "error: Failed to download distribution due to network timeout. "
+            "Try increasing UV_HTTP_TIMEOUT (current value: 30s).",
+            True,
+        ),
+        ("FAILED tests/test_x.py::test_y - AssertionError", False),
+    ],
+    ids=["download-timeout", "test-failure"],
+)
+def test_land_wait_names_the_ejecting_check_and_flags_infrastructure(
+    log, infrastructure
+):
+    runner = _github(
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED"),
+        _pr(queue=True, checks=PENDING, merge_state="BLOCKED", auto=True),
+        _pr(queue=True, entry=_entry(1)),
+        _pr(queue=True),
+    )
+    runs = [
+        {
+            "databaseId": 41,
+            "name": "python-quality",
+            "conclusion": "failure",
+            "headBranch": f"gh-readonly-queue/main/pr-7-{HEAD}",
+            "url": "https://example/run/41",
+        }
+    ]
+    runner.replies[("gh", "run", "list")] = (0, json.dumps(runs))
+    runner.replies[("gh", "run", "view")] = (0, log)
+    with pytest.raises(land.LandStop, match="left the merge queue") as stop:
+        _land(runner, wait=True)
+    assert "python-quality" in str(stop.value)
+    assert ("infrastructure failure" in str(stop.value)) is infrastructure
+    assert stop.value.code == 1
+    [view] = runner.ran("gh", "run", "view")
+    assert runner.calls[view][0][3] == "41"
+    assert _mutations(runner) == [QUEUE_MERGE]

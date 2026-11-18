@@ -36,6 +36,7 @@ import type { PaletteSearchSeed } from '../workbench/usePaletteSearch';
 import { isSupportedWorkbenchVisibilityTarget, type WorkbenchVisibilityTarget } from '../workbench/visibility';
 import { EVIDENCE_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import type { ChildFilter } from './workspaceState';
+import { OPEN_RUN_REVIEW_EVENT } from '../components/review/openRunReview';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkspaceGridController } from './useWorkspaceGridController';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -765,6 +766,14 @@ export function useWorkspaceNavigationController({
     setReviewRunId(runId ?? null);
     writeRoute({ ...routeStateBase(), review: true });
   }, [writeRoute, routeStateBase]);
+  useEffect(() => {
+    const onOpenRunReview = (event: Event) => {
+      const runId = (event as CustomEvent<{ runId?: unknown }>).detail?.runId;
+      if (typeof runId === 'string' && runId) openReview(runId);
+    };
+    window.addEventListener(OPEN_RUN_REVIEW_EVENT, onOpenRunReview);
+    return () => window.removeEventListener(OPEN_RUN_REVIEW_EVENT, onOpenRunReview);
+  }, [openReview]);
   const closeReview = useCallback(() => {
     setReviewRunId(null);
     // Review-close alone intentionally uses history.back().
