@@ -90,6 +90,23 @@ def _column_plan(project, destination, sources, carried_column_ids, organization
         if len(file_ids) == 1
         else None
     )
+    file_sheet = media_column is None and not any(
+        column["semantic_type"] == "pdf_split.media" for column in existing
+    )
+    if file_sheet:
+        # A sheet made by an ordinary file import holds its files in "media"
+        # beside a plain "filename" column; appended documents continue them.
+        media_column = next(
+            (
+                column
+                for column in existing
+                if column["name"] == "media"
+                and column["type"] == "file"
+                and column["active"]
+                and not column["hidden"]
+            ),
+            None,
+        )
     designated_text = (
         None
         if media_column is None
@@ -128,6 +145,23 @@ def _column_plan(project, destination, sources, carried_column_ids, organization
                     for column in existing
                     if column["semantic_type"] == f"pdf_split.{role}"
                     and column["type"] == type_name
+                ),
+                None,
+            )
+        if (
+            candidate is None
+            and file_sheet
+            and media_column is not None
+            and role == "filename"
+        ):
+            candidate = next(
+                (
+                    column
+                    for column in existing
+                    if column["name"] == role
+                    and column["type"] == type_name
+                    and column["active"]
+                    and not column["hidden"]
                 ),
                 None,
             )

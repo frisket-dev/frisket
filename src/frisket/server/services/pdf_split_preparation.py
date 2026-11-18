@@ -21,6 +21,7 @@ from filelock import FileLock
 from frisket.redaction import safe_error
 
 from frisket.actions.media import OcrParams
+from frisket.ops.base import RecipeInvocationHalt
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -1171,7 +1172,22 @@ class PdfSplitPreparationAdapter:
                                     "SELECT status FROM pdf_split_page_work WHERE work_key=? AND generation=?",
                                     (work.work_key, work.generation),
                                 ).fetchone()
-                                if state is not None and state[0] in {
+                                if (
+                                    state is not None
+                                    and state[0] == "running"
+                                    and not context.cancelled
+                                    and isinstance(failure, RecipeInvocationHalt)
+                                    and failure.code == "local_engine_busy"
+                                ):
+                                    # The local engine refused before reading the
+                                    # page, so the same approved page runs again
+                                    # once the engine is free.
+                                    store.db.execute(
+                                        "UPDATE pdf_split_page_work SET status='pending',error=NULL,job_id=NULL,receipt_id=NULL "
+                                        "WHERE work_key=? AND generation=? AND status='running'",
+                                        (work.work_key, work.generation),
+                                    )
+                                elif state is not None and state[0] in {
                                     "running",
                                     "stopping",
                                 }:
