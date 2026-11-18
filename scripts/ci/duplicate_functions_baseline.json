@@ -163,7 +163,7 @@
   ],
   [
    "src/frisket/authoring/bundled_plugins/frisket.opencorporates/plugin.py::_text",
-   "src/frisket/engine/executor/extract_evidence.py::_optional_string"
+   "src/frisket/engine/executor/extract_citations.py::_optional_string"
   ],
   [
    "src/frisket/authoring/workbench/plugin_runtime_shared.py::PluginCompositionPolicyConflict.__init__",
@@ -558,14 +558,14 @@
    "src/frisket/engine/executor/visual_cuts_read.py::AdmittedVisualCutsReader._check_open"
   ],
   [
-   "src/frisket/engine/executor/extract_evidence.py::_text_hash",
+   "src/frisket/engine/executor/extract_citations.py::_text_hash",
    "src/frisket/engine/executor/group_summary_runtime.py::_text_hash",
    "src/frisket/engine/executor/operation_action.py::_text_hash",
    "src/frisket/engine/executor/source_action.py::_text_hash",
    "src/frisket/engine/executor/source_poll_action.py::_text_hash",
    "src/frisket/engine/store/citation_text.py::_text_hash",
    "src/frisket/engine/store/evidence.py::_text_hash",
-   "src/frisket/ops/ner_evidence.py::_text_hash",
+   "src/frisket/ops/ner_citations.py::_text_hash",
    "src/frisket/server/sources/api_list_dicts.py::_text_hash",
    "src/frisket/server/sources/courtlistener.py::_text_hash",
    "src/frisket/server/sources/youtube.py::_text_hash"

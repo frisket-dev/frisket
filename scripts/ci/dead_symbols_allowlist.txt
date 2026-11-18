@@ -158,7 +158,7 @@ src/frisket/ops/ocr_engines.py::OcrEngines._run_rapidocr_pool  test-only
 src/frisket/ops/ytdlp.py::add_downloaded_media_blob  test-only
 src/frisket/plugins/managed_runtime.py::ManagedRuntimeService.resolve_for_exec  test-only
 src/frisket/plugins/managed_runtime.py::ManagedRuntimeService.stage_update  test-only
-src/frisket/plugins/managed_runtime.py::managed_runtime_receipt_evidence  test-only
+src/frisket/plugins/managed_runtime.py::managed_runtime_supporting_record  test-only
 src/frisket/plugins/manifest_generate.py::generate_manifest_text  test-only
 src/frisket/plugins/media.py::ingest_media_handoff  test-only
 src/frisket/plugins/sdk.py::PluginImporterContext.source_line  test-only
