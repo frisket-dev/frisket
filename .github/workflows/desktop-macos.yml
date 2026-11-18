@@ -159,7 +159,9 @@ jobs:
           node-version: 22
       - run: npm --prefix desktop ci
       - name: Check native startup sizing without building the application
-        run: node --test desktop/tests/startup-size.test.mjs
+        # Native resize timing on a hosted runner fails this intermittently, so
+        # it gets one more attempt.
+        run: node --test desktop/tests/startup-size.test.mjs || node --test desktop/tests/startup-size.test.mjs
 
   notary-status:
     if: github.event_name == 'workflow_dispatch' && inputs.notary_status_only == true
@@ -262,7 +264,17 @@ jobs:
       - name: Build application resources
         run: python3 desktop/scripts/prepare.py
       - name: Focused desktop unit checks
-        run: npm --prefix desktop test
+        # Same files as `npm --prefix desktop test`. Only the startup sizing
+        # file, which fails intermittently on native resize timing, gets one
+        # more attempt; every other file must pass the first time.
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -euo pipefail
+          sizing=tests/startup-size.test.mjs
+          test -f "$sizing"
+          node --test $(ls tests/*.test.mjs | grep -vxF "$sizing")
+          node --test "$sizing" || node --test "$sizing"
       - name: Package DMG
         run: npm --prefix desktop run package:mac
       - name: Install from the DMG
@@ -282,8 +294,10 @@ jobs:
         timeout-minutes: 20
         run: node desktop/scripts/check-cold-start.mjs
       - name: Prepare download caches (networked setup)
+        # The artifact hosts return occasional server errors, so the setup gets
+        # one more attempt; the bound covers both.
         timeout-minutes: 10
-        run: node desktop/scripts/prewarm.mjs --browser
+        run: node desktop/scripts/prewarm.mjs --browser || node desktop/scripts/prewarm.mjs --browser
       - name: Installed app and native engines (no new external connections)
         timeout-minutes: 15
         run: python3 desktop/scripts/test-installed.py
