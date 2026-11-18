@@ -6,6 +6,7 @@
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
+  gridReadSelection,
   openProject,
   projectIdByName,
   listSheets,
@@ -32,14 +33,20 @@ async function seededParentWithChildRows(request: APIRequestContext) {
   };
   const rowIdx = data.rows.findIndex((r) => (r.child_count ?? 0) > 0);
   expect(rowIdx, 'a seeded parent row has child rows').toBeGreaterThanOrEqual(0);
-  return { pid, parent, child: child!, data, rowIdx, parentRow: data.rows[rowIdx] };
+  const parentRow = data.rows[rowIdx];
+  // A child-sheet read narrowed to this parent row (its selection's scope).
+  const readsChildOf = (url: string): boolean => {
+    const scope = gridReadSelection(new URL(url), pid, child!.id)?.scope;
+    return scope?.kind === 'sheet' && scope.parent_row_id === parentRow.id;
+  };
+  return { pid, parent, child: child!, data, rowIdx, parentRow, readsChildOf };
 }
 
 test('child-count chip filters the child sheet to one parent row', async ({
   page,
   request,
 }) => {
-  const { pid, parent, child, data, rowIdx, parentRow } = await seededParentWithChildRows(request);
+  const { pid, parent, child, data, rowIdx, parentRow, readsChildOf } = await seededParentWithChildRows(request);
   const count = parentRow.child_count!;
 
   await openProject(page, pid, parent.id);
@@ -49,9 +56,7 @@ test('child-count chip filters the child sheet to one parent row', async ({
   const box = await page.getByTestId('grid').boundingBox();
   expect(box).toBeTruthy();
   const chipX = MARKER_WIDTH + data.columns.reduce((a, c) => a + colWidth(c), 0) + CHIP_WIDTH / 2;
-  const filteredFetch = page.waitForRequest((r) =>
-    r.url().includes(`parent_row_id=${parentRow.id}`),
-  );
+  const filteredFetch = page.waitForRequest((r) => readsChildOf(r.url()));
   await page.mouse.click(
     box!.x + chipX,
     box!.y + HEADER_HEIGHT + rowIdx * ROW_HEIGHT + ROW_HEIGHT / 2,
@@ -78,7 +83,7 @@ test('keyboard selection of the child-count chip waits for explicit activation',
   page,
   request,
 }) => {
-  const { pid, parent, data, rowIdx, parentRow } = await seededParentWithChildRows(request);
+  const { pid, parent, data, rowIdx, parentRow, readsChildOf } = await seededParentWithChildRows(request);
   const count = parentRow.child_count!;
 
   await openProject(page, pid, parent.id);
@@ -98,7 +103,7 @@ test('keyboard selection of the child-count chip waits for explicit activation',
 
   let filteredRequests = 0;
   page.on('request', (route) => {
-    if (route.url().includes(`parent_row_id=${parentRow.id}`)) filteredRequests += 1;
+    if (readsChildOf(route.url())) filteredRequests += 1;
   });
   await page.keyboard.press('ArrowRight');
   await page.waitForTimeout(250);
