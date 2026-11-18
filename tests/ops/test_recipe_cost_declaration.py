@@ -33,7 +33,6 @@ tests/engine/test_cost_policy_confirmation_invariant.py.
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-from pathlib import Path
 
 import pytest
 
@@ -234,8 +233,8 @@ def test_local_ner_stays_free_while_the_llm_engine_is_metered() -> None:
 
 
 @pytest.fixture()
-def text_project(tmp_path: Path):
-    project = Project.create(tmp_path / "p.frisket")
+def text_project(make_project):
+    project = make_project("p")
     sheet_id = project.add_sheet("S")
     col = project.add_column(sheet_id, "text", type="text")
     project.add_rows(sheet_id, [{"text": "https://example.com/a"}], {"text": col})

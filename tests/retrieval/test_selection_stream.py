@@ -2,7 +2,6 @@
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.retrieval.contracts import (
     RetrievalScope,
     SearchRequest,
@@ -18,8 +17,8 @@ from frisket.search_index import drain_index
 
 
 @pytest.fixture
-def document_rows(tmp_path):
-    project = Project.create(tmp_path / "selection.frisket")
+def document_rows(make_project):
+    project = make_project("selection")
     sheet = project.add_sheet("records")
     column = project.add_column(sheet, "text")
     rows = project.add_rows(
@@ -93,26 +92,20 @@ def test_scoped_membership_is_not_global_top_k(document_rows):
         )
 
 
-def test_normal_search_hydrates_snippets_without_writing_read_snapshot(tmp_path):
-    from frisket.engine.store import Project
+def test_normal_search_hydrates_snippets_without_writing_read_snapshot(make_project):
     from frisket.search import drain_index
     from frisket.retrieval.query import RetrievalQueryService
     from frisket.retrieval.contracts import SearchRequest, RetrievalScope, TextQuery
 
-    project = Project.create(tmp_path / "snippets")
-    try:
-        sheet = project.add_sheet("items")
-        column = project.add_column(sheet, "text")
-        project.add_rows(sheet, [{"text": "budget proposal"}], {"text": column})
-        drain_index(project)
-        with project.read_snapshot() as snapshot:
-            response = RetrievalQueryService(snapshot).search(
-                SearchRequest(
-                    scope=RetrievalScope(), query=TextQuery("budget"), limit=10
-                )
-            )
-            assert len(response.results) == 1
-            assert snapshot.db.execute("PRAGMA query_only").fetchone()[0] == 1
-            assert snapshot.get_values(sheet, column)
-    finally:
-        project.close()
+    project = make_project("snippets")
+    sheet = project.add_sheet("items")
+    column = project.add_column(sheet, "text")
+    project.add_rows(sheet, [{"text": "budget proposal"}], {"text": column})
+    drain_index(project)
+    with project.read_snapshot() as snapshot:
+        response = RetrievalQueryService(snapshot).search(
+            SearchRequest(scope=RetrievalScope(), query=TextQuery("budget"), limit=10)
+        )
+        assert len(response.results) == 1
+        assert snapshot.db.execute("PRAGMA query_only").fetchone()[0] == 1
+        assert snapshot.get_values(sheet, column)

@@ -29,7 +29,6 @@ from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
     terminalize_project_run,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
@@ -204,12 +203,9 @@ def _execution_composition() -> ExecutionComposition:
 
 
 @pytest.fixture()
-def project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    try:
-        yield p
-    finally:
-        p.close()
+def project(make_project):
+    p = make_project("t")
+    yield p
 
 
 @pytest.fixture()

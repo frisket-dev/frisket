@@ -8,7 +8,6 @@ import threading
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.project_qa_research import (
     ProjectQAResearchConflictError,
@@ -22,8 +21,8 @@ from frisket.server.thread_worker import await_thread_worker
 
 
 @pytest.fixture
-def owned_research(tmp_path):
-    project = Project.create(tmp_path / "research.frisket", name="Research")
+def owned_research(make_project):
+    project = make_project("Research")
     qa = ProjectQAStore(project)
     thread = qa.create_thread(title="Investigation")
     turn = qa.submit_turn(

@@ -12,8 +12,8 @@ from frisket.server.services.document_browse import _descriptor_sql
 
 
 @pytest.fixture
-def docs(tmp_path):
-    project = Project.create(tmp_path / "docs.frisket", name="docs")
+def docs(make_project):
+    project = make_project("docs")
     sheet = project.add_sheet("Documents")
     source = project.add_column(sheet, "file", type="file")
     title = project.add_column(sheet, "title")
@@ -33,7 +33,6 @@ def docs(tmp_path):
         {"file": source, "title": title},
     )
     yield project, sheet, source, title, rows
-    project.close()
 
 
 def page(docs, **kwargs):

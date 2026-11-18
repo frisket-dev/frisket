@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.search import drain_index
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa_citations import resolve_citation
@@ -13,8 +12,8 @@ from frisket.server.services.project_qa_tools import ProjectQAScopeError, Projec
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "sources.frisket", name="Sources")
+def source(make_project):
+    project = make_project("Sources")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "Text")
     [row] = project.add_rows(

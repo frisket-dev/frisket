@@ -17,7 +17,6 @@ import pytest
 from frisket.ai.embeddings import build_batch_result, resolve_embedding_similarity
 from frisket.ai.embeddings.similarity import SimilarityError
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 
 PROJECT_ID = "p"
 
@@ -97,15 +96,14 @@ def _refresh(project, index_id, gateway, *, key="r"):
 
 
 @pytest.fixture
-def env(tmp_path):
-    project = Project.create(tmp_path / "cts.frisket", name="cts")
+def env(make_project):
+    project = make_project("cts")
     sheet = project.add_sheet("contracts")
     cols = {"headline": project.add_column(sheet, "headline")}
     project.add_rows(sheet, [{"headline": r} for r in _ROWS], cols)
     index_id = _create_index(project, sheet)
     _refresh(project, index_id, RecordingGateway())
     yield project, sheet, cols, index_id
-    project.close()
 
 
 def _row(project, sheet, cols, text):

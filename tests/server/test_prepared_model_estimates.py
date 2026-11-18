@@ -25,7 +25,6 @@ from frisket.contracts.http.action_estimate_validation import ActionEstimateResu
 from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.find_action import prepare_typed_find_admission
 from frisket.engine.executor.group_summary_action import run_typed_group_summary_action
-from frisket.engine.store import Project
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.execution.pricing_policy import IDENTITY_PRICING_POLICY
 from frisket.server.services.action_previews import (
@@ -68,8 +67,8 @@ def authored_summary(
 
 
 @pytest.fixture
-def preview_project(tmp_path):
-    project = Project.create(tmp_path / "preview.frisket")
+def preview_project(make_project):
+    project = make_project("preview")
     sheet = project.add_sheet("stories")
     columns = {
         name: project.add_column(sheet, name, type="text")
@@ -117,7 +116,6 @@ def preview_project(tmp_path):
         workspace.consent_coverage,
         before,
     )
-    project.close()
 
 
 @pytest.mark.parametrize("kind", ["find", "summary"])

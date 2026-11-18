@@ -10,7 +10,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
 
 
 @pytest.mark.parametrize(
@@ -30,8 +29,8 @@ def test_source_union_rejects_missing_or_parallel_branch_authority(params):
 
 
 @pytest.fixture
-def geocode_sheet(tmp_path):
-    project = Project.create(tmp_path / "geocode-source.frisket")
+def geocode_sheet(make_project):
+    project = make_project("geocode-source")
     sheet_id = project.add_sheet("Places")
     street_id = project.add_column(sheet_id, "street", type="category")
     number_id = project.add_column(sheet_id, "house_number", type="number")

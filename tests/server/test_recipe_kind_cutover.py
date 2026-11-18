@@ -5,7 +5,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -80,76 +79,58 @@ def _python_request(sheet_id: int) -> dict[str, Any]:
 
 class TestStartRunCanonicalIdentity:
     def test_start_run_persists_only_canonical_action_identity(
-        self, tmp_path: Path
+        self, make_project
     ) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            op_id = project.append_change("map", {"recipe": "extract"}, label="seed")
-            run_id = RunResultStore(project).start_run(
-                op_id, sheet, "map.extract", action_version="2"
-            )
-            row = _run_row(project, run_id)
-            assert row["action_kind"] == "map.extract"
-            assert row["action_version"] == "2"
-            assert "recipe" not in row.keys()
-            assert "recipe_version" not in row.keys()
-        finally:
-            project.close()
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        op_id = project.append_change("map", {"recipe": "extract"}, label="seed")
+        run_id = RunResultStore(project).start_run(
+            op_id, sheet, "map.extract", action_version="2"
+        )
+        row = _run_row(project, run_id)
+        assert row["action_kind"] == "map.extract"
+        assert row["action_version"] == "2"
+        assert "recipe" not in row.keys()
+        assert "recipe_version" not in row.keys()
 
-    def test_start_run_rejects_bare_implementation_identity(
-        self, tmp_path: Path
-    ) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            op_id = project.append_change(
-                "map", {"recipe": "plugin_owned"}, label="seed"
-            )
-            with pytest.raises(ValueError, match="not canonical"):
-                RunResultStore(project).start_run(op_id, sheet, "plugin_owned")
-            assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        finally:
-            project.close()
+    def test_start_run_rejects_bare_implementation_identity(self, make_project) -> None:
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        op_id = project.append_change("map", {"recipe": "plugin_owned"}, label="seed")
+        with pytest.raises(ValueError, match="not canonical"):
+            RunResultStore(project).start_run(op_id, sheet, "plugin_owned")
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
     def test_start_run_unmapped_recipe_id_falls_back_to_identity(
-        self, tmp_path: Path
+        self, make_project
     ) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            op_id = project.append_change("embedding.index_refresh", {}, label="seed")
-            run_id = RunResultStore(project).start_run(
-                op_id, sheet, "embedding.index_refresh"
-            )
-            row = _run_row(project, run_id)
-            assert row["action_kind"] == "embedding.index_refresh"
-            assert "recipe" not in row.keys()
-        finally:
-            project.close()
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        op_id = project.append_change("embedding.index_refresh", {}, label="seed")
+        run_id = RunResultStore(project).start_run(
+            op_id, sheet, "embedding.index_refresh"
+        )
+        row = _run_row(project, run_id)
+        assert row["action_kind"] == "embedding.index_refresh"
+        assert "recipe" not in row.keys()
 
 
 class TestMapRunnerCanonicalWriter:
-    def test_recipe_only_runner_spec_is_terminally_refused(
-        self, tmp_path: Path
-    ) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            with pytest.raises(ValueError, match="must not carry top-level"):
-                _run_recipe(
-                    project,
-                    {
-                        "recipe": "regex_extract",
-                        "sheet_id": sheet,
-                        "input_columns": ["text"],
-                        "pattern": r"\d{3}-\d{3}-\d{4}",
-                        "output_name": "phone",
-                    },
-                )
-            assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        finally:
-            project.close()
+    def test_recipe_only_runner_spec_is_terminally_refused(self, make_project) -> None:
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        with pytest.raises(ValueError, match="must not carry top-level"):
+            _run_recipe(
+                project,
+                {
+                    "recipe": "regex_extract",
+                    "sheet_id": sheet,
+                    "input_columns": ["text"],
+                    "pattern": r"\d{3}-\d{3}-\d{4}",
+                    "output_name": "phone",
+                },
+            )
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
     @pytest.mark.parametrize(
         "invalid_spec",
@@ -186,26 +167,23 @@ class TestMapRunnerCanonicalWriter:
         assert calls == []
 
     def test_spec_carrying_action_kind_resolves_and_stamps_it(
-        self, tmp_path: Path
+        self, make_project
     ) -> None:
         """The typed program persists the same canonical identity as admission."""
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            result = run_action_spec(
-                project, _python_request(sheet), project_id="canonical-python-kind"
-            )
-            assert result.status == "completed", result.errors
-            row = _run_row(project, result.run_id)
-            assert row["action_kind"] == "map.python"
-            assert row["action_version"] == "1"
-            assert "recipe" not in row.keys()
-            # The persisted runner spec carries canonical identity only.
-            params = json.loads(row["params"])
-            assert params["action_kind"] == "map.python"
-            assert "recipe" not in params
-        finally:
-            project.close()
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        result = run_action_spec(
+            project, _python_request(sheet), project_id="canonical-python-kind"
+        )
+        assert result.status == "completed", result.errors
+        row = _run_row(project, result.run_id)
+        assert row["action_kind"] == "map.python"
+        assert row["action_version"] == "1"
+        assert "recipe" not in row.keys()
+        # The persisted runner spec carries canonical identity only.
+        params = json.loads(row["params"])
+        assert params["action_kind"] == "map.python"
+        assert "recipe" not in params
 
 
 # ---------------------------------------------------------------------------
@@ -231,19 +209,16 @@ class TestSdkDeclContract:
 
     def test_generated_runner_specs_carry_only_action_kind_identity(
         self,
-        tmp_path: Path,
+        make_project,
     ) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            sheet = _seed_sheet(project)
-            plan = resolve_map_preview(project, _python_request(sheet))
-            assert not isinstance(plan, ActionError), plan
-            assert plan.runner_spec["action_kind"] == "map.python"
-            assert plan.runner_spec["sheet_id"] == sheet
-            assert "recipe" not in plan.runner_spec
-            assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-        finally:
-            project.close()
+        project = make_project("p")
+        sheet = _seed_sheet(project)
+        plan = resolve_map_preview(project, _python_request(sheet))
+        assert not isinstance(plan, ActionError), plan
+        assert plan.runner_spec["action_kind"] == "map.python"
+        assert plan.runner_spec["sheet_id"] == sheet
+        assert "recipe" not in plan.runner_spec
+        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
     def test_get_recipe_refuses_typed_action_kinds(self) -> None:
         from frisket.ops.builtin import get_action_program

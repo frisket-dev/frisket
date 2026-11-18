@@ -479,64 +479,56 @@ async def test_native_classifier_requires_its_bound_execution_context(engine):
 @pytest.mark.parametrize("engine", ["markitdown", "trafilatura_html"])
 @pytest.mark.parametrize("refuse", [False, True])
 async def test_native_document_engine_cannot_bypass_owner(
-    monkeypatch, tmp_path, engine, refuse
+    monkeypatch, make_project, engine, refuse
 ):
     from frisket.actions.types import ColumnRef, Row
     from frisket.engine.executor import document_convert as module
-    from frisket.engine.store import Project
 
     policy = Policy(refuse=refuse)
-    project = Project.create(tmp_path / "documents.frisket")
-    try:
-        html = "<html><body><h1>Actual document</h1></body></html>"
-        sheet = project.add_sheet("documents")
-        column = project.add_column(sheet, "doc", type="text")
-        row_id = project.add_rows(sheet, [{"doc": html}], {"doc": column})[0]
-        row = Row({"doc": html})
-        ctx = ActionContext(
-            project=project,
-            extras={
-                "preview": True,
-                "cancelled": lambda: False,
-                "service_operation_policy": policy,
-            },
-        )
-        owner = module.AdmittedDocumentConverter(ctx, engine=engine)
+    project = make_project("documents")
+    html = "<html><body><h1>Actual document</h1></body></html>"
+    sheet = project.add_sheet("documents")
+    column = project.add_column(sheet, "doc", type="text")
+    row_id = project.add_rows(sheet, [{"doc": html}], {"doc": column})[0]
+    row = Row({"doc": html})
+    ctx = ActionContext(
+        project=project,
+        extras={
+            "preview": True,
+            "cancelled": lambda: False,
+            "service_operation_policy": policy,
+        },
+    )
+    owner = module.AdmittedDocumentConverter(ctx, engine=engine)
 
-        def convert(*_args):
-            policy.events.append(("backend", engine))
-            return "# Actual document"
+    def convert(*_args):
+        policy.events.append(("backend", engine))
+        return "# Actual document"
 
-        async def convert_async(*args):
-            return convert(*args)
+    async def convert_async(*args):
+        return convert(*args)
 
-        method = (
-            "_convert_markitdown"
-            if engine == "markitdown"
-            else "_convert_trafilatura_html"
-        )
-        monkeypatch.setattr(
-            module._BoundDocumentConverter,
-            method,
-            convert_async if engine == "markitdown" else convert,
-        )
-        bound = owner.bind_row(
-            row,
-            sheet_id=sheet,
-            row_id=row_id,
-            sources={
-                "doc": {"column_id": column, "column_type": "text", "value": html}
-            },
-            ctx=ctx,
-        )
-        if refuse:
-            with pytest.raises(RuntimeError, match="local execution refused"):
-                await bound.convert(row, ColumnRef("doc"))
-            assert [kind for kind, _ in policy.events] == ["admit"]
-        else:
-            result = await bound.convert(row, ColumnRef("doc"))
-            assert result.markdown == "# Actual document"
-            assert [kind for kind, _ in policy.events] == ["admit", "backend", "record"]
-        await owner.aclose()
-    finally:
-        project.close()
+    method = (
+        "_convert_markitdown" if engine == "markitdown" else "_convert_trafilatura_html"
+    )
+    monkeypatch.setattr(
+        module._BoundDocumentConverter,
+        method,
+        convert_async if engine == "markitdown" else convert,
+    )
+    bound = owner.bind_row(
+        row,
+        sheet_id=sheet,
+        row_id=row_id,
+        sources={"doc": {"column_id": column, "column_type": "text", "value": html}},
+        ctx=ctx,
+    )
+    if refuse:
+        with pytest.raises(RuntimeError, match="local execution refused"):
+            await bound.convert(row, ColumnRef("doc"))
+        assert [kind for kind, _ in policy.events] == ["admit"]
+    else:
+        result = await bound.convert(row, ColumnRef("doc"))
+        assert result.markdown == "# Actual document"
+        assert [kind for kind, _ in policy.events] == ["admit", "backend", "record"]
+    await owner.aclose()

@@ -162,48 +162,48 @@ def test_registry_ships_the_declared_validator_vocabulary():
     assert validator_keys() == frozenset({"python_regex", "template"})
 
 
-def test_list_table_schema_validation_needs_no_destination_and_writes_nothing(tmp_path):
-    from contextlib import closing
+def test_list_table_schema_validation_needs_no_destination_and_writes_nothing(
+    make_project,
+):
 
-    from frisket.engine.store import Project
     from frisket.server.services.action_param_validation import (
         ActionParamValidationService,
     )
 
-    with closing(Project.create(tmp_path / "lists.frisket")) as project:
-        sheet = project.add_sheet("Lists")
-        column = project.add_column(sheet, "items", "json")
-        project.add_rows(
-            sheet, [{"items": [{"vendor": "Acme", "amount": 1200}]}], {"items": column}
+    project = make_project("lists")
+    sheet = project.add_sheet("Lists")
+    column = project.add_column(sheet, "items", "json")
+    project.add_rows(
+        sheet, [{"items": [{"vendor": "Acme", "amount": 1200}]}], {"items": column}
+    )
+
+    def counts():
+        return tuple(
+            project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+            for table in ("sheets", "columns", "rows", "ops", "receipts")
         )
 
-        def counts():
-            return tuple(
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                for table in ("sheets", "columns", "rows", "ops", "receipts")
-            )
-
-        before = counts()
-        service = ActionParamValidationService(
-            SimpleNamespace(edition="solo", get=lambda _id: project)
-        )
-        result = service.validate_params(
-            "project",
-            {
-                "action_id": "derive.table_from_list",
-                "scope": {"kind": "project"},
-                "params": {
-                    "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
-                },
+    before = counts()
+    service = ActionParamValidationService(
+        SimpleNamespace(edition="solo", get=lambda _id: project)
+    )
+    result = service.validate_params(
+        "project",
+        {
+            "action_id": "derive.table_from_list",
+            "scope": {"kind": "project"},
+            "params": {
+                "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
             },
-        )
-        assert result["diagnostics"] == {}
-        assert result["creates_sheet"] is True
-        assert result["logical_outputs"] == [
-            {"key": "vendor", "column_type": "text"},
-            {"key": "amount", "column_type": "integer"},
-        ]
-        assert counts() == before
+        },
+    )
+    assert result["diagnostics"] == {}
+    assert result["creates_sheet"] is True
+    assert result["logical_outputs"] == [
+        {"key": "vendor", "column_type": "text"},
+        {"key": "amount", "column_type": "integer"},
+    ]
+    assert counts() == before
 
 
 def test_typed_regex_catalog_does_not_publish_a_second_validator_authority():

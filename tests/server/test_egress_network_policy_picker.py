@@ -15,7 +15,6 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.server import provider_config
 from frisket.server.app import create_app
-from frisket.engine.store import Project
 
 
 def test_build_provider_catalog_network_off_keeps_only_local(tmp_path) -> None:
@@ -77,11 +76,10 @@ def test_providers_route_threads_project_network_policy(tmp_path) -> None:
 
 
 @pytest.fixture
-def off_project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
+def off_project(make_project):
+    p = make_project("p")
     p.set_network_policy(mode="off")
     yield p
-    p.close()
 
 
 def _hints_payload(project):

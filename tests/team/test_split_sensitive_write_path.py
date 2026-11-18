@@ -343,9 +343,10 @@ def test_raw_content_is_unexpressible_at_the_project_route(
 
 def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     tmp_path: Path,
+    make_project,
 ) -> None:
     Contributor, TrainingExporter = _correction_api()
-    project = Project.create(tmp_path / "toggle.frisket", name="Toggle")
+    project = make_project("Toggle")
     destination, sender = _Destination(), _CorrectionSender()
     try:
         project.set_project_sensitivity(True)

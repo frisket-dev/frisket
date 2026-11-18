@@ -2,87 +2,83 @@
 
 import csv
 import io
-from contextlib import closing
 from types import SimpleNamespace
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.server.route_errors import RouteError
 from frisket.server.services.evaluation import EvaluationService
 from frisket.server.services.evaluation_values import source_fingerprints
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "p")) as project:
-        sheet = project.add_sheet("Cases")
-        cols = {
-            name: project.add_column(sheet, name) for name in ("id", "source", "answer")
-        }
-        rows = project.add_rows(
-            sheet,
-            [
-                {"id": "a", "source": "document one", "answer": "YES"},
-                {"id": "b", "source": "document two", "answer": "YES"},
-            ],
-            cols,
-        )
-        expected = project.add_sheet("Known")
-        ec = {name: project.add_column(expected, name) for name in ("id", "answer")}
-        erows = project.add_rows(
-            expected, [{"id": "a", "answer": "yes"}, {"id": "b", "answer": "yes"}], ec
-        )
-        workspace = SimpleNamespace(get=lambda _pid: project)
-        previews = {}
-        service = EvaluationService(
-            workspace, preview_reader=lambda _pid, key: previews[key]
-        )
-        context = {
-            "sheet": {"id": sheet, "name": "Cases"},
-            "draft": {
-                "action_id": "extract.llm",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {},
-                "output_names": {"answer": "answer"},
-            },
-            "source_columns": [{"column_id": cols["source"], "name": "source"}],
-            "output_columns": [
-                {
-                    "logical_key": "answer",
-                    "column_id": cols["answer"],
-                    "current_name": "answer",
-                }
-            ],
-        }
-        monkeypatch.setattr(service, "_context", lambda _pid, _basis, _rows: context)
-        body = {
-            "target_sheet_id": sheet,
-            "expected_sheet_id": expected,
+def env(make_project, monkeypatch):
+    project = make_project("p")
+    sheet = project.add_sheet("Cases")
+    cols = {
+        name: project.add_column(sheet, name) for name in ("id", "source", "answer")
+    }
+    rows = project.add_rows(
+        sheet,
+        [
+            {"id": "a", "source": "document one", "answer": "YES"},
+            {"id": "b", "source": "document two", "answer": "YES"},
+        ],
+        cols,
+    )
+    expected = project.add_sheet("Known")
+    ec = {name: project.add_column(expected, name) for name in ("id", "answer")}
+    erows = project.add_rows(
+        expected, [{"id": "a", "answer": "yes"}, {"id": "b", "answer": "yes"}], ec
+    )
+    workspace = SimpleNamespace(get=lambda _pid: project)
+    previews = {}
+    service = EvaluationService(
+        workspace, preview_reader=lambda _pid, key: previews[key]
+    )
+    context = {
+        "sheet": {"id": sheet, "name": "Cases"},
+        "draft": {
             "action_id": "extract.llm",
-            "keys": [{"expected_column_id": ec["id"], "target_column_id": cols["id"]}],
-            "fields": [
-                {
-                    "expected_column_id": ec["answer"],
-                    "output_column_id": cols["answer"],
-                    "logical_key": "answer",
-                    "rule": "exact",
-                    "hidden": False,
-                    "source": "import",
-                }
-            ],
-            "hidden": False,
-        }
-        basis = {"kind": "draft", "draft": context["draft"]}
-        request = {
-            "basis": basis,
-            "row_ids": rows,
-            "variants": [
-                {"key": "A", "label": "Current", "source": {"kind": "current"}}
-            ],
-            "link_id": None,
-        }
-        yield SimpleNamespace(**locals())
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {},
+            "output_names": {"answer": "answer"},
+        },
+        "source_columns": [{"column_id": cols["source"], "name": "source"}],
+        "output_columns": [
+            {
+                "logical_key": "answer",
+                "column_id": cols["answer"],
+                "current_name": "answer",
+            }
+        ],
+    }
+    monkeypatch.setattr(service, "_context", lambda _pid, _basis, _rows: context)
+    body = {
+        "target_sheet_id": sheet,
+        "expected_sheet_id": expected,
+        "action_id": "extract.llm",
+        "keys": [{"expected_column_id": ec["id"], "target_column_id": cols["id"]}],
+        "fields": [
+            {
+                "expected_column_id": ec["answer"],
+                "output_column_id": cols["answer"],
+                "logical_key": "answer",
+                "rule": "exact",
+                "hidden": False,
+                "source": "import",
+            }
+        ],
+        "hidden": False,
+    }
+    basis = {"kind": "draft", "draft": context["draft"]}
+    request = {
+        "basis": basis,
+        "row_ids": rows,
+        "variants": [{"key": "A", "label": "Current", "source": {"kind": "current"}}],
+        "link_id": None,
+    }
+    yield SimpleNamespace(**locals())
 
 
 def join(e):

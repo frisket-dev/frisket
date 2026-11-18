@@ -68,64 +68,61 @@ def test_grid_read_preserves_caller_transaction_and_filtered_scope(make_project)
     project.close()
 
 
-def test_grid_metadata_excludes_unpublished_paired_output(tmp_path):
-    from contextlib import closing
+def test_grid_metadata_excludes_unpublished_paired_output(make_project):
 
     from frisket.engine.store.result_generations import ResultGenerationStore
     from frisket.engine.store.runs import RunResultStore
     from helpers import run_writer_authority_fixture
 
-    with closing(Project.create(tmp_path / "paired.frisket")) as project:
-        sheet = project.add_sheet("Rows")
-        columns = [
-            project.add_column(sheet, name, ai_generated=True)
-            for name in ("answer", "explanation")
-        ]
-        [row] = project.add_rows(sheet, [{}], {})
-        op = project.append_change("map.regex_extract", {})
-        runs = RunResultStore(project)
-        run = runs.start_run(
-            op, sheet, "map.regex_extract", row_ids=[row], total_rows=1
-        )
-        authority = run_writer_authority_fixture(
-            project, run, output_column_ids=set(columns)
-        )
-        generations = ResultGenerationStore(project)
-        for column, role in zip(columns, ("answer", "explanation"), strict=True):
-            generations.declare(
-                run,
-                column,
-                output_role=role,
-                compatibility_key="text-v1",
-                write_mode="replace_scope",
-                claim_token=authority.claim_token,
-            )
-        runs.write_results(
+    project = make_project("paired")
+    sheet = project.add_sheet("Rows")
+    columns = [
+        project.add_column(sheet, name, ai_generated=True)
+        for name in ("answer", "explanation")
+    ]
+    [row] = project.add_rows(sheet, [{}], {})
+    op = project.append_change("map.regex_extract", {})
+    runs = RunResultStore(project)
+    run = runs.start_run(op, sheet, "map.regex_extract", row_ids=[row], total_rows=1)
+    authority = run_writer_authority_fixture(
+        project, run, output_column_ids=set(columns)
+    )
+    generations = ResultGenerationStore(project)
+    for column, role in zip(columns, ("answer", "explanation"), strict=True):
+        generations.declare(
             run,
-            [
-                {
-                    "row_id": row,
-                    "column_id": columns[0],
-                    "value": "unpublished",
-                    "publication_effect": "publish_value",
-                    "confidence": 0.9,
-                    "justification": "private checkpoint",
-                }
-            ],
-            **authority.kwargs(),
-        )
-        generations.seal(
-            run,
-            columns,
+            column,
+            output_role=role,
+            compatibility_key="text-v1",
+            write_mode="replace_scope",
             claim_token=authority.claim_token,
-            terminal_disposition="cancelled",
         )
-        runs.finish_run(run, "cancelled", **authority.terminal_kwargs())
-        assert (
-            project.db.execute(
-                "SELECT published FROM results WHERE run_id=?", (run,)
-            ).fetchone()[0]
-            == 0
-        )
-        assert project.get_values(sheet, columns[0], [row])[row] is None
-        assert sheet_grid._result_metadata(project, columns[0], [row]) == {}
+    runs.write_results(
+        run,
+        [
+            {
+                "row_id": row,
+                "column_id": columns[0],
+                "value": "unpublished",
+                "publication_effect": "publish_value",
+                "confidence": 0.9,
+                "justification": "private checkpoint",
+            }
+        ],
+        **authority.kwargs(),
+    )
+    generations.seal(
+        run,
+        columns,
+        claim_token=authority.claim_token,
+        terminal_disposition="cancelled",
+    )
+    runs.finish_run(run, "cancelled", **authority.terminal_kwargs())
+    assert (
+        project.db.execute(
+            "SELECT published FROM results WHERE run_id=?", (run,)
+        ).fetchone()[0]
+        == 0
+    )
+    assert project.get_values(sheet, columns[0], [row])[row] is None
+    assert sheet_grid._result_metadata(project, columns[0], [row]) == {}
