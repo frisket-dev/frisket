@@ -147,7 +147,7 @@ def test_entity_eq_survives_a_run_backed_column(project):
         sheet, [{"title": "hit"}, {"title": "miss"}], {"title": title}
     )
     store = RunResultStore(project)
-    op = project.append_op("map", {"action_kind": "map.ner"})
+    op = project.append_change("map", {"action_kind": "map.ner"})
     run = store.start_run(op, sheet, "map.ner", total_rows=len(rows), row_ids=rows)
     write_claimed_test_results(
         project,

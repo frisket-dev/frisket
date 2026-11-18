@@ -32,7 +32,7 @@ def _seed_generated_column(client: TestClient, pid: str, sheet_id: int) -> int:
     project = client.app.state.workspace.get(pid)
     source_row_id = project.visible_row_ids(sheet_id)[0]
     col_id = project.add_column(sheet_id, "summary", ai_generated=True)
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="seed summary"
     )
     run_id = RunResultStore(project).start_run(

@@ -737,7 +737,7 @@ def prepare_validated(
                 column_ids=[col_map[name] for name in program.source_columns(spec)],
             )
         )
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map",
             operation_spec,
             label=f"{program.name}: {', '.join(out_cols)}",

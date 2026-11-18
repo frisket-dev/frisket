@@ -712,7 +712,7 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
         sheet_id = env.seeded["sheet_id"]
         row_id = env.seeded["row_ids"][0]
         column_id = int(_columns(project, sheet_id)["media"]["id"])
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"recipe": "prior_provider_spend"}, label="prior spend"
         )
         prior_run_id = RunResultStore(project).start_run(

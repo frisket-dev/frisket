@@ -29,7 +29,7 @@ def _seed_precomputed_run(
         [{"source": "one"}, {"source": "two"}],
         {"source": source_column_id},
     )
-    op_id = project.append_op("map", {"recipe": "find"})
+    op_id = project.append_change("map", {"recipe": "find"})
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id,
@@ -226,7 +226,7 @@ def test_attaching_neutral_model_call_facts_is_idempotent_and_atomic(
             row_id=None,
             column_id=None,
         )
-        other_op_id = project.append_op("map", {"recipe": "other-find"})
+        other_op_id = project.append_change("map", {"recipe": "other-find"})
         other_run_id = store.start_run(
             other_op_id,
             store.get_run(run_id)["sheet_id"],

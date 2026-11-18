@@ -98,7 +98,7 @@ def test_reconciliation_response_names_operator_resolver_and_cancel_retry(
             [{"source": "alpha"}],
             {"source": source_column},
         )
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map.regex_extract", {"action_kind": "map.regex_extract"}
         )
         run_id = RunResultStore(project).start_run(
@@ -170,7 +170,7 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
             [{"note": "first 101"}],
             {"note": source_column},
         )
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map.regex_extract", {"action_kind": "map.regex_extract"}
         )
         run_id = RunResultStore(project).start_run(
@@ -340,7 +340,7 @@ def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> N
             [{"note": "first 101"}],
             {"note": source_column},
         )
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map.regex_extract", {"action_kind": "map.regex_extract"}
         )
         run_id = RunResultStore(project).start_run(

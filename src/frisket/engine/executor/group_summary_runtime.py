@@ -410,7 +410,7 @@ async def _complete_reduce_group_summaries(
         op_id = int(publication.recovery_run["op_id"])
         run_id = int(publication.recovery_run["id"])
     else:
-        op_id = project.append_op(
+        op_id = project.append_change(
             params.action_kind,
             {**params.request, "execution_sources": _group_source_binding(resolved)},
             label=f"Grouped summary {params.target_sheet_name}",

@@ -21,15 +21,15 @@ type LoadState =
 interface CitationTarget {
   fieldId: string;
   runId: string | null;
-  copiedOpId: string | null;
+  copiedChangeId: string | null;
   rowId: string;
   columnId: string;
 }
 
-function currentCitationMatchesField(payload: CellCitationsPayload, field: Pick<ReviewBundleField, 'runId' | 'copiedOpId'>): boolean {
+function currentCitationMatchesField(payload: CellCitationsPayload, field: Pick<ReviewBundleField, 'runId' | 'copiedChangeId'>): boolean {
   const ref = payload.current_value_ref;
   if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return false;
-  if (field.copiedOpId) return (ref as Record<string, unknown>).kind === 'copied_result' && String((ref as Record<string, unknown>).op_id) === field.copiedOpId;
+  if (field.copiedChangeId) return (ref as Record<string, unknown>).kind === 'copied_result' && String((ref as Record<string, unknown>).op_id) === field.copiedChangeId;
   const runId = (ref as Record<string, unknown>).run_id;
   return (ref as Record<string, unknown>).kind === 'run_result' && String(runId) === field.runId;
 }
@@ -189,7 +189,7 @@ function tabLocation(source: ReturnType<typeof reviewCitationSources>[number], f
 }
 
 function citationKey(bundle: ReviewBundle): string {
-  return JSON.stringify(bundle.fields.map(({ id: fieldId, runId, copiedOpId, rowId, columnId }) => ({ fieldId, runId, copiedOpId, rowId, columnId })));
+  return JSON.stringify(bundle.fields.map(({ id: fieldId, runId, copiedChangeId, rowId, columnId }) => ({ fieldId, runId, copiedChangeId, rowId, columnId })));
 }
 
 async function loadCitationPayloads(targets: readonly CitationTarget[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {

@@ -710,7 +710,7 @@ def test_stale_running_receipt_is_retained_for_live_writer(
     action = REGISTRY.get(request.action_id)
     params_hash = typed_request_hash(BoundTypedActionRequest.bind(action, request))
     output = store.add_column(sheet_id, "upper")
-    op_id = store.append_op("map.upper_test", {}, label="live map run")
+    op_id = store.append_change("map.upper_test", {}, label="live map run")
     run_id = RunResultStore(store).start_run(
         op_id, sheet_id, action.action_id, row_ids=row_ids, total_rows=len(row_ids)
     )

@@ -25,7 +25,7 @@ def _seed_large_review(tmp_path: Path) -> tuple[TestClient, str, Any, dict[str, 
     output_id = project.add_column(sheet_id, "summary", ai_generated=True)
     large = "z" * _LARGE_BYTES
     [row_id] = project.add_rows(sheet_id, [{"story": large}], {"story": source_id})
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="Review large value"
     )
     run_id = RunResultStore(project).start_run(
@@ -195,7 +195,7 @@ def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_r
     )
     project.db.commit()
 
-    later_op_id = project.append_op(
+    later_op_id = project.append_change(
         "map", {"action_kind": "map.classify"}, label="Later skipped run"
     )
     later_run_id = RunResultStore(project).start_run(

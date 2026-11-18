@@ -48,7 +48,7 @@ def test_purged_creation_does_not_block_unrelated_undo_redo(tmp_path):
         with pytest.raises(OperationUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                step_operation(project, "revert", op_id=creation)
+                step_operation(project, "revert", change_id=creation)
         assert (
             project.db.execute(
                 "SELECT hidden FROM rows WHERE id=?", (doomed,)
@@ -77,7 +77,7 @@ def test_purged_undone_creation_does_not_block_later_redo(tmp_path):
         with pytest.raises(OperationUnavailable):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
-                step_operation(project, "restore", op_id=first_change)
+                step_operation(project, "restore", change_id=first_change)
 
 
 @pytest.mark.parametrize("purge_after_undo", [False, True])
@@ -131,10 +131,10 @@ def test_partly_purged_append_preserves_navigation_and_never_restores_purged_row
         # Selective history toggles the same retained effects without changing
         # normal navigation or granting publication on the closed owner.
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=append)
+            step_operation(project, "revert", change_id=append)
         assert project.visible_row_ids(sheet) == []
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=append)
+            step_operation(project, "restore", change_id=append)
         assert project.visible_row_ids(sheet) == [kept, also_kept]
         assert (
             project.db.execute(
@@ -224,11 +224,11 @@ def test_partly_purged_sheet_creator_keeps_exact_restore_name_guard(
         replacement = project.add_sheet("Documents")
         with pytest.raises(RestorationUnavailable, match="already exists"):
             with project.transaction_scope():
-                step_operation(project, "restore", op_id=creation)
+                step_operation(project, "restore", change_id=creation)
         assert {item["id"] for item in project.sheets()} == {replacement}
         project.delete_sheet(replacement)
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=creation)
+            step_operation(project, "restore", change_id=creation)
         assert project.visible_row_ids(sheet) == [kept]
         assert project.db.execute(
             "SELECT active,hidden FROM columns WHERE sheet_id=?", (sheet,)

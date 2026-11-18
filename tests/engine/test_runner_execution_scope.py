@@ -711,7 +711,7 @@ def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
 def test_page_progress_does_not_wait_for_or_commit_another_write(tmp_path):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
     store = RunResultStore(project)
-    op = project.append_op("map.regex_extract", {})
+    op = project.append_change("map.regex_extract", {})
     run_id = store.start_run(op, sheet_id, "map.regex_extract")
     project.db.execute("PRAGMA busy_timeout=2000")
     try:

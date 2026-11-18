@@ -28,7 +28,7 @@ def _stage_document_and_page(
     project: Project,
 ) -> tuple[object, object]:
     project.db.execute("BEGIN IMMEDIATE")
-    producing_op_id = project.append_op(
+    producing_op_id = project.append_change(
         "prepare.test", {}, label="prepare test PDF", commit=False
     )
     artifact = record_source_artifact(
@@ -111,7 +111,7 @@ def test_historical_result_readers_resolve_prepared_content(make_project) -> Non
     body_id = project.add_column(sheet_id, "body", type="text", ai_generated=True)
     document_ref, _page_ref = _stage_document_and_page(project)
     row_id = project.add_rows(sheet_id, [{}], {}, commit=False)[0]
-    run_op_id = project.append_op("map.test", {}, label="map test", commit=False)
+    run_op_id = project.append_change("map.test", {}, label="map test", commit=False)
     run_id = int(
         project.db.execute(
             "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
@@ -188,7 +188,7 @@ def test_ask_source_reads_pin_exact_ref_and_reject_same_text_ref_change(
     assert found["matches"][0]["start"] == len("alpha ")
 
     project.db.execute("BEGIN IMMEDIATE")
-    replacement_op_id = project.append_op(
+    replacement_op_id = project.append_change(
         "prepare.test", {}, label="replace test PDF text", commit=False
     )
     replacement_ref = PreparedContentStore(project).stage_replacement(

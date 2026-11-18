@@ -167,7 +167,7 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         ],
         {"video": media_column_id},
     )[0]
-    transcript_op_id = project.append_op(
+    transcript_op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
         label="transcribe transcript",

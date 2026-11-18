@@ -244,7 +244,7 @@ def checkpointed_run(tmp_path):
             [{"source": "one"}],
             {"source": source_column_id},
         )[0]
-        op_id = project.append_op("map", {"action_kind": "map.classify"})
+        op_id = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(
             op_id,

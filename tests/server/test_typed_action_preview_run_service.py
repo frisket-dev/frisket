@@ -494,7 +494,7 @@ def test_column_transform_preview_ignores_terminal_owner_stale_claim(
 ) -> None:
     workspace, sheet_id, _row_ids = _seed(tmp_path / "stale-claim")
     project = workspace.get("typed-preview")
-    op_id = project.append_op("test.seed", {"sheet_id": sheet_id})
+    op_id = project.append_change("test.seed", {"sheet_id": sheet_id})
     cursor = project.db.execute(
         "INSERT INTO runs (op_id, sheet_id, action_kind, status, model) "
         "VALUES (?, ?, 'test.seed', 'completed', 'local')",

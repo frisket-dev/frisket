@@ -865,7 +865,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
     ]
     receipt_id = "receipt_pre_atomic_half"
     action_id = "action_pre_atomic_half"
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map",
         {
             QUEUED_ACTION_RUN_MARKER_PARAM: {

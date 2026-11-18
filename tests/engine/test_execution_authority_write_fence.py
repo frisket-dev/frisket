@@ -43,7 +43,7 @@ def _seed_claimed_run(
         [{"source": "one"}, {"source": "two"}, {"source": "three"}],
         {"source": source_column_id},
     )
-    op_id = project.append_op("map", {"recipe": "python"})
+    op_id = project.append_change("map", {"recipe": "python"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -165,7 +165,7 @@ def test_unbound_preparation_refusal_preserves_reservation(make_project, state):
 
     project = make_project("unbound")
     sheet = project.add_sheet("source")
-    op = project.append_op("map", {"recipe": "python"})
+    op = project.append_change("map", {"recipe": "python"})
     run_id = RunResultStore(project).start_run(op, sheet, "map.python", row_ids=[])
     ReceiptStore(project).insert(
         Receipt(
@@ -628,7 +628,7 @@ def test_paused_writer_cannot_commit_after_replacement(
 def test_writer_fence_requires_attempt_to_belong_to_run(tmp_path: Path) -> None:
     project, run_id, rows, column_id, claim_token = _seed_claimed_run(tmp_path)
     try:
-        other_op = project.append_op("map", {"recipe": "python"})
+        other_op = project.append_change("map", {"recipe": "python"})
         other_run_id = RunResultStore(project).start_run(
             other_op,
             project.db.execute(

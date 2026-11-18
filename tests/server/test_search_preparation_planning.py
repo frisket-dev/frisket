@@ -181,7 +181,7 @@ def test_prepared_pdf_result_must_match_current_page_selector(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("media.read_pdf_text", commit=False)
+    op_id = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -508,7 +508,7 @@ def test_pdf_preview_uses_latest_current_prepared_output(
         "page_count": 1,
     }
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("media.read_pdf_text", commit=False)
+    op_id = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -628,7 +628,7 @@ def test_prepared_pdf_preview_reads_bounded_exact_page_with_nul(
         {"document": document},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("media.read_pdf_text", commit=False)
+    op_id = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -698,7 +698,7 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
         project, source_column_id=document, text_column_id=output, commit=True
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_op("media.read_pdf_text", commit=False)
+    op = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -806,7 +806,7 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
         {"document": document},
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_op("media.read_pdf_text", commit=False)
+    op = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -918,7 +918,7 @@ def test_empty_native_text_allows_one_ocr_preparation_pass(
 
     artifact = project.db.execute("SELECT id FROM source_artifacts").fetchone()[0]
     with project.db:
-        op = project.append_op("media.ocr", commit=False)
+        op = project.append_change("media.ocr", commit=False)
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact,
             producing_op_id=op,

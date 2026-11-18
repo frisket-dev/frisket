@@ -78,7 +78,9 @@ class _Fixture:
         """Create a run that generated `values` per row and point the column
         at it — the "fresh generated value" home."""
         store = RunResultStore(self.project)
-        op_id = self.project.append_op("run", {"kind": "map"}, label="generate labels")
+        op_id = self.project.append_change(
+            "run", {"kind": "map"}, label="generate labels"
+        )
         run_id = store.start_run(
             op_id,
             self.sheet,

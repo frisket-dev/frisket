@@ -28,7 +28,7 @@ def _decide(project, seeded, decision, key, **extra):
 
 def _transition(project, op_id, direction):
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, direction, op_id=op_id)
+    step_operation(project, direction, change_id=op_id)
     project.db.commit()
 
 
@@ -75,7 +75,7 @@ def test_note_does_not_own_unchanged_decision(tmp_path: Path):
 
 
 def test_copied_result_judgment_is_independent(tmp_path: Path):
-    from frisket.engine.store.op_log import append_op
+    from frisket.engine.store.op_log import append_change
     from frisket.engine.store.changes import start_change
 
     with closing(Project.create(tmp_path / "p")) as project:
@@ -83,7 +83,7 @@ def test_copied_result_judgment_is_independent(tmp_path: Path):
         column = project.add_column(seeded["sheet_id"], "saved", type="text")
         row = seeded["row_ids"][0]
         project.db.execute("BEGIN IMMEDIATE")
-        copy = append_op(
+        copy = append_change(
             project,
             "reapply_results",
             {

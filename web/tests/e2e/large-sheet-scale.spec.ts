@@ -44,7 +44,7 @@ workspace, pid, count_raw = sys.argv[1:]
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:
     for index in range(int(count_raw)):
-        project.append_op("edit", {"scale_index": index}, label=f"scale edit {index + 1}")
+        project.append_change("edit", {"scale_index": index}, label=f"scale edit {index + 1}")
 finally:
     project.close()
 `;

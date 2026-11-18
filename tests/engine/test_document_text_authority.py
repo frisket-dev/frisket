@@ -53,7 +53,7 @@ def _project_with_selection(
         source_column_id=source_column_id,
         text_column_id=text_column_id,
     )
-    op_id = project.append_op("document.prepare", commit=False)
+    op_id = project.append_change("document.prepare", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -116,7 +116,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         assert original is not None
 
         project.db.execute("BEGIN IMMEDIATE")
-        edit_op_id = project.append_op("edit", commit=False)
+        edit_op_id = project.append_change("edit", commit=False)
         insert_edits(
             project.db,
             op_id=edit_op_id,
@@ -131,7 +131,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         assert corrected.provenance_ref_id == original.provenance_ref_id
 
         project.db.execute("BEGIN IMMEDIATE")
-        second_edit = project.append_op("edit", commit=False)
+        second_edit = project.append_change("edit", commit=False)
         insert_edits(
             project.db,
             op_id=second_edit,
@@ -158,7 +158,7 @@ def test_flat_manual_edit_inherits_pin_and_source_change_makes_it_stale(
         )
 
         project.db.execute("BEGIN IMMEDIATE")
-        source_edit_op_id = project.append_op("edit", commit=False)
+        source_edit_op_id = project.append_change("edit", commit=False)
         insert_edits(
             project.db,
             op_id=source_edit_op_id,
@@ -252,7 +252,7 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
         )
 
         def start(label: str):
-            op_id = project.append_op("media.ocr", {"output": "Text"}, label=label)
+            op_id = project.append_change("media.ocr", {"output": "Text"}, label=label)
             run_id = RunResultStore(project).start_run(
                 op_id,
                 sheet_id,
@@ -373,7 +373,7 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
             "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
             (text_id,),
         ).fetchone()[0]
-        op_id = project.append_op("media.ocr")
+        op_id = project.append_change("media.ocr")
         run_id = RunResultStore(project).start_run(
             op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
         )
@@ -391,7 +391,7 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
             claim_token=authority.claim_token,
         )
         project.db.execute("BEGIN IMMEDIATE")
-        edit_op = project.append_op("edit", commit=False)
+        edit_op = project.append_change("edit", commit=False)
         insert_edits(
             project.db,
             op_id=edit_op,
@@ -437,7 +437,7 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
         from frisket.engine.store.op_log import step_operation
 
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=op_id)
+            step_operation(project, "revert", change_id=op_id)
         assert (
             project.db.execute(
                 "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",

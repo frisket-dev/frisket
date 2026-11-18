@@ -68,7 +68,7 @@ try:
         {"Name": name_col, "Source": source_col},
     )
 
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_column": "Summary"}},
         label="extract Summary",

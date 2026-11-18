@@ -14,7 +14,7 @@ def test_deleting_reviewed_sheet_refreshes_project_pending_summary(tmp_path):
         sheet = project.add_sheet("Scratch")
         column = project.add_column(sheet, "answer", ai_generated=True)
         [row] = project.add_rows(sheet, [{}], {})
-        op = project.append_op("map.extract")
+        op = project.append_change("map.extract")
         store = RunResultStore(project)
         run = store.start_run(op, sheet, "map.extract", total_rows=1, row_ids=[row])
         write_claimed_test_results(

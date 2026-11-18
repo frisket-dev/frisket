@@ -313,7 +313,7 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
         assert copied.status == "completed", copied.errors
         if undo_original:
             with project.transaction_scope():
-                step_operation(project, "revert", op_id=run["op_id"])
+                step_operation(project, "revert", change_id=run["op_id"])
         action = _transcript_scalar_extract_action(seeded["sheet_id"])
         action["params"]["source"] = ["Copied transcript"]
         if include_segments:
@@ -378,7 +378,7 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
             row_id = seeded["row_ids"][0]
             assert row_input_state(project, result.run_id, row_id) == "stale"
             with project.transaction_scope():
-                step_operation(project, "revert", op_id=edits[0])
+                step_operation(project, "revert", change_id=edits[0])
             assert row_input_state(project, result.run_id, row_id) == "fresh"
     finally:
         project.close()

@@ -74,7 +74,7 @@ def _start_claimed_run(
     spec = {"pattern": "(.*)", "output": "generated"}
     if replace_existing:
         spec["replace_existing"] = True
-    op_id = project.append_op("map.regex_extract", spec, label=label)
+    op_id = project.append_change("map.regex_extract", spec, label=label)
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -1411,7 +1411,7 @@ def test_progressive_publication_batches_generation_and_head_queries(
 
 def test_generation_declaration_requires_a_frozen_run_scope(tmp_path: Path) -> None:
     project, sheet_id, output_column_id, row_ids = _seed_project(tmp_path)
-    op_id = project.append_op("map.regex_extract", {"output": "generated"})
+    op_id = project.append_change("map.regex_extract", {"output": "generated"})
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "map.regex_extract", total_rows=len(row_ids)
     )
@@ -1497,7 +1497,7 @@ def test_seal_publishes_only_complete_output_families(tmp_path: Path) -> None:
     second_column_id = project.add_column(
         sheet_id, "second", type="text", ai_generated=True
     )
-    op_id = project.append_op("map.regex_extract", {"outputs": ["first", "second"]})
+    op_id = project.append_change("map.regex_extract", {"outputs": ["first", "second"]})
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id,
@@ -1759,7 +1759,7 @@ def test_seal_partitions_projected_create_from_staged_output(
     staged_column_id = project.add_column(
         sheet_id, "generated_staged", type="text", ai_generated=True
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="mixed publication"
     )
     run_id = RunResultStore(project).start_run(
@@ -2087,7 +2087,7 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
     late_column_id = project.add_column(
         sheet_id, "generated_late", type="text", ai_generated=True
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="multi-output generation"
     )
     run_id = RunResultStore(project).start_run(

@@ -209,7 +209,7 @@ class TestRowErrorSummaryShape:
         )
         first = project.add_column(sheet, "first", type="text", ai_generated=True)
         second = project.add_column(sheet, "second", type="text", ai_generated=True)
-        op = project.append_op("map", {"action_kind": "map.classify"})
+        op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=1)
         write_claimed_test_results(
@@ -287,7 +287,7 @@ class TestRowErrorSummaryShape:
             )
         ]
         ai_col = project.add_column(sheet, "result", type="text", ai_generated=True)
-        op = project.append_op("map", {"action_kind": "map.classify"})
+        op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=2)
         write_claimed_test_results(
@@ -388,7 +388,7 @@ class TestRowErrorSummaryShape:
 
         # Runs created before immutable row scopes existed have no generation
         # or scope marker, so their historical behavior remains inclusive.
-        legacy_op_id = project.append_op("map")
+        legacy_op_id = project.append_change("map")
         legacy_run_id = store.start_run(
             legacy_op_id,
             int(result["sheet_id"]),

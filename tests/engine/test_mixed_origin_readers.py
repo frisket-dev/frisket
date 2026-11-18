@@ -157,7 +157,7 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None
         [{"source": "value"}, {"source": "failure"}],
         {"source": source_column_id},
     )
-    op_id = project.append_op("map", {"phase": "retired scalar fixture"})
+    op_id = project.append_change("map", {"phase": "retired scalar fixture"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -254,7 +254,7 @@ def mixed_reader(tmp_path: Path) -> _MixedReaderFixture:
         {"source": source_column_id, "generated": output_column_id},
     )
 
-    first_op_id = project.append_op("map", {"phase": "first"})
+    first_op_id = project.append_change("map", {"phase": "first"})
     first_run_id = RunResultStore(project).start_run(
         first_op_id,
         sheet_id,
@@ -295,7 +295,7 @@ def mixed_reader(tmp_path: Path) -> _MixedReaderFixture:
     )
     _seal_generation(project, run_id=first_run_id, column_id=output_column_id)
 
-    second_op_id = project.append_op("map", {"phase": "second"})
+    second_op_id = project.append_change("map", {"phase": "second"})
     second_run_id = RunResultStore(project).start_run(
         second_op_id,
         sheet_id,
@@ -618,7 +618,7 @@ def test_managed_sheet_grid_wire_separates_cell_authority_from_latest_family(
     from frisket.engine.store.op_log import step_operation
 
     fixture.project.db.execute("BEGIN IMMEDIATE")
-    step_operation(fixture.project, "revert", op_id=fixture.first_op_id)
+    step_operation(fixture.project, "revert", change_id=fixture.first_op_id)
     fixture.project.db.commit()
     single_origin_grid = _sheet_data_payload(
         fixture.project,
@@ -688,7 +688,7 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
     from frisket.engine.store.op_log import step_operation
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", op_id=fixture.first_op_id)
+    step_operation(project, "revert", change_id=fixture.first_op_id)
     project.db.execute(
         "UPDATE columns SET current_run_id=? WHERE id=?",
         (
@@ -768,7 +768,7 @@ def test_single_origin_replay_uses_heads_when_scalar_mirror_is_unusable(
             ]
         )
         project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "revert", op_id=fixture.second_op_id)
+        step_operation(project, "revert", change_id=fixture.second_op_id)
         project.db.commit()
         assert (
             project.pending_replay_values(fixture.sheet_id, fixture.output_column_id)

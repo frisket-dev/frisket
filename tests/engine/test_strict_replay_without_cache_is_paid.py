@@ -135,7 +135,7 @@ def _spend_to(project: Project, micro: int) -> None:
     sheet_id = project.add_sheet("accrual")
     cols = {"text": project.add_column(sheet_id, "text")}
     project.add_rows(sheet_id, [{"text": "hello there"}], cols)
-    op_id = project.append_op("map", {"recipe": "accrual_seed"}, label="accrual")
+    op_id = project.append_change("map", {"recipe": "accrual_seed"}, label="accrual")
     store = RunResultStore(project)
     run_id = store.start_run(op_id, sheet_id, "test.accrual_seed")
     write_claimless_test_model_calls(
@@ -348,7 +348,7 @@ def test_cached_strict_replay_backfill_confirms_a_composite_recipe(
         project.add_rows(sheet_id, [{"text": "a newly visible row"}], cols)
         router, _ = _strict_router(cache=ResponseCache(tmp_path / "cache.db"))
         store = RunResultStore(project)
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "research.answer"}, label="agent"
         )
         run_id = store.start_run(op_id, sheet_id, "research.answer", row_ids=[1])

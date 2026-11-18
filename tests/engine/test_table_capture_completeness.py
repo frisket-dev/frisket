@@ -31,7 +31,7 @@ def _assert_equal_contribution_roundtrip(project, output, sheet, column, row):
     edit = project.apply_edits([{"row_id": row, "column_id": column, "value": value}])
     assert sheet_freshness(project, output) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", op_id=edit)
+        step_operation(project, "revert", change_id=edit)
     assert sheet_freshness(project, output) == "synced"
 
 
@@ -334,11 +334,11 @@ def test_semantic_capture_tracks_scoped_effective_judgment_but_value_only_captur
         assert sheet_freshness(project, output) == "stale"
         assert bundle_state(project, value_bundle) == "fresh"
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=second)
+            step_operation(project, "revert", change_id=second)
         assert sheet_freshness(project, output) == "synced"
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=first)
+            step_operation(project, "revert", change_id=first)
         assert sheet_freshness(project, output) == "stale"
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=first)
+            step_operation(project, "restore", change_id=first)
         assert sheet_freshness(project, output) == "synced"

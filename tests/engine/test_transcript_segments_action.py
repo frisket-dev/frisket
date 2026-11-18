@@ -76,7 +76,7 @@ def _seed_timestamped_transcript(
         "timestamped_transcript",
         ai_generated=True,
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
         label="transcribe",
@@ -429,7 +429,7 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
             }
         ],
     }
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.find_topic_sections",
         {"action_kind": "map.find_topic_sections"},
         label="find topic sections",

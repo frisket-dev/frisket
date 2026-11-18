@@ -53,7 +53,7 @@ try:
     source_column_id = project.add_column(sheet_id, "Source", "file")
     output_column_id = project.add_column(sheet_id, "Contract value", "text", ai_generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "contract.pdf"}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",

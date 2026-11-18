@@ -429,7 +429,7 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
         {"tags": tags},
     )
 
-    op_id = project.append_op("map", {"action_kind": "test.list_facet"})
+    op_id = project.append_change("map", {"action_kind": "test.list_facet"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

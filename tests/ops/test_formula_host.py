@@ -784,7 +784,7 @@ def test_formula_whole_scope_retype_refuses_row_appended_before_publish(
         "SELECT op_id FROM runs WHERE id=?", (replacement.run_id,)
     ).fetchone()[0]
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", op_id=op_id)
+    step_operation(project, "revert", change_id=op_id)
     project.db.commit()
     assert project.get_values(sheet, column, row_ids=rows + appended) == {
         rows[0]: 3,

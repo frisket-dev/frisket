@@ -916,7 +916,7 @@ def _begin_staged_refresh(project, project_id, bound, prepared, request_hash):
     )
 
     receipt_id = _new_id("receipt")
-    op_id = project.append_op(
+    op_id = project.append_change(
         "sheet.refresh",
         {
             "sheet_id": prepared.sheet_id,

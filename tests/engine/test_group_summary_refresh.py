@@ -886,7 +886,7 @@ def test_group_refresh_claim_conflict_cannot_publish_structural_work(tmp_path):
             for name, column in source_columns.items()
         }
         project.add_rows(seeded["sheet_id"], [incoming], source_columns)
-        owner = project.append_op("competing-summary")
+        owner = project.append_change("competing-summary")
         run = RunResultStore(project).start_run(
             owner, target, "map.ask", row_ids=project.visible_row_ids(target)
         )

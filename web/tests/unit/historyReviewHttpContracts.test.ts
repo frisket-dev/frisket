@@ -320,7 +320,7 @@ describe('history and review generated HTTP reads', () => {
       columnName: 'Label', offset: 2, limit: 3, totalRuns: 4,
     });
     await expect(api.getHistory(null, 4, { signal })).resolves.toMatchObject({
-      cursorIndex: 0, revision: { total: 1, maxOpId: '12', opCursor: '12' },
+      cursorIndex: 0, revision: { total: 1, maxChangeId: '12', changeCursor: '12' },
     });
     await expect(api.getReviewBundles(5, 6, undefined, false)).resolves.toMatchObject({
       offset: 5, bundles: [{ id: 'bundle-9-7' }],
@@ -528,8 +528,8 @@ describe('history and review generated HTTP reads', () => {
     });
     await expect(api.getHistory()).resolves.toMatchObject({
       cursorIndex: 0,
-      revision: { total: 1, maxOpId: '12', opCursor: '12' },
-      ops: [{
+      revision: { total: 1, maxChangeId: '12', changeCursor: '12' },
+      changes: [{
         id: '12', kind: 'map', rowsAffected: 3, cost: 0.12,
         run: {
           generatedColumns: [{ id: '5', name: 'Label' }],
@@ -724,8 +724,8 @@ describe('history and review generated HTTP reads', () => {
     const history = await api.getHistory(null);
     expect(history).toMatchObject({
       cursorIndex: -1,
-      revision: { total: 0, maxOpId: null, opCursor: null },
-      ops: [
+      revision: { total: 0, maxChangeId: null, changeCursor: null },
+      changes: [
         {
           id: '20', label: 'future-kind', kind: 'edit',
           at: '2026-08-11T01:02:03Z', rowsAffected: 0,
@@ -737,7 +737,7 @@ describe('history and review generated HTTP reads', () => {
         },
       ],
     });
-    expect(history.ops[0]).not.toHaveProperty('barrier');
+    expect(history.changes[0]).not.toHaveProperty('barrier');
 
     const page = await api.getReviewBundles();
     const bundle = page.bundles[0];
@@ -774,8 +774,8 @@ describe('history and review generated HTTP reads', () => {
     });
     await expect(projectApi.getHistory(null, 4)).resolves.toMatchObject({
       cursorIndex: 0,
-      revision: { total: 1, maxOpId: '12', opCursor: '12' },
-      ops: [{
+      revision: { total: 1, maxChangeId: '12', changeCursor: '12' },
+      changes: [{
         id: '12', kind: 'map', rowsAffected: 3, cost: 0.12,
         run: { generatedColumns: [{ id: '5', name: 'Label' }], rowErrors: {
           totalFailedRows: 1, groups: [{ rowIds: ['7'] }],

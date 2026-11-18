@@ -37,7 +37,7 @@ def _seed_run_backed_column(project: Project):
         [{"text": f"row {i}"} for i in range(5)],
         {"text": text_col},
     )
-    op = project.append_op("map", {"action_kind": "map.classify"})
+    op = project.append_change("map", {"action_kind": "map.classify"})
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "map.classify", total_rows=len(rows), row_ids=rows)
     write_claimed_test_results(

@@ -44,7 +44,7 @@ def test_service_promotes_only_the_marked_run_that_admits_the_exact_target(
         sheet_id = project.add_sheet("PDFs")
         column_id = project.add_column(sheet_id, "PDF", type="image")
         row_ids = project.add_rows(sheet_id, [{}, {}], {})
-        op_id = project.append_op("media.ocr", {})
+        op_id = project.append_change("media.ocr", {})
         run_id = RunResultStore(project).start_run(
             op_id,
             sheet_id,

@@ -85,7 +85,7 @@ class TestStartRunCanonicalIdentity:
         project = Project.create(tmp_path / "p.frisket")
         try:
             sheet = _seed_sheet(project)
-            op_id = project.append_op("map", {"recipe": "extract"}, label="seed")
+            op_id = project.append_change("map", {"recipe": "extract"}, label="seed")
             run_id = RunResultStore(project).start_run(
                 op_id, sheet, "map.extract", action_version="2"
             )
@@ -103,7 +103,9 @@ class TestStartRunCanonicalIdentity:
         project = Project.create(tmp_path / "p.frisket")
         try:
             sheet = _seed_sheet(project)
-            op_id = project.append_op("map", {"recipe": "plugin_owned"}, label="seed")
+            op_id = project.append_change(
+                "map", {"recipe": "plugin_owned"}, label="seed"
+            )
             with pytest.raises(ValueError, match="not canonical"):
                 RunResultStore(project).start_run(op_id, sheet, "plugin_owned")
             assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
@@ -116,7 +118,7 @@ class TestStartRunCanonicalIdentity:
         project = Project.create(tmp_path / "p.frisket")
         try:
             sheet = _seed_sheet(project)
-            op_id = project.append_op("embedding.index_refresh", {}, label="seed")
+            op_id = project.append_change("embedding.index_refresh", {}, label="seed")
             run_id = RunResultStore(project).start_run(
                 op_id, sheet, "embedding.index_refresh"
             )

@@ -59,7 +59,7 @@ def test_manual_correction_starts_and_closes_its_own_change(make_project):
     row = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
     project.db.execute("BEGIN")
     with project.db:
-        op = project.append_op("edit", {}, label="manual correction", commit=False)
+        op = project.append_change("edit", {}, label="manual correction", commit=False)
         insert_edits(
             project.db, op_id=op, edits=[EditCellWrite(row, column, "corrected")]
         )
@@ -113,7 +113,7 @@ def test_shared_writers_reject_closed_change_before_dml(make_project):
         )
         project.db.rollback()
 
-        one_shot = project.append_op("derive.once", {}, label="one-shot")
+        one_shot = project.append_change("derive.once", {}, label="one-shot")
         created = project.add_sheet("One-shot child", parent_op_id=one_shot)
         assert (
             project.db.execute(
@@ -144,7 +144,7 @@ def test_open_change_accepts_multiple_edit_writes_until_owner_closes(make_projec
             sheet, [{"text": "one"}, {"text": "two"}], {"text": column}
         )
         project.db.execute("BEGIN IMMEDIATE")
-        op = project.append_op("edit", {}, label="multi-write", commit=False)
+        op = project.append_change("edit", {}, label="multi-write", commit=False)
         start_change(project.db, op, writing=True)
         child_sheet = project.add_sheet(
             "Owned child",
@@ -379,7 +379,7 @@ def test_output_family_and_evidence_publish_atomically(tmp_path, fail_evidence):
     try:
         _publish_initial_generation(project, sheet, column, rows)
         evidence_column = project.add_column(sheet, "evidence", ai_generated=True)
-        op_id = project.append_op("map.extract", label="two-output family")
+        op_id = project.append_change("map.extract", label="two-output family")
         store = RunResultStore(project)
         run_id = store.start_run(
             op_id, sheet, "map.extract", row_ids=rows[:1], total_rows=1
@@ -465,7 +465,7 @@ def test_source_replacements_preserve_consumed_versions_and_allow_repeated_clear
     versions = [original_producer]
     project.db.execute("BEGIN")
     with project.db:
-        op_id = project.append_op("source.refresh", commit=False)
+        op_id = project.append_change("source.refresh", commit=False)
         producer = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )

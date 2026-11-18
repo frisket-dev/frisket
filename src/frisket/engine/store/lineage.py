@@ -28,7 +28,7 @@ def build_lineage_dag(project: Any) -> dict[str, Any]:
     parent_op_ids = [
         int(s["parent_op_id"]) for s in sheets if s["parent_op_id"] is not None
     ]
-    ops_by_id = project.ops_meta(parent_op_ids)
+    ops_by_id = project.changes_meta(parent_op_ids)
     run_rows = {
         int(r["id"]): r
         for r in project.db.execute(

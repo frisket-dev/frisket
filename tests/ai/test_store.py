@@ -64,7 +64,7 @@ class TestRunsAndPointers:
     def test_run_results_resolve(self, project):
         sheet, cols = make_sheet(project, 3)
         out_col = project.add_column(sheet, "score", type="number", ai_generated=True)
-        op = project.append_op("map", {"action_kind": "map.classify"})
+        op = project.append_change("map", {"action_kind": "map.classify"})
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=3)
         rows = [
             r["id"]
@@ -112,7 +112,7 @@ class TestRunsAndPointers:
     def test_result_writes_idempotent(self, project):
         sheet, cols = make_sheet(project, 1)
         out_col = project.add_column(sheet, "x", ai_generated=True)
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.r", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         batch = [{"row_id": rid, "column_id": out_col, "value": "a"}]
@@ -125,7 +125,7 @@ class TestRunsAndPointers:
     def test_model_calls_written_with_results(self, project):
         sheet, _ = make_sheet(project, 1)
         out_col = project.add_column(sheet, "transcript", ai_generated=True)
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(
             op, sheet, "media.transcribe", total_rows=1
         )
@@ -231,7 +231,7 @@ class TestRunsAndPointers:
         out_col = project.add_column(sheet, "label", ai_generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
 
-        op1 = project.append_op("map")
+        op1 = project.append_change("map")
         run1 = RunResultStore(project).start_run(op1, sheet, "map.classify")
         write_claimed_test_results(
             project,
@@ -240,7 +240,7 @@ class TestRunsAndPointers:
         )
         RunResultStore(project).point_column_at_run(op1, out_col, run1)
 
-        op2 = project.append_op("map")
+        op2 = project.append_change("map")
         run2 = RunResultStore(project).start_run(op2, sheet, "map.classify")
         write_claimed_test_results(
             project,
@@ -265,7 +265,7 @@ class TestEditsOverlay:
         sheet, _ = make_sheet(project, 2)
         out_col = project.add_column(sheet, "label", ai_generated=True)
         rows = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project,
@@ -284,7 +284,7 @@ class TestEditsOverlay:
         sheet, _ = make_sheet(project, 1)
         out_col = project.add_column(sheet, "label", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": out_col, "value": "model"}]
@@ -303,13 +303,13 @@ class TestUndoRedo:
         sheet, _ = make_sheet(project, 1)
         out_col = project.add_column(sheet, "x", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op1 = project.append_op("map")
+        op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "first"}]
         )
         RunResultStore(project).point_column_at_run(op1, out_col, r1)
-        op2 = project.append_op("map")
+        op2 = project.append_change("map")
         r2 = RunResultStore(project).start_run(op2, sheet, "test.c")
         write_claimed_test_results(
             project, r2, [{"row_id": rid, "column_id": out_col, "value": "second"}]
@@ -333,7 +333,7 @@ class TestUndoRedo:
         from frisket.engine.store.changes import start_change
         from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 
-        op_id = project.append_op("compaction", barrier=True)
+        op_id = project.append_change("compaction", barrier=True)
         # Reservation alone is not an undoable change. A real maintenance
         # mutation starts its barrier when it changes project state.
         assert project.undo() is None
@@ -355,7 +355,7 @@ class TestUndoRedo:
         sheet, _ = make_sheet(project, 1)
         out_col = project.add_column(sheet, "x", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op1 = project.append_op("map")
+        op1 = project.append_change("map")
         r1 = RunResultStore(project).start_run(op1, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": out_col, "value": "a"}]
@@ -386,7 +386,7 @@ def test_property_undo_all_then_redo_all_roundtrips(tmp_path_factory, seq, undos
         rows = [r["id"] for r in p.db.execute("SELECT id FROM rows")]
         for i, kind in enumerate(seq):
             if kind == "run":
-                op = p.append_op("map")
+                op = p.append_change("map")
                 run = RunResultStore(p).start_run(op, sheet, "test.c")
                 write_claimed_test_results(
                     p,
@@ -424,7 +424,7 @@ def test_property_full_undo_returns_to_source_state(tmp_path_factory, seq):
         seeded_op_cursor = p.op_cursor
         for i, kind in enumerate(seq):
             if kind == "run":
-                op = p.append_op("map")
+                op = p.append_change("map")
                 run = RunResultStore(p).start_run(op, sheet, "test.c")
                 write_claimed_test_results(
                     p,
@@ -546,7 +546,7 @@ class TestStoreRegressions:
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
 
         def run_with(value):
-            op = project.append_op("map")
+            op = project.append_change("map")
             run = RunResultStore(project).start_run(op, sheet, "test.c")
             write_claimed_test_results(
                 project, run, [{"row_id": rid, "column_id": col, "value": value}]
@@ -566,7 +566,7 @@ class TestStoreRegressions:
         sheet, _ = make_sheet(project, 1)
         col = project.add_column(sheet, "x", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op = project.append_op("map")
+        op = project.append_change("map")
         r1 = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, r1, [{"row_id": rid, "column_id": col, "value": "v1"}]
@@ -587,7 +587,7 @@ class TestStoreRegressions:
         sheet, _ = make_sheet(project, 1)
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op = project.append_op("map")
+        op = project.append_change("map")
         project.set_undo_info(op, {"created_columns": [col]})
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
@@ -653,7 +653,7 @@ class TestCompactionGC:
         sheet, col = self._image_sheet(project)
         rid = project.add_rows(sheet, [{}], {})[0]
         blob = project.add_blob(b"RESULT-BLOB", mime="image/png")
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": {"blob": blob}}]
@@ -668,7 +668,7 @@ class TestCompactionGC:
         sheet, _ = make_sheet(project, 2)
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
@@ -677,7 +677,7 @@ class TestCompactionGC:
         project.undo()
         # Merely reserving work does not clear Redo. A new actual mutation
         # clears ordinary Redo while retaining selective Restore and results.
-        project.append_op("noop")
+        project.append_change("noop")
         assert (
             project.db.execute(
                 "SELECT redo_eligible FROM ops WHERE id=?", (op,)
@@ -717,7 +717,7 @@ class TestCompactionGC:
         sheet, _ = make_sheet(project, 2)
         col = project.add_column(sheet, "score", ai_generated=True)
         rids = [r["id"] for r in project.db.execute("SELECT id FROM rows")]
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         RunResultStore(project).point_column_at_run(op, col, run)
         authority = run_writer_authority_fixture(
@@ -752,7 +752,7 @@ class TestCompactionGC:
 
         set_attempt_state(project, authority.writer_attempt_id, "halted")
         project.undo()
-        project.append_op("noop")
+        project.append_change("noop")
         return run, rids
 
     def test_compact_preserves_row_effect_checkpoints_that_carry_money(
@@ -820,7 +820,7 @@ class TestCompactionRedoSafety:
         col = project.add_column(sheet, "img", type="image", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         digest = project.add_blob(b"redoable image bytes", mime="image/png")
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "map.extract")
         write_claimed_test_results(
             project,
@@ -861,7 +861,7 @@ class TestCompactionRedoSafety:
                 mime="image/png",
                 metadata={"generation": generation},
             )
-            op = project.append_op("map")
+            op = project.append_change("map")
             run = store.start_run(op, sheet, "map.extract")
             write_claimed_test_results(
                 project,

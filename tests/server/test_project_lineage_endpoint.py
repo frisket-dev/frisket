@@ -124,7 +124,7 @@ def test_lineage_endpoint_reports_unknown_sources_without_refresh_capability(
 ) -> None:
     pid, parent_id, _, _ = _build(client)
     project = client.app.state.workspace.get(pid)
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.extract_document", {"action_id": "media.extract_document"}
     )
     snapshot_id = project.add_sheet(
@@ -216,7 +216,7 @@ def test_retained_output_reports_stale_sources_when_recipe_is_unavailable(
 
     pid, parent_id, column_id, rows = _build(client)
     project = client.app.state.workspace.get(pid)
-    owner = project.append_op("uninstalled_plugin.derive", {})
+    owner = project.append_change("uninstalled_plugin.derive", {})
     child = project.add_sheet(
         "Retained output", parent_sheet_id=parent_id, parent_op_id=owner
     )

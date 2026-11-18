@@ -374,7 +374,7 @@ def ingest_rss(
             rec["_revision"] = _next_revision(project, sheet_id, col_ids, rec["guid"])
 
     # --- one logged op for the whole poll's inserts (undo/provenance) ---
-    op_id = project.append_op(
+    op_id = project.append_change(
         "ingest",
         {
             "source_id": source_id,

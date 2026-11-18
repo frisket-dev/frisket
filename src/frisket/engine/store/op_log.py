@@ -34,7 +34,7 @@ def _valid_review_metadata(value: Any) -> bool:
     )
 
 
-def append_op(
+def append_change(
     project: Any,
     kind: str,
     spec: dict[str, Any] | None = None,
@@ -55,36 +55,36 @@ def append_op(
             int(barrier),
         ),
     )
-    op_id = cur.lastrowid
+    change_id = cur.lastrowid
     if undo_info:
         from .column_descriptors import record_descriptor_changes
         from .structural_changes import record_structural_changes
 
-        record_descriptor_changes(project.db, op_id, undo_info)
+        record_descriptor_changes(project.db, change_id, undo_info)
         from .review_judgments import record_judgment_changes
 
-        record_judgment_changes(project.db, op_id, undo_info)
-        record_structural_changes(project.db, op_id, undo_info)
+        record_judgment_changes(project.db, change_id, undo_info)
+        record_structural_changes(project.db, change_id, undo_info)
     if commit:
         project.db.commit()
-    return op_id
+    return change_id
 
 
 def set_undo_info(
-    project: Any, op_id: int, undo_info: dict[str, Any], *, commit: bool = True
+    project: Any, change_id: int, undo_info: dict[str, Any], *, commit: bool = True
 ) -> None:
     project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), op_id)
+        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), change_id)
     )
     from .column_descriptors import record_descriptor_changes
 
-    record_descriptor_changes(project.db, op_id, undo_info)
+    record_descriptor_changes(project.db, change_id, undo_info)
     from .review_judgments import record_judgment_changes
 
-    record_judgment_changes(project.db, op_id, undo_info)
+    record_judgment_changes(project.db, change_id, undo_info)
     from .structural_changes import record_structural_changes
 
-    record_structural_changes(project.db, op_id, undo_info)
+    record_structural_changes(project.db, change_id, undo_info)
     if commit:
         project.db.commit()
 
@@ -106,11 +106,11 @@ def history_total(project: Any) -> int:
     return int(project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] or 0)
 
 
-def history_index(project: Any, op_id: int) -> int:
+def history_index(project: Any, change_id: int) -> int:
     row = project.db.execute(
         "SELECT COUNT(*) FROM ops WHERE (COALESCE(change_order,0),id) <= "
         "(SELECT COALESCE(change_order,0),id FROM ops WHERE id=?)",
-        (op_id,),
+        (change_id,),
     ).fetchone()
     return int(row[0]) - 1
 
@@ -119,13 +119,13 @@ def history_cursor_index(project: Any) -> int:
     return history_index(project, project.op_cursor)
 
 
-def operation_target(project: Any, direction: str, *, op_id: int | None = None):
+def operation_target(project: Any, direction: str, *, change_id: int | None = None):
     """Use the same target selection for execution, HTTP history and navigation."""
     if direction in {"revert", "restore"}:
         status = "applied" if direction == "revert" else "undone"
         target = project.db.execute(
             "SELECT * FROM ops WHERE id=? AND status=? AND change_order IS NOT NULL",
-            (op_id, status),
+            (change_id, status),
         ).fetchone()
         return (
             target
@@ -170,9 +170,9 @@ class OperationUnavailable(Exception):
 
 
 class OperationMismatch(Exception):
-    def __init__(self, expected_op_id: int, actual_op_id: int):
-        self.expected_op_id = expected_op_id
-        self.actual_op_id = actual_op_id
+    def __init__(self, expected_change_id: int, actual_change_id: int):
+        self.expected_op_id = expected_change_id
+        self.actual_op_id = actual_change_id
 
 
 class IrreversibleOperation(Exception):
@@ -183,7 +183,7 @@ class RestorationUnavailable(ValueError):
     """Retained results exist, but restoring their destinations would conflict."""
 
 
-def _require_restoration_targets(project, op_id, info, *, reverting):
+def _require_restoration_targets(project, change_id, info, *, reverting):
     restoring_sheets = info.get("deleted_sheets" if reverting else "created_sheets", [])
     restoring_columns = info.get(
         "deleted_columns" if reverting else "created_columns", []
@@ -247,11 +247,11 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
             "(purged.kind='column' AND purged.object_id=target.column_id) OR "
             "(purged.kind='sheet' AND purged.object_id=sheet.id)) LIMIT 1",
             (
-                op_id,
-                op_id,
-                op_id,
+                change_id,
+                change_id,
+                change_id,
                 json.dumps(restoring_rows),
-                op_id,
+                change_id,
                 json.dumps(restoring_columns),
                 json.dumps(restoring_sheets),
             ),
@@ -263,14 +263,14 @@ def _require_restoration_targets(project, op_id, info, *, reverting):
 
 
 class CorruptOperation(Exception):
-    def __init__(self, op_id: int, message: str):
-        self.op_id = op_id
+    def __init__(self, change_id: int, message: str):
+        self.op_id = change_id
         super().__init__(message)
 
 
 class ClaimedOperation(Exception):
-    def __init__(self, op_id: int, claim: Mapping[str, Any]):
-        self.op_id = op_id
+    def __init__(self, change_id: int, claim: Mapping[str, Any]):
+        self.op_id = change_id
         self.claim = claim
 
 
@@ -332,24 +332,24 @@ def step_operation(
     project: Any,
     direction: Literal["undo", "redo", "revert", "restore"],
     *,
-    expected_op_id: int | None = None,
-    op_id: int | None = None,
+    expected_change_id: int | None = None,
+    change_id: int | None = None,
 ) -> OperationTransition:
     """Apply one undo/redo transition inside a caller-owned transaction."""
 
     cursor_before = project.op_cursor
     selective = direction in {"revert", "restore"}
     reverting = direction in {"undo", "revert"}
-    target = operation_target(project, direction, op_id=op_id)
+    target = operation_target(project, direction, change_id=change_id)
     if target is None:
         raise OperationUnavailable(direction)
-    target_op_id = int(target["id"])
-    if expected_op_id is not None and expected_op_id != target_op_id:
-        raise OperationMismatch(expected_op_id, target_op_id)
+    target_change_id = int(target["id"])
+    if expected_change_id is not None and expected_change_id != target_change_id:
+        raise OperationMismatch(expected_change_id, target_change_id)
     session_row = project.db.execute(
         "SELECT id FROM import_sessions WHERE op_id=? "
         "AND state IN ('active','paused','cancelled')",
-        (target_op_id,),
+        (target_change_id,),
     ).fetchone()
     if session_row is not None and reverting:
         from .import_sessions import ImportSessionStore
@@ -358,7 +358,7 @@ def step_operation(
         session = ImportSessionStore(project).require(str(session_row["id"]))
         StreamingSheetWriter._from_session(project, session).prepare_removal(session)
         target = project.db.execute(
-            "SELECT * FROM ops WHERE id=?", (target_op_id,)
+            "SELECT * FROM ops WHERE id=?", (target_change_id,)
         ).fetchone()
     if reverting and target["barrier"]:
         raise IrreversibleOperation(target)
@@ -366,13 +366,15 @@ def step_operation(
         undo_info = json.loads(target["undo_info"] or "{}")
     except json.JSONDecodeError as exc:
         raise CorruptOperation(
-            target_op_id, "Target operation undo_info is not valid JSON"
+            target_change_id, "Target operation undo_info is not valid JSON"
         ) from exc
     validation_error = validate_operation_undo_info(undo_info)
     if validation_error is not None:
-        raise CorruptOperation(target_op_id, validation_error)
-    _require_restoration_targets(project, target_op_id, undo_info, reverting=reverting)
-    column_ids = operation_touched_column_ids(project, target_op_id, undo_info)
+        raise CorruptOperation(target_change_id, validation_error)
+    _require_restoration_targets(
+        project, target_change_id, undo_info, reverting=reverting
+    )
+    column_ids = operation_touched_column_ids(project, target_change_id, undo_info)
     claims = OutputColumnClaimStore(project)
     if not reverting:
         # A queued job can reserve a released name before creating its column
@@ -384,7 +386,7 @@ def step_operation(
                     sheet_id=int(column["sheet_id"]), output_name=str(column["name"])
                 )
                 if claim is not None:
-                    raise ClaimedOperation(target_op_id, dict(claim))
+                    raise ClaimedOperation(target_change_id, dict(claim))
     status_before = str(target["status"])
     if reverting:
         if undo_info.get("created_columns"):
@@ -395,25 +397,27 @@ def step_operation(
                 for column_id in undo_info["created_columns"]
                 if (row := project.get_column(column_id)) is not None
             }
-            set_undo_info(project, target_op_id, undo_info, commit=False)
+            set_undo_info(project, target_change_id, undo_info, commit=False)
         from .changes import ChangeStore
 
-        ChangeStore(project).revert(target_op_id)
+        ChangeStore(project).revert(target_change_id)
         project.db.execute(
             "UPDATE ops SET redo_eligible=? WHERE id=?",
-            (int(not selective), target_op_id),
+            (int(not selective), target_change_id),
         )
         project.db.execute(
             "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
             "WHERE status='active' AND (op_id=? OR run_id IN (SELECT id FROM runs WHERE op_id=?))",
-            (target_op_id, target_op_id),
+            (target_change_id, target_change_id),
         )
         try:
             project._unapply(target)
         except ImportSessionConflict as exc:
-            raise CorruptOperation(target_op_id, str(exc)) from exc
+            raise CorruptOperation(target_change_id, str(exc)) from exc
         status_after = "undone"
-        project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (target_op_id,))
+        project.db.execute(
+            "UPDATE ops SET status='undone' WHERE id=?", (target_change_id,)
+        )
         cursor_after = int(
             project.db.execute(
                 "SELECT COALESCE((SELECT id FROM ops WHERE change_order < ? "
@@ -424,14 +428,16 @@ def step_operation(
     else:
         from .changes import ChangeStore
 
-        ChangeStore(project).restore(target_op_id)
+        ChangeStore(project).restore(target_change_id)
         try:
             project._reapply(target)
         except ImportSessionConflict as exc:
-            raise CorruptOperation(target_op_id, str(exc)) from exc
+            raise CorruptOperation(target_change_id, str(exc)) from exc
         status_after = "applied"
-        project.db.execute("UPDATE ops SET redo_eligible=0 WHERE id=?", (target_op_id,))
-        cursor_after = target_op_id
+        project.db.execute(
+            "UPDATE ops SET redo_eligible=0 WHERE id=?", (target_change_id,)
+        )
+        cursor_after = target_change_id
     if selective:
         cursor_after = cursor_before
     from .column_descriptors import project_column_descriptors
@@ -439,7 +445,7 @@ def step_operation(
     project_column_descriptors(project.db, column_ids)
     from .structural_changes import project_structural_changes
 
-    project_structural_changes(project.db, target_op_id)
+    project_structural_changes(project.db, target_change_id)
     from .source_dependencies import stop_direct_consumers
 
     unavailable_sheets = [
@@ -447,7 +453,7 @@ def step_operation(
         for row in project.db.execute(
             "SELECT s.id FROM structural_changes effect JOIN sheets s ON s.id=effect.object_id "
             "WHERE effect.op_id=? AND effect.kind='sheet' AND s.hidden=1",
-            (target_op_id,),
+            (target_change_id,),
         )
     ]
     unavailable_columns = [
@@ -455,7 +461,7 @@ def step_operation(
         for row in project.db.execute(
             "SELECT c.id FROM structural_changes effect JOIN columns c ON c.id=effect.object_id "
             "WHERE effect.op_id=? AND effect.kind='column' AND c.active=0",
-            (target_op_id,),
+            (target_change_id,),
         )
     ]
     stop_direct_consumers(
@@ -463,9 +469,9 @@ def step_operation(
     )
     from .review_judgments import project_judgments
 
-    project_judgments(project, target_op_id)
+    project_judgments(project, target_change_id)
     projection_column_ids = operation_projection_column_ids(
-        project, target_op_id, undo_info
+        project, target_change_id, undo_info
     )
     # Applicability is authoritative. Never scan/rewrite every result head in
     # the foreground: large scopes become dirty atomically and readers resolve
@@ -476,12 +482,14 @@ def step_operation(
             "SELECT DISTINCT cell.column_id FROM base_cell_producers producer "
             "CROSS JOIN cells cell ON producer.id=cell.producer_id "
             "WHERE producer.op_id=?",
-            (target_op_id,),
+            (target_change_id,),
         )
     }
     from .cell_projection import invalidate_run_scopes
 
-    for run in project.db.execute("SELECT id FROM runs WHERE op_id=?", (target_op_id,)):
+    for run in project.db.execute(
+        "SELECT id FROM runs WHERE op_id=?", (target_change_id,)
+    ):
         run_id = int(run[0])
         generation_columns = [
             int(row[0])
@@ -495,10 +503,11 @@ def step_operation(
         project.db,
         column_ids=set(projection_column_ids)
         | source_columns
-        | operation_membership_column_ids(project, target_op_id, undo_info),
+        | operation_membership_column_ids(project, target_change_id, undo_info),
     )
     edits = project.db.execute(
-        "SELECT row_id,column_id FROM edits WHERE op_id=? LIMIT 513", (target_op_id,)
+        "SELECT row_id,column_id FROM edits WHERE op_id=? LIMIT 513",
+        (target_change_id,),
     ).fetchall()
     if len(edits) <= 512:
         refresh_current_cell_pairs(
@@ -511,7 +520,7 @@ def step_operation(
                 int(row[0])
                 for row in project.db.execute(
                     "SELECT DISTINCT column_id FROM edits WHERE op_id=?",
-                    (target_op_id,),
+                    (target_change_id,),
                 )
             ],
         )
@@ -579,14 +588,14 @@ def redo(project: Any) -> int | None:
 
 
 def operation_touched_column_ids(
-    project: Any, op_id: int, undo_info: dict[str, Any]
+    project: Any, change_id: int, undo_info: dict[str, Any]
 ) -> frozenset[int]:
-    column_ids = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    column_ids = set(ResultGenerationStore(project).column_ids_for_op(change_id))
     column_ids.update(
         int(row[0])
         for row in project.db.execute(
             "SELECT DISTINCT column_id FROM copied_result_outcomes WHERE op_id=?",
-            (op_id,),
+            (change_id,),
         )
     )
     for sheet_id in [
@@ -631,15 +640,15 @@ def operation_touched_column_ids(
     column_ids.update(
         int(row["column_id"])
         for row in project.db.execute(
-            "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (op_id,)
+            "SELECT DISTINCT column_id FROM edits WHERE op_id=?", (change_id,)
         ).fetchall()
     )
-    column_ids.update(operation_membership_column_ids(project, op_id, undo_info))
+    column_ids.update(operation_membership_column_ids(project, change_id, undo_info))
     return frozenset(column_ids)
 
 
 def operation_membership_column_ids(
-    project: Any, op_id: int, info: Mapping[str, Any]
+    project: Any, change_id: int, info: Mapping[str, Any]
 ) -> set[int]:
     columns = {
         int(row[0])
@@ -664,7 +673,7 @@ def operation_membership_column_ids(
 
 
 def operation_projection_column_ids(
-    project: Any, op_id: int, undo_info: dict[str, Any]
+    project: Any, change_id: int, undo_info: dict[str, Any]
 ) -> frozenset[int]:
     """Columns whose visible value layer can change when an op changes status."""
 
@@ -673,7 +682,7 @@ def operation_projection_column_ids(
         int(row[0])
         for row in project.db.execute(
             "SELECT DISTINCT column_id FROM copied_result_outcomes WHERE op_id=?",
-            (op_id,),
+            (change_id,),
         )
     )
     for sheet_id in [
@@ -700,7 +709,7 @@ def operation_projection_column_ids(
             column_ids.update(int(column_id) for column_id in value)
         elif isinstance(value, list):
             column_ids.update(int(column_id) for column_id in value)
-    generated = set(ResultGenerationStore(project).column_ids_for_op(op_id))
+    generated = set(ResultGenerationStore(project).column_ids_for_op(change_id))
     for field in ("column_pointers", "column_pointers_after"):
         column_ids.update(
             int(cid) for cid in undo_info.get(field, {}) if int(cid) not in generated
@@ -922,12 +931,12 @@ def _is_review_state_key(value: Any) -> bool:
         return False
 
 
-def _unapply(project: Any, op: sqlite3.Row) -> None:
+def _unapply(project: Any, change: sqlite3.Row) -> None:
     """Restore pointer state captured in undo_info. Never deletes data."""
-    info = json.loads(op["undo_info"] or "{}")
+    info = json.loads(change["undo_info"] or "{}")
     from .import_sessions import invalidate_import_generation
 
-    invalidate_import_generation(project, op_id=int(op["id"]))
+    invalidate_import_generation(project, op_id=int(change["id"]))
     for col_id, prev_run in info.get("column_pointers", {}).items():
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?",
@@ -937,14 +946,14 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
     if import_session_id is not None:
         set_import_session_rows_hidden(
             project.db,
-            op_id=int(op["id"]),
+            op_id=int(change["id"]),
             session_id=import_session_id,
             hidden=True,
         )
     if info.get("replaced_rows_import_session_id") is not None:
         set_import_session_replaced_rows_hidden(
             project.db,
-            op_id=int(op["id"]),
+            op_id=int(change["id"]),
             session_id=info["replaced_rows_import_session_id"],
             hidden=False,
         )
@@ -956,8 +965,8 @@ def _unapply(project: Any, op: sqlite3.Row) -> None:
         )
 
 
-def _reapply(project: Any, op: sqlite3.Row) -> None:
-    info = json.loads(op["undo_info"] or "{}")
+def _reapply(project: Any, change: sqlite3.Row) -> None:
+    info = json.loads(change["undo_info"] or "{}")
     for col_id, runs in info.get("column_pointers_after", {}).items():
         project.db.execute(
             "UPDATE columns SET current_run_id=? WHERE id=?", (runs, int(col_id))
@@ -974,14 +983,14 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
     if import_session_id is not None:
         set_import_session_rows_hidden(
             project.db,
-            op_id=int(op["id"]),
+            op_id=int(change["id"]),
             session_id=import_session_id,
             hidden=False,
         )
     if info.get("replaced_rows_import_session_id") is not None:
         set_import_session_replaced_rows_hidden(
             project.db,
-            op_id=int(op["id"]),
+            op_id=int(change["id"]),
             session_id=info["replaced_rows_import_session_id"],
             hidden=True,
         )
@@ -993,16 +1002,16 @@ def _reapply(project: Any, op: sqlite3.Row) -> None:
         )
 
 
-def ops_meta(project: Any, op_ids: list[int]) -> dict[int, dict[str, Any]]:
+def changes_meta(project: Any, change_ids: list[int]) -> dict[int, dict[str, Any]]:
     """Batch {op_id: {"kind","label"}} for parent-op provenance labels.
 
     Store-owned so the HTTP projection layer stays SQL-free (Workbench IA
     inc 7: derived-sheet "how it's made")."""
-    if not op_ids:
+    if not change_ids:
         return {}
-    placeholders = ",".join("?" * len(op_ids))
+    placeholders = ",".join("?" * len(change_ids))
     rows = project.db.execute(
         f"SELECT id, kind, label FROM ops WHERE id IN ({placeholders})",
-        tuple(op_ids),
+        tuple(change_ids),
     ).fetchall()
     return {int(r["id"]): {"kind": r["kind"], "label": r["label"]} for r in rows}

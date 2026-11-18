@@ -169,7 +169,7 @@ def test_prepared_text_windows_preserve_page_separators_without_full_assembly(
         media_type="application/pdf",
         page_count=4,
     )
-    op_id = project.append_op("media.ocr")
+    op_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
@@ -347,7 +347,7 @@ def test_generated_grid_metadata_does_not_decode_large_results(tmp_path: Path) -
         sheet_id, [{"body": "input"}, {"body": "small"}], {"body": column}
     )
     output = project.add_column(sheet_id, "generated", type="json", ai_generated=True)
-    op = project.append_op("map.extract", label="Fixture OCR")
+    op = project.append_change("map.extract", label="Fixture OCR")
     run = RunResultStore(project).start_run(
         op, sheet_id, "map.extract", row_ids=[row, small_row]
     )
@@ -444,7 +444,7 @@ def test_bounded_grid_defers_large_replay_counts_but_keeps_viewport_comparison(
     _client, _pid, project, sheet_id, column, _json_column = _project(tmp_path)
     rows = project.add_rows(sheet_id, [{"body": "input"}] * count, {"body": column})
     output = project.add_column(sheet_id, "generated", type="text", ai_generated=True)
-    op = project.append_op("map.extract", label="Replay budget fixture")
+    op = project.append_change("map.extract", label="Replay budget fixture")
     run = RunResultStore(project).start_run(op, sheet_id, "map.extract", row_ids=rows)
     generated = "x" * width
     write_claimed_test_results(

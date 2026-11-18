@@ -72,7 +72,7 @@ def _accrue(client: TestClient, pid: str, *, cost_usd: float | None) -> None:
     """Spend through the REAL accrual path, not by writing the counter."""
     project = client.app.state.workspace.get(pid)
     sheet_id = int(project.db.execute("SELECT id FROM sheets").fetchone()["id"])
-    op_id = project.append_op("map", {"recipe": "accrual_seed"}, label="accrual")
+    op_id = project.append_change("map", {"recipe": "accrual_seed"}, label="accrual")
     run_id = RunResultStore(project).start_run(op_id, sheet_id, "test.accrual_seed")
     write_claimless_test_model_calls(
         project,

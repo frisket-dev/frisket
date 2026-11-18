@@ -491,7 +491,7 @@ def test_unkeyed_refresh_retains_enrichment_history_without_guessing_new_row_ide
 def test_refresh_support_matches_the_runtime_admission(tmp_path: Path) -> None:
     project, parent_id, _, child_id, _ = _build(tmp_path)
     try:
-        unsupported_op = project.append_op(
+        unsupported_op = project.append_change(
             "media.extract_document",
             {"action_id": "media.extract_document"},
         )
@@ -515,7 +515,7 @@ def test_refresh_refuses_unsupported_model_op_without_cost_prompt(
     project, parent_id, _, _, _ = _build(tmp_path)
     try:
         # Historical provider work does not authorize unsupported rematerialization.
-        op_id = project.append_op("reduce.group_summary", {"sheet_id": parent_id})
+        op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
         project.db.execute(
             "INSERT INTO runs (op_id, sheet_id, action_kind, status, model, cost_estimate) "
             "VALUES (?, ?, 'reduce.group_summary', 'completed', 'stub/model', 0.42)",
@@ -635,7 +635,7 @@ def test_refresh_multiparent_sheet_is_unsupported(tmp_path: Path) -> None:
             ).fetchone()["id"]
         )
         source_row = row_ids[0]
-        op_id = project.append_op("join.semantic", {"sheet_id": child_id})
+        op_id = project.append_change("join.semantic", {"sheet_id": child_id})
         project.db.execute(
             "INSERT INTO materialized_row_sources "
             "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "

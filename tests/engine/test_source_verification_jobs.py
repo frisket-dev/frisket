@@ -27,7 +27,7 @@ def test_view_requests_coalesced_job_and_undo_restores_freshness(tmp_path, monke
         _, _, capture = read_consumed_source(project, sheet, [column], batch_size=2)
         bundles = []
         for name in ("first", "shared"):
-            owner = project.append_op("test." + name, {})
+            owner = project.append_change("test." + name, {})
             project.db.execute("BEGIN IMMEDIATE")
             start_change(project.db, owner)
             bundles.append(

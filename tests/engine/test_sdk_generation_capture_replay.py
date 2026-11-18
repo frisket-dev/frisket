@@ -127,7 +127,7 @@ def _start_run(
     action_kind: str = "map.regex_extract",
     run_params: dict[str, Any] | None = None,
 ) -> tuple[int, int, RunWriterAuthorityFixture]:
-    op_id = project.append_op(
+    op_id = project.append_change(
         action_kind,
         {"column_id": column_id, "row_ids": row_ids},
         label=f"publish {action_kind}",
@@ -341,7 +341,7 @@ def test_capture_refuses_recipe_binding_role_drift_instead_of_filtering(sheet) -
     optional_column_id = project.add_column(
         sheet_id, "generated_optional", type="text", ai_generated=True
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.regex_extract", {}, label="two-role generation fixture"
     )
     run_id = RunResultStore(project).start_run(

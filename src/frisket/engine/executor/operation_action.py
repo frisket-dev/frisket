@@ -111,8 +111,8 @@ class _OperationStep:
             transition = step_operation(
                 self._project,
                 self.direction,
-                expected_op_id=expected_op_id,
-                op_id=op_id,
+                expected_change_id=expected_op_id,
+                change_id=op_id,
             )
         except OperationUnavailable:
             _refuse(
@@ -378,7 +378,7 @@ def run_typed_operation_action(
         raise TypeError("typed operation executor requires undo or redo")
     direction = bound.action.action_id.removeprefix("operation.")
     target = operation_target(
-        project, direction, op_id=getattr(bound.params, "op_id", None)
+        project, direction, change_id=getattr(bound.params, "op_id", None)
     )
     expected = getattr(bound.params, "expected_op_id", None)
     if target is not None and (expected is None or int(target["id"]) == expected):

@@ -696,7 +696,7 @@ async def test_replacement_respects_write_mode_at_frozen_target(
     greeting_column = project.add_column(
         sheet_id, "Greeting", type="text", ai_generated=True
     )
-    op_id = project.append_op("map.template", {"output": "Greeting"})
+    op_id = project.append_change("map.template", {"output": "Greeting"})
     run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.template")
     project.db.execute(
         "INSERT INTO run_output_generations "

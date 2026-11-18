@@ -67,7 +67,7 @@ def _seed(tmp_path: Path) -> tuple[Project, int, int, list[int], int]:
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_op("map", {"recipe": "x"}, label="x")
+    op_id = project.append_change("map", {"recipe": "x"}, label="x")
     return project, sheet_id, out, row_ids, op_id
 
 

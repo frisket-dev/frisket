@@ -74,5 +74,5 @@ def test_collection_capture_precedes_enumerator_and_keeps_consumed_identity(
         # the original input identity, rather than rereading it after enumeration.
         assert sheet_freshness(project, output) == "stale"
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=edits[0])
+            step_operation(project, "revert", change_id=edits[0])
         assert sheet_freshness(project, output) == "synced"

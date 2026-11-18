@@ -311,7 +311,7 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
     row_id = project.add_rows(
         sheet_id, [{"source": "doc.pdf"}], {"source": source_col}
     )[0]
-    op_id = project.append_op("media.to_markdown", {"kind": "media.to_markdown"})
+    op_id = project.append_change("media.to_markdown", {"kind": "media.to_markdown"})
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
         op_id, sheet_id, "media.to_markdown", total_rows=1, row_ids=[row_id]
@@ -398,7 +398,7 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
         # ("fires from only 2 of many mutation sites"). The render path must
         # independently catch the drift via the stored text_layer_hash.
         run_store: RunResultStore = seeded["run_store"]
-        second_op_id = project.append_op("media.to_markdown")
+        second_op_id = project.append_change("media.to_markdown")
         second_run_id = run_store.start_run(
             second_op_id,
             seeded["sheet_id"],

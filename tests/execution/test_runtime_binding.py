@@ -608,7 +608,7 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
     )
     _, queued, program = typed_queued_map_spec(bound)
     spec = queued.runner_spec_fn(bound.params)
-    op_id = project.append_op("map", spec)
+    op_id = project.append_change("map", spec)
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
         op_id,

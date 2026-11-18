@@ -55,7 +55,7 @@ def test_action_lifecycle_worker_authorization_binds_run_receipt_marker_and_spec
         action_id=reservation["action_id"],
         params_hash=reservation["params_hash"],
     )
-    op_id = project.append_op("map", marked_spec)
+    op_id = project.append_change("map", marked_spec)
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

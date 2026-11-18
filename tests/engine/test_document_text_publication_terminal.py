@@ -126,7 +126,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         nonlocal changed
         assert not store.db.in_transaction
         store.db.execute("BEGIN IMMEDIATE")
-        op_id = store.project.append_op("edit", commit=False)
+        op_id = store.project.append_change("edit", commit=False)
         insert_edits(
             store.db,
             op_id=op_id,
@@ -262,7 +262,7 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
             spend_cap_micro=1_000_000,
         )
         store = RunResultStore(project)
-        op_id = project.append_op("media.ocr", {"action_kind": "media.ocr"})
+        op_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
         run_id = store.start_run(
             op_id, sheet_id, "media.ocr", row_ids=[row_id], total_rows=1
         )
@@ -324,7 +324,7 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
             **writer_kwargs,
         ) == pytest.approx(0.125)
         project.db.execute("BEGIN IMMEDIATE")
-        edit_op = project.append_op("edit", commit=False)
+        edit_op = project.append_change("edit", commit=False)
         insert_edits(
             project.db,
             op_id=edit_op,

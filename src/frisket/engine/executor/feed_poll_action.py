@@ -44,7 +44,7 @@ from frisket.engine.store.keyed_publication import (
     index_keyed_targets,
     publish_keyed_records,
 )
-from frisket.engine.store.op_log import append_op, set_undo_info
+from frisket.engine.store.op_log import append_change, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
 from frisket.server.feeds.rss import (
@@ -579,7 +579,7 @@ def _materialize_registered_feed_poll_in_txn(
     def writer():
         nonlocal op_id, producer_id
         if op_id is None:
-            op_id = append_op(
+            op_id = append_change(
                 project,
                 "source.poll",
                 {"source_id": feed_id, "source_run_id": feed_check_id},

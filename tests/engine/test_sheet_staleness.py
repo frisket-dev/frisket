@@ -241,7 +241,7 @@ def test_unrelated_review_flip_preserves_consumed_source_freshness(
         # filters on review_state='verified', so a flip changes what it would include
         # -> descendants stale.
         ai_col = project.add_column(parent_id, "score", type="text", ai_generated=True)
-        op_id = project.append_op("map.judge", {"sheet_id": parent_id})
+        op_id = project.append_change("map.judge", {"sheet_id": parent_id})
         cur = project.db.execute(
             "INSERT INTO runs (op_id, sheet_id, action_kind, status, model) "
             "VALUES (?, ?, 'map.judge', 'completed', 'stub/model')",

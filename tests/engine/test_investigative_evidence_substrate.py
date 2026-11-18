@@ -86,7 +86,7 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
         [{"Source": "contract.pdf"}],
         {"Source": source_column_id},
     )[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",

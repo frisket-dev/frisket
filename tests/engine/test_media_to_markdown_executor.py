@@ -303,7 +303,7 @@ def _mutate_markdown_output_for_replay(project: Project, receipt_id: str) -> Non
     )
     assert ref["value_hash"].startswith("sha256:")
     store = RunResultStore(project)
-    op_id = project.append_op("map")
+    op_id = project.append_change("map")
     run_id = store.start_run(op_id, ref["sheet_id"], "media.to_markdown")
     write_claimed_test_results(
         project,

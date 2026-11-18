@@ -105,11 +105,11 @@ def test_import_append_rows_is_atomic_idempotent_and_refuses_incompatible_mappin
     ).fetchone()
     assert destination["parent_sheet_id"] is None
     assert destination["parent_op_id"] == created.op_ids[0]
-    append_op = project.db.execute(
+    append_change = project.db.execute(
         "SELECT kind,spec FROM ops WHERE id=?", (appended.op_ids[0],)
     ).fetchone()
-    assert append_op["kind"] == "import.append_rows"
-    append_spec = json.loads(append_op["spec"])
+    assert append_change["kind"] == "import.append_rows"
+    append_spec = json.loads(append_change["spec"])
     assert append_spec["action_id"] == "import.append_rows"
     assert append_spec["scope"] == {"kind": "sheet_rows", "sheet_id": sheet_id}
     assert "rows" not in append_spec["params"]

@@ -81,7 +81,7 @@ def test_reapplied_timestamped_transcript_retains_temporal_authority(
             "SELECT op_id FROM runs WHERE id=?", (run_id,)
         ).fetchone()[0]
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=op)
+            step_operation(project, "revert", change_id=op)
     project.db.commit()
     resolved = resolve_timestamped_transcript(
         project,

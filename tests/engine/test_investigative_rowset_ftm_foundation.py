@@ -58,7 +58,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         columns,
     )
 
-    op_id = project.append_op("map.score", {"output_column": "risk"})
+    op_id = project.append_change("map.score", {"output_column": "risk"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -209,7 +209,7 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
         [{"name": "Alice"}, {"name": "Bob"}],
         source_columns,
     )
-    derive_op_id = project.append_op("resolve.entities", {"target": "Reviewed"})
+    derive_op_id = project.append_change("resolve.entities", {"target": "Reviewed"})
     child_sheet_id = project.add_sheet(
         "Reviewed People",
         parent_sheet_id=source_sheet_id,

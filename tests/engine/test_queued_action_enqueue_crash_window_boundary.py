@@ -69,7 +69,7 @@ PRECOMMIT_BOUNDARY_TARGETS = {
     1: "frisket.engine.store.receipts.ReceiptStore.insert_queued",
     2: "frisket.engine.store.output_claims.OutputColumnClaimStore.acquire",
     3: "frisket.engine.store.project.Project.add_column",
-    4: "frisket.engine.store.project.Project.append_op",
+    4: "frisket.engine.store.project.Project.append_change",
     5: "frisket.engine.store.project.Project.set_undo_info",
     6: "frisket.engine.store.runs.RunResultStore.start_run",
     7: "frisket.engine.store.runs.RunResultStore.point_column_at_run",

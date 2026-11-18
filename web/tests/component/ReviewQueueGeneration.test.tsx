@@ -27,7 +27,7 @@ function page(name: string): ReviewBundlePage {
     nextCursor: null,
     bundles: [{
       id: `bundle-${name}`,
-      runId: '9', sourceId: '9', copiedOpId: null,
+      runId: '9', sourceId: '9', copiedChangeId: null,
       sheetId: '2',
       sheetName: 'Stories',
       rowId: '3',
@@ -39,7 +39,7 @@ function page(name: string): ReviewBundlePage {
       source: { story: 'Example' },
       context: 'story: Example',
       fields: [{
-        id: '9:3:4', runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', rowId: '3', columnId: '4',
+        id: '9:3:4', runId: '9', sourceId: '9', copiedChangeId: null, sheetId: '2', rowId: '3', columnId: '4',
         columnName: name, columnType: 'text', value: 'result', confidence: 0.4,
         justification: '', reviewDecision: name === 'reviewed' ? 'accept' : null,
         note: null, reviewState: name === 'reviewed' ? 'verified' : 'unreviewed',
@@ -73,7 +73,7 @@ it.each([true, false])('reapplies saved results into new columns with retry capa
   vi.spyOn(stores.projectApi, 'listReviewRuns').mockResolvedValue({
     schemaVersion: 'frisket.review_runs_page.v1', offset: 0, limit: 50, total: 1,
     hasMore: false, nextOffset: null,
-    runs: [{ runId: '9', sourceId: '9', copiedOpId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
+    runs: [{ runId: '9', sourceId: '9', copiedChangeId: null, sheetId: '2', sheetName: 'Stories', actionKind: 'map.ask',
       actionName: 'Ask', model: null, retrySupported, startedAt: '2026-11-14T00:00:00Z',
       reviewStatus: 'open', reviewCompletedAt: null, total: counts,
       outputs: [{ key: 'answer', columnId: '4', columnName: 'Answer', columnType: 'text' }],

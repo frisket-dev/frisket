@@ -141,7 +141,7 @@ def publish_pdf_ocr_sample(
         except DocumentTextUnavailable:
             selection = None
         manual = selection is not None and selection.prepared_ref_id is None
-        op_id = project.append_op(
+        op_id = project.append_change(
             "media.ocr",
             {"source_column_id": column, "page": int(capture["page_number"])},
             label="OCR sample",

@@ -141,7 +141,7 @@ def test_queue_persists_admission_and_worker_defers_from_durable_operation(
 def test_worker_defer_lookup_ignores_mutable_run_params(make_project):
     project = make_project("durable")
     sheet = project.add_sheet("Source")
-    op = project.append_op("test", {"deferred_publication": True})
+    op = project.append_change("test", {"deferred_publication": True})
     project.db.execute(
         "INSERT INTO runs (op_id,sheet_id,action_kind,params) VALUES (?,?,'test',?)",
         (op, sheet, json.dumps({"deferred_publication": False})),

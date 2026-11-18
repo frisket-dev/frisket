@@ -210,7 +210,7 @@ describe('workspace mount with a malformed GET /history response', () => {
       void model().refreshHistory();
     });
     await waitFor(() => expect(model().overlayModel.history).not.toBeNull());
-    expect(model().overlayModel.history!.ops).toEqual([]);
+    expect(model().overlayModel.history!.changes).toEqual([]);
 
     // Drain the task queue so any would-be unhandledRejection event has had
     // its macrotask turn, then assert none fired.

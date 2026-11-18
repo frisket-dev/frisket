@@ -345,7 +345,7 @@ def test_public_routes_accept_key_preview_before_field_mapping(env):
 )
 def test_review_download_full_values_and_original_correctness(env, decision, reviewed):
     e = env
-    op = e.project.append_op("map", {"action_id": "extract.llm"})
+    op = e.project.append_change("map", {"action_id": "extract.llm"})
     run = e.project.db.execute(
         "INSERT INTO runs(op_id,sheet_id,action_kind,status) VALUES (?,?,?,'completed')",
         (op, e.sheet, "extract.llm"),

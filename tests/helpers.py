@@ -78,16 +78,16 @@ def replace_test_source_cell(
 
     def write() -> int:
         if target_db is project.db:
-            op_id = project.append_op(
+            op_id = project.append_change(
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
                 label=label,
                 commit=False,
             )
         else:
-            from frisket.engine.store.op_log import append_op
+            from frisket.engine.store.op_log import append_change
 
-            op_id = append_op(
+            op_id = append_change(
                 SimpleNamespace(db=target_db),
                 "test.source.update",
                 {"row_id": int(row_id), "column_id": int(column_id)},
@@ -133,7 +133,7 @@ def initialize_test_source_cells(
         for row_id, column_id, value in cells
     ]
     with project.db:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "test.source.initialize",
             {"count": len(writes)},
             label=label,
@@ -170,7 +170,7 @@ def replace_test_source_cells(
     for write in writes:
         by_column.setdefault(write.column_id, []).append(write)
     with project.db:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "test.source.update",
             {"count": len(writes)},
             label=label,

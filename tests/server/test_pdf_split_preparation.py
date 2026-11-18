@@ -75,7 +75,7 @@ def _runtime(tmp_path, monkeypatch):
     from pypdf import PdfWriter
     from frisket.ai.llm import LLMResponse, ModelRouter
     from frisket.engine.store.evidence import record_source_artifact
-    from frisket.engine.store.op_log import append_op
+    from frisket.engine.store.op_log import append_change
     from frisket.server.services.action_preview_runs import ActionPreviewRunService
     from frisket.server.services.pdf_split_preparation import PdfSplitPreparationAdapter
     from frisket.server.workspace import Workspace
@@ -125,7 +125,7 @@ def _runtime(tmp_path, monkeypatch):
         filename="original.pdf",
         page_count=3,
     )
-    operation_id = append_op(project, "media.ocr", label="Sample OCR")
+    operation_id = append_change(project, "media.ocr", label="Sample OCR")
     preview = ActionPreviewRunService(workspace)
     adapter = PdfSplitPreparationAdapter(
         workspace,

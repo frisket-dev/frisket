@@ -173,7 +173,7 @@ def reapply_results(project, project_id, bound):
                                 "output_column_exists",
                                 "A partial copy requires a compatible output column; choose a new column",
                             )
-                op_id = project.append_op(
+                op_id = project.append_change(
                     "run.reapply",
                     {"action_kind": "run.reapply", "source_run_id": source},
                     label="Reapply saved execution results",

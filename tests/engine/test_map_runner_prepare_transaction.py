@@ -10,7 +10,7 @@ nesting guard.
 
 The orphan regression (case 3) is intentionally checked through a second
 SQLite connection. Before STORE-01, add_column committed independently, so
-that connection observed agency_clean after the injected append_op failure
+that connection observed agency_clean after the injected append_change failure
 even though no op or run existed. The assertion expecting no durable state
 therefore failed before the production cutover and passes only when the whole
 preparation tuple rolls back.
@@ -156,11 +156,11 @@ def test_append_op_failure_rolls_back_new_generated_column(
     before = _durable_state(project, output_name="agency_clean")
 
     def fail_before_append(*_args: Any, **_kwargs: Any) -> int:
-        raise RuntimeError("injected append_op failure")
+        raise RuntimeError("injected append_change failure")
 
-    monkeypatch.setattr(Project, "append_op", fail_before_append)
+    monkeypatch.setattr(Project, "append_change", fail_before_append)
 
-    with pytest.raises(RuntimeError, match="injected append_op failure"):
+    with pytest.raises(RuntimeError, match="injected append_change failure"):
         _runner(project)._prepare(
             _clean_spec(sheet_id),
             program=_FreshPrepareProgram(),

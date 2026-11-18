@@ -38,7 +38,7 @@ def _seed_column_run_history(
     )
     run_ids: list[int] = []
     for index in range(5):
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label=f"run {index}"
         )
         run_id = RunResultStore(project).start_run(

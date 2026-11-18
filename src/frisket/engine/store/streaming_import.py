@@ -271,7 +271,7 @@ class StreamingSheetWriter:
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
                 column_ids[name] = _insert_column(db, sheet_id, name, column, position)
-            op_id = op_log.append_op(
+            op_id = op_log.append_change(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -461,7 +461,7 @@ class StreamingSheetWriter:
                     )
 
             requested_name = str(sheet["name"])
-            op_id = op_log.append_op(
+            op_id = op_log.append_change(
                 project,
                 operation_kind or action_kind,
                 spec={
@@ -812,7 +812,7 @@ class StreamingSheetWriter:
                 ).fetchone()[0]
                 is not None
             ):
-                op_log.step_operation(self.project, "revert", op_id=resumable.change_id)
+                op_log.step_operation(self.project, "revert", change_id=resumable.change_id)
         self._closed = True
 
     def prepare_removal(self, session: ImportSession) -> None:
@@ -1017,7 +1017,7 @@ class StreamingSheetWriter:
                         },
                     }
                 )
-                op_id = op_log.append_op(
+                op_id = op_log.append_change(
                     self.project,
                     self._action_kind,
                     spec=action_spec,

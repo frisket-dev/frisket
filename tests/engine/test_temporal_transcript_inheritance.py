@@ -45,7 +45,7 @@ def _add_timestamped_transcript(
     language: str | None = None,
 ):
     column_id = project.add_column(sheet_id, name, type_name, ai_generated=True)
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": name}},
         label=f"transcribe {name}",
@@ -284,7 +284,7 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
         source_end_ms=5000,
         precision="exact",
     )
-    op_id = project.append_op("test", {}, label="test")
+    op_id = project.append_change("test", {}, label="test")
     project.db.execute("BEGIN IMMEDIATE")
     evidence = persist_projected_transcript_citations(
         project,

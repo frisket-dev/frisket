@@ -26,7 +26,7 @@ def _run_row(project: Project, run_id: int):
 def _seed_divergent_run(project: Project) -> int:
     """Seed a row whose public kind differs from its legacy implementation id."""
     sheet = _seed_sheet(project)
-    op_id = project.append_op("map", {"action_kind": "map.extract"}, label="seed")
+    op_id = project.append_change("map", {"action_kind": "map.extract"}, label="seed")
     return RunResultStore(project).start_run(op_id, sheet, "map.translate")
 
 
@@ -47,7 +47,7 @@ def test_run_status_preserves_a_canonical_plugin_kind_without_a_catalog_title(
     project = make_project("plugin")
     sheet_id = _seed_sheet(project)
     action_kind = "demo.plugin.op.clean"
-    op_id = project.append_op(action_kind, {"action_kind": action_kind})
+    op_id = project.append_change(action_kind, {"action_kind": action_kind})
     run_id = RunResultStore(project).start_run(op_id, sheet_id, action_kind)
 
     payload = run_status("plugin", project, run_id)["run"]
@@ -84,7 +84,9 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
     ]
     column_id = project.add_column(sheet_id, "translated", ai_generated=True)
     store = RunResultStore(project)
-    first_op = project.append_op("map", {"action_kind": "map.extract"}, label="first")
+    first_op = project.append_change(
+        "map", {"action_kind": "map.extract"}, label="first"
+    )
     first_run = store.start_run(
         first_op,
         sheet_id,
@@ -103,7 +105,7 @@ def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
     store.finish_run(first_run)
     store.point_column_at_run(first_op, column_id, first_run)
 
-    second_op = project.append_op(
+    second_op = project.append_change(
         "map", {"action_kind": "map.summarize"}, label="second"
     )
     second_run = store.start_run(

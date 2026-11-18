@@ -42,7 +42,7 @@ def test_pages_bound_values_and_refs_and_preserve_whole_vs_selected_intent(
         )
         assert bundle_state(project, bundle) == "stale"
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=edit)
+            step_operation(project, "revert", change_id=edit)
         assert bundle_state(project, bundle) == ("fresh" if selected else "stale")
     finally:
         project.close()

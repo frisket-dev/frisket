@@ -257,7 +257,7 @@ def test_prepared_rebuild_preserves_already_present_result_warnings(tmp_path):
     sheet = project.add_sheet("Rows")
     column = project.add_column(sheet, "value")
     row = project.add_rows(sheet, [{"value": "source"}], {"value": column})[0]
-    op = project.append_op("map.regex_extract", {})
+    op = project.append_change("map.regex_extract", {})
     run = RunResultStore(project).start_run(op, sheet, "map.regex_extract")
     project.db.execute(
         "INSERT INTO results(run_id,row_id,column_id,value_kind,value,warnings) "

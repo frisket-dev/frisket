@@ -56,7 +56,7 @@ def _managed_run(
     action_kind: str = "map.extract",
     params: dict | None = None,
 ) -> int:
-    op_id = project.append_op(action_kind, {"fixture": "review stats"})
+    op_id = project.append_change(action_kind, {"fixture": "review stats"})
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id,
@@ -654,7 +654,7 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
     sheet_id = project.add_sheet("Rows")
     output = project.add_column(sheet_id, "answer", ai_generated=True)
     rows = project.add_rows(sheet_id, [{}, {}], {})
-    op_id = project.append_op("map", {"fixture": "running migration"})
+    op_id = project.append_change("map", {"fixture": "running migration"})
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id,

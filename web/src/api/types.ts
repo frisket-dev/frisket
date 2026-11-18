@@ -3730,7 +3730,7 @@ export interface V1Receipt {
 // History (the OpenRefine-style op log)
 
 /** A generated column a run actually wrote cells to. */
-export interface HistoryOpRunColumn {
+export interface HistoryChangeRunColumn {
   id: string;
   name: string;
 }
@@ -3742,7 +3742,7 @@ export interface HistoryOpRunColumn {
  * with an associated run (map/derive-style action runs) — import/edit/sort
  * ops have none.
  */
-export interface HistoryOpRun {
+export interface HistoryChangeRun {
   runId: string;
   status: string;
   actionKind: string;
@@ -3758,13 +3758,13 @@ export interface HistoryOpRun {
   finishedAt: string | null; // ISO
   /** Claimant stamp — which code touched this run. */
   workerVersion: string | null;
-  generatedColumns: HistoryOpRunColumn[];
+  generatedColumns: HistoryChangeRunColumn[];
   /** Undefined when nothing failed. Feeds the History panel's run-detail
    *  deep link (HistoryPanel.tsx's renderDetail). */
   rowErrors?: RunRowErrorSummary;
 }
 
-export interface HistoryOp {
+export interface HistoryChange {
   id: string;
   status: 'applied' | 'undone' | 'discarded';
   executable: boolean;
@@ -3777,7 +3777,7 @@ export interface HistoryOp {
   cost?: number | null;
   /** Irreversible barriers (blob deletion, compaction) render as marked steps. */
   barrier?: boolean;
-  run?: HistoryOpRun;
+  run?: HistoryChangeRun;
 }
 
 interface HistoryStepTarget {
@@ -3787,7 +3787,7 @@ interface HistoryStepTarget {
 }
 
 export interface HistoryPage {
-  ops: HistoryOp[];
+  changes: HistoryChange[];
   offset: number;
   limit: number;
   total: number;
@@ -3797,14 +3797,14 @@ export interface HistoryPage {
   nextOffset: number | null;
   /** Global op-log index of the current cursor; -1 = before all ops. */
   cursorIndex: number;
-  cursorOp: HistoryOp | null;
-  cursorOpLoaded: boolean;
+  cursorChange: HistoryChange | null;
+  cursorChangeLoaded: boolean;
   undoTarget: HistoryStepTarget | null;
   redoTarget: HistoryStepTarget | null;
   revision: {
     total: number;
-    maxOpId: string | null;
-    opCursor: string | null;
+    maxChangeId: string | null;
+    changeCursor: string | null;
   };
 }
 
@@ -3824,7 +3824,7 @@ export interface ReviewBundleField {
   id: string;
   sourceId: string;
   runId: string | null;
-  copiedOpId: string | null;
+  copiedChangeId: string | null;
   sheetId: string;
   rowId: string;
   columnId: string;
@@ -3864,7 +3864,7 @@ export interface ReviewBundle {
   id: string;
   sourceId: string;
   runId: string | null;
-  copiedOpId: string | null;
+  copiedChangeId: string | null;
   sheetId: string;
   sheetName: string;
   rowId: string;
@@ -3938,7 +3938,7 @@ export interface ReviewRunsOptions {
 export interface ReviewRun {
   sourceId: string;
   runId: string | null;
-  copiedOpId: string | null;
+  copiedChangeId: string | null;
   sheetId: string;
   sheetName: string;
   actionKind: string;

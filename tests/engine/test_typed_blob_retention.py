@@ -107,7 +107,7 @@ def prepared(project, text):
     )
     with project.db:
         project.db.execute("BEGIN")
-        op = project.append_op("prepare.test", commit=False)
+        op = project.append_change("prepare.test", commit=False)
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact["id"],
             producing_op_id=op,
@@ -153,7 +153,7 @@ def test_orphan_trace_cleanup_keeps_existing_run_and_ignores_symlinks(
     project, tmp_path
 ):
     sheet = project.add_sheet("run")
-    op = project.append_op("test.run")
+    op = project.append_change("test.run")
     run = RunResultStore(project).start_run(op, sheet, "test.run")
     root = project.path / "traces"
     root.mkdir()

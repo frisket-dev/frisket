@@ -50,7 +50,7 @@ def _seed_review_history(tmp_path: Path) -> tuple[TestClient, str, list[int]]:
         [{"story": f"Story {index:02d}"} for index in range(64)],
         {"story": story_col},
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map",
         {"action_kind": "map.classify", "purpose": "review paging"},
         label="Classify rows for review paging",
@@ -174,7 +174,7 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
         media_type="application/pdf",
         page_count=1,
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map", {"action_kind": "media.ocr"}, label="Prepare document"
     )
     project.db.execute("BEGIN IMMEDIATE")
@@ -401,7 +401,7 @@ def test_review_run_picker_includes_completed_results_of_running_runs(
     risk_id = int(
         project.db.execute("SELECT id FROM columns WHERE name='risk'").fetchone()[0]
     )
-    op_id = project.append_op("map", {"action_kind": "map.classify"})
+    op_id = project.append_change("map", {"action_kind": "map.classify"})
     running_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

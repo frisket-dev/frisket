@@ -44,7 +44,7 @@ from frisket.engine.store import Project
 workspace, pid, parent_id = sys.argv[1], sys.argv[2], int(sys.argv[3])
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:
-    op_id = project.append_op("reduce.group_summary", {"sheet_id": parent_id})
+    op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
     project.db.execute(
         "INSERT INTO runs (op_id, sheet_id, recipe, status, model, cost_estimate) "
         "VALUES (?, ?, 'reduce', 'completed', 'stub/model', 0.42)",

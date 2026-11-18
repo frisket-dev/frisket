@@ -3885,7 +3885,7 @@ def test_v1_media_queued_adapter_replay_before_enqueue_is_retryable_then_pollabl
         "retryable": True,
     }
 
-    op_id = project.append_op(
+    op_id = project.append_change(
         "test.queue_adapter_window",
         {"reason": "simulate prepare_run before enqueue evidence"},
     )

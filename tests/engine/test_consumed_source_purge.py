@@ -27,7 +27,7 @@ def test_purge_forgets_capture_but_retains_independent_output(make_project):
         output_sheet, [{"saved": "independent answer"}], {"saved": output_column}
     )
     _, _, capture = read_consumed_source(project, source_sheet, [source_column])
-    owner = project.append_op("test.capture", {})
+    owner = project.append_change("test.capture", {})
     run_id = RunResultStore(project).start_run(owner, output_sheet, "test.capture")
     project.db.execute("BEGIN IMMEDIATE")
     start_change(project.db, owner)

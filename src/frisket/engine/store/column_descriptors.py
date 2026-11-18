@@ -130,10 +130,10 @@ def set_descriptor(
             )
         else:
             from .changes import start_change, ChangeStore
-            from .op_log import append_op, set_undo_info
+            from .op_log import append_change, set_undo_info
 
             if op_id is None:
-                op_id = append_op(
+                op_id = append_change(
                     project,
                     "column.descriptor",
                     {"column_id": column_id, "property": property_name},

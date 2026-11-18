@@ -31,7 +31,7 @@ from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.op_log import append_op
+from frisket.engine.store.op_log import append_change
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationStateError,
@@ -168,7 +168,7 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
         project.redo()
     assert project.get_column(old_column)["active"] == 0
     with project.transaction_scope():
-        step_operation(project, "restore", op_id=recovered_op)
+        step_operation(project, "restore", change_id=recovered_op)
     assert project.get_column(new_column)["active"] == 1
     assert generations.read_cell_heads(old_column, [row_id]) == {}
     assert generations.get_binding(failed.run_id, old_column) == old_binding
@@ -213,7 +213,7 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         type="text",
         ai_generated=True,
     )
-    op_id = project.append_op("map", {"action_kind": "map.regex_extract"})
+    op_id = project.append_change("map", {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -300,7 +300,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
         [{"note": "one 101"}, {"note": "two 202"}],
         {"note": note_column},
     )
-    legacy_op_id = project.append_op(
+    legacy_op_id = project.append_change(
         "map",
         {"action_kind": "map.regex_extract", "output_name": "digits"},
         label="legacy regex output",
@@ -892,7 +892,7 @@ def test_undone_scalar_generated_column_does_not_block_fresh_managed_output(
     source = project.add_column(sheet, "note")
     project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
     old = project.add_column(sheet, "digits", ai_generated=True)
-    op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+    op = append_change(project, "add_column", undo_info={"created_columns": [old]})
     from frisket.engine.store.changes import start_change
 
     with project.transaction_scope():
@@ -1315,7 +1315,7 @@ def test_managed_producer_refuses_intervening_legacy_scalar_run(
     sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
     generation_store = ResultGenerationStore(project)
     before_heads = generation_store.read_cell_heads(output_id, row_ids)
-    legacy_op_id = project.append_op(
+    legacy_op_id = project.append_change(
         "map",
         {"action_kind": "map.template", "output_name": "digits"},
         label="intervening legacy output",

@@ -197,7 +197,7 @@ def test_prepared_selector_uses_its_ordered_pins_not_newer_set(make_project) -> 
     sheet_id = project.add_sheet("Documents")
     column_id = project.add_column(sheet_id, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("prepare.test", commit=False)
+    op_id = project.append_change("prepare.test", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

@@ -345,7 +345,7 @@ def test_history_contract_preserves_an_ordinary_unlabeled_persisted_operation(
         "/api/projects", json={"name": "Unlabeled history operation"}
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
-    op_id = project.append_op("edit", {"cell": "unchanged"})
+    op_id = project.append_change("edit", {"cell": "unchanged"})
     # Admission alone is not a Change; this fixture represents a committed edit.
     from frisket.engine.store.changes import start_change
 

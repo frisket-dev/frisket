@@ -118,7 +118,7 @@ def adopt_document_text_role(
     if writes:
         from .changes import close_change
 
-        adoption_op = project.append_op(
+        adoption_op = project.append_change(
             "document_text.adopt",
             {"source_column_id": source_column_id, "text_column_id": text_column_id},
             label="Adopt document text",

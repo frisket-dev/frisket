@@ -470,7 +470,7 @@ def add_rows(
                 if name in column_ids and value is not None
             )
         if producer_id is None:
-            op_id = project.append_op(
+            op_id = project.append_change(
                 "add_rows",
                 {"sheet_id": sheet_id, "row_count": len(row_ids)},
                 label=f"add {len(row_ids)} rows",

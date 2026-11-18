@@ -991,7 +991,7 @@ def _run_paid_embedding_dimension_probe(
         )
 
     try:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "embedding.index_create",
             {"action_id": action.kind, "params": dict(action.params)},
             label="Probe embedding model dimension",
@@ -2210,7 +2210,7 @@ def _do_refresh(
                             details={"retryable": True},
                         )
                 else:
-                    op_id = project.append_op(
+                    op_id = project.append_change(
                         "embedding.index_refresh",
                         {"action_id": action.kind, "params": dict(action.params)},
                         label=f"Refresh embedding index {params.index_id}",
@@ -2251,7 +2251,7 @@ def _do_refresh(
                 # dispatch.  A process crash during/after the call therefore
                 # leaves a visible running run for recovery instead of an
                 # untracked billable call.
-                op_id = project.append_op(
+                op_id = project.append_change(
                     "embedding.index_refresh",
                     {"action_id": action.kind, "params": dict(action.params)},
                     label=f"Refresh embedding index {params.index_id}",

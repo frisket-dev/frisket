@@ -109,7 +109,7 @@ def _start_run(
     row_ids: list[int],
     action_kind: str = "map.find_topic_sections",
 ) -> tuple[int, int, RunResultStore]:
-    op_id = project.append_op(
+    op_id = project.append_change(
         action_kind,
         {"action_kind": action_kind},
         label=action_kind,
@@ -435,7 +435,7 @@ def test_later_topic_run_never_claims_an_older_manual_edit(tmp_path: Path) -> No
     from frisket.engine.store.op_log import step_operation
 
     with seed.project.transaction_scope():
-        step_operation(seed.project, "revert", op_id=later_op_id)
+        step_operation(seed.project, "revert", change_id=later_op_id)
     live_values, live_refs = seed.project.get_values_with_refs(
         seed.sheet_id, seed.selection_column_id, row_ids=[row_id]
     )

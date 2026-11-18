@@ -336,7 +336,7 @@ def _materialize(
         # An older child without consumed identities cannot acquire invented
         # historical certainty merely because a later delta was backfilled.
         capture["incomplete"] = True
-    op_id = project.append_op(
+    op_id = project.append_change(
         "derive",
         {
             "from_sheet": sheet_id,

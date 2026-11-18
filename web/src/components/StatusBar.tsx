@@ -197,9 +197,9 @@ export function StatusBar({
   const canUndo = history !== null && history.undoTarget !== null;
   const canRedo = history !== null && history.redoTarget !== null;
   // The op the buttons would act on, surfaced as hover tooltips.
-  const undoOp = canUndo ? history.cursorOp : null;
-  const redoOp = canRedo
-    ? history.ops.find((op) => op.index === history.redoTarget?.index) ?? null
+  const undoChange = canUndo ? history.cursorChange : null;
+  const redoChange = canRedo
+    ? history.changes.find((change) => change.index === history.redoTarget?.index) ?? null
     : null;
 
   const [watcherState, setWatcherState] = useState<{ runId: string | null; open: boolean }>({
@@ -396,7 +396,7 @@ export function StatusBar({
           data-testid="undo-button"
           onClick={onUndo}
           disabled={!canUndo}
-          title={undoOp ? `Undo: ${undoOp.label}` : history?.undoTarget ? `Undo op ${history.undoTarget.id}` : 'Nothing to undo'}
+          title={undoChange ? `Undo: ${undoChange.label}` : history?.undoTarget ? `Undo change ${history.undoTarget.id}` : 'Nothing to undo'}
         >
           <Undo2 size={13} /> Undo
         </button>
@@ -406,7 +406,7 @@ export function StatusBar({
           data-testid="redo-button"
           onClick={onRedo}
           disabled={!canRedo}
-          title={redoOp ? `Redo: ${redoOp.label}` : history?.redoTarget ? `Redo op ${history.redoTarget.id}` : 'Nothing to redo'}
+          title={redoChange ? `Redo: ${redoChange.label}` : history?.redoTarget ? `Redo change ${history.redoTarget.id}` : 'Nothing to redo'}
         >
           <Redo2 size={13} /> Redo
         </button>

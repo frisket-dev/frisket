@@ -37,7 +37,7 @@ def warning_run(tmp_path, request):
     row_ids = project.add_rows(
         sheet_id, [{"source": "scan"}, {"source": "blank"}], {"source": source_id}
     )
-    op_id = project.append_op("map.regex_extract", {"pattern": "(.*)"})
+    op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id, sheet_id, "map.regex_extract", row_ids=row_ids, total_rows=2
@@ -337,7 +337,7 @@ def test_warning_storage_is_bounded_and_redacts_secrets(make_project):
     sheet_id = project.add_sheet("Rows")
     column_id = project.add_column(sheet_id, "value")
     row_id = project.add_rows(sheet_id, [{"value": "x"}], {"value": column_id})[0]
-    op_id = project.append_op("map.regex_extract", {})
+    op_id = project.append_change("map.regex_extract", {})
     store = RunResultStore(project)
     run_id = store.start_run(op_id, sheet_id, "map.regex_extract", row_ids=[row_id])
     authority = run_writer_authority_fixture(

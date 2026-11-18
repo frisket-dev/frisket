@@ -496,7 +496,7 @@ def test_stale_receipt_recovery_rechecks_dispatch_and_real_lease(
         sheet = project.add_sheet("source")
         output = project.add_column(sheet, "answer")
         [row] = project.add_rows(sheet, [{}], {})
-        op = project.append_op("test.stale")
+        op = project.append_change("test.stale")
         run = RunResultStore(project).start_run(op, sheet, ACTION_KIND, row_ids=[row])
         authority = run_writer_authority_fixture(
             project,

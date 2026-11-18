@@ -189,7 +189,7 @@ def test_cluster_computes_from_captured_rows_after_equal_text_new_contribution(
     assert result.status == "completed", result.errors
     assert row_input_state(project, result.run_id, row) == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", op_id=edits[0])
+        step_operation(project, "revert", change_id=edits[0])
     assert row_input_state(project, result.run_id, row) == "fresh"
 
 

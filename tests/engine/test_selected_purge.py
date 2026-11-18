@@ -83,7 +83,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_op("test.edit", commit=False)
+            op_id = project.append_change("test.edit", commit=False)
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -94,7 +94,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     retained_sheet, retained_column, retained_row = add(project, "retained", "keep")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        retained_edit = project.append_op("test.edit", commit=False)
+        retained_edit = project.append_change("test.edit", commit=False)
         insert_edits(
             project.db,
             op_id=retained_edit,
@@ -113,11 +113,11 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
         {"doomed": doomed, "safe": safe},
     )[0]
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_op
+    from frisket.engine.store.op_log import append_change
 
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        column_op = append_op(
+        column_op = append_change(
             project,
             "test.created_column",
             undo_info={"created_columns": [doomed]},
@@ -128,7 +128,7 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with pytest.raises(PurgedMaterialUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            op_id = project.append_op("test.edit", commit=False)
+            op_id = project.append_change("test.edit", commit=False)
             insert_edits(
                 project.db,
                 op_id=op_id,
@@ -137,11 +137,11 @@ def test_purged_rows_and_columns_are_fenced_from_restore_and_mutation(project):
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         with pytest.raises(OperationUnavailable):
-            step_operation(project, "revert", op_id=column_op)
+            step_operation(project, "revert", change_id=column_op)
     with pytest.raises(OperationUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            step_operation(project, "restore", op_id=column_op)
+            step_operation(project, "restore", change_id=column_op)
 
 
 def test_restoring_source_change_keeps_purged_cell_absent(project):
@@ -159,7 +159,9 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
         sheet, [{"value": "old one"}, {"value": "old two"}], {"value": column}
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_op("source.refresh", {}, label="source refresh", commit=False)
+    op = project.append_change(
+        "source.refresh", {}, label="source refresh", commit=False
+    )
     producer = create_base_cell_producer(project.db, stage_id=f"op:{op}", op_id=op)
     replace_base_cells(
         project.db,
@@ -178,7 +180,7 @@ def test_restoring_source_change_keeps_purged_cell_absent(project):
     finish_purge(project, begin_purge(project, row_ids=[rows[0]]))
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", op_id=op)
+    step_operation(project, "restore", change_id=op)
     project.db.commit()
 
     assert (
@@ -206,7 +208,7 @@ def test_purged_undone_row_cannot_be_restored(project):
     with pytest.raises(OperationUnavailable):
         with project.db:
             project.db.execute("BEGIN IMMEDIATE")
-            step_operation(project, "restore", op_id=row_op)
+            step_operation(project, "restore", change_id=row_op)
     assert (
         project.db.execute("SELECT hidden FROM rows WHERE id=?", (row,)).fetchone()[0]
         == 1
@@ -227,7 +229,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
     source_row = project.add_rows(
         source_sheet, [{"generated": "input"}], {"generated": source_column}
     )[0]
-    source_op = project.append_op("test.run")
+    source_op = project.append_change("test.run")
     runs = RunResultStore(project)
     source_run = runs.start_run(
         source_op, source_sheet, "test.run", row_ids=[source_row], total_rows=1
@@ -274,7 +276,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         [{"saved": None}, {"saved": None}],
         {"saved": output},
     )
-    copy_op = project.append_op("reapply.results")
+    copy_op = project.append_change("reapply.results")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
@@ -324,7 +326,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
         [{"source": "remove"}, {"source": "retain"}],
         {"source": source},
     )
-    op = project.append_op("map.ask")
+    op = project.append_change("map.ask")
     runs = RunResultStore(project)
     run_id = runs.start_run(op, sheet, "map.ask", row_ids=[first, second], total_rows=2)
     authority = run_writer_authority_fixture(
@@ -373,7 +375,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     from frisket.engine.store.changes import ChangeStore, start_change
     from frisket.engine.store.current_cells import refresh_current_cells
 
-    saved_op = project.append_op("run.reapply", {"action_kind": "run.reapply"})
+    saved_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, saved_op)
@@ -439,7 +441,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         [{"source": "unowned"}, {"source": "shared"}],
         {"source": source},
     )
-    op = project.append_op("map.ask")
+    op = project.append_change("map.ask")
     runs = RunResultStore(project)
     run_id = runs.start_run(
         op, sheet, "map.ask", row_ids=[unowned, shared], total_rows=2
@@ -494,7 +496,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
         saved_sheet, "saved", type="text", ai_generated=True
     )
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
-    copy_op = project.append_op("run.reapply", {"action_kind": "run.reapply"})
+    copy_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
@@ -614,9 +616,9 @@ def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
 
     first = add(project, "first", "secret")
     second = add(project, "second", "public")
-    op = project.append_op("test.run")
+    op = project.append_change("test.run")
     run = RunResultStore(project).start_run(op, first[0], "test.run")
-    other_op = project.append_op("test.run")
+    other_op = project.append_change("test.run")
     other_run = RunResultStore(project).start_run(other_op, second[0], "test.run")
     RunResultStore(project).finish_run(run)
     RunResultStore(project).finish_run(other_run)
@@ -707,7 +709,7 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
     other_row = project.add_rows(sheet, [{"value": "other source"}], {"value": column})[
         0
     ]
-    run_op = project.append_op("test.run")
+    run_op = project.append_change("test.run")
     runs = RunResultStore(project)
     run_id = runs.start_run(run_op, sheet, "test.run")
     runs.finish_run(run_id)
@@ -723,7 +725,7 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
             "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','other answer',1)",
             (run_id, other_row, column),
         )
-    review_op = project.append_op("review.verify")
+    review_op = project.append_change("review.verify")
     info = {
         "review_states": {target: "unreviewed", retained_target: "unreviewed"},
         "review_states_after": {target: "verified", retained_target: "verified"},
@@ -779,7 +781,7 @@ def test_purged_receipt_replays_as_valid_refusal(project):
     from frisket.engine.store.runs import RunResultStore
 
     sheet, _column, row = add(project, "receipt", "secret")
-    op_id = project.append_op("test.receipted")
+    op_id = project.append_change("test.receipted")
     run_id = RunResultStore(project).start_run(op_id, sheet, "test.receipted")
     RunResultStore(project).finish_run(run_id)
     receipt_id = "receipt-purged-material-test"
@@ -823,7 +825,7 @@ def test_late_result_refusal_keeps_paid_usage(project):
     source = project.add_column(sheet, "source")
     output = project.add_column(sheet, "generated", ai_generated=True)
     row = project.add_rows(sheet, [{"source": "paid request"}], {"source": source})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)", "output": "generated"}
     )
     runs = RunResultStore(project)
@@ -928,10 +930,10 @@ def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
     first = add(project, "first", "input")
     second = add(project, "independent", "seed")
     blob = project.add_blob(b"independent saved output")
-    op = project.append_op("test.run")
+    op = project.append_change("test.run")
     run = RunResultStore(project).start_run(op, first[0], "test.run")
     RunResultStore(project).finish_run(run)
-    copy_op = project.append_op("test.reapply")
+    copy_op = project.append_change("test.reapply")
     with project.db:
         project.db.execute(
             "INSERT INTO results(run_id,row_id,column_id,value_kind,value) VALUES (?,?,?,'json',json_object('blob',?))",
@@ -1102,7 +1104,7 @@ def test_active_or_unaccounted_work_must_resolve_before_purge(project):
     from frisket.engine.store.runs import RunResultStore
 
     first = add(project, "first", "private")
-    owner = project.append_op("test.run")
+    owner = project.append_change("test.run")
     run = RunResultStore(project).start_run(owner, first[0], "test.run")
     with pytest.raises(ValueError, match="Cancel or finish"):
         begin_purge(project, sheet_ids=[first[0]])
@@ -1137,7 +1139,7 @@ def test_purge_source_forgets_consumed_capture_and_related_trace_only(project):
     source = add(project, "source", "private")
     output = add(project, "independent answer", "keep me")
     _, _, capture = read_consumed_source(project, source[0], [source[1]])
-    owner = project.append_op("test.capture", {})
+    owner = project.append_change("test.capture", {})
     run = RunResultStore(project).start_run(owner, output[0], "test.capture")
     with project.db:
         project.db.execute("BEGIN")
@@ -1180,7 +1182,7 @@ def test_purge_preserves_shared_descriptor_authority_for_other_columns(project):
     }
     with project.db:
         project.db.execute("BEGIN")
-        operation = project.append_op("column.format", commit=False)
+        operation = project.append_change("column.format", commit=False)
         start_change(project.db, operation)
         project.set_undo_info(operation, info, commit=False)
         record_descriptor_changes(project.db, operation, info)

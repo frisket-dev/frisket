@@ -82,7 +82,7 @@ def test_grid_metadata_excludes_unpublished_paired_output(tmp_path):
             for name in ("answer", "explanation")
         ]
         [row] = project.add_rows(sheet, [{}], {})
-        op = project.append_op("map.regex_extract", {})
+        op = project.append_change("map.regex_extract", {})
         runs = RunResultStore(project)
         run = runs.start_run(
             op, sheet, "map.regex_extract", row_ids=[row], total_rows=1

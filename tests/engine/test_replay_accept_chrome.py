@@ -38,7 +38,9 @@ class _Fixture:
 
     def run_with_results(self, values: dict[int, Any]) -> int:
         store = RunResultStore(self.project)
-        op_id = self.project.append_op("run", {"kind": "map"}, label="generate labels")
+        op_id = self.project.append_change(
+            "run", {"kind": "map"}, label="generate labels"
+        )
         run_id = store.start_run(
             op_id,
             self.sheet,
@@ -244,7 +246,7 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
             "the keep-edit dismissal is durable across reload"
         )
         store = RunResultStore(reopened)
-        same_op = reopened.append_op("run", {"kind": "map"}, label="same re-run")
+        same_op = reopened.append_change("run", {"kind": "map"}, label="same re-run")
         same_run = store.start_run(
             same_op,
             fx.sheet,
@@ -267,7 +269,7 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
         # Ordinary replacement supersedes the old edit. A later manual change
         # is compared against the new result, and its distinct hash is not
         # suppressed by the dismissal of the previous generated value.
-        op_id = reopened.append_op("run", {"kind": "map"}, label="re-run")
+        op_id = reopened.append_change("run", {"kind": "map"}, label="re-run")
         new_run = store.start_run(
             op_id,
             fx.sheet,

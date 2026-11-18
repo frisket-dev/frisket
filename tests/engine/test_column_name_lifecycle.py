@@ -11,7 +11,7 @@ def test_undo_redo_preserves_internal_hidden_column(tmp_path):
     with closing(Project.create(tmp_path / "hidden.frisket")) as project:
         sheet_id = project.add_sheet("data")
         column_id = project.add_column(sheet_id, "internal", hidden=True)
-        op_id = project.append_op("fixture")
+        op_id = project.append_change("fixture")
         project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
         start_change(project.db, op_id)
         project.db.commit()
@@ -30,7 +30,7 @@ def test_redo_cannot_take_name_reserved_by_queued_action(tmp_path):
     with closing(Project.create(tmp_path / "claimed.frisket")) as project:
         sheet_id = project.add_sheet("data")
         column_id = project.add_column(sheet_id, "summary")
-        op_id = project.append_op("fixture")
+        op_id = project.append_change("fixture")
         project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
         start_change(project.db, op_id)
         project.db.commit()

@@ -77,7 +77,7 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
         ).fetchone()[0]
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("document_text.seed", commit=False)
+    op_id = project.append_change("document_text.seed", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -442,21 +442,21 @@ def test_managed_sheet_refresh_retains_history_and_never_overwrites_newer_change
         ).fetchall()
         assert order[0][0] < order[1][0]
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=claimed_run.op_id)
+            step_operation(project, "revert", change_id=claimed_run.op_id)
         assert project.get_values(child_id, column_id) == newest
         # Restore cannot resurrect removed destinations as a side effect.
         with pytest.raises(RestorationUnavailable, match="restore it first"):
             with project.transaction_scope():
-                step_operation(project, "restore", op_id=claimed_run.op_id)
+                step_operation(project, "restore", change_id=claimed_run.op_id)
         assert project.get_values(child_id, column_id) == newest
         # Reverting refresh restores membership; the old generated values can
         # then be restored. Neither operation discards the newer manual edit.
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=refresh_op)
-            step_operation(project, "restore", op_id=claimed_run.op_id)
+            step_operation(project, "revert", change_id=refresh_op)
+            step_operation(project, "restore", change_id=claimed_run.op_id)
         assert project.get_values(child_id, column_id) == before_refresh
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=refresh_op)
+            step_operation(project, "restore", change_id=refresh_op)
         assert project.get_values(child_id, column_id) == newest
     finally:
         project.close()

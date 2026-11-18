@@ -9,13 +9,13 @@ from frisket.engine.store.column_descriptors import (
     descriptor_identity,
     project_column_descriptors,
 )
-from frisket.engine.store.op_log import append_op, operation_target, step_operation
+from frisket.engine.store.op_log import append_change, operation_target, step_operation
 
 
 def _step(project, direction, op_id=None):
     project.db.execute("BEGIN IMMEDIATE")
     try:
-        transition = step_operation(project, direction, op_id=op_id)
+        transition = step_operation(project, direction, change_id=op_id)
         project.db.commit()
         return transition
     except BaseException:
@@ -26,7 +26,7 @@ def _step(project, direction, op_id=None):
 def _descriptor(project, column, value):
     project.db.execute("BEGIN IMMEDIATE")
     old = project.get_column(column)["type"]
-    op = append_op(
+    op = append_change(
         project,
         "column.set_type",
         undo_info={
@@ -69,8 +69,8 @@ def test_navigation_uses_first_mutation_order_and_retains_selective_restore(tmp_
         sheet = project.add_sheet("data")
         column = project.add_column(sheet, "value")
         row = project.add_rows(sheet, [{"value": "original"}], {"value": column})[0]
-        early_admission = project.append_op("prepared")
-        later_admission = project.append_op("prepared")
+        early_admission = project.append_change("prepared")
+        later_admission = project.append_change("prepared")
         for op in (later_admission, early_admission):
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
@@ -82,13 +82,15 @@ def test_navigation_uses_first_mutation_order_and_retains_selective_restore(tmp_
         _step(project, "undo")
         assert operation_target(project, "undo")["id"] == later_admission
         assert operation_target(project, "redo")["id"] == early_admission
-        queued = project.append_op("prepared")
+        queued = project.append_change("prepared")
         assert operation_target(project, "redo")["id"] == early_admission
         with project.db:
             project.db.execute("UPDATE ops SET label=label WHERE id=?", (queued,))
             start_change(project.db, queued)
         assert operation_target(project, "redo") is None
-        assert operation_target(project, "restore", op_id=early_admission) is not None
+        assert (
+            operation_target(project, "restore", change_id=early_admission) is not None
+        )
         assert (
             project.db.execute(
                 "SELECT status FROM ops WHERE id=?", (early_admission,)
@@ -99,14 +101,14 @@ def test_navigation_uses_first_mutation_order_and_retains_selective_restore(tmp_
 
 def test_pre_cutover_history_is_visible_but_not_executable(tmp_path):
     with closing(Project.create(tmp_path / "historical.frisket")) as project:
-        historical = project.append_op("old")
+        historical = project.append_change("old")
         with project.db:
             project.db.execute(
                 "UPDATE meta SET value=? WHERE key='op_cursor'", (str(historical),)
             )
         assert len(project.history()) == 1
         assert operation_target(project, "undo") is None
-        assert operation_target(project, "revert", op_id=historical) is None
+        assert operation_target(project, "revert", change_id=historical) is None
 
 
 def test_selective_row_membership_uses_latest_active_change(tmp_path):
@@ -119,7 +121,9 @@ def test_selective_row_membership_uses_latest_active_change(tmp_path):
         ids = []
         for field in ("deleted_rows", "restored_rows", "deleted_rows"):
             with project.db:
-                op = append_op(project, field, undo_info={field: [row]}, commit=False)
+                op = append_change(
+                    project, field, undo_info={field: [row]}, commit=False
+                )
                 start_change(project.db, op)
                 project_structural_changes(project.db, op)
             ids.append(op)
@@ -187,7 +191,7 @@ def test_creation_restore_conflict_does_not_partially_restore_other_columns(tmp_
         a = project.add_column(sheet, "summary")
         b = project.add_column(sheet, "citation")
         with project.db:
-            op = append_op(
+            op = append_change(
                 project, "create", undo_info={"created_columns": [a, b]}, commit=False
             )
             start_change(project.db, op)

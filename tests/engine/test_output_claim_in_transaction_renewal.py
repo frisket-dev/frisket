@@ -23,7 +23,7 @@ def _seed_claimed_writer(tmp_path: Path) -> tuple[Project, int, int, int, str]:
         [{"source": "one"}],
         {"source": source_column_id},
     )[0]
-    op_id = project.append_op("map", {"recipe": "python"})
+    op_id = project.append_change("map", {"recipe": "python"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

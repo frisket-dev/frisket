@@ -65,7 +65,7 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     column = project.add_column(sheet, "text", type="text")
 
     project.db.execute("BEGIN IMMEDIATE")
-    producing_op_id = project.append_op("prepare.test", commit=False)
+    producing_op_id = project.append_change("prepare.test", commit=False)
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact_id,
         producing_op_id=producing_op_id,
