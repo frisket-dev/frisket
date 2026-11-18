@@ -71,7 +71,7 @@ _Avoid_: scratch, sample, dry run.
 **Citation** — the exact place in the source a result points to: a passage, a page region or a timestamp. It says where a result came from; it does not claim proof.
 _Avoid_: evidence, quote, excerpt.
 
-**Receipt** — the record of what a run did: action, model, settings, cost.
+**Receipt** — the record of what a run did: action, model, settings, cost. Everything Frisket does to a project leaves one, whether or not it cost anything or left the machine.
 _Avoid_: provenance (for this meaning).
 
 **Review** — a person checking a run's results against their citations. A reviewed result is **Accepted** or **Rejected**, or corrected.
@@ -82,7 +82,7 @@ _Avoid_: approve (it is confusable with consent), verified.
 **Consent** — a person's agreement to one specific estimate: what will run, what it will cost, and what will leave their machine. Consent is to those facts, not a yes in general; an allowance is the one standing exception.
 _Avoid_: approval, preapproval; "confirmation" for anything but the click itself.
 
-**Allowance** — an amount a person sets in advance. A run whose estimate is at or under it starts without asking; a run over it, or with no price, still asks.
+**Allowance** — an amount a person sets in advance. A run whose estimate is at or under it starts without asking; a run over it, or with no price, still asks. An import is one run: the allowance is compared with its whole estimate, not with each page.
 
 **Estimate** — what a run is expected to do before it starts: rows, engine and provider, what leaves the machine, and the expected cost. It is what a person consents to.
 _Avoid_: quote.
@@ -101,7 +101,7 @@ _Avoid_: source (for this meaning), poller.
 **Alert** — a saved condition on a sheet. When new or changed rows match it, Frisket sends a notification. An alert is always the thing a person sets up.
 _Avoid_: watch, watchlist, monitor.
 
-**Notification** — the message Frisket sends, from an alert or a finished run.
+**Notification** — the message Frisket sends, from an alert, a finished run or a finished import.
 
 ## Where Frisket runs
 
