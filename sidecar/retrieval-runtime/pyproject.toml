@@ -5,7 +5,7 @@ description = "Frozen third-party runtime for Frisket multimodal retrieval"
 requires-python = ">=3.12"
 dependencies = [
     "numpy==2.4.3",
-    "pillow==12.1.1",
+    "pillow==13.0.0",
     "safetensors==0.8.0",
     "tokenizers==0.23.3",
     "torch==2.14.1",

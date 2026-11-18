@@ -17,7 +17,7 @@ def test_retrieval_runtime_lock_owns_only_the_evaluated_dependencies() -> None:
 
     assert project["project"]["dependencies"] == [
         "numpy==2.4.3",
-        "pillow==12.1.1",
+        "pillow==13.0.0",
         "safetensors==0.8.0",
         "tokenizers==0.23.3",
         "torch==2.14.1",
