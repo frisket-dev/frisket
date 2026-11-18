@@ -584,7 +584,11 @@ export async function clickRunButton(
   options: { requireCostConfirmation?: boolean } = {},
 ): Promise<void> {
   const requireCostConfirmation = options.requireCostConfirmation ?? true;
-  const runButton = page.getByTestId('generated-action-run');
+  // Sheet-scoped forms render generated-action-run; project-scoped ones
+  // (a form that creates a sheet) render run-button.
+  const runButton = page.locator(
+    '[data-testid="run-button"], [data-testid="generated-action-run"]',
+  );
   await runButton.click();
   if (!requireCostConfirmation) return;
   const modal = page.getByTestId('cost-gate-modal');

@@ -218,7 +218,7 @@ test('derive rows composes map.extract and derive.table_from_list through v1', a
   await page.getByTestId('list-item-field-add').click();
   await page.getByTestId('list-item-field-name').nth(2).fill('product');
 
-  await page.getByTestId('generated-action-run').click();
+  await page.getByTestId('run-button').click();
 
   await expect.poll(() => posts.v1Posts.length, { timeout: 5000 }).toBe(2);
   await expect.poll(() => posts.statusPolls.length, { timeout: 5000 }).toBeGreaterThan(0);
