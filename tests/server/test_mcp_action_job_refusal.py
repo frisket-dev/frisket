@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
-from frisket.server.mcp.backends import HostedBackend, LocalBackend
+from frisket.server.mcp.backends import RemoteBackend, LocalBackend
 from frisket.server.services.action_runs import ActionRunService
 
 
@@ -67,7 +67,7 @@ def test_hosted_mcp_refuses_every_action_job_before_http(kind: str) -> None:
             base_url="http://frisket.test",
         )
         try:
-            backend = HostedBackend(client=client)
+            backend = RemoteBackend(client=client)
             with pytest.raises(
                 ValueError,
                 match=rf"queued_action_job_not_supported:.*{kind}",

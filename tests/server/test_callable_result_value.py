@@ -12,7 +12,7 @@ from frisket.contracts.action import ActionError, Receipt, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.server.mcp import HostedBackend, LocalBackend
+from frisket.server.mcp import RemoteBackend, LocalBackend
 from frisket.server.mcp import backends
 
 
@@ -99,7 +99,7 @@ def test_mcp_preserves_terminal_receipt_values_and_completed_effects(
             ),
             base_url="http://frisket.test",
         ) as client:
-            return await HostedBackend(client=client).run_action("demo", request)
+            return await RemoteBackend(client=client).run_action("demo", request)
 
     if not has_receipt:
         with pytest.raises(ValueError, match="callable_failed"):

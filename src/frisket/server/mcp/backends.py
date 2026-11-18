@@ -5,10 +5,10 @@
   :class:`frisket.server.services.action_runs.ActionRunService`, the same
   ingress the HTTP API is built on, so there is no business-logic fork and
   `frisket mcp <dir>` needs no running server.
-- :class:`HostedBackend` — a thin httpx client over the hosted /api/*
-  surface, authenticated with an organization-scoped PAT
+- :class:`RemoteBackend` — a thin httpx client over a remote Frisket
+  server's /api/* surface, authenticated with an organization-scoped PAT
   (`Authorization: Bearer frisket_pat_*`). All caps/guards/auth are the
-  hosted server's; this class only maps tool calls to endpoints and
+  remote server's; this class only maps tool calls to endpoints and
   normalizes responses to the same shapes LocalBackend returns.
 
 Cost-gate contract (both backends): a gated run NEVER surfaces as an
@@ -89,7 +89,7 @@ def cost_gate_response(
         try:
             estimate_usd = estimated_usd(estimate_details)
         except (TypeError, ValueError):
-            # An envelope whose money facts do not project (a hosted server on
+            # An envelope whose money facts do not project (a remote server on
             # a shape this build cannot read, a ``ConsentEstimateRefused``) is
             # UNKNOWN, which gates exactly as an unpriced run does. Never a
             # confident figure, and never an exception blob: this surface's
@@ -534,7 +534,7 @@ class LocalBackend:
         }
 
 
-class HostedBackend:
+class RemoteBackend:
     """Thin client binding: every tool call is an /api/* request with a PAT."""
 
     def __init__(
@@ -551,7 +551,7 @@ class HostedBackend:
         pat = pat or os.environ.get("FRISKET_PAT")
         if not base_url or not pat:
             raise ValueError(
-                "hosted mode needs FRISKET_BASE_URL and FRISKET_PAT "
+                "frisket mcp --hosted needs FRISKET_BASE_URL and FRISKET_PAT "
                 "(an org-scoped frisket_pat_* token) in the environment"
             )
         self._client = httpx.AsyncClient(
