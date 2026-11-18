@@ -73,6 +73,7 @@ async function startSlowPythonRun(page: import('@playwright/test').Page, pid: st
     });
   });
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page
     .getByTestId('field-code')

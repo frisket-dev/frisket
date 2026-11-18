@@ -157,11 +157,6 @@
   "5 — a legacy entity column offers Rebuild and shows none of its old items": "stale-expectation",
   "6 — filtering by a group that only exists on page 2 keeps both pages loaded": "stale-expectation"
  },
- "new-columns-scroll-annotation.spec.ts": {
-  "a grouped annotation clears the group header and keeps dismiss in the top-right": "stale-expectation",
-  "a run creating a new column scrolls it into view, annotates it, shows a populate progress bar, then clears": "stale-expectation",
-  "the new-columns annotation can be dismissed by clicking its dismiss control": "stale-expectation"
- },
  "notifications-settings.spec.ts": {
   "notification settings manages channels routes digests and delivery health": "stale-expectation"
  },
@@ -269,23 +264,11 @@
   "row drawer focuses selected fields with scoped smooth scrolling": "stale-expectation",
   "row drawer selected-field scroll respects reduced motion": "stale-expectation"
  },
- "run-controls.spec.ts": {
-  "run watcher can cancel a queued run": "stale-expectation"
- },
  "run-failure-surfacing.spec.ts": {
   "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation"
  },
- "run-live-cell-fill.spec.ts": {
-  "a failed row shows its error text inline instead of an empty dash": "stale-expectation",
-  "cells pulse during a run, fill in live before completion, and clear all pulses after": "stale-expectation",
-  "run-status polling stops once the run is terminal (no forever-polling completed runs)": "stale-expectation"
- },
  "run-progress-single-surface.spec.ts": {
-  "active run uses one watcher surface plus a compact footer affordance": "stale-expectation",
-  "failed run copy stays clear without reopening a duplicate active surface": "stale-expectation"
- },
- "run-progress-visibility.spec.ts": {
-  "active run has prominent progress and pending AI-cell affordances": "stale-expectation"
+  "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
  },
  "run-receipts-panel.spec.ts": {
   "a free local OCR run shows an honest no-charges receipt panel": "stale-expectation"
@@ -348,11 +331,6 @@
  },
  "workbench-ia-lineage.spec.ts": {
   "Re-run now on a MODEL-backed derived sheet pauses at the cost confirm (no auto-spend)": "stale-expectation"
- },
- "workbench-ia-monitor.spec.ts": {
-  "the active dock tab carries the Monitor amber accent": "stale-expectation",
-  "the dock tabs join the panel below and still switch content": "stale-expectation",
-  "the live run summary and progress bar track the job store": "stale-expectation"
  },
  "workbench-ia-region-frames.spec.ts": {
   "C6: a PanelEmpty renders identically in a dock tab and a Discover tab": "stale-expectation",
