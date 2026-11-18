@@ -35,7 +35,7 @@ env:
   # job summary and passes; "true" fails the night on any new failure, any
   # listed test that now passes, or any stale entry. Flip it once the list has
   # been reconciled with a run on this runner (CONTRIBUTING.md, Browser suite).
-  E2E_KNOWN_FAILURES_ENFORCE: "false"
+  E2E_KNOWN_FAILURES_ENFORCE: "true"
   SHARDS: "4"
 
 jobs:

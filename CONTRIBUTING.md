@@ -413,19 +413,16 @@ entry is a hand edit naming its reason; fix the test instead when you can.
 `seed` entries are judged only when the seed setup found none of the demo
 projects, as on CI; with a seeded cache they are reported, not judged.
 
-The list was first generated on macOS, so the nightly starts in report-only
-mode (`E2E_KNOWN_FAILURES_ENFORCE: "false"` in `nightly-e2e.yml`): it prints
-the differences and passes. To reconcile it with Linux and turn enforcement
-on:
+The list is reconciled with the Linux runner and the nightly enforces it
+(`E2E_KNOWN_FAILURES_ENFORCE: "true"` in `nightly-e2e.yml`). A local run on
+another platform can differ from it by a few layout-dependent tests. To
+reconcile the list after a red night that is not a regression:
 
-1. `gh workflow run nightly-e2e.yml --ref main`, and wait for it.
-2. `gh run download <run id> -p 'e2e-report-*' -D reports`.
-3. `python scripts/ci/e2e_known_failures.py reports/*.json`; add each new
-   failure it names to the list by hand with its reason (usually
-   `environment` for Linux-only ones), then rerun with `--update` to drop the
-   listed tests that pass on Linux, and once more without flags until it
-   passes.
-4. Land the list and `E2E_KNOWN_FAILURES_ENFORCE: "true"` in one PR.
+1. `gh run download <run id> -p 'e2e-report-*' -D reports`.
+2. `python scripts/ci/e2e_known_failures.py reports/*.json`; add each new
+   failure it names to the list by hand with its reason, then rerun with
+   `--update` to drop the listed tests that now pass, and once more without
+   flags until it passes.
 
 ### Working in worktrees
 

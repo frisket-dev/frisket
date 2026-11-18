@@ -5,9 +5,6 @@
  "account.spec.ts": {
   "account redirect opens Personal Profile settings and saves display name": "stale-expectation"
  },
- "action-compare-connected.spec.ts": {
-  "connected action comparison › compares a real run, applies replacement settings, and undoes them": "unclassified"
- },
  "action-drawer-autoclose.spec.ts": {
   "a server output_column_exists rejection keeps the drawer open (confirm flow)": "stale-expectation"
  },
@@ -44,7 +41,6 @@
   "the Cluster tile opens the action drawer and commits a canonical column": "stale-expectation"
  },
  "column-format.spec.ts": {
-  "AI-generated text columns can be saved as markdown from the column drawer": "stale-expectation",
   "column drawer retypes columns and edits display formats": "stale-expectation"
  },
  "column-run-history.spec.ts": {
@@ -213,7 +209,6 @@
   "bulk email warnings remain visible alongside a partial import failure": "stale-expectation",
   "closing a planned bulk import clears it before the workspace reopens": "stale-expectation",
   "empty-project dropzone keeps a single ordinary file on legacy file import": "stale-expectation",
-  "empty-project dropzone sends two CSV files through bulk planning": "stale-expectation",
   "two generic Files selections with one PDF stay on the normal file import": "stale-expectation"
  },
  "investigative-sources.spec.ts": {
@@ -321,12 +316,6 @@
   "preview computes an in-memory sample, overlays it, and persists nothing": "stale-expectation",
   "preview tab close cancels + drops the sample (nothing persisted)": "stale-expectation"
  },
- "project-archive-hide.spec.ts": {
-  "archiving a project from the card ⋯ menu hides it from Home, surfaces it under Archive, and unarchiving restores it": "stale-expectation"
- },
- "project-rename-from-list.spec.ts": {
-  "the project card ⋯ menu offers Rename, which persists a new name via the shared PATCH endpoint": "stale-expectation"
- },
  "project-start-surfaces.spec.ts": {
   "empty project dropzone routes dropped PDF selections through file import, not CSV": "stale-expectation"
  },
@@ -385,7 +374,6 @@
   "review scopes runs and fields through the toolbar, reports decisions, and reopens a completed run": "stale-expectation"
  },
  "role-primitives-consolidation.spec.ts": {
-  "AnswersView row list arrow-nav clamps at the boundary — same shape as DocumentView (useWindowedRowList)": "stale-expectation",
   "EngineSelector choice buttons retain aria-current through searchable action selection": "stale-expectation",
   "the derive AI/existing-column toggle behaves as a SegmentedToggle, including its disabled option (no JSON list columns)": "stale-expectation",
   "the extract form Column/Template toggle behaves as a SegmentedToggle (aria-pressed parity, panel swap)": "stale-expectation"
@@ -549,18 +537,15 @@
   "contextual categories are keyed to column types in both ribbon and compact mode": "stale-expectation"
  },
  "workbench-ia-right-edge.spec.ts": {
+  "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment",
   "the » overflow menu OPENS and switches to a hidden tab (regression: clipped by overflow:hidden)": "stale-expectation"
  },
  "workbench-ia-shell.spec.ts": {
-  "+ New project creates a project and opens it": "stale-expectation",
   "Home renders real project cards with real meta counts and navigates into the workbench": "seed",
   "the account menu opens tier-honest and its Appearance submenu flips + persists the theme": "seed",
   "the switcher menu opens from the chrome; This-project settings lands on the project route": "seed",
   "the switcher menu recent-projects entry switches projects": "seed",
   "the three settings tiers stay distinct and reachable (Account / Project / Workspace)": "seed"
- },
- "workbench-ia-tokens.spec.ts": {
-  "workbench IA tokens: IBM Plex is self-hosted and body adopts it": "unclassified"
  },
  "workbench-ia-work-views.spec.ts": {
   "deep link /map/column opens the split as workspace state and normalizes the URL so the panel slot frees up": "stale-expectation",
