@@ -111,10 +111,10 @@ test('browser back/forward restores sheets, drawers, review, and action deep lin
   await expect(page.getByTestId('review-queue')).toHaveCount(0);
 
   await page.goto(`/p/${pid}/s/${firstSheetId}/action/enrich.geocode`);
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
   await expect(page.getByTestId('action-form-title')).toContainText('Geocode');
 
   await page.goBack();
   await expect(page).toHaveURL(routeRe(`/p/${pid}/s/${firstSheetId}`));
-  await expect(page.getByTestId('action-form')).toHaveCount(0);
+  await expect(page.getByTestId('generated-action-form')).toHaveCount(0);
 });

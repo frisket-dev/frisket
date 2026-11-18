@@ -81,7 +81,7 @@ test('semantic join form creates a linkage child sheet', async ({ page }) => {
 
   await openProject(page, pid, donors);
   await openAction(page, 'join.semantic');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
   await expect(page.getByTestId('semantic-join-form')).toBeVisible();
   await expect(page.getByTestId('media-source-column-select')).toBeVisible();
   await expect(page.getByTestId('media-source-binding')).toHaveCount(1);

@@ -138,7 +138,7 @@ test('a NEW-column collision with an AI column offers an overwrite path, not a d
   // existing output names instead of offering the legacy overwrite escape hatch.
   await openAction(page, 'map.classify');
   await selectActionSourceColumns(page, 'note');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
 
   // Type a name that normalizes onto the existing AI column → output-name
   // collision while the destination is still "New column".
@@ -146,7 +146,7 @@ test('a NEW-column collision with an AI column offers an overwrite path, not a d
   await newColInput.click();
   await newColInput.fill('demo population');
 
-  const runButton = page.getByTestId('run-button');
+  const runButton = page.getByTestId('generated-action-run');
   await expect(runButton).toBeDisabled();
   const reason = page.getByTestId('run-disabled-reason');
   await expect(reason).toContainText(/already exists/i);

@@ -29,7 +29,7 @@ async function selectGeminiEngine(page: Page) {
 }
 
 async function clickRunAndCaptureResponse(page: Page, pid: string) {
-  const runButton = page.getByTestId('run-button');
+  const runButton = page.getByTestId('generated-action-run');
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
       await expect(runButton).toBeEnabled({ timeout: 5_000 });
@@ -52,7 +52,6 @@ async function clickRunAndCaptureResponse(page: Page, pid: string) {
       // confirm it so the run POSTs.
       const gate = page.getByTestId('cost-gate-modal');
       if (await gate.isVisible({ timeout: 2_000 }).catch(() => false)) {
-        await page.getByTestId('cost-gate-input').fill('confirm');
         const confirm = page.getByTestId('cost-gate-confirm');
         await expect(confirm).toBeEnabled({ timeout: 5_000 });
         await confirm.click();
@@ -90,7 +89,7 @@ test('import → classify run → results → undo/redo', async ({ page }) => {
   // the live pending → complete transition, not a cache replay.
   await openAction(page, 'map.classify');
   await selectActionSourceColumns(page, 'snippet');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
   await selectGeminiEngine(page);
   await page
     .getByTestId('action-prompt')

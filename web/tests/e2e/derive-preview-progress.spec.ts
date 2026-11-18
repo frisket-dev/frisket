@@ -140,7 +140,7 @@ test('derive preview shows active progress while awaiting the preview response',
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openAction(page, 'derive.table_from_list');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
 
   await page.getByTestId('preview-button').click();
   await extractStarted;

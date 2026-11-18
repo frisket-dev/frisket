@@ -337,7 +337,7 @@ async function openClassifyForm(page: Page, pid: string): Promise<void> {
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
   await openAction(page, 'map.classify');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
 }
 
 test('EngineSelector choice buttons retain aria-current through searchable action selection', async ({

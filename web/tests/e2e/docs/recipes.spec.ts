@@ -116,8 +116,6 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('generated-action-preview').click();
   const previewGate = page.getByTestId('cost-gate-modal');
   if (await previewGate.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    const input = page.getByTestId('cost-gate-input');
-    if (await input.isVisible()) await input.fill('confirm');
     await page.getByTestId('cost-gate-confirm').click();
   }
   await expect(page.getByTestId('preview-tab-banner')).toHaveAttribute('data-status', 'done', { timeout: 120_000 });
@@ -129,8 +127,6 @@ test('court sample imports and runs the selected filings through strict replay',
   await page.getByTestId('preview-run-for-real-button').click();
   const gate = page.getByTestId('cost-gate-modal');
   if (await gate.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    const input = page.getByTestId('cost-gate-input');
-    if (await input.isVisible()) await input.fill('confirm');
     await page.getByTestId('cost-gate-confirm').click();
   }
   const runResponse = await start;
@@ -233,7 +229,6 @@ test('court sample imports and runs the selected filings through strict replay',
   if (await page.getByTestId('generated-action-run').isVisible({ timeout: 2_000 }).catch(() => false)) await page.getByTestId('generated-action-run').click();
   const fullGate = page.getByTestId('cost-gate-modal');
   if (await fullGate.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await page.getByTestId('cost-gate-input').fill('confirm');
     await page.getByTestId('cost-gate-confirm').click();
   }
   const fullResponse = await fullStart;

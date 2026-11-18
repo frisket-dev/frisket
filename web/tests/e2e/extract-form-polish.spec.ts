@@ -143,7 +143,7 @@ test('extract runs clean with fields but no instructions (item 1)', async ({ pag
   await expectAdditionalPromptAfterFields(page);
   // Clear the field to prove it is genuinely optional end to end.
   await page.getByTestId('action-prompt').fill('');
-  await expect(page.getByTestId('run-button')).toBeEnabled();
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
   await expect(page.getByTestId('run-disabled-reason')).toHaveCount(0);
 
   const runRequest = page.waitForRequest(
@@ -375,7 +375,7 @@ test("a fresh classify launch also carries include_confidence/include_justificat
   await expectAdditionalPromptAfterFields(page);
   await expect(page.getByTestId('action-prompt')).toHaveValue('');
   await page.getByTestId('action-prompt').fill('');
-  await expect(page.getByTestId('run-button')).toBeEnabled();
+  await expect(page.getByTestId('generated-action-run')).toBeEnabled();
   await expect(page.getByTestId('run-disabled-reason')).toHaveCount(0);
   await page.getByTestId('advanced-run-options-toggle').click();
   await expect(page.getByLabel('Include confidence')).not.toBeChecked();
