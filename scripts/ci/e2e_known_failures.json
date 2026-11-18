@@ -98,6 +98,9 @@
  "editable-grid.spec.ts": {
   "the in-place editor wraps a long unbroken text value": "stale-expectation"
  },
+ "embeddings-alert.spec.ts": {
+  "a blocked embedding alert shows a Refresh link that refreshes the index": "stale-expectation"
+ },
  "embeddings-create-flow.spec.ts": {
   "remote index creation separates source, egress, cost, and summary review": "stale-expectation"
  },
@@ -124,9 +127,6 @@
  },
  "embeddings-queue-progress.spec.ts": {
   "create embeddings enqueues the build, the jobs panel shows it running, and the embeddings panel refreshes to ready on completion without a manual reload": "stale-expectation"
- },
- "embeddings-watch.spec.ts": {
-  "a blocked embedding watch shows a Refresh link that refreshes the index": "stale-expectation"
  },
  "engine-selection-layout.spec.ts": {
   "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
@@ -282,7 +282,7 @@
   "notification settings manages channels routes digests and delivery health": "stale-expectation"
  },
  "notifications.spec.ts": {
-  "generic notification feed links watch events and supports read acknowledgement": "stale-expectation"
+  "generic notification feed links alert events and supports read acknowledgement": "stale-expectation"
  },
  "overwrite-server-confirm.spec.ts": {
   "a server-side output_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true": "stale-expectation",
@@ -593,7 +593,7 @@
  },
  "workbench-sidebar-contributions.spec.ts": {
   "embeddings panel remounts per sheet with activeSheet gating preserved": "stale-expectation",
-  "the palette hides a re-homed panel (Watches) and it recovers": "stale-expectation"
+  "the palette hides a re-homed panel (Alerts) and it recovers": "stale-expectation"
  },
  "workbench-structured-workspace.spec.ts": {
   "mainView tabs are visible and prototype map move controls stay out of daily UI": "stale-expectation"
