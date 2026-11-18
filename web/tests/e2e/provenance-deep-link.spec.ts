@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { testPython } from '../support/testPython';
 
 // A temporal citation whose source blob carries
 // `webpage_url` (yt-dlp capture metadata, ytdlp.py:302-308 -- the field is
@@ -138,7 +139,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,

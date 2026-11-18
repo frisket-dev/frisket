@@ -31,6 +31,7 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
+import { testPython } from '../support/testPython';
 
 // A 3-row CSV. Row 0 carries an XSS probe so we can assert the raw model
 // output (which echoes/quotes nothing dangerous, but the PROMPT does contain
@@ -47,7 +48,6 @@ const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 
 async function exposeReplayBackedClassifyEngine(page: Page, projectId: string): Promise<void> {
   // This spec runs in replay_strict with a cache it primes itself, so the
@@ -168,7 +168,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, ['-c', script, workspace, pid, String(sheetId)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

@@ -9,7 +9,8 @@ import { GeneratedActionForm } from '../../src/components/action-panel/Generated
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
 import { installPopoverPolyfill } from '../support/domPolyfills';
-import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 import { chooseActionSelector, installActionSelectorFixture, selectorTrigger } from '../support/selectorChoicesFixture';
 
 const SHEET = sheetMeta([
@@ -21,7 +22,7 @@ const SHEET = sheetMeta([
 ], { id: '7', name: 'Places', rowCount: 3 });
 
 type Kind = 'enrich.geocode' | 'enrich.census_demographics';
-describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('typed geospatial forms', () => {
+describe.skipIf(!hasTestPython() && !process.env.CI)('typed geospatial forms', () => {
   let catalog: ActionCatalogPayload;
   beforeAll(() => {
     installPopoverPolyfill();

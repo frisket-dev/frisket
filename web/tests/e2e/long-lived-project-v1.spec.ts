@@ -20,6 +20,7 @@ import {
   type WireColumn,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 const MODEL = 'gemini/gemini-2.5-flash';
 const TARGET_TRACE_SENTINEL = 'TARGET_TRACE_SENTINEL_v1_long_lived';
@@ -147,10 +148,8 @@ finally:
     project.close()
 `;
   execFileSync(
-    'uv',
+    testPython(),
     [
-      'run',
-      'python',
       '-c',
       script,
       workspace,

@@ -21,6 +21,7 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as DERIVE_MODEL,
 } from './replayModelScenario';
+import { testPython } from '../support/testPython';
 
 // workbench-ia-sheet-tabs-v1 (Workbench IA increment 3): the Navigate region —
 // browser-style sheet tabs above the grid; the vertical sidebar sheet list is
@@ -95,7 +96,6 @@ const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 
 const DERIVE_CSV =
   'episode,description\n' +
@@ -234,7 +234,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, ['-c', script, workspace, pid, String(sheetId)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

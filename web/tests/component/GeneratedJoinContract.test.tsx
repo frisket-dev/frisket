@@ -6,7 +6,8 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import type { ActionParamResolution, GeneratedActionDraft } from '../../src/api/types';
 import { joinApi, joinLeft, joinRight, renderJoinForm } from '../support/renderJoinForm';
-import { servedActionCatalog, servedActionCatalogPython } from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { testPython } from '../support/testPython';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
 
@@ -27,7 +28,7 @@ const requests = [
   sheet_name: 'Discovery',
 }));
 const root = resolve(process.cwd(), '..');
-const discovery = spawnSync(servedActionCatalogPython(), ['-c', `
+const discovery = spawnSync(testPython(), ['-c', `
 import json, sys, tempfile
 from pathlib import Path
 from types import SimpleNamespace

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { delimiter, resolve } from 'node:path';
 
 import type { ActionParamResolution, GeneratedActionRequest } from '../../src/api/types';
-import { servedActionCatalogPython } from './servedActionCatalog';
+import { testPython } from './testPython';
 
 type ParamValidationRequest = Pick<GeneratedActionRequest, 'action_id' | 'scope' | 'params'>;
 
@@ -15,7 +15,7 @@ export function servedActionValidations(
   const pythonPath = process.env.PYTHONPATH
     ? `${sourcePath}${delimiter}${process.env.PYTHONPATH}`
     : sourcePath;
-  const result = spawnSync(servedActionCatalogPython(), ['-c', `
+  const result = spawnSync(testPython(), ['-c', `
 import json, sys, tempfile
 from pathlib import Path
 from types import SimpleNamespace

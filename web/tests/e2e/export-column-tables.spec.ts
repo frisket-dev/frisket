@@ -30,6 +30,7 @@ import {
   selectRow,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
@@ -86,7 +87,7 @@ try:
 finally:
     project.close()
 `;
-  const out = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, String(sheetId), name], {
+  const out = execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId), name], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,
@@ -156,7 +157,7 @@ try:
 finally:
     project.close()
 `;
-  const out = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, receiptId], {
+  const out = execFileSync(testPython(), ['-c', script, workspace, pid, receiptId], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

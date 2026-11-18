@@ -8,7 +8,8 @@ import { isGeneratedActionCatalogEntry, type ActionCatalogPayload } from '../../
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { aiMeta, columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
-import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 
 const SHEET = sheetMeta([
@@ -28,7 +29,7 @@ const cases: Array<{ kind: string; field: string; params: CanonicalActionDraft }
     judged_column: 'answer', guidelines: 'Check accuracy', include_original_prompt: false } },
 ];
 
-describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('saved typed Template values', () => {
+describe.skipIf(!hasTestPython() && !process.env.CI)('saved typed Template values', () => {
   let catalog: ActionCatalogPayload;
   beforeAll(() => {
     catalog = servedActionCatalog();

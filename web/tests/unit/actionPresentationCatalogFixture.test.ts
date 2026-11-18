@@ -15,12 +15,10 @@ import {
   completeMappedActionCatalog,
   syntheticActionCatalogEntry,
 } from '../support/actionCatalogFixtures';
-import {
-  hasServedActionCatalogPython,
-  servedActionCatalog,
-} from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 
-const itServedCatalog = hasServedActionCatalogPython() || process.env.CI ? it : it.skip;
+const itServedCatalog = hasTestPython() || process.env.CI ? it : it.skip;
 
 describe('compact mapped action-catalog fixture', () => {
   it('builds the exact mapped catalog through production presentation boundaries', () => {

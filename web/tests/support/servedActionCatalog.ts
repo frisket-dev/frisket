@@ -4,18 +4,9 @@ import { existsSync } from 'node:fs';
 
 import type { ActionCatalogPayload } from '../../src/api/types';
 
+import { testPython } from './testPython';
+
 const repositoryRoot = resolve(process.cwd(), '..');
-const repositoryPython = resolve(repositoryRoot, '.venv/bin/python');
-
-export function servedActionCatalogPython(): string {
-  if (process.env.FRISKET_TEST_PYTHON) return process.env.FRISKET_TEST_PYTHON;
-  if (process.env.VIRTUAL_ENV) return resolve(process.env.VIRTUAL_ENV, 'bin/python');
-  return repositoryPython;
-}
-
-export function hasServedActionCatalogPython(): boolean {
-  return existsSync(servedActionCatalogPython());
-}
 
 let servedActionCatalogCache: ActionCatalogPayload | null = null;
 
@@ -29,11 +20,10 @@ let servedActionCatalogCache: ActionCatalogPayload | null = null;
 export function servedActionCatalog(): ActionCatalogPayload {
   if (servedActionCatalogCache) return servedActionCatalogCache;
 
-  const python = servedActionCatalogPython();
+  const python = testPython();
   if (!existsSync(python)) {
     throw new Error(
-      `Backend-served action catalog requires ${python}; `
-      + 'set FRISKET_TEST_PYTHON to an exact-lock environment interpreter',
+      `Backend-served action catalog requires ${python}; set FRISKET_TEST_PYTHON to a synced environment interpreter`,
     );
   }
 

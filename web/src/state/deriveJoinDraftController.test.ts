@@ -9,16 +9,14 @@ import {
   encodeSavedActionSpec,
   SavedActionSpecError,
 } from '../actions/savedActionSpec';
-import {
-  hasServedActionCatalogPython,
-  servedActionCatalog,
-} from '../../tests/support/servedActionCatalog';
+import { servedActionCatalog } from '../../tests/support/servedActionCatalog';
+import { hasTestPython } from '../../tests/support/testPython';
 
-const describeServedCatalog = hasServedActionCatalogPython() || process.env.CI
+const describeServedCatalog = hasTestPython() || process.env.CI
   ? describe : describe.skip;
 
 // Catalog generation is fixture setup, outside an individual UI assertion's timeout.
-if (hasServedActionCatalogPython() || process.env.CI) servedActionCatalog();
+if (hasTestPython() || process.env.CI) servedActionCatalog();
 
 const PARAMS = {
   right: { sheet_id: 22 },

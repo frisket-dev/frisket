@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { testPython } from '../support/testPython';
 
 // All cited spans must receive the initial highlight. The root cause of only
 // highlighting the first was
@@ -163,8 +164,8 @@ finally:
     project.close()
 `;
   const output = execFileSync(
-    'uv',
-    ['run', 'python', '-c', script, workspace, pid, String(durationMs), JSON.stringify(spanRuns)],
+    testPython(),
+    ['-c', script, workspace, pid, String(durationMs), JSON.stringify(spanRuns)],
     { cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000 },
   );
   return JSON.parse(output) as SeededRow;

@@ -23,13 +23,13 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
+import { testPython } from '../support/testPython';
 
 test.use({ deviceScaleFactor: 2 });
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web'
   ? path.resolve(process.cwd(), '..')
   : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 const ARTIFACT_DIR = path.join(
   process.env.FRISKET_COMPARE_SCREENSHOTS
     ?? path.resolve('screenshots/action-compare-connected'),
@@ -190,7 +190,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, [
+  execFileSync(testPython(), [
     '-c', script, workspace, pid, String(sheetId), MODEL, JSON.stringify(settings),
   ], {
     cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000,
@@ -253,7 +253,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, [
+  execFileSync(testPython(), [
     '-c', script, workspace, pid, String(sheetId),
     JSON.stringify(askAction(sheetId, question, 'action-compare-ask-cache-prime')),
     JSON.stringify(answers),

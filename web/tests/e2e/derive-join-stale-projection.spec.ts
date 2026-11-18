@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
 import { clickRunButton, createProject, openAction, openProject, sheetColumns, uniqueName } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
@@ -56,8 +57,8 @@ finally:
     project.close()
 `;
   execFileSync(
-    'uv',
-    ['run', 'python', '-c', script, workspace, pid, String(sheetId), columnId, mutation, renamedTo],
+    testPython(),
+    ['-c', script, workspace, pid, String(sheetId), columnId, mutation, renamedTo],
     { cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000 },
   );
 }

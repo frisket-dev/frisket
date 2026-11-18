@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { defineConfig, devices } from '@playwright/test';
 import { returningUserStorageState } from './playwright.returning-user';
+import { testPython } from '../tests/support/testPython';
 
 import {
   durationWrappedServerCommand,
@@ -30,9 +31,7 @@ const staticDir = process.env.FRISKET_E2E_CLOUD_STATIC_DIR
 
 if (!inheritedRuntime) process.once('exit', () => rmSync(runtime, { recursive: true, force: true }));
 
-const python = process.env.FRISKET_TEST_PYTHON
-  ? shellQuote(process.env.FRISKET_TEST_PYTHON)
-  : 'uv run --no-sync python';
+const python = shellQuote(testPython());
 const backendCommand = [
   `PYTHONPATH=${shellQuote(path.join(ROOT, 'src'))}`,
   'PYTHONDONTWRITEBYTECODE=1',

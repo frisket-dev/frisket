@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, textPdf, uniqueName } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web'
   ? path.resolve(process.cwd(), '..') : process.cwd();
@@ -52,7 +53,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, String(sheetId)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
     cwd: REPO_ROOT, encoding: 'utf8', timeout: 120_000,
   });
 }

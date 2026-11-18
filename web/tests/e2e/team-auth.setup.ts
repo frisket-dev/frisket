@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as setup } from '@playwright/test';
+import { testPython } from '../support/testPython';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, '../../..');
@@ -24,7 +25,7 @@ setup('seed a real single-org team admin session', async () => {
     );
   }
   execSync(
-    'uv run python scripts/e2e/e2e_team_seed.py ' +
+    `${shellQuote(testPython())} scripts/e2e/e2e_team_seed.py ` +
       `--storage-state ${shellQuote(storageStatePath)} --base-url ${shellQuote(baseURL)}`,
     { cwd: ROOT, stdio: 'inherit', timeout: 60_000 },
   );

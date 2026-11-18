@@ -10,6 +10,7 @@ import {
   uniqueName,
 } from './helpers';
 import { seedTranscriptStatusSheet } from './transcriptStatusFixtures';
+import { testPython } from '../support/testPython';
 
 // The deep link this spec drives is the header ⋯ menu's PRE-EXISTING
 // "Actions on this column" seam (App.tsx onColumnAction ->
@@ -112,10 +113,8 @@ finally:
     project.close()
 `;
   execFileSync(
-    'uv',
+    testPython(),
     [
-      'run',
-      'python',
       '-c',
       script,
       workspace,

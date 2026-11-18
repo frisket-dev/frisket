@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, openCellDrawer, openProject, sheetColumns, uniqueName } from './helpers';
+import { testPython } from '../support/testPython';
 
 const ANSWER = 'Cedar Bridge manufactures public transit shelters.';
 const SOURCE = 'https://example.test/company';
@@ -50,7 +51,7 @@ try:
 finally:
     project.close()
 `;
-  return JSON.parse(execFileSync(process.env.FRISKET_E2E_PYTHON ?? path.join(ROOT, '.venv/bin/python'),
+  return JSON.parse(execFileSync(testPython(),
     ['-c', script, workspace, pid, ANSWER, SOURCE, UNSAFE_SOURCE],
     { cwd: ROOT, encoding: 'utf8', timeout: 60_000 }));
 }

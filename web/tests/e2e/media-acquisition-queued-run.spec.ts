@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createProject, uniqueName } from './helpers';
+import { testPython } from '../support/testPython';
 
 // Media acquisition can take long enough that it must use the normal queued
 // job path. Backend placement moved
@@ -77,7 +78,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, VIDEO_FIXTURE_B64], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid, VIDEO_FIXTURE_B64], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,

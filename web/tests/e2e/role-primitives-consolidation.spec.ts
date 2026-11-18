@@ -48,6 +48,7 @@ import {
   stubActionSelectorChoices,
   type SelectorGroupFixture,
 } from './selectorChoicesFixture';
+import { testPython } from '../support/testPython';
 
 // ---------------------------------------------------------------------------
 // 1. ResizeSeam — aria-valuenow/valuemin/valuemax on real DOM sites.
@@ -290,7 +291,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,
