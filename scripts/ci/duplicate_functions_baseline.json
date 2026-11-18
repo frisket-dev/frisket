@@ -103,7 +103,7 @@
    "src/frisket/contracts/actions/schemas/_validators.py::validate_input_ref",
    "src/frisket/contracts/actions/schemas/_validators.py::validate_output_name",
    "src/frisket/contracts/http/views_lenses.py::SavedViewRenameRequest._name_is_nonblank",
-   "src/frisket/contracts/http/watches.py::WatchCreateRequest._name_is_nonblank"
+   "src/frisket/contracts/http/alerts.py::WatchCreateRequest._name_is_nonblank"
   ],
   [
    "src/frisket/actions/cluster_types.py::ClusterReview.valid_overrides",
@@ -413,8 +413,8 @@
    "src/frisket/server/exports/rowset.py::ExportError.__init__"
   ],
   [
-   "src/frisket/features/watchlists/triggers.py::_is_embedding_similarity_watch",
-   "src/frisket/features/watchlists/triggers.py::_is_keyword_watch"
+   "src/frisket/features/alerts/triggers.py::_is_embedding_similarity_alert",
+   "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
   ],
   [
    "src/frisket/ingest.py::_media_kind",
