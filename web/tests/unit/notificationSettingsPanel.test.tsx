@@ -197,6 +197,21 @@ describe('NotificationSettingsPanel configurable email', () => {
     })));
   });
 
+  it('routes import notifications by their source kind', async () => {
+    projectApi.createNotificationRoute.mockResolvedValue(slackRoute);
+    renderPanel(LOCAL_EDITION_MODULE);
+    await screen.findByText('Slack route');
+    expect(within(screen.getByTestId('notification-route-source-kind'))
+      .getByRole('option', { name: 'Import' })).toHaveValue('import');
+    fireEvent.change(screen.getByTestId('notification-route-channel'), { target: { value: String(slackChannel.id) } });
+    fireEvent.change(screen.getByTestId('notification-route-source-kind'), { target: { value: 'import' } });
+    expect(screen.queryByTestId('notification-route-alert-id')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('notification-create-route'));
+    await waitFor(() => expect(projectApi.createNotificationRoute).toHaveBeenCalledWith(expect.objectContaining({
+      sourceKind: 'import', sourceRefMatch: {},
+    })));
+  });
+
   it('preserves configurable email by default', async () => {
     renderPanel(LOCAL_EDITION_MODULE);
 

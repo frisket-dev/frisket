@@ -77,6 +77,7 @@ import { useRowCache, type RowCache } from './useRowCache';
 import { gridReadColumnIds } from '../components/fieldValueDependencies';
 import { createRowCacheStore, resolveRowCacheScope, type RowCacheStoreHandle } from './rowCacheStore';
 import { isActiveRunStatus, isStreamingRunStatus } from '../runStatusModel';
+import type { ImportPageReading } from '../components/useImportProgress';
 import { usePoll } from '../hooks/usePoll';
 import { PanelLoading } from '../components/PanelPrimitives';
 import { createAudioPlaybackSource } from '../state/audioPlaybackStore';
@@ -305,9 +306,9 @@ interface SheetGridProps {
   dataVersion: number;
   /** Progress of a run touching this sheet, for soft refresh while it streams. */
   liveRun: RunProgress | null;
-  /** An ordinary server-started preparation run that shares live refresh. */
-  backgroundLiveRun?: RunProgress | null;
-  priorityReadingRowId?: string | null;
+  /** Rows whose imported page text is being read or still waits; their
+   *  document text cells show as pending and share live refresh. */
+  importPageReading?: ImportPageReading | null;
   /** UI-only rows reserved for files the active import has not committed yet. */
   pendingImportRowCount?: number;
   /** Changes when an import commits rows or reaches a new lifecycle state. */
@@ -1351,7 +1352,7 @@ interface SheetGridController {
 }
 
 function useSheetGridController({
-  sheet, dataVersion, liveRun, backgroundLiveRun = null, priorityReadingRowId = null,
+  sheet, dataVersion, liveRun, importPageReading = null,
   pendingImportRowCount = 0, importRowRefreshKey = null,
   rowHeight, wrapText, childSheet, parentRowFilter,
   activeFilter, activeSort, columnOrder, viewRowIds, viewScores, scopeRowIds, viewSelection, citationColumnId,
@@ -1523,11 +1524,10 @@ function useSheetGridController({
     if (cells.length) gridRef.current?.updateCells(cells);
   }, [expectedRows, expectedColumns, gridColumns]);
   const runActive = liveRun?.sheetId === sheet.id && isActiveRunStatus(liveRun.status);
-  const backgroundRunActive = backgroundLiveRun?.sheetId === sheet.id
-    && isActiveRunStatus(backgroundLiveRun.status);
+  const sheetPageReading = importPageReading?.sheetId === sheet.id ? importPageReading : null;
   const liveActive = (runActive && isStreamingRunStatus(liveRun?.status))
-    || (backgroundRunActive && isStreamingRunStatus(backgroundLiveRun?.status));
-  useLiveRunRefresh(runActive || backgroundRunActive, liveActive, cache);
+    || (sheetPageReading?.readingRowIds.length ?? 0) > 0;
+  useLiveRunRefresh(runActive || sheetPageReading !== null, liveActive, cache);
   const hasNativeColumnGroups = columnGroups.groups.length > 0;
   const gridReady = realRowCount === 0 || cache.ready;
   const headerHandlers = useGridHeaderHandlers(
@@ -1603,17 +1603,15 @@ function useSheetGridController({
     return ids;
   }, [runActive, liveRun, sheet.columns]);
 
-  const backgroundPendingColIds = useMemo<Set<string>>(() => {
-    if (!backgroundRunActive || !backgroundLiveRun || backgroundLiveRun.actionKind !== 'media.ocr') {
-      return new Set();
-    }
-    const exact = sheet.columns.filter((column) => column.latestRunId === backgroundLiveRun.runId);
-    return new Set((exact.length > 0 ? exact.map((column) => column.id) : sheet.annotatedTextColumnIds));
-  }, [backgroundRunActive, backgroundLiveRun, sheet.annotatedTextColumnIds, sheet.columns]);
-
-  const backgroundPendingRowIds = useMemo<Set<string>>(() => (
-    new Set(backgroundLiveRun?.targetRowIds ?? [])
-  ), [backgroundLiveRun?.targetRowIds]);
+  const pageReadingColIds = useMemo<Set<string>>(() => (
+    new Set(sheetPageReading ? sheet.annotatedTextColumnIds : [])
+  ), [sheetPageReading, sheet.annotatedTextColumnIds]);
+  const pageReadingRowIds = useMemo<Set<string>>(() => (
+    new Set(sheetPageReading?.readingRowIds ?? [])
+  ), [sheetPageReading]);
+  const pageWaitingRowIds = useMemo<Set<string>>(() => (
+    new Set(sheetPageReading?.waitingRowIds ?? [])
+  ), [sheetPageReading]);
 
   const pendingRowIds = useMemo<Set<string> | null>(() => {
     if (!runActive || !liveRun) return null;
@@ -1731,10 +1729,10 @@ function useSheetGridController({
       const runPending =
         pendingColIds.has(def.id) &&
         (pendingRowIds === null || (row !== undefined && pendingRowIds.has(row.id)));
-      const backgroundPending = row !== undefined
-        && backgroundPendingColIds.has(def.id)
-        && backgroundPendingRowIds.has(row.id);
-      const pending = runPending || backgroundPending;
+      const pageTextCell = row !== undefined && pageReadingColIds.has(def.id);
+      const pageReading = pageTextCell && pageReadingRowIds.has(row.id);
+      const pageWaiting = pageTextCell && !pageReading && pageWaitingRowIds.has(row.id);
+      const pending = runPending || pageReading || pageWaiting;
       const entityMentionCellKey = row ? JSON.stringify([row.id, def.id]) : null;
       let cell = withWrapSafeDisplayData(
         withOneClickFacetCursor(
@@ -1742,9 +1740,7 @@ function useSheetGridController({
             projectId,
             wrap: wrapText,
             pending,
-            pendingLabel: backgroundPending
-              ? row?.id === priorityReadingRowId ? 'Reading text now' : 'Waiting for OCR'
-              : undefined,
+            pendingLabel: pageReading ? 'Reading text now' : pageWaiting ? 'Waiting for OCR' : undefined,
             editable: cellEditability(def) && cache.getFreshRow(rowIdx) !== undefined,
             gridCellPalette,
             expandEntityMentions: Boolean(
@@ -1777,9 +1773,9 @@ function useSheetGridController({
       wrapText,
       pendingColIds,
       pendingRowIds,
-      backgroundPendingColIds,
-      backgroundPendingRowIds,
-      priorityReadingRowId,
+      pageReadingColIds,
+      pageReadingRowIds,
+      pageWaitingRowIds,
       childSheet,
       viewActive,
       viewScores,

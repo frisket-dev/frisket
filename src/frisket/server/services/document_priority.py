@@ -1,23 +1,17 @@
-"""Best-effort priority for an explicitly opened, already-admitted PDF row."""
+"""Best-effort priority for an explicitly opened, already-imported PDF row."""
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
 from typing import Any
 
-import sqlalchemy as sa
-
 from frisket.contracts.http.document_priority import DocumentPriorityResponse
-from frisket.engine.jobs.queue import PROJECT_RUN_KIND, jobs_table
+from frisket.engine.store.import_intake import import_intake_dir, read_import_header
 from frisket.server.route_errors import RouteError
-
-
-PDF_IMPORT_OCR_PRIORITY = "pdf_import_ocr"
+from frisket.server.services.pdf_split_preparation import PdfSplitPreparationStore
 
 
 class DocumentPriorityService:
-    """Find the authorized automatic OCR run that already owns a target row."""
+    """Move an opened document's unread import OCR pages to the front."""
 
     def __init__(self, workspace: Any) -> None:
         self.workspace = workspace
@@ -35,78 +29,36 @@ class DocumentPriorityService:
             raise RouteError(403, "running actions is not permitted")
 
         # Opening the project through the workspace applies its normal project
-        # and storage authority before shared queue metadata is inspected.
+        # and storage authority before any import inventory is read.
         project = self.workspace.get(project_id)
-        storage_org_id = self.workspace.queue_storage_organization_id
-        c = jobs_table.c
-        statement = (
-            sa.select(c.id, c.run_id, c.payload)
-            .where(
-                c.kind == PROJECT_RUN_KIND,
-                c.project_id == project_id,
-                c.storage_org_id.is_(None)
-                if storage_org_id is None
-                else c.storage_org_id == storage_org_id,
-                c.sheet_id == sheet_id,
-                c.action_kind == "media.ocr",
-                c.status.in_(("queued", "running")),
+        refs = [
+            str(row[0])
+            for row in project.db.execute(
+                "SELECT session.id FROM import_session_rows AS member "
+                "JOIN import_sessions AS session ON session.id=member.session_id "
+                "WHERE member.row_id=? AND session.sheet_id=? "
+                "AND session.state IN ('completed','kept') "
+                "ORDER BY session.created_at DESC",
+                (row_id, sheet_id),
             )
-            .order_by(c.id.desc())
-        )
-        with self.workspace.queue.engine.connect() as cx:
-            candidates = tuple(cx.execute(statement))
-
-        for candidate in candidates:
-            payload = self._payload(candidate.payload)
-            if payload is None or not self._matches_column(payload, column_id):
+        ]
+        for ref in refs:
+            directory = import_intake_dir(project.path, ref)
+            try:
+                header = read_import_header(directory)
+            except (OSError, ValueError):
                 continue
-            run_id = int(candidate.run_id or 0)
-            if run_id <= 0 or not self._run_admits_row(project, run_id, row_id):
+            generation = (header.provider_state or {}).get("preparation_generation")
+            if not generation or not (directory / "inventory.db").is_file():
                 continue
-            promoted = self.workspace.queue.promote_project_run(
-                int(candidate.id),
-                project_id=project_id,
-                storage_org_id=storage_org_id,
-                preferred_row_id=row_id,
-            )
-            if promoted:
-                return DocumentPriorityResponse(promoted=True, run_id=run_id)
-
-        return DocumentPriorityResponse(promoted=False, run_id=None)
-
-    @staticmethod
-    def _payload(raw: str) -> Mapping[str, Any] | None:
-        try:
-            payload = json.loads(raw)
-        except (TypeError, ValueError):
-            return None
-        if not isinstance(payload, Mapping):
-            return None
-        if payload.get("background_priority") != PDF_IMPORT_OCR_PRIORITY:
-            return None
-        return payload
-
-    @staticmethod
-    def _matches_column(payload: Mapping[str, Any], column_id: int) -> bool:
-        columns = payload.get("v1_input_column_ids")
-        if not isinstance(columns, Mapping):
-            return False
-        return any(
-            isinstance(value, int)
-            and not isinstance(value, bool)
-            and value == column_id
-            for value in columns.values()
-        )
-
-    @staticmethod
-    def _run_admits_row(project: Any, run_id: int, row_id: int) -> bool:
-        return (
-            project.db.execute(
-                "SELECT 1 FROM run_rows WHERE run_id=? AND row_id=? LIMIT 1",
-                (run_id, row_id),
-            ).fetchone()
-            is not None
-        )
+            with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                if store.prefer_row(
+                    generation=str(generation),
+                    row_id=row_id,
+                    source_column_id=column_id,
+                ):
+                    return DocumentPriorityResponse(promoted=True, import_ref=ref)
+        return DocumentPriorityResponse(promoted=False, import_ref=None)
 
 
-__all__ = ["DocumentPriorityService", "PDF_IMPORT_OCR_PRIORITY"]
+__all__ = ["DocumentPriorityService"]

@@ -11,6 +11,8 @@ from filelock import Timeout
 from pydantic import BaseModel, ConfigDict, Field
 
 from frisket.contracts.http.import_sessions import (
+    ImportPreparationRetryEstimate,
+    ImportPreparationRetryRequest,
     ImportSessionList,
     ImportSessionStatus,
 )
@@ -157,6 +159,34 @@ def register_import_session_routes(
         pid: str, ref: str, body: ImportSessionResolveBody
     ) -> ImportSessionStatus:
         return await transition(service.resolve, pid, ref, decision=body.decision)
+
+    @app.post(
+        f"{base}/{{ref}}/preparation/retry/estimate",
+        response_model=ImportPreparationRetryEstimate,
+        responses=responses,
+    )
+    async def estimate_import_preparation_retry(
+        request: Request, pid: str, ref: str
+    ) -> ImportPreparationRetryEstimate:
+        return await transition(
+            service.estimate_preparation_retry, pid, ref, request_context=request
+        )
+
+    @app.post(
+        f"{base}/{{ref}}/preparation/retry",
+        response_model=ImportSessionStatus,
+        responses=responses,
+    )
+    async def retry_import_preparation(
+        pid: str, ref: str, body: ImportPreparationRetryRequest
+    ) -> ImportSessionStatus:
+        return await transition(
+            service.retry_preparation,
+            pid,
+            ref,
+            plan_token=body.plan_token,
+            confirmation=body.confirmation,
+        )
 
     @app.post(
         f"{base}/{{ref}}/resume",

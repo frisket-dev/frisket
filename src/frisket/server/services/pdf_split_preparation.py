@@ -122,6 +122,7 @@ class PdfSplitPreparationStore:
                 operation_id INTEGER NOT NULL, target_json TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', prepared_ref_id INTEGER,
                 job_id TEXT, receipt_id TEXT, error TEXT,
+                priority INTEGER NOT NULL DEFAULT 0, plan_token TEXT,
                 PRIMARY KEY(work_key,generation));
             CREATE TABLE IF NOT EXISTS pdf_split_page_occurrences (
                 work_key TEXT NOT NULL, generation TEXT NOT NULL,
@@ -142,6 +143,19 @@ class PdfSplitPreparationStore:
                 generation TEXT PRIMARY KEY, plan_token TEXT NOT NULL,
                 session_id TEXT NOT NULL, operation_id INTEGER NOT NULL);
         """)
+        columns = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(pdf_split_page_work)")
+        }
+        with self.db:
+            if "priority" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"
+                )
+            if "plan_token" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN plan_token TEXT"
+                )
 
     def close(self) -> None:
         self.inventory.close()
@@ -312,7 +326,7 @@ class PdfSplitPreparationStore:
         return tuple(
             self._work(row)
             for row in self.db.execute(
-                "SELECT * FROM pdf_split_page_work WHERE status='pending' ORDER BY rowid LIMIT ?",
+                "SELECT * FROM pdf_split_page_work WHERE status='pending' ORDER BY priority DESC,rowid LIMIT ?",
                 (limit,),
             )
         )
@@ -326,6 +340,39 @@ class PdfSplitPreparationStore:
             PdfSplitPageTarget(**json.loads(row["target_json"])),
             row["prepared_ref_id"],
         )
+
+    def prefer_row(
+        self, *, generation: str, row_id: int, source_column_id: int
+    ) -> bool:
+        """Move the row's unread pages ahead of every other pending page.
+
+        True when the row has a page waiting or being read in this generation.
+        """
+        facts = {
+            "generation": generation,
+            "row_id": row_id,
+            "column_id": source_column_id,
+        }
+        bound = (
+            "work_key IN (SELECT work_key FROM pdf_split_page_bindings "
+            "WHERE generation=:generation AND row_id=:row_id AND published=0 "
+            "AND json_extract(binding_json,'$.source_column_id')=:column_id)"
+        )
+        with self.db:
+            self.db.execute(
+                "UPDATE pdf_split_page_work SET priority=(SELECT COALESCE(MAX(priority),0)+1 "
+                "FROM pdf_split_page_work WHERE generation=:generation) "
+                f"WHERE generation=:generation AND status='pending' AND {bound}",
+                facts,
+            )
+            return (
+                self.db.execute(
+                    "SELECT 1 FROM pdf_split_page_work WHERE generation=:generation "
+                    f"AND status IN ('pending','running') AND {bound} LIMIT 1",
+                    facts,
+                ).fetchone()
+                is not None
+            )
 
     def occurrences(self, work_key: str) -> tuple[str, ...]:
         return tuple(
@@ -512,7 +559,15 @@ class PdfSplitPreparationStore:
         ).fetchone()
         return PdfImportOcrGrant.from_mapping(json.loads(row[0])) if row else None
 
-    def grant(self, generation: str):
+    def grant(self, generation: str, work_key: str | None = None):
+        """The consent covering a page: its retry consent, else the import's."""
+        if work_key is not None:
+            row = self.db.execute(
+                "SELECT plan_token FROM pdf_split_page_work WHERE work_key=? AND generation=?",
+                (work_key, generation),
+            ).fetchone()
+            if row is not None and row[0] is not None:
+                return self._plan_grant(str(row[0]))
         row = self.db.execute(
             "SELECT plan_token FROM pdf_split_preparation_generations WHERE generation=?",
             (generation,),
@@ -1030,7 +1085,6 @@ class PdfSplitPreparationAdapter:
 
         responses = []
         with PdfSplitPreparationStore(self.inventory_path) as store:
-            grant = store.grant(generation)
             original_sample = (
                 store.db.execute(
                     "SELECT 1 FROM pdf_split_original_samples WHERE generation=?",
@@ -1050,11 +1104,15 @@ class PdfSplitPreparationAdapter:
             works = tuple(
                 store._work(row)
                 for row in store.db.execute(
-                    "SELECT * FROM pdf_split_page_work WHERE generation=? AND status='pending' ORDER BY rowid LIMIT ?",
+                    "SELECT * FROM pdf_split_page_work WHERE generation=? AND status='pending' ORDER BY priority DESC,rowid LIMIT ?",
                     (generation, limit),
                 )
             )
+            grants = {
+                work.work_key: store.grant(generation, work.work_key) for work in works
+            }
         for work in works:
+            grant = grants[work.work_key]
             if grant is None:
                 raise ValueError("source-page OCR requires its reviewed approval")
             with PdfSplitPreparationStore(self.inventory_path) as store:

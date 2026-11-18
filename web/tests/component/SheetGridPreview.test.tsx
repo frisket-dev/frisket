@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CompactSelection, GridCellKind, type DataEditorProps } from '@glideapps/glide-data-grid';
 import { SheetGrid } from '../../src/grid/SheetGrid';
 import { createProjectApi } from '../../src/api/real';
-import type { ColumnRun, PreviewOverlayCell, PreviewOverlayColumn, RunProgress, SheetMeta } from '../../src/api/types';
+import type { ColumnRun, PreviewOverlayCell, PreviewOverlayColumn, SheetMeta } from '../../src/api/types';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -164,41 +164,45 @@ describe('preview grid interactions', () => {
     expect(visibleRowsChanged).not.toHaveBeenCalled();
   });
 
-  it('shows background OCR pending state only for the child run row scope', async () => {
+  it('marks document text as read now or waiting from the import session rows', async () => {
     const documentSheet: SheetMeta = {
       ...sheet,
       columns: [columnDef({ id: 'text', name: 'Text', type: 'text' })],
       annotatedTextColumnIds: ['text'],
     };
-    const backgroundLiveRun: RunProgress = {
-      runId: '42',
-      actionKind: 'media.ocr',
-      actionName: 'OCR PDFs',
-      sheetId: sheet.id,
-      targetColumnId: '',
-      targetRowIds: ['2'],
-      status: 'running',
-      completedRows: 0,
-      totalRows: 1,
-      failedRows: 0,
-      costSoFar: 0,
+    const props = {
+      sheet: documentSheet, dataVersion: 0, liveRun: null, rowHeight: 32, wrapText: false,
+      columnGroupsStorageScope: 'preview-grid',
+      onRowOpen: vi.fn(), onColumnOpen: vi.fn(), onCellEdit: vi.fn(),
     };
+    const reading = { importRef: 'import-1', sheetId: sheet.id, readingRowIds: ['2'], waitingRowIds: [] };
+    let view!: ReturnType<typeof render>;
     await act(async () => {
-      render(<SheetGrid sheet={documentSheet} dataVersion={0} liveRun={null}
-        backgroundLiveRun={backgroundLiveRun} rowHeight={32} wrapText={false}
-        columnGroupsStorageScope="preview-grid"
-        onRowOpen={vi.fn()} onColumnOpen={vi.fn()} onCellEdit={vi.fn()}
-      />);
+      view = render(<SheetGrid {...props} importPageReading={reading} />);
     });
 
-    expect(editor.props!.getCellContent([0, 0])).toMatchObject({
-      kind: GridCellKind.Text,
-      data: '',
-    });
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({ kind: GridCellKind.Text, data: '' });
     expect(editor.props!.getCellContent([0, 1])).toMatchObject({
+      kind: GridCellKind.Custom,
+      data: { label: 'Reading text now' },
+    });
+
+    await act(async () => {
+      view.rerender(<SheetGrid {...props}
+        importPageReading={{ ...reading, readingRowIds: [], waitingRowIds: ['1'] }} />);
+    });
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({
       kind: GridCellKind.Custom,
       data: { label: 'Waiting for OCR' },
     });
+    expect(editor.props!.getCellContent([0, 1])).toMatchObject({ kind: GridCellKind.Text, data: '' });
+
+    await act(async () => {
+      view.rerender(<SheetGrid {...props}
+        importPageReading={{ ...reading, sheetId: 'other-sheet', waitingRowIds: ['1'] }} />);
+    });
+    expect(editor.props!.getCellContent([0, 0])).toMatchObject({ kind: GridCellKind.Text, data: '' });
+    expect(editor.props!.getCellContent([0, 1])).toMatchObject({ kind: GridCellKind.Text, data: '' });
   });
 
   it.each([

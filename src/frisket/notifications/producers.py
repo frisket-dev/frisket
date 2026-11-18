@@ -26,17 +26,65 @@ _DELIVERY_HEALTH_STATUSES = {"failed", "cancelled", "skipped"}
 
 NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND = "notification_delivery"
 RUN_SOURCE_KIND = "run"
+IMPORT_SOURCE_KIND = "import"
 
 
 def requires_explicit_route(source_kind: str, severity: str) -> bool:
     """Whether only a route naming this source kind may receive the item.
 
-    Info-level run outcomes (clean completions, plain cancellations) are
-    opt-in: a person who runs many actions receives them only by routing runs
-    explicitly. A route for every source kind never receives them, and no
-    item is stored unless such a route asks for it.
+    Info-level run and import outcomes (clean completions, plain
+    cancellations) are opt-in: a person who runs many actions or imports
+    receives them only by routing that source kind explicitly. A route for
+    every source kind never receives them, and no item is stored unless such
+    a route asks for it.
     """
-    return source_kind == RUN_SOURCE_KIND and severity == "info"
+    return source_kind in {RUN_SOURCE_KIND, IMPORT_SOURCE_KIND} and severity == "info"
+
+
+def import_preparation_notification_candidate(
+    *,
+    project_id: str,
+    import_ref: str,
+    sheet_id: int,
+    read_pages: int,
+    failed_pages: int,
+) -> NotificationCandidate | None:
+    """The outcome of reading an import's page text, once every page settled."""
+    if read_pages < 0 or failed_pages < 0 or read_pages + failed_pages == 0:
+        return None
+    pages = _count_label(failed_pages, "page")
+    candidate: dict[str, Any] = {
+        "source_kind": IMPORT_SOURCE_KIND,
+        "source_ref": {
+            "project_id": project_id,
+            "import_ref": import_ref,
+            "sheet_id": int(sheet_id),
+        },
+        "dedupe_key": f"import:{project_id}:{import_ref}:{read_pages}:{failed_pages}",
+        "title": (
+            f"Import finished with {pages} not read"
+            if failed_pages
+            else "Import text is ready"
+        ),
+        "summary": (
+            f"Text could not be read from {pages}. Retry them from the import "
+            "progress on the sheet."
+            if failed_pages
+            else f"Text was read from {_count_label(read_pages, 'page')}."
+        ),
+        "severity": "warning" if failed_pages else "info",
+        "deep_link": {
+            "kind": "sheet",
+            "project_id": project_id,
+            "sheet_id": int(sheet_id),
+        },
+        "payload": {"read_pages": int(read_pages), "failed_pages": int(failed_pages)},
+    }
+    return validate_notification_candidate(candidate)
+
+
+def _count_label(count: int, noun: str) -> str:
+    return f"{count} {noun}{'' if count == 1 else 's'}"
 
 
 def run_transition_notification_candidate(

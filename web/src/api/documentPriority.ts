@@ -8,7 +8,7 @@ interface DocumentPriorityTarget {
 
 interface DocumentPriorityResult {
   promoted: boolean;
-  runId: string | null;
+  importRef: string | null;
 }
 
 /** Best-effort hint emitted only by the explicit document-open command. */
@@ -26,6 +26,6 @@ export async function promoteDocumentPriority(
   });
   return {
     promoted: response.promoted,
-    runId: response.run_id == null ? null : String(response.run_id),
+    importRef: response.import_ref,
   };
 }

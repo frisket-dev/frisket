@@ -430,6 +430,16 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.cancel_import_session.post",
         (
             "tenant",
+            "estimate_import_preparation_retry",
+            "POST",
+        ): "tenant.estimate_import_preparation_retry.post",
+        (
+            "tenant",
+            "retry_import_preparation",
+            "POST",
+        ): "tenant.retry_import_preparation.post",
+        (
+            "tenant",
             "create_import_session",
             "POST",
         ): "tenant.create_import_session.post",

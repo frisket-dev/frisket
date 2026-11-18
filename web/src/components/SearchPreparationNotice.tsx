@@ -26,6 +26,7 @@ export function SearchPreparationNotice({
   onResumeImport,
   onKeepImport,
   onRemoveImport,
+  onRetryFailedPages,
   importActionBusy = false,
   importMessage,
   onOpenErrors,
@@ -44,6 +45,7 @@ export function SearchPreparationNotice({
   onResumeImport?(): void;
   onKeepImport?(): void;
   onRemoveImport?(): void;
+  onRetryFailedPages?(): void;
   importActionBusy?: boolean;
   importMessage?: string | null;
   onOpenErrors?(): void;
@@ -88,7 +90,7 @@ export function SearchPreparationNotice({
       && (notice.stage === 'approval' || notice.stage === 'failed'),
   );
   const hasFooter = Boolean(
-    searchFooter || onOpenErrors || onImportAnotherSheet || canStop || onResumeImport || onKeepImport || onRemoveImport || importMessage || canReview,
+    searchFooter || onOpenErrors || onImportAnotherSheet || canStop || onResumeImport || onKeepImport || onRemoveImport || onRetryFailedPages || importMessage || canReview,
   );
 
   return (
@@ -130,6 +132,11 @@ export function SearchPreparationNotice({
             {onRemoveImport && (
               <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onRemoveImport}>
                 Remove imported work
+              </button>
+            )}
+            {onRetryFailedPages && (
+              <button type="button" className="search-preparation-action" disabled={importActionBusy} onClick={onRetryFailedPages}>
+                Retry failed pages
               </button>
             )}
             {canReview && (
