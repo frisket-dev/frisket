@@ -343,7 +343,7 @@ def record_alert_check(
 
     alert_row = project.get_alert(alert_id)
     if alert_row is None:
-        raise ValueError("watch not found")
+        raise ValueError("alert not found")
     expected = expected_alert if expected_alert is not None else alert_row
     policy = detection_conditions(
         _decode_alert_detection_policy(expected["detection_policy"])
@@ -368,24 +368,24 @@ def record_alert_check(
             )
             staged = stack.enter_context(stage_alert_observation(source, (), []))
         db = project.db
-        db.execute("ATTACH DATABASE ? AS watch_observation", (str(staged),))
+        db.execute("ATTACH DATABASE ? AS alert_observation", (str(staged),))
         try:
             with write_transaction(db):
                 current = project.get_alert(alert_id)
                 if current is None:
-                    raise AlertCheckConflict("watch was deleted during evaluation")
+                    raise AlertCheckConflict("alert was deleted during evaluation")
                 if _alert_definition(current) != _alert_definition(expected):
                     raise AlertCheckConflict(
-                        "watch definition changed during evaluation; retry"
+                        "alert definition changed during evaluation; retry"
                     )
                 if current["last_run_id"] != expected["last_run_id"]:
                     raise AlertCheckConflict(
-                        "another watch check completed during evaluation; retry"
+                        "another alert check completed during evaluation; retry"
                     )
                 if (
                     status == "ok"
                     and db.execute(
-                        "SELECT 1 FROM watch_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
+                        "SELECT 1 FROM alert_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
                     ).fetchone()
                 ):
                     raise AlertCheckConflict(
@@ -408,7 +408,7 @@ def record_alert_check(
                 )
                 previous_count = int(previous["matched_rows"]) if baseline else 0
                 matched = db.execute(
-                    "SELECT COUNT(*) FROM watch_observation.members"
+                    "SELECT COUNT(*) FROM alert_observation.members"
                 ).fetchone()[0]
                 run_id = db.execute(
                     "INSERT INTO watch_runs (watch_id,status,op_cursor_before,op_cursor_after,"
@@ -453,14 +453,14 @@ def record_alert_check(
                 new_count = 0
                 if status == "ok" and baseline:
                     new_count = db.execute(
-                        "SELECT COUNT(*) FROM watch_observation.members now WHERE NOT EXISTS "
+                        "SELECT COUNT(*) FROM alert_observation.members now WHERE NOT EXISTS "
                         "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)",
                         (alert_id,),
                     ).fetchone()[0]
                     if policy["entered"]:
                         for hit in db.execute(
-                            "SELECT now.* FROM watch_observation.members now WHERE NOT EXISTS "
+                            "SELECT now.* FROM alert_observation.members now WHERE NOT EXISTS "
                             "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                             "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id) ORDER BY now.rank",
                             (alert_id,),
@@ -478,10 +478,10 @@ def record_alert_check(
                     if policy["exited"]:
                         for hit in db.execute(
                             "SELECT old.*,COALESCE(unavailable.reason,'membership_changed') AS exit_reason "
-                            "FROM watch_seen_rows old LEFT JOIN watch_observation.unavailable_rows unavailable "
+                            "FROM watch_seen_rows old LEFT JOIN alert_observation.unavailable_rows unavailable "
                             "ON unavailable.sheet_id=old.sheet_id AND unavailable.row_id=old.row_id "
                             "WHERE old.watch_id=? AND NOT EXISTS "
-                            "(SELECT 1 FROM watch_observation.members now WHERE old.sheet_id=now.sheet_id "
+                            "(SELECT 1 FROM alert_observation.members now WHERE old.sheet_id=now.sheet_id "
                             "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
                             (alert_id,),
                         ):
@@ -532,7 +532,7 @@ def record_alert_check(
                             )
                     changed = db.execute(
                         "SELECT now.sheet_id,now.row_id,now.column_id,col.name,old.value_json before_value,now.value_json after_value "
-                        "FROM watch_observation.fields now JOIN watch_row_field_state old "
+                        "FROM alert_observation.fields now JOIN watch_row_field_state old "
                         "ON old.watch_id=? AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id AND old.column_id=now.column_id "
                         "JOIN watch_seen_rows member ON member.watch_id=old.watch_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
                         "JOIN columns col ON col.id=now.column_id WHERE old.value_json!=now.value_json "
@@ -570,27 +570,27 @@ def record_alert_check(
                         "SELECT ?,now.sheet_id,now.row_id,now.column_id,now.rank,now.snippet,"
                         "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
-                        "FROM watch_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
+                        "FROM alert_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
                         (run_id, int(baseline), alert_id),
                     )
                     # Diff-apply: unchanged million-row checks must not rewrite their baseline.
                     db.execute(
-                        "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
+                        "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
                         (alert_id,),
                     )
                     db.execute(
                         "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
-                        "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members WHERE 1 "
+                        "SELECT ?,sheet_id,row_id,?,? FROM alert_observation.members WHERE 1 "
                         "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
                         (alert_id, run_id, run_id),
                     )
                     db.execute(
-                        "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
+                        "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM alert_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
                         (alert_id,),
                     )
                     db.execute(
                         "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
-                        "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM watch_observation.fields WHERE 1 "
+                        "SELECT ?,sheet_id,row_id,column_id,value_json,value_hash,? FROM alert_observation.fields WHERE 1 "
                         "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
                         "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
                         "WHERE watch_row_field_state.value_json!=excluded.value_json",
@@ -615,4 +615,4 @@ def record_alert_check(
                 )
                 return int(run_id)
         finally:
-            db.execute("DETACH DATABASE watch_observation")
+            db.execute("DETACH DATABASE alert_observation")
