@@ -18,6 +18,7 @@ from frisket.actions.types import (
     RowResult,
     Rows,
     discover_references,
+    require_sheet_rows,
 )
 from frisket.authoring.column_types import is_registered, validate_value
 from frisket.contracts.action import (
@@ -89,7 +90,7 @@ def _terminal(bound: BoundTypedActionRequest) -> ColumnTransform[Any, Any]:
         raise TypeError("typed action is not a column_transform")
     if bound.action.definition.row_scope is not RowScope.ALL_ROWS:
         raise TypeError("column_transform must own the complete visible row scope")
-    if bound.request.scope.row_ids is not None:
+    if require_sheet_rows(bound.request.scope).row_ids is not None:
         raise ValueError("column_transform does not accept selected rows")
     if len(bound.output_fields) != 1:
         raise TypeError("column_transform must declare exactly one output")
@@ -182,7 +183,7 @@ def _source_descriptor(
         action_id=bound.action.action_id,
         terminal=_terminal(bound),
         params=bound.params,
-        sheet_id=bound.request.scope.sheet_id,
+        sheet_id=require_sheet_rows(bound.request.scope).sheet_id,
     )
 
 

@@ -43,6 +43,7 @@ from frisket.actions.types import (
     TableError,
     _without_none,
     _table_warnings,
+    require_sheet_rows,
 )
 from frisket.contracts.action import (
     ActionError,
@@ -675,7 +676,7 @@ def prepare_table_producer(
             elif capability is TranscriptReader:
                 reader = AdmittedTranscriptReader(
                     project,
-                    scope=bound.request.scope,
+                    scope=require_sheet_rows(bound.request.scope),
                     action_kind=bound.action.action_id,
                 )
                 resources.callback(reader.close)

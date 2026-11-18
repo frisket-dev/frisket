@@ -450,9 +450,9 @@ class ResultGenerationStore:
 
     @staticmethod
     def _require_pointer_fence(
-        binding: RunOutputGeneration, *, current_head_run_id: object
+        binding: RunOutputGeneration, *, current_head_run_id: int | None
     ) -> None:
-        current = None if current_head_run_id is None else int(current_head_run_id)
+        current = current_head_run_id
         if binding.write_mode == "create":
             # Preparation mirrors a newly created generated column to its owning
             # run before the bound generation is declared.

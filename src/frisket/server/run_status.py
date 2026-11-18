@@ -348,18 +348,15 @@ def project_timing_payload(
 
     job_waits: list[float | None] = []
     job_durations: list[float | None] = []
-    by_kind: dict[str, dict[str, list[float | None] | int]] = {}
+    kind_waits: dict[str, list[float | None]] = {}
+    kind_durations: dict[str, list[float | None]] = {}
     for job in jobs:
         wait = seconds_between(job.created_at, job.started_at)
         duration = seconds_between(job.started_at, job.finished_at)
         job_waits.append(wait)
         job_durations.append(duration)
-        bucket = by_kind.setdefault(
-            job.kind, {"count": 0, "waits": [], "durations": []}
-        )
-        bucket["count"] = int(bucket["count"]) + 1
-        bucket["waits"].append(wait)
-        bucket["durations"].append(duration)
+        kind_waits.setdefault(job.kind, []).append(wait)
+        kind_durations.setdefault(job.kind, []).append(duration)
 
     active_runs = []
     jobs_by_run_id: dict[int, Job] = {}
@@ -409,11 +406,11 @@ def project_timing_payload(
             "duration_seconds": duration_stats(job_durations),
             "by_kind": {
                 kind: {
-                    "count": int(bucket["count"]),
-                    "queue_wait_seconds": duration_stats(bucket["waits"]),
-                    "duration_seconds": duration_stats(bucket["durations"]),
+                    "count": len(waits),
+                    "queue_wait_seconds": duration_stats(waits),
+                    "duration_seconds": duration_stats(kind_durations[kind]),
                 }
-                for kind, bucket in sorted(by_kind.items())
+                for kind, waits in sorted(kind_waits.items())
             },
         },
         "active_runs": active_runs,
@@ -690,13 +687,12 @@ def reconcile_project_run_status(
             queue_payload["queued_seconds"] = (
                 round(queued_age, 3) if queued_age is not None else None
             )
-            timed_out = (
+            if (
                 queue_timeout_seconds is not None
                 and queue_timeout_seconds > 0
                 and queued_age is not None
                 and queued_age >= queue_timeout_seconds
-            )
-            if timed_out:
+            ):
                 # Fail loudly instead of hanging forever: a queued job that
                 # outlived the timeout is terminalized on the queue, the run,
                 # and its v1 receipt.

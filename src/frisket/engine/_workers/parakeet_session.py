@@ -178,12 +178,14 @@ def _validate_ready(frame: dict[str, Any]) -> dict[str, Any]:
     ort_version = threads.get("ort_version")
     valid_integers = all(
         isinstance(value, int) and not isinstance(value, bool)
-        for value in (intra, inter, cpu_count)
+        for value in (intra, inter)
     )
     if (
         not isinstance(mode, str)
         or mode not in _ONNX_THREAD_MODES
         or not valid_integers
+        or not isinstance(cpu_count, int)
+        or isinstance(cpu_count, bool)
         or not 1 <= cpu_count <= 1_000_000
         or inter != _ONNX_INTER_OP_THREADS
         or not isinstance(ort_version, str)

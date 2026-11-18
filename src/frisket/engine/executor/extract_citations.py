@@ -51,11 +51,11 @@ def _normalized_bbox(value: Any) -> dict[str, Any] | None:
 def _prepared_ref_id(source: dict[str, Any]) -> int | None:
     ref = source.get("value_ref")
     value = ref.get("prepared_ref_id") if isinstance(ref, dict) else None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         return None
     try:
         ref_id = int(value)
-    except (TypeError, ValueError):
+    except ValueError:
         return None
     return ref_id if ref_id > 0 else None
 

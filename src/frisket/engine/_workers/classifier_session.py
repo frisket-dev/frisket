@@ -139,7 +139,7 @@ class ClassifierSession(FramedSession):
         if (
             result.get("type") != "result"
             or result.get("label") not in labels
-            or type(score) not in (float, int)
+            or (type(score) is not float and type(score) is not int)
             or not math.isfinite(score)
             or not 0 <= score <= 1
             or result.get("model_revision") != self.spec.revision

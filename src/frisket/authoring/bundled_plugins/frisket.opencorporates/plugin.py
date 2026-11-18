@@ -144,11 +144,11 @@ def _candidate_key(candidate: dict[str, Any]) -> tuple[str, str, str]:
 
 def _candidate_score(candidate: dict[str, Any]) -> float:
     value = candidate.get("score")
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
         raise ValueError("OpenCorporates reconciliation score is malformed")
     try:
         score = float(value)
-    except (TypeError, ValueError):
+    except ValueError:
         raise ValueError("OpenCorporates reconciliation score is malformed") from None
     if not math.isfinite(score):
         raise ValueError("OpenCorporates reconciliation score is malformed")

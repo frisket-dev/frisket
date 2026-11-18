@@ -63,9 +63,11 @@ def _clamp_repair_attempts(requested: object) -> int:
     """Untrusted op-supplied ``repair_attempts``, clamped server-side to a
     hard max — never caller-trusted the way every other
     (cooperating, core-code) completer caller's ``repair_attempts`` is."""
+    if not isinstance(requested, (int, float, str)):
+        return 1
     try:
-        n = int(requested) if requested is not None else 1
-    except (TypeError, ValueError):
+        n = int(requested)
+    except ValueError:
         n = 1
     return max(0, min(n, BROKER_MAX_REPAIR_ATTEMPTS))
 

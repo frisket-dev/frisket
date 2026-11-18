@@ -37,6 +37,7 @@ from frisket.actions.types import (
     RowCreator,
     RowsAppender,
     RowsUpdater,
+    SheetRows,
     UpdatedImportedRows,
     RowDeleter,
     TableError,
@@ -1230,8 +1231,8 @@ def _require_mutation_targets_mutable(
             )
     elif capability in {RowsAppender, RowsUpdater}:
         scope = bound.request.scope
-        if getattr(scope, "kind", None) == "sheet_rows":
-            sheet_ids.add(int(scope.sheet_id))
+        if isinstance(scope, SheetRows):
+            sheet_ids.add(scope.sheet_id)
     elif capability in {
         ReviewDecider,
         ReviewNoter,

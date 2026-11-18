@@ -170,8 +170,10 @@ def job_project_id(job: Job) -> str | None:
 
 
 def job_run_id(job: Job) -> int | None:
+    raw = job.run_id if job.run_id is not None else job.payload.get("run_id")
+    if raw is None:
+        return None
     try:
-        raw = job.run_id if job.run_id is not None else job.payload.get("run_id")
         return int(raw)
     except (TypeError, ValueError):
         return None

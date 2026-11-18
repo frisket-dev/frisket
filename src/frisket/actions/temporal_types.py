@@ -8,7 +8,13 @@ from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
 
-from frisket.actions.types import ColumnRef, DynamicTableResult, SheetRows, Row
+from frisket.actions.types import (
+    ColumnRef,
+    DynamicTableResult,
+    ProjectScope,
+    Row,
+    SheetRows,
+)
 from frisket.contracts.temporal_values import TimelinePointsValue, TimelineRangesValue
 from frisket.contracts.actions.schemas.temporal import (
     TemporalColumnSelection,
@@ -73,7 +79,9 @@ _LITERAL_SELECTIONS = (
 )
 
 
-def validate_transcript_selection_scope(value: Any, scope: SheetRows) -> None:
+def validate_transcript_selection_scope(
+    value: Any, scope: ProjectScope | SheetRows
+) -> None:
     """Apply the literal-repeat rule wherever this semantic value is declared."""
     if not isinstance(scope, SheetRows):
         raise ValueError("transcript tables require a sheet_rows scope")

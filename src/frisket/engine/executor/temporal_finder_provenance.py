@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 from pydantic import ValidationError
 
@@ -87,7 +87,7 @@ def resolve_topic_section_unit_ids(
     return resolved
 
 
-def _positive_int(value: Any) -> bool:
+def _positive_int(value: Any) -> TypeGuard[int]:
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
@@ -261,13 +261,17 @@ def resolve_topic_analysis_receipt_ref(
     sheet_id = value.get("sheet_id")
     row_id = value.get("row_id")
     selection_column_id = value.get("selection_column_id")
-    if not all(_positive_int(item) for item in (sheet_id, row_id, selection_column_id)):
+    if not (
+        _positive_int(sheet_id)
+        and _positive_int(row_id)
+        and _positive_int(selection_column_id)
+    ):
         return None
     resolved = resolve_topic_analysis_sidecar(
         project,
-        sheet_id=int(sheet_id),
-        row_id=int(row_id),
-        selection_column_id=int(selection_column_id),
+        sheet_id=sheet_id,
+        row_id=row_id,
+        selection_column_id=selection_column_id,
     )
     if resolved is None or resolved.receipt_ref() != value:
         return None

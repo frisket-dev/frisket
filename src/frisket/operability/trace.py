@@ -1170,8 +1170,8 @@ def read_trace_row_retries(
             if record.get("kind") != "row":
                 continue
             try:
-                row_id = int(record.get("row_id"))
-            except (TypeError, ValueError):
+                row_id = int(record["row_id"])
+            except (KeyError, TypeError, ValueError):
                 continue
             if row_id not in targets:
                 continue

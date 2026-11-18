@@ -69,15 +69,15 @@ def feed_poll_materialization_from_receipt(
     )
     sheet_id = _positive_int_or_none(source_run.get("sheet_id") or rows.get("sheet_id"))
     op_id = _positive_int_or_none(source_run.get("op_id") or rows.get("op_id"))
-    if None in {source_id, source_run_id, sheet_id, op_id}:
+    if source_id is None or source_run_id is None or sheet_id is None or op_id is None:
         return None
     return {
         "kind": "source_poll_materialized",
         "project_id": project_id,
-        "source_id": int(source_id),
-        "source_run_id": int(source_run_id),
-        "sheet_id": int(sheet_id),
-        "op_id": int(op_id),
+        "source_id": source_id,
+        "source_run_id": source_run_id,
+        "sheet_id": sheet_id,
+        "op_id": op_id,
         "row_ids": row_ids,
         "materialized_rows": materialized_rows,
     }

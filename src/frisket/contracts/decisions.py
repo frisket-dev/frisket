@@ -58,7 +58,10 @@ def decisions_usage(
         return {}, None
     cached, written = details.get("cached_tokens"), details.get("cache_write_tokens")
     if (
-        any(type(n) is not int or n < 0 for n in (cached, written))
+        type(cached) is not int
+        or cached < 0
+        or type(written) is not int
+        or written < 0
         or cached + written > total
     ):
         return {}, None

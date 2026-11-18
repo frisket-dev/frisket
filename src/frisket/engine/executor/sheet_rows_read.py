@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from frisket.actions.types import (
+    ProjectScope,
     Row,
     RowSource,
     SheetRowInput,
@@ -29,7 +30,9 @@ _READ_BATCH_SIZE = 500
 class AdmittedSheetRowsReader:
     """Read one request-owned row selection without exposing project access."""
 
-    def __init__(self, project: Any, *, scope: SheetRows, params: BaseModel) -> None:
+    def __init__(
+        self, project: Any, *, scope: ProjectScope | SheetRows, params: BaseModel
+    ) -> None:
         if not isinstance(scope, SheetRows):
             raise TypeError("sheet row reader requires a sheet_rows request scope")
         try:
