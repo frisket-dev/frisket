@@ -369,6 +369,28 @@ def disk_free_report(path: str | Path | None = None) -> dict[str, Any]:
     }
 
 
+def import_drafts_report(workspace_root: str | Path | None = None) -> dict[str, Any]:
+    """Import drafts whose stored header no longer names its project.
+
+    No project lists them, since they may belong to any project, so this is
+    where an operator finds them.
+    """
+    if workspace_root is None:
+        return {"configured": False, "summary": "no workspace in scope for this probe"}
+    from frisket.server.services.pdf_imports.storage import unreadable_draft_count
+
+    unreadable = unreadable_draft_count(Path(workspace_root))
+    return {
+        "configured": True,
+        "unreadable": unreadable,
+        "summary": (
+            f"{unreadable} import draft(s) could not be read"
+            if unreadable
+            else "every import draft can be read"
+        ),
+    }
+
+
 def plugin_health_report(
     project: Any | None = None, *, project_id: str | None = None
 ) -> dict[str, Any]:
@@ -1294,6 +1316,9 @@ def run_diagnostics(
             ),
         ),
         "disk_free": _info_probe("disk free", lambda: disk_free_report(workspace_root)),
+        "import_drafts": _info_probe(
+            "import drafts", lambda: import_drafts_report(workspace_root)
+        ),
         "plugin_health": _info_probe(
             "plugin health",
             lambda: plugin_health_report(project, project_id=project_id),

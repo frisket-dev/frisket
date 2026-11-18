@@ -1266,3 +1266,26 @@ def test_list_reports_a_draft_that_does_not_validate_beside_healthy_drafts(
     (entry,) = listed.unreadable
     assert entry.draft_id == broken and "ocr_policy" in entry.error
     assert [item.draft_id for item in service.list(other).items] == []
+
+
+def test_a_draft_with_no_readable_owner_is_logged_once_and_counted_for_the_operator(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    from frisket.operability.diagnostics import run_diagnostics
+
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    healthy, _ = _declared(service, project_id)
+    unknown, _ = _declared(service, project_id)
+    drafts = workspace.root / ".pdf_import_drafts"
+    (drafts / unknown / "manifest.json").write_text("{not json")
+    with caplog.at_level("WARNING"):
+        for _listing in range(3):
+            listed = service.list(project_id)
+            assert [item.draft_id for item in listed.items] == [healthy]
+            assert listed.unreadable == []
+    logged = [r for r in caplog.records if r.getMessage() == "pdf_draft_unreadable"]
+    assert len(logged) == 1
+    report = run_diagnostics(workspace_root=workspace.root)["info"]["import_drafts"]
+    assert report["unreadable"] == 1
+    assert report["summary"] == "1 import draft(s) could not be read"
+

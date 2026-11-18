@@ -126,7 +126,12 @@ class PdfDraftStore:
                 expires = datetime.fromisoformat(
                     str(header["expires_at"]).replace("Z", "+00:00")
                 )
-                if expires > current_time or header.get("state") not in terminal:
+                # A draft whose import is still unsealed stays until it settles.
+                if (
+                    expires > current_time
+                    or header.get("state") not in terminal
+                    or keeps_commit_inventory(header)
+                ):
                     continue
                 with self.lock(directory):
                     current = json.loads(path.read_text("utf-8"))
@@ -136,6 +141,7 @@ class PdfDraftStore:
                     if (
                         current_expiry <= current_time
                         and current.get("state") in terminal
+                        and not keeps_commit_inventory(current)
                     ):
                         shutil.rmtree(directory, ignore_errors=True)
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
@@ -198,12 +204,37 @@ class PdfDraftStore:
                 self.save(directory, header)
 
 
+def draft_owner(header: Any) -> tuple[str, str]:
+    """The project and storage identity a draft header names.
+
+    Raises when the header does not name both, so its owner is unknown.
+    """
+    project_id, storage_identity = header["project_id"], header["storage_identity"]
+    if not isinstance(project_id, str) or not isinstance(storage_identity, str):
+        raise TypeError("draft header names no owner")
+    return project_id, storage_identity
+
+
+def unreadable_draft_count(workspace_root: Path) -> int:
+    """Drafts whose header cannot be read well enough to name their owner."""
+    count = 0
+    for path in (Path(workspace_root) / ".pdf_import_drafts").glob(
+        "pdf-*/manifest.json"
+    ):
+        try:
+            draft_owner(json.loads(path.read_text("utf-8")))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, KeyError, TypeError):
+            count += 1
+    return count
+
+
 def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
     """Whether a committing draft keeps a commit inventory.
 
     Such a draft admitted uploads into an import after its first rows were
-    published, and nothing publishes those uploads. This reading of the draft
-    header can go once no workspace holds a draft with a commit inventory.
+    published, and nothing publishes those uploads, so it is settled instead.
     """
     commit = header.get("commit")
     return (
@@ -216,6 +247,8 @@ def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
 
 __all__ = [
     "PdfDraftStore",
+    "draft_owner",
+    "unreadable_draft_count",
     "PdfImportDraftError",
     "SCHEMA_VERSION",
     "now",

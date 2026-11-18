@@ -67,6 +67,7 @@ from .storage import (
     PdfDraftStore,
     PdfImportDraftError,
     SCHEMA_VERSION,
+    draft_owner,
     now,
 )
 
@@ -170,6 +171,7 @@ class PdfImportService:
     ) -> None:
         self._workspace = workspace
         self._store = PdfDraftStore(workspace)
+        self._unreadable_logged: set[str] = set()
         self._root = self._store.root
         self._preview_runs = preview_runs
         self._destination_matcher = destination_matcher
@@ -211,8 +213,18 @@ class PdfImportService:
                         ).text,
                     },
                 )
-                with contextlib.suppress(Exception):
+                try:
                     self._store.mark_unsettled(directory)
+                except Exception as marked:
+                    LOG.warning(
+                        "pdf_draft_unsettled_mark_failed",
+                        extra={
+                            "draft_id": directory.name,
+                            "error": safe_error(
+                                "pdf_draft_unsettled_mark_failed", marked, max_chars=300
+                            ).text,
+                        },
+                    )
 
     def create(
         self,
@@ -756,8 +768,9 @@ class PdfImportService:
     def list(self, project_id: str) -> PdfImportListResponse:
         """This project's active drafts, and those whose stored state fails to read.
 
-        A draft whose owner cannot be read from its header is logged and left
-        out: it may belong to another project.
+        A draft whose owner cannot be read from its header is left out, since
+        it may belong to another project; it is logged once per process and
+        counted in the workspace diagnostics.
         """
         self._purge_expired()
         project = self._workspace.get(project_id)
@@ -768,14 +781,17 @@ class PdfImportService:
             with self._lock(directory):
                 try:
                     header = json.loads(path.read_text("utf-8"))
-                    owned = (
-                        header["project_id"] == project_id
-                        and header["storage_identity"] == project.storage_identity
+                    owned = draft_owner(header) == (
+                        project_id,
+                        project.storage_identity,
                     )
                 except FileNotFoundError:
                     # Discarded or expired while this listing ran.
                     continue
                 except (OSError, ValueError, KeyError, TypeError) as exc:
+                    if directory.name in self._unreadable_logged:
+                        continue
+                    self._unreadable_logged.add(directory.name)
                     LOG.warning(
                         "pdf_draft_unreadable",
                         extra={
