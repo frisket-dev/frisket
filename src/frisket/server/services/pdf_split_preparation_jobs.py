@@ -100,6 +100,24 @@ class PdfSplitPreparationJobs:
     def __init__(self, workspace: Any, *, preview_runs: Any) -> None:
         self.workspace = workspace
         self.preview_runs = preview_runs
+        self._owed_logged: set[tuple[str, str]] = set()
+
+    def _log_owed(self, event: str, import_ref: str, exc: Exception) -> None:
+        """Warn once per import that its outcome is still owed; recovery retries it."""
+        level = (
+            logging.DEBUG
+            if (event, import_ref) in self._owed_logged
+            else logging.WARNING
+        )
+        self._owed_logged.add((event, import_ref))
+        LOG.log(
+            level,
+            event,
+            extra={
+                "import_ref": import_ref,
+                "error": safe_error(event, exc, max_chars=300).text,
+            },
+        )
 
     def _directory(self, project_id: str, import_ref: str) -> Path:
         return import_intake_dir(self.workspace.get(project_id).path, import_ref)
@@ -422,15 +440,7 @@ class PdfSplitPreparationJobs:
                         [(receipt_id, row["work_key"], generation) for row in rows],
                     )
         except Exception as exc:
-            LOG.warning(
-                "import_local_reading_receipt_failed",
-                extra={
-                    "directory": directory.name,
-                    "error": safe_error(
-                        "import_local_reading_receipt_failed", exc, max_chars=300
-                    ).text,
-                },
-            )
+            self._log_owed("import_local_reading_receipt_failed", directory.name, exc)
             if project.db.in_transaction:
                 project.db.rollback()
             return False
@@ -463,15 +473,7 @@ class PdfSplitPreparationJobs:
         try:
             emit_notification_candidate(project, candidate)
         except Exception as exc:
-            LOG.warning(
-                "import_notification_emit_failed",
-                extra={
-                    "import_ref": import_ref,
-                    "error": safe_error(
-                        "import_notification_emit_failed", exc, max_chars=300
-                    ).text,
-                },
-            )
+            self._log_owed("import_notification_emit_failed", import_ref, exc)
             if project.db.in_transaction:
                 project.db.rollback()
             return False

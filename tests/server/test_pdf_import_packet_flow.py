@@ -1708,3 +1708,29 @@ def test_a_retry_waits_while_its_sheet_is_deleted(flow):
     assert retried.status_code == 200, retried.text
     assert _settle(client, pid, ref, read=1)["failed_pages"] == 0
     assert provider.calls == 2
+
+
+def test_an_owed_import_outcome_is_warned_about_once(flow, monkeypatch, caplog):
+    client, pid, provider = flow
+
+    def store_unavailable(*_args, **_kwargs):
+        raise RuntimeError("notification store unavailable")
+
+    monkeypatch.setattr(
+        pdf_split_preparation_jobs, "emit_notification_candidate", store_unavailable
+    )
+    provider.failures = 1
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    workspace = client.app.state.workspace
+    split = pdf_split_preparation_jobs.PdfSplitPreparationJobs(
+        workspace, preview_runs=ActionPreviewRunService(workspace)
+    )
+    with caplog.at_level("DEBUG"):
+        caplog.clear()
+        for _tick in range(3):
+            assert split.progress(pid, ref) == 0
+    owed = [
+        r for r in caplog.records if r.getMessage() == "import_notification_emit_failed"
+    ]
+    assert [r.levelname for r in owed] == ["WARNING", "DEBUG", "DEBUG"]
