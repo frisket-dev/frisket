@@ -17,6 +17,7 @@ import {
   importCsv,
   openProject,
   runAndWait,
+  typedActionRequest,
   uniqueName,
 } from './helpers';
 
@@ -51,18 +52,15 @@ test('a mark opens the mention panel, and expanding a document shows where it is
 
   // Real extraction: this is what writes the text surfaces, the source spans
   // and the annotation links the reader reads back.
-  await runAndWait(request, pid, {
-    schema_version: 'frisket.action.v2',
-    kind: 'map.ner',
-    capabilities: ['project:write'],
+  await runAndWait(request, pid, typedActionRequest('map.ner', {
+    sheetId,
     params: {
-      sheet_id: sheetId,
-      input_columns: ['snippet'],
+      source: ['snippet'],
       labels: ['person', 'organization', 'location'],
       engine: 'spacy',
-      output_name: 'entities',
     },
-  });
+    outputNames: { entities: 'entities' },
+  }));
 
   await openProject(page, pid, sheetId);
   await page.getByTestId('view-switch-document').click();

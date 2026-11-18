@@ -1,14 +1,19 @@
 import { expect, test } from '@playwright/test';
-import { createProject, listSheets, openProject, openToolbarOverflow, uniqueName } from './helpers';
+import {
+  createProject,
+  listSheets,
+  openProject,
+  openToolbarOverflow,
+  postAction,
+  typedActionRequest,
+  uniqueName,
+} from './helpers';
 
 function importRowsAction() {
-  return {
-    schema_version: 'frisket.action.v2',
-    kind: 'import.rows',
-    capabilities: ['project:write'],
+  return typedActionRequest('import.rows', {
+    sheetName: 'Receipt UI Rows',
+    idempotencyKey: 'v1-receipt-inspector@sha256:stable',
     params: {
-      sheet_name: 'Receipt UI Rows',
-      mode: 'create_sheet',
       columns: [
         { name: 'headline', type: 'text' },
         { name: 'source_url', type: 'url' },
@@ -29,8 +34,7 @@ function importRowsAction() {
         fingerprint: 'sha256:receipt-inspector',
       },
     },
-    idempotency_key: 'v1-receipt-inspector@sha256:stable',
-  };
+  });
 }
 
 test('provenance drawer exposes and inspects v1 executor receipts', async ({
@@ -38,13 +42,8 @@ test('provenance drawer exposes and inspects v1 executor receipts', async ({
   request,
 }) => {
   const pid = await createProject(request, uniqueName('e2e-v1-receipt'));
-  const runResponse = await request.post(
-    `/api/projects/${pid}/actions/v1/run`,
-    { data: importRowsAction() },
-  );
-  expect(runResponse.ok()).toBeTruthy();
-  const result = await runResponse.json();
-  const receiptId = result.receipt_id as string;
+  const result = await postAction(request, pid, importRowsAction());
+  const receiptId = String(result.receipt_id);
   expect(receiptId).toMatch(/^receipt_/);
 
   const provenanceResponse = await request.get(`/api/projects/${pid}/provenance`);

@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openProject, openToolbarOverflow, runAndWait, uniqueName } from './helpers';
+import {
+  createProject,
+  importCsv,
+  openProject,
+  openToolbarOverflow,
+  primeMapRowsReplies,
+  runAndWait,
+  typedActionRequest,
+  uniqueName,
+} from './helpers';
+import { prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 
 const CSV = `story
 "Mayor met a lobbyist before the zoning vote."
@@ -11,16 +21,22 @@ test('project provenance drawer renders real backend model and run data', async 
 }) => {
   const pid = await createProject(request, uniqueName('e2e-provenance'));
   const sheetId = await importCsv(request, pid, 'stories.csv', CSV);
-  const runId = await runAndWait(request, pid, {
-    recipe: 'classify',
-    model: 'gemini/gemini-2.5-flash',
-    sheet_id: sheetId,
-    input_columns: ['story'],
-    context: 'Classify this story. Use beat=civic.',
-    fields: [{ name: 'beat', type: 'category', labels: ['civic', 'private'] }],
-    include_confidence: false,
-    include_justification: false,
+  await prepareOwnModelReplay(request, pid);
+  const action = typedActionRequest('map.classify', {
+    sheetId,
+    params: {
+      source: ['story'],
+      engine: 'llm',
+      model: REPLAY_MODEL,
+      context: 'Classify this story. Use beat=civic.',
+      fields: [{ name: 'beat', type: 'category', labels: ['civic', 'private'] }],
+      include_confidence: false,
+      include_justification: false,
+    },
+    outputNames: { beat: 'beat' },
   });
+  primeMapRowsReplies(pid, action, [{ beat: 'civic' }]);
+  const runId = await runAndWait(request, pid, action);
 
   const manifestResponse = await request.get(
     `/api/projects/${pid}/provenance?runs_offset=0&runs_limit=25&receipts_offset=0&receipts_limit=25`,
@@ -40,7 +56,7 @@ test('project provenance drawer renders real backend model and run data', async 
   });
   expect(manifest.models).toContainEqual(
     expect.objectContaining({
-      model: 'gemini/gemini-2.5-flash',
+      model: REPLAY_MODEL,
       provider: 'gemini',
       runs: 1,
       rows: 1,
@@ -61,7 +77,7 @@ test('project provenance drawer renders real backend model and run data', async 
       run_id: runId,
       action_kind: 'map.classify',
       action_name: 'Classify rows',
-      model: 'gemini/gemini-2.5-flash',
+      model: REPLAY_MODEL,
     }),
   );
 
@@ -86,9 +102,7 @@ test('project provenance drawer renders real backend model and run data', async 
       && query.includes('receipts_limit=25')
   ))).toBeTruthy();
   await expect(drawer.getByTestId('provenance-provider-list')).toContainText('gemini');
-  await expect(drawer.getByTestId('provenance-model-table')).toContainText(
-    'gemini/gemini-2.5-flash',
-  );
+  await expect(drawer.getByTestId('provenance-model-table')).toContainText(REPLAY_MODEL);
   await expect(drawer.getByTestId('provenance-model-table')).toContainText('1');
   await expect(drawer.getByTestId('provenance-action-kind-table')).toContainText(
     'Classify rows',
@@ -97,15 +111,13 @@ test('project provenance drawer renders real backend model and run data', async 
     'map.classify',
   );
   await expect(drawer.getByTestId('provenance-run-list')).toContainText(`run ${runId}`);
-  await expect(drawer.getByTestId('provenance-json-preview')).toContainText(
-    'gemini/gemini-2.5-flash',
-  );
+  await expect(drawer.getByTestId('provenance-json-preview')).toContainText(REPLAY_MODEL);
 
   const href = await drawer.getByTestId('provenance-download-json').getAttribute('href');
   expect(href).toMatch(/^data:application\/json/);
   const encoded = href!.slice(href!.indexOf(',') + 1);
   const exported = JSON.parse(decodeURIComponent(encoded));
-  expect(exported.manifest.touched).toContain('gemini/gemini-2.5-flash');
+  expect(exported.manifest.touched).toContain(REPLAY_MODEL);
   expect(exported.manifest.runs_page).toMatchObject({
     offset: 0,
     limit: 25,

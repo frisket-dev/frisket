@@ -1,7 +1,3 @@
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import {
@@ -14,15 +10,18 @@ import {
   listSheets,
   openAction,
   openProject,
+  primeMapRowsReplies,
   runAndWait,
   sheetColumns,
   sheetData,
+  typedActionRequest,
+  type ActionRequest,
   type WireColumn,
   uniqueName,
 } from './helpers';
-import { testPython } from '../support/testPython';
+import { prepareOwnModelReplay, REPLAY_MODEL as MODEL } from './replayModelScenario';
+import type { JsonValue } from '../../src/api/types';
 
-const MODEL = 'gemini/gemini-2.5-flash';
 const TARGET_TRACE_SENTINEL = 'TARGET_TRACE_SENTINEL_v1_long_lived';
 const TARGET_RESPONSE_SENTINEL = 'TARGET_RESPONSE_SENTINEL_v1_long_lived';
 const OLD_TRACE_SENTINEL = 'OLD_TRACE_SENTINEL_v1_long_lived';
@@ -31,11 +30,6 @@ const OTHER_SHEET_SENTINEL = 'OTHER_SHEET_SENTINEL_v1_long_lived';
 const TARGET_PROMPT = `Classify the current target sheet only. ${TARGET_TRACE_SENTINEL}`;
 const OLD_PROMPT = `Classify the older sheet only. ${OLD_TRACE_SENTINEL}`;
 const OTHER_PROMPT = `Classify the same row index on another sheet only. ${OTHER_SHEET_SENTINEL}`;
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 type WireColumnWithRun = WireColumn & { current_run_id?: number | null };
 
@@ -56,116 +50,43 @@ function csvFor(...snippets: string[]): string {
   return `snippet\n${snippets.map((snippet) => JSON.stringify(snippet)).join('\n')}\n`;
 }
 
-function primeClassifyCache({
-  pid,
-  sheetId,
-  prompt,
-  topic,
-  justification,
-  labels,
-  // extract-form-polish-v1 item 6: a fresh classify FORM launch now defaults
-  // both toggles OFF, but runDebugClassify's direct-API companion call still
-  // runs with them explicitly true — callers pass whichever value the actual
-  // request (form or direct API) will carry, so the cache's request_key
-  // matches.
-  includeExtras = true,
-}: {
-  pid: string;
-  sheetId: number;
-  prompt: string;
-  topic: string;
-  justification: string;
-  labels: string[];
-  includeExtras?: boolean;
-}): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import json
-import sys
-from pathlib import Path
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.sdk.ops.classify import ClassifyRecipe
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw, prompt, topic, justification, labels_raw = sys.argv[1:]
-sheet_id = int(sheet_id_raw)
-labels = json.loads(labels_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    spec = {
-        "recipe": "classify",
-        "model": ${JSON.stringify(MODEL)},
-        "sheet_id": sheet_id,
-        "input_columns": ["snippet"],
-        "context": prompt,
-        "fields": [
-            {
-                "name": "topic",
-                "type": "category",
-                "description": "Best-fit label from the list",
-                "labels": labels,
-            }
-        ],
-        "include_justification": ${includeExtras ? 'True' : 'False'},
-        "include_confidence": ${includeExtras ? 'True' : 'False'},
-    }
-    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-    values = {
-        name: project.get_values(sheet_id, columns[name])
-        for name in spec["input_columns"]
-    }
-    cache = ResponseCache(project.path / "project.cache.db")
-    recipe = ClassifyRecipe()
-    try:
-        for row_id in project.visible_row_ids(sheet_id):
-            row_values = {name: values[name].get(row_id) for name in spec["input_columns"]}
-            call = recipe.render(row_values, spec)
-            req = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            data = {
-                "topic": topic,
-                "topic_confidence": 0.93,
-                "topic_justification": justification,
-            }
-            cache.put(
-                request_key(req, recipe.version),
-                LLMResponse(
-                    content=json.dumps(data),
-                    data=data,
-                    tokens_in=120,
-                    tokens_out=30,
-                    cost=0.0001,
-                    model=spec["model"],
-                ),
-            )
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(
-    testPython(),
-    [
-      '-c',
-      script,
-      workspace,
-      pid,
-      String(sheetId),
-      prompt,
-      topic,
-      justification,
-      JSON.stringify(labels),
-    ],
-    {
-      cwd: REPO_ROOT,
-      stdio: 'pipe',
-      timeout: 60_000,
+function classifyAction(
+  sheetId: number,
+  prompt: string,
+  labels: string[],
+  includeExtras: boolean,
+): ActionRequest {
+  return typedActionRequest('map.classify', {
+    sheetId,
+    params: {
+      source: ['snippet'],
+      engine: 'llm',
+      model: MODEL,
+      context: prompt,
+      fields: [
+        {
+          name: 'topic',
+          type: 'category',
+          description: 'Best-fit label from the list',
+          labels,
+        },
+      ],
+      include_justification: includeExtras,
+      include_confidence: includeExtras,
     },
-  );
+    outputNames: { topic: 'topic' },
+  });
+}
+
+function classifyReplies(
+  topic: string,
+  justification: string,
+  includeExtras: boolean,
+): Array<Record<string, JsonValue>> {
+  const reply: Record<string, JsonValue> = includeExtras
+    ? { topic, topic_confidence: 0.93, topic_justification: justification }
+    : { topic };
+  return [reply, reply];
 }
 
 async function runDebugClassify(
@@ -177,24 +98,9 @@ async function runDebugClassify(
   justification: string,
   labels: string[],
 ): Promise<number> {
-  primeClassifyCache({ pid, sheetId, prompt, topic, justification, labels });
-  return runAndWait(request, pid, {
-    recipe: 'classify',
-    sheet_id: sheetId,
-    input_columns: ['snippet'],
-    model: MODEL,
-    context: prompt,
-    fields: [
-      {
-        name: 'topic',
-        type: 'category',
-        description: 'Best-fit label from the list',
-        labels,
-      },
-    ],
-    include_justification: true,
-    include_confidence: true,
-  });
+  const action = classifyAction(sheetId, prompt, labels, true);
+  primeMapRowsReplies(pid, action, classifyReplies(topic, justification, true));
+  return runAndWait(request, pid, action);
 }
 
 async function history(request: APIRequestContext, pid: string): Promise<HistoryStep[]> {
@@ -242,6 +148,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-long-lived-v1'));
+  await prepareOwnModelReplay(page.request, pid);
 
   const oldSheetId = await importCsv(
     page.request,
@@ -341,17 +248,13 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
       'current target row one',
     ),
   );
-  primeClassifyCache({
+  // This one feeds the live classify FORM below (openAction + Run), which
+  // never touches the confidence/justification toggles — they default OFF.
+  primeMapRowsReplies(
     pid,
-    sheetId: targetSheetId,
-    prompt: TARGET_PROMPT,
-    topic: 'target',
-    justification: TARGET_RESPONSE_SENTINEL,
-    labels: ['target', 'other'],
-    // This one feeds the live classify FORM below (openAction + Run), which
-    // never touches the confidence/justification toggles — they default OFF.
-    includeExtras: false,
-  });
+    classifyAction(targetSheetId, TARGET_PROMPT, ['target', 'other'], false),
+    classifyReplies('target', TARGET_RESPONSE_SENTINEL, false),
+  );
 
   const sheets = await listSheets(page.request, pid);
   expect(sheets.length).toBeGreaterThanOrEqual(8);
@@ -390,7 +293,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
 
   await openProject(page, pid, oldSheetId);
   await openAction(page, 'map.classify');
-  await expect(page.getByTestId('action-form')).toBeVisible();
+  await expect(page.getByTestId('generated-action-form')).toBeVisible();
   // A fresh launch never guesses a destination from the old civic sample,
   // even when this sheet already carries a "topic" column from an earlier run.
   await expect(page.getByTestId('new-column-name')).toHaveValue('');
@@ -399,7 +302,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   await expect(page.getByTestId('default-column-name-collision-note')).toHaveCount(0);
 
   await page.getByTestId(`workbench-mainView-tab-${targetSheetId}`).click();
-  await expect(page.getByTestId('action-form')).toContainText(`on ${targetSheet!.name}`);
+  await expect(page.getByTestId('generated-action-form')).toContainText(`on ${targetSheet!.name}`);
   await expect(page.getByTestId('new-column-name')).toHaveValue('topic');
   await expect(page.getByTestId('classify-source-column-select')).toHaveValue('snippet');
 
@@ -407,7 +310,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   await page.getByTestId('new-column-name').fill('topic');
   await page.getByLabel('Field 1 labels').fill('target, other');
 
-  const runButton = page.getByTestId('run-button');
+  const runButton = page.getByTestId('generated-action-run');
   await expect
     .poll(async () => {
       return (await runButton.isEnabled()) ? 'ready' : 'waiting';

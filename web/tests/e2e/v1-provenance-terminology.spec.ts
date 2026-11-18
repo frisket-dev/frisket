@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { createProject, importCsv, openProject, openToolbarOverflow, runAndWait, uniqueName } from './helpers';
+import {
+  createProject,
+  importCsv,
+  openProject,
+  openToolbarOverflow,
+  primeMapRowsReplies,
+  runAndWait,
+  typedActionRequest,
+  uniqueName,
+} from './helpers';
+import { prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 
 const CSV = `story
 "Mayor met a lobbyist before the zoning vote."
@@ -11,16 +21,22 @@ test('provenance drawer presents run summaries with action metadata', async ({
 }) => {
   const pid = await createProject(request, uniqueName('e2e-v1-provenance-terms'));
   const sheetId = await importCsv(request, pid, 'stories.csv', CSV);
-  await runAndWait(request, pid, {
-    recipe: 'classify',
-    model: 'gemini/gemini-2.5-flash',
-    sheet_id: sheetId,
-    input_columns: ['story'],
-    context: 'Classify this story. Use beat=civic.',
-    fields: [{ name: 'beat', type: 'category', labels: ['civic', 'private'] }],
-    include_confidence: false,
-    include_justification: false,
+  await prepareOwnModelReplay(request, pid);
+  const action = typedActionRequest('map.classify', {
+    sheetId,
+    params: {
+      source: ['story'],
+      engine: 'llm',
+      model: REPLAY_MODEL,
+      context: 'Classify this story. Use beat=civic.',
+      fields: [{ name: 'beat', type: 'category', labels: ['civic', 'private'] }],
+      include_confidence: false,
+      include_justification: false,
+    },
+    outputNames: { beat: 'beat' },
   });
+  primeMapRowsReplies(pid, action, [{ beat: 'civic' }]);
+  await runAndWait(request, pid, action);
 
   const manifestResponse = await request.get(`/api/projects/${pid}/provenance`);
   expect(manifestResponse.ok()).toBeTruthy();

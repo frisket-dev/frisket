@@ -6,13 +6,21 @@
 // same width rules the adapter uses (src/api/real.ts toColumnDef: text=240,
 // everything else 140; row markers ≈ 40px; header 34px; rows 34px default).
 
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import type {
+  JsonValue,
+  RegisteredActionDraft,
+  RegisteredActionRequest,
+  RegisteredActionScope,
+  ViewSelection,
+} from '../../src/api/types';
+import type { GeneratedActionParams } from '../../src/generated/actionTypes';
 import { testPython } from '../support/testPython';
 import { requireSeededProject } from './seedProjects';
 
@@ -145,40 +153,53 @@ export async function setHiddenContributions(
   );
 }
 
-type HelperLegacyActionSpec = {
-  schema_version: 'frisket.action.v2';
-  kind: string;
-  capabilities: string[];
-  params: Record<string, unknown>;
-  row_scope?: Record<string, unknown>;
-  output_intent?: Array<Record<string, unknown>>;
-  idempotency_key: string;
-};
+type ActionId = keyof GeneratedActionParams;
 
-type HelperRegisteredActionRequest = {
-  action_id: string;
-  scope: {
-    kind: 'project';
-  } | {
-    kind: 'sheet_rows';
-    sheet_id: number;
-    row_ids?: number[];
+/** A run request as the endpoint takes it; params stay whatever the action's
+ *  generated params type says. */
+export type ActionRequest = RegisteredActionDraft<unknown>
+  & Pick<RegisteredActionRequest, 'idempotency_key' | 'confirmation'>;
+
+/** The run endpoint's typed request for one catalog action: its generated
+ *  params, a project scope or the rows of one sheet, the names of its outputs,
+ *  and a fresh retry identity unless the caller pins one. */
+export function typedActionRequest<Id extends ActionId>(
+  actionId: Id,
+  options: {
+    params: GeneratedActionParams[Id];
+    sheetId?: number;
+    rowIds?: number[];
+    outputNames?: Record<string, string>;
+    sheetName?: string;
+    idempotencyKey?: string;
+  },
+): ActionRequest {
+  const scope: RegisteredActionScope = options.sheetId === undefined
+    ? { kind: 'project' }
+    : {
+        kind: 'sheet_rows',
+        sheet_id: options.sheetId,
+        ...(options.rowIds === undefined ? {} : { row_ids: options.rowIds }),
+      };
+  return {
+    action_id: actionId,
+    scope,
+    params: options.params,
+    output_names: options.outputNames ?? {},
+    ...(options.sheetName === undefined ? {} : { sheet_name: options.sheetName }),
+    idempotency_key: options.idempotencyKey ?? `e2e-${actionId}:${randomUUID()}`,
   };
-  params: Record<string, unknown>;
-  output_names: Record<string, string>;
-  idempotency_key: string;
-  confirmation?: string;
-};
-
-type HelperActionSpec = HelperLegacyActionSpec | HelperRegisteredActionRequest;
+}
 
 type HelperActionResult = {
   schema_version: string;
   status: string;
   run_id?: number | null;
+  receipt_id?: string | null;
   outputs?: Array<{
     kind?: string;
     name?: string | null;
+    sheet_id?: number | null;
     row_ids?: number[];
     ref?: Record<string, unknown>;
   }>;
@@ -290,32 +311,27 @@ export async function sheetData(
   return res.json();
 }
 
+/** The view selection (filters, order, scope) a grid read of one sheet
+ *  carries in its `selection` query parameter; null for any other request. */
+export function gridReadSelection(url: URL, pid: string, sheetId: number): ViewSelection | null {
+  if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return null;
+  const raw = url.searchParams.get('selection');
+  if (raw === null) return null;
+  const selection: ViewSelection = JSON.parse(raw);
+  return selection;
+}
+
 export async function addRow(
   request: APIRequestContext,
   pid: string,
   sheetId: number,
-  cells: Record<string, unknown> = {},
+  cells: Record<string, JsonValue> = {},
 ): Promise<{ rowId: number; total: number }> {
-  const params = {
-    sheet_id: sheetId,
-    cells,
-  };
-  const spec: HelperActionSpec = {
-    action_id: 'row.add',
-    scope: { kind: 'project' },
-    params,
-    output_names: {},
-    idempotency_key: `e2e-helper-row.add@sha256:${randomUUID().replaceAll('-', '')}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  expect(res.ok()).toBeTruthy();
-  const result = (await res.json()) as HelperActionResult;
-  if (result.schema_version !== 'frisket.action_result.v1') {
-    throw new Error(`row.add returned ${result.schema_version}`);
-  }
-  if (result.status !== 'completed') {
-    throw new Error(actionErrorMessage(result));
-  }
+  const result = await postAction(
+    request,
+    pid,
+    typedActionRequest('row.add', { params: { sheet_id: sheetId, cells } }),
+  );
   const output = result.outputs?.find((candidate) => (
     candidate.kind === 'rows' && candidate.name === 'added_rows'
   ));
@@ -330,7 +346,7 @@ export async function addRow(
 export async function editCells(
   request: APIRequestContext,
   pid: string,
-  edits: Array<{ rowId: number; columnId: number; value: unknown }>,
+  edits: Array<{ rowId: number; columnId: number; value: JsonValue }>,
 ): Promise<void> {
   const params = {
     edits: edits.map((edit) => ({
@@ -339,22 +355,7 @@ export async function editCells(
       value: edit.value,
     })),
   };
-  const spec: HelperActionSpec = {
-    action_id: 'cell.edit',
-    scope: { kind: 'project' },
-    params,
-    output_names: {},
-    idempotency_key: `e2e-helper-cell.edit@sha256:${randomUUID().replaceAll('-', '')}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  expect(res.ok()).toBeTruthy();
-  const result = (await res.json()) as HelperActionResult;
-  if (result.schema_version !== 'frisket.action_result.v1') {
-    throw new Error(`cell.edit returned ${result.schema_version}`);
-  }
-  if (result.status !== 'completed') {
-    throw new Error(actionErrorMessage(result));
-  }
+  await postAction(request, pid, typedActionRequest('cell.edit', { params }));
 }
 
 export async function patchColumn(
@@ -363,25 +364,9 @@ export async function patchColumn(
   columnId: number,
   patch: { format?: string | null },
 ): Promise<void> {
-  const spec: HelperActionSpec = {
-    action_id: 'column.patch',
-    scope: { kind: 'project' },
-    params: {
-      column_id: columnId,
-      format: patch.format ?? null,
-    },
-    output_names: {},
-    idempotency_key: `e2e-helper-column.patch@sha256:${randomUUID().replaceAll('-', '')}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  expect(res.ok()).toBeTruthy();
-  const result = (await res.json()) as HelperActionResult;
-  if (result.schema_version !== 'frisket.action_result.v1') {
-    throw new Error(`column.patch returned ${result.schema_version}`);
-  }
-  if (result.status !== 'completed') {
-    throw new Error(actionErrorMessage(result));
-  }
+  await postAction(request, pid, typedActionRequest('column.patch', {
+    params: { column_id: columnId, format: patch.format ?? null },
+  }));
 }
 
 export async function setColumnType(
@@ -390,234 +375,13 @@ export async function setColumnType(
   columnId: number,
   type: string,
 ): Promise<void> {
-  const spec: HelperActionSpec = {
-    action_id: 'column.set_type',
-    scope: { kind: 'project' },
-    params: {
-      column_id: columnId,
-      type,
-    },
-    output_names: {},
-    idempotency_key: `e2e-helper-column.set_type@sha256:${randomUUID().replaceAll('-', '')}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  expect(res.ok()).toBeTruthy();
-  const result = (await res.json()) as HelperActionResult;
-  if (result.schema_version !== 'frisket.action_result.v1') {
-    throw new Error(`column.set_type returned ${result.schema_version}`);
-  }
-  if (result.status !== 'completed') {
-    throw new Error(actionErrorMessage(result));
-  }
+  await postAction(request, pid, typedActionRequest('column.set_type', {
+    params: { column_id: columnId, type },
+  }));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function copyFields(
-  source: Record<string, unknown>,
-  fields: string[],
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (source[field] !== undefined) out[field] = source[field];
-  }
-  return out;
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
-
-function helperActionKey(
-  pid: string,
-  kind: string,
-  params: Record<string, unknown>,
-  outputIntent: Array<Record<string, unknown>>,
-  rowScope?: Record<string, unknown>,
-): string {
-  const digest = createHash('sha256')
-    .update(stableJson({
-      project_id: pid,
-      kind,
-      params,
-      row_scope: rowScope ?? null,
-      output_intent: outputIntent,
-    }))
-    .digest('hex');
-  return `e2e-helper-${kind}@sha256:${digest}`;
-}
-
-function helperOutputIntentFromSeedSpec(seedSpec: Record<string, unknown>): Array<Record<string, unknown>> {
-  if (Array.isArray(seedSpec.output_intent)) {
-    return seedSpec.output_intent.filter(isRecord).map((intent) => ({ ...intent }));
-  }
-  if (typeof seedSpec.group_label !== 'string' || !seedSpec.group_label.trim()) return [];
-  return [{ kind: 'column_group', group_label: seedSpec.group_label.trim() }];
-}
-
-const ROW_SCOPED_HELPER_ACTIONS = new Set(['map.ner']);
-
-function copyRowScope(value: unknown): Record<string, unknown> | undefined {
-  if (!isRecord(value)) return undefined;
-  const selector = isRecord(value.selector) ? { ...value.selector } : value.selector;
-  if (isRecord(selector) && isRecord(selector.membership)) {
-    selector.membership = { ...selector.membership };
-  }
-  return { ...value, selector };
-}
-
-function helperRowScope(
-  kind: string,
-  params: Record<string, unknown>,
-  suppliedScope: unknown,
-): Record<string, unknown> | undefined {
-  const rowScope = copyRowScope(suppliedScope);
-  if (!ROW_SCOPED_HELPER_ACTIONS.has(kind)) return rowScope;
-
-  const sheetId = params.sheet_id;
-  const rowIds = params.row_ids;
-  delete params.sheet_id;
-  delete params.row_ids;
-  if (rowScope) return rowScope;
-  if (typeof sheetId !== 'number' || !Number.isInteger(sheetId)) return undefined;
-  return {
-    sheet_id: sheetId,
-    selector: Array.isArray(rowIds)
-      ? {
-          kind: 'exact_membership',
-          membership: { row_ids: [...rowIds] },
-        }
-      : { kind: 'all_rows' },
-  };
-}
-
-function helperChallengeParams(params: Record<string, unknown>): Record<string, unknown> {
-  const challenge = { ...params };
-  const carriedConsent =
-    Object.hasOwn(challenge, 'confirmed') ||
-    Object.hasOwn(challenge, 'consented_promise_set_hash');
-  delete challenge.consented_promise_set_hash;
-  if (carriedConsent) challenge.confirmed = false;
-  return challenge;
-}
-
-function helperActionSpecFromSeedSpec(
-  pid: string,
-  seedSpec: Record<string, unknown>,
-): HelperActionSpec {
-  if (typeof seedSpec.action_id === 'string') {
-    if (!isRecord(seedSpec.scope) || seedSpec.scope.kind !== 'sheet_rows') {
-      throw new Error('runAndWait requires a sheet_rows scope for registered actions');
-    }
-    if (!isRecord(seedSpec.params) || !isRecord(seedSpec.output_names)) {
-      throw new Error('runAndWait requires params and output_names for registered actions');
-    }
-    if (typeof seedSpec.idempotency_key !== 'string' || !seedSpec.idempotency_key) {
-      throw new Error('runAndWait requires an idempotency_key for registered actions');
-    }
-    return {
-      action_id: seedSpec.action_id,
-      scope: {
-        kind: 'sheet_rows',
-        sheet_id: Number(seedSpec.scope.sheet_id),
-        ...(Array.isArray(seedSpec.scope.row_ids)
-          ? { row_ids: seedSpec.scope.row_ids.map(Number) }
-          : {}),
-      },
-      params: { ...seedSpec.params },
-      output_names: Object.fromEntries(
-        Object.entries(seedSpec.output_names).map(([key, value]) => [key, String(value)]),
-      ),
-      idempotency_key: seedSpec.idempotency_key,
-      ...(typeof seedSpec.confirmation === 'string'
-        ? { confirmation: seedSpec.confirmation }
-        : {}),
-    };
-  }
-
-  if (seedSpec.schema_version === 'frisket.action.v2') {
-    const kind = String(seedSpec.kind ?? '');
-    const sourceParams = isRecord(seedSpec.params) ? { ...seedSpec.params } : {};
-    const rowScope = helperRowScope(kind, sourceParams, seedSpec.row_scope);
-    const params = helperChallengeParams(sourceParams);
-    const outputIntent = helperOutputIntentFromSeedSpec(seedSpec);
-    return {
-      schema_version: 'frisket.action.v2',
-      kind,
-      capabilities: Array.isArray(seedSpec.capabilities)
-        ? [...seedSpec.capabilities].map(String)
-        : ['project:write'],
-      params,
-      ...(rowScope ? { row_scope: rowScope } : {}),
-      output_intent: outputIntent,
-      idempotency_key:
-        typeof seedSpec.idempotency_key === 'string' && seedSpec.idempotency_key
-          ? seedSpec.idempotency_key
-          : helperActionKey(pid, kind, params, outputIntent, rowScope),
-    };
-  }
-
-  const recipe = String(seedSpec.recipe ?? '');
-  let kind: string;
-  const capabilities = ['project:write', 'model:complete'];
-  let params: Record<string, unknown>;
-
-  switch (recipe) {
-    case 'classify':
-      kind = 'map.classify';
-      params = {
-        ...copyFields(seedSpec, [
-          'sheet_id',
-          'input_columns',
-          'input_template',
-          'model',
-          'context',
-          'fields',
-          'include_justification',
-          'include_confidence',
-          'row_ids',
-        ]),
-        confirmed: false,
-      };
-      break;
-    case 'judge':
-      kind = 'map.judge';
-      params = {
-        ...copyFields(seedSpec, [
-          'sheet_id',
-          'input_columns',
-          'judged_column',
-          'model',
-          'guidelines',
-          'row_ids',
-        ]),
-        confirmed: false,
-      };
-      break;
-    default:
-      throw new Error(`runAndWait cannot translate seed recipe "${recipe}" to a v1 action`);
-  }
-
-  const outputIntent = helperOutputIntentFromSeedSpec(seedSpec);
-  const rowScope = helperRowScope(kind, params, seedSpec.row_scope);
-  return {
-    schema_version: 'frisket.action.v2',
-    kind,
-    capabilities,
-    params,
-    ...(rowScope ? { row_scope: rowScope } : {}),
-    output_intent: outputIntent,
-    idempotency_key: helperActionKey(pid, kind, params, outputIntent, rowScope),
-  };
 }
 
 function actionErrorMessage(result: HelperActionResult): string {
@@ -726,53 +490,69 @@ if not worker.run_once():
   });
 }
 
-/** Start a run server-side, answer an exact confirmation challenge when one
- *  exists, and wait for it to finish. Used by specs that need AI results to
- *  exist but aren't testing the run UI. Returns the run id. */
-export async function runAndWait(
+/** Store one fixture model reply per row of a typed map action's scope, under
+ *  the keys its run will look up (scripts/e2e/prime_replies.py), so the run
+ *  replays under FRISKET_CACHE_MODE=replay_strict with no provider key. */
+export function primeMapRowsReplies(
+  pid: string,
+  action: ActionRequest,
+  replies: Array<Record<string, JsonValue>>,
+): void {
+  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
+  execFileSync(testPython(), ['scripts/e2e/prime_replies.py', workspace, pid], {
+    cwd: REPO_ROOT,
+    input: JSON.stringify({ action, replies }),
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 60_000,
+  });
+}
+
+/** Post an action, answer its exact confirmation challenge when one is
+ *  issued, and return its result. A refused, failed or unconfirmed action
+ *  throws with the server's message. */
+export async function postAction(
   request: APIRequestContext,
   pid: string,
-  spec: Record<string, unknown>,
-): Promise<number> {
-  const actionSpec = helperActionSpecFromSeedSpec(pid, spec);
+  action: ActionRequest,
+): Promise<HelperActionResult> {
   const endpoint = `/api/projects/${pid}/actions/v1/run`;
-  let res = await request.post(endpoint, { data: actionSpec });
+  let res = await request.post(endpoint, { data: action });
   if (res.status() === 402) {
     const challenge = await readActionResult(
       res,
       'malformed HTTP 402 needs_confirmation response',
     );
-    const promiseSetHash = confirmationHash(challenge);
-    const retrySpec: HelperActionSpec = 'action_id' in actionSpec
-      ? { ...actionSpec, confirmation: promiseSetHash }
-      : {
-          ...actionSpec,
-          params: {
-            ...actionSpec.params,
-            confirmed: true,
-            consented_promise_set_hash: promiseSetHash,
-          },
-        };
-    res = await request.post(endpoint, { data: retrySpec });
+    res = await request.post(endpoint, {
+      data: { ...action, confirmation: confirmationHash(challenge) },
+    });
   }
-  expect(res.ok()).toBeTruthy();
-  const actionResult = await readActionResult(res, 'action run response');
-  if (actionResult.schema_version !== 'frisket.action_result.v1') {
-    throw new Error(`action run returned ${actionResult.schema_version}`);
+  const result = await readActionResult(res, `${action.action_id} response`);
+  if (result.schema_version !== 'frisket.action_result.v1') {
+    throw new Error(`${action.action_id} returned ${result.schema_version}`);
   }
-  if (actionResult.status === 'failed' || actionResult.status === 'needs_confirmation') {
-    throw new Error(actionErrorMessage(actionResult));
+  if (!res.ok() || result.status === 'failed' || result.status === 'needs_confirmation') {
+    throw new Error(
+      `${action.action_id} answered HTTP ${res.status()} ${result.status}: ${actionErrorMessage(result)}`,
+    );
   }
+  return result;
+}
+
+/** Start a run server-side through postAction and wait for it to finish.
+ *  Used by specs that need AI results to exist but aren't testing the run
+ *  UI. Returns the run id. */
+export async function runAndWait(
+  request: APIRequestContext,
+  pid: string,
+  action: ActionRequest,
+): Promise<number> {
+  const actionResult = await postAction(request, pid, action);
   const rawRunId = actionResult.run_id;
   if (typeof rawRunId !== 'number' || !Number.isInteger(rawRunId)) {
-    const actionId = 'action_id' in actionSpec ? actionSpec.action_id : actionSpec.kind;
-    throw new Error(`action ${actionId} did not return a run id`);
+    throw new Error(`action ${action.action_id} did not return a run id`);
   }
   const runId = rawRunId;
-  if (
-    'action_id' in actionSpec &&
-    LOCAL_QUEUED_REGISTERED_ACTIONS.has(actionSpec.action_id)
-  ) {
+  if (LOCAL_QUEUED_REGISTERED_ACTIONS.has(action.action_id)) {
     finishLocalQueuedRun(pid, runId);
   }
   for (let i = 0; i < 300; i++) {
@@ -792,20 +572,24 @@ export async function runAndWait(
   throw new Error(`run ${runId} did not finish`);
 }
 
+/** Route a map.python form's whole result to one new JSON column. */
+export async function setPythonResultColumn(page: Page, columnName: string): Promise<void> {
+  await page.getByTestId('field-output_routes').fill(JSON.stringify([
+    { name: columnName, path: '$', target: { kind: 'column', type: 'json' } },
+  ]));
+}
+
 export async function clickRunButton(
   page: Page,
   options: { requireCostConfirmation?: boolean } = {},
 ): Promise<void> {
   const requireCostConfirmation = options.requireCostConfirmation ?? true;
-  const runButton = page.locator(
-    '[data-testid="run-button"], [data-testid="generated-action-run"]',
-  );
+  const runButton = page.getByTestId('generated-action-run');
   await runButton.click();
   if (!requireCostConfirmation) return;
   const modal = page.getByTestId('cost-gate-modal');
   const modalVisible = await modal.isVisible({ timeout: 500 }).catch(() => false);
   if (!modalVisible) return;
-  await page.getByTestId('cost-gate-input').fill('confirm');
   await page.getByTestId('cost-gate-confirm').click();
 }
 

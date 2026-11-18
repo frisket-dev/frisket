@@ -13,7 +13,13 @@
 // connections; this spec covers only the generic graph view.
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
-import { createProject, openProject, uniqueName } from './helpers';
+import {
+  createProject,
+  openProject,
+  postAction,
+  typedActionRequest,
+  uniqueName,
+} from './helpers';
 
 async function importNamedCsv(
   request: APIRequestContext,
@@ -30,25 +36,6 @@ async function importNamedCsv(
   return (await res.json()).sheet_id;
 }
 
-async function postAction(
-  request: APIRequestContext,
-  pid: string,
-  kind: string,
-  params: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const spec = {
-    schema_version: 'frisket.action.v2',
-    kind,
-    capabilities: ['project:write'],
-    params,
-    idempotency_key: `e2e-${kind}@sha256:${Math.random().toString(16).slice(2)}`,
-  };
-  const res = await request.post(`/api/projects/${pid}/actions/v1/run`, { data: spec });
-  const body = (await res.json()) as Record<string, unknown>;
-  expect(res.ok(), JSON.stringify(body)).toBeTruthy();
-  expect(body.status, JSON.stringify(body)).toBe('completed');
-  return body;
-}
 
 /** Seed a derive.join edge sheet + return the plain-CSV left sheet id too. */
 async function seedJoinGraph(
@@ -68,17 +55,18 @@ async function seedJoinGraph(
     'Population',
     'code,pop\nNY,100\nCA,200\n',
   );
-  const result = await postAction(request, pid, 'derive.join', {
-    left_sheet_id: plainSheetId,
-    right_sheet_id: rightId,
-    join_keys: [{ left_column: 'code', right_column: 'code' }],
-    how: 'inner',
-    target_sheet_name: 'States x Population',
-  });
-  const output = (result.outputs as Array<Record<string, unknown>>).find(
-    (o) => o.kind === 'sheet',
-  );
-  return { pid, edgeSheetId: Number(output!.sheet_id), plainSheetId };
+  const result = await postAction(request, pid, typedActionRequest('derive.join', {
+    sheetId: plainSheetId,
+    sheetName: 'States x Population',
+    params: {
+      right: { sheet_id: rightId },
+      join_keys: [{ left_column: 'code', right_column: 'code' }],
+      how: 'inner',
+    },
+  }));
+  expect(result.status).toBe('completed');
+  const output = result.outputs?.find((o) => o.kind === 'sheet');
+  return { pid, edgeSheetId: Number(output?.sheet_id), plainSheetId };
 }
 
 test('the graph segment is offered on a join (edge) sheet and hidden on a plain CSV sheet', async ({

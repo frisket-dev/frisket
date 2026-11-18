@@ -26,6 +26,7 @@ import {
   type WireSheet,
   uniqueName,
 } from './helpers';
+import type { JsonValue } from '../../src/api/types';
 import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
@@ -78,7 +79,7 @@ function pdfRow(
   tableIndex: number,
   tableRowIndex: number,
   real: Record<string, string>,
-): Record<string, unknown> {
+): Record<string, JsonValue> {
   return {
     source_row_id: 1,
     source_filename: 'contracts-2024.pdf',
