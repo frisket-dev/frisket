@@ -102,7 +102,7 @@ def _conversation(project, target, *, handle=True, tool=False, terminal=True):
         kind="tool_completed",
         payload={"tool": "execute_action", "value": "independent action output"},
     )
-    research_store.publish_approval(
+    research_store.publish_pause(
         research["id"],
         {
             "id": "sensitive-approval",

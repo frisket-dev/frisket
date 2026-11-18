@@ -31,7 +31,9 @@ def _seed_project(
         ],
         {"story": source_col},
     )
-    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="classify")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="classify"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

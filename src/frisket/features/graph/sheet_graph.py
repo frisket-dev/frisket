@@ -286,7 +286,7 @@ def _node_label(node: _NodeAccum) -> str:
 def _materialized_kind(project: Project, parent_op_id: Any) -> str | None:
     if parent_op_id is None:
         return None
-    meta = project.ops_meta([int(parent_op_id)])
+    meta = project.changes_meta([int(parent_op_id)])
     op = meta.get(int(parent_op_id))
     if op is None:
         return None

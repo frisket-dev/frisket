@@ -56,7 +56,7 @@ def _downstream(client: TestClient, project_id: str, source_id: int) -> list[dic
     return response.json()["downstream_jobs"]
 
 
-def test_quiet_source_keeps_its_jobs_behind_a_busier_neighbour(
+def test_quiet_feed_keeps_its_jobs_behind_a_busier_neighbour(
     tmp_path: Path,
 ) -> None:
     """The reported failure: 100 newer jobs bury the quiet source's poll job."""
@@ -97,7 +97,7 @@ def test_quiet_source_keeps_its_jobs_behind_a_busier_neighbour(
     )
 
 
-def test_trigger_ref_only_jobs_stay_attributed_to_their_source(
+def test_trigger_ref_only_jobs_stay_attributed_to_their_feed(
     tmp_path: Path,
 ) -> None:
     """A column-only filter must not drop the jobs the panel exists to show.

@@ -84,8 +84,8 @@ def render_ner(values, spec):
 def _is_typed_action(spec):
     """Whether the runner spec names a typed built-in (``ACTION_REGISTRY``).
 
-    Built-ins no longer register a legacy ``Recipe``; only plugin recipes are
-    still resolved by ``action_kind`` through ``recipe_for_spec``.
+    Built-ins no longer register a legacy ``ActionProgram``; only plugin recipes are
+    still resolved by ``action_kind`` through ``action_program_for_spec``.
     """
     kind = spec.get("action_kind")
     return isinstance(kind, str) and kind in ACTION_REGISTRY.action_ids
@@ -93,7 +93,7 @@ def _is_typed_action(spec):
 
 def _runner_binding(runner, spec):
     plan = model_plan(spec)
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     return {**spec, **plan.spec_dict()}, plan.program
 
 

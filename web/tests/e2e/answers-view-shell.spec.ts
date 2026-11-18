@@ -68,7 +68,7 @@ try:
     )
 
     def write_column(col_id, output_name, values):
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map.extract",
             {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_column": output_name}},
             label=f"extract {output_name}",

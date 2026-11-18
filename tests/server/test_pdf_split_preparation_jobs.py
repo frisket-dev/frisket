@@ -226,10 +226,10 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
         from frisket.engine.store.op_log import step_operation
 
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=session["op_id"])
+            step_operation(project, "revert", change_id=session["op_id"])
         assert project.visible_row_ids(session["sheet_id"]) == []
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=session["op_id"])
+            step_operation(project, "restore", change_id=session["op_id"])
         setup_count = len(setup_calls)
         preparation.progress_pdf_import("pages", import_ref)
         assert len(setup_calls) == setup_count

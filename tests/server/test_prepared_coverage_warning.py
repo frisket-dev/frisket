@@ -20,7 +20,7 @@ def test_grid_and_ask_warn_only_for_partial_document(make_project, value_mode):
     text_col = project.add_column(sheet, "Text", type="text")
     rows = project.add_rows(sheet, [{}, {}, {}], {"Text": text_col})
     project.db.execute("BEGIN IMMEDIATE")
-    op = project.append_op("media.read_pdf_text", commit=False)
+    op = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

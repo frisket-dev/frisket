@@ -185,9 +185,9 @@ def test_finished_pages_merge_partial_refs_and_one_undo_restores_saved_text(
         from frisket.engine.store.op_log import step_operation
 
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=binding.operation_id)
+            step_operation(project, "revert", change_id=binding.operation_id)
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=binding.operation_id)
+            step_operation(project, "restore", change_id=binding.operation_id)
         assert not publish_pdf_split_page(project, binding, refs[0])
         assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == count
     finally:

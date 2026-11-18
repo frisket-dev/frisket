@@ -108,7 +108,7 @@ class TestOcrEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = runner.estimate(
@@ -128,7 +128,7 @@ class TestOcrEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = runner.estimate(
@@ -147,7 +147,7 @@ class TestOcrEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = runner.estimate(
@@ -169,7 +169,7 @@ class TestTranscribeEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = runner.estimate(
@@ -189,7 +189,7 @@ class TestTranscribeEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = runner.estimate(
@@ -204,7 +204,7 @@ class TestTranscribeEstimateHonesty:
 # resolution-aware ``estimate()`` renders each of the three CostBasis arms
 # through the shared canonical projector — this drives that function for
 # real (``runner.estimate`` -> ``validation.estimate_run`` ->
-# ``resolve_for_action`` -> ``recipe.estimate(..., resolution=...)``), not a
+# ``resolve_for_action`` -> ``program.estimate(..., resolution=...)``), not a
 # hand-built resolution stand-in.
 
 
@@ -237,7 +237,7 @@ def test_unavailable_route_refuses_before_estimate_or_consent(
         ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         ),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     before = project.db.total_changes
@@ -296,7 +296,7 @@ class TestToMarkdownEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = _to_markdown_estimate(runner, sheet, "markitdown")
@@ -313,7 +313,7 @@ class TestToMarkdownEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = _to_markdown_estimate(runner, sheet, "datalab")
@@ -338,7 +338,7 @@ class TestToMarkdownEstimateHonesty:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         est = _to_markdown_estimate(runner, sheet, "datalab")
@@ -361,7 +361,7 @@ class TestUnconfirmedRemoteEngineRunGated:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         spec = _ocr_spec(sheet, "gemini/gemini-3.5-flash")
@@ -379,7 +379,7 @@ class TestUnconfirmedRemoteEngineRunGated:
             ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(project),
         )
         spec = _transcribe_spec(sheet, "openai/whisper-1")
@@ -406,7 +406,7 @@ class TestUnconfirmedRemoteEngineRunGated:
             # OCR resolves through the seam, so this control needs the
             # routed authority — with UnroutedOnlyAuthority it would pass for
             # the wrong reason (a DependentChoiceRefusal, caught below).
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=open_attempt_authority(project),
         )
         spec = _ocr_spec(sheet, "rapidocr")
@@ -451,7 +451,7 @@ class TestVlmOcrTraceCapturesModelCalls:
         runner = MapRunner(
             project,
             router,
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=open_attempt_authority(project),
         )
         spec = _ocr_spec(sheet, "gemini/gemini-3.5-flash")

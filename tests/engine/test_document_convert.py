@@ -26,7 +26,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.sandbox.shim import SandboxResult
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 
 HTML = "<html><body><h1>Quarterly Report</h1><p>Revenue doubled.</p></body></html>"
 
@@ -393,7 +393,7 @@ def test_datalab_response_without_accepted_callback_refuses(project, monkeypatch
 def test_remote_direct_call_requires_real_admission(project, engine):
     value = _datalab_pdf(project)
     sheet, cid, row_id = _seed(project, value, coltype="file")
-    with pytest.raises(RecipeInvocationHalt, match="admitted route"):
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted route"):
         _run_convert(
             project,
             name="doc",

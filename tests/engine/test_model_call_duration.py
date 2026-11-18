@@ -103,7 +103,7 @@ def test_cache_hit_facts_cannot_claim_a_duration() -> None:
 
 def test_scoped_writer_persists_duration_ms(project) -> None:
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "test.complete", total_rows=1)
     write_claimed_test_results(
@@ -127,7 +127,7 @@ def test_scoped_writer_stores_null_when_the_bracket_is_absent(project) -> None:
     provider paths) must store NULL, never a fabricated zero — a zero would
     read as an instantaneous provider call."""
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "test.complete", total_rows=1)
     fact = _fact()
@@ -192,7 +192,7 @@ def test_reconcile_enriches_the_accepted_facts_null_duration(project) -> None:
     with the poll's bracketed elapsed time carried under the SAME call id —
     the terminal-enrichment path (COALESCE), not a second mint."""
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "test.complete", total_rows=1)
     authority = run_writer_authority_fixture(
@@ -228,7 +228,7 @@ def test_reconcile_never_overwrites_an_already_enriched_duration(project) -> Non
     reconcile call (cost still unmetered) may not clobber it with a fresh
     reading."""
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "test.complete", total_rows=1)
     authority = run_writer_authority_fixture(
@@ -304,7 +304,7 @@ def test_no_duration_input_can_overflow_the_insert(project) -> None:
     must reach the column as NULL, and none may raise.
     """
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     hostile = ["1e100", 10**30, DURATION_MS_MAX, DURATION_MS_MAX + 1, 1e19, 10**400]
     for index, raw in enumerate(hostile):
@@ -334,7 +334,7 @@ def test_no_duration_input_can_overflow_the_insert(project) -> None:
 
 def test_garbage_duration_stores_null_rather_than_refusing_the_write(project) -> None:
     sheet, row_id, out_col = _row_and_column(project)
-    op = project.append_op("map")
+    op = project.append_change("map")
     store = RunResultStore(project)
     run = store.start_run(op, sheet, "test.complete", total_rows=1)
     write_claimed_test_results(

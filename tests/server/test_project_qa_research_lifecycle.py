@@ -155,7 +155,7 @@ async def test_research_options_expose_manifest_only_and_allow_no_skills(tmp_pat
 
 
 @pytest.mark.anyio
-async def test_exact_approval_survives_client_return_and_stop_interrupts_waiter(
+async def test_exact_consent_survives_client_return_and_stop_interrupts_waiter(
     tmp_path,
 ):
     workspace = Workspace(tmp_path / "workspace")
@@ -165,7 +165,7 @@ async def test_exact_approval_survives_client_return_and_stop_interrupts_waiter(
 
     async def runner(project, router, turn, store):
         session = service._research_sessions[(project, turn["id"])]
-        original = session.store.publish_approval
+        original = session.store.publish_pause
         loop = asyncio.get_running_loop()
 
         def publish(*args, **kwargs):
@@ -174,7 +174,7 @@ async def test_exact_approval_survives_client_return_and_stop_interrupts_waiter(
                 loop.call_soon_threadsafe(published.set)
             return result
 
-        session.store.publish_approval = publish
+        session.store.publish_pause = publish
         answers.append(
             await session.pause({"kind": "action", "title": "Extract fields"})
         )

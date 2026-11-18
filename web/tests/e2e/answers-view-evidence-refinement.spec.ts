@@ -70,7 +70,7 @@ try:
     row_a = project.add_rows(sheet_id, [{"Source": "hearingA.wav"}], {"Source": source_col})[0]
     row_b = project.add_rows(sheet_id, [{"Source": "hearingB.wav"}], {"Source": source_col})[0]
 
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {"schema_version": "frisket.action.v2", "kind": "map.extract", "params": {"output_name": "Finding"}},
         label="extract findings",

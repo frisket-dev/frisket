@@ -40,7 +40,7 @@ from frisket.execution.credential_use import (
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.ops._sidecar import SidecarHTTPError, sidecar_post
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 class AdmittedDecisionClassifier:
@@ -119,11 +119,11 @@ class _BoundDecisionClassifier:
         else:
             valid = False
         if not valid:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Classifier requires its admitted engine route"
             )
         if (not openai and not connection.base_url) or not connection.token:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "no_live_target", "Classifier connection is not configured"
             )
         source = normalize_resolved_credential(
@@ -141,7 +141,9 @@ class _BoundDecisionClassifier:
                     effect=f"the {owner.engine} classification call",
                 )
             except CredentialUseRefusal as error:
-                raise RecipeInvocationHalt("promise_violation", str(error)) from error
+                raise ActionProgramInvocationHalt(
+                    "promise_violation", str(error)
+                ) from error
         owner._called_rows.add(self.row_id)
 
         def record(tokens=None, usage=None, rejected_status=None):

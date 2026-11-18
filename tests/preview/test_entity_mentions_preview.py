@@ -778,7 +778,7 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
         sheet_id, [{"title": "a"}, {"title": "b"}, {"title": "c"}], {"title": source}
     )
     store = RunResultStore(project)
-    op = project.append_op("map", {"action_kind": "map.ner"})
+    op = project.append_change("map", {"action_kind": "map.ner"})
     run = store.start_run(
         op,
         sheet_id,
@@ -837,7 +837,7 @@ def test_coverage_reports_the_columns_current_run_honestly(tmp_path):
     assert group["row_count"] == 2
     assert _rows_for(client, pid, sheet_id, _payload(group)) == {rows[0], rows[1]}
 
-    successor_op = project.append_op("map", {"action_kind": "map.ner"})
+    successor_op = project.append_change("map", {"action_kind": "map.ner"})
     successor = store.start_run(
         successor_op,
         sheet_id,
@@ -894,7 +894,7 @@ def test_coverage_discloses_rows_added_after_the_extraction(tmp_path):
         sheet_id, [{"title": "a"}, {"title": "b"}], {"title": source}
     )
     store = RunResultStore(project)
-    op = project.append_op("map", {"action_kind": "map.ner"})
+    op = project.append_change("map", {"action_kind": "map.ner"})
     run = store.start_run(op, sheet_id, "map.ner", total_rows=len(rows))
     write_claimed_test_results(
         project,

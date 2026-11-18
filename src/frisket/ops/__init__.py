@@ -1,21 +1,21 @@
 from .base import (
-    RECIPE_INVOCATION_HALT_CODES,
+    ACTION_PROGRAM_INVOCATION_HALT_CODES,
     ActionContext,
-    Recipe,
-    RecipeInvocationHalt,
+    ActionProgram,
+    ActionProgramInvocationHalt,
     RenderedCall,
-    normalize_recipe_invocation_halt,
-    persisted_recipe_invocation_halt,
+    normalize_action_program_invocation_halt,
+    persisted_action_program_invocation_halt,
 )
-from .builtin import get_recipe
+from .builtin import get_action_program
 
 __all__ = [
-    "Recipe",
-    "RecipeInvocationHalt",
-    "RECIPE_INVOCATION_HALT_CODES",
-    "normalize_recipe_invocation_halt",
-    "persisted_recipe_invocation_halt",
+    "ActionProgram",
+    "ActionProgramInvocationHalt",
+    "ACTION_PROGRAM_INVOCATION_HALT_CODES",
+    "normalize_action_program_invocation_halt",
+    "persisted_action_program_invocation_halt",
     "RenderedCall",
     "ActionContext",
-    "get_recipe",
+    "get_action_program",
 ]

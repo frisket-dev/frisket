@@ -24,7 +24,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     row_id = project.add_rows(
         sheet_id, [{"source": "contract.pdf"}], {"source": source_col}
     )[0]
-    op_id = project.append_op("map.extract", {"kind": "map.extract"})
+    op_id = project.append_change("map.extract", {"kind": "map.extract"})
     run_store = RunResultStore(project)
     run_id = run_store.start_run(
         op_id,

@@ -2,7 +2,7 @@
 
 Turns a request spec (structured header/param/cookie/form pairs, plus a body
 mode) into the keyword args ``safe_request`` (``netguard.py``) wants. No I/O:
-no secret lookup, no HTTP, no knowledge of frisket ops or ``Recipe``. The
+no secret lookup, no HTTP, no knowledge of frisket ops or ``ActionProgram``. The
 caller binds ``render_request_field`` (or anything with the same
 ``str -> str`` shape) into a one-arg ``render`` and passes that in.
 

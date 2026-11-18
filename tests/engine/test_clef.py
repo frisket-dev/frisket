@@ -20,7 +20,7 @@ from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.provider import CompositionFacts
 from frisket.execution.resolver import ResolutionRequest, resolve
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 FIELDS = [
@@ -295,7 +295,7 @@ async def test_wrong_credential_posture_refuses_before_http(monkeypatch):
     def unexpected(request):
         pytest.fail("must not send data under unconsented credential")
 
-    with pytest.raises(RecipeInvocationHalt, match="credential"):
+    with pytest.raises(ActionProgramInvocationHalt, match="credential"):
         await invoke(monkeypatch, unexpected, resolution=resolution)
 
 

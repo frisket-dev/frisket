@@ -27,7 +27,7 @@ from frisket.ai.llm import (
 )
 from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
 from frisket.ops.integrations.hosted_error import HostedEngineError
-from frisket.ops.base import ActionContext, Recipe, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgram, ActionProgramInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.grounding import grounding_enabled, unwrap_grounded_value
@@ -99,7 +99,7 @@ async def execute_row(
     project: Project,
     router: ModelRouter,
     throttle: AdaptiveThrottle,
-    recipe: Recipe,
+    program: ActionProgram,
     values: dict,
     spec: dict,
     ctx: ActionContext,
@@ -119,7 +119,7 @@ async def execute_row(
             project,
             router,
             throttle,
-            recipe,
+            program,
             values,
             spec,
             ctx,
@@ -135,7 +135,7 @@ async def _execute_row(
     project: Project,
     router: ModelRouter,
     throttle: AdaptiveThrottle,
-    recipe: Recipe,
+    program: ActionProgram,
     values: dict,
     spec: dict,
     ctx: ActionContext,
@@ -157,7 +157,7 @@ async def _execute_row(
     admission = routed_admission_in_scope(ctx.extras or {})
     validation.assert_network_policy(
         project,
-        recipe,
+        program,
         spec,
         selected_egress_class=(
             admission.route.egress_class if admission is not None else None
@@ -166,7 +166,7 @@ async def _execute_row(
     field_names = (
         list(output_field_names)
         if output_field_names is not None
-        else [f["name"] for f in recipe.output_fields(spec)]
+        else [f["name"] for f in program.output_fields(spec)]
     )
     # Do not ask a plain LLM to fabricate output from an empty source row.
     unavailable = getattr(values, "unavailable_inputs", ())
@@ -175,9 +175,9 @@ async def _execute_row(
 
         return {name: not_completed_result(unavailable[0]) for name in field_names}
     if (
-        recipe.is_llm(spec)
-        and not hasattr(recipe, "run_agent")
-        and not recipe.allow_all_empty_input
+        program.is_llm(spec)
+        and not hasattr(program, "run_agent")
+        and not program.allow_all_empty_input
         and row_source_values_empty(values)
     ):
         return {
@@ -265,7 +265,7 @@ async def _execute_row(
 
     meta: dict[str, Any] | None = None
     try:
-        if hasattr(recipe, "run_agent"):
+        if hasattr(program, "run_agent"):
             row_ctx = ActionContext(
                 project=ctx.project,
                 http=ctx.http,
@@ -274,10 +274,10 @@ async def _execute_row(
                 execution_limits=ctx.execution_limits,
                 cloud_execution=ctx.cloud_execution,
             )
-            data, meta = await recipe.run_agent(values, spec, row_ctx, router)
-        elif recipe.is_llm(spec):
-            data, meta = await llm_row(router, throttle, recipe, values, spec)
-            data = recipe.normalize_model_output(data, spec, row_values=values)
+            data, meta = await program.run_agent(values, spec, row_ctx, router)
+        elif program.is_llm(spec):
+            data, meta = await llm_row(router, throttle, program, values, spec)
+            data = program.normalize_model_output(data, spec, row_values=values)
         else:
             # Clone context because parallel rows must not share router state.
             row_ctx = (
@@ -299,7 +299,7 @@ async def _execute_row(
                     cloud_execution=ctx.cloud_execution,
                 )
             )
-            data = await recipe.execute(values, spec, row_ctx)
+            data = await program.execute(values, spec, row_ctx)
             meta = {"tokens_in": None, "tokens_out": None, "cost": 0.0}
             if isinstance(data, tuple) and len(data) == 2:
                 data, returned_meta = data
@@ -348,7 +348,7 @@ async def _execute_row(
             if grounding_active:
                 val, grounding_sidecar = unwrap_grounded_value(name, val)
             if val is not None and generic_error is None and name not in field_errors:
-                val = recipe.postprocess_value(name, val, spec)
+                val = program.postprocess_value(name, val, spec)
             cell: dict[str, Any] = {"value": val, **meta}
             if confidence is not None:
                 cell["confidence"] = confidence
@@ -431,7 +431,7 @@ async def _execute_row(
         }
         returned[field_names[0]].update(accounting)
         return returned
-    except RecipeInvocationHalt as e:
+    except ActionProgramInvocationHalt as e:
         persist_trace(error=safe_error(e.code, e, max_chars=500).text)
         retain_returned_before_halt(e)
         raise
@@ -452,7 +452,7 @@ async def _execute_row(
             ).text,
         )
         retain_returned_before_halt(e)
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "external_effect_reconciliation_required",
             "The provider returned this row, but its accounting could not be saved. "
             "Reconcile the returned result before retrying; another call could charge twice.",
@@ -468,7 +468,7 @@ async def _execute_row(
                 if not isinstance(calls, list) or not all(
                     isinstance(call, dict) for call in calls
                 ):
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "promise_violation",
                         "Hosted failure accounting has invalid model-call facts.",
                     ) from e
@@ -488,7 +488,7 @@ async def _execute_row(
                         or observation.get("route_id") != admission.route.id
                         or not isinstance(observation.get("observed"), dict)
                     ):
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "promise_violation",
                             "Hosted failure accounting differs from its admitted route.",
                         ) from e
@@ -500,7 +500,7 @@ async def _execute_row(
         if e.provider_job_accepted or e.post_egress_ambiguous:
             retain_returned_before_halt(e)
             # Preserve the reservation while an accepted provider job may finish.
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "external_effect_reconciliation_required",
                 "The provider may have accepted and billed this row, but "
                 "the result is unresolved; refusing another submission "
@@ -527,7 +527,7 @@ async def _execute_row(
         if isinstance(e, LLMError) and e.post_egress_ambiguous:
             retain_returned_before_halt(e)
             # Ambiguous egress keeps its reservation until reconciliation.
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "external_effect_reconciliation_required",
                 "The provider may have accepted this row, but no response "
                 "accounting was returned; refusing another call until the "
@@ -575,11 +575,11 @@ async def _execute_row(
 async def llm_row(
     router: Any,
     throttle: AdaptiveThrottle,
-    recipe: Recipe,
+    program: ActionProgram,
     values: dict,
     spec: dict,
 ) -> tuple[dict, dict]:
-    call = recipe.render(values, spec)
+    call = program.render(values, spec)
     model_name = spec["model"]
     wire_responses: list[LLMResponse]
     if call.schema is None:
@@ -589,9 +589,9 @@ async def llm_row(
                 messages=call.messages,
                 max_tokens=call.max_tokens,
             ),
-            recipe_version=recipe.version,
+            recipe_version=program.version,
         )
-        row_data = recipe.model_response_data(resp, spec)
+        row_data = program.model_response_data(resp, spec)
         wire_responses = [resp]
     else:
         result = await StructuredCompleter(router).complete(
@@ -602,7 +602,7 @@ async def llm_row(
                 max_tokens=call.max_tokens,
                 repair_attempts=3,
             ),
-            recipe_version=recipe.version,
+            recipe_version=program.version,
         )
         resp = result.response
         wire_responses = list(getattr(result, "wire_calls", []) or [])

@@ -167,7 +167,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
         responses=[_response(tool_calls=1), _response(text="must not be sent")],
     )
     published = asyncio.Event()
-    original_update = ledger.publish_approval
+    original_update = ledger.publish_pause
     loop = asyncio.get_running_loop()
 
     def observe_pause(*args, **kwargs):
@@ -176,7 +176,7 @@ async def test_research_crosses_ordinary_caps_and_finite_turn_limit_pauses(
             loop.call_soon_threadsafe(published.set)
         return updated
 
-    ledger.publish_approval = observe_pause
+    ledger.publish_pause = observe_pause
     task = asyncio.create_task(
         run_turn(
             project, router, qa.get_turn(research["turn_id"]), qa, research=session

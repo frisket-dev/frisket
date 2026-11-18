@@ -27,12 +27,12 @@ from frisket.execution.resolve_for_action import (
     resolve_for_action,
 )
 from frisket.execution.resolver import ResolvedExecution
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.sdk.ops.transcribe_engines import total_audio_seconds
 
 
 @dataclass
-class _AudioProgram(Recipe):
+class _AudioProgram(ActionProgram):
     name: str = "example.audio_reader"
     consumes_resolution = True
     execution_capability = "transcribe"

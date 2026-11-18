@@ -520,14 +520,14 @@ def test_link_table_review_selection_uses_exact_result_and_applied_op(
     ) -> int:
         from frisket.engine.store.changes import ChangeStore, start_change
         from frisket.engine.store.review_judgments import record_judgment_changes
-        from frisket.engine.store.op_log import append_op
+        from frisket.engine.store.op_log import append_change
 
         target = f"{run_id}:{row_id}:{column_id}"
         info = {
             "review_metadata": {target: {"decision": None}},
             "review_metadata_after": {target: {"decision": "accept"}},
         }
-        op_id = append_op(project, "review.decision", undo_info=info)
+        op_id = append_change(project, "review.decision", undo_info=info)
         with project.transaction_scope():
             start_change(project.db, op_id)
             record_judgment_changes(project.db, op_id, info)

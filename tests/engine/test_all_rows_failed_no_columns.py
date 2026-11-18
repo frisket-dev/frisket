@@ -19,7 +19,7 @@ from frisket.ai.llm import (
     request_key,
 )
 from frisket.engine.store.media_blobs import media_cell
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from typed_model_fixtures import model_plan
 from frisket.engine.runner import MapRunner, validation
 from frisket.engine.store import Project
@@ -54,7 +54,7 @@ def _seed_text_sheet(project: Project, texts: list[str]) -> tuple[int, dict]:
     return sheet, cols
 
 
-class _SlowFailingRecipe(Recipe):
+class _SlowFailingProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -114,14 +114,14 @@ def _prepare_claimed_run(
 
 async def _wait_for_calls_or_task_exit(
     task: asyncio.Task,
-    recipe: _SlowFailingRecipe,
+    program: _SlowFailingProgram,
     *,
     expected_calls: int,
     timeout: float = 2.0,
 ) -> None:
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
-    while recipe.calls < expected_calls:
+    while program.calls < expected_calls:
         remaining = deadline - loop.time()
         assert remaining > 0, (
             f"runner did not start {expected_calls} calls within {timeout}s"
@@ -145,9 +145,9 @@ def _prime_cache(
     cache real-shaped responses — cache lookups happen BEFORE chaos
     interception (tests/test_runner.py's determinism trick), so priming a
     subset lets the rest chaos-fail deterministically."""
-    recipe = model_plan(spec).program
+    program = model_plan(spec).program
     for text in row_texts:
-        call = recipe.render({"text": text}, spec)
+        call = program.render({"text": text}, spec)
         req = LLMRequest(
             model=MODEL,
             messages=call.messages,
@@ -155,7 +155,7 @@ def _prime_cache(
             max_tokens=call.max_tokens,
         )
         cache.put(
-            request_key(req, recipe.version),
+            request_key(req, program.version),
             LLMResponse(
                 content=None,
                 data={"relevance": score},
@@ -335,17 +335,19 @@ class TestMapKindAllRowsFailed:
         try:
             texts = [f"row {i}" for i in range(6)]
             sheet, _ = _seed_text_sheet(project, texts)
-            recipe = _SlowFailingRecipe()
-            original_get_recipe = validation.get_recipe
+            program = _SlowFailingProgram()
+            original_get_action_program = validation.get_action_program
             monkeypatch.setattr(
                 validation,
-                "get_recipe",
+                "get_action_program",
                 lambda name: (
-                    recipe if name == recipe.name else original_get_recipe(name)
+                    program
+                    if name == program.name
+                    else original_get_action_program(name)
                 ),
             )
             spec = {
-                "action_kind": recipe.name,
+                "action_kind": program.name,
                 "sheet_id": sheet,
                 "input_columns": ["text"],
                 "output_name": "relevance",
@@ -373,7 +375,7 @@ class TestMapKindAllRowsFailed:
                 )
                 await _wait_for_calls_or_task_exit(
                     task,
-                    recipe,
+                    program,
                     expected_calls=2,
                 )
                 seen["prog"].cancel()
@@ -396,7 +398,7 @@ class TestMapKindAllRowsFailed:
             # The partial terminal result remains visible, but it is sealed.
             assert "relevance" in [c["name"] for c in project.columns(sheet)]
 
-            recipe.delay = 0.0
+            program.delay = 0.0
             router2 = ModelRouter(
                 model_call_policy=LOCAL_PURCHASE_POLICY,
                 keys={},

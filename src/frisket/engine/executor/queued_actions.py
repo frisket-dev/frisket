@@ -50,7 +50,7 @@ from frisket.engine.executor.project_run_terminalization import (
 )
 from frisket.redaction import safe_error
 from frisket.engine.runner import CostGate
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
 from frisket.engine.store.receipts import ReceiptStatus, ReceiptStore
@@ -118,7 +118,7 @@ class QueuedV1ActionRequest:
     entry: QueuedV1ActionEntry
     action: _ActionExecutionEnvelope
     params: BaseModel
-    program: Recipe | None = None
+    program: ActionProgram | None = None
     expected_runner_spec: Mapping[str, Any] | None = None
     expected_params_hash: str | None = None
 
@@ -128,7 +128,7 @@ class QueuedV1PayloadEnvelope:
     entry: QueuedV1ActionEntry
     action: _ActionExecutionEnvelope
     params: BaseModel
-    program: Recipe | None
+    program: ActionProgram | None
     action_body: dict[str, Any]
     action_id: str
     receipt_id: str
@@ -589,11 +589,11 @@ def queued_v1_run_authorizes_action_lifecycle(
         and receipt.status in {"queued", "running"}
     ):
         return False
-    from frisket.engine.runner.validation import recipe_for_spec
+    from frisket.engine.runner.validation import action_program_for_spec
 
-    recipe = envelope.program or recipe_for_spec(envelope.runner_spec)
+    program = envelope.program or action_program_for_spec(envelope.runner_spec)
     return (
-        not recipe.consumes_resolution
+        not program.consumes_resolution
         or queued_v1_prepared_attempt_id(project, payload, run_id=run_id) is not None
     )
 

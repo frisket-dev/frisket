@@ -11,13 +11,13 @@ from frisket.contracts.action import ActionError
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
-from frisket.engine.store.op_log import append_op
+from frisket.engine.store.op_log import append_change
 from frisket.engine.store.runs import RunResultStore
 
 
 def _undone_column(project, sheet, name, *, type="text"):
     old = project.add_column(sheet, name, type=type, ai_generated=True)
-    op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+    op = append_change(project, "add_column", undo_info={"created_columns": [old]})
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, op)
@@ -42,7 +42,7 @@ def test_output_claims_bind_only_current_identity(project):
     current = project.add_column(sheet, "result", ai_generated=True, hidden=True)
     assert current != old
     assert store.active_for_columns([current])["id"] == claims[0]["id"]
-    op = append_op(project, "map", undo_info={"created_columns": [current]})
+    op = append_change(project, "map", undo_info={"created_columns": [current]})
     run = RunResultStore(project).start_run(op, sheet, "map.regex_extract")
     assert store.bind_to_run(claim_token="fresh-output", run_id=run) == 1
     claim = store.active_for_output_name(sheet_id=sheet, output_name="result")

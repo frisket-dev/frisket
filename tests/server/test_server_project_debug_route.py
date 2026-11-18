@@ -53,7 +53,7 @@ def test_debug_and_row_totals_use_call_facts_without_poisoning_secondary_cells(
         answer = project.add_column(sheet, "answer", ai_generated=True)
         detail = project.add_column(sheet, "detail", ai_generated=True)
         run_id = RunResultStore(project).start_run(
-            project.append_op("map"), sheet, "map.ask", total_rows=1
+            project.append_change("map"), sheet, "map.ask", total_rows=1
         )
         calls = [
             ModelCallMeta.provider_call(

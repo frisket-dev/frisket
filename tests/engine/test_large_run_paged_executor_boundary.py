@@ -7,11 +7,8 @@ from typing import Any
 
 
 from frisket.ai.llm import ModelRouter
-from frisket.authoring.plugin_registry import (
-    register_recipe,
-    unregister_recipe,
-)
-from frisket.ops.base import ActionContext, Recipe
+from helpers import install_action_program, remove_action_program
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
@@ -26,10 +23,10 @@ from runner_test_helpers import run_with_output_claim
 ROOT = Path(__file__).resolve().parents[2]
 
 
-class _WindowProbeRecipe(Recipe):
+class _WindowProbeProgram(ActionProgram):
     consumes_resolution = False  # required declaration (Recipe)
     cost_class = "free"  # required declaration (Recipe)
-    RECIPE_NAME = "test.window_probe"
+    PROGRAM_NAME = "test.window_probe"
 
     def source_columns(self, spec: dict) -> list[str]:
         return ["text"]
@@ -61,10 +58,10 @@ class _WindowProbeRecipe(Recipe):
 _WINDOW_PROBE_STATE: dict[str, Any] = {"active": 0, "peak": 0, "seen": []}
 
 
-class _BatchProbeRecipe(Recipe):
+class _BatchProbeProgram(ActionProgram):
     consumes_resolution = False  # required declaration (Recipe)
     cost_class = "free"  # required declaration (Recipe)
-    RECIPE_NAME = "test.batch_probe"
+    PROGRAM_NAME = "test.batch_probe"
 
     def source_columns(self, spec: dict) -> list[str]:
         return ["text"]
@@ -139,36 +136,34 @@ def _bind_resume_claim(
     return claim_token
 
 
-def _install_probe_recipe() -> None:
-    register_recipe(
-        _WindowProbeRecipe(
-            name=_WindowProbeRecipe.RECIPE_NAME,
+def _install_probe_program() -> None:
+    install_action_program(
+        _WindowProbeProgram(
+            name=_WindowProbeProgram.PROGRAM_NAME,
             llm=False,
             description="test-only row-local recipe for bounded executor checks",
         ),
-        action_kind=_WindowProbeRecipe.RECIPE_NAME,
+        action_kind=_WindowProbeProgram.PROGRAM_NAME,
         plugin="test",
-        replace=True,
     )
     _WINDOW_PROBE_STATE.update({"active": 0, "peak": 0, "seen": []})
 
 
-def _install_batch_probe_recipe() -> None:
-    register_recipe(
-        _BatchProbeRecipe(
-            name=_BatchProbeRecipe.RECIPE_NAME,
+def _install_batch_probe_program() -> None:
+    install_action_program(
+        _BatchProbeProgram(
+            name=_BatchProbeProgram.PROGRAM_NAME,
             llm=False,
             description="test-only batch recipe for bounded executor checks",
         ),
-        action_kind=_BatchProbeRecipe.RECIPE_NAME,
+        action_kind=_BatchProbeProgram.PROGRAM_NAME,
         plugin="test",
-        replace=True,
     )
     _BATCH_PROBE_STATE.update({"seen": []})
 
 
-def _restore_recipe(name: str) -> None:
-    unregister_recipe(name)
+def _restore_program(name: str) -> None:
+    remove_action_program(name)
 
 
 class _ExecuteGuard:
@@ -201,17 +196,17 @@ def _project(tmp_path: Path, *, rows: int = 64) -> tuple[Project, int, list[int]
 
 
 def _spec(sheet_id: int) -> dict[str, Any]:
-    return {"action_kind": _WindowProbeRecipe.RECIPE_NAME, "sheet_id": sheet_id}
+    return {"action_kind": _WindowProbeProgram.PROGRAM_NAME, "sheet_id": sheet_id}
 
 
 def _batch_spec(sheet_id: int) -> dict[str, Any]:
-    return {"action_kind": _BatchProbeRecipe.RECIPE_NAME, "sheet_id": sheet_id}
+    return {"action_kind": _BatchProbeProgram.PROGRAM_NAME, "sheet_id": sheet_id}
 
 
 def test_row_local_runs_keep_scheduled_work_bounded(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_recipe()
+    _install_probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=72)
     gather_sizes: list[int] = []
     original_gather = asyncio.gather
@@ -252,13 +247,13 @@ def test_row_local_runs_keep_scheduled_work_bounded(
         assert result_count == len(row_ids)
     finally:
         project.close()
-        _restore_recipe(_WindowProbeRecipe.RECIPE_NAME)
+        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_queued_resume_pages_stored_scope_without_full_scope_load(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_recipe()
+    _install_probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=40)
     try:
         runner = MapRunner(
@@ -272,7 +267,7 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
         claims, conflict = OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["out"],
-            action_kind=_WindowProbeRecipe.RECIPE_NAME,
+            action_kind=_WindowProbeProgram.PROGRAM_NAME,
             claim_token=claim_token,
             lease_seconds=6 * 60 * 60,
         )
@@ -329,13 +324,13 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
         )
     finally:
         project.close()
-        _restore_recipe(_WindowProbeRecipe.RECIPE_NAME)
+        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_partial_row_local_resume_pages_pending_without_done_row_materialization(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_probe_recipe()
+    _install_probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=24)
     prior_conn: Any | None = None
     guarded_conn = False
@@ -356,7 +351,7 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
             sheet_id=sheet_id,
             run_id=prepared.run_id,
             output_name="out",
-            action_kind=_WindowProbeRecipe.RECIPE_NAME,
+            action_kind=_WindowProbeProgram.PROGRAM_NAME,
         )
         write_claimed_test_results(
             project,
@@ -419,13 +414,13 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
         if guarded_conn:
             project._local.conn = prior_conn  # noqa: SLF001
         project.close()
-        _restore_recipe(_WindowProbeRecipe.RECIPE_NAME)
+        _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_batch_resume_uses_pending_scope_without_full_scope_reload(
     tmp_path: Path, monkeypatch
 ) -> None:
-    _install_batch_probe_recipe()
+    _install_batch_probe_program()
     project, sheet_id, row_ids = _project(tmp_path, rows=16)
     try:
         prepared = MapRunner(
@@ -444,7 +439,7 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
             sheet_id=sheet_id,
             run_id=prepared.run_id,
             output_name="batch_out",
-            action_kind=_BatchProbeRecipe.RECIPE_NAME,
+            action_kind=_BatchProbeProgram.PROGRAM_NAME,
         )
         write_claimed_test_results(
             project,
@@ -500,4 +495,4 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
         )
     finally:
         project.close()
-        _restore_recipe(_BatchProbeRecipe.RECIPE_NAME)
+        _restore_program(_BatchProbeProgram.PROGRAM_NAME)

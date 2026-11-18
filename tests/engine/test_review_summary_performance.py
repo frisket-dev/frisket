@@ -22,7 +22,7 @@ def _publish_managed_results(
     point_heads: bool = True,
 ) -> int:
     column_ids = list(columns)
-    op_id = project.append_op(action_kind, {"fixture": "review summary"})
+    op_id = project.append_change(action_kind, {"fixture": "review summary"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

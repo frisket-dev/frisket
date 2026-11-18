@@ -126,7 +126,7 @@ def test_inline_scalars_follow_public_precedence_and_transactions(
         assert project.redo() == edit_op_id
         assert project.get_values(sheet_id, column_id, [row_ids[0]]) == {row_ids[0]: 99}
 
-        rollback_op_id = project.append_op("edit", {}, label="rolled back edit")
+        rollback_op_id = project.append_change("edit", {}, label="rolled back edit")
         project.db.execute("BEGIN")
         insert_edits(
             project.db,

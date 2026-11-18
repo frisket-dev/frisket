@@ -22,7 +22,7 @@ from frisket.ai.research.search import (
     SearchResponse,
     SearchService,
 )
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 MAX_ATTEMPTS = 4
 
@@ -72,12 +72,12 @@ class AdmittedWebSearcher:
         if self._closed or self._owner._closed:
             raise RuntimeError("Web search invocation is closed")
         if self._ctx.extras.get("preview"):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "preview_unsupported", "Web search requires a run"
             )
         project = self._ctx.project
         if project is not None and project.effective_network_policy() == "off":
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "network_disabled", "Web search requires network access"
             )
         dispatch_for_context(self._ctx).check()

@@ -1096,7 +1096,7 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     claim_token = "claim:metadata-resume"
@@ -1240,7 +1240,7 @@ def test_direct_cancelled_metadata_family_has_receipt_and_reuses_on_retry(
             router or ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             concurrency=1,
             should_cancel=lambda _run_id: True,
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=UnroutedOnlyAuthority(p),
         )
     )

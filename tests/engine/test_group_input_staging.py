@@ -220,7 +220,7 @@ def test_later_groups_use_the_staged_read_and_capture_survives_source_edit(tmp_p
         output = result.outputs[0].sheet_id
         assert sheet_freshness(project, output) == "stale"
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=edits[0])
+            step_operation(project, "revert", change_id=edits[0])
         assert sheet_freshness(project, output) == "synced"
 
 

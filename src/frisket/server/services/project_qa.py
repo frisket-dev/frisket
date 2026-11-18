@@ -1054,7 +1054,7 @@ class ProjectQAService:
             if body.write_mode is not None:
                 preferences["write_mode"] = body.write_mode
             await session.resume(
-                approval_id=body.approval_id,
+                pause_id=body.approval_id,
                 expected_revision=body.expected_revision,
                 decision=body.decision,
                 actor=actor,

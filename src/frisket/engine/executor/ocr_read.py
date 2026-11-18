@@ -45,7 +45,7 @@ from frisket.execution.provider import enforce_pdf_page_limit
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 
 
@@ -135,7 +135,7 @@ class AdmittedOcrReader:
             else self._engine
         )
         if engine is None:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR requires its admitted engine"
             )
         expected = (
@@ -157,7 +157,7 @@ class AdmittedOcrReader:
         )
         if admission is None and preview is None:
             if engine not in engines.LOCAL_ENGINES:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation", "Remote OCR requires its admitted route"
                 )
         elif admission is not None and (
@@ -167,7 +167,7 @@ class AdmittedOcrReader:
             or admission.route.options
             != authored_options(self._options, CAPABILITY_OCR)
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR engine or options differ from admission"
             )
         elif preview is not None and (
@@ -175,7 +175,7 @@ class AdmittedOcrReader:
             or preview.support.transport != expected
             or (self._engine is not None and engine != self._engine)
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR engine differs from its preview resolution"
             )
         return engine
@@ -186,7 +186,7 @@ class AdmittedOcrReader:
             raise RuntimeError("OCR reader already started")
         engine = self._admitted_engine(self._ctx)
         if OcrOptions.model_validate(self._options).normalize(engine) != self._options:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR options are not normalized"
             )
         self._started = True
@@ -312,7 +312,7 @@ class _BoundOcrReader:
             not isinstance(options, OcrOptions)
             or options.normalize(engine) != owner._options
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "OCR call options differ from admission"
             )
         source_ref = self._source(row, source)
@@ -358,7 +358,7 @@ class _BoundOcrReader:
                         ctx, engine
                     )
                     if self._cloud_media_route() and not cloud_pdf:
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "promise_violation",
                             "Cloud OCR does not support PDF input; reconnect or upgrade Frisket Cloud",
                         )
@@ -408,7 +408,7 @@ class _BoundOcrReader:
                             except PdfRenderCancelled as exc:
                                 raise engines.OcrCancelled("OCR cancelled") from exc
                             except PdfRenderEnvironmentError as exc:
-                                raise RecipeInvocationHalt(
+                                raise ActionProgramInvocationHalt(
                                     "local_session_failed",
                                     "The PDF rendering environment failed; repair local storage or runtime before resuming.",
                                 ) from exc
@@ -739,19 +739,19 @@ class _BoundOcrReader:
                     consecutive_failures = 0
                 except (
                     engines.OcrCancelled,
-                    RecipeInvocationHalt,
+                    ActionProgramInvocationHalt,
                     SandboxTeardownError,
                 ):
                     raise
                 except SandboxEnforcementUnavailable as exc:
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "local_session_failed",
                         "The local OCR sandbox is unavailable; repair the local runtime before resuming.",
                     ) from exc
                 except (RuntimeError, OSError, ValueError) as exc:
                     owner._check_open()
                     if is_environment_failure(exc):
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "local_session_failed",
                             "The local OCR environment failed; repair local storage or runtime before resuming.",
                         ) from exc

@@ -399,7 +399,7 @@ def test_over_cap_project_key_blocks_remote_embedding_refresh_before_egress(proj
     # Exhaust the key through the production accrual path.
     row_id = project.visible_row_ids(project._sheet_id)[0]
     column_id = project._cols["headline"]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map", {"recipe": "prior_provider_spend"}, label="prior spend"
     )
     prior_run_id = RunResultStore(project).start_run(

@@ -84,10 +84,10 @@ def test_execution_identity_is_immutable_and_cannot_attach_to_retry_or_other_act
     project, sheet, _, rows, _, _, _ = work
     store = RunResultStore(project)
     original = store.start_run(
-        project.append_op("map.ask"), sheet, "map.ask", row_ids=rows
+        project.append_change("map.ask"), sheet, "map.ask", row_ids=rows
     )
     retry = store.start_run(
-        project.append_op("map.ask"),
+        project.append_change("map.ask"),
         sheet,
         "map.ask",
         row_ids=rows,
@@ -101,12 +101,12 @@ def test_execution_identity_is_immutable_and_cannot_attach_to_retry_or_other_act
     for root, action in [(retry, "map.ask"), (original, "map.summarize")]:
         with pytest.raises(sqlite3.IntegrityError, match="original run of this action"):
             store.start_run(
-                project.append_op(action), sheet, action, execution_root_run_id=root
+                project.append_change(action), sheet, action, execution_root_run_id=root
             )
     # A payload is not an identity command; old/unrecognized metadata cannot
     # silently attach a separately authored run to someone else's execution.
     independent = store.start_run(
-        project.append_op("map.ask"),
+        project.append_change("map.ask"),
         sheet,
         "map.ask",
         params={"execution_root_run_id": original},

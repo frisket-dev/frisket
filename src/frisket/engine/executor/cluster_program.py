@@ -24,7 +24,7 @@ from frisket.engine.executor.value_cluster import (
 )
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt import attempt_in_scope
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.cost_source import free_local_estimate, unknown_cost_estimate
 
 
@@ -84,25 +84,25 @@ class _ClusterEmbeddingBatch:
             if not created:
                 checkpoint = self.store.get(self.id)
                 if checkpoint is None:
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "idempotency_checkpoint_invalid",
                         "The embedding reservation disappeared before recovery",
                     )
         if checkpoint is not None:
             if checkpoint["identity"] != self.identity:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "idempotency_checkpoint_invalid",
                     "Embedding checkpoint identity changed",
                 )
             if checkpoint["state"] == "consumed" and is_operator_attestation(
                 checkpoint.get("payload")
             ):
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "idempotency_checkpoint_operator_decided",
                     "An operator accepted this embedding as charged; reconcile it before retrying",
                 )
             if checkpoint["state"] == "reserved":
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "idempotency_checkpoint_ambiguous",
                     "A previous embedding has an unknown provider outcome; refusing another call",
                 )
@@ -113,7 +113,7 @@ class _ClusterEmbeddingBatch:
                 )
                 return [vectors[text] for text in texts]
             except (KeyError, TypeError, ValueError) as exc:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "idempotency_checkpoint_invalid",
                     "Returned embeddings do not cover the missing vectors",
                 ) from exc
@@ -263,7 +263,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
         try:
             validate_cluster_source(ctx.project, spec["cluster_values"]["source"])
         except ClusterSourceChanged as exc:
-            raise RecipeInvocationHalt("promise_violation", str(exc)) from exc
+            raise ActionProgramInvocationHalt("promise_violation", str(exc)) from exc
         yield
 
     async def execute_batch(self, values_by_row, spec, ctx):
@@ -298,7 +298,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     or [item.get("row_id") for item in fact.get("canonical_values", [])]
                     != state["source"]["row_ids"]
                 ):
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "promise_violation",
                         "Saved clustering output does not match the admitted source",
                     )
@@ -307,7 +307,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     for item in fact["canonical_values"]
                 }
         if set(values) != set(state["source"]["row_ids"]):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Clustering rows differ from the admitted full column",
             )
@@ -319,7 +319,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                 ctx.extras.get("router"), allow_remote=True
             )
             if backend is None or backend[1] != model:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation", "The admitted embedding backend changed"
                 )
             remote = embedding_backends.embedder_is_remote(model)
@@ -340,7 +340,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                     )
 
                     if ctx.project.effective_network_policy() == "off":
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "network_disabled", str(NetworkDisabled("model:embed"))
                         )
                     assert_provider_spend_cap(
@@ -370,7 +370,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
                         before_fresh_batch=before_batch,
                     )
                 except embedding_backends.LocalEmbeddingModelUnavailable as exc:
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "local_artifact_unavailable", str(exc)
                     ) from exc
                 embedding_vectors.extend(batch_vectors)

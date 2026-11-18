@@ -31,7 +31,7 @@ from frisket.engine.runner.validation import (
     InvalidTargetSheet,
     target_rows,
 )
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.execution.provider import (
     ExecutionComposition,
     ExecutionCompositionContext,
@@ -59,7 +59,7 @@ def _default_map_runner_factory(
         project,
         effective_router,
         concurrency=1,
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         # The same authority the queued project.run handler
         # builds (build_attempt_authority is the ONE construction) — a direct
         # action (e.g. run.backfill resuming a routed transcription run) mints
@@ -139,7 +139,7 @@ class MapPreviewPlan:
     runner_spec: dict[str, Any]
     make_runner: Callable[[], Any]
     semantic_scope_total: int | None = None
-    program: Recipe | None = None
+    program: ActionProgram | None = None
     source_column_ids: Mapping[str, int] = field(default_factory=dict)
     output_fields: tuple[dict[str, Any], ...] = ()
 
@@ -152,7 +152,7 @@ def build_map_preview_plan(
     router: Any | None,
     deps: _runtime_inventory.ExecutorDeps | None,
     semantic_scope_total: int | None = None,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     source_column_ids: Mapping[str, int] | None = None,
     output_fields: tuple[dict[str, Any], ...] = (),
 ) -> MapPreviewPlan:

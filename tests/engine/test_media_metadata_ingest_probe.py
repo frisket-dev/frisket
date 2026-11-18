@@ -329,7 +329,7 @@ def test_billable_provider_transcribe_unknown_without_duration(
         project,
         router=None,
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     est = runner.estimate(plan.spec_dict(), program=plan.program)
     assert est["cost"] is None

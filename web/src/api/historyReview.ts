@@ -12,8 +12,8 @@ import type {
   ColumnRunsInfo,
   ColumnType,
   GeneratedActionDraft,
-  HistoryOp,
-  HistoryOpRun,
+  HistoryChange,
+  HistoryChangeRun,
   HistoryState,
   ReviewAction,
   ReviewBundleField,
@@ -75,12 +75,12 @@ type WireColumnRun = ColumnRunsWire['runs'][number];
 type WireHistoryRun = HistoryWire['ops'][number]['run'];
 type WireRunRowErrorSummary = NonNullable<NonNullable<WireHistoryRun>['row_errors']>;
 
-const HISTORY_KINDS: ReadonlySet<HistoryOp['kind']> = new Set([
+const HISTORY_KINDS: ReadonlySet<HistoryChange['kind']> = new Set([
   'import', 'map', 'derive', 'edit', 'review-batch', 'sort',
-] as HistoryOp['kind'][]);
+] as HistoryChange['kind'][]);
 
-const toHistoryKind = (kind: string): HistoryOp['kind'] =>
-  (HISTORY_KINDS.has(kind as HistoryOp['kind']) ? kind : 'edit') as HistoryOp['kind'];
+const toHistoryKind = (kind: string): HistoryChange['kind'] =>
+  (HISTORY_KINDS.has(kind as HistoryChange['kind']) ? kind : 'edit') as HistoryChange['kind'];
 
 function mapRunRowErrors(
   wire: WireRunRowErrorSummary | null | undefined,
@@ -151,7 +151,7 @@ function mapColumnRuns(wire: ColumnRunsWire): ColumnRunsInfo {
   };
 }
 
-function mapHistoryRun(run: WireHistoryRun): HistoryOpRun | undefined {
+function mapHistoryRun(run: WireHistoryRun): HistoryChangeRun | undefined {
   if (!run) return undefined;
   return {
     runId: String(run.run_id),
@@ -175,7 +175,7 @@ function mapHistoryRun(run: WireHistoryRun): HistoryOpRun | undefined {
   };
 }
 
-function mapHistoryOp(wire: HistoryWire['ops'][number]): HistoryOp {
+function mapHistoryChange(wire: HistoryWire['ops'][number]): HistoryChange {
   return {
     id: String(wire.id),
     index: wire.index,
@@ -196,7 +196,7 @@ function mapHistory(wire: HistoryWire): HistoryState {
     ? { id: String(target.id), index: target.index, barrier: target.barrier }
     : null;
   return {
-    ops: wire.ops.map(mapHistoryOp),
+    changes: wire.ops.map(mapHistoryChange),
     offset: wire.offset,
     limit: wire.limit,
     total: wire.total,
@@ -205,14 +205,14 @@ function mapHistory(wire: HistoryWire): HistoryState {
     prevOffset: wire.prev_offset,
     nextOffset: wire.next_offset,
     cursorIndex: wire.cursor_index,
-    cursorOp: wire.cursor_op ? mapHistoryOp(wire.cursor_op) : null,
-    cursorOpLoaded: wire.cursor_op_loaded,
+    cursorChange: wire.cursor_op ? mapHistoryChange(wire.cursor_op) : null,
+    cursorChangeLoaded: wire.cursor_op_loaded,
     undoTarget: mapTarget(wire.undo_target),
     redoTarget: mapTarget(wire.redo_target),
     revision: {
       total: wire.revision.total,
-      maxOpId: wire.revision.max_op_id > 0 ? String(wire.revision.max_op_id) : null,
-      opCursor: wire.revision.op_cursor > 0 ? String(wire.revision.op_cursor) : null,
+      maxChangeId: wire.revision.max_op_id > 0 ? String(wire.revision.max_op_id) : null,
+      changeCursor: wire.revision.op_cursor > 0 ? String(wire.revision.op_cursor) : null,
     },
   };
 }
@@ -235,7 +235,7 @@ function mapReviewBundleField(
     id: `${reviewSourceId(wire)}:${wire.row_id}:${wire.column_id}`,
     sourceId: reviewSourceId(wire),
     runId: wire.run_id == null ? null : String(wire.run_id),
-    copiedOpId: wire.copied_op_id == null ? null : String(wire.copied_op_id),
+    copiedChangeId: wire.copied_op_id == null ? null : String(wire.copied_op_id),
     sheetId: String(wire.sheet_id),
     rowId: String(wire.row_id),
     columnId: String(wire.column_id),
@@ -292,7 +292,7 @@ function mapReviewBundles(wire: ReviewBundlesWire): ReviewBundlePage {
       id: bundle.id,
       sourceId: reviewSourceId(bundle),
       runId: bundle.run_id == null ? null : String(bundle.run_id),
-      copiedOpId: bundle.copied_op_id == null ? null : String(bundle.copied_op_id),
+      copiedChangeId: bundle.copied_op_id == null ? null : String(bundle.copied_op_id),
       sheetId: String(bundle.sheet_id),
       sheetName: bundle.sheet_name ?? `sheet ${bundle.sheet_id}`,
       rowId: String(bundle.row_id),
@@ -354,7 +354,7 @@ function mapReviewRuns(wire: ReviewRunsWire): ReviewRunsPage {
     runs: wire.runs.map((run): ReviewRun => ({
       sourceId: reviewSourceId(run),
       runId: run.run_id == null ? null : String(run.run_id),
-      copiedOpId: run.copied_op_id == null ? null : String(run.copied_op_id),
+      copiedChangeId: run.copied_op_id == null ? null : String(run.copied_op_id),
       sheetId: String(run.sheet_id),
       sheetName: run.sheet_name,
       actionKind: run.action_kind,
@@ -432,11 +432,11 @@ export function createHistoryReviewApi(
   ): Promise<boolean> => {
     const params: OperationStepActionParams = {};
     if (expectedOpId != null) {
-      const opId = Number(expectedOpId);
-      if (!Number.isInteger(opId) || opId <= 0) {
+      const changeId = Number(expectedOpId);
+      if (!Number.isInteger(changeId) || changeId <= 0) {
         throw new ApiError(400, `Operation ${expectedOpId} is not a valid v1 operation ref`);
       }
-      params.expected_op_id = opId;
+      params.expected_op_id = changeId;
     }
     const spec = v1ActionSession.registeredProjectActionSpec(
       kind,
@@ -464,13 +464,13 @@ export function createHistoryReviewApi(
   const transitionOperation = async (
     direction: 'revert' | 'restore', opRef: string,
   ): Promise<HistoryState> => {
-    const opId = Number(opRef);
-    if (!Number.isSafeInteger(opId) || opId <= 0) {
+    const changeId = Number(opRef);
+    if (!Number.isSafeInteger(changeId) || changeId <= 0) {
       throw new ApiError(400, `Operation ${opRef} is not a valid operation ref`);
     }
     const invocation = resolveRunActionInvocation(undefined, projectId);
     const spec = v1ActionSession.registeredProjectActionSpec(
-      `operation.${direction}`, { op_id: opId }, invocation.projectId, invocation.signal,
+      `operation.${direction}`, { op_id: changeId }, invocation.projectId, invocation.signal,
     );
     await v1ActionSession.withV1ActionResult(spec, (out) => {
       v1ActionSession.assertCompletedV1ActionResult(out, `Could not ${direction} this change`);
@@ -598,8 +598,8 @@ export function createHistoryReviewApi(
     },
 
     /** Selectively revert one operation without walking the cursor. */
-    revertOperation: (opId: string) => transitionOperation('revert', opId),
-    restoreOperation: (opId: string) => transitionOperation('restore', opId),
+    revertOperation: (changeId: string) => transitionOperation('revert', changeId),
+    restoreOperation: (changeId: string) => transitionOperation('restore', changeId),
 
     async setReviewNote(runId: string, rowId: string, note: string | null): Promise<void> {
       const owner = reviewOwner(runId);

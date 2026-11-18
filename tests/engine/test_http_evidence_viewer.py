@@ -159,7 +159,7 @@ def _seed_generated_cell(
         [{"Source": "contract.pdf"}],
         {"Source": source_column_id},
     )[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",

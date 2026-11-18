@@ -302,7 +302,7 @@ def test_pdf_created_sheet_remove_preserves_unrelated_row_for_restore(
     from frisket.engine.store.op_log import step_operation
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", op_id=writer._op_id)
+    step_operation(project, "restore", change_id=writer._op_id)
     project.db.commit()
     assert _visible_names(project, writer.sheet_id, filename_column) == [
         "imported.pdf",

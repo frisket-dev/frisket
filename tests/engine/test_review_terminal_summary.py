@@ -18,7 +18,7 @@ def test_terminalizer_publishes_review_totals_without_lazy_read(make_project, st
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "answer", ai_generated=True)
     [row] = project.add_rows(sheet, [{}], {})
-    op = project.append_op("map.extract")
+    op = project.append_change("map.extract")
     run = RunResultStore(project).start_run(
         op, sheet, "map.extract", total_rows=1, row_ids=[row]
     )

@@ -44,7 +44,7 @@ from frisket.engine.store.keyed_publication import (
     index_keyed_targets,
     publish_keyed_records,
 )
-from frisket.engine.store.op_log import append_op, set_undo_info
+from frisket.engine.store.op_log import append_change, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
 from frisket.server.feeds.rss import (
@@ -227,7 +227,7 @@ def _resolve_and_poll_feed(
         # existing source_id with an unsupported kind reaches here (nothing to roll back).
         return ActionError(
             code="unsupported_source_kind",
-            message="Frisket cannot poll this feed type",
+            message="Frisket cannot check this feed type",
             action_kind=action.kind,
             field="params",
             details={"source_kind": feed_kind},
@@ -487,7 +487,7 @@ def _resolve_poll_feed(
     if get_feed_checker(selector.kind) is None:
         return ActionError(
             code="unsupported_source_kind",
-            message="Frisket cannot poll this feed type",
+            message="Frisket cannot check this feed type",
             action_kind=action.kind,
             field="params",
             details={"source_kind": selector.kind},
@@ -579,7 +579,7 @@ def _materialize_registered_feed_poll_in_txn(
     def writer():
         nonlocal op_id, producer_id
         if op_id is None:
-            op_id = append_op(
+            op_id = append_change(
                 project,
                 "source.poll",
                 {"source_id": feed_id, "source_run_id": feed_check_id},

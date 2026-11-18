@@ -73,7 +73,7 @@ def _seed_attempt_on_project(project, *, sheet_name: str = "S") -> tuple[int, st
     )
     project.db.commit()
     commitment = open_attempt_authority(project).mint(
-        recipe=plan.program, spec=plan.spec_dict(), run_id=run_id, scope=tuple(row_ids)
+        program=plan.program, spec=plan.spec_dict(), run_id=run_id, scope=tuple(row_ids)
     )
     return run_id, commitment.attempt_id
 

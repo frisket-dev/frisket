@@ -179,29 +179,29 @@ test('Feed source creation is discoverable from the primary import/start surface
   await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
   await page.getByTestId('import-mode-feed').click();
 
-  await expect(page.getByTestId('source-form')).toBeVisible();
-  await expect(page.getByTestId('source-url')).toBeVisible();
-  await expect(page.getByTestId('source-kind')).toBeVisible();
-  await expect(page.getByTestId('source-interval')).toBeVisible();
-  await expect(page.getByTestId('source-interval')).toHaveValue('');
+  await expect(page.getByTestId('feed-form')).toBeVisible();
+  await expect(page.getByTestId('feed-url')).toBeVisible();
+  await expect(page.getByTestId('feed-kind')).toBeVisible();
+  await expect(page.getByTestId('feed-interval')).toBeVisible();
+  await expect(page.getByTestId('feed-interval')).toHaveValue('');
 
-  const urlBox = await page.getByTestId('source-url').boundingBox();
-  const kindBox = await page.getByTestId('source-kind').boundingBox();
+  const urlBox = await page.getByTestId('feed-url').boundingBox();
+  const kindBox = await page.getByTestId('feed-kind').boundingBox();
   expect(urlBox).toBeTruthy();
   expect(kindBox).toBeTruthy();
   expect(urlBox!.y).toBeLessThan(kindBox!.y);
 
-  await page.getByTestId('source-url').fill('http://example.gov/api/items.json');
-  await expect(page.getByTestId('source-kind')).toHaveValue('api_list_dicts');
-  await expect(page.getByTestId('source-api-list-path')).toBeVisible();
-  await expect(page.getByTestId('source-create')).toBeDisabled();
-  await expect(page.getByTestId('source-form')).toContainText('API list feeds require HTTPS');
+  await page.getByTestId('feed-url').fill('http://example.gov/api/items.json');
+  await expect(page.getByTestId('feed-kind')).toHaveValue('api_list_dicts');
+  await expect(page.getByTestId('feed-api-list-path')).toBeVisible();
+  await expect(page.getByTestId('feed-create')).toBeDisabled();
+  await expect(page.getByTestId('feed-form')).toContainText('API list feeds require HTTPS');
 
-  await page.getByTestId('source-url').fill('https://example.gov/api/items.json');
-  await page.getByTestId('source-api-list-path').fill('results');
-  await expect(page.getByTestId('source-create')).toBeDisabled();
-  await expect(page.getByTestId('source-form')).toContainText('Response list path must start with /');
-  await page.getByTestId('source-api-list-path').fill('/results');
+  await page.getByTestId('feed-url').fill('https://example.gov/api/items.json');
+  await page.getByTestId('feed-api-list-path').fill('results');
+  await expect(page.getByTestId('feed-create')).toBeDisabled();
+  await expect(page.getByTestId('feed-form')).toContainText('Response list path must start with /');
+  await page.getByTestId('feed-api-list-path').fill('/results');
 
   const apiListCreate = page.waitForRequest((request) =>
     request.url().includes(`/api/projects/${pid}/actions/v1/run`) &&
@@ -209,7 +209,7 @@ test('Feed source creation is discoverable from the primary import/start surface
     request.postDataJSON().action_id === 'source.create' &&
     request.postDataJSON().params.kind === 'api_list_dicts',
   );
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-create').click();
   const apiPayload = (await apiListCreate).postDataJSON();
   expect(apiPayload.params).toMatchObject({
     kind: 'api_list_dicts',
@@ -232,8 +232,8 @@ test('Feed source creation is discoverable from the primary import/start surface
   await expect(page.getByTestId('import-workspace')).toHaveCount(0, { timeout: 10_000 });
   await page.getByTestId('import-workspace-open').click();
   await page.getByTestId('import-mode-feed').click();
-  await page.getByTestId('source-url').fill('https://www.youtube.com/@frisketdemo');
-  await expect(page.getByTestId('source-kind')).toHaveValue('youtube_channel');
+  await page.getByTestId('feed-url').fill('https://www.youtube.com/@frisketdemo');
+  await expect(page.getByTestId('feed-kind')).toHaveValue('youtube_channel');
 
   const youtubeCreate = page.waitForRequest((request) =>
     request.url().includes(`/api/projects/${pid}/actions/v1/run`) &&
@@ -241,7 +241,7 @@ test('Feed source creation is discoverable from the primary import/start surface
     request.postDataJSON().action_id === 'source.create' &&
     request.postDataJSON().params.kind === 'youtube_channel',
   );
-  await page.getByTestId('source-create').click();
+  await page.getByTestId('feed-create').click();
   const youtubePayload = (await youtubeCreate).postDataJSON();
   expect(youtubePayload.params).toMatchObject({
     kind: 'youtube_channel',

@@ -38,7 +38,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSLATE,
     EXECUTION_CAPABILITIES,
 )
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.actions.types import GeoPoint, Row
 from frisket.actions.translate_types import TranslationOptions
 from frisket.engine.executor.census_capability import AdmittedCensusDemographics
@@ -387,7 +387,7 @@ async def test_every_priced_capability_refuses_owner_mismatch_before_effect(
     effects: list[str] = []
 
     with pytest.raises(
-        RecipeInvocationHalt,
+        ActionProgramInvocationHalt,
         match=r"organization '44'.*organization '31'.*refusing before the call",
     ):
         await _FENCE_PROBES[capability](

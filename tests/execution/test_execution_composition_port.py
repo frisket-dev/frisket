@@ -335,17 +335,17 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
     assert organization_composition is not platform_composition
 
     spec = transcription_spec(sheet_id, source="audio", engine="openai/whisper-1")
-    recipe = transcription_program(spec)
+    program = transcription_program(spec)
     organization_resolution = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=organization_composition,
     )
     platform_resolution = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=platform_composition,
     )
     assert isinstance(organization_resolution, ResolvedExecution)
@@ -374,14 +374,14 @@ def test_two_requests_keep_effective_provider_funding_and_admission_together(
         project,
         spec,
         composition=organization_composition,
-        program=recipe,
+        program=program,
         pricing_policy=policy,
     )
     platform_estimate = validation.estimate_run(
         project,
         spec,
         composition=platform_composition,
-        program=recipe,
+        program=program,
         pricing_policy=policy,
     )
     assert estimated_usd(organization_estimate) == 0

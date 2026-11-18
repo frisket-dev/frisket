@@ -10,7 +10,7 @@ nesting guard.
 
 The orphan regression (case 3) is intentionally checked through a second
 SQLite connection. Before STORE-01, add_column committed independently, so
-that connection observed agency_clean after the injected append_op failure
+that connection observed agency_clean after the injected append_change failure
 even though no op or run existed. The assertion expecting no durable state
 therefore failed before the production cutover and passes only when the whole
 preparation tuple rolls back.
@@ -26,7 +26,7 @@ from typing import Any
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
@@ -36,7 +36,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
 @dataclass
-class _ReuseRecipe(Recipe):
+class _ReuseProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -55,7 +55,7 @@ class _ReuseRecipe(Recipe):
 
 
 @dataclass
-class _FreshPrepareRecipe(Recipe):
+class _FreshPrepareProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -126,7 +126,7 @@ def test_fresh_mode_b_prepare_commits_column_op_run_and_pointer(project: Project
 
     prepared = _runner(project)._prepare(
         _clean_spec(sheet_id),
-        program=_FreshPrepareRecipe(),
+        program=_FreshPrepareProgram(),
         confirmed=False,
         resume_run_id=None,
     )
@@ -156,14 +156,14 @@ def test_append_op_failure_rolls_back_new_generated_column(
     before = _durable_state(project, output_name="agency_clean")
 
     def fail_before_append(*_args: Any, **_kwargs: Any) -> int:
-        raise RuntimeError("injected append_op failure")
+        raise RuntimeError("injected append_change failure")
 
-    monkeypatch.setattr(Project, "append_op", fail_before_append)
+    monkeypatch.setattr(Project, "append_change", fail_before_append)
 
-    with pytest.raises(RuntimeError, match="injected append_op failure"):
+    with pytest.raises(RuntimeError, match="injected append_change failure"):
         _runner(project)._prepare(
             _clean_spec(sheet_id),
-            program=_FreshPrepareRecipe(),
+            program=_FreshPrepareProgram(),
             confirmed=False,
             resume_run_id=None,
         )
@@ -196,7 +196,7 @@ def test_pointer_failure_rolls_back_column_op_and_started_run(
     with pytest.raises(RuntimeError, match="injected point_column_at_run failure"):
         _runner(project)._prepare(
             _clean_spec(sheet_id),
-            program=_FreshPrepareRecipe(),
+            program=_FreshPrepareProgram(),
             confirmed=False,
             resume_run_id=None,
         )
@@ -216,16 +216,16 @@ def test_reused_generated_column_converges_inside_mode_b_transaction(project: Pr
         format="json",
         semantic_type="entity_mentions",
     )
-    recipe = _ReuseRecipe()
-    spec = {"action_kind": recipe.name, "sheet_id": sheet_id}
+    program = _ReuseProgram()
+    spec = {"action_kind": program.name, "sheet_id": sheet_id}
     columns = project.columns(sheet_id)
     validated = _ValidatedSpec(
-        recipe=recipe,
+        program=program,
         sheet_id=sheet_id,
         columns=columns,
         col_map={str(column["name"]): int(column["id"]) for column in columns},
         row_ids=row_ids,
-        output_fields=recipe.output_fields(spec),
+        output_fields=program.output_fields(spec),
         est=None,
         has_stored_run_scope=False,
         stored_run_scope_count=None,
@@ -278,7 +278,7 @@ def test_fresh_mode_b_prepare_refuses_an_existing_caller_transaction(
     ):
         _runner(project)._prepare(
             _clean_spec(sheet_id),
-            program=_FreshPrepareRecipe(),
+            program=_FreshPrepareProgram(),
             confirmed=False,
             resume_run_id=None,
         )

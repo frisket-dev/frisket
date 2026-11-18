@@ -427,7 +427,7 @@ def test_enclosure_filename_prefers_rfc5987_filename_star():
     )
 
 
-def test_source_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
+def test_feed_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     import httpx
     from frisket import ingest
     import frisket.ops.enclosures as enclosures

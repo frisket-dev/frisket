@@ -41,67 +41,67 @@ function setup(item = source()) {
 
 it('redacts RSS credentials and query strings, and cancels edits without saving', async () => {
   const { api } = setup(source({ url: 'https://user:password@example.test/feed?token=secret#private' }));
-  await screen.findByTestId('source-item-7');
+  await screen.findByTestId('feed-item-7');
   expect(screen.getByText('https://example.test/feed')).toHaveAttribute('title', 'https://example.test/feed');
   expect(document.body).not.toHaveTextContent('secret');
   expect(document.body).not.toHaveTextContent('password');
-  fireEvent.click(screen.getByTestId('source-edit-7'));
+  fireEvent.click(screen.getByTestId('feed-edit-7'));
   expect(screen.getByTestId('kind-frame-rss')).toBeInTheDocument();
-  expect(screen.getByTestId('source-url')).toHaveValue('');
-  expect(screen.getByTestId('source-create')).toBeDisabled();
-  fireEvent.change(screen.getByTestId('source-name'), { target: { value: 'Draft name' } });
+  expect(screen.getByTestId('feed-url')).toHaveValue('');
+  expect(screen.getByTestId('feed-create')).toBeDisabled();
+  fireEvent.change(screen.getByTestId('feed-name'), { target: { value: 'Draft name' } });
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByTestId('source-form')).not.toBeInTheDocument();
+  expect(screen.queryByTestId('feed-form')).not.toBeInTheDocument();
   expect(api.updateFeed).not.toHaveBeenCalled();
   expect(api.createFeed).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByTestId('source-edit-7'));
-  expect(screen.getByTestId('source-name')).toHaveValue('Records');
+  fireEvent.click(screen.getByTestId('feed-edit-7'));
+  expect(screen.getByTestId('feed-name')).toHaveValue('Records');
 });
 
 it('validates API edits before saving the versioned source config', async () => {
   const { api } = setup(source({ kind: 'api_list_dicts', config: { list_path: '/items', max_items: 12 } }));
-  fireEvent.click(await screen.findByTestId('source-edit-7'));
-  fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'http://example.test/api' } });
-  fireEvent.submit(screen.getByTestId('source-form'));
-  expect(screen.getByTestId('sources-error')).toHaveTextContent('HTTPS');
+  fireEvent.click(await screen.findByTestId('feed-edit-7'));
+  fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'http://example.test/api' } });
+  fireEvent.submit(screen.getByTestId('feed-form'));
+  expect(screen.getByTestId('feeds-error')).toHaveTextContent('HTTPS');
   expect(api.updateFeed).not.toHaveBeenCalled();
-  fireEvent.change(screen.getByTestId('source-url'), { target: { value: 'https://example.test/api' } });
-  fireEvent.click(screen.getByTestId('source-create'));
+  fireEvent.change(screen.getByTestId('feed-url'), { target: { value: 'https://example.test/api' } });
+  fireEvent.click(screen.getByTestId('feed-create'));
   await waitFor(() => expect(api.updateFeed).toHaveBeenCalledWith(7, expect.objectContaining({
     kind: 'api_list_dicts', url: 'https://example.test/api', schedule: '@hourly',
     config: { schema_version: 'frisket.source.api_list_dicts.v1', method: 'GET',
       url: 'https://example.test/api', list_path: '/items', schema_policy: 'additive', max_items: 12 },
   })));
   expect(api.fetchFeed).not.toHaveBeenCalled();
-  await waitFor(() => expect(screen.queryByTestId('source-form')).not.toBeInTheDocument());
+  await waitFor(() => expect(screen.queryByTestId('feed-form')).not.toBeInTheDocument());
 });
 
 it('requires two clicks to delete and removes the confirmed source', async () => {
   const { api } = setup();
-  fireEvent.click(await screen.findByTestId('source-delete-7'));
+  fireEvent.click(await screen.findByTestId('feed-delete-7'));
   expect(api.deleteFeed).not.toHaveBeenCalled();
-  expect(screen.getByTestId('source-delete-7')).toHaveAccessibleName('Confirm delete Records');
-  fireEvent.click(screen.getByTestId('source-delete-7'));
-  await screen.findByTestId('sources-empty');
+  expect(screen.getByTestId('feed-delete-7')).toHaveAccessibleName('Confirm delete Records');
+  fireEvent.click(screen.getByTestId('feed-delete-7'));
+  await screen.findByTestId('feeds-empty');
   expect(api.deleteFeed).toHaveBeenCalledExactlyOnceWith(7);
 });
 
-it.each(['source-api-list-path', 'source-api-item-id-path', 'source-api-updated-at-path'])('rejects invalid pointers from editor field %s', async (field) => {
+it.each(['feed-api-list-path', 'feed-api-item-id-path', 'feed-api-updated-at-path'])('rejects invalid pointers from editor field %s', async (field) => {
   const { api } = setup(source({ kind: 'api_list_dicts' }));
-  fireEvent.click(await screen.findByTestId('source-edit-7'));
+  fireEvent.click(await screen.findByTestId('feed-edit-7'));
   fireEvent.change(screen.getByTestId(field), { target: { value: '/bad~2escape' } });
-  fireEvent.submit(screen.getByTestId('source-form'));
-  expect(screen.getByTestId('sources-error')).toHaveTextContent('invalid ~ escape');
+  fireEvent.submit(screen.getByTestId('feed-form'));
+  expect(screen.getByTestId('feeds-error')).toHaveTextContent('invalid ~ escape');
   expect(api.updateFeed).not.toHaveBeenCalled();
 });
 
 it('preserves the max-entry config when editing a numeric docket', async () => {
   const { api } = setup(source({ kind: 'courtlistener_docket', url: null,
     config: { docket_id: 123, max_entries_per_poll: 4 } }));
-  fireEvent.click(await screen.findByTestId('source-edit-7'));
-  expect(screen.getByTestId('source-court-max-entries')).toHaveValue('4');
-  fireEvent.change(screen.getByTestId('source-court-max-entries'), { target: { value: '6' } });
-  fireEvent.click(screen.getByTestId('source-create'));
+  fireEvent.click(await screen.findByTestId('feed-edit-7'));
+  expect(screen.getByTestId('feed-court-max-entries')).toHaveValue('4');
+  fireEvent.change(screen.getByTestId('feed-court-max-entries'), { target: { value: '6' } });
+  fireEvent.click(screen.getByTestId('feed-create'));
   await waitFor(() => expect(api.updateFeed).toHaveBeenCalledWith(7, expect.objectContaining({
     url: null, config: expect.objectContaining({ docket_id: 123, max_entries_per_poll: 6 }),
   })));
@@ -110,11 +110,11 @@ it('preserves the max-entry config when editing a numeric docket', async () => {
 it('refreshes run history after a failed poll and retains the unloaded-page notice', async () => {
   const { api, onPolled } = setup();
   api.fetchFeed.mockRejectedValueOnce(new Error('Connection refused'));
-  fireEvent.click(await screen.findByTestId('source-fetch-7'));
-  expect(await screen.findByTestId('source-runs-page-note-7')).toHaveTextContent('23 total polls / older polls not loaded');
-  expect(screen.getByTestId('source-runs-7')).toHaveTextContent('1 new / 2 changed / 4 revised / 3 skipped');
-  expect(screen.getByTestId('source-runs-7')).toHaveTextContent('Redacted poll failure');
-  expect(screen.getByTestId('sources-error')).toHaveTextContent('Poll failed: Connection refused');
+  fireEvent.click(await screen.findByTestId('feed-check-now-7'));
+  expect(await screen.findByTestId('feed-checks-page-note-7')).toHaveTextContent('23 total checks / older checks not loaded');
+  expect(screen.getByTestId('feed-checks-7')).toHaveTextContent('1 new / 2 changed / 4 revised / 3 skipped');
+  expect(screen.getByTestId('feed-checks-7')).toHaveTextContent('Redacted poll failure');
+  expect(screen.getByTestId('feeds-error')).toHaveTextContent('Check failed: Connection refused');
   expect(api.getFeed).toHaveBeenCalledWith(7, 0, 20);
   expect(onPolled).not.toHaveBeenCalled();
 });

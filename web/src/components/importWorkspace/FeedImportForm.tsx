@@ -185,7 +185,7 @@ export function FeedImportForm({
     if (!populate || populate.busy) return;
     setPopulate({ ...populate, busy: true, error: null });
     try {
-      // The exact fetch a Sources-panel "Poll now" click makes
+      // The exact fetch a Feeds-panel "Check now" click makes
       // (FeedsPanel.tsx's fetchNow -> feedApi.fetchFeed).
       const result = await api.fetchFeed(populate.source.id);
       void job.refresh();
@@ -211,7 +211,7 @@ export function FeedImportForm({
         </div>
         <p className="modal-body-text">
           Import <strong>{populate.source.name}</strong> now to pull in its rows
-          — the same fetch as Poll now in Feeds. You can import it again
+          — the same fetch as Check now in Feeds. You can import it again
           later either way.
         </p>
         {populate.error && (
@@ -247,7 +247,7 @@ export function FeedImportForm({
   return (
     <PanelFrame fill>
     <PanelBody>
-    <div className="content-stack" data-testid="source-form">
+    <div className="content-stack" data-testid="feed-form">
       <div className="import-mode-summary">
         {feedKindIcon(kind)}
         <strong>Feed</strong>
@@ -259,7 +259,7 @@ export function FeedImportForm({
 
           placeholder={kindDefinition.placeholder}
           aria-label="Feed URL or reference"
-          data-testid="source-url"
+          data-testid="feed-url"
           value={url}
           onChange={(e) => {
             const next = e.target.value;
@@ -267,12 +267,12 @@ export function FeedImportForm({
           }}
         />
       </FormField>
-      <FormField label="Type" htmlFor="source-kind-input">
+      <FormField label="Type" htmlFor="feed-kind-input">
         <PanelSelect
-          id="source-kind-input"
+          id="feed-kind-input"
           className="form-input"
           aria-label="Feed type"
-          data-testid="source-kind"
+          data-testid="feed-kind"
           value={kind}
           onChange={(e) => {
             kindTouchedRef.current = true;
@@ -290,7 +290,7 @@ export function FeedImportForm({
 
           placeholder={defaultFeedName(kind, url)}
           aria-label="Feed name"
-          data-testid="source-name"
+          data-testid="feed-name"
           value={name}
           onChange={(e) => updateForm({ name: e.target.value })}
         />
@@ -303,7 +303,7 @@ export function FeedImportForm({
           id="source-interval-input"
           className="form-input"
           aria-label="Update frequency"
-          data-testid="source-interval"
+          data-testid="feed-interval"
           value={cadence}
           onChange={(e) => updateForm({ cadence: e.target.value as FeedInterval })}
         >
@@ -325,7 +325,7 @@ export function FeedImportForm({
       <Button
         type="button"
         className="btn-primary import-primary"
-        data-testid="source-create"
+        data-testid="feed-create"
         disabled={busy || !url.trim() || Boolean(validationError)}
         onClick={() => void create()}
       >

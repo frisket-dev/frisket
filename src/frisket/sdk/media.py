@@ -31,9 +31,9 @@ def media_halt_error(action: ActionSpec | str, run: Any) -> ActionError | None:
     The receipt therefore reports the halt honestly without advertising the
     deleted in-place recovery contract.
     """
-    from frisket.ops.base import persisted_recipe_invocation_halt
+    from frisket.ops.base import persisted_action_program_invocation_halt
 
-    halt = persisted_recipe_invocation_halt(run["params"])
+    halt = persisted_action_program_invocation_halt(run["params"])
     if halt is None:
         return None
     code, detail = halt

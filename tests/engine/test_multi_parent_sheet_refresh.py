@@ -630,7 +630,7 @@ def test_refresh_historical_multiparent_without_typed_identity_is_unavailable(
         # Build a fresh derived child whose parent op is resolve.entities and
         # attach a materialized_row_sources membership row (multi-parent shape).
         other_child = project.add_sheet("Resolved", parent_sheet_id=ctx["left_id"])
-        op_id = project.append_op("resolve.entities", {"sheet_id": other_child})
+        op_id = project.append_change("resolve.entities", {"sheet_id": other_child})
         project.db.execute(
             "UPDATE sheets SET parent_op_id=? WHERE id=?", (op_id, other_child)
         )

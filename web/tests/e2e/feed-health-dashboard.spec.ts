@@ -165,8 +165,8 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await page.goto(`/p/${pid}`);
   await openDiscoverTab(page, 'Sources');
 
-  await page.getByTestId(`source-health-${seeded.failingId}`).click();
-  await expect(page.getByTestId('source-health-drawer')).toBeVisible();
+  await page.getByTestId(`feed-health-${seeded.failingId}`).click();
+  await expect(page.getByTestId('feed-health-drawer')).toBeVisible();
   const summaryTab = page.getByTestId('workbench-contribution-frisket-core-view-source-summary');
   const healthTab = page.getByTestId('workbench-contribution-frisket-core-view-source-health');
   const runsTab = page.getByTestId('workbench-contribution-frisket-core-view-source-runs');
@@ -185,23 +185,23 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await expect(runsTab).toHaveAttribute('data-required-capabilities', /source.runs.list/);
   await expect(page.getByTestId('source-detail-tab-summary')).toHaveAttribute('aria-selected', 'true');
   await page.getByTestId('source-detail-tab-health').click();
-  await expect(page.getByTestId(`source-health-status-${seeded.failingId}`)).toHaveText('failing');
-  await expect(page.getByTestId(`source-health-last-success-${seeded.failingId}`)).not.toHaveText('never');
-  await expect(page.getByTestId(`source-health-last-failure-${seeded.failingId}`)).not.toHaveText('never');
-  await expect(page.getByTestId(`source-health-consecutive-failures-${seeded.failingId}`)).toHaveText('2');
-  await expect(page.getByTestId(`source-health-deltas-${seeded.failingId}`)).toContainText('+4 new');
-  await expect(page.getByTestId(`source-health-deltas-${seeded.failingId}`)).toContainText('1 changed');
-  await expect(page.getByTestId(`source-health-deltas-${seeded.failingId}`)).toContainText('4 skipped');
-  await expect(page.getByTestId(`source-health-cost-${seeded.failingId}`)).toContainText('$0.0042');
+  await expect(page.getByTestId(`feed-health-status-${seeded.failingId}`)).toHaveText('failing');
+  await expect(page.getByTestId(`feed-health-last-success-${seeded.failingId}`)).not.toHaveText('never');
+  await expect(page.getByTestId(`feed-health-last-failure-${seeded.failingId}`)).not.toHaveText('never');
+  await expect(page.getByTestId(`feed-health-consecutive-failures-${seeded.failingId}`)).toHaveText('2');
+  await expect(page.getByTestId(`feed-health-deltas-${seeded.failingId}`)).toContainText('+4 new');
+  await expect(page.getByTestId(`feed-health-deltas-${seeded.failingId}`)).toContainText('1 changed');
+  await expect(page.getByTestId(`feed-health-deltas-${seeded.failingId}`)).toContainText('4 skipped');
+  await expect(page.getByTestId(`feed-health-cost-${seeded.failingId}`)).toContainText('$0.0042');
   await page.getByTestId('source-detail-tab-runs').click();
-  await expect(page.getByTestId(`source-health-runs-${seeded.failingId}`)).toContainText('provider failed');
-  await expect(page.getByTestId(`source-health-runs-${seeded.failingId}`)).not.toContainText('SECRET');
-  await expect(page.getByTestId(`source-health-warnings-${seeded.failingId}`)).toContainText('lack v1 runtime metadata');
-  await expect(page.getByTestId(`source-health-jobs-empty-${seeded.failingId}`)).toContainText('No follow-up work');
-  await expect(page.getByTestId(`source-health-redactions-${seeded.failingId}`)).toContainText('config');
-  await expect(page.getByTestId(`source-health-redactions-${seeded.failingId}`)).toContainText('cursor');
+  await expect(page.getByTestId(`feed-health-checks-${seeded.failingId}`)).toContainText('provider failed');
+  await expect(page.getByTestId(`feed-health-checks-${seeded.failingId}`)).not.toContainText('SECRET');
+  await expect(page.getByTestId(`feed-health-warnings-${seeded.failingId}`)).toContainText('lack v1 runtime metadata');
+  await expect(page.getByTestId(`feed-health-jobs-empty-${seeded.failingId}`)).toContainText('No follow-up work');
+  await expect(page.getByTestId(`feed-health-redactions-${seeded.failingId}`)).toContainText('config');
+  await expect(page.getByTestId(`feed-health-redactions-${seeded.failingId}`)).toContainText('cursor');
 
-  await page.getByTestId(`source-health-retry-${seeded.failingId}`).click();
+  await page.getByTestId(`feed-health-retry-${seeded.failingId}`).click();
   await expect.poll(() => pollPosts.length).toBe(1);
   expect(pollPosts[0]).toEqual({
     action_id: 'source.poll',
@@ -211,9 +211,9 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
     idempotency_key: expect.any(String),
   });
 
-  await page.getByTestId(`source-health-open-mainView-${seeded.failingId}`).click();
+  await page.getByTestId(`feed-health-open-mainView-${seeded.failingId}`).click();
   await expect(page).toHaveURL(new RegExp(`/source/${seeded.failingId}/health$`));
-  const mainViewHealth = page.getByTestId('source-health-mainView');
+  const mainViewHealth = page.getByTestId('feed-health-mainView');
   await expect(mainViewHealth).toBeVisible();
   const mainViewContribution = page
     .getByTestId('workbench-region-mainView')
@@ -226,24 +226,24 @@ test('feed health drawer shows redacted status, deltas, costs, warnings, and ret
   await expect(mainViewContribution).toHaveAttribute('data-runtime-component-key', 'core.sourceDetail.Health');
   await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /source.health.read/);
   await expect(mainViewContribution).toHaveAttribute('data-required-capabilities', /source.poll/);
-  await expect(mainViewContribution.getByTestId(`source-health-status-${seeded.failingId}`)).toHaveText('failing');
-  await expect(mainViewContribution.getByTestId(`source-health-redactions-${seeded.failingId}`)).toContainText('config');
-  await mainViewContribution.getByTestId(`source-health-retry-${seeded.failingId}`).click();
+  await expect(mainViewContribution.getByTestId(`feed-health-status-${seeded.failingId}`)).toHaveText('failing');
+  await expect(mainViewContribution.getByTestId(`feed-health-redactions-${seeded.failingId}`)).toContainText('config');
+  await mainViewContribution.getByTestId(`feed-health-retry-${seeded.failingId}`).click();
   await expect.poll(() => pollPosts.length).toBe(2);
 
   await page.goto(`/p/${pid}/source/${seeded.failingId}/health`);
-  await expect(page.getByTestId('source-health-mainView')).toBeVisible();
+  await expect(page.getByTestId('feed-health-mainView')).toBeVisible();
   await expect(
     page
       .getByTestId('workbench-region-mainView')
       .getByTestId('workbench-contribution-frisket-core-view-source-health'),
   ).toHaveAttribute('data-host', 'mainView');
 
-  await page.getByTestId(`source-health-${seeded.disabledId}`).click();
+  await page.getByTestId(`feed-health-${seeded.disabledId}`).click();
   await page.getByTestId('source-detail-tab-health').click();
-  await expect(page.getByTestId(`source-health-status-${seeded.disabledId}`)).toHaveText('disabled');
+  await expect(page.getByTestId(`feed-health-status-${seeded.disabledId}`)).toHaveText('disabled');
 
-  await page.getByTestId(`source-health-${seeded.neverId}`).click();
+  await page.getByTestId(`feed-health-${seeded.neverId}`).click();
   await page.getByTestId('source-detail-tab-health').click();
-  await expect(page.getByTestId(`source-health-status-${seeded.neverId}`)).toHaveText('never checked');
+  await expect(page.getByTestId(`feed-health-status-${seeded.neverId}`)).toHaveText('never checked');
 });

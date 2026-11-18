@@ -24,7 +24,7 @@ def _seed_history(
     op_ids: list[int] = []
     for index in range(125):
         op_ids.append(
-            project.append_op(
+            project.append_change(
                 "map" if index % 3 else "edit",
                 {"index": index},
                 label=f"history op {index + 1}",

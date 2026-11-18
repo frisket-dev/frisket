@@ -89,13 +89,13 @@ class DependentChoiceRefusal(RuntimeError):
 UNPROJECTABLE_IDENTITY = "unprojectable"
 
 
-def attempt_identity(recipe: Any, spec: dict[str, Any]) -> str:
+def attempt_identity(program: Any, spec: dict[str, Any]) -> str:
     from frisket.execution.action_identity import action_identity_hash
 
     try:
         return action_identity_hash(spec)
     except Exception:
-        if recipe.consumes_resolution:
+        if program.consumes_resolution:
             # Fail closed: a routed attempt whose identity cannot be
             # projected cannot be matched against any consent, so refusing
             # here is the same answer the coverage check would give.
@@ -135,7 +135,7 @@ class AttemptAuthority:
     def mint(
         self,
         *,
-        recipe: Any,
+        program: Any,
         spec: dict[str, Any],
         run_id: int | None = None,
         receipt_id: str | None = None,
@@ -149,11 +149,11 @@ class AttemptAuthority:
         Infrastructure/decode failures normalize to the DURABLE
         ``consent_missing`` failure — consent that cannot be verified is
         absent proof — and never escape as a generic job retry. A
-        ``RecipeInvocationHalt`` from a consented-fact authorization check
+        ``ActionProgramInvocationHalt`` from a consented-fact authorization check
         propagates untouched; the halt-aware caller converts it to a
         resumable cancelled run.
         """
-        from frisket.ops.base import RecipeInvocationHalt
+        from frisket.ops.base import ActionProgramInvocationHalt
 
         # Recovery before admission (§1.5): a `dispatching` row left behind by
         # a crashed process is closed EXPLICITLY here, so it cannot block a
@@ -186,7 +186,7 @@ class AttemptAuthority:
                 commit=commit,
             )
 
-        identity = attempt_identity(recipe, spec)
+        identity = attempt_identity(program, spec)
         attempt_id, seq = open_attempt(
             self.project,
             run_id=run_id,
@@ -197,7 +197,7 @@ class AttemptAuthority:
         )
         try:
             admission = self._admit(
-                recipe,
+                program,
                 spec,
                 run_id,
                 identity,
@@ -206,7 +206,7 @@ class AttemptAuthority:
                 prepared_work_scope=prepared_work_scope,
                 receipt_id=receipt_id,
             )
-        except RecipeInvocationHalt:
+        except ActionProgramInvocationHalt:
             # §1.5's `-> halted` transition. This consented-fact refusal
             # occurred before effect; terminalize the just-opened attempt
             # before propagating it to the halt-aware caller.
@@ -246,7 +246,7 @@ class AttemptAuthority:
         self,
         *,
         attempt_id: str,
-        recipe: Any,
+        program: Any,
         spec: dict[str, Any],
         run_id: int | None = None,
         receipt_id: str | None = None,
@@ -280,14 +280,14 @@ class AttemptAuthority:
                 "stale_head",
                 "the prepared attempt carries a malformed row scope",
             ) from exc
-        identity = attempt_identity(recipe, spec)
+        identity = attempt_identity(program, spec)
         if str(row["action_identity_hash"]) != identity:
             raise ExecutionRouteVerificationFailed(
                 "stale_head",
                 "the prepared attempt no longer matches this action identity",
             )
         admission = self._admit(
-            recipe,
+            program,
             spec,
             run_id,
             identity,
@@ -338,7 +338,7 @@ class AttemptAuthority:
         self,
         consents: Any,
         *,
-        recipe: Any,
+        program: Any,
         spec: dict[str, Any],
         live_facts: dict[str, Any],
         authorized_scope: Any,
@@ -436,11 +436,11 @@ class AttemptAuthority:
                 # have authorized it.
                 candidate_hash = confirmation_context_hash(
                     self.project,
-                    recipe,
+                    program,
                     spec,
                     authorized_scope,
                     consented_confirmation_estimate(
-                        recipe, spec, live_facts, rating=persisted_rating(persisted)
+                        program, spec, live_facts, rating=persisted_rating(persisted)
                     ),
                 )
             except (json.JSONDecodeError, ValidationError):
@@ -480,7 +480,7 @@ class AttemptAuthority:
 
     def _admit(
         self,
-        recipe: Any,
+        program: Any,
         spec: dict[str, Any],
         run_id: int | None,
         identity: str,
@@ -490,7 +490,7 @@ class AttemptAuthority:
         prepared_work_scope: Mapping[str, Any] | None = None,
         receipt_id: str | None = None,
     ) -> RoutedAdmission | UnroutedAdmission:
-        from frisket.ops.base import RecipeInvocationHalt
+        from frisket.ops.base import ActionProgramInvocationHalt
         from frisket.engine.store.execution_routes import RouteStore
 
         store = (
@@ -512,7 +512,7 @@ class AttemptAuthority:
                 "verified authorizes nothing — re-run the action to record a "
                 "current execution route",
             ) from exc
-        if not recipe.consumes_resolution and persisted_head is None:
+        if not program.consumes_resolution and persisted_head is None:
             consents = store.consents()
             if not consents:
                 return UnroutedAdmission()
@@ -575,7 +575,7 @@ class AttemptAuthority:
                 live_facts = estimate_run(
                     self.project,
                     spec,
-                    program=recipe,
+                    program=program,
                     scope_row_ids=estimated_scope,
                 )
                 # ONE live recomputation of the neutral facts, then ONE
@@ -584,7 +584,7 @@ class AttemptAuthority:
                 # ``_proving_consent``).
                 survey = self._proving_consent(
                     consents,
-                    recipe=recipe,
+                    program=program,
                     spec=spec,
                     live_facts=live_facts,
                     authorized_scope=authorized_scope,
@@ -592,7 +592,7 @@ class AttemptAuthority:
                     principal=principal,
                     echoed_hash=echoed_hash,
                 )
-            except (ExecutionRouteVerificationFailed, RecipeInvocationHalt):
+            except (ExecutionRouteVerificationFailed, ActionProgramInvocationHalt):
                 raise
             except ConsentEstimateRefused as exc:
                 # The one case that can name the offending fact.
@@ -653,14 +653,14 @@ class AttemptAuthority:
                 spec,
                 composition=self.composition,
                 consent_coverage=self.consent_coverage,
-                recipe=recipe,
+                program=program,
                 scope=scope,
                 prepared_binding=prepared_binding,
                 prepared_work_scope=prepared_work_scope,
                 receipt_id=receipt_id,
                 persisted_head=persisted_head,
             )
-        except (ExecutionRouteVerificationFailed, RecipeInvocationHalt):
+        except (ExecutionRouteVerificationFailed, ActionProgramInvocationHalt):
             raise
         except RouteBindingUnavailable as exc:
             # §1.6: the three RouteBindingUnavailable catch sites collapse into
@@ -686,11 +686,11 @@ class AttemptAuthority:
 
 
 @dataclass(frozen=True)
-class _DirectActionRecipe:
-    """Recipe-shaped identity for a direct (non-MapRunner) action family.
+class _DirectActionProgram:
+    """Program-shaped identity for a direct (non-MapRunner) action family.
 
     The reduce/embedding executors call providers directly, outside any
-    recipe dispatch; the authority still needs the two recipe facts it
+    program dispatch; the authority still needs the two program facts it
     consults (``name`` for messages, ``consumes_resolution`` for the
     dependent-choice question).  Direct families never consume execution
     resolution — routed work only dispatches through MapRunner — so the
@@ -732,7 +732,7 @@ def mint_direct_effect_attempt(
             project, None, ExecutionCompositionContext.direct()
         ),
     ).mint(
-        recipe=_DirectActionRecipe(name=action_kind),
+        program=_DirectActionProgram(name=action_kind),
         spec={"action_kind": action_kind},
         run_id=run_id,
         scope=scope,
@@ -763,7 +763,7 @@ class UnroutedOnlyAuthority:
     def mint(
         self,
         *,
-        recipe: Any,
+        program: Any,
         spec: dict[str, Any],
         run_id: int,
         scope: tuple[int, ...],
@@ -776,9 +776,9 @@ class UnroutedOnlyAuthority:
         execution resolution? Everything else — every local recipe these
         surfaces legitimately run — mints exactly as it would anywhere else.
         """
-        if recipe.consumes_resolution:
+        if program.consumes_resolution:
             raise DependentChoiceRefusal(
-                f"recipe '{getattr(recipe, 'name', recipe)}' consumes execution "
+                f"recipe '{getattr(program, 'name', program)}' consumes execution "
                 "resolution, but this dispatch surface is wired with an "
                 "unrouted-only attempt authority and can never authorize a "
                 "routed run; routed dispatch never executes unverified"
@@ -789,7 +789,7 @@ class UnroutedOnlyAuthority:
                 self.project, None, ExecutionCompositionContext.direct()
             ),
         ).mint(
-            recipe=recipe,
+            program=program,
             spec=spec,
             run_id=run_id,
             scope=scope,
@@ -808,7 +808,7 @@ def admit_routed(
     spec: dict[str, Any],
     *,
     composition: ExecutionComposition,
-    recipe: Any | None = None,
+    program: Any | None = None,
     scope: tuple[int, ...] | None = None,
     prepared_binding: CandidateBinding | None = None,
     prepared_work_scope: Mapping[str, Any] | None = None,
@@ -842,7 +842,7 @@ def admit_routed(
       liveness only, never a re-choice; refusal becomes ``no_live_target``.
     - ``evaluate_set`` over the candidate facts records every non-satisfied
       row in ``route_violations`` (never silent) and raises
-      ``RecipeInvocationHalt`` before effect. The promise-set hash is the
+      ``ActionProgramInvocationHalt`` before effect. The promise-set hash is the
       confirmation identity, so a live fact that cannot satisfy any row in
       that set cannot execute under the old confirmation. Availability and
       support facts that do not compile into the set remain outside this
@@ -863,7 +863,7 @@ def admit_routed(
         candidate_binding,
         route_row_facts_from_row,
     )
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     if not isinstance(composition, ExecutionComposition):
         raise TypeError("admit_routed requires a full ExecutionComposition")
@@ -975,10 +975,10 @@ def admit_routed(
         from frisket.engine.store.runs import RunResultStore
         from frisket.execution.scope_identity import canonical_work_scope_binding
 
-        if recipe is None:
-            from frisket.engine.runner.validation import recipe_for_spec
+        if program is None:
+            from frisket.engine.runner.validation import action_program_for_spec
 
-            recipe = recipe_for_spec(spec)
+            program = action_program_for_spec(spec)
         run_store = RunResultStore(project)
         authorized_scope = (
             run_store.run_row_scope(run_id)
@@ -991,7 +991,7 @@ def admit_routed(
             if prepared_work_scope is not None
             else canonical_work_scope_binding(
                 project,
-                recipe,
+                program,
                 spec,
                 authorized_scope,
                 snapshot=work_scope_snapshot,
@@ -1099,7 +1099,7 @@ def admit_routed(
         )
         consent_refusals.append(f"{promise.field}: {result.reason or result.status}")
     if consent_refusals:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation",
             "the live execution terms or authorized work scope no longer "
             "satisfy this attempt's authorized promise set "

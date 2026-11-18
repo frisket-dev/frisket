@@ -47,7 +47,7 @@ from frisket.ai.llm.endpoint_config import (
     LocalModelEndpointConfig,
 )
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.engine.runner import MapRunner, RunProgress
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
@@ -241,19 +241,19 @@ def verify_execution_route(
     admit_routed` — the ONE implementation — for callers that want the
     refusal without the artifact. Raises ``ExecutionRouteVerificationFailed``
     (``consent_missing`` / ``no_live_target``) or
-    ``RecipeInvocationHalt('promise_violation')`` exactly as dispatch would.
+    ``ActionProgramInvocationHalt('promise_violation')`` exactly as dispatch would.
     """
     from frisket.engine.runner import validation
     from frisket.engine.executor.map_rows_action import typed_program_from_runner_spec
     from frisket.execution.attempt_authority import admit_routed
 
-    recipe = typed_program_from_runner_spec(project, spec)
-    if recipe is None:
+    program = typed_program_from_runner_spec(project, spec)
+    if program is None:
         try:
-            recipe = validation.recipe_for_spec(spec)
+            program = validation.action_program_for_spec(spec)
         except Exception:  # noqa: BLE001 — unknown recipes fail in the runner's own path
             return
-    if not recipe.consumes_resolution:
+    if not program.consumes_resolution:
         return
     run_store = RunResultStore(project)
     scope = (
@@ -266,7 +266,7 @@ def verify_execution_route(
         run_id,
         spec,
         composition=composition,
-        recipe=recipe,
+        program=program,
         scope=scope,
     )
 
@@ -875,7 +875,7 @@ def register_project_run_handler(
             bind_project = getattr(program, "bind_project", None)
             if callable(bind_project):
                 bind_project(project)
-            recipe = program or validation.recipe_for_spec(spec)
+            action_program = program or validation.action_program_for_spec(spec)
             # The queued handler no longer preloads the route
             # binding. That pre-load (plus its own RouteBindingUnavailable ->
             # no_live_target mapping) was the origin of the second head read:
@@ -902,7 +902,7 @@ def register_project_run_handler(
                     run_id=run_id,
                     require_frozen_descriptors=True,
                 )
-            if recipe.consumes_resolution:
+            if action_program.consumes_resolution:
                 admitted_attempt_id = queued_v1_prepared_attempt_id(
                     project,
                     payload,
@@ -1059,7 +1059,7 @@ def register_project_run_handler(
                         effective_router, "model_call_policy", None
                     ),
                 },
-                allow_action_lifecycle_only_recipes=(
+                allow_action_lifecycle_only_programs=(
                     queued_v1_run_authorizes_action_lifecycle(
                         project,
                         payload,
@@ -1302,7 +1302,8 @@ def register_project_run_handler(
                     and getattr(exc, "run_id", None) == run_id
                     and row
                     and row["status"] == "cancelled"
-                    and persisted_recipe_invocation_halt(row["params"]) is not None
+                    and persisted_action_program_invocation_halt(row["params"])
+                    is not None
                 )
                 if terminalized_teardown:
                     # MapRunner already committed the allowlisted resumable

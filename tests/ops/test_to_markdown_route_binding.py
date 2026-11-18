@@ -29,7 +29,7 @@ from frisket.execution.attempt import (
 )
 from frisket.execution.promise_compiler import OperatorBorneZeroCost
 from frisket.execution.targets import ExecutionTarget
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from tests.document_conversion_helpers import bound_document_converter
 
 
@@ -134,8 +134,10 @@ def test_convert_sidecar_uses_route_binding_not_ambient_env(monkeypatch):
         ),
         extras=_attempt_extras(_route(), _gateway_binding(connection_a)),
     )
-    recipe = bound_document_converter(ctx, engine="docling")
-    markdown, ocr_used = asyncio.run(recipe._convert_sidecar("docling", Path(__file__)))
+    program = bound_document_converter(ctx, engine="docling")
+    markdown, ocr_used = asyncio.run(
+        program._convert_sidecar("docling", Path(__file__))
+    )
     assert markdown == "# From A"
     assert ocr_used == [False]
     (request,) = captured
@@ -154,7 +156,7 @@ def test_convert_sidecar_without_admission_refuses_before_http(monkeypatch):
         )
     )
     converter = bound_document_converter(ctx, engine="docling")
-    with pytest.raises(RecipeInvocationHalt, match="admitted") as refusal:
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted") as refusal:
         asyncio.run(converter._convert_sidecar("docling", Path(__file__)))
     assert refusal.value.code == "promise_violation"
     assert captured == []

@@ -79,8 +79,8 @@ def _engine_program(
     ],
 )
 def test_local_and_sidecar_engines_are_not_remote(recipe_name, engine) -> None:
-    recipe, spec = _engine_program(recipe_name, engine)
-    assert remote_capability_for_spec(recipe, spec) is None, (
+    program, spec = _engine_program(recipe_name, engine)
+    assert remote_capability_for_spec(program, spec) is None, (
         f"{recipe_name}/{engine} must not be network-gated"
     )
 
@@ -98,20 +98,20 @@ def test_local_and_sidecar_engines_are_not_remote(recipe_name, engine) -> None:
     ],
 )
 def test_hosted_engines_are_remote(recipe_name, engine, expected) -> None:
-    recipe, spec = _engine_program(recipe_name, engine)
-    assert remote_capability_for_spec(recipe, spec) == expected
+    program, spec = _engine_program(recipe_name, engine)
+    assert remote_capability_for_spec(program, spec) == expected
 
 
 def test_parakeet_gateway_is_trusted_sidecar() -> None:
     # Diarization changes worker capability, not the operator-configured
     # gateway's trusted-sidecar network-policy class.
     for diarize in (False, True):
-        recipe, spec = _engine_program(
+        program, spec = _engine_program(
             "media.transcribe", "parakeet-tdt", diarize=diarize
         )
         assert (
             remote_capability_for_spec(
-                recipe,
+                program,
                 spec,
             )
             is None
@@ -119,10 +119,10 @@ def test_parakeet_gateway_is_trusted_sidecar() -> None:
 
 
 def test_ollama_llm_rows_are_not_remote() -> None:
-    recipe, spec = _engine_program(
+    program, spec = _engine_program(
         "map.classify", "llm", model="ollama/@test-local/qwen3:8b"
     )
-    assert remote_capability_for_spec(recipe, spec) is None
+    assert remote_capability_for_spec(program, spec) is None
 
 
 def test_remote_llm_provider_is_remote_and_unknown_fails_closed() -> None:
@@ -130,14 +130,14 @@ def test_remote_llm_provider_is_remote_and_unknown_fails_closed() -> None:
         ("openai/gpt-5", "provider:openai"),
         ("mysterycorp/model-x", "provider:mysterycorp"),
     ):
-        recipe, spec = _engine_program("map.classify", "llm", model=model)
-        assert remote_capability_for_spec(recipe, spec) == expected
+        program, spec = _engine_program("map.classify", "llm", model=model)
+        assert remote_capability_for_spec(program, spec) == expected
 
 
 def test_always_remote_kinds_classify_from_the_catalog() -> None:
-    from frisket.ops.base import Recipe
+    from frisket.ops.base import ActionProgram
 
-    recipe = Recipe()
+    program = ActionProgram()
     for kind, tag in (
         ("enrich.geocode", "external:geocode"),
         ("enrich.census_demographics", "external:us_census_acs"),
@@ -145,7 +145,7 @@ def test_always_remote_kinds_classify_from_the_catalog() -> None:
         ("web.capture_page", "external:url_capture"),
         ("research.web_search", "external:web_search"),
     ):
-        assert remote_capability_for_spec(recipe, {"action_kind": kind}) == tag, kind
+        assert remote_capability_for_spec(program, {"action_kind": kind}) == tag, kind
 
 
 def test_off_project_still_validates_local_translate_run(make_project) -> None:

@@ -155,7 +155,7 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
             authority=AttemptAuthority(project, composition=composition),
             consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
             execution_composition=composition,
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         confirmed_spec = _exactly_confirmed_spec(runner, spec, program=plan.program)
         progress = asyncio.run(

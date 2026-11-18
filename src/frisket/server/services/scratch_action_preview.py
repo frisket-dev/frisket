@@ -47,7 +47,7 @@ def scratch_estimate(
 
 
 @dataclass(frozen=True)
-class ScratchActionRecipe:
+class ScratchActionProgram:
     """The routed identity facts needed by resolution and attempt authority."""
 
     name: str
@@ -58,7 +58,7 @@ class ScratchActionRecipe:
 @dataclass(frozen=True)
 class ScratchActionPreviewPlan:
     action_kind: str
-    recipe: ScratchActionRecipe
+    program: ScratchActionProgram
     spec: dict[str, Any]
     resolved_execution: ResolvedExecution
     estimate: dict[str, Any]

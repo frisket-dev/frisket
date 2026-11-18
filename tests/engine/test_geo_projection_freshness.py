@@ -81,7 +81,7 @@ def _seed_ai_run(project: Project, values_by_row):
         [{"n": "a"}, {"n": "b"}],
         {"n": name_col},
     )
-    op = project.append_op("map", {"action_kind": "map.to_geo_point"})
+    op = project.append_change("map", {"action_kind": "map.to_geo_point"})
     run = RunResultStore(project).start_run(
         op, sheet, "map.to_geo_point", total_rows=len(rows)
     )
@@ -107,7 +107,7 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
 
     # A replacement owns its frozen scope immediately. Pending rows mask old
     # points; completed same-descriptor row families publish progressively.
-    op2 = project.append_op("map", {"action_kind": "map.to_geo_point"})
+    op2 = project.append_change("map", {"action_kind": "map.to_geo_point"})
     run2 = RunResultStore(project).start_run(
         op2, sheet, "map.to_geo_point", row_ids=rows, total_rows=2
     )

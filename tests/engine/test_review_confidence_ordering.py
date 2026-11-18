@@ -26,7 +26,7 @@ def _review_run(tmp_path: Path) -> tuple[Project, int, list[int], int, int]:
     first = project.add_column(sheet_id, "first", ai_generated=True)
     second = project.add_column(sheet_id, "second", ai_generated=True)
     row_ids = project.add_rows(sheet_id, [{} for _ in range(8)], {})
-    op_id = project.append_op("map", {"fixture": "confidence ordering"})
+    op_id = project.append_change("map", {"fixture": "confidence ordering"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

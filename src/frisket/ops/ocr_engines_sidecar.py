@@ -11,7 +11,7 @@ from frisket.execution.dispatch_control import dispatch_for_context
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ops._sidecar import sidecar_post
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.ocr_engines_local import LIGHT_ENGINE
 
 
@@ -26,7 +26,7 @@ async def ocr_sidecar(engine: str, pages: list[Path], ctx: ActionContext) -> lis
     admission = routed_admission_in_scope(ctx.extras)
     preview = preview_resolution_in_scope(ctx.extras)
     if admission is None and preview is None:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "OCR gateway requires its admitted route"
         )
     connection = (

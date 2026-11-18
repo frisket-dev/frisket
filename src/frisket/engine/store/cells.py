@@ -341,7 +341,7 @@ def set_column_default_hidden(
     outputs were retired, or transcribe's detected_language on a non-detecting engine.
     This is the hide primitive the shared output-retirement mechanism
     (`MapRunner._retire_dropped_output_columns`) calls; recipes declare their
-    dropped-role names via `Recipe.retired_output_names`."""
+    dropped-role names via `ActionProgram.retired_output_names`."""
     cur = project.db.execute(
         "UPDATE columns SET default_hidden=? WHERE id=?",
         (int(hidden), column_id),
@@ -470,7 +470,7 @@ def add_rows(
                 if name in column_ids and value is not None
             )
         if producer_id is None:
-            op_id = project.append_op(
+            op_id = project.append_change(
                 "add_rows",
                 {"sheet_id": sheet_id, "row_count": len(row_ids)},
                 label=f"add {len(row_ids)} rows",

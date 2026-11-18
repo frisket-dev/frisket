@@ -105,7 +105,7 @@ def test_prepared_large_text_uses_same_omission_contract(tmp_path):
     artifact = record_source_artifact(
         project, artifact_kind="document", media_type="application/pdf", page_count=1
     )
-    op_id = project.append_op("media.ocr")
+    op_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(
         source_artifact_id=artifact["id"],

@@ -45,7 +45,7 @@ def _sheet_id(project) -> int:
 
 
 def _running_run(project) -> int:
-    op_id = project.append_op("map", {"recipe": "template"})
+    op_id = project.append_change("map", {"recipe": "template"})
     return RunResultStore(project).start_run(
         op_id, _sheet_id(project), "map.template", total_rows=0
     )
@@ -189,7 +189,7 @@ def test_review_write_requires_caller_transaction(project, review_target, field)
 
 
 def test_start_run_commit_false_requires_caller_transaction(project):
-    op_id = project.append_op("map", {"recipe": "template"})
+    op_id = project.append_change("map", {"recipe": "template"})
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
         RunResultStore(project).start_run(
@@ -201,7 +201,7 @@ def test_start_run_commit_false_requires_caller_transaction(project):
 
 
 def test_start_run_commit_false_joins_caller_transaction(project):
-    op_id = project.append_op("map", {"recipe": "template"})
+    op_id = project.append_change("map", {"recipe": "template"})
     _open_caller_transaction(project)
 
     run_id = RunResultStore(project).start_run(
@@ -214,7 +214,7 @@ def test_start_run_commit_false_joins_caller_transaction(project):
 
 
 def test_start_run_owns_its_transaction_when_none_is_open(project):
-    op_id = project.append_op("map", {"recipe": "template"})
+    op_id = project.append_change("map", {"recipe": "template"})
 
     run_id = RunResultStore(project).start_run(
         op_id, _sheet_id(project), "map.template"

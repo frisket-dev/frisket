@@ -1,7 +1,7 @@
-"""``Recipe.cost_class`` is a REQUIRED declaration, and it is what the cost
+"""``ActionProgram.cost_class`` is a REQUIRED declaration, and it is what the cost
 gate reads when a recipe produced no estimate.
 
-The defect these pin: ``estimate_run`` turned every ``Recipe.estimate() ->
+The defect these pin: ``estimate_run`` turned every ``ActionProgram.estimate() ->
 None`` into ``{"cost": 0.0}``, so absence and zero shared one representation.
 An unestimated recipe priced at $0.00 — under every threshold — and the
 ``est["cost"] is None`` branch of the gate was unreachable on both the fresh
@@ -55,7 +55,7 @@ from frisket.execution.provider import (
 )
 from frisket.engine.runner.confirmation_context import ConsentEstimateRefused
 from frisket.engine.store import Project
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from http_test_helpers import queued_python_run_spec, v1_action_from_canonical_run_spec
 
 # The catalog vocabulary each cost class is allowed to publish. "metered" and
@@ -69,7 +69,7 @@ _CATALOG_KINDS: dict[str, set[str]] = {
 }
 
 
-def _registry() -> dict[str, Recipe]:
+def _registry() -> dict[str, ActionProgram]:
     registry = {}
     registry.update({name: plan.program for name, plan in _typed_plans()})
     return registry
@@ -84,8 +84,8 @@ def _typed_plans():
             yield f"{action.action_id}@{index}", plan
 
 
-def _declared_cost_class(recipe: Recipe) -> str | None:
-    return getattr(recipe, "cost_class", None)
+def _declared_cost_class(program: ActionProgram) -> str | None:
+    return getattr(program, "cost_class", None)
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +100,8 @@ def test_every_registered_recipe_declares_a_cost_class() -> None:
 
     undeclared = sorted(
         name
-        for name, recipe in registry.items()
-        if _declared_cost_class(recipe) is None
+        for name, program in registry.items()
+        if _declared_cost_class(program) is None
     )
     assert undeclared == [], (
         f"these registered recipes never declared cost_class: {undeclared}. "
@@ -109,19 +109,19 @@ def test_every_registered_recipe_declares_a_cost_class() -> None:
         "(see frisket.ops.base.Recipe.cost_class). Undeclared used to mean "
         "$0.00 and no gate."
     )
-    for name, recipe in sorted(registry.items()):
-        assert _declared_cost_class(recipe) in _CATALOG_KINDS, name
+    for name, program in sorted(registry.items()):
+        assert _declared_cost_class(program) in _CATALOG_KINDS, name
 
 
 def test_base_recipe_declares_nothing_to_inherit() -> None:
     # The annotation carries no value, so nothing inherits a cost answer by
     # accident — an omission is an AttributeError at the first estimate.
-    assert "cost_class" not in vars(Recipe)
-    assert "cost_class" in Recipe.__annotations__
+    assert "cost_class" not in vars(ActionProgram)
+    assert "cost_class" in ActionProgram.__annotations__
 
 
 def test_undeclared_recipe_raises_instead_of_pricing_itself_free() -> None:
-    class _Undeclared(Recipe):
+    class _Undeclared(ActionProgram):
         consumes_resolution = False
         name: str = "undeclared_cost"
 
@@ -382,7 +382,7 @@ def test_the_backfill_path_gates_on_the_same_absence(text_project) -> None:
         authority=open_attempt_authority(project),
     )
     # Exercise the host-bound typed program's prepare/resume cost gate directly.
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     with pytest.raises(validation.CostGate) as challenge:
         runner.prepare_run(spec, program=plan.program, confirmed=True)
     assert challenge.value.promise_set_hash is not None
@@ -422,9 +422,9 @@ def test_the_backfill_path_gates_on_the_same_absence(text_project) -> None:
 # refusal must reach only runs being gated. A free run asks nobody anything,
 # has no quote, and mints no consent; refusing it would turn a strictness
 # rule about approvals into a launch failure for work that was never
-# approved in the first place. ``register_recipe`` is an open extension
-# point, so this is also what keeps an out-of-tree recipe's unfamiliar
-# estimate key from bricking its free runs.
+# approved in the first place. Programs resolved from the registry by action
+# kind are not enumerable, so this is also what keeps an out-of-tree program's
+# unfamiliar estimate key from bricking its free runs.
 
 
 def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
@@ -432,11 +432,11 @@ def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
 ) -> None:
     project, sheet_id = text_project
     plan = _free_plan(project, sheet_id)
-    spec, recipe = plan.runner_spec, plan.program
-    assert recipe.cost_class_for(spec) == "free"
+    spec, program = plan.runner_spec, plan.program
+    assert program.cost_class_for(spec) == "free"
 
     monkeypatch.setattr(
-        type(recipe),
+        type(program),
         "estimate",
         lambda self, project, spec, rows: {
             "cost": 0.0,
@@ -447,7 +447,7 @@ def test_a_free_ungated_run_launches_with_an_unclassified_estimate_key(
     )
 
     # No CostGate, no ConsentEstimateRefused: the run is admitted.
-    validated = _validate(project, spec, program=recipe, confirmed=False)
+    validated = _validate(project, spec, program=program, confirmed=False)
     assert validated.unrouted_confirmation_hash is None
 
     # ...and the same key on a GATED run is still refused, so this is a

@@ -5,7 +5,7 @@ mcp 1.27.2): ``@server.tool()`` derives the input schema from the type
 annotations and the description from the docstring; dict returns become
 structured content. The same tool definitions serve both bindings —
 :class:`~frisket.mcp.backends.LocalBackend` (direct store/runner, stdio,
-keyless) and :class:`~frisket.mcp.backends.HostedBackend` (HTTP + PAT).
+keyless) and :class:`~frisket.mcp.backends.RemoteBackend` (HTTP + PAT).
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from frisket.actions.types import ActionRequest, ProjectScope, SheetRows
 from frisket.contracts.action import SheetRowScope
-from frisket.server.mcp.backends import HostedBackend, LocalBackend
+from frisket.server.mcp.backends import RemoteBackend, LocalBackend
 
 _INSTRUCTIONS = """\
 frisket: AI-augmented sheets for reporters. Projects hold sheets of rows;
@@ -80,14 +80,14 @@ class RegisteredActionToolSpec(BaseModel):
 
 
 async def _call(fn: Any, /, *args: Any, **kwargs: Any) -> Any:
-    """Invoke a backend method that may be sync (local) or async (hosted)."""
+    """Invoke a backend method that may be sync (local) or async (remote)."""
     out = fn(*args, **kwargs)
     if inspect.isawaitable(out):
         out = await out
     return out
 
 
-def create_mcp_server(backend: LocalBackend | HostedBackend) -> FastMCP:
+def create_mcp_server(backend: LocalBackend | RemoteBackend) -> FastMCP:
     @asynccontextmanager
     async def lifespan(_server: FastMCP):
         try:
@@ -235,8 +235,8 @@ def main(argv: list[str] | None = None) -> int:
     """`frisket mcp [workspace-dir] [--hosted]` — serve the tools over stdio.
 
     Local (default): bind directly to the workspace directory (keyless, no
-    HTTP server needed). Hosted (--hosted): thin client over the hosted API
-    using FRISKET_BASE_URL + FRISKET_PAT from the environment.
+    HTTP server needed). Remote (--hosted): thin client over a remote Frisket
+    server's API using FRISKET_BASE_URL + FRISKET_PAT from the environment.
     """
     parser = argparse.ArgumentParser(
         prog="frisket mcp",
@@ -251,13 +251,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--hosted",
         action="store_true",
-        help="act as a client of the Cloud API (FRISKET_BASE_URL + FRISKET_PAT)",
+        help="act as a client of a remote Frisket server (FRISKET_BASE_URL + FRISKET_PAT)",
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
-    backend: LocalBackend | HostedBackend
+    backend: LocalBackend | RemoteBackend
     if args.hosted:
-        backend = HostedBackend()
-        where = "hosted API (PAT auth)"
+        backend = RemoteBackend()
+        where = "remote Frisket server (PAT auth)"
     else:
         root = args.workspace or Path.cwd() / "frisket-projects"
         backend = LocalBackend(root)

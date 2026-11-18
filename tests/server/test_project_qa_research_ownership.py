@@ -65,7 +65,7 @@ async def _resume(
     session, snapshot, decision="approve", *, authorize=lambda: None, **preferences
 ):
     return await session.resume(
-        approval_id=snapshot["pending_approval"]["id"],
+        pause_id=snapshot["pending_approval"]["id"],
         expected_revision=snapshot["revision"],
         decision=decision,
         actor="reporter",
@@ -85,7 +85,7 @@ def _action(operation_id):
 
 
 @pytest.mark.anyio
-async def test_parallel_operations_never_share_an_approval(owned_research):
+async def test_parallel_operations_never_share_a_pause(owned_research):
     _, _, _, ledger, run, session = owned_research
     first = asyncio.create_task(session.pause(_action("A")))
     second = None
@@ -122,7 +122,7 @@ async def test_parallel_operations_never_share_an_approval(owned_research):
 
 
 @pytest.mark.anyio
-async def test_waiting_pause_rechecks_whether_approval_is_still_needed(owned_research):
+async def test_waiting_pause_rechecks_whether_it_is_still_needed(owned_research):
     _, _, _, ledger, run, session = owned_research
     needs_budget = True
 
@@ -157,13 +157,13 @@ async def test_budget_increase_covers_a_waiting_operations_stale_pause(
 ):
     _, _, _, ledger, run, session = owned_research
     published = []
-    original_publish = ledger.publish_approval
+    original_publish = ledger.publish_pause
 
     def publish(research_id, approval):
         published.append(approval["operation_id"])
         return original_publish(research_id, approval)
 
-    monkeypatch.setattr(ledger, "publish_approval", publish)
+    monkeypatch.setattr(ledger, "publish_pause", publish)
     first = asyncio.create_task(
         session.pause(
             {"kind": "budget", "operation_id": "A", "next_estimate_micros": 200}
@@ -193,7 +193,7 @@ async def test_budget_increase_covers_a_waiting_operations_stale_pause(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("stopping", [False, True])
-async def test_parent_stop_or_finish_refuses_new_approval_authority(
+async def test_parent_stop_or_finish_refuses_new_pause_authority(
     owned_research, stopping
 ):
     _, qa, turn, ledger, run, session = owned_research

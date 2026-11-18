@@ -320,7 +320,7 @@ def test_maprunner_refuses_to_reopen_a_sealed_routed_generation(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     stored_spec = json.loads(
         project.db.execute("SELECT params FROM runs WHERE id=?", (run_id,)).fetchone()[

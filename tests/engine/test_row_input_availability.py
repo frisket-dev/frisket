@@ -165,7 +165,7 @@ def test_dispatch_distinguishes_required_unavailable_from_optional_input(
         project,
         router,
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     progress = asyncio.run(
         run_with_output_claim(

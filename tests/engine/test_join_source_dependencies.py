@@ -18,7 +18,7 @@ def test_uncaptured_empty_table_keeps_dependencies_but_freshness_is_unknown(
     right = project.add_sheet("Right")
     column = project.add_column(right, "key", type="integer")
     row = project.add_rows(right, [{"key": 1}], {"key": column})[0]
-    op = project.append_op(
+    op = project.append_change(
         "derive.join", {"reads": [{"kind": kind, keys[0]: left, keys[1]: right}]}
     )
     child = project.add_sheet("Empty joined", parent_sheet_id=left, parent_op_id=op)
@@ -94,7 +94,7 @@ def test_real_empty_join_captures_both_actual_source_sides(
     edit = project.apply_edits([{"row_id": row, "column_id": column, "value": value}])
     assert compute_sync_states(project)[child]["sync_state"] == "stale"
     with project.transaction_scope():
-        step_operation(project, "revert", op_id=edit)
+        step_operation(project, "revert", change_id=edit)
     assert compute_sync_states(project)[child]["sync_state"] == "synced"
     project.delete_sheet(right)
     assert child in {sheet["id"] for sheet in project.sheets()}

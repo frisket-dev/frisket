@@ -10,7 +10,7 @@ work = recovery.work
 
 def _step(project, direction, op_id):
     with project.transaction_scope():
-        return step_operation(project, direction, op_id=op_id)
+        return step_operation(project, direction, change_id=op_id)
 
 
 def _copy_into_existing(work):

@@ -16,7 +16,7 @@ def test_current_writer_success_terminalization_maps_durable_stop_to_cancelled(
 ):
     with closing(Project.create(tmp_path / "stop-before-success.frisket")) as project:
         sheet_id = project.add_sheet("source")
-        op_id = project.append_op("map.template", {"action_kind": "map.template"})
+        op_id = project.append_change("map.template", {"action_kind": "map.template"})
         run_id = RunResultStore(project).start_run(
             op_id,
             sheet_id,

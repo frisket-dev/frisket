@@ -3,7 +3,7 @@
 Local binding: real stdio-style sessions via the SDK's in-process memory
 transport (create_connected_server_and_client_session) against a temp
 workspace — keyless, network-free, runs replay from a primed cache exactly
-like tests/test_runner.py. Hosted binding: HostedBackend pointed at the
+like tests/test_runner.py. Remote binding: RemoteBackend pointed at the
 local FastAPI app over httpx.ASGITransport, so the thin-client mapping
 (incl. the 402 cost gate -> needs_confirmation) is exercised without a
 live server or network.
@@ -36,7 +36,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.server.runtime_settings import save_workspace_allowance_usd
-from frisket.server.mcp import HostedBackend, LocalBackend, create_mcp_server
+from frisket.server.mcp import RemoteBackend, LocalBackend, create_mcp_server
 from frisket.server.mcp import server as mcp_server
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.mcp.server import ActionToolSpec, RegisteredActionToolSpec
@@ -293,7 +293,7 @@ def test_registered_tool_sheet_name_uses_action_request_validation(name):
         )
 
 
-def test_hosted_tool_routes_canonical_action_through_action_run_route() -> None:
+def test_remote_tool_routes_canonical_action_through_action_run_route() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -315,7 +315,7 @@ def test_hosted_tool_routes_canonical_action_through_action_run_route() -> None:
             base_url="http://frisket.test",
         )
         try:
-            backend = HostedBackend(client=client)
+            backend = RemoteBackend(client=client)
             async with session_for(backend) as session:
                 return payload(
                     await session.call_tool(
@@ -354,7 +354,7 @@ def test_hosted_tool_routes_canonical_action_through_action_run_route() -> None:
     assert body["idempotency_key"].startswith("mcp.run_action.map.classify@sha256:")
 
 
-def test_hosted_tool_routes_typed_action_without_legacy_translation() -> None:
+def test_remote_tool_routes_typed_action_without_legacy_translation() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -376,7 +376,7 @@ def test_hosted_tool_routes_typed_action_without_legacy_translation() -> None:
             base_url="http://frisket.test",
         )
         try:
-            return await HostedBackend(client=client).run_action(
+            return await RemoteBackend(client=client).run_action(
                 "demo",
                 template_action(7),
                 confirmed=True,
@@ -399,7 +399,7 @@ def test_hosted_tool_routes_typed_action_without_legacy_translation() -> None:
     assert body["idempotency_key"].startswith("mcp.run_action.map.template@sha256:")
 
 
-def test_hosted_backend_preserves_402_contract_and_forwards_exact_echo() -> None:
+def test_remote_backend_preserves_402_contract_and_forwards_exact_echo() -> None:
     requests: list[httpx.Request] = []
     first_estimate = {
         "cost": 1.25,
@@ -464,7 +464,7 @@ def test_hosted_backend_preserves_402_contract_and_forwards_exact_echo() -> None
             transport=httpx.MockTransport(handler),
             base_url="http://frisket.test",
         )
-        backend = HostedBackend(client=client)
+        backend = RemoteBackend(client=client)
         try:
             first = await backend.run_action("demo", classify_action(7))
             changed = classify_action(7, row_ids=list(range(1, 281)))
@@ -543,7 +543,7 @@ def _completed_backfill_result(requested: list[int], filled: list[int]) -> dict:
     }
 
 
-def test_hosted_backfill_posts_v1_action_with_a_fresh_key_per_call() -> None:
+def test_remote_backfill_posts_v1_action_with_a_fresh_key_per_call() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -555,7 +555,7 @@ def test_hosted_backfill_posts_v1_action_with_a_fresh_key_per_call() -> None:
             transport=httpx.MockTransport(handler),
             base_url="http://frisket.test",
         )
-        backend = HostedBackend(client=client)
+        backend = RemoteBackend(client=client)
         try:
             first = await backend.backfill_run("demo", 1, "beat")
             second = await backend.backfill_run("demo", 1, "beat")
@@ -591,7 +591,7 @@ def test_hosted_backfill_posts_v1_action_with_a_fresh_key_per_call() -> None:
 
 
 @pytest.mark.parametrize("row_ids", [None, [], [5, 4]])
-def test_hosted_backfill_preserves_omitted_and_explicit_rows(row_ids) -> None:
+def test_remote_backfill_preserves_omitted_and_explicit_rows(row_ids) -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -618,7 +618,7 @@ def test_hosted_backfill_preserves_omitted_and_explicit_rows(row_ids) -> None:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler), base_url="http://frisket.test"
         ) as client:
-            return await HostedBackend(client=client).backfill_run(
+            return await RemoteBackend(client=client).backfill_run(
                 "demo", 1, "beat", row_ids
             )
 
@@ -635,7 +635,7 @@ def test_hosted_backfill_preserves_omitted_and_explicit_rows(row_ids) -> None:
         assert result["errors"][0]["code"] == "invalid_params"
 
 
-def test_hosted_backfill_402_challenges_then_binds_the_echoed_hash() -> None:
+def test_remote_backfill_402_challenges_then_binds_the_echoed_hash() -> None:
     requests: list[httpx.Request] = []
     estimate = {
         "cost": 2.5,
@@ -677,7 +677,7 @@ def test_hosted_backfill_402_challenges_then_binds_the_echoed_hash() -> None:
             transport=httpx.MockTransport(handler),
             base_url="http://frisket.test",
         )
-        backend = HostedBackend(client=client)
+        backend = RemoteBackend(client=client)
         try:
             challenge = await backend.backfill_run("demo", 1, "beat")
             accepted = await backend.backfill_run(
@@ -707,7 +707,7 @@ def test_hosted_backfill_402_challenges_then_binds_the_echoed_hash() -> None:
     assert "confirmation" not in json.loads(requests[0].content)
 
 
-def test_hosted_backfill_does_not_echo_an_estimate_without_approval() -> None:
+def test_remote_backfill_does_not_echo_an_estimate_without_approval() -> None:
     requests: list[httpx.Request] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -718,7 +718,7 @@ def test_hosted_backfill_does_not_echo_an_estimate_without_approval() -> None:
         async with httpx.AsyncClient(
             transport=httpx.MockTransport(handler), base_url="http://frisket.test"
         ) as client:
-            return await HostedBackend(client=client).backfill_run(
+            return await RemoteBackend(client=client).backfill_run(
                 "demo",
                 1,
                 "beat",
@@ -734,7 +734,7 @@ def test_hosted_backfill_does_not_echo_an_estimate_without_approval() -> None:
     assert body["params"] == {"column": "beat"}
 
 
-def test_hosted_backfill_named_refusal_is_structured_not_an_exception() -> None:
+def test_remote_backfill_named_refusal_is_structured_not_an_exception() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             400,
@@ -762,7 +762,7 @@ def test_hosted_backfill_named_refusal_is_structured_not_an_exception() -> None:
             base_url="http://frisket.test",
         )
         try:
-            return await HostedBackend(client=client).backfill_run(
+            return await RemoteBackend(client=client).backfill_run(
                 "demo", 1, "entities"
             )
         finally:
@@ -918,7 +918,7 @@ class TestToolSurface:
                 base_url="http://frisket.test",
             )
             try:
-                async with session_for(HostedBackend(client=client)) as session:
+                async with session_for(RemoteBackend(client=client)) as session:
                     return await session.call_tool(
                         "run_action",
                         {"project_id": "demo", "action": action},
@@ -951,7 +951,7 @@ class TestToolSurface:
                 base_url="http://frisket.test",
             )
             try:
-                async with session_for(HostedBackend(client=client)) as session:
+                async with session_for(RemoteBackend(client=client)) as session:
                     return await session.call_tool(
                         "run_action",
                         {"project_id": "demo", "action": action},
@@ -1000,7 +1000,7 @@ class TestToolSurface:
         )
         assert page["rows"][0]["cells"]["text"] == "company"
 
-    def test_hosted_list_sheets_uses_existing_project_endpoint(self):
+    def test_remote_list_sheets_uses_existing_project_endpoint(self):
         sheets = [{"id": 17, "name": "companies", "rows": 3}]
 
         async def handler(request):
@@ -1012,7 +1012,7 @@ class TestToolSurface:
             async with httpx.AsyncClient(
                 transport=httpx.MockTransport(handler), base_url="http://frisket.test"
             ) as client:
-                async with session_for(HostedBackend(client=client)) as session:
+                async with session_for(RemoteBackend(client=client)) as session:
                     return payload(
                         await session.call_tool("list_sheets", {"project_id": "demo"})
                     )
@@ -1080,7 +1080,7 @@ class TestSearch:
         )
         assert any("paving" in h["snippet"] for h in hits)
 
-    def test_hosted_search_uses_same_scoped_contract(self, tmp_path):
+    def test_remote_search_uses_same_scoped_contract(self, tmp_path):
         from frisket.contracts.http.project_search import ProjectSearchRequest
         from frisket.server.app import create_app
         from frisket.search import drain_index
@@ -1105,7 +1105,7 @@ class TestSearch:
                 transport=httpx.ASGITransport(app=create_app(root)),
                 base_url="http://frisket.test",
             ) as client:
-                return await HostedBackend(client=client).search("demo", request)
+                return await RemoteBackend(client=client).search("demo", request)
 
         actual = asyncio.run(go())
         assert actual == expected

@@ -320,7 +320,7 @@ def _source_health_reason_key(
 
 def _source_health_title(status: str, label: str) -> str:
     if status == "failed":
-        return f"{label} poll failed"
+        return f"{label} check failed"
     if status == "stale":
         return f"{label} is stale"
     return f"{label} recovered"
@@ -334,7 +334,7 @@ def _source_health_summary(
     error: str | None,
 ) -> str:
     if status == "failed" and error:
-        return f"{label} feed poll failed: {error}"
+        return f"{label} feed check failed: {error}"
     if status == "stale" and stale_reason:
         return f"{label} feed is stale: {stale_reason}"
     if status == "recovered":

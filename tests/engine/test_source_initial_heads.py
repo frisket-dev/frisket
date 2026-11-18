@@ -60,7 +60,7 @@ def test_initializing_absent_base_cell_still_respects_newer_edit(tmp_path):
         sheet = project.add_sheet("Rows")
         column = project.add_column(sheet, "text")
         rows = project.add_rows(sheet, [{}, {}, {}], {})
-        op_id = project.append_op("source", {})
+        op_id = project.append_change("source", {})
         project.db.execute("BEGIN IMMEDIATE")
         producer = create_base_cell_producer(
             project.db, stage_id="delayed-source", op_id=op_id

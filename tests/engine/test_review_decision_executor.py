@@ -528,7 +528,7 @@ def test_nonreviewable_primary_output_is_evidence_not_an_actionable_field(
     answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
     error_id = project.add_column(sheet_id, "other", ai_generated=True)
     row_id = project.add_rows(sheet_id, [{}], {})[0]
-    op_id = project.append_op("map", {"fixture": "mixed review outcomes"})
+    op_id = project.append_change("map", {"fixture": "mixed review outcomes"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

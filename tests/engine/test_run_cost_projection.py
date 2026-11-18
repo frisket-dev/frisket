@@ -56,7 +56,9 @@ def _seed(tmp_path: Path) -> tuple[Project, RunResultStore, int, int, int]:
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="cost rows")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="cost rows"
+    )
     store = RunResultStore(project)
     run_id = store.start_run(op_id, sheet_id, "map.classify", total_rows=len(row_ids))
     return project, store, run_id, row_ids[0], column_id

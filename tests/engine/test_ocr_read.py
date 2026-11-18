@@ -24,7 +24,7 @@ from frisket.engine.executor.row_file_stage import RowFileStager
 from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.runs import RunResultStore
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 
 pypdf = pytest.importorskip("pypdf")
 
@@ -266,7 +266,7 @@ async def test_changed_source_or_options_refuse_before_effect(
             column = ColumnRef("another")
         elif mutation == "options":
             options = OcrOptions(dpi=300)
-            expected = RecipeInvocationHalt
+            expected = ActionProgramInvocationHalt
         elif mutation == "type":
             source[0].db.execute(
                 "UPDATE columns SET type='file' WHERE id=?", (source[2],)
@@ -907,11 +907,13 @@ async def test_fatal_local_session_error_stops_without_fake_failed_pages(
 
     async def render(self, path, media, options, scratch, *, engine=None):
         observed.append(options["_selected_pages"])
-        raise RecipeInvocationHalt("local_artifact_unavailable", "Unavailable runtime")
+        raise ActionProgramInvocationHalt(
+            "local_artifact_unavailable", "Unavailable runtime"
+        )
 
     monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
     async with _reader(source) as (owner, reader, row, options):
-        with pytest.raises(RecipeInvocationHalt, match="Unavailable runtime"):
+        with pytest.raises(ActionProgramInvocationHalt, match="Unavailable runtime"):
             await reader.recognize(row, ColumnRef("scan"), options=options)
         assert source[3] not in owner.calls_by_row
     assert observed == [[1]]
@@ -947,7 +949,7 @@ async def test_pdf_environment_failure_discards_partial_and_stops_immediately(
 
     monkeypatch.setattr(engines.OcrEngines, "_page_images", render)
     monkeypatch.setattr(engines.OcrEngines, "run_engine_on_pages", recognize)
-    expected = type(error) if failure == "teardown" else RecipeInvocationHalt
+    expected = type(error) if failure == "teardown" else ActionProgramInvocationHalt
     async with _reader(source) as (owner, reader, row, options):
         with pytest.raises(expected):
             await reader.recognize(row, ColumnRef("scan"), options=options)
@@ -1102,7 +1104,7 @@ async def test_remote_engine_cannot_start_without_admission(source):
         options=OcrOptions().normalize("datalab"),
     )
     try:
-        with pytest.raises(RecipeInvocationHalt, match="admitted route"):
+        with pytest.raises(ActionProgramInvocationHalt, match="admitted route"):
             await reader.start(expected_rows=1)
     finally:
         await reader.aclose()

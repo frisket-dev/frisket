@@ -108,7 +108,7 @@ def test_incomplete_check_retains_baseline_and_does_not_hotloop(scene):
 
     p, sheet, col, row, alert, _, _ = scene
     baseline = run(scene)
-    op = p.append_op("map.ask", label="pending observation")
+    op = p.append_change("map.ask", label="pending observation")
     run_id = RunResultStore(p).start_run(
         op, sheet, "map.ask", row_ids=[row], total_rows=1
     )

@@ -21,12 +21,12 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
   const Frame = formFrame;
 
   const formElement = (
-    <form className="content-stack" data-testid="source-form" onSubmit={actions.submit}>
-      <div className="sources-form-row">
+    <form className="content-stack" data-testid="feed-form" onSubmit={actions.submit}>
+      <div className="feeds-form-row">
         <PanelSelect
           className="form-input"
           aria-label="Feed type"
-          data-testid="source-kind"
+          data-testid="feed-kind"
           value={form.kind}
           onChange={(e) => actions.updateForm({ kind: e.target.value as KnownFeedKind })}
         >
@@ -38,7 +38,7 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
       <TextInput
         placeholder="Feed name"
         aria-label="Feed name"
-        data-testid="source-name"
+        data-testid="feed-name"
         value={form.name}
         onChange={(e) => actions.updateForm({ name: e.target.value })}
       />
@@ -50,7 +50,7 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
 
         placeholder={kind.placeholder}
         aria-label={kind.urlLabel}
-        data-testid="source-url"
+        data-testid="feed-url"
         value={form.url}
         onChange={(e) => actions.updateForm({ url: e.target.value })}
       />
@@ -60,8 +60,8 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
 
       <PanelSelect
         className="form-input"
-        aria-label="Polling cadence"
-        data-testid="source-interval"
+        aria-label="Check schedule"
+        data-testid="feed-interval"
         value={form.cadence}
         onChange={(e) => actions.updateForm({ cadence: e.target.value as FeedInterval })}
       >
@@ -80,7 +80,7 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
         <Button
           type="submit"
           className="btn-primary"
-          data-testid="source-create"
+          data-testid="feed-create"
           disabled={busy !== null || !form.name.trim() || !form.url.trim()}
         >
           {busy !== null

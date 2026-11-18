@@ -26,12 +26,12 @@ from frisket.engine.executor.map_rows_action import (
 from frisket.engine.executor.queued_actions import queued_v1_terminal_failure_result
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.column_retirement import retire_empty_failed_output
-from frisket.engine.runner.preparation import _validate_managed_recipe_identity
+from frisket.engine.runner.preparation import _validate_managed_program_identity
 from frisket.engine.runner.publication import PreparedRowPublication
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
-from frisket.engine.store.op_log import append_op
+from frisket.engine.store.op_log import append_change
 from frisket.engine.store.result_generations import (
     GenerationDeclarationConflict,
     GenerationStateError,
@@ -39,7 +39,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.server.app import create_app
 from runner_test_helpers import run_with_output_claim
 
@@ -71,7 +71,7 @@ def test_compatibility_key_allows_cross_producer_readable_shape() -> None:
 def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
     make_project, monkeypatch: pytest.MonkeyPatch, new_type: str
 ) -> None:
-    class RetryRecipe(_CancellationBatchRecipe):
+    class RetryProgram(_CancellationBatchProgram):
         def output_fields(self, spec):
             column_type = spec.get("output_type", "text")
             return [
@@ -91,8 +91,8 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
             value = True if spec["output_type"] == "boolean" else "recovered"
             return {row_id: {"cleaned": value} for row_id in values_by_row}
 
-    recipe = RetryRecipe()
-    monkeypatch.setattr(validation_module, "get_recipe", lambda _: recipe)
+    program = RetryProgram()
+    monkeypatch.setattr(validation_module, "get_action_program", lambda _: program)
     project = make_project("changed-empty-reservation")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "seed", type="text")
@@ -168,7 +168,7 @@ def test_changed_contract_retries_empty_failed_reservation_with_fresh_identity(
         project.redo()
     assert project.get_column(old_column)["active"] == 0
     with project.transaction_scope():
-        step_operation(project, "restore", op_id=recovered_op)
+        step_operation(project, "restore", change_id=recovered_op)
     assert project.get_column(new_column)["active"] == 1
     assert generations.read_cell_heads(old_column, [row_id]) == {}
     assert generations.get_binding(failed.run_id, old_column) == old_binding
@@ -213,7 +213,7 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         type="text",
         ai_generated=True,
     )
-    op_id = project.append_op("map", {"action_kind": "map.regex_extract"})
+    op_id = project.append_change("map", {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -257,28 +257,28 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
 
 
 def test_managed_recovery_pins_recipe_name_and_version() -> None:
-    recipe = _CancellationBatchRecipe()
+    program = _CancellationBatchProgram()
 
-    _validate_managed_recipe_identity(
+    _validate_managed_program_identity(
         run_id=7,
         run_row={
             "action_kind": "map.regex_extract",
-            "action_version": recipe.version,
+            "action_version": program.version,
         },
-        recipe=recipe,
+        program=program,
         action_kind="map.regex_extract",
     )
     with pytest.raises(
         GenerationStateError,
         match="recipe identity changed before recovery",
     ):
-        _validate_managed_recipe_identity(
+        _validate_managed_program_identity(
             run_id=7,
             run_row={
                 "action_kind": "map.regex_extract",
                 "action_version": "older-version",
             },
-            recipe=recipe,
+            program=program,
             action_kind="map.regex_extract",
         )
 
@@ -300,7 +300,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
         [{"note": "one 101"}, {"note": "two 202"}],
         {"note": note_column},
     )
-    legacy_op_id = project.append_op(
+    legacy_op_id = project.append_change(
         "map",
         {"action_kind": "map.regex_extract", "output_name": "digits"},
         label="legacy regex output",
@@ -367,7 +367,7 @@ def test_scalar_only_existing_output_refuses_managed_adoption_without_blanking(
 
 
 @dataclass
-class _CancellationBatchRecipe(Recipe):
+class _CancellationBatchProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -410,7 +410,7 @@ class _CancellationBatchRecipe(Recipe):
 
 
 @dataclass
-class _LegacyOverwriteRecipe(Recipe):
+class _LegacyOverwriteProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -439,15 +439,15 @@ def test_cancelled_batch_cannot_publish_returned_values_after_stop(
     make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recipe = _CancellationBatchRecipe()
-    original_get_recipe = validation_module.get_recipe
+    program = _CancellationBatchProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
+        "get_action_program",
         lambda name: (
-            recipe
-            if name in {recipe.name, "map.regex_extract"}
-            else original_get_recipe(name)
+            program
+            if name in {program.name, "map.regex_extract"}
+            else original_get_action_program(name)
         ),
     )
     project = make_project("cancelled-existing-generation")
@@ -473,7 +473,7 @@ def test_cancelled_batch_cannot_publish_returned_values_after_stop(
                     project,
                     ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     should_cancel=(
-                        (lambda _run_id: recipe.cancellation_observed)
+                        (lambda _run_id: program.cancellation_observed)
                         if phase == "replacement"
                         else None
                     ),
@@ -524,15 +524,15 @@ def test_single_output_omission_publishes_an_explicit_error_head(
     make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recipe = _CancellationBatchRecipe()
-    original_get_recipe = validation_module.get_recipe
+    program = _CancellationBatchProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
+        "get_action_program",
         lambda name: (
-            recipe
-            if name in {recipe.name, "map.regex_extract"}
-            else original_get_recipe(name)
+            program
+            if name in {program.name, "map.regex_extract"}
+            else original_get_action_program(name)
         ),
     )
     project = make_project("missing-single-output")
@@ -626,15 +626,15 @@ def test_fresh_pre_dispatch_cancellation_still_seals_managed_binding(
     make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recipe = _CancellationBatchRecipe()
-    original_get_recipe = validation_module.get_recipe
+    program = _CancellationBatchProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
+        "get_action_program",
         lambda name: (
-            recipe
-            if name in {recipe.name, "map.regex_extract"}
-            else original_get_recipe(name)
+            program
+            if name in {program.name, "map.regex_extract"}
+            else original_get_action_program(name)
         ),
     )
     project = make_project("fresh-pre-dispatch-cancel")
@@ -761,7 +761,7 @@ def test_queued_pre_run_failure_seals_zero_effect_binding_then_allows_replace(
                     project,
                     ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                 ),
                 replacement_plan.spec_dict(),
                 program=replacement_plan.program,
@@ -892,7 +892,7 @@ def test_undone_scalar_generated_column_does_not_block_fresh_managed_output(
     source = project.add_column(sheet, "note")
     project.add_rows(sheet, [{"note": "record 123"}], {"note": source})
     old = project.add_column(sheet, "digits", ai_generated=True)
-    op = append_op(project, "add_column", undo_info={"created_columns": [old]})
+    op = append_change(project, "add_column", undo_info={"created_columns": [old]})
     from frisket.engine.store.changes import start_change
 
     with project.transaction_scope():
@@ -1071,8 +1071,8 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
     sheet = project.add_sheet("Data")
     source = project.add_column(sheet, "seed")
     rows = project.add_rows(sheet, [{"seed": "one"}], {"seed": source})
-    recipe = _CancellationBatchRecipe(atomic_output_columns=True)
-    recipe.keep_zero_success_generated_columns = True
+    program = _CancellationBatchProgram(atomic_output_columns=True)
+    program.keep_zero_success_generated_columns = True
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
@@ -1085,7 +1085,7 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
         "phase": "initial",
     }
     prepared = runner._prepare(
-        spec, program=recipe, confirmed=False, resume_run_id=None
+        spec, program=program, confirmed=False, resume_run_id=None
     )
     original = map_runner_module.declare_prepared_outputs
 
@@ -1098,7 +1098,7 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
             run_with_output_claim(
                 runner,
                 spec,
-                program=recipe,
+                program=program,
                 resume_run_id=prepared.run_id,
             )
         )
@@ -1110,7 +1110,7 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
     assert retained["current_run_id"] == prepared.run_id
     monkeypatch.setattr(map_runner_module, "declare_prepared_outputs", original)
     result = asyncio.run(
-        run_with_output_claim(runner, spec, program=recipe, resume_run_id=run["id"])
+        run_with_output_claim(runner, spec, program=program, resume_run_id=run["id"])
     )
     assert result.run_id == run["id"]
     assert project.get_values(sheet, column_id, row_ids=rows) == {
@@ -1153,7 +1153,7 @@ def test_unbound_managed_declaration_failure_never_moves_revival_pointer(
                     project,
                     ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                     authority=UnroutedOnlyAuthority(project),
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                 ),
                 plan.spec_dict(),
                 program=plan.program,
@@ -1257,15 +1257,15 @@ def test_runner_fence_refuses_legacy_producer_on_managed_output(
     sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
     generation_store = ResultGenerationStore(project)
     before_heads = generation_store.read_cell_heads(output_id, row_ids)
-    recipe = _LegacyOverwriteRecipe()
-    original_get_recipe = validation_module.get_recipe
+    program = _LegacyOverwriteProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
+        "get_action_program",
         lambda name: (
-            recipe
-            if name in {recipe.name, "map.template"}
-            else original_get_recipe(name)
+            program
+            if name in {program.name, "map.template"}
+            else original_get_action_program(name)
         ),
     )
 
@@ -1315,7 +1315,7 @@ def test_managed_producer_refuses_intervening_legacy_scalar_run(
     sheet_id, row_ids, output_id, first_run_id = _seed_managed_regex_output(project)
     generation_store = ResultGenerationStore(project)
     before_heads = generation_store.read_cell_heads(output_id, row_ids)
-    legacy_op_id = project.append_op(
+    legacy_op_id = project.append_change(
         "map",
         {"action_kind": "map.template", "output_name": "digits"},
         label="intervening legacy output",
@@ -1472,14 +1472,14 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
     original_execute = _TypedMapRowsProgram.execute
 
     async def omit_declared_output(
-        recipe: _TypedMapRowsProgram,
+        program: _TypedMapRowsProgram,
         row_values: dict[str, Any],
         spec: dict[str, Any],
         ctx: Any,
     ) -> PreparedRowPublication:
         if any("unresolved" in str(value) for value in row_values.values()):
             return PreparedRowPublication(trace_data={}, cells={})
-        return await original_execute(recipe, row_values, spec, ctx)
+        return await original_execute(program, row_values, spec, ctx)
 
     monkeypatch.setattr(_TypedMapRowsProgram, "execute", omit_declared_output)
     replacement_flushes: list[tuple[int, int]] = []
@@ -1522,7 +1522,7 @@ def test_regex_writer_streams_fresh_then_seals_exact_replacement(
                 project,
                 ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                 authority=UnroutedOnlyAuthority(project),
-                allow_action_lifecycle_only_recipes=True,
+                allow_action_lifecycle_only_programs=True,
             ),
             second_spec,
             program=replacement_plan.program,

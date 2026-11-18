@@ -19,7 +19,7 @@ from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.resolver import preview_resolution_in_scope
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 
 
 @pytest.mark.parametrize("engine", ["dots.mocr", "whisper-turbo", "moss"])
@@ -157,6 +157,6 @@ def test_media_preview_uses_exact_validated_connection_without_writes(
                 ctx, engine=engine, options=TranscriptionOptions().normalize(engine)
             )
         )
-        with pytest.raises(RecipeInvocationHalt, match="requires|requires its"):
+        with pytest.raises(ActionProgramInvocationHalt, match="requires|requires its"):
             asyncio.run(reader.start(expected_rows=1))
     assert len(calls) == 1

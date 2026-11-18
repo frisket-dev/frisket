@@ -252,7 +252,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
         offerings=(offering,),
     )
     return AttemptAuthority(project, composition=composition).mint(
-        recipe=_transcription_plan().program, spec=SPEC, run_id=run_id, scope=scope
+        program=_transcription_plan().program, spec=SPEC, run_id=run_id, scope=scope
     )
 
 
@@ -427,7 +427,7 @@ def test_the_attempt_receipt_route_serves_the_facts(tmp_path):
     from frisket.engine.store.runs import RunResultStore
 
     sheet_id = project.add_sheet("S")
-    op_id = project.append_op("media.transcribe")
+    op_id = project.append_change("media.transcribe")
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
@@ -1099,7 +1099,7 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
     from frisket.engine.store.runs import RunResultStore
 
     sheet_id = project.add_sheet("S")
-    op_id = project.append_op("transcribe")
+    op_id = project.append_change("transcribe")
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "media.transcribe", params=dict(SPEC)
     )
@@ -1133,7 +1133,7 @@ def test_compaction_preserves_the_attempt_and_its_run(project):
 
     # Undo, then a new op so the undone branch is no longer redoable.
     assert project.undo() == op_id
-    noop_op = project.append_op("noop")
+    noop_op = project.append_change("noop")
     project.db.execute("BEGIN IMMEDIATE")
     ChangeStore(project).start(noop_op, writing=True)
     ChangeStore(project).close(noop_op)

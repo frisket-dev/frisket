@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.store import Project
 
 
@@ -130,7 +130,7 @@ def retire_dropped_generated_columns(
     project: Project,
     *,
     op_id: int,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict,
     columns: list,
     current_output_names: set[str],
@@ -140,7 +140,7 @@ def retire_dropped_generated_columns(
 
     The RECIPE declares which output-column names a prior configuration of
     this output emitted but the current run no longer does
-    (``recipe.retired_output_names(spec)`` — transcribe's detected_language
+    (``program.retired_output_names(spec)`` — transcribe's detected_language
     when the engine can't detect; clean_column's _confidence/_justification
     after the mechanical cutover). This hook is fully generic: for each
     declared name that still exists as an ai_generated column outside the
@@ -151,7 +151,7 @@ def retire_dropped_generated_columns(
     (a resume never changes its output set). ``commit=False`` lets an
     atomic-family preparation own the surrounding savepoint.
     """
-    candidates = set(recipe.retired_output_names(spec)) - current_output_names
+    candidates = set(program.retired_output_names(spec)) - current_output_names
     if not candidates:
         return []
     output_name = spec.get("output_name")

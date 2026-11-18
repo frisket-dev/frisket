@@ -30,7 +30,7 @@ try:
     answer_column = project.add_column(sheet, 'Finding', ai_generated=True)
     sources_column = project.add_column(sheet, 'Web pages', type='json', ai_generated=True)
     row = project.add_rows(sheet, [{'company': 'Cedar Bridge'}], {'company': company})[0]
-    op = project.append_op('research.answer', {'fixture': 'synthetic browser research'})
+    op = project.append_change('research.answer', {'fixture': 'synthetic browser research'})
     store = RunResultStore(project)
     run = store.start_run(op, sheet, 'research.answer', model='synthetic/model',
         params={'input_columns': ['company'], 'output_names': {'answer': 'Finding', 'sources': 'Web pages'}},

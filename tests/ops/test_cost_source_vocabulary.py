@@ -25,7 +25,7 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.runner.validation import unestimated_cost
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.ops.cost_source import (
     ESTIMATE_COST_SOURCES,
     cost_estimate,
@@ -151,13 +151,13 @@ def test_cost_basis_projector_emits_only_the_canonical_preview_core() -> None:
     }
 
 
-class _FreeRecipe(Recipe):
+class _FreeProgram(ActionProgram):
     cost_class = "free"
     consumes_resolution = False
     name: str = "free-probe"
 
 
-class _MeteredRecipe(Recipe):
+class _MeteredProgram(ActionProgram):
     cost_class = "metered"
     consumes_resolution = False
     name: str = "metered-probe"
@@ -234,8 +234,8 @@ def test_unestimated_cost_stays_in_vocabulary() -> None:
     """What a recipe that produced NO estimate costs — the runner's own
     estimate producer, and the reason an absent estimate still has a
     discriminator."""
-    free = unestimated_cost(_FreeRecipe(name="free-probe"), {})
+    free = unestimated_cost(_FreeProgram(name="free-probe"), {})
     assert free["cost_source"] == "free_local"
-    metered = unestimated_cost(_MeteredRecipe(name="metered-probe"), {})
+    metered = unestimated_cost(_MeteredProgram(name="metered-probe"), {})
     assert metered["cost_source"] == "unknown"
     assert {free["cost_source"], metered["cost_source"]} <= ESTIMATE_COST_SOURCES

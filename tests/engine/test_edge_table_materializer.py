@@ -109,7 +109,7 @@ def test_materialized_row_sources_schema_is_created_on_a_fresh_bundle(
         child_row = project.add_rows(
             child_sheet, [{"name": "child"}], {"name": child_col}
         )[0]
-        op_id = project.append_op("test.materialized_row_sources")
+        op_id = project.append_change("test.materialized_row_sources")
         project.db.execute(
             "INSERT INTO materialized_row_sources "
             "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "

@@ -19,7 +19,7 @@ from test_result_generation_store import (
 
 def _reject_clear(project, *, row_id: int, column_id: int) -> int:
     with project.db:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "review.decision",
             {
                 "action_id": "review.decision",

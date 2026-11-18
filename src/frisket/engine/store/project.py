@@ -477,7 +477,7 @@ class Project:
 
     # ---------- op_log: operation history, undo / redo ----------
 
-    def append_op(
+    def append_change(
         self,
         kind: str,
         spec: dict[str, Any] | None = None,
@@ -486,7 +486,7 @@ class Project:
         *,
         commit: bool = True,
     ) -> int:
-        return op_log.append_op(self, kind, spec, label, barrier, commit=commit)
+        return op_log.append_change(self, kind, spec, label, barrier, commit=commit)
 
     set_undo_info = op_log.set_undo_info
     history = op_log.history
@@ -497,7 +497,7 @@ class Project:
     redo = op_log.redo
     _unapply = op_log._unapply
     _reapply = op_log._reapply
-    ops_meta = op_log.ops_meta
+    changes_meta = op_log.changes_meta
 
     @property
     def op_cursor(self) -> int:

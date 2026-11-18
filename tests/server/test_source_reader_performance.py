@@ -45,7 +45,7 @@ def _source(tmp_path, text, authority):
         sheet, [{"body": text if authority == "source" else "input"}], {"body": column}
     )
     if authority == "result":
-        op = project.append_op("map.extract")
+        op = project.append_change("map.extract")
         run = RunResultStore(project).start_run(op, sheet, "map.extract", row_ids=[row])
         write_claimed_test_results(
             project,
@@ -161,7 +161,7 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             media_type="application/pdf",
             page_count=200,
         )
-        op = project.append_op("media.ocr")
+        op = project.append_change("media.ocr")
         pages = [
             PreparedPageDraft(
                 index, "x" * 40_000 + ("😀TAIL-NEEDLE" if index == 200 else "")

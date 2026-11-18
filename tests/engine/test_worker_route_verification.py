@@ -47,7 +47,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.execution.pricing_policy import (
     EstimateFacts,
     RatedEstimate,
@@ -197,7 +197,7 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
     progress = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     ).prepare_run(spec, program=request.program, confirmed=confirmed)
     request.entry.mark_prepared(
@@ -220,7 +220,7 @@ def _prepare_consented_gateway_run(project, sheet_id) -> tuple[int, dict]:
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     )
     with pytest.raises(ClaimsGate) as exc_info:
@@ -242,7 +242,7 @@ def _prepare_consented_gateway_dispatch(project, sheet_id):
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     )
     with pytest.raises(ClaimsGate) as exc_info:
@@ -320,7 +320,7 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
         project.db.commit()
         try:
             attempt = open_attempt_authority(project).mint(
-                recipe=request.program,
+                program=request.program,
                 spec=marked_spec,
                 run_id=run_id,
                 scope=tuple(RunResultStore(project).run_row_scope(run_id)),
@@ -685,7 +685,7 @@ def test_dead_target_after_abandoned_dispatch_uses_recovery_authority(
     # The first worker reached dispatch, then went stale and was abandoned.
     # Its receipt evidence remains the durable authority for a retry failure.
     attempt = open_attempt_authority(project).mint(
-        recipe=request.program,
+        program=request.program,
         spec=marked_spec,
         run_id=run_id,
         scope=tuple(RunResultStore(project).run_row_scope(run_id)),
@@ -948,7 +948,7 @@ def test_head_that_moved_between_admission_and_the_claim_refuses(
     head_route, _head_set = RouteStore.for_run(project, run_id).head()
 
     attempt = open_attempt_authority(project).mint(
-        recipe=_program(spec),
+        program=_program(spec),
         spec=spec,
         run_id=run_id,
         scope=(1,),
@@ -1023,7 +1023,7 @@ def test_routed_dispatch_reads_sources_through_bounded_live_pages(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     )
     progress = asyncio.run(
@@ -1104,7 +1104,7 @@ def test_pending_row_edit_after_admission_uses_current_input_in_fixed_scope(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=authority,
     )
     progress = asyncio.run(
@@ -1148,7 +1148,7 @@ def test_the_claim_transaction_must_own_its_write_lock(
     _root, project, sheet_id = workspace
     run_id, spec = _prepare_consented_gateway_run(project, sheet_id)
     attempt = open_attempt_authority(project).mint(
-        recipe=_program(spec), spec=spec, run_id=run_id, scope=(1,)
+        program=_program(spec), spec=spec, run_id=run_id, scope=(1,)
     )
     claim_token, output_column_ids = _claimed_output_authority(project, run_id)
     project.db.execute("BEGIN IMMEDIATE")
@@ -1221,7 +1221,7 @@ def test_batch_recipe_invokes_the_run_start_fence_before_dispatching(
 ):
     import asyncio
 
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
     from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
 
     _root, project, sheet_id = workspace
@@ -1267,14 +1267,14 @@ def test_batch_recipe_invokes_the_run_start_fence_before_dispatching(
         ``execute_batch`` without a minted attempt, so the mint's own halt
         must terminalize the run."""
 
-        def mint(self, *, recipe, spec, run_id, scope):
+        def mint(self, *, program, spec, run_id, scope):
             invoked.append(run_id)
-            raise RecipeInvocationHalt("promise_violation", "the fence fired")
+            raise ActionProgramInvocationHalt("promise_violation", "the fence fired")
 
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=_HaltingAuthority(),
     )
     claim_token, _ = _claimed_output_authority(project, run_id)
@@ -1297,7 +1297,7 @@ def test_batch_recipe_invokes_the_run_start_fence_before_dispatching(
         "SELECT status, params FROM runs WHERE id=?", (run_id,)
     ).fetchone()
     assert run["status"] == "cancelled"
-    halt = persisted_recipe_invocation_halt(run["params"])
+    halt = persisted_action_program_invocation_halt(run["params"])
     assert halt is not None and halt[0] == "promise_violation"
 
 
@@ -1433,7 +1433,7 @@ def test_a_different_action_still_re_asks(workspace, gateway_env, adapter_stub):
         MapRunner(
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=open_attempt_authority(project),
         ).prepare_run(other, program=_program(other))
 
@@ -1476,7 +1476,7 @@ def test_fresh_launch_refused_by_the_unverified_fence_terminalizes(
     unwired = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     claim_token, _ = _claimed_output_authority(project, prepared.run_id)
@@ -1564,7 +1564,7 @@ def test_fresh_launch_refused_consent_missing_terminalizes(
     prepared, spec = _prepare_consented_gateway_dispatch(project, sheet_id)
 
     class _RefusingAuthority:
-        def mint(self, *, recipe, spec, run_id, scope):
+        def mint(self, *, program, spec, run_id, scope):
             raise ExecutionRouteVerificationFailed(
                 "consent_missing", "no persisted consent covers this run's claims"
             )
@@ -1572,7 +1572,7 @@ def test_fresh_launch_refused_consent_missing_terminalizes(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=_RefusingAuthority(),
     )
     claim_token, _ = _claimed_output_authority(project, prepared.run_id)
@@ -1613,7 +1613,7 @@ def _prepare_consented_remote_run(project, sheet_id: int) -> tuple[int, dict]:
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     )
     spec = _remote_spec(sheet_id)

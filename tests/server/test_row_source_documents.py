@@ -82,7 +82,7 @@ def _join_row(
     left: tuple[int, int],
     right: tuple[int, int],
 ) -> tuple[int, int]:
-    op_id = project.append_op("derive.join", {"action_id": "derive.join"})
+    op_id = project.append_change("derive.join", {"action_id": "derive.join"})
     sheet_id = project.add_sheet("Joined", parent_sheet_id=left[0], parent_op_id=op_id)
     column_id = project.add_column(sheet_id, "joined")
     [row_id] = project.add_rows(
@@ -272,7 +272,7 @@ def test_convergent_fan_in_reaches_the_shared_original_document(make_project) ->
     [aggregate_row] = project.add_rows(
         aggregate_sheet, [{"value": "summary"}], {"value": aggregate_column}
     )
-    op_id = project.append_op("derive.reduce", {"action_id": "derive.reduce"})
+    op_id = project.append_change("derive.reduce", {"action_id": "derive.reduce"})
     project.db.executemany(
         "INSERT INTO materialized_row_sources "
         "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "
@@ -309,7 +309,7 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     right = _child_row(project, "Right rows", right_document[0], right_document[1])
     join_sheet, join_row = _join_row(project, left, right)
 
-    refresh_op = project.append_op("sheet.refresh", {"sheet_id": left[0]})
+    refresh_op = project.append_change("sheet.refresh", {"sheet_id": left[0]})
     project.db.execute(
         "UPDATE sheets SET last_verified_op_cursor=? WHERE id=?",
         (refresh_op, left[0]),
@@ -480,7 +480,7 @@ def test_source_membership_read_stops_at_the_row_budget_sentinel(
     [derived_row] = project.add_rows(
         derived_sheet, [{"value": "result"}], {"value": derived_column}
     )
-    op_id = project.append_op("derive.reduce", {"action_id": "derive.reduce"})
+    op_id = project.append_change("derive.reduce", {"action_id": "derive.reduce"})
     project.db.executemany(
         "INSERT INTO materialized_row_sources "
         "(materialized_row_id,source_row_id,source_sheet_id,op_id,role) "

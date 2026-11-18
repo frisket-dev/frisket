@@ -1875,12 +1875,12 @@ def project_action_catalog_launcher_hints(
     providers = [
         (
             spec.action_kind,
-            spec.recipe.name,
-            bool(spec.recipe.llm),
-            spec.recipe.params(),
-            getattr(spec.recipe, "execution_capability", None),
+            spec.program.name,
+            bool(spec.program.llm),
+            spec.program.params(),
+            getattr(spec.program, "execution_capability", None),
         )
-        for spec in default_registry().recipe_specs()
+        for spec in default_registry().action_program_specs()
         if spec.action_kind
         and (action_kinds is None or spec.action_kind in action_kinds)
     ]

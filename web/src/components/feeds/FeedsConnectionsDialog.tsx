@@ -37,8 +37,8 @@ export function FeedsConnectionsDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="sources-connections-layer"
-      data-testid="sources-connections-dialog"
+      className="feeds-connections-layer"
+      data-testid="feeds-connections-dialog"
       aria-labelledby="sources-connections-title"
       onCancel={(event) => {
         event.preventDefault();
@@ -47,28 +47,28 @@ export function FeedsConnectionsDialog({
     >
       <button
         type="button"
-        className="sources-connections-backdrop"
+        className="feeds-connections-backdrop"
         aria-label="Close Feeds & connections"
         onClick={onClose}
       />
-      <section className="sources-connections" data-testid="sources-connections">
-        <header className="sources-connections-header">
-          <div className="sources-connections-heading">
-            <span className="sources-connections-icon"><Database size={18} aria-hidden /></span>
+      <section className="feeds-connections" data-testid="feeds-connections">
+        <header className="feeds-connections-header">
+          <div className="feeds-connections-heading">
+            <span className="feeds-connections-icon"><Database size={18} aria-hidden /></span>
             <div>
               <h2 id="sources-connections-title">Feeds &amp; connections</h2>
-              <p>Manage recurring feeds, polling, and connection health for this project.</p>
+              <p>Manage recurring feeds, scheduled checks, and connection health for this project.</p>
             </div>
           </div>
           <WindowCloseButton
             ref={closeButtonRef}
             size="compact"
             label="Close Feeds & connections"
-            data-testid="sources-connections-close"
+            data-testid="feeds-connections-close"
             onClick={onClose}
           />
         </header>
-        <main className="sources-connections-content">
+        <main className="feeds-connections-content">
           <FeedsPanel {...panelProps} />
         </main>
       </section>

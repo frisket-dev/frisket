@@ -135,7 +135,7 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
         calls += 1
         if explode and calls == 2:
             # The recipe-bug shape: an ordinary uncaught exception, not an
-            # allowlisted RecipeInvocationHalt, raised before any egress.
+            # allowlisted ActionProgramInvocationHalt, raised before any egress.
             raise TypeError("'NoneType' object is not subscriptable")
         return {
             "text": f"transcript {calls}",
@@ -161,7 +161,7 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
                 concurrency=1,
                 authority=open_attempt_authority(project),
                 on_progress=bind_claim,
-                allow_action_lifecycle_only_recipes=True,
+                allow_action_lifecycle_only_programs=True,
             ).run(spec, program=plan.program, confirmed=True, claim_token=claim_token)
         )
     run_id = int(project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0])
@@ -197,7 +197,7 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
             concurrency=1,
             authority=open_attempt_authority(project),
             on_progress=bind_claim,
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         ).run(
             spec,
             program=plan.program,
@@ -244,7 +244,7 @@ def checkpointed_run(tmp_path):
             [{"source": "one"}],
             {"source": source_column_id},
         )[0]
-        op_id = project.append_op("map", {"action_kind": "map.classify"})
+        op_id = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(
             op_id,

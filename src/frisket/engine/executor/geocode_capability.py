@@ -34,7 +34,7 @@ from frisket.execution.credential_use import (
     require_consented_credential,
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
 from frisket.ops.integrations.hosted_error import (
     HostedEngineError,
@@ -137,7 +137,7 @@ class AdmittedGeocoder:
             snapshot.get("capability") != "geocode"
             or snapshot.get("transport") != expected_transport
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Geocoder requires its admitted provider transport"
             )
         if ctx.http is None:
@@ -150,7 +150,7 @@ class AdmittedGeocoder:
                     ctx.project, "OPENCAGE_API_KEY", context=ctx.credential_use_context
                 )
                 if credential is None:
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "promise_violation",
                         "OpenCage credential is unavailable; review and re-consent",
                     )
@@ -163,7 +163,7 @@ class AdmittedGeocoder:
                         effect="the hosted OpenCage geocoding call",
                     )
                 except CredentialUseRefusal as exc:
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "promise_violation",
                         f"{exc}; review the claims and re-consent to resume",
                     ) from exc

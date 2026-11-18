@@ -115,7 +115,7 @@ def test_run_result_store_reads_do_not_race_across_threads(tmp_path: Path) -> No
     or other API misuse`` well inside the first few hundred iterations."""
     project = _project(tmp_path)
     sheet_id = project.add_sheet("rows")
-    op_id = project.append_op("map.template", {"kind": "map.template"})
+    op_id = project.append_change("map.template", {"kind": "map.template"})
     store = RunResultStore(project)
     run_id = store.start_run(op_id, sheet_id, "map.template", total_rows=0)
     iterations = 2_000

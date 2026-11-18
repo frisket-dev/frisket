@@ -49,6 +49,8 @@ _Avoid_: job (for this meaning), execution.
 **Job** — a queued unit of background work. Jobs are how the system schedules work; people see runs.
 _Avoid_: task; "job" in user-facing text.
 
+**Change** — one entry in a project's history: an edit, an import or a run's writes. Undo and redo step through changes.
+
 **Attempt** — one billed try at a provider call within a run.
 _Avoid_: retry (for a first try), call.
 

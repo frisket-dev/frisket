@@ -92,7 +92,7 @@ CREATE = action(
     name="create",
     title="Create feed",
     description=(
-        "Create feed metadata for later polling without fetching external content."
+        "Create feed metadata for later checks without fetching external content."
     ),
     category=ActionCategory.SOURCES,
     run=create_feed,
@@ -109,10 +109,10 @@ POLL = action(
         ),
     ),
     name="poll",
-    title="Poll feed",
+    title="Check feed",
     description=(
-        "Poll a registered feed, deduplicate new and revised items, and record "
-        "the feed check, cursor and provider in a receipt."
+        "Check a registered feed, deduplicate new and revised items, and record "
+        "the check, cursor and provider in a receipt."
     ),
     category=ActionCategory.SOURCES,
     run=poll_feed,
@@ -133,7 +133,7 @@ DELETE = action(
     examples=(SourceDeleteParams(source_id=1),),
     name="delete",
     title="Delete feed",
-    description="Delete a feed and its poll history.",
+    description="Delete a feed and its check history.",
     category=ActionCategory.SOURCES,
     run=delete_feed,
     form="source_delete",
@@ -145,7 +145,7 @@ CHECK = action(
     title="Record feed check",
     description=(
         "Record an externally observed non-RSS feed check, update the feed's "
-        "status, and write a receipt. RSS feed polling is owned by source.poll."
+        "status, and write a receipt. RSS feeds are checked by source.poll."
     ),
     category=ActionCategory.SOURCES,
     run=check_feed,

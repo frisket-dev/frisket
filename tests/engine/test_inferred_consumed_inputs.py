@@ -11,7 +11,7 @@ from tests.ops.test_formula_host import _run
 
 def _revert(project, op):
     with project.transaction_scope():
-        step_operation(project, "revert", op_id=op)
+        step_operation(project, "revert", change_id=op)
 
 
 @pytest.mark.parametrize("count", [3, 1001])

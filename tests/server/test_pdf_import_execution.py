@@ -926,9 +926,9 @@ def test_reviewed_native_text_child_keeps_queued_identity_through_real_worker(
         from frisket.engine.store.op_log import step_operation
 
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=parent._op_id)
+            step_operation(project, "revert", change_id=parent._op_id)
         with project.transaction_scope():
-            step_operation(project, "restore", op_id=parent._op_id)
+            step_operation(project, "restore", change_id=parent._op_id)
         assert row_id in project.visible_row_ids(sheet_id)
         child = project.db.execute(
             "SELECT run.cancel_requested_at,op.publication_closed FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
@@ -2266,7 +2266,7 @@ def test_terminal_preparation_failure_settles_progress_without_claiming_success(
         inventory._db.commit()
     with PdfImportPreparationStore(inventory_path) as store:
         sheet_id = project.add_sheet("Documents")
-        op_id = project.append_op("media.read_pdf_text")
+        op_id = project.append_change("media.read_pdf_text")
         run_id = RunResultStore(project).start_run(
             op_id, sheet_id, "media.read_pdf_text", total_rows=1
         )

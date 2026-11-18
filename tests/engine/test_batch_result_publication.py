@@ -12,11 +12,11 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from runner_test_helpers import run_with_output_claim
 
 
-class _EvidenceBatchRecipe(Recipe):
+class _EvidenceBatchProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -97,18 +97,18 @@ def _spec(sheet_id: int) -> dict[str, Any]:
 
 def test_batch_results_publish_through_recipe_evidence_callback(tmp_path: Path) -> None:
     project, sheet_id, row_ids = _project(tmp_path)
-    recipe = _EvidenceBatchRecipe()
+    program = _EvidenceBatchProgram()
     try:
         progress = asyncio.run(
             run_with_output_claim(
                 _runner(project),
                 _spec(sheet_id),
-                program=recipe,
+                program=program,
                 confirmed=True,
             )
         )
 
-        assert recipe.evidence_batches == [row_ids]
+        assert program.evidence_batches == [row_ids]
         assert [
             int(row["row_id"])
             for row in project.db.execute(
@@ -158,19 +158,19 @@ def test_batch_results_publish_through_recipe_evidence_callback(tmp_path: Path) 
 
 def test_batch_evidence_failure_rolls_back_result_batch(tmp_path: Path) -> None:
     project, sheet_id, row_ids = _project(tmp_path)
-    recipe = _EvidenceBatchRecipe(fail_evidence=True)
+    program = _EvidenceBatchProgram(fail_evidence=True)
     try:
         with pytest.raises(ResultEvidenceWriteFailed):
             asyncio.run(
                 run_with_output_claim(
                     _runner(project),
                     _spec(sheet_id),
-                    program=recipe,
+                    program=program,
                     confirmed=True,
                 )
             )
 
-        assert recipe.evidence_batches == [row_ids]
+        assert program.evidence_batches == [row_ids]
         assert (
             project.db.execute("SELECT COUNT(*) FROM batch_evidence_probe").fetchone()[
                 0
@@ -208,7 +208,7 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
     tmp_path,
 ):
     project, sheet, rows = _project(tmp_path)
-    recipe = _EvidenceBatchRecipe()
+    program = _EvidenceBatchProgram()
     source = next(
         column["id"] for column in project.columns(sheet) if column["name"] == "source"
     )
@@ -219,17 +219,17 @@ def test_batch_preview_and_publication_never_dispatch_unavailable_required_rows(
         calls.append(True)
         raise AssertionError("unavailable inputs reached the batch handler")
 
-    recipe.execute_batch = never_dispatch
+    program.execute_batch = never_dispatch
     try:
         preview = asyncio.run(
-            _runner(project).preview({**_spec(sheet), "row_ids": rows}, program=recipe)
+            _runner(project).preview({**_spec(sheet), "row_ids": rows}, program=program)
         )
         assert all(
             preview.values[row]["output"]["outcome"] == "not_completed" for row in rows
         )
         progress = asyncio.run(
             run_with_output_claim(
-                _runner(project), _spec(sheet), program=recipe, confirmed=True
+                _runner(project), _spec(sheet), program=program, confirmed=True
             )
         )
         assert calls == []
@@ -252,15 +252,15 @@ def test_empty_batch_executes_but_unavailable_batch_does_not(make_project, inval
     source = project.add_column(sheet, "source", type="integer")
     if invalid_row:
         project.add_rows(sheet, [{"source": "not an integer"}], {"source": source})
-    recipe = _EvidenceBatchRecipe()
-    recipe.allow_all_empty_input = True
+    program = _EvidenceBatchProgram()
+    program.allow_all_empty_input = True
     try:
         progress = asyncio.run(
             run_with_output_claim(
-                _runner(project), _spec(sheet), program=recipe, confirmed=True
+                _runner(project), _spec(sheet), program=program, confirmed=True
             )
         )
-        assert recipe.executed_batches == ([] if invalid_row else [[]])
+        assert program.executed_batches == ([] if invalid_row else [[]])
         outcomes = project.db.execute(
             "SELECT outcome,error_code FROM results WHERE run_id=?",
             (progress.run_id,),

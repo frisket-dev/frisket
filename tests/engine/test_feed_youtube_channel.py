@@ -742,7 +742,7 @@ def test_youtube_channel_validation_caps_and_provider_failure_redaction(
     assert "abc123" not in receipt["errors"][0]["message"]
 
 
-def test_youtube_channel_scheduled_source_dispatches_generic_source_poll(
+def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
     tmp_path: Path,
     restore_youtube_channel_feed_checker: None,
 ) -> None:

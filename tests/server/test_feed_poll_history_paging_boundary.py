@@ -36,7 +36,7 @@ def _seed_source_runs(tmp_path: Path) -> tuple[TestClient, str, int, list[int]]:
     return client, project_id, source_id, run_ids
 
 
-def test_source_detail_returns_bounded_poll_history_page(tmp_path: Path) -> None:
+def test_feed_detail_returns_bounded_check_history_page(tmp_path: Path) -> None:
     client, project_id, source_id, run_ids = _seed_source_runs(tmp_path)
 
     first_page = client.get(

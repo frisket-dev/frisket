@@ -67,7 +67,7 @@ def _reserve(project, receipt_id="preview"):
 
 def _mint(project, receipt_id="preview", **kwargs):
     return AttemptAuthority(project, composition=_execution_composition()).mint(
-        recipe=TRANSCRIPTION_PLAN.program,
+        program=TRANSCRIPTION_PLAN.program,
         spec=SPEC,
         receipt_id=receipt_id,
         scope=(1, 2),
@@ -123,7 +123,7 @@ def test_receipt_attempt_prices_actual_calls_and_estimated_rows_without_outputs(
     ).load_admitted(
         attempt_id=attempt.attempt_id,
         receipt_id=receipt.receipt_id,
-        recipe=TRANSCRIPTION_PLAN.program,
+        program=TRANSCRIPTION_PLAN.program,
         spec=SPEC,
     )
     assert restored == attempt
@@ -306,7 +306,7 @@ def test_receipt_row_outcome_cannot_be_rewritten(project):
 def test_attempt_requires_exactly_one_owner(project, owners):
     with pytest.raises(ValueError, match="exactly one"):
         AttemptAuthority(project, composition=_execution_composition()).mint(
-            recipe=TRANSCRIPTION_PLAN.program,
+            program=TRANSCRIPTION_PLAN.program,
             spec=SPEC,
             scope=(1, 2),
             **owners,
@@ -366,7 +366,7 @@ def test_receipt_route_recording_reuses_durable_resolution(audio_project):
     assert RouteStore.for_receipt(project, "local-preview").head() == (route, promises)
     attempt = AttemptAuthority(project, composition=composition).mint(
         receipt_id="local-preview",
-        recipe=program,
+        program=program,
         spec=spec,
         scope=(1,),
     )

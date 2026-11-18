@@ -16,14 +16,14 @@ from frisket.engine.store import Project
 from frisket.execution.provider import enforce_media_duration_limit
 from frisket.execution.resolve_for_action import BoundedScratchInput, resolve_for_action
 from frisket.execution.resolver import Refusal, ResolvedExecution
-from frisket.ops.base import RecipeInvocationHalt, media_suffix
+from frisket.ops.base import ActionProgramInvocationHalt, media_suffix
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.media_probe import probe_for_ingest
 from frisket.preview.common import ComparePreviewError, str_or_none
 from frisket.sdk.ops import transcribe_engines
 from frisket.server.services.scratch_action_preview import (
     ScratchActionPreviewPlan,
-    ScratchActionRecipe,
+    ScratchActionProgram,
     scratch_estimate,
 )
 
@@ -132,11 +132,11 @@ def paid_transcribe_scratch_plan(
         "engine": params.engine.root,
         **normalized_options,
     }
-    recipe = ScratchActionRecipe("media.transcribe", "transcribe")
+    program = ScratchActionProgram("media.transcribe", "transcribe")
     resolved = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=composition,
         bounded_scratch_input=BoundedScratchInput(effective_seconds, work_scope),
     )
@@ -152,7 +152,9 @@ def paid_transcribe_scratch_plan(
 
     async def run(context) -> TablePreviewResult:
         if context.cancelled:
-            raise RecipeInvocationHalt("local_session_failed", "Preview was cancelled.")
+            raise ActionProgramInvocationHalt(
+                "local_session_failed", "Preview was cancelled."
+            )
         limits = context.execution_limits
         if limits is not None:
             enforce_media_duration_limit(limits.max_media_seconds, effective_seconds)
@@ -227,7 +229,7 @@ def paid_transcribe_scratch_plan(
     return (
         ScratchActionPreviewPlan(
             action_kind="media.transcribe",
-            recipe=recipe,
+            program=program,
             spec=spec,
             resolved_execution=resolved,
             estimate=estimate,

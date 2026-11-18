@@ -19,7 +19,7 @@ from frisket.operability.trace import (
     read_trace_row,
     read_trace_row_retries,
 )
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 
 
 class _Inner:
@@ -402,7 +402,7 @@ def test_serialized_utf8_row_cap_removes_old_bodies_and_retains_headers_and_tool
 def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raised(
     make_project,
 ):
-    class CancelledRecipe(Recipe):
+    class CancelledProgram(ActionProgram):
         consumes_resolution = False
         cost_class = "free"
 
@@ -439,7 +439,7 @@ def test_research_only_cancellation_trace_is_persisted_and_cancellation_re_raise
                     cache_mode="off",
                 ),
                 AdaptiveThrottle(),
-                CancelledRecipe(llm=False),
+                CancelledProgram(llm=False),
                 {},
                 {"action_kind": "map.cancelled_test"},
                 ActionContext(

@@ -100,7 +100,9 @@ def _seed_project(
         [{"story": "alpha"}, {"story": "beta"}, {"story": "gamma"}],
         {"story": story_col},
     )
-    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="classify")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="classify"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -196,7 +198,7 @@ def test_action_run_trace_row_endpoint_returns_typed_row_scoped_evidence(
     )
 
     project = client.app.state.workspace.get(project_id)
-    untraced_op = project.append_op(
+    untraced_op = project.append_change(
         "map", {"action_kind": "map.classify"}, label="untraced"
     )
     untraced_run_id = RunResultStore(project).start_run(

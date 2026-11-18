@@ -57,9 +57,9 @@ class _QAStore:
 
 
 class _BudgetPause(Exception):
-    def __init__(self, approval: dict[str, Any]) -> None:
-        self.approval = approval
-        super().__init__(approval["kind"])
+    def __init__(self, pause: dict[str, Any]) -> None:
+        self.pause = pause
+        super().__init__(pause["kind"])
 
 
 class _ResearchStore:
@@ -127,8 +127,8 @@ class _Session:
     async def check_authority(self) -> None:
         self.authority_checks += 1
 
-    async def pause(self, approval: dict[str, Any], *, recheck=None) -> str:
-        self.pauses.append(dict(approval))
+    async def pause(self, pause: dict[str, Any], *, recheck=None) -> str:
+        self.pauses.append(dict(pause))
         return self.decisions.pop(0)
 
     async def admit(
@@ -307,7 +307,7 @@ async def test_safe_additive_action_runs_once_and_checkpoints_receipt_grant(tmp_
 
 
 @pytest.mark.asyncio
-async def test_action_approval_survives_budget_pause_without_budget_granting_it(
+async def test_action_consent_survives_budget_pause_without_budget_granting_it(
     tmp_path,
 ):
     project, sheet_id, turn, store, session = _project_state(
@@ -542,7 +542,7 @@ async def test_skip_does_not_admit_or_dispatch(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_external_action_needs_approval_even_in_full_access(tmp_path):
+async def test_external_action_needs_consent_even_in_full_access(tmp_path):
     project, sheet_id, turn, store, session = _project_state(
         tmp_path, write_mode="full_access"
     )
@@ -579,7 +579,7 @@ async def test_external_action_needs_approval_even_in_full_access(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unknown_catalog_effect_needs_approval_even_in_full_access(tmp_path):
+async def test_unknown_catalog_effect_needs_consent_even_in_full_access(tmp_path):
     project, sheet_id, turn, store, session = _project_state(
         tmp_path, write_mode="full_access"
     )
@@ -696,7 +696,7 @@ async def test_replacement_respects_write_mode_at_frozen_target(
     greeting_column = project.add_column(
         sheet_id, "Greeting", type="text", ai_generated=True
     )
-    op_id = project.append_op("map.template", {"output": "Greeting"})
+    op_id = project.append_change("map.template", {"output": "Greeting"})
     run_id = RunResultStore(project).start_run(op_id, sheet_id, "map.template")
     project.db.execute(
         "INSERT INTO run_output_generations "

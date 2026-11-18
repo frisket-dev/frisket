@@ -7,12 +7,13 @@ from typing import Any
 
 import pytest
 
-from frisket.ops.base import Recipe
-from frisket.ops.builtin import get_recipe
+from helpers import install_action_program, remove_action_program
+from frisket.ops.base import ActionProgram
+from frisket.ops.builtin import get_action_program
 
 
 @dataclass
-class _PluginRecipe(Recipe):
+class _PluginProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
     name: str = "configured_runner"
@@ -25,16 +26,18 @@ def test_plugin_lookup_preserves_configured_instance_and_replacement(monkeypatch
 
     registry = plugin_registry.PluginRegistry()
     monkeypatch.setattr(plugin_registry, "_DEFAULT", registry)
-    configured = _PluginRecipe(cache={"configured": True})
-    registry.register_recipe(configured, action_kind="demo.configured")
-    assert get_recipe("demo.configured") is configured
-    assert get_recipe("demo.configured").cache == {"configured": True}
-    replacement = _PluginRecipe(cache={"replacement": True})
-    registry.register_recipe(replacement, action_kind="demo.configured", replace=True)
-    assert get_recipe("demo.configured") is replacement
-    registry.unregister_recipe("demo.configured")
+    configured = _PluginProgram(cache={"configured": True})
+    install_action_program(configured, action_kind="demo.configured", registry=registry)
+    assert get_action_program("demo.configured") is configured
+    assert get_action_program("demo.configured").cache == {"configured": True}
+    replacement = _PluginProgram(cache={"replacement": True})
+    install_action_program(
+        replacement, action_kind="demo.configured", registry=registry
+    )
+    assert get_action_program("demo.configured") is replacement
+    remove_action_program("demo.configured", registry=registry)
     with pytest.raises(ValueError, match="unknown action kind"):
-        get_recipe("demo.configured")
+        get_action_program("demo.configured")
 
 
 @pytest.mark.parametrize(
@@ -42,36 +45,37 @@ def test_plugin_lookup_preserves_configured_instance_and_replacement(monkeypatch
 )
 def test_recipe_lookup_refuses_noncanonical_keys(kind):
     with pytest.raises(ValueError, match="canonical"):
-        get_recipe(kind)
+        get_action_program(kind)
 
 
-def _shipped_recipe_classes() -> list[type[Recipe]]:
-    """Every ``Recipe`` subclass frisket ships (test doubles excluded)."""
+def _shipped_program_classes() -> list[type[ActionProgram]]:
+    """Every ``ActionProgram`` subclass frisket ships (test doubles excluded)."""
     # The shipped Recipe classes live behind lazy imports; load them so the
     # subclass walk is a closure over the product, not over whatever an
     # earlier test happened to import.
     import frisket.engine.executor.map_rows_action  # noqa: F401
 
-    def walk(klass: type[Recipe]):
+    def walk(klass: type[ActionProgram]):
         for sub in klass.__subclasses__():
             if sub.__module__.startswith("frisket."):
                 yield sub
             yield from walk(sub)
 
     return sorted(
-        set(walk(Recipe)), key=lambda klass: f"{klass.__module__}.{klass.__qualname__}"
+        set(walk(ActionProgram)),
+        key=lambda klass: f"{klass.__module__}.{klass.__qualname__}",
     )
 
 
 def test_every_registered_recipe_declares_consumes_resolution() -> None:
     """The marker is a required declaration, not a default (E-3).
 
-    ``Recipe.consumes_resolution`` is an annotation with no value, so an
+    ``ActionProgram.consumes_resolution`` is an annotation with no value, so an
     undeclared recipe raises at its first consumer rather than silently
     reading as "this recipe does not compose with the execution seam" — the
     dormant-wiring shape six ``getattr(..., False)`` sites used to permit.
     Built-ins are typed actions in ``ACTION_REGISTRY`` and register no legacy
-    recipe through the SDK seam, so the closure is over the ``Recipe`` classes
+    recipe through the SDK seam, so the closure is over the ``ActionProgram`` classes
     frisket still ships (the typed program adapter and the plugin recipes):
     each declares the marker on the class itself.
     """
@@ -79,7 +83,7 @@ def test_every_registered_recipe_declares_consumes_resolution() -> None:
 
     assert ACTION_REGISTRY.action_ids
 
-    shipped = _shipped_recipe_classes()
+    shipped = _shipped_program_classes()
     assert shipped
     undeclared = []
     for klass in shipped:

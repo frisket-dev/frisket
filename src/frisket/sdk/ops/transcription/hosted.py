@@ -37,7 +37,11 @@ from frisket.execution.credential_use import (
 )
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.local_model_ids import bare_model_name
-from frisket.ops.base import ActionContext, RecipeInvocationHalt, media_upload_filename
+from frisket.ops.base import (
+    ActionContext,
+    ActionProgramInvocationHalt,
+    media_upload_filename,
+)
 from frisket.ops.integrations.hosted_error import (
     HostedEngineError,
     transport_outcome_is_uncertain,
@@ -197,7 +201,7 @@ def _halt_unless_consented_credential(
             effect=effect,
         )
     except CredentialUseRefusal as exc:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", f"{exc}; review the claims and re-consent to resume"
         ) from exc
 

@@ -21,7 +21,7 @@ def _seed(tmp_path, count=4):
     rows = project.add_rows(
         sheet, [{"input": f"v{i}"} for i in range(count)], {"input": column}
     )
-    owner = project.append_op("test.output", {})
+    owner = project.append_change("test.output", {})
     project.db.execute("BEGIN IMMEDIATE")
     start_change(project.db, owner)
     project.db.commit()
@@ -134,7 +134,7 @@ def test_whole_scope_and_explicit_cohort_have_distinct_append_policy(tmp_path):
             project, sheet, [column], row_ids=rows, scope_intent="selected"
         )
         whole_id = _save(project, whole, sheet, owner)
-        second_owner = project.append_op("test.selected", {})
+        second_owner = project.append_change("test.selected", {})
         selected_id = _save(project, selected, sheet, second_owner)
         project.add_rows(sheet, [{"input": "appended"}], {"input": column})
         assert verify_bundle(project, whole_id) == "stale"
@@ -169,14 +169,14 @@ def test_earlier_writer_publishing_after_capture_invalidates_actual_identity(tmp
 
     project, sheet, column, _, rows, owner = _seed(tmp_path)
     try:
-        writer = project.append_op("test.delayed_writer", {})
+        writer = project.append_change("test.delayed_writer", {})
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, writer, writing=True)
         producer = create_base_cell_producer(
             project.db, stage_id="delayed", op_id=writer
         )
         project.db.commit()
-        capture_owner = project.append_op("test.later_capture", {})
+        capture_owner = project.append_change("test.later_capture", {})
         assert writer < capture_owner
         _, _, capture = read_consumed_source(project, sheet, [column])
         bundle = _save(project, capture, sheet, capture_owner)
@@ -205,7 +205,7 @@ def test_equal_descriptor_value_from_new_owner_is_stale_until_reverted(tmp_path)
     try:
         _, _, capture = read_consumed_source(project, sheet, [column])
         bundle = _save(project, capture, sheet, owner)
-        descriptor_change = project.append_op("column.retype", {})
+        descriptor_change = project.append_change("column.retype", {})
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, descriptor_change, writing=True)
         info = {
@@ -250,7 +250,7 @@ def test_pending_and_successful_null_share_result_address_but_not_consumed_state
         refs = {}
         _, _, capture = read_consumed_source(project, sheet, [column], refs_out=refs)
         assert refs[column][rows[0]]["outcome"] == "pending"
-        owner = project.append_op("test.pending_consumer", {})
+        owner = project.append_change("test.pending_consumer", {})
         bundle = _save(project, capture, sheet, owner)
         _write(
             project,

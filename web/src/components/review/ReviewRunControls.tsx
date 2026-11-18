@@ -33,7 +33,7 @@ function selectedCounts(run: ReviewRun, fieldId?: string | null): ReviewRunCount
 
 function runLabel(run: ReviewRun): string {
   const action = run.actionName || run.actionKind || 'AI run';
-  return `${action} · ${run.sheetName} · ${run.copiedOpId ? `saved #${run.copiedOpId}` : `run #${run.runId}`}`;
+  return `${action} · ${run.sheetName} · ${run.copiedChangeId ? `saved #${run.copiedChangeId}` : `run #${run.runId}`}`;
 }
 
 function countDescription(counts: ReviewRunCounts): string {

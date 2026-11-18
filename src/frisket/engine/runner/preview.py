@@ -24,7 +24,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
-from frisket.ops.base import ActionContext, Recipe, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgram, ActionProgramInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.batch_normalization import normalize_batch_row
@@ -88,9 +88,11 @@ class PreviewScratchLimitExceeded(ValueError):
     """A row preview exceeded its explicit ephemeral artifact byte budget."""
 
 
-def _has_exact_free_local_terms(recipe: Recipe, spec: dict, estimate: Any) -> bool:
+def _has_exact_free_local_terms(
+    program: ActionProgram, spec: dict, estimate: Any
+) -> bool:
     """Whether typed static and rated facts prove the effect is locally free."""
-    if not row_effect_cannot_egress(recipe, spec) or not isinstance(estimate, Mapping):
+    if not row_effect_cannot_egress(program, spec) or not isinstance(estimate, Mapping):
         return False
     try:
         consent_estimate = ConsentEstimate.from_estimate(estimate)
@@ -105,7 +107,7 @@ def _has_exact_free_local_terms(recipe: Recipe, spec: dict, estimate: Any) -> bo
 
 def _caught_gate_is_safe(
     exc: validation.CostGate,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict,
 ) -> bool:
     """Whether this is exactly the retained free operator-LAN claims gate."""
@@ -117,7 +119,7 @@ def _caught_gate_is_safe(
     [claim] = claims
     if not isinstance(claim, dict) or claim.get("field") != "egress_class":
         return False
-    return _has_exact_free_local_terms(recipe, spec, exc.estimate_details)
+    return _has_exact_free_local_terms(program, spec, exc.estimate_details)
 
 
 @dataclass
@@ -260,7 +262,7 @@ def _preview_validated(
     run_store: RunResultStore,
     spec: dict,
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     pricing_policy: PricingPolicy,
     composition: ExecutionComposition,
     consent_coverage: ConsentCoverage | None = None,
@@ -277,19 +279,21 @@ def _preview_validated(
             f"preview sample size {len(raw_row_ids)} exceeds "
             f"PREVIEW_MAX_ROWS={PREVIEW_MAX_ROWS}"
         )
-    recipe = program if program is not None else validation.recipe_for_spec(spec)
+    action_program = (
+        program if program is not None else validation.action_program_for_spec(spec)
+    )
     # Agent programs own their model/tool loop. The preview path renders one
     # model call instead, which would bypass that loop and fabricate its result.
-    if hasattr(recipe, "run_agent"):
+    if hasattr(action_program, "run_agent"):
         raise PreviewEffectRequiresRun()
-    effectful = row_effect_spends_or_meters(recipe, spec, router)
+    effectful = row_effect_spends_or_meters(action_program, spec, router)
     try:
         validated = validation.validate_spec(
             project,
             router,
             run_store,
             spec,
-            program=recipe,
+            program=action_program,
             confirmed=bool(spec.get("confirmed")),
             resume_run_id=None,
             pricing_policy=pricing_policy,
@@ -300,7 +304,11 @@ def _preview_validated(
             persistence="durable" if accounted else "ephemeral",
         )
     except validation.CostGate as exc:
-        if accounted or not effectful or _caught_gate_is_safe(exc, recipe, spec):
+        if (
+            accounted
+            or not effectful
+            or _caught_gate_is_safe(exc, action_program, spec)
+        ):
             raise
         raise PreviewEffectRequiresRun() from None
     except validation.ProviderKeyRefusal:
@@ -310,11 +318,11 @@ def _preview_validated(
 
     if accounted or not effectful:
         return validated
-    if not _has_exact_free_local_terms(recipe, spec, validated.est):
+    if not _has_exact_free_local_terms(action_program, spec, validated.est):
         raise PreviewEffectRequiresRun()
     resolved = validated.resolved_execution
     if resolved is None:
-        if getattr(recipe, "consumes_resolution", None) is not False:
+        if getattr(action_program, "consumes_resolution", None) is not False:
             raise PreviewEffectRequiresRun()
     else:
         resolution = getattr(resolved, "resolution", None)
@@ -334,10 +342,10 @@ async def run_preview(
     run_store: RunResultStore,
     throttle: AdaptiveThrottle,
     action_context_extras: dict[str, Any],
-    row_worker_count: Callable[[Recipe, dict], int],
+    row_worker_count: Callable[[ActionProgram, dict], int],
     spec: dict,
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     pricing_policy: PricingPolicy,
     composition: ExecutionComposition,
     consent_coverage: ConsentCoverage | None = None,
@@ -374,7 +382,7 @@ async def run_preview(
         allow_empty_scope=allow_empty_scope,
         accounted=attempt is not None,
     )
-    recipe = validated.recipe
+    action_program = validated.program
     sheet_id = validated.sheet_id
     col_map = validated.col_map
     row_ids = validated.row_ids  # visibility-resolved sample
@@ -387,7 +395,7 @@ async def run_preview(
             project, attempt.receipt_id, attempt.attempt_id
         )
         if (
-            persisted["action_identity_hash"] != attempt_identity(recipe, spec)
+            persisted["action_identity_hash"] != attempt_identity(action_program, spec)
             or json.loads(persisted["scope_json"]) != row_ids
             or attempt.identity != persisted["action_identity_hash"]
             or list(attempt.scope) != row_ids
@@ -396,9 +404,9 @@ async def run_preview(
                 "preview spec or sample differs from its admitted attempt"
             )
     total = len(project.visible_row_ids(sheet_id))
-    output_fields = recipe.output_fields(spec)
+    output_fields = action_program.output_fields(spec)
     field_names = [f["name"] for f in output_fields]
-    required_field_names = required_publication_fields(recipe, output_fields)
+    required_field_names = required_publication_fields(action_program, output_fields)
     managed_publication = True
 
     # Virtual generated columns; mark which overwrite an existing column by name
@@ -422,7 +430,7 @@ async def run_preview(
     source_column_types = {
         c["name"]: c["type"]
         for c in validated.columns
-        if c["name"] in set(recipe.source_columns(spec))
+        if c["name"] in set(action_program.source_columns(spec))
     }
     ctx = ActionContext(
         project=project,
@@ -522,13 +530,13 @@ async def run_preview(
 
     primary: BaseException | None = None
     try:
-        if not recipe.is_llm(spec) and hasattr(recipe, "execute_batch"):
+        if not action_program.is_llm(spec) and hasattr(action_program, "execute_batch"):
             if (
                 attempt is not None
                 and attempt.routed is not None
                 and attempt.routed.binding.facts.cloud_payer is not None
             ):
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation",
                     "Cloud preview batch execution has no admitted effect identity",
                 )
@@ -536,10 +544,10 @@ async def run_preview(
             # before dispatch and while collecting per-row results.
             values_by_row = {
                 row_id: {}
-                if getattr(recipe, "staged_input_capture", None) is not None
+                if getattr(action_program, "staged_input_capture", None) is not None
                 else row_values(
                     project,
-                    recipe,
+                    action_program,
                     spec,
                     col_map,
                     row_id,
@@ -559,10 +567,11 @@ async def run_preview(
                     }
                     raw_results = {}
                     if ready:
-                        async with recipe.execution_scope(
+                        async with action_program.execution_scope(
                             spec, ctx, expected_rows=len(ready)
                         ):
-                            raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
+                            execute_batch = action_program.execute_batch  # type: ignore[attr-defined]
+                            raw_results = await execute_batch(ready, spec, ctx)
                 except (SandboxTeardownError, StaleAttemptWriter):
                     raise
                 except (ValueError, RuntimeError) as e:
@@ -608,7 +617,7 @@ async def run_preview(
                     progress_cb(done, total_sample)
         else:
             lock = asyncio.Lock()
-            worker_count = row_worker_count(recipe, spec)
+            worker_count = row_worker_count(action_program, spec)
             semaphore = asyncio.Semaphore(worker_count)
             stopped: asyncio.CancelledError | None = None
 
@@ -619,11 +628,11 @@ async def run_preview(
                         return
                     row_input_values = row_values(
                         project,
-                        recipe,
+                        action_program,
                         spec,
                         col_map,
                         row_id,
-                        for_model=recipe.is_llm(spec),
+                        for_model=action_program.is_llm(spec),
                         column_types=source_column_types,
                     )
                     row_ctx = ctx
@@ -661,7 +670,7 @@ async def run_preview(
                                 project,
                                 router,
                                 throttle,
-                                recipe,
+                                action_program,
                                 row_input_values,
                                 spec,
                                 row_ctx,
@@ -718,7 +727,7 @@ async def run_preview(
                             progress_cb(done, total_sample)
 
             if total_sample > 0 and not is_cancelled():
-                async with recipe.execution_scope(
+                async with action_program.execution_scope(
                     spec, ctx, expected_rows=total_sample
                 ):
                     await _await_owned_tasks(*(one_row(row_id) for row_id in row_ids))

@@ -61,7 +61,7 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     assert conflict["output_name"] == "summary"
     assert conflict["receipt_id"] == "receipt_1"
 
-    op_id = project.append_op("fixture", {"kind": "claim-bind"}, label="claim bind")
+    op_id = project.append_change("fixture", {"kind": "claim-bind"}, label="claim bind")
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "map.template", total_rows=0
     )

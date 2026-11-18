@@ -251,7 +251,7 @@ test('C6: a PanelEmpty renders identically in a dock tab and a Discover tab', as
 
   // Discover: the Sources tab's empty state.
   await openDiscoverTab(page, 'Sources');
-  const discoverEmpty = page.getByTestId('sources-empty');
+  const discoverEmpty = page.getByTestId('feeds-empty');
   await expect(discoverEmpty).toBeVisible();
   await expect(discoverEmpty).toHaveClass(/panel-empty/);
   const discoverBox = await box(discoverEmpty);

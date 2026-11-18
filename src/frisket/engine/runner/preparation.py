@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner.column_retirement import (
     retire_empty_failed_output,
@@ -34,7 +34,7 @@ PREPARED_ATOMIC_GENERATED_COLUMNS_KEY = "prepared_atomic_output_columns"
 
 @dataclass
 class PreparedRun:
-    recipe: Recipe
+    program: ActionProgram
     sheet_id: int
     col_map: dict[str, int]
     row_ids: list[int]
@@ -224,16 +224,16 @@ def _validate_managed_resume(
     return {str(row["name"]): int(row["id"]) for row in rows}
 
 
-def _validate_managed_recipe_identity(
+def _validate_managed_program_identity(
     *,
     run_id: int,
     run_row: Any,
-    recipe: Recipe,
+    program: ActionProgram,
     action_kind: str,
 ) -> None:
     if str(run_row["action_kind"]) != action_kind or str(
         run_row["action_version"]
-    ) != str(recipe.version):
+    ) != str(program.version):
         raise GenerationStateError(
             f"generation-managed run {run_id} recipe identity changed before recovery"
         )
@@ -401,7 +401,7 @@ def prepare_validated(
     resume_run_id: int | None,
     defer_commits: bool,
 ) -> PreparedRun:
-    recipe = validated.recipe
+    program = validated.program
     est = validated.est
     sheet_id = validated.sheet_id
     columns = validated.columns
@@ -430,10 +430,10 @@ def prepare_validated(
             resume_run_id
         )
         if managed_bindings:
-            _validate_managed_recipe_identity(
+            _validate_managed_program_identity(
                 run_id=resume_run_id,
                 run_row=run_row,
-                recipe=recipe,
+                program=program,
                 action_kind=spec["action_kind"],
             )
         managed_out_cols = _validate_managed_resume(
@@ -496,7 +496,7 @@ def prepare_validated(
         ).fetchall()
         if collisions:
             raise OutputColumnExists([str(row["name"]) for row in collisions])
-    if recipe.atomic_output_columns and not managed_bindings:
+    if program.atomic_output_columns and not managed_bindings:
         if run_row is not None:
             out_cols = prepared_atomic_generated_columns_for_resume(
                 project,
@@ -509,7 +509,7 @@ def prepare_validated(
                 sheet_id=sheet_id,
                 fields=output_fields,
             )
-    for f in [] if recipe.atomic_output_columns or managed_bindings else output_fields:
+    for f in [] if program.atomic_output_columns or managed_bindings else output_fields:
         output_name = str(f["name"])
         expected_column_id = generated_column_ids_by_name.get(output_name)
         target_precondition = raw_target_preconditions.get(output_name)
@@ -727,24 +727,24 @@ def prepare_validated(
             execution_source_binding,
         )
 
-        bind_sources = getattr(recipe, "execution_source_binding", None)
+        bind_sources = getattr(program, "execution_source_binding", None)
         operation_spec = dict(persisted_spec)
         operation_spec[SOURCE_BINDING] = (
             bind_sources(spec)
             if callable(bind_sources)
             else execution_source_binding(
                 sheet_ids=[sheet_id],
-                column_ids=[col_map[name] for name in recipe.source_columns(spec)],
+                column_ids=[col_map[name] for name in program.source_columns(spec)],
             )
         )
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map",
             operation_spec,
-            label=f"{recipe.name}: {', '.join(out_cols)}",
+            label=f"{program.name}: {', '.join(out_cols)}",
             commit=not defer_commits,
         )
         undo_info: dict[str, Any] = {}
-        if recipe.atomic_output_columns:
+        if program.atomic_output_columns:
             # Persist ids because names may change before a queued resume.
             undo_info[PREPARED_ATOMIC_GENERATED_COLUMNS_KEY] = dict(out_cols)
         if created_columns:
@@ -759,9 +759,9 @@ def prepare_validated(
             op_id,
             sheet_id,
             spec["action_kind"],
-            action_version=recipe.version,
-            model=recipe.run_provenance_model(spec),
-            prompt_hash=prompt_hash_of(recipe, persisted_spec),
+            action_version=program.version,
+            model=program.run_provenance_model(spec),
+            prompt_hash=prompt_hash_of(program, persisted_spec),
             params=persisted_spec,
             execution_root_run_id=spec.get("execution_root_run_id"),
             total_rows=len(row_ids),
@@ -788,7 +788,7 @@ def prepare_validated(
         retire_dropped_generated_columns(
             project,
             op_id=op_id,
-            recipe=recipe,
+            program=program,
             spec=spec,
             columns=columns,
             current_output_names=set(out_cols),
@@ -802,7 +802,7 @@ def prepare_validated(
     else:
         row_count = len(row_ids)
     return PreparedRun(
-        recipe=recipe,
+        program=program,
         sheet_id=sheet_id,
         col_map=col_map,
         row_ids=row_ids,
@@ -815,7 +815,7 @@ def prepare_validated(
         run_id=run_id,
         row_count=row_count,
         resolution_bound=(
-            validated.resolved_execution is not None or recipe.consumes_resolution
+            validated.resolved_execution is not None or program.consumes_resolution
         ),
         run_scope_run_id=run_scope_run_id,
     )

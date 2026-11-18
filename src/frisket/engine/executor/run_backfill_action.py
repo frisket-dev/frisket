@@ -49,7 +49,7 @@ from frisket.engine.executor.map_rows_action import (
     typed_program_from_runner_spec,
     typed_request_hash,
 )
-from frisket.engine.runner.validation import recipe_for_spec
+from frisket.engine.runner.validation import action_program_for_spec
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
 
@@ -235,7 +235,9 @@ def prepare_backfill_action(
 
 
 def backfill_program(project: Project, spec: dict[str, Any]) -> Any:
-    return typed_program_from_runner_spec(project, spec) or recipe_for_spec(spec)
+    return typed_program_from_runner_spec(project, spec) or action_program_for_spec(
+        spec
+    )
 
 
 def _cost_error(action: Any, exc: Any) -> ActionError:
@@ -460,7 +462,7 @@ def run_typed_backfill_action(
 
     def runner_factory(current: Project, current_router: Any) -> Any:
         runner = map_runner_factory(current, current_router)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         return runner
 
     write = None

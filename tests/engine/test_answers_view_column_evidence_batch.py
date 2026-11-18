@@ -26,7 +26,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
         [{"Source": "a.pdf"}, {"Source": "b.pdf"}],
         {"Source": source_col},
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.extract",
         {
             "schema_version": "frisket.action.v2",

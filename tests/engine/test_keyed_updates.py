@@ -69,7 +69,7 @@ def _project(tmp_path):
     sheet = project.add_sheet("People")
     col = project.add_column(sheet, "id", "text")
     [row] = project.add_rows(sheet, [{"id": "a"}], {"id": col})
-    op = project.append_op("import.update_rows")
+    op = project.append_change("import.update_rows")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         require_relationship(

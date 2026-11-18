@@ -164,7 +164,7 @@ def test_runtime_resolution_never_downloads_missing_default_model(
 
     monkeypatch.setattr(ocr_local, "_provision_default_rapidocr_recognizer", forbidden)
 
-    with pytest.raises(ocr_local.RecipeInvocationHalt) as caught:
+    with pytest.raises(ocr_local.ActionProgramInvocationHalt) as caught:
         ocr_local._rapidocr_model_root_dir()
 
     assert caught.value.code == "local_artifact_unavailable"

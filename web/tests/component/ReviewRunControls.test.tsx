@@ -12,7 +12,7 @@ beforeAll(installDialogPolyfill);
 afterEach(cleanup);
 
 const run: ReviewRun = {
-  runId: '9', sourceId: '9', copiedOpId: null, sheetId: '3', sheetName: 'Articles', actionKind: 'map.classify',
+  runId: '9', sourceId: '9', copiedChangeId: null, sheetId: '3', sheetName: 'Articles', actionKind: 'map.classify',
   actionName: 'Classify', model: 'model-1', startedAt: '2026-09-01T12:00:00Z',
   reviewStatus: 'open', reviewCompletedAt: null,
   total: {

@@ -6,7 +6,7 @@ import {
   AlertTriangle, ArrowDownToLine, ChevronDown, ChevronUp, FileInput,
   GitBranch, ListChecks, Wand2,
 } from 'lucide-react';
-import type { HistoryOp, HistoryOpRun, HistoryState } from '../api/open';
+import type { HistoryChange, HistoryChangeRun, HistoryState } from '../api/open';
 import { formatUsd } from '../actions/model';
 import { routePath, useRoute } from '../routes';
 import {
@@ -17,7 +17,7 @@ import {
 } from '../workbench/WorkbenchListDetailPanel';
 import { RowErrorGroupList } from '../workbench/RowErrorGroupList';
 
-const KIND_ICONS: Record<HistoryOp['kind'], typeof Wand2> = {
+const KIND_ICONS: Record<HistoryChange['kind'], typeof Wand2> = {
   import: FileInput,
   map: Wand2,
   derive: GitBranch,
@@ -25,17 +25,17 @@ const KIND_ICONS: Record<HistoryOp['kind'], typeof Wand2> = {
   'review-batch': ListChecks,
   sort: ArrowDownToLine,
 };
-const EMPTY_HISTORY_OPS: HistoryOp[] = [];
+const EMPTY_HISTORY_CHANGES: HistoryChange[] = [];
 
 export interface HistoryPanelProps {
   history: HistoryState | null;
-  onRevert(opId: string): Promise<void>;
-  onRestore(opId: string): Promise<void>;
+  onRevert(changeId: string): Promise<void>;
+  onRestore(changeId: string): Promise<void>;
   onLoadPage(offset: number, limit: number): Promise<void>;
 }
 
-function opStateLabel(op: HistoryOp): string {
-  return op.status === 'applied' ? 'Applied' : op.status === 'undone' ? 'Reverted' : 'Archived';
+function changeStateLabel(change: HistoryChange): string {
+  return change.status === 'applied' ? 'Applied' : change.status === 'undone' ? 'Reverted' : 'Archived';
 }
 
 function formatOpTime(at: string): string {
@@ -47,11 +47,11 @@ function formatOpTime(at: string): string {
   });
 }
 
-function opIcon(op: HistoryOp) {
-  return op.barrier ? AlertTriangle : KIND_ICONS[op.kind];
+function changeIcon(change: HistoryChange) {
+  return change.barrier ? AlertTriangle : KIND_ICONS[change.kind];
 }
 
-function rowOutcomeSummary(run: HistoryOpRun): string {
+function rowOutcomeSummary(run: HistoryChangeRun): string {
   if (run.totalRows <= 0) return '—';
   if (run.failedRows > 0) {
     return `${run.failedRows.toLocaleString()} of ${run.totalRows.toLocaleString()} rows failed`;
@@ -59,7 +59,7 @@ function rowOutcomeSummary(run: HistoryOpRun): string {
   return `${run.completedRows.toLocaleString()} of ${run.totalRows.toLocaleString()} rows succeeded`;
 }
 
-function generatedColumnsSummary(run: HistoryOpRun): string {
+function generatedColumnsSummary(run: HistoryChangeRun): string {
   return run.generatedColumns.length > 0
     ? run.generatedColumns.map((c) => c.name).join(', ')
     : '—';
@@ -90,22 +90,22 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
     return `${origin}${path}?run=${encodeURIComponent(runId)}`;
   };
 
-  const ops = history?.ops ?? EMPTY_HISTORY_OPS;
+  const changes = history?.changes ?? EMPTY_HISTORY_CHANGES;
   const pointer = history?.cursorIndex ?? -1;
-  const currentOpId = ops.find((op) => op.index === pointer)?.id ?? null;
+  const currentChangeId = changes.find((change) => change.index === pointer)?.id ?? null;
 
-  const columns: Array<ListDetailColumn<HistoryOp>> = [
+  const columns: Array<ListDetailColumn<HistoryChange>> = [
     {
       key: 'op',
       label: 'Operation',
       defaultWidth: 240,
-      render: (op) => {
-        const Icon = opIcon(op);
+      render: (change) => {
+        const Icon = changeIcon(change);
         return (
           <>
             <span className="history-icon"><Icon size={13} /></span>
-            <span className="history-label">{op.label}</span>
-            {op.id === history?.undoTarget?.id && <span className="history-pointer">undo next</span>}
+            <span className="history-label">{change.label}</span>
+            {change.id === history?.undoTarget?.id && <span className="history-pointer">undo next</span>}
           </>
         );
       },
@@ -114,60 +114,60 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
       key: 'rows',
       label: 'Rows',
       defaultWidth: 90,
-      render: (op) => (op.rowsAffected > 0 ? op.rowsAffected.toLocaleString() : '—'),
+      render: (change) => (change.rowsAffected > 0 ? change.rowsAffected.toLocaleString() : '—'),
     },
     {
       key: 'cost',
       label: 'Cost',
       defaultWidth: 90,
-      render: (op) => (op.cost != null ? formatUsd(op.cost) : '—'),
+      render: (change) => (change.cost != null ? formatUsd(change.cost) : '—'),
     },
     {
       key: 'when',
       label: 'When',
       defaultWidth: 150,
-      render: (op) => formatOpTime(op.at),
+      render: (change) => formatOpTime(change.at),
     },
     {
       key: 'state',
       label: 'State',
       defaultWidth: 96,
-      render: (op) => opStateLabel(op),
+      render: (change) => changeStateLabel(change),
     },
   ];
 
-  const renderDetail = (op: HistoryOp): ReactNode => {
-    const stateLabel = opStateLabel(op);
-    const time = formatOpTime(op.at);
-    const Icon = opIcon(op);
-    const run = op.run;
+  const renderDetail = (change: HistoryChange): ReactNode => {
+    const stateLabel = changeStateLabel(change);
+    const time = formatOpTime(change.at);
+    const Icon = changeIcon(change);
+    const run = change.run;
     const deepLink = run ? deepLinkFor(run.runId) : null;
     const paramsJson = run ? JSON.stringify(run.params, null, 2) : null;
     return (
-      <div data-testid={`history-step-detail-op-${op.id}`}>
+      <div data-testid={`history-step-detail-op-${change.id}`}>
         <ListDetailHeader
           title={
             <>
               <span className="history-icon"><Icon size={13} /></span>
-              {op.label}
+              {change.label}
             </>
           }
           status={stateLabel}
         />
         <ListDetailGrid
           rows={[
-            ['Step', String(op.index + 1)],
+            ['Step', String(change.index + 1)],
             ['State', stateLabel],
             ['When', time],
-            ['Rows', op.rowsAffected > 0 ? op.rowsAffected.toLocaleString() : '—'],
-            ['Cost', op.cost != null ? formatUsd(op.cost) : '—'],
+            ['Rows', change.rowsAffected > 0 ? change.rowsAffected.toLocaleString() : '—'],
+            ['Cost', change.cost != null ? formatUsd(change.cost) : '—'],
             ...(run
               ? ([
                   [
                     'Run ID',
                     <span key="run-id" className="history-run-id-row">
-                      <code data-testid={`history-run-id-${op.id}`}>{run.runId}</code>
-                      <CopyButton text={run.runId} testId={`history-copy-run-id-${op.id}`} />
+                      <code data-testid={`history-run-id-${change.id}`}>{run.runId}</code>
+                      <CopyButton text={run.runId} testId={`history-copy-run-id-${change.id}`} />
                     </span>,
                   ],
                   [
@@ -175,10 +175,10 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
                     deepLink
                       ? (
                         <span key="deep-link" className="history-deep-link-row">
-                          <code data-testid={`history-deep-link-${op.id}`}>{deepLink}</code>
+                          <code data-testid={`history-deep-link-${change.id}`}>{deepLink}</code>
                           <CopyButton
                             text={deepLink}
-                            testId={`history-copy-deep-link-${op.id}`}
+                            testId={`history-copy-deep-link-${change.id}`}
                           />
                         </span>
                       )
@@ -186,13 +186,13 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
                   ],
                   [
                     'Worker version',
-                    <code key="worker-version" data-testid={`history-worker-version-${op.id}`}>
+                    <code key="worker-version" data-testid={`history-worker-version-${change.id}`}>
                       {run.workerVersion ?? 'unknown'}
                     </code>,
                   ],
                   [
                     'Generated columns',
-                    <span key="output-columns" data-testid={`history-output-columns-${op.id}`}>
+                    <span key="output-columns" data-testid={`history-output-columns-${change.id}`}>
                       {generatedColumnsSummary(run)}
                     </span>,
                   ],
@@ -200,7 +200,7 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
                     'Row outcomes',
                     <span
                       key="row-outcomes"
-                      data-testid={`history-row-failure-summary-${op.id}`}
+                      data-testid={`history-row-failure-summary-${change.id}`}
                     >
                       {rowOutcomeSummary(run)}
                     </span>,
@@ -212,7 +212,7 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
         {run && run.rowErrors && run.rowErrors.groups.length > 0 && (
           <section
             className="bottom-dock-detail-section"
-            data-testid={`history-row-errors-${op.id}`}
+            data-testid={`history-row-errors-${change.id}`}
           >
             <h4>Row errors ({run.rowErrors.totalFailedRows.toLocaleString()})</h4>
             <RowErrorGroupList groups={run.rowErrors.groups} />
@@ -222,11 +222,11 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
           <section className="bottom-dock-detail-section">
             <div className="history-params-header">
               <strong>Params</strong>
-              <CopyButton text={paramsJson} testId={`history-copy-params-${op.id}`} />
+              <CopyButton text={paramsJson} testId={`history-copy-params-${change.id}`} />
             </div>
             <pre
               className="history-params-json"
-              data-testid={`history-run-params-${op.id}`}
+              data-testid={`history-run-params-${change.id}`}
             >
               {paramsJson}
             </pre>
@@ -236,19 +236,19 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
           <button
             type="button"
             className="history-page-button"
-            data-testid={`history-${op.status === 'applied' ? 'revert' : 'restore'}-op-${op.id}`}
-            disabled={!op.executable || op.status === 'discarded' || pendingOperation !== null}
-            aria-label={`${op.status === 'applied' ? 'Revert' : 'Restore'} ${op.label}`}
+            data-testid={`history-${change.status === 'applied' ? 'revert' : 'restore'}-op-${change.id}`}
+            disabled={!change.executable || change.status === 'discarded' || pendingOperation !== null}
+            aria-label={`${change.status === 'applied' ? 'Revert' : 'Restore'} ${change.label}`}
             onClick={() => {
               if (pendingOperation !== null) return;
-              setPendingOperation(op.id);
-              const transition = op.status === 'applied' ? onRevert : onRestore;
-              void transition(op.id).finally(() => setPendingOperation(null));
+              setPendingOperation(change.id);
+              const transition = change.status === 'applied' ? onRevert : onRestore;
+              void transition(change.id).finally(() => setPendingOperation(null));
             }}
           >
-            {pendingOperation === op.id ? 'Working…' : op.status === 'applied' ? 'Revert change' : 'Restore change'}
+            {pendingOperation === change.id ? 'Working…' : change.status === 'applied' ? 'Revert change' : 'Restore change'}
           </button>
-          {!op.executable && <p>This change is read-only.</p>}
+          {!change.executable && <p>This change is read-only.</p>}
         </section>
       </div>
     );
@@ -298,8 +298,8 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
 
   return (
     <WorkbenchListDetailPanel
-      items={ops}
-      getRowId={(op) => op.id}
+      items={changes}
+      getRowId={(change) => change.id}
       columns={columns}
       renderDetail={renderDetail}
       emptyText={emptyText}
@@ -309,10 +309,10 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
       tableWidthsStorageKey="frisket:bottom-dock-table-widths:history"
       detailWidthStorageKey="frisket:bottom-dock-detail-width"
       listTestId="history-list"
-      rowTestId={(op) => `history-step-op-${op.id}`}
-      rowClassName={(op) => `history-state-${op.status}`}
-      defaultSelectedId={() => currentOpId}
-      activeRowId={currentOpId}
+      rowTestId={(change) => `history-step-op-${change.id}`}
+      rowClassName={(change) => `history-state-${change.status}`}
+      defaultSelectedId={() => currentChangeId}
+      activeRowId={currentChangeId}
       listHeader={listHeader}
       listFooter={listFooter}
     />

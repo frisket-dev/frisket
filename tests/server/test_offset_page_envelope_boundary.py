@@ -28,7 +28,7 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
     )
     run_ids: list[int] = []
     for index in range(5):
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "index": index},
             label=f"classify {index}",

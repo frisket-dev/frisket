@@ -101,7 +101,7 @@ def _publish_legacy_results(
     columns = sorted({column_id for _row_id, column_id, _ref in values})
     for column_id in columns:
         column_values = [item for item in values if item[1] == column_id]
-        owner = op_id if len(columns) == 1 else project.append_op("media.ocr", {})
+        owner = op_id if len(columns) == 1 else project.append_change("media.ocr", {})
         rows = sorted({row_id for row_id, _column_id, _ref in column_values})
         run_id = RunResultStore(project).start_run(
             owner, sheet_id, "media.ocr", row_ids=rows, total_rows=len(rows)
@@ -144,7 +144,7 @@ def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
                 commit=False,
             )
 
-        text_op_id = project.append_op("media.read_pdf_text")
+        text_op_id = project.append_change("media.read_pdf_text")
         text_run_id = RunResultStore(project).start_run(
             text_op_id,
             sheet_id,
@@ -168,7 +168,7 @@ def test_grid_treats_unattempted_document_text_as_blank_without_hiding_errors(
         )
         RunResultStore(project).finish_run(text_run_id, "completed")
 
-        ordinary_op_id = project.append_op("map.classify")
+        ordinary_op_id = project.append_change("map.classify")
         ordinary_run_id = RunResultStore(project).start_run(
             ordinary_op_id,
             sheet_id,
@@ -446,7 +446,7 @@ def test_adoption_seeds_only_unambiguous_fresh_generated_prepared_refs(
             {"Document": source_column_id},
         )
         unique, ambiguous, stale, manual, hidden = row_ids
-        op_id = project.append_op("media.ocr")
+        op_id = project.append_change("media.ocr")
         unique_ref = _prepared_ref(
             project,
             op_id=op_id,
@@ -657,7 +657,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(tmp_path) 
         legacy_column_id = project.add_column(
             sheet_id, "Search text", type="text", ai_generated=True
         )
-        op_id = project.append_op("media.read_pdf_text")
+        op_id = project.append_change("media.read_pdf_text")
         legacy_ref = _prepared_ref(
             project,
             op_id=op_id,
@@ -794,7 +794,7 @@ def test_adopted_old_row_survives_new_generation_then_can_be_replaced(
         legacy_column_id = project.add_column(
             sheet_id, "Search text", type="text", ai_generated=True
         )
-        op_id = project.append_op("media.read_pdf_text")
+        op_id = project.append_change("media.read_pdf_text")
         old_ref = _prepared_ref(
             project,
             op_id=op_id,

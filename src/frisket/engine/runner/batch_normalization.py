@@ -27,13 +27,13 @@ def normalize_batch_row(
     managed_publication: bool = False,
 ) -> tuple[dict[str, dict[str, Any]], bool, float]:
     """Pure raw-to-cells transform: the shared
-    normalizer for batch-recipe output, used by both ``_run_batch_recipe``
+    normalizer for batch-recipe output, used by both ``_run_batch_program``
     (persisted) and ``preview()`` (in-memory). Returns ``{field: cell}``
     WITHOUT ``row_id``/``column_id`` (callers add those), a ``failed`` flag,
     and the row's cost. No side effects — the ``pending``/``flush``/progress
     bookkeeping stays with each caller.
 
-    ``missing_is_error`` mirrors ``_run_batch_recipe``'s cancel-aware None
+    ``missing_is_error`` mirrors ``_run_batch_program``'s cancel-aware None
     handling: a cancelled run leaves an unattempted row absent; everywhere
     else a missing row is a per-cell error."""
     if raw is None:

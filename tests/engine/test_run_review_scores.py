@@ -104,7 +104,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
     )
     runs = RunResultStore(project)
 
-    source_op = project.append_op("map.classify")
+    source_op = project.append_change("map.classify")
     source_run_id = runs.start_run(
         source_op,
         sheet_id,
@@ -135,7 +135,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
         (source_run_id, source_column_id),
     )
 
-    judge_op = project.append_op("map.judge")
+    judge_op = project.append_change("map.judge")
     judge_run_id = runs.start_run(
         judge_op,
         sheet_id,
@@ -174,7 +174,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
         row_ids=row_ids[2:],
     )
 
-    partial_op = project.append_op("map.judge")
+    partial_op = project.append_change("map.judge")
     partial_run_id = runs.start_run(
         partial_op,
         sheet_id,
@@ -202,7 +202,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
         status="partial",
     )
 
-    other_judge_op = project.append_op("map.judge")
+    other_judge_op = project.append_change("map.judge")
     other_judge_run_id = runs.start_run(
         other_judge_op,
         sheet_id,
@@ -229,7 +229,7 @@ def test_column_run_scores_keep_humans_and_exact_completed_judges_separate(
         row_ids=row_ids[:1],
     )
 
-    replacement_op = project.append_op("map.classify")
+    replacement_op = project.append_change("map.classify")
     replacement_run_id = runs.start_run(
         replacement_op,
         sheet_id,

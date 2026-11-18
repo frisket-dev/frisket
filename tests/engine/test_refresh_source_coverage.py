@@ -85,7 +85,7 @@ def test_refresh_needs_its_exact_completed_receipt_for_whole_sheet_freshness(
             == source
         )
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=owner)
+            step_operation(project, "revert", change_id=owner)
         assert sheet_freshness(project, child) == "synced"
     finally:
         project.close()

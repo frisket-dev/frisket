@@ -16,7 +16,7 @@ from mcp.client.stdio import get_default_environment
 
 from frisket.contracts.http.project_mcp import McpServer
 from frisket.credentials import resolve_project_secret
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.integrations.mcp_stdio import McpStdioClient, McpStdioError, McpTool
 from frisket.project_settings import read_project_mcp_servers
 from frisket.redaction import redact_value
@@ -77,7 +77,7 @@ def _selected_servers(
             if isinstance(server, dict) and server.get("id") == server_id
         ]
         if len(matches) != 1 or not matches[0].get("enabled", False):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_artifact_unavailable",
                 "A selected local MCP server is missing or disabled.",
             )
@@ -87,7 +87,7 @@ def _selected_servers(
             # validate; this preserves the same fail-closed runtime boundary.
             McpServer.model_validate(matches[0])
         except ValueError as exc:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_artifact_unavailable",
                 "A selected local MCP server configuration is unavailable.",
             ) from exc
@@ -127,7 +127,7 @@ class ProjectMcpSessionCollection:
                     continue
                 server_tools = _server_tools(server_id, session.tools)
                 if _contains_known_value(server_tools, secret_values):
-                    raise RecipeInvocationHalt(
+                    raise ActionProgramInvocationHalt(
                         "local_artifact_unavailable",
                         "A selected local MCP server exposed unsafe tool metadata.",
                     )
@@ -135,7 +135,7 @@ class ProjectMcpSessionCollection:
                 self._secret_values[server_id] = secret_values
                 self._tools.extend(server_tools)
             if not self._tools:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "local_artifact_unavailable",
                     "Selected local MCP servers exposed no usable tools.",
                 )
@@ -164,7 +164,7 @@ class ProjectMcpSessionCollection:
             result = await session.call_tool(name, arguments)
         except McpStdioError as exc:
             if exc.may_have_dispatched:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "external_effect_reconciliation_required",
                     "A selected local MCP tool may have run without a returned response.",
                 ) from None

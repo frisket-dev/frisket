@@ -133,9 +133,9 @@ test('command palette entries advertise only executable commands with honest ava
   // ...and clicking it produces the real effect, not just a toast.
   await openSources.click();
   await expect(palette).toHaveCount(0);
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
-  await page.getByTestId('sources-connections-close').click();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
+  await page.getByTestId('feeds-connections-close').click();
 
   await openCommandPalette(page);
 

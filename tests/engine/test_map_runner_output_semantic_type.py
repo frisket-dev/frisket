@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner import preparation
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
@@ -25,7 +25,7 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 
 
 @dataclass
-class _FakeSemanticRecipe(Recipe):
+class _FakeSemanticProgram(ActionProgram):
     """A minimal non-LLM recipe whose single declared output field carries
     whatever ``semantic_type`` the spec asks for (or omits it)."""
 
@@ -61,14 +61,14 @@ def _validated(
     spec: dict,
 ) -> _ValidatedSpec:
     columns = project.columns(sheet_id)
-    recipe = _FakeSemanticRecipe()
+    program = _FakeSemanticProgram()
     return _ValidatedSpec(
-        recipe=recipe,
+        program=program,
         sheet_id=sheet_id,
         columns=columns,
         col_map={c["name"]: c["id"] for c in columns},
         row_ids=row_ids,
-        output_fields=recipe.output_fields(spec),
+        output_fields=program.output_fields(spec),
         est=None,
         has_stored_run_scope=False,
         stored_run_scope_count=None,

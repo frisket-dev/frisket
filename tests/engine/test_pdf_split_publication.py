@@ -95,7 +95,7 @@ def test_null_split_membership_projects_selective_restore_after_later_deletion(
     assert deleted.status == "completed", deleted.errors
     for direction in ("revert", "restore"):
         with project.transaction_scope():
-            op_log.step_operation(project, direction, op_id=publication.op_id)
+            op_log.step_operation(project, direction, change_id=publication.op_id)
     # Restoring the split must respect the independent later deletion.
     assert project.visible_row_ids(sheet) == [children[1], *rows[1:]]
     assert project.undo() == deleted.op_ids[0]
@@ -409,7 +409,7 @@ def test_undo_redo_invalidates_bound_split_preparation_generation(make_project):
     assert is_current()
     # An aborted history transaction must not invalidate admitted work.
     project.db.execute("BEGIN IMMEDIATE")
-    op_log.step_operation(project, "undo", expected_op_id=bound.op_id)
+    op_log.step_operation(project, "undo", expected_change_id=bound.op_id)
     assert not is_current()
     project.db.rollback()
     assert is_current()
@@ -595,11 +595,11 @@ def test_completed_split_pages_survive_source_deletion_while_remaining_work_stop
     from frisket.engine.store.op_log import step_operation
 
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "revert", op_id=publication.op_id)
+    step_operation(project, "revert", change_id=publication.op_id)
     project.db.commit()
     assert destination not in [row["id"] for row in project.sheets()]
     project.db.execute("BEGIN IMMEDIATE")
-    step_operation(project, "restore", op_id=publication.op_id)
+    step_operation(project, "restore", change_id=publication.op_id)
     project.db.commit()
     assert project.visible_row_ids(destination) == children
 

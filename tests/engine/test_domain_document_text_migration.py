@@ -30,7 +30,7 @@ def _setup(tmp_path):
 
 
 def _publish(project, sheet, source, column, row, blob, text):
-    op = project.append_op("media.ocr")
+    op = project.append_change("media.ocr")
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         artifact = record_source_artifact(
@@ -240,7 +240,7 @@ def test_failed_result_facts_survive_adoption(tmp_path):
     project, sheet, source, left, right, blob, rows = _setup(tmp_path)
     with closing(project):
         _publish(project, sheet, source, left, rows[0], blob, "successful")
-        op = project.append_op("media.ocr")
+        op = project.append_change("media.ocr")
         runs = RunResultStore(project)
         run = runs.start_run(op, sheet, "media.ocr", row_ids=[rows[1]], total_rows=1)
         auth = run_writer_authority_fixture(project, run, output_column_ids={right})

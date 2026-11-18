@@ -415,7 +415,9 @@ def test_hosted_admission_refuses_map_python_before_lookup_or_runner(
     def unexpected(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("hosted admission must precede MapRunner lookup")
 
-    monkeypatch.setattr("frisket.engine.runner.validation.recipe_for_spec", unexpected)
+    monkeypatch.setattr(
+        "frisket.engine.runner.validation.action_program_for_spec", unexpected
+    )
     monkeypatch.setattr("frisket.engine.jobs.runs.MapRunner", unexpected)
     admission = HostedAdmission()
     registry = HandlerRegistry()

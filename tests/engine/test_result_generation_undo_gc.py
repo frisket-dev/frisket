@@ -437,7 +437,7 @@ def test_compaction_preserves_discarded_generation_and_its_blob(
             "SELECT 1 FROM blobs WHERE hash=?", (second_blob,)
         ).fetchone()
 
-        project.append_op("branch.after.undo")
+        project.append_change("branch.after.undo")
         project.db.execute(
             "UPDATE ops SET status='applied' WHERE id=?", (second.op_id,)
         )
@@ -571,7 +571,7 @@ def test_compaction_does_not_mutate_generation_history(tmp_path: Path) -> None:
     try:
         _release(project, second)
         assert project.undo() == second.op_id
-        project.append_op("branch.after.undo")
+        project.append_change("branch.after.undo")
         assert (
             project.db.execute(
                 "SELECT status FROM ops WHERE id=?", (second.op_id,)

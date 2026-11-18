@@ -32,7 +32,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.provider import ExecutionCompositionContext
-from frisket.ops.builtin import get_recipe
+from frisket.ops.builtin import get_action_program
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -303,13 +303,13 @@ def test_all_five_routed_preparations_publish_one_exact_tuple(
     key = f"packet-10:{action_kind}"
     action = _seed_action(workspace, action_kind, idempotency_key=key)
 
-    recipe = (
+    program = (
         _typed_map_rows_plan(typed_action_for_request(action)).program
         if "action_id" in action
-        else get_recipe(ACTION_RECIPE[action_kind])
+        else get_action_program(ACTION_RECIPE[action_kind])
     )
-    assert recipe.consumes_resolution
-    original_output_fields = type(recipe).output_fields
+    assert program.consumes_resolution
+    original_output_fields = type(program).output_fields
     minted: list[list[dict[str, Any]]] = []
 
     def count_output_fields(self: Any, spec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -317,7 +317,7 @@ def test_all_five_routed_preparations_publish_one_exact_tuple(
         minted.append(fields)
         return fields
 
-    monkeypatch.setattr(type(recipe), "output_fields", count_output_fields)
+    monkeypatch.setattr(type(program), "output_fields", count_output_fields)
     service = ActionRunService(workspace)
     response = service.run_action(
         "authority",
@@ -865,7 +865,7 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
     ]
     receipt_id = "receipt_pre_atomic_half"
     action_id = "action_pre_atomic_half"
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map",
         {
             QUEUED_ACTION_RUN_MARKER_PARAM: {

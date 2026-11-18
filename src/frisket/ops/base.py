@@ -1,5 +1,6 @@
-"""Recipe contract: a recipe declares typed inputs, builds a
-prompt + output schema per row, and the runner executes it as a parallel map.
+"""Action program contract: the program the row runner executes for an action
+kind declares typed inputs, builds a prompt + output schema per row, and the
+runner executes it as a parallel map.
 Multi-field = one call, always.
 
 The spec is declarative JSON — the durable plan format:
@@ -65,7 +66,7 @@ CostClass = Literal["free", "metered", "unpriceable"]
 # changed or malformed authorized work scope, or a selected credential outside
 # the consented class. The invocation halts before effect and is surfaced as
 # resumable through ``run.backfill``.
-RECIPE_INVOCATION_HALT_CODES = frozenset(
+ACTION_PROGRAM_INVOCATION_HALT_CODES = frozenset(
     {
         "local_engine_busy",
         "local_artifact_unavailable",
@@ -75,7 +76,7 @@ RECIPE_INVOCATION_HALT_CODES = frozenset(
     }
 )
 
-_RECIPE_INVOCATION_HALT_DEFAULT_DETAILS = {
+_ACTION_PROGRAM_INVOCATION_HALT_DEFAULT_DETAILS = {
     "local_engine_busy": (
         "Another local transcription is still finishing; retry after it closes."
     ),
@@ -98,8 +99,8 @@ _RECIPE_INVOCATION_HALT_DEFAULT_DETAILS = {
 }
 
 
-class RecipeInvocationHalt(Exception):
-    """A typed, resumable failure of one recipe invocation, not one row."""
+class ActionProgramInvocationHalt(Exception):
+    """A typed, resumable failure of one program invocation, not one row."""
 
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(detail)
@@ -107,7 +108,7 @@ class RecipeInvocationHalt(Exception):
         self.detail = detail
 
 
-def normalize_recipe_invocation_halt(code: Any, detail: Any) -> tuple[str, str]:
+def normalize_action_program_invocation_halt(code: Any, detail: Any) -> tuple[str, str]:
     """Return the bounded public halt identity a runner may persist.
 
     Recipe adapters should raise only parent-owned codes.  This is also the
@@ -119,20 +120,20 @@ def normalize_recipe_invocation_halt(code: Any, detail: Any) -> tuple[str, str]:
 
     public_code = (
         str(code)
-        if isinstance(code, str) and code in RECIPE_INVOCATION_HALT_CODES
+        if isinstance(code, str) and code in ACTION_PROGRAM_INVOCATION_HALT_CODES
         else None
     )
     if public_code is None:
         public_code = "local_session_failed"
-        public_detail = _RECIPE_INVOCATION_HALT_DEFAULT_DETAILS[public_code]
+        public_detail = _ACTION_PROGRAM_INVOCATION_HALT_DEFAULT_DETAILS[public_code]
     else:
         public_detail = redact_text(detail, max_chars=500) if detail is not None else ""
         if not public_detail:
-            public_detail = _RECIPE_INVOCATION_HALT_DEFAULT_DETAILS[public_code]
+            public_detail = _ACTION_PROGRAM_INVOCATION_HALT_DEFAULT_DETAILS[public_code]
     return public_code, public_detail
 
 
-def persisted_recipe_invocation_halt(params: Any) -> tuple[str, str] | None:
+def persisted_action_program_invocation_halt(params: Any) -> tuple[str, str] | None:
     """Read an allowlisted halt from a run's persisted params.
 
     Unknown or malformed stored codes deliberately mean "not an internal
@@ -149,12 +150,12 @@ def persisted_recipe_invocation_halt(params: Any) -> tuple[str, str] | None:
     if not isinstance(params, Mapping):
         return None
     code = params.get("halted_code")
-    if not isinstance(code, str) or code not in RECIPE_INVOCATION_HALT_CODES:
+    if not isinstance(code, str) or code not in ACTION_PROGRAM_INVOCATION_HALT_CODES:
         return None
     raw_detail = params.get("halted_reason")
     detail = redact_text(raw_detail, max_chars=500) if raw_detail is not None else ""
     if not detail:
-        detail = _RECIPE_INVOCATION_HALT_DEFAULT_DETAILS[code]
+        detail = _ACTION_PROGRAM_INVOCATION_HALT_DEFAULT_DETAILS[code]
     return code, detail
 
 
@@ -297,8 +298,8 @@ class RenderedCall:
 
 
 @dataclass
-class Recipe:
-    """Base class. Subclasses implement render(); non-LLM recipes (search,
+class ActionProgram:
+    """Base class. Subclasses implement render(); non-LLM programs (search,
     transcribe) implement execute() instead and set llm=False."""
 
     name: str = "base"

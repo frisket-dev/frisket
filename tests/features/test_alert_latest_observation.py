@@ -169,7 +169,7 @@ def test_pending_monitored_value_preserves_successful_baseline(scene):
 
     project, sheet, column, rows, alert = scene
     baseline = record(scene, rows)
-    op = project.append_op("map.ask", label="pending observation")
+    op = project.append_change("map.ask", label="pending observation")
     run = RunResultStore(project).start_run(
         op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
     )
@@ -351,7 +351,7 @@ def test_terminal_monitored_cell_is_an_observation_not_permanent_block(scene):
 
     project, sheet, column, rows, alert = scene
     record(scene, rows)
-    op = project.append_op("map.ask", label="failed observation")
+    op = project.append_change("map.ask", label="failed observation")
     run = RunResultStore(project).start_run(
         op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
     )

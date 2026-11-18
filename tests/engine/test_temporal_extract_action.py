@@ -1436,7 +1436,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         ai_generated=True,
     )
     runs = RunResultStore(project)
-    transcript_op_id = project.append_op(
+    transcript_op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
         label="transcribe transcript",
@@ -1471,7 +1471,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         transcript_column_id,
         transcript_run_id,
     )
-    alternate_op_id = project.append_op(
+    alternate_op_id = project.append_change(
         "media.transcribe",
         {
             "kind": "media.transcribe",

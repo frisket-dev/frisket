@@ -32,7 +32,7 @@ variant tag is hashed, so the three architectures can never collide:
     rather than the outer envelope.
 
 Two projection policies, and they differ for a reason (see
-:func:`recipe_confirmation` and :func:`action_confirmation`):
+:func:`action_program_confirmation` and :func:`action_confirmation`):
 
   * The recipe lane DROPS rostered display keys. Adding a page count or a
     warning to a recipe's ``estimate()`` must not invalidate every persisted
@@ -574,7 +574,7 @@ def mint_confirmation_hash(
     return hashlib.sha256(encoded).hexdigest()
 
 
-def recipe_confirmation(
+def action_program_confirmation(
     *,
     family_kind: str,
     scope: RunnerScope,
@@ -583,8 +583,8 @@ def recipe_confirmation(
     """The recipe lane's money gate: the estimate projects through
     ``ConsentEstimate`` and rostered display keys are DROPPED.
 
-    ``register_recipe`` is an open extension point, so this lane cannot
-    enumerate its producers; the roster is what makes the classification
+    Programs reach this lane through the registry lookup by action kind, so
+    it cannot enumerate their producers; the roster is what makes the classification
     closed anyway. An unclassified key refuses here (see
     ``ConsentEstimate.from_estimate``) rather than silently deciding for its
     author whether it changes what the run costs.

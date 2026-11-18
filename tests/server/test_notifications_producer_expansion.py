@@ -71,7 +71,7 @@ def _plugin_candidate(project_id: str) -> dict[str, Any]:
     }
 
 
-def test_source_health_candidates_cover_failure_stale_and_recovery() -> None:
+def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
     failed = source_health_notification_candidate(
         project_id="proj",
         source_id=7,

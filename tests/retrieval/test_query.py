@@ -434,7 +434,7 @@ def test_unique_prepared_lexical_match_narrows_location_to_owning_page(make_proj
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("prepare.test", commit=False)
+    op_id = project.append_change("prepare.test", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -491,7 +491,7 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
         {"File": file_column, "Notes": notes_column},
     )[0]
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("prepare.test", commit=False)
+    op_id = project.append_change("prepare.test", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -580,7 +580,7 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
         {"notes": notes},
     )[0]
     output_names = {"text": "OCR text", "blocks": "OCR positions"}
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.ocr", {"output_names": output_names}, label="OCR fixture"
     )
     artifact = record_source_artifact(
@@ -1846,7 +1846,7 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
         link_role="primary_support",
     )
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("import.pdf", commit=False)
+    op_id = project.append_change("import.pdf", commit=False)
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
         producing_op_id=op_id,
@@ -1909,7 +1909,7 @@ def test_material_coverage_counts_exact_current_prepared_binding_appearances(
     # prepared text result exists.
     drain_index(project)
     project.db.execute("BEGIN IMMEDIATE")
-    op_id = project.append_op("media.read_pdf_text", commit=False)
+    op_id = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

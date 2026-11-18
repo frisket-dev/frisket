@@ -117,7 +117,7 @@ def test_cutover_retires_runless_attempt_and_chat_and_receiptless_local_run(tmp_
             (receipt.receipt_id,),
         )
         project.db.commit()
-        op_id = project.append_op("map.regex_extract", {})
+        op_id = project.append_change("map.regex_extract", {})
         run_id = RunResultStore(project).start_run(
             op_id, sheet_id, "map.regex_extract", row_ids=rows
         )

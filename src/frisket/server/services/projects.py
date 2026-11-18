@@ -1083,7 +1083,7 @@ class ProjectLifecycleService:
         sync_states = compute_sync_states(project)
         # Parent-op kind/label carry "how it's made" so the frontend can drop its
         # hardcoded viaAction:'derive'. Store-owned reads keep this SQL-free.
-        ops_by_id = project.ops_meta(
+        ops_by_id = project.changes_meta(
             [int(s["parent_op_id"]) for s in sheets if s["parent_op_id"] is not None]
         )
         refreshable_sheet_ids = {

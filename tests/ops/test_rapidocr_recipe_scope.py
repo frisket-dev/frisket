@@ -20,7 +20,7 @@ from frisket.engine._workers.rapidocr_session import (
     RapidOCRSessionFailure,
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops import ocr_engines as ocr_mod
 from frisket.ops import ocr_engines_local as ocr_local
 from frisket.ops.ocr_engines import OcrCancelled, OcrEngines, rapidocr_execution_scope
@@ -116,16 +116,16 @@ def test_rapidocr_declaration_drives_topology_concurrency(
     from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
     from functools import partial
 
-    recipe = SimpleNamespace(
+    program = SimpleNamespace(
         max_row_concurrency=partial(
             _TypedMapRowsProgram.max_row_concurrency, SimpleNamespace(_terminal=OCR.run)
         )
     )
-    assert recipe.max_row_concurrency({}) == 3
-    assert recipe.max_row_concurrency({"engine": "rapidocr"}) == 3
-    assert recipe.max_row_concurrency({"engine": "tesseract"}) is None
-    assert recipe.max_row_concurrency({"engine": "dots.mocr"}) is None
-    assert recipe.max_row_concurrency({"engine": "openai/gpt-4.1"}) is None
+    assert program.max_row_concurrency({}) == 3
+    assert program.max_row_concurrency({"engine": "rapidocr"}) == 3
+    assert program.max_row_concurrency({"engine": "tesseract"}) is None
+    assert program.max_row_concurrency({"engine": "dots.mocr"}) is None
+    assert program.max_row_concurrency({"engine": "openai/gpt-4.1"}) is None
 
 
 def test_non_rapidocr_scope_allocates_nothing(
@@ -217,10 +217,10 @@ def test_scope_installs_pool_once_and_resets_before_verified_close(
         async with rapidocr_execution_scope(
             language="japan", cancelled=cancelled, expected_rows=7
         ) as pool:
-            recipe = OcrEngines(pool=pool)
+            program = OcrEngines(pool=pool)
             assert pool is _FakePool.instances[0]
             pages = await asyncio.create_task(
-                recipe._ocr_rapidocr(
+                program._ocr_rapidocr(
                     [Path("/tmp/page-1.png"), Path("/tmp/page-2.png")],
                     Path("/tmp/scratch"),
                     "japan",
@@ -256,7 +256,7 @@ def test_direct_call_requires_explicit_invocation_pool(
     lease = _FakeLease()
     _install_fakes(monkeypatch, lease, workers=3)
 
-    with pytest.raises(RecipeInvocationHalt, match="invocation") as halted:
+    with pytest.raises(ActionProgramInvocationHalt, match="invocation") as halted:
         asyncio.run(
             OcrEngines()._ocr_rapidocr(
                 [Path("/tmp/page.png")], Path("/tmp/scratch"), "korean"
@@ -286,7 +286,7 @@ def test_busy_lease_is_a_typed_resumable_halt(
         async with rapidocr_execution_scope(expected_rows=1, language=None):
             pass
 
-    with pytest.raises(RecipeInvocationHalt) as caught:
+    with pytest.raises(ActionProgramInvocationHalt) as caught:
         asyncio.run(run())
     assert caught.value.code == "local_engine_busy"
 
@@ -297,7 +297,7 @@ def test_busy_lease_is_a_typed_resumable_halt(
         (RapidOCRSessionCancelled("cancel"), OcrCancelled, None),
         (
             RapidOCRSessionFailure("failed"),
-            RecipeInvocationHalt,
+            ActionProgramInvocationHalt,
             "local_session_failed",
         ),
         (RapidOCRRowError("bad image"), RuntimeError, None),
@@ -320,7 +320,7 @@ def test_pool_errors_map_at_recipe_boundary(
             )
         )
     if code is not None:
-        assert isinstance(caught.value, RecipeInvocationHalt)
+        assert isinstance(caught.value, ActionProgramInvocationHalt)
         assert caught.value.code == code
 
 
@@ -355,7 +355,7 @@ def test_missing_runtime_fails_before_local_engine_admission(
         raise AssertionError("model probe must not run without the package")
 
     monkeypatch.setattr(ocr_local, "rapidocr_model_requirements", forbidden)
-    with pytest.raises(RecipeInvocationHalt) as caught:
+    with pytest.raises(ActionProgramInvocationHalt) as caught:
         ocr_local._rapidocr_model_root_dir()
     assert caught.value.code == "local_artifact_unavailable"
     assert "install" in caught.value.detail
@@ -389,11 +389,11 @@ def test_runtime_requires_one_complete_model_root(
     # A partial shared set is rejected, as is a complete set split across roots.
     for filename in filenames[1:]:
         (shared_root / filename).write_bytes(b"model")
-    with pytest.raises(RecipeInvocationHalt) as caught:
+    with pytest.raises(ActionProgramInvocationHalt) as caught:
         ocr_local._rapidocr_model_root_dir("japan")
     assert caught.value.code == "local_artifact_unavailable"
     (package_root / filenames[0]).write_bytes(b"det")
-    with pytest.raises(RecipeInvocationHalt):
+    with pytest.raises(ActionProgramInvocationHalt):
         ocr_local._rapidocr_model_root_dir("japan")
 
     # Completing the shared root selects it; a complete package takes priority.
@@ -457,7 +457,7 @@ def test_missing_requested_language_model_halts_before_worker_creation(
         async with rapidocr_execution_scope(language="latin", expected_rows=2):
             pass
 
-    with pytest.raises(RecipeInvocationHalt) as caught:
+    with pytest.raises(ActionProgramInvocationHalt) as caught:
         asyncio.run(run())
     assert caught.value.code == "local_artifact_unavailable"
     assert lease.released == 1

@@ -58,7 +58,7 @@ try:
     filename = "hearing.wav" if kind == "audio" else "hearing.mp4"
     mime = "audio/wav" if kind == "audio" else "video/mp4"
     row_id = project.add_rows(sheet_id, [{"Source": filename}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.transcribe",
         {
             "schema_version": "frisket.action.v2",
@@ -292,7 +292,7 @@ try:
     source_column_id = project.add_column(sheet_id, "Source", "file")
     transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.transcribe",
         {
             "schema_version": "frisket.action.v2",

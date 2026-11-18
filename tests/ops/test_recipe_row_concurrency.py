@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
@@ -19,15 +19,15 @@ from frisket.engine.store import Project
 from runner_test_helpers import run_with_output_claim
 
 
-class _ConcurrencyProbeRecipe(Recipe):
-    RECIPE_NAME = "row_concurrency_probe"
-    # Required declaration (frisket.ops.base.Recipe.consumes_resolution): a
+class _ConcurrencyProbeProgram(ActionProgram):
+    PROGRAM_NAME = "row_concurrency_probe"
+    # Required declaration (frisket.ops.base.ActionProgram.consumes_resolution): a
     # test recipe that reaches the runner declares like any other.
     consumes_resolution = False
     cost_class = "free"  # required declaration (Recipe)
 
     def __init__(self) -> None:
-        super().__init__(name=self.RECIPE_NAME, llm=False)
+        super().__init__(name=self.PROGRAM_NAME, llm=False)
         self.active = 0
         self.peak = 0
 
@@ -64,8 +64,8 @@ class _ConcurrencyProbeRecipe(Recipe):
 
 
 @pytest.fixture
-def concurrency_probe() -> _ConcurrencyProbeRecipe:
-    return _ConcurrencyProbeRecipe()
+def concurrency_probe() -> _ConcurrencyProbeProgram:
+    return _ConcurrencyProbeProgram()
 
 
 def _project(tmp_path: Path) -> tuple[Project, int, list[int]]:
@@ -102,7 +102,7 @@ def _spec(sheet_id: int, **extras: Any) -> dict[str, Any]:
 def test_transcribe_caps_only_resolved_local_parakeet(
     make_project, params, expected
 ) -> None:
-    assert Recipe().max_row_concurrency({}) is None
+    assert ActionProgram().max_row_concurrency({}) is None
     project = make_project("transcribe-concurrency")
     sheet = project.add_sheet("Audio")
     project.add_column(sheet, "audio", type="audio")
@@ -121,12 +121,12 @@ def test_transcribe_caps_only_resolved_local_parakeet(
 
 def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
     tmp_path: Path,
-    concurrency_probe: _ConcurrencyProbeRecipe,
+    concurrency_probe: _ConcurrencyProbeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         validation,
-        "recipe_for_spec",
+        "action_program_for_spec",
         lambda _spec: concurrency_probe,
     )
     project, sheet_id, _row_ids = _project(tmp_path)
@@ -165,12 +165,12 @@ def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
 
 def test_preview_applies_recipe_cap_and_preserves_uncapped_concurrency(
     tmp_path: Path,
-    concurrency_probe: _ConcurrencyProbeRecipe,
+    concurrency_probe: _ConcurrencyProbeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         validation,
-        "recipe_for_spec",
+        "action_program_for_spec",
         lambda _spec: concurrency_probe,
     )
     project, sheet_id, row_ids = _project(tmp_path)

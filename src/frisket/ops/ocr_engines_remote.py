@@ -30,7 +30,7 @@ from frisket.execution.credential_use import (
     require_consented_credential,
 )
 from frisket.execution.runtime_binding import bind_fact_to_route
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.media_metadata import image_dimensions
 
 DATALAB_ENGINE = "datalab"
@@ -183,7 +183,7 @@ def halt_unless_consented_credential(
             effect=effect,
         )
     except CredentialUseRefusal as exc:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation",
             f"{exc}; select an authorized credential before resuming",
         ) from exc

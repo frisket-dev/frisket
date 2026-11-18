@@ -29,7 +29,7 @@ from frisket.execution.pricing_policy import (
     RatedEstimate,
     install_pricing_policy,
 )
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue
 
@@ -206,7 +206,7 @@ def _run_row(project, run_id: int):
 
 
 def _halt_marker(project, run_id: int):
-    return persisted_recipe_invocation_halt(_run_row(project, run_id)["params"])
+    return persisted_action_program_invocation_halt(_run_row(project, run_id)["params"])
 
 
 def _transcript_values(project, sheet_id: int) -> list[str]:

@@ -28,7 +28,7 @@ from frisket.execution.resolve_for_action import (
 )
 from frisket.execution.resolver import Refusal, ResolvedExecution
 from frisket.server.services.scratch_action_preview import (
-    ScratchActionRecipe,
+    ScratchActionProgram,
     scratch_estimate,
 )
 
@@ -285,9 +285,9 @@ class PdfImportOcrConsentEstimator:
             "engine": params.engine.root,
             **normalized_options,
         }
-        recipe = ScratchActionRecipe("media.ocr", "ocr")
+        program = ScratchActionProgram("media.ocr", "ocr")
         policy = default_pricing_policy()
-        remote_capability = remote_capability_for_spec(recipe, spec)
+        remote_capability = remote_capability_for_spec(program, spec)
 
         def resolve_scope(
             page_count: int, scope: Mapping[str, Any]
@@ -295,7 +295,7 @@ class PdfImportOcrConsentEstimator:
             resolved = resolve_for_action(
                 project,
                 spec,
-                recipe,
+                program,
                 composition=composition,
                 bounded_scratch_input=BoundedScratchInput(page_count, scope),
             )
@@ -315,7 +315,7 @@ class PdfImportOcrConsentEstimator:
             resolved = resolve_for_action(
                 project,
                 spec,
-                recipe,
+                program,
                 composition=composition,
                 bounded_scratch_input=BoundedScratchInput(
                     page_count, scope, row_quantities=row_quantities
@@ -327,7 +327,7 @@ class PdfImportOcrConsentEstimator:
                 raise PdfImportOcrConsentError("OCR route is unavailable")
             raw = scratch_estimate(resolved, quantity_name=None, quantity=page_count)
             raw["rows"] = source_count
-            rated = confirmation_estimate(recipe, spec, raw, policy=policy)
+            rated = confirmation_estimate(program, spec, raw, policy=policy)
             bound = _bind_rated_estimate(resolved, rated)
             uncovered = project_uncovered_user_claims(
                 project,
@@ -539,11 +539,11 @@ def source_page_ocr_grant(
     }
     cost = sum(Decimal(str(child["quote"]["cost"])) for child in children)
     spec = dict(children[0]["spec"])
-    recipe = ScratchActionRecipe("media.ocr", "ocr")
+    program = ScratchActionProgram("media.ocr", "ocr")
     resolved = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=composition,
         bounded_scratch_input=BoundedScratchInput(len(children), scope),
     )

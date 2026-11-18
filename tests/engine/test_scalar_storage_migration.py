@@ -115,7 +115,7 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
         {"source": source_column_id},
     )
 
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)"}, label="generate values"
     )
     results = RunResultStore(project)

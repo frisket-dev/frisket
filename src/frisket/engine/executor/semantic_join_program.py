@@ -134,7 +134,7 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
 
     @asynccontextmanager
     async def execution_scope(self, spec, ctx, *, expected_rows):
-        from frisket.ops.base import RecipeInvocationHalt
+        from frisket.ops.base import ActionProgramInvocationHalt
         from frisket.ai.embeddings.backends import resolve_embedder
         from frisket.engine.store.consumed_sources import (
             read_consumed_source,
@@ -145,11 +145,11 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
         try:
             validate_semantic_join_pins(ctx.project, state)
         except SemanticJoinSourceChanged as exc:
-            raise RecipeInvocationHalt("promise_violation", str(exc)) from exc
+            raise ActionProgramInvocationHalt("promise_violation", str(exc)) from exc
         source, target, _ = semantic_join_references(self._terminal, self._params)
         backend = resolve_embedder(ctx.extras.get("router"), allow_remote=True)
         if backend is None or backend[1] != state["embedding_model"]:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "The admitted semantic embedding backend is no longer available; "
                 "review the current backend before running again.",

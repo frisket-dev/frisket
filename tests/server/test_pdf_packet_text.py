@@ -28,7 +28,7 @@ def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
     project_id = str(workspace.create("Text", project_id="text")["id"])
     project = workspace.get(project_id)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
-    op_id = project.append_op("media.read_pdf_text")
+    op_id = project.append_change("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -83,7 +83,7 @@ def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
     project = workspace.get(project_id)
     sheet = project.add_sheet("Rows")
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
-    op_id = project.append_op("media.ocr")
+    op_id = project.append_change("media.ocr")
     RunResultStore(project).start_run(
         op_id, sheet, "media.ocr", row_ids=[], total_rows=0
     )
@@ -149,7 +149,7 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
             text_column_id=text_column,
             commit=False,
         )
-    op = project.append_op("media.read_pdf_text")
+    op = project.append_change("media.read_pdf_text")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",
@@ -256,7 +256,7 @@ def test_retained_ocr_from_import_keeps_ocr_provenance(tmp_path):
     project_id = str(workspace.create("Text", project_id="imported")["id"])
     project = workspace.get(project_id)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
-    op = project.append_op("import.packet_split")
+    op = project.append_change("import.packet_split")
     artifact = record_source_artifact(
         project,
         artifact_kind="document",

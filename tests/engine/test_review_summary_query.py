@@ -20,7 +20,7 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         [{"source": "one"}, {"source": "two"}],
         {"source": source_id},
     )
-    op_id = project.append_op("map", {"phase": "review summary fixture"})
+    op_id = project.append_change("map", {"phase": "review summary fixture"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -64,7 +64,7 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
         hidden_sheet_id, "hidden_answer", ai_generated=True
     )
     hidden_row_id = project.add_rows(hidden_sheet_id, [{}], {})[0]
-    hidden_op_id = project.append_op("map", {"phase": "hidden sheet fixture"})
+    hidden_op_id = project.append_change("map", {"phase": "hidden sheet fixture"})
     hidden_run_id = RunResultStore(project).start_run(
         hidden_op_id,
         hidden_sheet_id,

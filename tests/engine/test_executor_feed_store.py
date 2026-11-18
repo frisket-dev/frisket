@@ -7,7 +7,7 @@ import pytest
 from frisket.engine.store.feeds import FeedStore
 
 
-def test_source_store_preserves_source_run_lifecycle(
+def test_feed_store_preserves_feed_check_lifecycle(
     make_project,
 ) -> None:
     project = make_project("Sources")

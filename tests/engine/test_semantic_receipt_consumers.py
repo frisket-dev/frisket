@@ -164,7 +164,7 @@ def test_managed_semantic_cells_follow_canonical_owner_not_legacy_head_cache(
         from frisket.engine.store.op_log import step_operation
 
         with project.transaction_scope():
-            step_operation(project, "revert", op_id=matched.op_ids[0])
+            step_operation(project, "revert", change_id=matched.op_ids[0])
     result = run_action_spec(
         project, link_request(matched.receipt_id), project_id="test"
     )

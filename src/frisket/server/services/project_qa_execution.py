@@ -2,7 +2,7 @@
 
 Preparation and dispatch stay with the canonical Project Ask and ActionRun
 services.  This adapter only joins their synchronous launch boundary to the
-research run's asynchronous approval, budget, child-wait, and checkpoint
+research run's asynchronous pauses, budget, child-wait, and checkpoint
 lifecycle.
 """
 
@@ -74,7 +74,7 @@ class ResearchSessionLike(Protocol):
 
     async def pause(
         self,
-        approval: dict[str, Any],
+        pause: dict[str, Any],
         *,
         recheck: Callable[[], Awaitable[bool]] | None = None,
     ) -> str: ...
@@ -113,11 +113,11 @@ class ResearchActionResult(TypedDict):
     warnings: list[str]
 
 
-class _ActionApprovalRequired(Exception):
-    def __init__(self, approval: dict[str, Any], authority: Mapping[str, Any]) -> None:
-        self.approval = approval
+class _ActionConsentRequired(Exception):
+    def __init__(self, pause: dict[str, Any], authority: Mapping[str, Any]) -> None:
+        self.pause = pause
         self.authority = authority
-        super().__init__("action approval required")
+        super().__init__("action consent required")
 
 
 @dataclass(frozen=True)
@@ -207,7 +207,7 @@ def _forbidden_reason(
     return None
 
 
-def _approval_reason(
+def _consent_reason(
     mode: str,
     authority: Mapping[str, Any],
     capabilities: tuple[str, ...],
@@ -277,7 +277,7 @@ class ProjectQAExecutionService:
         self._output_grants_provider = output_grants_provider
         self._output_grant_allows = output_grant_allows
         self._rate_actual_cost = rate_actual_cost
-        self._approved_payloads: set[str] = set()
+        self._consented_payloads: set[str] = set()
         self._launch_identities: dict[str, str] = {}
         self._recorded_dispatches: set[tuple[str, ChildRunDispatch]] = set()
 
@@ -347,11 +347,11 @@ class ProjectQAExecutionService:
         mode = research.get("write_mode")
         if not isinstance(mode, str):
             raise ProjectQAExecutionRefused("research write mode is unavailable")
-        reason = _approval_reason(mode, authority, capabilities, effects)
-        if reason is not None and identity not in self._approved_payloads:
+        reason = _consent_reason(mode, authority, capabilities, effects)
+        if reason is not None and identity not in self._consented_payloads:
             request = authority["request"]
             assert isinstance(request, Mapping)
-            raise _ActionApprovalRequired(
+            raise _ActionConsentRequired(
                 {
                     "kind": "action",
                     "operation_id": str(authority.get("dispatch_id") or ""),
@@ -366,11 +366,11 @@ class ProjectQAExecutionService:
                 authority,
             )
         self._launch_identities[str(authority.get("dispatch_id") or "")] = identity
-        approval: dict[str, Any] = {"payload_identity": identity}
+        consent: dict[str, Any] = {"payload_identity": identity}
         promise = _promise_set_hash(authority)
         if promise is not None:
-            approval["promise_set_hash"] = promise
-        return approval
+            consent["promise_set_hash"] = promise
+        return consent
 
     async def execute_action(
         self, event_ref: Mapping[str, Any]
@@ -405,26 +405,26 @@ class ProjectQAExecutionService:
                     )
                 )
                 launch_cancelled = launch_cancelled or cancelled
-            except _ActionApprovalRequired as required:
+            except _ActionConsentRequired as required:
                 # Re-evaluate the same payload against current policy if a
                 # different operation changed preferences while we waited.
                 authority = required.authority
 
-                async def still_requires_approval():
+                async def still_requires_consent():
                     try:
                         await await_thread_worker(self._authorize_for_policy, authority)
-                    except _ActionApprovalRequired:
+                    except _ActionConsentRequired:
                         return True
                     return False
 
                 decision = await self.research.pause(
-                    required.approval, recheck=still_requires_approval
+                    required.pause, recheck=still_requires_consent
                 )
                 if decision == "continue":
                     continue
                 if decision != "approve":
-                    raise ResearchActionSkipped("research action was not approved")
-                self._approved_payloads.add(required.approval["payload_identity"])
+                    raise ResearchActionSkipped("research action was skipped")
+                self._consented_payloads.add(required.pause["payload_identity"])
                 continue
             except ProjectAskActionUnpriced as unpriced:
                 decision = await self.research.pause(
@@ -549,10 +549,10 @@ class ProjectQAExecutionService:
                 )
                 return
             except Exception as exc:
-                approval = getattr(exc, "approval", None)
-                if not isinstance(approval, dict):
+                pause = getattr(exc, "pause", None)
+                if not isinstance(pause, dict):
                     raise
-                decision = await self.research.pause(approval)
+                decision = await self.research.pause(pause)
                 if decision == "skip":
                     raise ResearchActionSkipped("research action budget was skipped")
 

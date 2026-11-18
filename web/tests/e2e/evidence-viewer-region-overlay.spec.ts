@@ -77,7 +77,7 @@ try:
     # real media.ocr batch action covers a row selection in one run.
     grounded_row_id = project.add_rows(sheet_id, [{"Source": "doc.pdf"}], {"Source": source_column_id})[0]
     fallback_row_id = project.add_rows(sheet_id, [{"Source": "scan.pdf"}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.ocr",
         {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}},
         label="ocr docs",

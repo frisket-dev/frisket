@@ -10,7 +10,7 @@ from frisket.server.routes.feeds import register_feed_routes
 from frisket.server.services.feeds import FeedNotFound
 
 
-def test_source_routes_bind_queries_defaults_and_map_service_errors() -> None:
+def test_feed_routes_bind_queries_defaults_and_map_service_errors() -> None:
     service = _FakeSourceService()
     app = FastAPI()
     register_feed_routes(app, service=service)

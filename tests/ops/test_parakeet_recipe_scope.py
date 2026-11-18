@@ -19,7 +19,7 @@ from frisket.engine._workers.parakeet_session import (
     ParakeetSessionFailure,
 )
 from frisket.sdk.ops.transcription import parakeet as transcribe_mod
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.actions.media_options import TranscriptionOptions
 from frisket.engine.executor.transcription_read import AdmittedTranscriber
 from frisket.sdk.ops.transcribe_engines import TranscribeCancelled
@@ -234,7 +234,7 @@ def test_busy_lease_is_a_typed_resumable_halt(
         raise LocalEngineLeaseBusy("busy")
 
     monkeypatch.setattr(transcribe_mod, "acquire_local_engine_lease", busy)
-    with pytest.raises(RecipeInvocationHalt) as caught:
+    with pytest.raises(ActionProgramInvocationHalt) as caught:
         asyncio.run(transcribe_engines.ParakeetAdapter().transcribe("direct.wav", {}))
     assert caught.value.code == "local_engine_busy"
 
@@ -246,12 +246,12 @@ def test_busy_lease_is_a_typed_resumable_halt(
         (ParakeetSessionCancelled("cancel"), TranscribeCancelled, None),
         (
             ParakeetArtifactUnavailable("missing"),
-            RecipeInvocationHalt,
+            ActionProgramInvocationHalt,
             "local_artifact_unavailable",
         ),
         (
             ParakeetSessionFailure("failed"),
-            RecipeInvocationHalt,
+            ActionProgramInvocationHalt,
             "local_session_failed",
         ),
         (ParakeetRowError("bad audio"), RuntimeError, None),
@@ -271,5 +271,5 @@ def test_session_errors_map_at_the_recipe_boundary(
             )
         )
     if code is not None:
-        assert isinstance(caught.value, RecipeInvocationHalt)
+        assert isinstance(caught.value, ActionProgramInvocationHalt)
         assert caught.value.code == code

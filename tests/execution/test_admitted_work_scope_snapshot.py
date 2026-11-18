@@ -19,11 +19,11 @@ def test_admitted_selection_allows_live_edits_but_not_new_rows(tmp_path, replace
         sheet = project.add_sheet("Source")
         column = project.add_column(sheet, "text")
         row_id = project.add_rows(sheet, [{"text": "original"}], {"text": column})[0]
-        recipe = SimpleNamespace(source_columns=lambda _spec: ["text"])
+        program = SimpleNamespace(source_columns=lambda _spec: ["text"])
         spec = {"sheet_id": sheet}
         payload = {}
         binding = canonical_work_scope_binding(
-            project, recipe, spec, [row_id], snapshot=payload
+            project, program, spec, [row_id], snapshot=payload
         )
         snapshot = AdmittedWorkScopeSnapshot(payload)
         assert payload["row_ids"] == [row_id]
@@ -32,7 +32,7 @@ def test_admitted_selection_allows_live_edits_but_not_new_rows(tmp_path, replace
         def read(selected_row):
             return row_values(
                 project,
-                recipe,
+                program,
                 spec,
                 {"text": column},
                 selected_row,
@@ -51,7 +51,7 @@ def test_admitted_selection_allows_live_edits_but_not_new_rows(tmp_path, replace
         assert after == {"text": replacement}
         assert after.source_cells != before.source_cells
         # Input edits do not invalidate the approved selection or require a new quote.
-        assert canonical_work_scope_binding(project, recipe, spec, [row_id]) == binding
+        assert canonical_work_scope_binding(project, program, spec, [row_id]) == binding
         with pytest.raises(ValueError, match="outside the admitted selection"):
             read(added)
         assert snapshot["row_ids"] == [row_id]

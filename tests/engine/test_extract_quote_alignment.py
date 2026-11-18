@@ -418,7 +418,7 @@ def _stage_prepared_reference(
         PreparedPageDraft,
     )
 
-    op_id = project.append_op("media.ocr", {}, label="prepare exact OCR")
+    op_id = project.append_change("media.ocr", {}, label="prepare exact OCR")
     project.db.execute("BEGIN IMMEDIATE")
     try:
         ref = PreparedContentStore(project).stage_reference(

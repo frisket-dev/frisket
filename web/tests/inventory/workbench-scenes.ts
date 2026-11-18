@@ -144,11 +144,11 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await shot(page, 'Side panels', 'mentions-no-entity-column', 'src/components/MentionsPanel.tsx');
 
   await openDiscoverTab(page, 'Sources');
-  await expect(page.getByTestId('sources-empty')).toBeVisible();
-  await shot(page, 'Side panels', 'sources-empty', 'src/components/FeedsPanel.tsx; src/components/feeds/FeedList.tsx');
-  await page.getByTestId('sources-add-source').click();
-  await expect(page.getByTestId('source-form')).toBeVisible();
-  await shot(page, 'Side panels', 'source-form', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; src/components/importWorkspace/FeedImportForm.tsx');
+  await expect(page.getByTestId('feeds-empty')).toBeVisible();
+  await shot(page, 'Side panels', 'feeds-empty', 'src/components/FeedsPanel.tsx; src/components/feeds/FeedList.tsx');
+  await page.getByTestId('feeds-add-feed').click();
+  await expect(page.getByTestId('feed-form')).toBeVisible();
+  await shot(page, 'Side panels', 'feed-form', 'src/components/importWorkspace/ImportWorkspaceDialog.tsx; src/components/importWorkspace/FeedImportForm.tsx');
   await page.getByTestId('import-workspace-close').click();
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
 
@@ -399,24 +399,24 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
 
   await openProject(page, projectId, sheetId);
   await openDiscoverTab(page, 'Sources');
-  const sourceCard = page.getByTestId(`source-item-${sourceId}`);
+  const sourceCard = page.getByTestId(`feed-item-${sourceId}`);
   await expect(sourceCard).toBeVisible();
-  const pollHistory = sourceCard.getByRole('button', { name: 'Poll history', exact: true });
+  const pollHistory = sourceCard.getByRole('button', { name: 'Check history', exact: true });
   await expect(pollHistory).toHaveAttribute('aria-expanded', 'false');
   await pollHistory.click();
   await expect(pollHistory).toHaveAttribute('aria-expanded', 'true');
-  await expect(pollHistory).toHaveAttribute('aria-controls', `source-poll-history-${sourceId}`);
+  await expect(pollHistory).toHaveAttribute('aria-controls', `feed-check-history-${sourceId}`);
   await expect(pollHistory).toHaveCSS('border-width', '0px');
   await expect(pollHistory).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await expect(page.getByTestId(`source-runs-${sourceId}`)).toContainText(sourceRun.error);
-  await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/feeds/FeedList.tsx', `[data-testid="source-item-${sourceId}"]`);
-  await page.getByTestId(`source-health-${sourceId}`).click();
+  await expect(page.getByTestId(`feed-checks-${sourceId}`)).toContainText(sourceRun.error);
+  await shot(page, 'Panel cards', 'source-with-poll-history', 'synthetic read-only API fixture; src/components/feeds/FeedList.tsx', `[data-testid="feed-item-${sourceId}"]`);
+  await page.getByTestId(`feed-health-${sourceId}`).click();
   await page.getByTestId('source-detail-tab-health').click();
-  await expect(page.getByTestId(`source-health-status-${sourceId}`)).toHaveText('failing');
-  await shot(page, 'Panel cards', 'source-health-summary', 'synthetic read-only API fixture; src/components/feeds/FeedHealthDrawer.tsx; src/components/feeds/FeedHealthContent.tsx', '[data-testid="source-health-drawer"]');
+  await expect(page.getByTestId(`feed-health-status-${sourceId}`)).toHaveText('failing');
+  await shot(page, 'Panel cards', 'feed-health-summary', 'synthetic read-only API fixture; src/components/feeds/FeedHealthDrawer.tsx; src/components/feeds/FeedHealthContent.tsx', '[data-testid="feed-health-drawer"]');
   await page.getByTestId('source-detail-tab-runs').click();
-  await expect(page.getByTestId(`source-health-runs-${sourceId}`)).toContainText(sourceRun.error);
-  await shot(page, 'Panel cards', 'source-health-run-details', 'synthetic read-only API fixture; src/components/feeds/FeedHealthDrawer.tsx; src/components/feeds/FeedHealthContent.tsx', '[data-testid="source-health-drawer"]');
+  await expect(page.getByTestId(`feed-health-checks-${sourceId}`)).toContainText(sourceRun.error);
+  await shot(page, 'Panel cards', 'feed-health-run-details', 'synthetic read-only API fixture; src/components/feeds/FeedHealthDrawer.tsx; src/components/feeds/FeedHealthContent.tsx', '[data-testid="feed-health-drawer"]');
 
   await openDiscoverTab(page, 'Watches');
   await expect(page.getByTestId('alert-item')).toHaveCount(1);

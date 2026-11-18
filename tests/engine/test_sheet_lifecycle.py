@@ -68,7 +68,7 @@ def test_delete_sheet_never_cascades_to_materialized_children(tmp_path):
 def test_delete_sheet_retains_completed_and_running_execution_records(tmp_path):
     with closing(Project.create(tmp_path / "runs.frisket")) as project:
         sheet = project.add_sheet("Running")
-        op = project.append_op("media.read_pdf_text")
+        op = project.append_change("media.read_pdf_text")
         run = RunResultStore(project).start_run(
             op, sheet, "media.read_pdf_text", total_rows=0
         )

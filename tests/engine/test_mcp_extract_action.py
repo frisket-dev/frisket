@@ -20,7 +20,7 @@ import pytest
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
 from frisket.execution.dispatch_control import STANDALONE
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 TOOLS = [
@@ -81,7 +81,7 @@ class _SelectedSessions:
         # facts without making transport call shape part of this test.
         self.calls.append({"args": args, "kwargs": kwargs})
         if self.ambiguous:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "external_effect_reconciliation_required",
                 "The MCP tool was dispatched but its response was lost.",
             )
@@ -257,7 +257,7 @@ def _spec(sheet_id: int) -> dict[str, Any]:
     }
 
 
-def _install_recipe(monkeypatch: pytest.MonkeyPatch, sessions: _SelectedSessions):
+def _install_program(monkeypatch: pytest.MonkeyPatch, sessions: _SelectedSessions):
     factory = _SessionFactory(sessions)
     monkeypatch.setattr(
         "frisket.ops.integrations.mcp_project.ProjectMcpSessionCollection",
@@ -371,7 +371,7 @@ def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sessions = _SelectedSessions()
-    factory = _install_recipe(monkeypatch, sessions)
+    factory = _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter(fail_second_row=True)
     project, sheet_id, row_ids = _seed(tmp_path)
     try:
@@ -428,7 +428,7 @@ def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
 
 def test_agent_tool_loop_is_bounded(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     sessions = _SelectedSessions()
-    _install_recipe(monkeypatch, sessions)
+    _install_program(monkeypatch, sessions)
     adapter = _EndlessToolsAdapter()
     project, sheet_id, row_ids = _seed(tmp_path)
     try:
@@ -451,7 +451,7 @@ def test_ambiguous_tool_dispatch_is_not_automatically_retried(
 ) -> None:
     sessions = _SelectedSessions()
     sessions.ambiguous = True
-    _install_recipe(monkeypatch, sessions)
+    _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter()
     project, sheet_id, row_ids = _seed(tmp_path)
     try:

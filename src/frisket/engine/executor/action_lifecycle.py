@@ -18,8 +18,8 @@ from frisket.contracts.action import (
     Receipt,
 )
 from frisket.engine.executor.action_specs import ResolvedAction
-from frisket.ops import persisted_recipe_invocation_halt
-from frisket.ops.base import Recipe
+from frisket.ops import persisted_action_program_invocation_halt
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner import (
     BatchRowLimitExceeded,
     CostGate,
@@ -107,7 +107,7 @@ def _terminalized_sandbox_teardown_progress(
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run is None or str(run["status"] or "") != "cancelled":
         return None
-    halt = persisted_recipe_invocation_halt(run["params"])
+    halt = persisted_action_program_invocation_halt(run["params"])
     if halt is None:
         return None
     code, detail = halt
@@ -130,7 +130,7 @@ class _PreparedMapExecution:
 
     runner_spec: Mapping[str, Any]
     output_fields: tuple[Mapping[str, Any], ...]
-    program: Recipe
+    program: ActionProgram
     params_hash: str
     receipt_fn: Callable[[Any, int, str, str], Receipt]
     replay_error_fn: Callable[[Receipt], ActionError | None]
@@ -564,14 +564,14 @@ def resolve_maprunner_runner_spec(
     runner_spec_fn: Callable[[Any], dict[str, Any]],
     resolve_fn: Callable[[Any, Any, dict[str, Any]], dict[str, Any] | ActionError],
     precheck_fn: Callable[[Any, Any, dict[str, Any]], ActionError | None],
-    program_fn: Callable[[Any, dict[str, Any]], Recipe | ActionError | None]
+    program_fn: Callable[[Any, dict[str, Any]], ActionProgram | ActionError | None]
     | None = None,
 ) -> (
     tuple[
         dict[str, Any],
         dict[str, Any],
         list[dict[str, Any]] | None,
-        Recipe | None,
+        ActionProgram | None,
     ]
     | ActionError
 ):
@@ -600,13 +600,15 @@ def resolve_maprunner_runner_spec(
     program = program_fn(project, runner_spec) if program_fn is not None else None
     if isinstance(program, ActionError):
         return program
-    from frisket.engine.runner.validation import recipe_for_spec
+    from frisket.engine.runner.validation import action_program_for_spec
 
-    recipe = program if program is not None else recipe_for_spec(runner_spec)
+    action_program = (
+        program if program is not None else action_program_for_spec(runner_spec)
+    )
 
     precomputed_output_fields = (
-        [dict(field) for field in recipe.output_fields(runner_spec)]
-        if recipe.consumes_resolution
+        [dict(field) for field in action_program.output_fields(runner_spec)]
+        if action_program.consumes_resolution
         else None
     )
     if precomputed_output_fields is None:
@@ -763,7 +765,7 @@ def _terminalize_unclaimed_prepared_run(
             # reservation.
             generation_claim_token=None,
             keep_zero_success_generated_columns=bool(
-                prepared_run.recipe.keep_zero_success_generated_columns
+                prepared_run.program.keep_zero_success_generated_columns
             ),
             terminal_attempt_id=terminal_attempt_id,
             terminal_attempt_state=(
@@ -823,7 +825,7 @@ def _run_reserved_maprunner_action(
     legacy_delete_reservation_fn: Callable[[Any, str], None] | None = None,
     write_fn: Callable[..., ActionResult] | None = None,
     resume_run_id_fn: Callable[[Any, Any, dict[str, Any]], int | None] | None = None,
-    program_fn: Callable[[Any, dict[str, Any]], Recipe | ActionError | None]
+    program_fn: Callable[[Any, dict[str, Any]], ActionProgram | ActionError | None]
     | None = None,
     params_hash_fn: Callable[[_ActionExecutionEnvelope], str] | None = None,
     confirmed_fn: Callable[[Any], bool] | None = None,
@@ -896,10 +898,10 @@ def _run_reserved_maprunner_action(
     defer_generation_seal = runner_spec.get("deferred_publication") is True
     from frisket.engine.runner import validation as runner_validation
 
-    recipe = (
+    action_program = (
         program
         if program is not None
-        else runner_validation.recipe_for_spec(runner_spec)
+        else runner_validation.action_program_for_spec(runner_spec)
     )
     output_fields = (
         precomputed_output_fields
@@ -908,7 +910,7 @@ def _run_reserved_maprunner_action(
         if program is not None
         else _runner_output_fields(runner_spec)
     )
-    atomic_publication = resume_run_id is None and recipe.consumes_resolution
+    atomic_publication = resume_run_id is None and action_program.consumes_resolution
     owns_atomic_transaction = atomic_publication and not project.db.in_transaction
     try:
         if owns_atomic_transaction:
@@ -1027,7 +1029,7 @@ def _run_reserved_maprunner_action(
     refusal_site = RefusalSite(
         action_kind=action.kind,
         has_row_scope=action.row_scope is not None,
-        program=recipe,
+        program=action_program,
         output_claim_field=output_claim_error_field,
     )
 

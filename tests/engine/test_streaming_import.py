@@ -872,7 +872,7 @@ def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows
             unrelated[0]: "independent",
         }
         project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "restore", op_id=writer._op_id)
+        step_operation(project, "restore", change_id=writer._op_id)
         project.db.commit()
         assert project.visible_row_ids(sheet) == original + added + unrelated
         assert project.get_values(sheet, column, added) == {added[0]: "imported"}

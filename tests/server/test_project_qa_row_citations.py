@@ -74,7 +74,7 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
     )
 
     output_names = {"text": "ocr_text", "blocks": "ocr_blocks"}
-    op = project.append_op(
+    op = project.append_change(
         "media.ocr",
         {"action_id": "media.ocr", "output_names": output_names},
         label="OCR",

@@ -1400,7 +1400,7 @@ def test_source_file_edit_retires_pending_text(
             commit=True,
         )
         project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_op("prepare.test", commit=False)
+        op_id = project.append_change("prepare.test", commit=False)
         artifact = record_source_artifact(
             project,
             artifact_kind="document",

@@ -64,7 +64,7 @@ export function AskResearchSettings({
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked ? { ...DEFAULT_RESEARCH } : undefined)}
       />
-      <span><strong>Run actions</strong><small>Continue investigating and running approved actions in the background.</small></span>
+      <span><strong>Run actions</strong><small>Keep investigating in the background and run the actions your write access allows.</small></span>
     </label>
     {availabilityMessage && <p className="ask-research-availability" role={onRetry ? 'alert' : undefined}>
       <span>{availabilityMessage}</span>

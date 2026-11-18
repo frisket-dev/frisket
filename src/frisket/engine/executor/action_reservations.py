@@ -18,7 +18,7 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.ai.llm.types import LLMError
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
 from frisket.engine.store.output_claims import (
     OutputColumnClaimStore,
@@ -64,10 +64,10 @@ def _output_claim_token(receipt_id: str) -> str:
 def _runner_output_fields(
     runner_spec: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    from frisket.engine.runner.validation import recipe_for_spec
+    from frisket.engine.runner.validation import action_program_for_spec
 
-    recipe = recipe_for_spec(dict(runner_spec))
-    fields = [dict(field) for field in recipe.output_fields(dict(runner_spec))]
+    program = action_program_for_spec(dict(runner_spec))
+    fields = [dict(field) for field in program.output_fields(dict(runner_spec))]
     if any(
         not isinstance(field.get("name"), str) or not str(field["name"]).strip()
         for field in fields
@@ -160,7 +160,7 @@ class _QueuedActionLifecycleAdapter:
         project_id: str,
         recover_unobservable: bool = False,
         router: Any | None = None,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         commit: bool = True,
     ) -> dict[str, Any] | ActionResult:
         return _reserve_queued_action(
@@ -176,12 +176,14 @@ class _QueuedActionLifecycleAdapter:
         )
 
     def requires_atomic_publication(
-        self, params: BaseModel, *, program: Recipe | None = None
+        self, params: BaseModel, *, program: ActionProgram | None = None
     ) -> bool:
-        from frisket.engine.runner.validation import recipe_for_spec
+        from frisket.engine.runner.validation import action_program_for_spec
 
-        recipe = program or recipe_for_spec(self.spec.runner_spec_fn(params))
-        return bool(recipe.consumes_resolution)
+        action_program = program or action_program_for_spec(
+            self.spec.runner_spec_fn(params)
+        )
+        return bool(action_program.consumes_resolution)
 
     def mark_enqueued(
         self,
@@ -223,7 +225,7 @@ class _QueuedActionLifecycleAdapter:
         run_id: int,
         attempt_id: str | None,
         output_fields: list[dict[str, Any]],
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         reservation_snapshot: Mapping[str, Any] | None = None,
         commit: bool = True,
     ) -> None:
@@ -711,7 +713,7 @@ def _queued_action_reservation_payload(
     project_id: str,
     run_precheck: bool = True,
     router: Any | None = None,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
 ) -> dict[str, Any] | ActionResult:
     ctx = ActionCtx(project_id, action.kind)
     runner_spec = _apply_action_envelope_to_runner_spec(
@@ -736,11 +738,11 @@ def _queued_action_reservation_payload(
         return ctx.fail("local_endpoint_unavailable", str(exc))
     precomputed_output_fields: list[dict[str, Any]] | None = None
     if run_precheck:
-        from frisket.engine.runner.validation import recipe_for_spec
+        from frisket.engine.runner.validation import action_program_for_spec
 
-        recipe = program or recipe_for_spec(runner_spec)
-        if recipe.consumes_resolution:
-            precomputed_output_fields = recipe.output_fields(runner_spec)
+        action_program = program or action_program_for_spec(runner_spec)
+        if action_program.consumes_resolution:
+            precomputed_output_fields = action_program.output_fields(runner_spec)
             output_precheck = spec.precheck_fn(
                 project,
                 params,
@@ -908,7 +910,7 @@ def _recover_existing_queued_action_reservation(
     params: BaseModel,
     spec: _QueuedActionSpec,
     router: Any | None = None,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
 ) -> dict[str, Any] | ActionResult | None:
     if existing["params_hash"] != params_hash or existing["status"] != "queued":
         return None
@@ -968,10 +970,10 @@ def _recover_existing_queued_action_reservation(
                 never_dispatched=True,
             )
         payload.update(original_snapshot)
-    from frisket.engine.runner.validation import recipe_for_spec
+    from frisket.engine.runner.validation import action_program_for_spec
 
-    recovery_recipe = program or recipe_for_spec(payload["runner_spec"])
-    routed = bool(recovery_recipe.consumes_resolution)
+    recovery_program = program or action_program_for_spec(payload["runner_spec"])
+    routed = bool(recovery_program.consumes_resolution)
     prepared_attempt_id = _queued_receipt_prepared_attempt_id(receipt)
     replacement_needed = False
     if routed:
@@ -1020,7 +1022,7 @@ def _reserve_queued_action(
     project_id: str,
     recover_unobservable: bool = False,
     router: Any | None = None,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     commit: bool = True,
 ) -> dict[str, Any] | ActionResult:
     params_hash = spec.params_hash_fn(action)
@@ -1133,9 +1135,11 @@ def _reserve_queued_action(
             if commit:
                 project.db.rollback()
             return ActionCtx(project_id, action.kind).failed(claim_error)
-        from frisket.engine.runner.validation import recipe_for_spec
+        from frisket.engine.runner.validation import action_program_for_spec
 
-        if (program or recipe_for_spec(payload["runner_spec"])).consumes_resolution:
+        if (
+            program or action_program_for_spec(payload["runner_spec"])
+        ).consumes_resolution:
             post_claim_precheck = spec.precheck_fn(
                 project,
                 params,
@@ -1182,7 +1186,7 @@ def _mark_queued_action_run_prepared(
     run_id: int,
     attempt_id: str | None,
     output_fields: list[dict[str, Any]],
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     reservation_snapshot: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> None:
@@ -1210,7 +1214,7 @@ def _mark_queued_action_run_prepared(
 
 
 def _hide_deferred_created_columns(
-    project: Any, run_id: int, program: Recipe | None
+    project: Any, run_id: int, program: ActionProgram | None
 ) -> None:
     if getattr(program, "defer_generation_seal", False) is not True:
         return
@@ -1232,7 +1236,7 @@ def _mark_running_action_run_prepared(
     run_id: int,
     attempt_id: str | None,
     output_fields: list[dict[str, Any]],
-    program: Recipe | None,
+    program: ActionProgram | None,
     defer_publication: bool,
     commit: bool,
 ) -> None:
@@ -1266,7 +1270,7 @@ def _bind_receipt_to_prepared_run(
     receipt_status: Literal["queued", "running"],
     prepared_ref: dict[str, Any] | None,
     output_fields: list[dict[str, Any]],
-    program: Recipe | None,
+    program: ActionProgram | None,
     defer_publication: bool,
     commit: bool,
 ) -> None:

@@ -28,21 +28,24 @@ class ChangeLifecycle(StateMachine):
     restore = inactive.to(applied) | applied.to.itself()
 
 
-def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -> int:
+def start_change(
+    db: sqlite3.Connection, change_id: int, *, writing: bool = False
+) -> int:
     """Allocate the order at the first actual mutation, never at admission."""
     require_transaction(db, "Change command")
     floor = db.execute(
         "SELECT value FROM meta WHERE key='domain_history_floor'"
     ).fetchone()
-    if floor is not None and op_id <= int(floor[0]):
+    if floor is not None and change_id <= int(floor[0]):
         raise ChangePublicationClosed(
             "Pre-upgrade history is read-only; run the action again"
         )
     row = db.execute(
-        "SELECT status,change_order,publication_closed FROM ops WHERE id=?", (op_id,)
+        "SELECT status,change_order,publication_closed FROM ops WHERE id=?",
+        (change_id,),
     ).fetchone()
     if row is None or row[0] != "applied":
-        raise ChangePublicationClosed(f"Change {op_id} is not applied")
+        raise ChangePublicationClosed(f"Change {change_id} is not applied")
     # Prepared operations have publication_closed=1 before they have an order:
     # that default is not proof that a live producer was closed. Cancellation
     # is the existing durable authority preventing their first write, including
@@ -51,16 +54,16 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
         writing
         and db.execute(
             "SELECT 1 FROM runs WHERE op_id=? AND cancel_requested_at IS NOT NULL LIMIT 1",
-            (op_id,),
+            (change_id,),
         ).fetchone()
     ):
-        raise ChangePublicationClosed(f"Change {op_id} execution was cancelled")
+        raise ChangePublicationClosed(f"Change {change_id} execution was cancelled")
     if row[1] is not None:
         if writing and row[2]:
-            raise ChangePublicationClosed(f"Change {op_id} publication is closed")
+            raise ChangePublicationClosed(f"Change {change_id} publication is closed")
         return int(row[1])
     db.execute("UPDATE ops SET redo_eligible=0 WHERE status='undone'")
-    db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(op_id),))
+    db.execute("UPDATE meta SET value=? WHERE key='op_cursor'", (str(change_id),))
     db.execute(
         "INSERT INTO meta(key,value) VALUES ('change_sequence','1') "
         "ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1"
@@ -70,19 +73,19 @@ def start_change(db: sqlite3.Connection, op_id: int, *, writing: bool = False) -
     )
     db.execute(
         "UPDATE ops SET change_order=?,publication_closed=? WHERE id=?",
-        (order, int(not writing), op_id),
+        (order, int(not writing), change_id),
     )
     return order
 
 
-def close_change(db: sqlite3.Connection, op_id: int) -> None:
+def close_change(db: sqlite3.Connection, change_id: int) -> None:
     """Close one Change inside the caller's transaction."""
     require_transaction(db, "Change command")
     row = db.execute(
-        "SELECT status,publication_closed FROM ops WHERE id=?", (op_id,)
+        "SELECT status,publication_closed FROM ops WHERE id=?", (change_id,)
     ).fetchone()
     if row is None:
-        raise ValueError(f"unknown Change {op_id}")
+        raise ValueError(f"unknown Change {change_id}")
     state = "inactive" if row[0] != "applied" else ("applied" if row[1] else "writing")
     machine = ChangeLifecycle(start_value=state)
     machine.send("close")
@@ -92,7 +95,7 @@ def close_change(db: sqlite3.Connection, op_id: int) -> None:
         (
             "undone" if target == "inactive" else "applied",
             int(target != "writing"),
-            op_id,
+            change_id,
         ),
     )
 
@@ -105,24 +108,24 @@ class ChangeStore:
     def db(self) -> sqlite3.Connection:
         return self.project.db
 
-    def start(self, op_id: int, *, writing: bool = True) -> int:
-        return start_change(self.db, op_id, writing=writing)
+    def start(self, change_id: int, *, writing: bool = True) -> int:
+        return start_change(self.db, change_id, writing=writing)
 
-    def require_publication(self, op_id: int) -> None:
+    def require_publication(self, change_id: int) -> None:
         row = self.db.execute(
             "SELECT status,publication_closed,change_order FROM ops WHERE id=?",
-            (op_id,),
+            (change_id,),
         ).fetchone()
         if row is None or row[0] != "applied" or row[1] or row[2] is None:
-            raise ChangePublicationClosed(f"Change {op_id} publication is closed")
+            raise ChangePublicationClosed(f"Change {change_id} publication is closed")
 
-    def _transition(self, op_id: int, event: str) -> None:
+    def _transition(self, change_id: int, event: str) -> None:
         require_transaction(self.db, "Change command")
         row = self.db.execute(
-            "SELECT status,publication_closed FROM ops WHERE id=?", (op_id,)
+            "SELECT status,publication_closed FROM ops WHERE id=?", (change_id,)
         ).fetchone()
         if row is None:
-            raise ValueError(f"unknown Change {op_id}")
+            raise ValueError(f"unknown Change {change_id}")
         state = (
             "inactive" if row[0] != "applied" else ("applied" if row[1] else "writing")
         )
@@ -134,15 +137,15 @@ class ChangeStore:
             (
                 "undone" if target == "inactive" else "applied",
                 int(target != "writing"),
-                op_id,
+                change_id,
             ),
         )
 
-    def close(self, op_id: int) -> None:
-        close_change(self.db, op_id)
+    def close(self, change_id: int) -> None:
+        close_change(self.db, change_id)
 
-    def revert(self, op_id: int) -> None:
-        self._transition(op_id, "revert")
+    def revert(self, change_id: int) -> None:
+        self._transition(change_id, "revert")
         # A running producer may already be outside SQLite in a provider
         # request. Undo closes its publication fence above and asks the worker
         # to stop at its next cooperative checkpoint. Any call which has
@@ -151,8 +154,8 @@ class ChangeStore:
             "UPDATE runs SET cancel_requested_at="
             "COALESCE(cancel_requested_at,datetime('now')) "
             "WHERE op_id=? AND status='running'",
-            (int(op_id),),
+            (int(change_id),),
         )
 
-    def restore(self, op_id: int) -> None:
-        self._transition(op_id, "restore")
+    def restore(self, change_id: int) -> None:
+        self._transition(change_id, "restore")

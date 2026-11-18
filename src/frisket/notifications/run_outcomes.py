@@ -17,7 +17,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.notifications.candidates import NotificationCandidate
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import run_transition_notification_candidate
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 
 if TYPE_CHECKING:
     from frisket.contracts.action import ActionResult
@@ -91,7 +91,7 @@ def run_outcome_notification_candidate(
     # An allowlisted invocation halt is a resumable stop the person must act
     # on; any other cancellation reads as an ordinary cancel.
     halt = (
-        persisted_recipe_invocation_halt(run["params"])
+        persisted_action_program_invocation_halt(run["params"])
         if status == "cancelled"
         else None
     )

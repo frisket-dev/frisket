@@ -249,7 +249,7 @@ def authored_options(
 
 
 def _transcribe_row_quantities_seconds(
-    project: Any, spec: Mapping[str, Any], recipe: Any
+    project: Any, spec: Mapping[str, Any], program: Any
 ) -> dict[int, float] | None:
     """Selected audio seconds keyed by exact row, or ``None`` if unknown.
 
@@ -266,7 +266,7 @@ def _transcribe_row_quantities_seconds(
     quantities: dict[int, float] = {}
     for row_id in row_ids:
         values = row_values(
-            project, recipe, dict(spec), col_map, row_id, for_model=False
+            project, program, dict(spec), col_map, row_id, for_model=False
         )
         seconds = total_audio_seconds([values], project)
         if seconds is None:
@@ -276,7 +276,7 @@ def _transcribe_row_quantities_seconds(
 
 
 def _document_quantity_pages(
-    project: Any, spec: Mapping[str, Any], recipe: Any
+    project: Any, spec: Mapping[str, Any], program: Any
 ) -> int | None:
     """Total selected PAGES, or ``None`` when a selected row's page count is
     not knowable before the run.
@@ -295,12 +295,12 @@ def _document_quantity_pages(
     One unknown row makes the total unknown, never a smaller number than the
     truth. Blank rows contribute zero.
     """
-    quantities = _document_row_quantities_pages(project, spec, recipe)
+    quantities = _document_row_quantities_pages(project, spec, program)
     return None if quantities is None else sum(quantities.values())
 
 
 def _document_row_quantities_pages(
-    project: Any, spec: Mapping[str, Any], recipe: Any
+    project: Any, spec: Mapping[str, Any], program: Any
 ) -> dict[int, int] | None:
     """Selected page count keyed by row, or ``None`` when any is unknown."""
 
@@ -314,7 +314,7 @@ def _document_row_quantities_pages(
     quantities: dict[int, int] = {}
     for row_id in row_ids:
         values = row_values(
-            project, recipe, dict(spec), col_map, row_id, for_model=False
+            project, program, dict(spec), col_map, row_id, for_model=False
         )
         candidates = [v for v in values.values() if not is_empty_cell_value(v)]
         if not candidates:
@@ -369,7 +369,7 @@ def _document_row_quantities_pages(
 def _ocr_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
@@ -400,7 +400,7 @@ def _ocr_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, program)
     pages = None if row_pages is None else sum(row_pages.values())
     basis = estimate_ocr(
         target_id=target_id,
@@ -416,7 +416,7 @@ def _ocr_cost_basis(
 def _transcribe_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, float | None]:
@@ -451,7 +451,7 @@ def _transcribe_cost_basis(
         is None
     ):
         return OperatorBorneZeroCost(), None
-    row_seconds = _transcribe_row_quantities_seconds(project, spec, recipe)
+    row_seconds = _transcribe_row_quantities_seconds(project, spec, program)
     seconds = None if row_seconds is None else sum(row_seconds.values())
     basis = estimate_transcription(
         target_id=target_id,
@@ -505,7 +505,7 @@ def _free_local_or(
 
 
 def _translate_quantity_characters(
-    project: Any, spec: Mapping[str, Any], recipe: Any
+    project: Any, spec: Mapping[str, Any], program: Any
 ) -> int | None:
     """Total selected SOURCE characters — what both hosted MT providers bill
     on, measured off the same cells the run will send.
@@ -524,7 +524,7 @@ def _translate_quantity_characters(
     total = 0
     for row_id in row_ids:
         values = row_values(
-            project, recipe, dict(spec), col_map, row_id, for_model=False
+            project, program, dict(spec), col_map, row_id, for_model=False
         )
         total += len(translation_text(values))
     return total
@@ -538,7 +538,7 @@ def _selected_row_count(project: Any, spec: Mapping[str, Any]) -> int:
     return len(target_rows(project, dict(spec)))
 
 
-def _ner_cost_basis(project, spec, recipe, resolution, composition):
+def _ner_cost_basis(project, spec, program, resolution, composition):
     """Current NER venues are operator-owned or explicitly included."""
     if _free_local_or(CAPABILITY_NER, resolution, composition) is not None:
         raise ValueError(
@@ -550,7 +550,7 @@ def _ner_cost_basis(project, spec, recipe, resolution, composition):
 def _classify_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
@@ -569,7 +569,7 @@ def _classify_cost_basis(
     funding, target_id, engine, offering = resolved
     # The durable identity deliberately omits unset defaults. Execution already
     # has validated typed Params; use the same fully populated fields for cost.
-    params = recipe._params.model_dump(mode="json")
+    params = program._params.model_dump(mode="json")
     question_builder, estimate_tokens = clef_questions, estimate_clef_input_tokens
     if engine == "openai-decisions":
         from frisket.contracts.decisions import (
@@ -586,7 +586,7 @@ def _classify_cost_basis(
     input_tokens = 0
     for row_id in target_rows(project, dict(spec)):
         values = row_values(
-            project, recipe, dict(spec), col_map, row_id, for_model=False
+            project, program, dict(spec), col_map, row_id, for_model=False
         )
         text = classification_text(values)
         if text.strip():
@@ -603,7 +603,7 @@ def _classify_cost_basis(
 def _translate_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
@@ -612,7 +612,7 @@ def _translate_cost_basis(
     if resolved is None:
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
-    characters = _translate_quantity_characters(project, spec, recipe)
+    characters = _translate_quantity_characters(project, spec, program)
     basis = estimate_translate(
         target_id=target_id,
         engine=engine,
@@ -626,7 +626,7 @@ def _translate_cost_basis(
 def _to_markdown_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
@@ -640,7 +640,7 @@ def _to_markdown_cost_basis(
     if resolved is None:
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
-    row_pages = _document_row_quantities_pages(project, spec, recipe)
+    row_pages = _document_row_quantities_pages(project, spec, program)
     pages = None if row_pages is None else sum(row_pages.values())
     basis = estimate_to_markdown(
         target_id=target_id,
@@ -656,12 +656,12 @@ def _to_markdown_cost_basis(
 def _geocode_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
     """(cost basis, rows), rated through THE price book."""
-    del recipe
+    del program
     resolved = _free_local_or(CAPABILITY_GEOCODE, resolution, composition)
     if resolved is None:
         return OperatorBorneZeroCost(), None
@@ -680,12 +680,12 @@ def _geocode_cost_basis(
 def _census_cost_basis(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     resolution: Resolution,
     composition: ExecutionComposition,
 ) -> tuple[CostBasis, int | None]:
     """(cost basis, rows), rated through THE price book."""
-    del recipe
+    del program
     resolved = _free_local_or(CAPABILITY_CENSUS, resolution, composition)
     if resolved is None:
         return OperatorBorneZeroCost(), None
@@ -704,21 +704,21 @@ def _census_cost_basis(
 def _llm_rendered_calls(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     row_ids: Sequence[int],
 ) -> dict[int, Any]:
     from frisket.engine.runner.row_inputs import row_values
 
     col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
     return {
-        int(row_id): recipe.render(
-            row_values(project, recipe, dict(spec), col_map, int(row_id)), dict(spec)
+        int(row_id): program.render(
+            row_values(project, program, dict(spec), col_map, int(row_id)), dict(spec)
         )
         for row_id in row_ids
     }
 
 
-def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
+def _llm_options(rendered: Mapping[int, Any], program: Any) -> dict[str, Any]:
     from frisket.ai.llm.types import has_document_content
 
     def has_image(value: Any) -> bool:
@@ -734,7 +734,7 @@ def _llm_options(rendered: Mapping[int, Any], recipe: Any) -> dict[str, Any]:
     calls = tuple(rendered.values())
     return {
         "structured_output": any(call.schema is not None for call in calls),
-        "tools": hasattr(recipe, "run_agent"),
+        "tools": hasattr(program, "run_agent"),
         "vision": any(
             has_image(call.messages) or has_document_content(call.messages)
             for call in calls
@@ -748,7 +748,7 @@ def _llm_cost_basis(
     resolution: Resolution,
     rendered: Mapping[int, Any],
     *,
-    recipe: Any,
+    program: Any,
 ) -> tuple[CostBasis, int | None]:
     from frisket.cloud_execution import cloud_llm_estimated_spend_micro
     from frisket.contracts.http.cloud_connection import (
@@ -771,7 +771,7 @@ def _llm_cost_basis(
     # all-metered settlement. Agent tool rounds remain unknown quantity.
     from frisket.ai.llm.pdf_estimates import estimate_input_tokens
 
-    estimable_first_call = not hasattr(recipe, "run_agent") and all(
+    estimable_first_call = not hasattr(program, "run_agent") and all(
         estimate_input_tokens(call.messages) is not None for call in rendered.values()
     )
     row_micro: dict[int, int] = {}
@@ -895,7 +895,7 @@ def _llm_support_is_unrestricted(support: TargetEngineSupport) -> bool:
 def resolve_for_action(
     project: Any,
     spec: Mapping[str, Any],
-    recipe: Any,
+    program: Any,
     *,
     composition: ExecutionComposition,
     persistence: Persistence = "durable",
@@ -912,8 +912,8 @@ def resolve_for_action(
     """
     llm_route_check = False
     rendered_llm: dict[int, Any] | None = None
-    if not recipe.consumes_resolution:
-        if not recipe.is_llm(dict(spec)):
+    if not program.consumes_resolution:
+        if not program.is_llm(dict(spec)):
             return None
         model = spec.get("model")
         if not isinstance(model, str) or not model.strip():
@@ -924,10 +924,10 @@ def resolve_for_action(
     # ``consumes_resolution`` is: a recipe that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
-    capability = CAPABILITY_LLM if llm_route_check else recipe.execution_capability
+    capability = CAPABILITY_LLM if llm_route_check else program.execution_capability
     if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
-            f"recipe '{getattr(recipe, 'name', recipe)}' declares "
+            f"recipe '{getattr(program, 'name', program)}' declares "
             f"execution_capability={capability!r}, which no execution-seam "
             "capability serves"
         )
@@ -1010,8 +1010,8 @@ def resolve_for_action(
             from frisket.engine.runner.validation import target_rows
 
             scope_row_ids = target_rows(project, dict(spec))
-        rendered_llm = _llm_rendered_calls(project, spec, recipe, scope_row_ids)
-        options = _llm_options(rendered_llm, recipe)
+        rendered_llm = _llm_rendered_calls(project, spec, program, scope_row_ids)
+        options = _llm_options(rendered_llm, program)
         inability = support_inability(outcome.support, options)
         if inability is not None:
             return Refusal(
@@ -1065,11 +1065,11 @@ def resolve_for_action(
     if capability == CAPABILITY_LLM:
         assert rendered_llm is not None
         cost_basis, quantity = _llm_cost_basis(
-            composition, outcome, rendered_llm, recipe=recipe
+            composition, outcome, rendered_llm, program=program
         )
     elif bounded_scratch_input is None:
         assert estimator is not None
-        cost_basis, quantity = estimator(project, spec, recipe, outcome, composition)
+        cost_basis, quantity = estimator(project, spec, program, outcome, composition)
     else:
         quantity = bounded_scratch_input.quantity
         funding = funding_for_cost_posture(outcome.facts.cost_posture)
@@ -1147,7 +1147,7 @@ def resolve_for_action(
     work_scope = (
         dict(bounded_scratch_input.work_scope)
         if bounded_scratch_input is not None
-        else canonical_work_scope_binding(project, recipe, spec, scope_row_ids)
+        else canonical_work_scope_binding(project, program, spec, scope_row_ids)
     )
     promise_set = compile_route_promises(
         outcome.facts,

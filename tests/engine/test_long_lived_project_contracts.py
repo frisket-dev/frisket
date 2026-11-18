@@ -17,7 +17,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.engine.store.result_generations import GenerationSealedError
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 from runner_test_helpers import run_with_output_claim
 
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
-class _EmptyScopeRecipe(Recipe):
+class _EmptyScopeProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
     name: str = "test.empty_scope"
@@ -67,7 +67,9 @@ def _seed_completed_full_sheet_run(
     output_col: int,
     row_ids: list[int],
 ) -> int:
-    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="classify")
+    op_id = project.append_change(
+        "map", {"action_kind": "map.classify"}, label="classify"
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -137,7 +139,7 @@ def test_result_writes_do_not_overcount_duplicate_row_upserts(
 ) -> None:
     project, sheet_id, _text_col, output_col, row_ids = _seed_project(tmp_path)
     try:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="classify"
         )
         run_id = RunResultStore(project).start_run(
@@ -203,7 +205,7 @@ def test_result_writes_do_not_overcount_duplicate_row_upserts(
 def test_result_writes_update_failed_state_by_batch_delta(tmp_path: Path) -> None:
     project, sheet_id, _text_col, output_col, row_ids = _seed_project(tmp_path)
     try:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="classify"
         )
         run_id = RunResultStore(project).start_run(
@@ -263,7 +265,7 @@ def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
         [{"text": f"row-{index}"} for index in range(1005)],
         {"text": text_col},
     )
-    op_id = project.append_op("map", {"action_kind": "map.classify"}, label="large")
+    op_id = project.append_change("map", {"action_kind": "map.classify"}, label="large")
 
     run_id = RunResultStore(project).start_run(
         op_id,
@@ -283,7 +285,7 @@ def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
 def test_run_scope_write_failure_rolls_back_run_and_marker(tmp_path: Path) -> None:
     project, sheet_id, _text_col, _output_col, _row_ids = _seed_project(tmp_path)
     try:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="bad scope"
         )
 
@@ -311,7 +313,7 @@ def test_run_scope_write_failure_rolls_back_run_and_marker(tmp_path: Path) -> No
 def test_empty_run_scope_stays_empty_after_rows_are_added(tmp_path: Path) -> None:
     project, sheet_id, text_col, _output_col, _row_ids = _seed_project(tmp_path)
     try:
-        op_id = project.append_op(
+        op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="empty run"
         )
         run_id = RunResultStore(project).start_run(
@@ -335,7 +337,7 @@ def test_empty_run_scope_stays_empty_after_rows_are_added(tmp_path: Path) -> Non
 
 def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> None:
     project, sheet_id, text_col, _output_col, _row_ids = _seed_project(tmp_path)
-    program = _EmptyScopeRecipe()
+    program = _EmptyScopeProgram()
     spec = {
         "action_kind": program.name,
         "sheet_id": sheet_id,

@@ -62,14 +62,14 @@ export function FeedsPanel({
   const openHealth = healthOpenId == null ? null : health[healthOpenId] ?? null;
 
   return (
-    <section className="content-stack" data-testid="sources">
-      <div className="content-stack" data-testid="sources-panel">
+    <section className="content-stack" data-testid="feeds">
+      <div className="content-stack" data-testid="feeds-panel">
         {onOpenImportDialog && (
           <div className="control-row" data-align="end">
             <Button
               type="button"
               className="btn-primary"
-              data-testid="sources-add-source"
+              data-testid="feeds-add-feed"
               onClick={onOpenImportDialog}
             >
               <Plus size={13} aria-hidden /> Add feed
@@ -78,7 +78,7 @@ export function FeedsPanel({
         )}
 
         {error && (
-          <PanelError testId="sources-error">{error}</PanelError>
+          <PanelError testId="feeds-error">{error}</PanelError>
         )}
 
         {form.editingId != null && (

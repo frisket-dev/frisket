@@ -165,7 +165,7 @@ def test_target_edit_changes_semantic_join_input_freshness(case):
     )
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", op_id=edit)
+        step_operation(case.project, "revert", change_id=edit)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
 
@@ -204,7 +204,7 @@ def test_target_membership_changes_semantic_join_freshness(case):
     append = case.project.db.execute("SELECT max(id) FROM ops").fetchone()[0]
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", op_id=append)
+        step_operation(case.project, "revert", change_id=append)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
 
 
@@ -267,7 +267,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
         "JOIN output_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
     ).fetchone()
     runner = _default_map_runner_factory(case.project, None)
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     progress = asyncio.run(
         runner.run(
             admitted["spec"],
@@ -329,7 +329,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
     assert json.loads(actual[0])["shared_inputs"] == saved["shared_inputs"]
     assert row_input_state(case.project, result.run_id, case.left_row) == "stale"
     with case.project.transaction_scope():
-        step_operation(case.project, "revert", op_id=edit)
+        step_operation(case.project, "revert", change_id=edit)
     assert row_input_state(case.project, result.run_id, case.left_row) == "fresh"
     # A retained result inherits only its own corpus, not the unused newer
     # corpus read while its old response was recovered.

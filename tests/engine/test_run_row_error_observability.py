@@ -46,7 +46,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ChaosConfig, ModelRouter, ResponseCache
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.server.app import create_app
 from frisket.server.run_status import ProjectRunStatus, project_run_status_payload
@@ -153,7 +153,7 @@ class TestNonLlmExecuteFailurePersistence:
     def test_execute_style_recipe_failure_persists_like_transcribe(
         self, project: Project, monkeypatch: Any
     ) -> None:
-        class _FakeEmptyInputRecipe(Recipe):
+        class _FakeEmptyInputProgram(ActionProgram):
             consumes_resolution = False  # required declaration (Recipe)
             cost_class = "free"  # required declaration (Recipe)
 
@@ -164,12 +164,14 @@ class TestNonLlmExecuteFailurePersistence:
 
         import frisket.engine.runner.validation as validation_module
 
-        fake_recipe = _FakeEmptyInputRecipe(name="fake_empty_input", llm=False)
-        fake_recipe.source_columns = lambda spec: ["text"]  # type: ignore[method-assign]
-        fake_recipe.output_fields = lambda spec: [  # type: ignore[method-assign]
+        fake_program = _FakeEmptyInputProgram(name="fake_empty_input", llm=False)
+        fake_program.source_columns = lambda spec: ["text"]  # type: ignore[method-assign]
+        fake_program.output_fields = lambda spec: [  # type: ignore[method-assign]
             {"name": "out", "column_type": "text"}
         ]
-        monkeypatch.setattr(validation_module, "get_recipe", lambda name: fake_recipe)
+        monkeypatch.setattr(
+            validation_module, "get_action_program", lambda name: fake_program
+        )
         # a non-empty source value: this test is about the execute()-raises
         # path, not the (separately tested) all-empty precheck.
         sheet, _ = _seed_sheet(project, ["some text"])
@@ -207,7 +209,7 @@ class TestRowErrorSummaryShape:
         )
         first = project.add_column(sheet, "first", type="text", ai_generated=True)
         second = project.add_column(sheet, "second", type="text", ai_generated=True)
-        op = project.append_op("map", {"action_kind": "map.classify"})
+        op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=1)
         write_claimed_test_results(
@@ -285,7 +287,7 @@ class TestRowErrorSummaryShape:
             )
         ]
         ai_col = project.add_column(sheet, "result", type="text", ai_generated=True)
-        op = project.append_op("map", {"action_kind": "map.classify"})
+        op = project.append_change("map", {"action_kind": "map.classify"})
         store = RunResultStore(project)
         run_id = store.start_run(op, sheet, "map.classify", total_rows=2)
         write_claimed_test_results(
@@ -386,7 +388,7 @@ class TestRowErrorSummaryShape:
 
         # Runs created before immutable row scopes existed have no generation
         # or scope marker, so their historical behavior remains inclusive.
-        legacy_op_id = project.append_op("map")
+        legacy_op_id = project.append_change("map")
         legacy_run_id = store.start_run(
             legacy_op_id,
             int(result["sheet_id"]),

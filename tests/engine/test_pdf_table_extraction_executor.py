@@ -261,7 +261,7 @@ def _mutate_pdf_table_output_for_replay(
         )
     if not legacy:
         store = RunResultStore(project)
-        op_id = project.append_op("map")
+        op_id = project.append_change("map")
         run_id = store.start_run(op_id, ref["sheet_id"], "media.extract_pdf_tables")
         write_claimed_test_results(
             project,

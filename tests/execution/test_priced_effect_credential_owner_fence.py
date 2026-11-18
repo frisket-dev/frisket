@@ -37,7 +37,7 @@ from frisket.execution.credential_use import (
     CredentialOwner,
     CredentialUseContext,
 )
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.ocr_engines_remote import (
     _datalab_credential,
     _datalab_credential_parts,
@@ -275,7 +275,9 @@ async def test_translate_fences_class_and_owner_before_provider(
                 == expected_source
             )
         else:
-            with pytest.raises(RecipeInvocationHalt, match="refusing before the call"):
+            with pytest.raises(
+                ActionProgramInvocationHalt, match="refusing before the call"
+            ):
                 await invoke
             assert effects == []
     finally:
@@ -327,7 +329,9 @@ async def test_geocode_fences_class_and_owner_before_provider(
         assert effects == [expected_source]
         assert geocoder.accounting_by_row[1]["cost"] == 0.01
     else:
-        with pytest.raises(RecipeInvocationHalt, match="refusing before the call"):
+        with pytest.raises(
+            ActionProgramInvocationHalt, match="refusing before the call"
+        ):
             await invoke
         assert effects == []
 
@@ -386,6 +390,8 @@ async def test_census_fences_class_and_owner_before_provider(
         meta = census.accounting_by_row[1]
         assert meta["model_calls"][0]["credential_source"] == expected_source
     else:
-        with pytest.raises(RecipeInvocationHalt, match="refusing before the call"):
+        with pytest.raises(
+            ActionProgramInvocationHalt, match="refusing before the call"
+        ):
             await invoke
         assert effects == []

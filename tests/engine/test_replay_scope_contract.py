@@ -52,7 +52,9 @@ class _Fixture:
         at it. Passing a strict subset of `self.row_ids` models a partial run:
         the sheet has more rows than this run produced results for."""
         store = RunResultStore(self.project)
-        op_id = self.project.append_op("run", {"kind": "map"}, label="generate labels")
+        op_id = self.project.append_change(
+            "run", {"kind": "map"}, label="generate labels"
+        )
         run_id = store.start_run(
             op_id,
             self.sheet,

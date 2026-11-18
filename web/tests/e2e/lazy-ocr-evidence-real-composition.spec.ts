@@ -25,7 +25,7 @@ try:
     source_column_id = int(project.db.execute("SELECT id FROM columns WHERE sheet_id=? AND type='file'", (sheet_id,)).fetchone()["id"])
     blob_hash = project.db.execute("SELECT hash FROM blobs ORDER BY rowid LIMIT 1").fetchone()["hash"]
     text_column_id = project.add_column(sheet_id, "Text", "text", ai_generated=True)
-    op_id = project.append_op("media.ocr", {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}}, label="fixture OCR")
+    op_id = project.append_change("media.ocr", {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}}, label="fixture OCR")
     runs = RunResultStore(project)
     run_id = runs.start_run(op_id, sheet_id, "media.ocr", model="local/fixture", params={"output_name": "Text"}, total_rows=1, row_ids=[row_id])
     write_claimed_test_results(project, run_id, [{"row_id": row_id, "column_id": text_column_id, "value": "page one page two total 42", "confidence": 0.9, "justification": "fixture"}])

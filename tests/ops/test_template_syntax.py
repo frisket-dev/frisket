@@ -9,7 +9,7 @@ import httpx
 from frisket.actions.research import WebSearchParams, web_search
 from frisket.actions.types import Row, discover_references
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
@@ -173,7 +173,7 @@ def test_template_renderer_does_not_rerender_inserted_values():
 
 
 def test_source_column_discovery_for_recipe_templates_and_search():
-    assert Recipe().source_columns(
+    assert ActionProgram().source_columns(
         {"input_columns": ["a"], "input_template": "{{b}} {{ a }}"}
     ) == ["a", "b"]
     assert [

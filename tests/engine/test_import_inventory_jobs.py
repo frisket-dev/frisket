@@ -545,7 +545,7 @@ def test_multi_page_cancel_retry_and_resolution_preserve_exact_partial_state(
 
                 with project.db:
                     project.db.execute("BEGIN IMMEDIATE")
-                    step_operation(project, "restore", op_id=session.op_id)
+                    step_operation(project, "restore", change_id=session.op_id)
                 assert project.row_count(session.sheet_id) == 512
                 assert (
                     len(

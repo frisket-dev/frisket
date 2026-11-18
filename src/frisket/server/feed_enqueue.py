@@ -29,7 +29,7 @@ def queue_feed_poll(
     ensure_rss_feed_checker()
     feed_checker = get_feed_checker(feed["kind"])
     if feed_checker is None:
-        raise ValueError("Frisket cannot poll this feed type")
+        raise ValueError("Frisket cannot check this feed type")
     error = feed_checker.validate_config(feed)
     if error:
         raise ValueError(error)

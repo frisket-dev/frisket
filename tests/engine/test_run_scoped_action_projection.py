@@ -24,7 +24,7 @@ from frisket.engine.executor import ExecutorDeps, run_action_spec
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store.media_blobs import media_cell
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.engine.runner import MapRunner
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.server.app import create_app
@@ -143,7 +143,7 @@ def test_direct_halt_and_operator_cancel_remain_distinct(
         expected_rows: int,
     ):
         del spec, ctx, expected_rows
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_engine_busy",
             "another local transcription is still finishing",
         )
@@ -324,7 +324,7 @@ def test_fully_halted_generation_does_not_advertise_unrepresentable_backfill(
         del ctx, expected_rows
         seen_specs.append(dict(spec))
         if state["halt"]:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 str(state["code"]),
                 "the reusable transcription session exited",
             )
@@ -517,7 +517,7 @@ def test_queued_internal_halt_can_be_recovered_by_direct_backfill(
         del self, path, spec
         calls += 1
         if halt and calls == 2:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed", "session exited during queued work"
             )
         return _transcript(f"transcript {calls}")

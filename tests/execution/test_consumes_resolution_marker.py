@@ -41,7 +41,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from tests.execution.typed_transcription_helpers import (
     transcription_spec,
     transcription_program,
@@ -77,7 +77,7 @@ def _spec(sheet_id: int) -> dict:
 
 
 @dataclass
-class _UndeclaredRecipe(Recipe):
+class _UndeclaredProgram(ActionProgram):
     """A recipe that forgot to declare — the dormant-wiring specimen.
 
     Deliberately UNDECLARED (the one recipe in the tree that is): this is
@@ -87,10 +87,10 @@ class _UndeclaredRecipe(Recipe):
     name: str = "undeclared"
 
 
-def _synthetic(consumes: bool) -> Recipe:
+def _synthetic(consumes: bool) -> ActionProgram:
     """A seam specimen whose sole varying declaration is the marker."""
 
-    class _Marked(Recipe):
+    class _Marked(ActionProgram):
         name = "example.resolution_marker"
         execution_capability = "transcribe"
         cost_class = "free"
@@ -112,7 +112,7 @@ def test_undeclared_recipe_raises_instead_of_defaulting_to_no(audio_project):
         resolve_for_action(
             project,
             _spec(sheet_id),
-            _UndeclaredRecipe(),
+            _UndeclaredProgram(),
             composition=open_execution_composition(
                 project,
                 ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
@@ -124,8 +124,8 @@ def test_undeclared_recipe_raises_instead_of_defaulting_to_no(audio_project):
 def test_base_recipe_declares_nothing_to_inherit():
     # The annotation carries no value: there is nothing for a subclass to
     # inherit by accident.
-    assert "consumes_resolution" not in vars(Recipe)
-    assert "consumes_resolution" in Recipe.__annotations__
+    assert "consumes_resolution" not in vars(ActionProgram)
+    assert "consumes_resolution" in ActionProgram.__annotations__
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_marker_drives_the_effect_site_verification(
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
             authority=open_attempt_authority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         .prepare_run(spec, program=transcription_program(spec))
         .run_id

@@ -490,7 +490,7 @@ def _a64_bundle(tmp_path):
     rows = project.add_rows(
         sheet, [{"source": "First"}, {"source": "Second"}], {"source": column}
     )
-    op = project.append_op("map.classify", label="Existing work")
+    op = project.append_change("map.classify", label="Existing work")
     run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=2)
     project.db.execute(
         "INSERT INTO results "
@@ -540,7 +540,7 @@ def test_run_review_status_migration_preserves_existing_runs(tmp_path):
     path = tmp_path / "prior-review-status.frisket"
     project = Project.create(path, name="Existing review")
     sheet = project.add_sheet("Sheet")
-    op = project.append_op("map.classify")
+    op = project.append_change("map.classify")
     from frisket.engine.store.runs import RunResultStore
 
     run_id = RunResultStore(project).start_run(op, sheet, "map.classify")
@@ -657,7 +657,7 @@ def _a62_bundle(tmp_path):
     rows = project.add_rows(
         sheet, [{"source": "First"}, {"source": "Second"}], {"source": column}
     )
-    op = project.append_op("map.classify", label="Existing work")
+    op = project.append_change("map.classify", label="Existing work")
     run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=2)
     project.close()
     with sqlite3.connect(path / "project.db") as db:
@@ -733,7 +733,7 @@ def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
 
         project = Project.create(tmp_path / "fresh.frisket", name="Fresh")
         sheet = project.add_sheet("Rows")
-        op = project.append_op("map.classify")
+        op = project.append_change("map.classify")
         run = RunResultStore(project).start_run(op, sheet, "map.classify")
     db = project.db
     db.execute(

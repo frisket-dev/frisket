@@ -22,12 +22,12 @@ from frisket.engine.store.runs import (
 )
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.engine.runner.batch_normalization import normalize_batch_row
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from helpers import write_claimed_test_results
 
 
 @dataclass
-class _LegacyOmissionRecipe(Recipe):
+class _LegacyOmissionProgram(ActionProgram):
     name: str = "extract"
     llm: bool = False
 
@@ -67,7 +67,7 @@ def _seed(tmp_path: Path) -> tuple[Project, int, int, list[int], int]:
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_op("map", {"recipe": "x"}, label="x")
+    op_id = project.append_change("map", {"recipe": "x"}, label="x")
     return project, sheet_id, out, row_ids, op_id
 
 
@@ -192,7 +192,7 @@ def test_missing_outputs_publish_explicit_null_or_error(make_project) -> None:
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             AdaptiveThrottle(),
-            _LegacyOmissionRecipe(),
+            _LegacyOmissionProgram(),
             {"seed": "value"},
             {"action_kind": "map.extract", "with_error": True},
             ActionContext(

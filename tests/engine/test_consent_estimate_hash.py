@@ -39,7 +39,7 @@ class _StubProject:
         return values, refs
 
 
-class _StubRecipe:
+class _StubProgram:
     # The recipe lane's ``family_kind``: required, and inside the hash, so a
     # confirmation minted for one recipe can never satisfy another's gate.
     name = "geocode"
@@ -63,7 +63,7 @@ def rated_digest(estimate: dict[str, Any]) -> str:
     :func:`digest`, which rates first."""
     return confirmation_context_hash(
         _StubProject(),  # type: ignore[arg-type]
-        _StubRecipe(),  # type: ignore[arg-type]
+        _StubProgram(),  # type: ignore[arg-type]
         dict(SPEC),
         list(ROW_IDS),
         estimate,

@@ -146,7 +146,7 @@ def test_source_stop_rolls_back_with_deletion_and_does_not_stop_for_hidden_prese
 def test_close_before_first_materialization_is_irreversible(tmp_path):
     with closing(Project.create(tmp_path / "not-started.frisket")) as project:
         sheet = project.add_sheet("source")
-        op = project.append_op(
+        op = project.append_change(
             "reduce.group_summary",
             {SOURCE_BINDING: execution_source_binding(sheet_ids=[sheet])},
         )
@@ -197,12 +197,12 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
             BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
         )
         runner = _runner(project)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         prepared = runner.prepare_run(
             plan.spec_dict(), program=plan.program, confirmed=True
         )
         attempt = runner.authority.mint(
-            recipe=plan.program,
+            program=plan.program,
             spec=plan.spec_dict(),
             run_id=prepared.run_id,
             scope=tuple(rows),
@@ -230,13 +230,13 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
 
 def test_revert_source_column_creation_cancels_direct_consumer_only(tmp_path):
     from frisket.engine.store.changes import start_change
-    from frisket.engine.store.op_log import append_op
+    from frisket.engine.store.op_log import append_change
 
     with closing(Project.create(tmp_path / "column.frisket")) as project:
         sheet = project.add_sheet("data")
         source = project.add_column(sheet, "source")
         with project.db:
-            creator = append_op(
+            creator = append_change(
                 project, "create", undo_info={"created_columns": [source]}, commit=False
             )
             start_change(project.db, creator)
@@ -343,7 +343,7 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
         )
         runner = _runner(project)
         runner.concurrency = 1
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         execute = plan.program.execute
         calls = []
 

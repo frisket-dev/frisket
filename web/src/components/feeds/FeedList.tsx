@@ -25,12 +25,12 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
   if (items === null) return <PanelEmpty>loading...</PanelEmpty>;
   if (items.length === 0) {
     return (
-      <PanelEmpty testId="sources-empty">No feeds yet.</PanelEmpty>
+      <PanelEmpty testId="feeds-empty">No feeds yet.</PanelEmpty>
     );
   }
 
   return (
-    <ul className="panel-list" data-testid="source-list">
+    <ul className="panel-list" data-testid="feed-list">
       {items.map((s) => {
         const status = s.lastStatus ?? 'never';
         const isOpen = !!expanded[s.id];
@@ -39,16 +39,16 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
         return (
           <li
             key={s.id}
-            className={`panel-card source-item${s.enabled ? '' : ' disabled'}`}
-            data-testid={`source-item-${s.id}`}
+            className={`panel-card feed-item${s.enabled ? '' : ' disabled'}`}
+            data-testid={`feed-item-${s.id}`}
           >
             <div className="control-row">
               <span className="control-row panel-item-meta"><FeedKindIcon kind={s.kind} /></span>
               <span className="panel-item-title panel-item-main" title={s.name}>{s.name}</span>
-              <FeedStatus value={status} testId={`source-status-${s.id}`} />
+              <FeedStatus value={status} testId={`feed-status-${s.id}`} />
             </div>
             <div className="control-row panel-item-meta">
-              <strong data-testid={`source-kind-${s.id}`}>{feedKindLabel(s.kind)}</strong>
+              <strong data-testid={`feed-kind-${s.id}`}>{feedKindLabel(s.kind)}</strong>
               <span>{feedConfigSummary(s)}</span>
             </div>
             {s.url && (
@@ -57,8 +57,8 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
               </div>
             )}
 
-            <div className="control-row source-controls">
-              <label className="control-row" title="Enable scheduled polling">
+            <div className="control-row feed-controls">
+              <label className="control-row" title="Enable scheduled checks">
                 <input
                   type="checkbox"
                   checked={s.enabled}
@@ -68,7 +68,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
               </label>
               <PanelSelect
                 aria-label={`Cadence for ${s.name}`}
-                data-testid={`source-sched-${s.id}`}
+                data-testid={`feed-sched-${s.id}`}
                 value={s.schedule ?? ''}
                 onChange={(e) => { void actions.changeSchedule(s.id, e.target.value); }}
               >
@@ -82,9 +82,9 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
               <button
                 type="button"
                 className="icon-btn"
-                title="Poll now"
-                aria-label={`Poll ${s.name}`}
-                data-testid={`source-fetch-${s.id}`}
+                title="Check now"
+                aria-label={`Check ${s.name}`}
+                data-testid={`feed-check-now-${s.id}`}
                 disabled={busy === s.id}
                 onClick={() => { void actions.fetchNow(s.id); }}
               >
@@ -94,14 +94,14 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                 icon={Pencil}
                 title="Edit feed"
                 label={`Edit ${s.name}`}
-                data-testid={`source-edit-${s.id}`}
+                data-testid={`feed-edit-${s.id}`}
                 onClick={() => actions.startEdit(s)}
               />
               <IconButton
                 icon={Eye}
                 title="Feed details"
                 label={`Feed details for ${s.name}`}
-                data-testid={`source-health-${s.id}`}
+                data-testid={`feed-health-${s.id}`}
                 onClick={() => { void actions.openHealth(s.id); }}
               />
               <button
@@ -113,7 +113,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                     ? `Confirm delete ${s.name}`
                     : `Delete ${s.name}`
                 }
-                data-testid={`source-delete-${s.id}`}
+                data-testid={`feed-delete-${s.id}`}
                 onClick={() => { void actions.remove(s.id); }}
               >
                 {armedDelete === s.id ? <X size={13} /> : <Trash2 size={13} />}
@@ -126,19 +126,19 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                 type="button"
                 variant="text"
                 aria-expanded={isOpen}
-                aria-controls={`source-poll-history-${s.id}`}
+                aria-controls={`feed-check-history-${s.id}`}
                 onClick={() => { void actions.toggleRuns(s.id); }}
               >
-                <RunChevron size={14} aria-hidden /> Poll history
+                <RunChevron size={14} aria-hidden /> Check history
               </Button>
             </div>
 
             {isOpen && (
-              <ul id={`source-poll-history-${s.id}`} className="panel-list" data-testid={`source-runs-${s.id}`}>
+              <ul id={`feed-check-history-${s.id}`} className="panel-list" data-testid={`feed-checks-${s.id}`}>
                 {runs[s.id] === undefined ? (
                   <li className="panel-empty">loading...</li>
                 ) : runs[s.id].length === 0 ? (
-                  <li className="panel-empty">No polls yet.</li>
+                  <li className="panel-empty">No checks yet.</li>
                 ) : (
                   <>
                     {runs[s.id].map((r) => (
@@ -153,12 +153,12 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                             {r.warningCount} warning{r.warningCount === 1 ? '' : 's'}
                           </div>
                         )}
-                        {r.error && <div className="panel-item-meta source-run-error">{r.error}</div>}
+                        {r.error && <div className="panel-item-meta feed-check-error">{r.error}</div>}
                       </li>
                     ))}
                     {page?.hasMore && (
-                      <li className="panel-empty" data-testid={`source-runs-page-note-${s.id}`}>
-                        {page.total.toLocaleString()} total polls / older polls not loaded
+                      <li className="panel-empty" data-testid={`feed-checks-page-note-${s.id}`}>
+                        {page.total.toLocaleString()} total checks / older checks not loaded
                       </li>
                     )}
                   </>

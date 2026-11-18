@@ -38,9 +38,9 @@ def model_actual_cost(response: LLMResponse) -> float | None:
 class ResearchPaused(Exception):
     """An ordinary pause needing user input, not an agent/provider failure."""
 
-    def __init__(self, approval: dict[str, Any]):
-        super().__init__(str(approval["kind"]))
-        self.approval = approval
+    def __init__(self, pause: dict[str, Any]):
+        super().__init__(str(pause["kind"]))
+        self.pause = pause
 
 
 class ResearchSkillsUnavailable(ValueError):
@@ -85,7 +85,7 @@ class ResearchSession:
         self.id = research_id
         self.authorize = authorize
         self.context = context
-        self._approval_gate = asyncio.Lock()
+        self._pause_gate = asyncio.Lock()
         self._resume_lock = asyncio.Lock()
         self._pending: tuple[dict[str, Any], asyncio.Future[str]] | None = None
         self._closed = False
@@ -105,7 +105,7 @@ class ResearchSession:
 
     async def check_authority(self) -> None:
         # This loop calls the decision primitive, not pause(), so a skills
-        # change never recursively acquires the approval gate.
+        # change never recursively acquires the pause gate.
         while True:
             self._require_open()
             await await_thread_worker(self.store.assert_running, self.id)
@@ -116,8 +116,8 @@ class ResearchSession:
             except ResearchSkillsUnavailable as exc:
                 await self._await_decision({"kind": "skills", "message": str(exc)})
 
-    async def _still_required(self, approval: dict[str, Any]) -> bool:
-        kind = approval.get("kind")
+    async def _still_required(self, pause: dict[str, Any]) -> bool:
+        kind = pause.get("kind")
         if kind == "skills":
             try:
                 await await_thread_worker(self.authorize)
@@ -126,7 +126,7 @@ class ResearchSession:
             return False
         if kind == "budget":
             budget = await await_thread_worker(self.store.budget_summary, self.id)
-            return budget["remaining_micros"] < approval["next_estimate_micros"]
+            return budget["remaining_micros"] < pause["next_estimate_micros"]
         if kind == "turn_limit":
             current = await await_thread_worker(self.store.get, self.id)
             return (
@@ -137,22 +137,22 @@ class ResearchSession:
 
     async def _await_decision(
         self,
-        approval: dict[str, Any],
+        pause: dict[str, Any],
         *,
         recheck: Callable[[], Awaitable[bool]] | None = None,
     ) -> str:
-        async with self._approval_gate:
+        async with self._pause_gate:
             self._require_open()
             await await_thread_worker(self.store.assert_running, self.id)
             # Another decision may have changed the budget, skill availability,
             # or action policy while this caller waited. Never publish stale work.
             if recheck is not None and not await recheck():
                 return "continue"
-            if not await self._still_required(approval):
+            if not await self._still_required(pause):
                 return "continue"
             pending = {
-                **approval,
-                "operation_id": approval.get("operation_id")
+                **pause,
+                "operation_id": pause.get("operation_id")
                 or f"approval_{uuid.uuid4().hex}",
                 "id": uuid.uuid4().hex,
             }
@@ -160,7 +160,7 @@ class ResearchSession:
             # Install the waiter before SQLite publication can become visible.
             self._pending = (pending, decision)
             try:
-                await await_thread_worker(self.store.publish_approval, self.id, pending)
+                await await_thread_worker(self.store.publish_pause, self.id, pending)
                 return await decision
             finally:
                 decision.cancel()
@@ -169,24 +169,24 @@ class ResearchSession:
 
     async def pause(
         self,
-        approval: dict[str, Any],
+        pause: dict[str, Any],
         *,
         recheck: Callable[[], Awaitable[bool]] | None = None,
     ) -> str:
         """One visible, operation-bound decision, independent of the browser.
 
-        A recheck only assesses whether this exact action still needs approval;
+        A recheck only assesses whether this exact action still needs consent;
         it must not request another pause. Authority checks run after releasing
         the gate because a disabled skill can require a separate decision.
         """
-        decision = await self._await_decision(approval, recheck=recheck)
+        decision = await self._await_decision(pause, recheck=recheck)
         await self.check_authority()
         return decision
 
     async def resume(
         self,
         *,
-        approval_id: str,
+        pause_id: str,
         expected_revision: int,
         decision: str,
         actor: str | None,
@@ -198,16 +198,16 @@ class ResearchSession:
         async with self._resume_lock:
             self._require_open()
             pending = self._pending
-            if pending is None or pending[0]["id"] != approval_id or pending[1].done():
+            if pending is None or pending[0]["id"] != pause_id or pending[1].done():
                 raise ProjectQAResearchConflictError(
-                    "This approval is no longer pending."
+                    "This run is no longer waiting for that decision."
                 )
 
             def consume():
                 authorize()
                 return self.store.resume(
                     self.id,
-                    approval_id=approval_id,
+                    pause_id=pause_id,
                     expected_revision=expected_revision,
                     decision=decision,
                     actor=actor,
@@ -244,7 +244,7 @@ class ResearchSession:
             while True:
                 await self.check_authority()
                 try:
-                    async with self._approval_gate:
+                    async with self._pause_gate:
                         self._require_open()
                         # Gate acquisition may have waited on a different
                         # operation. Revalidate current permission before spend,
@@ -310,8 +310,8 @@ class ResearchSession:
                     operation_id, identity, "model", model_estimate_micros(request)
                 )
                 break
-            except ResearchPaused as pause:
-                await self.pause(pause.approval)
+            except ResearchPaused as paused:
+                await self.pause(paused.pause)
         self._model_operation.set((operation_id, identity))
 
     async def after_model(self, response: LLMResponse) -> None:
@@ -362,8 +362,8 @@ class ResearchSession:
                     metadata={"provider": estimate.provider, "quote": asdict(estimate)},
                 )
                 break
-            except ResearchPaused as pause:
-                await self.pause(pause.approval)
+            except ResearchPaused as paused:
+                await self.pause(paused.pause)
         result = await search(query, estimate=estimate)
         if result.usage.provider_cost_usd is None:
             await self.pause(

@@ -257,7 +257,7 @@ def publish_download_channel_facts(
                 )
             )
     if edits:
-        edit_op = project.append_op(
+        edit_op = project.append_change(
             "edit",
             {"count": len(edits), "source_run_id": run_id, "source_op_id": op_id},
             label="youtube channel backfill",

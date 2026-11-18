@@ -19,7 +19,7 @@ def _copy(work, source_run, selected=None):
     project, sheet, _, rows, *_ = work
     with project.transaction_scope():
         target = project.add_column(sheet, "Copy", commit=False)
-        op = project.append_op("run.reapply", commit=False)
+        op = project.append_change("run.reapply", commit=False)
         ChangeStore(project).start(op)
         with combined_execution_outcomes(
             project, source_run, sheet_id=sheet, row_ids=selected
@@ -56,7 +56,7 @@ def test_copied_publication_refuses_permanently_removed_column(work):
     project.maintenance = True
     begin_purge(project, column_ids=[target])
     with project.transaction_scope():
-        op = project.append_op("run.reapply", commit=False)
+        op = project.append_change("run.reapply", commit=False)
         ChangeStore(project).start(op)
         with combined_execution_outcomes(
             project, original.run_id, sheet_id=sheet, row_ids=None
@@ -140,7 +140,7 @@ def test_missing_outcome_is_not_completed_and_later_source_results_do_not_change
     from helpers import run_writer_authority_fixture
 
     column = project.add_column(sheet, "Never completed")
-    source_op = project.append_op("map.ask")
+    source_op = project.append_change("map.ask")
     store = RunResultStore(project)
     source_run = store.start_run(
         source_op, sheet, "map.ask", row_ids=rows, total_rows=len(rows)
@@ -197,7 +197,7 @@ def test_completion_never_stitches_successful_siblings_from_different_attempts(w
     root = None
     run_ids = []
     for successful in (0, 1):
-        op = project.append_op("map.extract")
+        op = project.append_change("map.extract")
         run_id = runs.start_run(
             op,
             sheet,
@@ -346,7 +346,7 @@ def test_copy_does_not_turn_withheld_terminal_result_into_usable_value(work, eff
 
     project, sheet, _, rows, *_ = work
     column = project.add_column(sheet, "Withheld")
-    source_op = project.append_op("map.extract")
+    source_op = project.append_change("map.extract")
     store = RunResultStore(project)
     source_run = store.start_run(
         source_op, sheet, "map.extract", row_ids=[rows[0]], total_rows=1

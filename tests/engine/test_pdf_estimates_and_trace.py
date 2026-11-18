@@ -118,7 +118,7 @@ def test_runner_pdf_estimate_discloses_approximation_and_preserves_unknown(monke
 
     messages = [{"role": "user", "content": [document()]}]
     project = SimpleNamespace(columns=lambda _sheet: [])
-    recipe = SimpleNamespace(
+    program = SimpleNamespace(
         is_llm=lambda _spec: True,
         render=lambda _values, _spec: SimpleNamespace(messages=messages),
     )
@@ -132,14 +132,14 @@ def test_runner_pdf_estimate_discloses_approximation_and_preserves_unknown(monke
         ),
     )
     estimate = validation._estimate_run(
-        project, {"sheet_id": 1}, program=recipe
+        project, {"sheet_id": 1}, program=program
     ).presentation
     assert estimate["cost"] > 0
     assert "approximate" in estimate["warning"]
     assert 6200 < estimate["avg_input_tokens"] < 6300
     messages[0]["content"][0]["page_count"] = None
     unknown = validation._estimate_run(
-        project, {"sheet_id": 1}, program=recipe
+        project, {"sheet_id": 1}, program=program
     ).presentation
     assert unknown["cost"] is None
     assert unknown["cost_source"] == "unknown"
@@ -200,7 +200,7 @@ def test_routed_pdf_warning_reads_real_project_column_rows(
     # sources that must not receive a PDF warning or fail their preview.
     assert not hasattr(project.columns(sheet_id)[0], "get")
     spec = {"action_kind": action_kind, "sheet_id": sheet_id}
-    recipe = SimpleNamespace(
+    program = SimpleNamespace(
         is_llm=lambda _spec: True,
         source_columns=lambda _spec: ["source"],
     )
@@ -226,7 +226,7 @@ def test_routed_pdf_warning_reads_real_project_column_rows(
     result = validation._estimate_run(
         project,
         spec,
-        program=recipe,
+        program=program,
         resolution=resolved,
         pricing_policy=object(),
     ).presentation

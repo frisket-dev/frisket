@@ -132,7 +132,7 @@ def test_receipt_store_finished_insert_and_body_fetch_helpers(make_project) -> N
     project = make_project("Receipts")
     store = ReceiptStore(project)
     sheet_id = project.add_sheet("Receipt Runs")
-    op_id = project.append_op("fixture", {"kind": "receipt-store"})
+    op_id = project.append_change("fixture", {"kind": "receipt-store"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

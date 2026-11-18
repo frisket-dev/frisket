@@ -94,7 +94,7 @@ def agent_context(tmp_path):
     with closing(Project.create(tmp_path / "agent-call.frisket")) as project:
         sheet = project.add_sheet("data")
         [row_id] = project.add_rows(sheet, [{}], {})
-        op_id = project.append_op("research.answer", {}, label="Agent call")
+        op_id = project.append_change("research.answer", {}, label="Agent call")
         run_id = RunResultStore(project).start_run(
             op_id, sheet, "research.answer", total_rows=1, row_ids=[row_id]
         )

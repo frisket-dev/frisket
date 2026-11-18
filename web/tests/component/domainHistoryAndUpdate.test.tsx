@@ -17,13 +17,13 @@ it('uses actual application state and never infers it from the navigation cursor
   const revert = vi.fn(async () => {});
   const restore = vi.fn(async () => {});
   const history: HistoryState = {
-    ops: [
+    changes: [
       { id: '10', index: 0, label: 'Selectively reverted', kind: 'edit', at: '2026-11-15T00:00:00Z', rowsAffected: 1, status: 'undone', executable: true },
       { id: '11', index: 1, label: 'Later applied change', kind: 'edit', at: '2026-11-15T00:01:00Z', rowsAffected: 1, status: 'applied', executable: true },
     ],
-    cursorIndex: 1, cursorOp: null, cursorOpLoaded: true, undoTarget: { id: '11', index: 1, barrier: false }, redoTarget: null,
+    cursorIndex: 1, cursorChange: null, cursorChangeLoaded: true, undoTarget: { id: '11', index: 1, barrier: false }, redoTarget: null,
     offset: 0, limit: 50, total: 2, hasMoreBefore: false, hasMoreAfter: false, prevOffset: null, nextOffset: null,
-    revision: { total: 2, maxOpId: '11', opCursor: '11' },
+    revision: { total: 2, maxChangeId: '11', changeCursor: '11' },
   };
   render(<HistoryPanel history={history} onRevert={revert} onRestore={restore} onLoadPage={async () => {}} />);
   fireEvent.click(screen.getByTestId('history-revert-op-11'));

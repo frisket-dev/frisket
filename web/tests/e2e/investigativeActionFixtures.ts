@@ -255,7 +255,7 @@ try:
         column_id = columns.get(column_name)
         if column_id is None:
             column_id = project.add_column(sheet_id, column_name, "text", ai_generated=True)
-        op_id = project.append_op(
+        op_id = project.append_change(
             producer_kind,
             {
                 "schema_version": "frisket.action.v2",
@@ -294,7 +294,7 @@ try:
     else:
         column_name = str(payload["column_name"])
         column_id = columns[column_name]
-        op_id = project.append_op(
+        op_id = project.append_change(
             producer_kind,
             {"schema_version": "frisket.action.v2", "kind": producer_kind, "params": {}},
             label=producer_kind,

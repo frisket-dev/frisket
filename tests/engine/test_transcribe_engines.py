@@ -39,7 +39,7 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
     TranscriptionEngineCapabilities,
 )
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.actions.media import TranscribeParams
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
@@ -353,10 +353,10 @@ def test_transcribe_run_provenance_names_the_engine_not_a_stale_llm_model(make_p
     sheet = project.add_sheet("Audio")
     project.add_column(sheet, "audio", type="audio")
     plan = _transcribe_plan(project, sheet, engine="parakeet-tdt")
-    recipe = plan.program
-    assert recipe.run_provenance_model({"engine": "parakeet-tdt"}) == "parakeet-tdt"
+    program = plan.program
+    assert program.run_provenance_model({"engine": "parakeet-tdt"}) == "parakeet-tdt"
     assert (
-        recipe.run_provenance_model(
+        program.run_provenance_model(
             {"engine": "parakeet-tdt", "model": "gemini/gemini-2.5-flash"}
         )
         == "parakeet-tdt"
@@ -380,11 +380,11 @@ def test_transcribe_run_provenance_names_the_engine_not_a_stale_llm_model(make_p
     assert download.llm is False
     assert download.run_provenance_model({"model": "gemini/gemini-2.5-flash"}) is None
 
-    class _LlmRecipe(Recipe):
+    class _LlmProgram(ActionProgram):
         consumes_resolution = False
         cost_class = "metered"
 
-    summarize = _LlmRecipe()
+    summarize = _LlmProgram()
     assert summarize.is_llm({}) is True
     assert (
         summarize.run_provenance_model({"model": "gemini/gemini-2.5-flash"})

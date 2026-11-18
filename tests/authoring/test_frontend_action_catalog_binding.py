@@ -80,7 +80,9 @@ def test_action_catalog_http_payload_carries_launcher_hints(tmp_path) -> None:
     assert response.status_code == 200
     payload = response.json()
     catalog_kinds = {entry["kind"] for entry in payload["actions"]}
-    registered_kinds = {spec.action_kind for spec in default_registry().recipe_specs()}
+    registered_kinds = {
+        spec.action_kind for spec in default_registry().action_program_specs()
+    }
     # The registry is keyed by the same canonical action identity the catalog
     # serves; private recipe implementation names are not part of this check.
     missing_catalog_kinds = registered_kinds - catalog_kinds

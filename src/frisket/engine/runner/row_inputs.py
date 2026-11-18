@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.actions.types import RowError
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner.grounding import (
     MAX_IMAGE_BYTES,
     image_part,
@@ -185,7 +185,7 @@ def read_source_page(
 
 def row_values(
     project: Project,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict,
     col_map: dict[str, int],
     row_id: int,
@@ -201,7 +201,7 @@ def row_values(
     ):
         raise ValueError("row is outside the admitted selection")
     if source_page is None:
-        names = recipe.source_columns(spec)
+        names = program.source_columns(spec)
         source_page = read_source_page(
             project,
             spec["sheet_id"],
@@ -209,33 +209,33 @@ def row_values(
             [row_id],
             preserve_invalid_column_ids=[
                 col_map[name]
-                for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                for name in getattr(program, "preserve_invalid_source_columns", ())
                 if name in col_map
             ],
         )
     if capture is None and (
-        source_page is not None or getattr(recipe, "capture_source_cells", False)
+        source_page is not None or getattr(program, "capture_source_cells", False)
     ):
         capture = {}
     col_types = column_types
     if col_types is None:
         col_types = {c["name"]: c["type"] for c in project.columns(spec["sheet_id"])}
     values: dict[str, Any] = {}
-    source_names = [str(name) for name in recipe.source_columns(spec)]
+    source_names = [str(name) for name in program.source_columns(spec)]
     required_sources = frozenset(
-        getattr(recipe, "required_source_columns", source_names)
+        getattr(program, "required_source_columns", source_names)
     )
     missing_capable_sources = frozenset(
-        getattr(recipe, "missing_capable_source_columns", ())
+        getattr(program, "missing_capable_source_columns", ())
     )
     unavailable_inputs = []
     preserve_invalid_names = frozenset(
-        getattr(recipe, "preserve_invalid_source_columns", ())
+        getattr(program, "preserve_invalid_source_columns", ())
     )
     # A program may admit provenance-only sources without sending their values
     # to the model. They still participate in the same frozen source checks and
     # returned-result capture as prompt inputs.
-    prompt_source_names = set(getattr(recipe, "prompt_source_columns", source_names))
+    prompt_source_names = set(getattr(program, "prompt_source_columns", source_names))
     for source_index, name in enumerate(source_names):
         cid = col_map.get(name)
         if cid is None:

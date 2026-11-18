@@ -16,7 +16,7 @@ from frisket.engine.executor import ExecutorDeps, resolve_map_preview
 from frisket.engine.executor.actions import build_map_preview_plan
 from frisket.engine.runner import validation
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.engine.runner.map_runner import (
     CostGate,
     PreviewResult,
@@ -702,7 +702,7 @@ class _HaltRunner:
         return 1
 
     async def preview(self, spec, *, progress_cb=None, cancel_event=None):
-        raise RecipeInvocationHalt(self.code, self.detail)
+        raise ActionProgramInvocationHalt(self.code, self.detail)
 
 
 class _HaltOnCancelRunner:
@@ -716,7 +716,7 @@ class _HaltOnCancelRunner:
         self.started.set()
         while cancel_event is None or not cancel_event.is_set():
             await asyncio.sleep(0.002)
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             "teardown raced cancellation",
         )
@@ -780,7 +780,7 @@ class _CompositionAwarePreviewRunner:
         self._require_execution_composition()
         assert program.name == spec["action_kind"]
         count = self._delegate.preview_precheck(spec)
-        return SimpleNamespace(recipe=program, row_ids=list(range(count)), est=None)
+        return SimpleNamespace(program=program, row_ids=list(range(count)), est=None)
 
     async def preview(
         self,

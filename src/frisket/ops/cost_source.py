@@ -1,7 +1,7 @@
 """Shared ``cost_source`` vocabulary and constructors for the per-op
 ``estimate()`` pre-run cost gate.
 
-Scope: the ESTIMATE surface only — the dicts ``Recipe.estimate()`` returns,
+Scope: the ESTIMATE surface only — the dicts ``ActionProgram.estimate()`` returns,
 which ``engine/runner/confirmation_context.py`` projects through
 ``ConsentEstimate`` into the hash a user's approval is compared by. The per-row FACT surface (the
 ``(data, meta)`` cost annotation and ``model_calls`` rows) shares the

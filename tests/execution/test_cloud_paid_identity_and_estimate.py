@@ -32,7 +32,7 @@ def _identity(project: Project, *, run_id: int) -> tuple[str, str]:
         project_storage_identity=project.storage_identity,
         run_id=run_id,
         row_id=1,
-        recipe=SimpleNamespace(version="1"),
+        program=SimpleNamespace(version="1"),
         spec={"action_kind": "media.ocr", "source": "page"},
         values={"page": {"blob": "sha256:source"}},
         out_cols={"text": 2},
@@ -121,7 +121,7 @@ def test_action_llm_estimate_uses_the_cloud_wire_payload_formula():
         SimpleNamespace(provider=Provider()),
         resolution,
         {1: call},
-        recipe=SimpleNamespace(),
+        program=SimpleNamespace(),
     )
     authority = cloud_estimate_authority_for_row(basis, row_id=1)
     expected = cloud_llm_estimated_spend_micro(
@@ -171,7 +171,7 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
         SimpleNamespace(provider=Provider()),
         resolution,
         {1: structured},
-        recipe=SimpleNamespace(),
+        program=SimpleNamespace(),
     )
 
     expected = cloud_llm_estimated_spend_micro(
@@ -200,7 +200,7 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
         SimpleNamespace(provider=Provider()),
         resolution,
         {1: plain},
-        recipe=SimpleNamespace(run_agent=lambda: None),
+        program=SimpleNamespace(run_agent=lambda: None),
     )
     assert agent_quantity is None
     assert agent_basis.estimated_quantity is None

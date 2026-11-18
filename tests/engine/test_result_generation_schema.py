@@ -28,7 +28,7 @@ def _seed_generation(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_op("map.regex_extract", {"pattern": "(.*)"})
+    op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -172,7 +172,7 @@ def test_compaction_preserves_run_id_and_row_effect_checkpoint(
         is not None
     )
 
-    next_op_id = project.append_op("map.regex_extract", {"pattern": "(.*)"})
+    next_op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     next_run_id = RunResultStore(project).start_run(
         next_op_id,
         sheet_id,
@@ -235,7 +235,7 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
         ),
     )
 
-    other_op_id = project.append_op("map.regex_extract", {"pattern": "(.*)"})
+    other_op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     other_run_id = RunResultStore(project).start_run(
         other_op_id,
         _sheet_id,
@@ -366,7 +366,7 @@ def test_generation_managed_results_require_an_explicit_effect(
             (run_id, other_row_id, legacy_column_id, "legacy"),
         )
 
-    legacy_op_id = project.append_op("legacy")
+    legacy_op_id = project.append_change("legacy")
     legacy_run_id = RunResultStore(project).start_run(
         legacy_op_id, sheet_id, "test.legacy"
     )

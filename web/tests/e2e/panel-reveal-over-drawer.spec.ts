@@ -52,10 +52,10 @@ test('Sources & connections (project switcher) reveals above an open Action draw
 
   // The focused manager wins the visual stack while preserving the draft in
   // the drawer underneath it.
-  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
-  await expect(page.getByTestId('sources-connections-close')).toBeFocused();
+  await expect(page.getByTestId('feeds-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('feeds-connections-close')).toBeFocused();
   await expect(page.getByTestId('action-drawer')).toBeVisible();
-  await expect(page.getByTestId('sources-panel')).toBeVisible();
+  await expect(page.getByTestId('feeds-panel')).toBeVisible();
 });
 
 test('a notification-run reveal (Alerts tab) also closes an open Action drawer', async ({ page }) => {

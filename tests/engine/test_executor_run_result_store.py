@@ -35,7 +35,7 @@ def _seed_project(
             "SELECT id FROM rows WHERE sheet_id=? ORDER BY position", (sheet_id,)
         )
     ]
-    op_id = project.append_op("map", {"recipe": "score"}, label="score rows")
+    op_id = project.append_change("map", {"recipe": "score"}, label="score rows")
     return project, sheet_id, columns, row_ids, op_id
 
 

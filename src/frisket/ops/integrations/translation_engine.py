@@ -20,7 +20,7 @@ from frisket.execution.credential_use import (
     CredentialUseRefusal,
     require_consented_credential,
 )
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
@@ -272,7 +272,7 @@ class TranslationEngine:
                     effect=f"the hosted {engine} translation call",
                 )
             except CredentialUseRefusal as exc:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation",
                     f"{exc}; review the claims and re-consent to resume",
                 ) from exc

@@ -20,7 +20,7 @@ def _setup(project):
     column = project.add_column(sheet, "document", type="file")
     blob = project.add_blob(b"original PDF", mime="application/pdf", filename="a.pdf")
     row = project.add_rows(sheet, [{}], {})[0]
-    op = project.append_op("media.ocr", {}, label="OCR")
+    op = project.append_change("media.ocr", {}, label="OCR")
     run = project.db.execute(
         "INSERT INTO runs(op_id,sheet_id,action_kind) VALUES(?,?,'media.ocr')",
         (op, sheet),

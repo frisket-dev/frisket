@@ -44,7 +44,7 @@ def add_view(
     if sheet_id is not None and sheet_id != derived_sheet:
         raise ValueError("view sheet_id does not match selection scope")
     sheet_id = derived_sheet
-    op_id = project.append_op(
+    op_id = project.append_change(
         "view",
         {"name": name, "sheet_id": sheet_id, "spec": spec},
         label=f"view {name}",
@@ -80,7 +80,7 @@ def update_view(
         vals.extend([json.dumps(spec), spec["selection"]["scope"].get("sheet_id")])
     if not sets:
         return
-    op_id = project.append_op(
+    op_id = project.append_change(
         "view",
         {"view_id": view_id, "name": name, "spec": spec},
         label=f"update view {name or view_id}",

@@ -338,10 +338,10 @@ def test_convert_markdown_kind_is_retired_vocabulary(tmp_path):
     """Specs saved before the rename said recipe='convert_markdown'; the
     open-time bundle migration rewrites them, and the registry refuses the
     retired spelling outright."""
-    from frisket.ops import get_recipe
+    from frisket.ops import get_action_program
 
     with pytest.raises(ValueError, match="not canonical"):
-        get_recipe("convert_markdown")
+        get_action_program("convert_markdown")
 
     p, sheet = _project(tmp_path, [{"doc": HTML}])
     spec = _spec(sheet, engine="markitdown")

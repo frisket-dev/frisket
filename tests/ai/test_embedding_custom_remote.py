@@ -152,7 +152,7 @@ def _accrue_project_key_spend(
             (project._sheet_id,),
         ).fetchone()["id"]
     )
-    op_id = project.append_op(
+    op_id = project.append_change(
         "map", {"recipe": "prior_provider_spend"}, label="prior spend"
     )
     run_id = RunResultStore(project).start_run(

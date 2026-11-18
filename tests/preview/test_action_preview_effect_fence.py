@@ -51,7 +51,7 @@ class _Project:
         return [1]
 
 
-class _Recipe:
+class _Program:
     name = "effect-probe"
 
     def __init__(self, *, consumes_resolution: bool = False) -> None:
@@ -79,12 +79,12 @@ class _Recipe:
         yield
 
 
-class _LlmRecipe(_Recipe):
+class _LlmProgram(_Program):
     def is_llm(self, _spec: dict[str, Any]) -> bool:
         return True
 
 
-class _BatchRecipe(_Recipe):
+class _BatchProgram(_Program):
     def __init__(self, *, consumes_resolution: bool = True) -> None:
         super().__init__(consumes_resolution=consumes_resolution)
         self.batch_calls = 0
@@ -107,9 +107,9 @@ def _resolution(egress_class: Any) -> Any:
     )
 
 
-def _validated(recipe: _Recipe, estimate: Any, resolved: Any) -> Any:
+def _validated(program: _Program, estimate: Any, resolved: Any) -> Any:
     return SimpleNamespace(
-        recipe=recipe,
+        program=program,
         sheet_id=1,
         columns=[],
         col_map={},
@@ -123,7 +123,7 @@ def _validated(recipe: _Recipe, estimate: Any, resolved: Any) -> Any:
 def _install_validation(
     monkeypatch: pytest.MonkeyPatch,
     *,
-    recipe: _Recipe,
+    program: _Program,
     effectful: bool,
     cannot_egress: bool,
     estimate: Any = _SAFE_ESTIMATE,
@@ -132,17 +132,17 @@ def _install_validation(
 ) -> list[dict[str, Any]]:
     calls: list[dict[str, Any]] = []
 
-    monkeypatch.setattr(validation, "recipe_for_spec", lambda _spec: recipe)
+    monkeypatch.setattr(validation, "action_program_for_spec", lambda _spec: program)
     monkeypatch.setattr(
         preview_module,
         "row_effect_spends_or_meters",
-        lambda candidate, _spec, _router: candidate is recipe and effectful,
+        lambda candidate, _spec, _router: candidate is program and effectful,
         raising=False,
     )
     monkeypatch.setattr(
         preview_module,
         "row_effect_cannot_egress",
-        lambda candidate, _spec: candidate is recipe and cannot_egress,
+        lambda candidate, _spec: candidate is program and cannot_egress,
         raising=False,
     )
 
@@ -152,7 +152,7 @@ def _install_validation(
         calls.append(call)
         if raised is not None:
             raise raised
-        return _validated(recipe, estimate, resolved)
+        return _validated(program, estimate, resolved)
 
     monkeypatch.setattr(validation, "validate_spec", validate_spec)
 
@@ -273,10 +273,10 @@ def test_static_effect_matrix_uses_existing_predicates(
 ) -> None:
     if kind == "map.api_call":
         plan = _api_plan()
-        recipe, spec = plan.program, plan.spec_dict()
+        program, spec = plan.program, plan.spec_dict()
     elif kind == "enrich.census_demographics":
         plan = _census_plan()
-        recipe, spec = plan.program, plan.spec_dict()
+        program, spec = plan.program, plan.spec_dict()
     elif kind in {"media.to_markdown", "media.ocr", "media.transcribe"}:
         from frisket.actions.system import typed_action_for_request
         from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
@@ -300,7 +300,7 @@ def test_static_effect_matrix_uses_existing_predicates(
                 }
             )
         )
-        recipe, spec = plan.program, plan.spec_dict()
+        program, spec = plan.program, plan.spec_dict()
     elif kind == "map.python":
         from frisket.actions.system import typed_action_for_request
         from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
@@ -316,7 +316,7 @@ def test_static_effect_matrix_uses_existing_predicates(
                 )
             )
         )
-        recipe, spec = plan.program, plan.spec_dict()
+        program, spec = plan.program, plan.spec_dict()
     else:
         plan = model_plan(
             {
@@ -327,15 +327,15 @@ def test_static_effect_matrix_uses_existing_predicates(
                 **({"labels": ["person"]} if kind == "map.ner" else {}),
             }
         )
-        recipe, spec = plan.program, plan.spec_dict()
+        program, spec = plan.program, plan.spec_dict()
     router = SimpleNamespace(cache_mode="off", cache=None)
 
-    assert row_effect_spends_or_meters(recipe, spec, router) is spends
-    assert row_effect_cannot_egress(recipe, spec) is cannot_egress
+    assert row_effect_spends_or_meters(program, spec, router) is spends
+    assert row_effect_cannot_egress(program, spec) is cannot_egress
 
 
 def test_strict_replay_requires_an_attached_cache_and_cannot_hide_web_effect() -> None:
-    summarize = _LlmRecipe()
+    summarize = _LlmProgram()
     summary_spec = {
         "action_kind": "map.ask",
         "model": "anthropic/claude-haiku-4-5",
@@ -407,10 +407,10 @@ def test_every_money_and_venue_conjunct_fails_closed(
     resolved: Any,
 ) -> None:
     del label
-    recipe = _Recipe(consumes_resolution=consumes_resolution)
+    program = _Program(consumes_resolution=consumes_resolution)
     calls = _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=cannot_egress,
         estimate=estimate,
@@ -439,10 +439,10 @@ def test_exact_free_local_allowance_has_the_required_resolution_shape(
     resolved: Any,
 ) -> None:
     del label
-    recipe = _Recipe(consumes_resolution=consumes_resolution)
+    program = _Program(consumes_resolution=consumes_resolution)
     calls = _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=True,
         resolved=resolved,
@@ -452,7 +452,7 @@ def test_exact_free_local_allowance_has_the_required_resolution_shape(
 
     admitted = _preview_validated(spec)
 
-    assert admitted.recipe is recipe
+    assert admitted.program is program
     assert len(calls) == 1
     assert calls[0]["persistence"] == "ephemeral"
     assert calls[0]["spec"] == original
@@ -468,10 +468,10 @@ def test_non_effectful_candidates_retain_existing_refusals(
     monkeypatch: pytest.MonkeyPatch,
     refusal: BaseException,
 ) -> None:
-    recipe = _Recipe()
+    program = _Program()
     _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=False,
         cannot_egress=True,
         raised=refusal,
@@ -498,14 +498,14 @@ def _claims_gate(
 def test_free_operator_lan_claims_gate_is_rethrown_unchanged_then_retry_admits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recipe = _Recipe(consumes_resolution=True)
+    program = _Program(consumes_resolution=True)
     gate = _claims_gate()
     outcomes: list[Any] = [
         gate,
-        _validated(recipe, _SAFE_ESTIMATE, _resolution("operator_lan")),
+        _validated(program, _SAFE_ESTIMATE, _resolution("operator_lan")),
     ]
     calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(validation, "recipe_for_spec", lambda _spec: recipe)
+    monkeypatch.setattr(validation, "action_program_for_spec", lambda _spec: program)
     monkeypatch.setattr(
         preview_module,
         "row_effect_spends_or_meters",
@@ -570,10 +570,10 @@ def test_unsafe_gate_is_reclassified_instead_of_rendered(
     gate: validation.CostGate,
     cannot_egress: bool,
 ) -> None:
-    recipe = _Recipe(consumes_resolution=True)
+    program = _Program(consumes_resolution=True)
     _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=cannot_egress,
         raised=gate,
@@ -583,12 +583,12 @@ def test_unsafe_gate_is_reclassified_instead_of_rendered(
 
 
 def test_malformed_claims_shape_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    recipe = _Recipe(consumes_resolution=True)
+    program = _Program(consumes_resolution=True)
     gate = _claims_gate()
     gate.claims = None  # type: ignore[assignment] - adversarial runtime shape
     _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=True,
         raised=gate,
@@ -600,10 +600,10 @@ def test_malformed_claims_shape_fails_closed(monkeypatch: pytest.MonkeyPatch) ->
 def test_provider_key_refusal_is_reclassified_for_effectful_preview(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    recipe = _Recipe()
+    program = _Program()
     _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=False,
         raised=validation.MissingProviderKey("anthropic"),
@@ -617,10 +617,10 @@ def test_all_entrypoints_refuse_before_batch_scope_or_row(
     monkeypatch: pytest.MonkeyPatch,
     entrypoint: str,
 ) -> None:
-    recipe: _Recipe = _BatchRecipe() if entrypoint == "batch" else _Recipe()
+    program: _Program = _BatchProgram() if entrypoint == "batch" else _Program()
     calls = _install_validation(
         monkeypatch,
-        recipe=recipe,
+        program=program,
         effectful=True,
         cannot_egress=False,
         estimate={**_SAFE_ESTIMATE, "cost_source": "unknown", "cost": None},
@@ -665,8 +665,8 @@ def test_all_entrypoints_refuse_before_batch_scope_or_row(
 
     _assert_requires_run(exc)
     assert len(calls) == 1
-    assert recipe.scope_calls == 0
-    assert getattr(recipe, "batch_calls", 0) == 0
+    assert program.scope_calls == 0
+    assert getattr(program, "batch_calls", 0) == 0
     assert row_calls == 0
 
 
@@ -1012,7 +1012,7 @@ def test_real_opus_mt_exact_free_local_preview_uses_actual_validation(
         result = asyncio.run(runner.preview(spec, program=plan.program))
 
         assert len(validated) == 1
-        assert validated[0].recipe.consumes_resolution is True
+        assert validated[0].program.consumes_resolution is True
         assert validated[0].resolved_execution.resolution.facts.egress_class == "none"
         assert validated[0].est["cost_source"] == "free_local"
         assert validated[0].est["cost"] == 0.0

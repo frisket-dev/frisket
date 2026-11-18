@@ -94,7 +94,7 @@ def _seed_orphaned_run(
         [{"source": "alpha"}],
         {"source": source_column_id},
     )
-    op_id = project.append_op(ACTION_KIND, {"action_kind": "map.regex_extract"})
+    op_id = project.append_change(ACTION_KIND, {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -262,7 +262,7 @@ def _seed_never_dispatched_run(
         [{"source": "alpha"}],
         {"source": source_column_id},
     )
-    op_id = project.append_op(ACTION_KIND, {"action_kind": "map.regex_extract"})
+    op_id = project.append_change(ACTION_KIND, {"action_kind": "map.regex_extract"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -984,7 +984,7 @@ def test_never_dispatched_authority_requires_owned_immediate_transaction(
 
 def test_cancelled_insert_mode_uses_finished_receipt_contract(project) -> None:
     sheet_id = project.add_sheet("Cancelled insert")
-    op_id = project.append_op(ACTION_KIND, {"fixture": "cancelled-insert"})
+    op_id = project.append_change(ACTION_KIND, {"fixture": "cancelled-insert"})
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,

@@ -31,7 +31,10 @@ from frisket.engine.runner.confirmation_context import (
     BILLED_COST_KEY,
     POLICY_ID_KEY,
 )
-from frisket.engine.runner.validation import confirmation_estimate, recipe_for_spec
+from frisket.engine.runner.validation import (
+    confirmation_estimate,
+    action_program_for_spec,
+)
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 from frisket.server.route_errors import RouteError
@@ -349,7 +352,7 @@ class ActionPreviewService:
             # panel that previews the provider cost and a modal that then
             # quotes the billed cost would be the "two surfaces, two answers"
             # defect with money in it.
-            recipe = program or recipe_for_spec(spec)
+            action_program = program or action_program_for_spec(spec)
             estimate = runner.estimate(spec, program=program)
             # Resolution-aware estimates are rated inside ``estimate_run``,
             # before their quote is bound into the promise-set hash.  The
@@ -359,12 +362,12 @@ class ActionPreviewService:
             # honestly refuse and fall back to an unrated UNKNOWN estimate.
             if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
                 estimate = confirmation_estimate(
-                    recipe,
+                    action_program,
                     spec,
                     estimate,
                     policy=runner.pricing_policy,
                 )
-                if not recipe.consumes_resolution:
+                if not action_program.consumes_resolution:
                     from frisket.engine.runner.confirmation_context import estimated_usd
 
                     price = estimated_usd(estimate)

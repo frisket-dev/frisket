@@ -99,7 +99,7 @@ def _seed_media(
     transcript_run_id = None
     transcript_op_id = None
     if transcript:
-        transcript_op_id = project.append_op(
+        transcript_op_id = project.append_change(
             "media.transcribe",
             {"kind": "media.transcribe", "params": {"output_name": "transcript"}},
             label="transcribe transcript",
@@ -1199,7 +1199,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         "timestamped_transcript",
         ai_generated=True,
     )
-    alternate_op_id = project.append_op(
+    alternate_op_id = project.append_change(
         "media.transcribe",
         {
             "kind": "media.transcribe",
@@ -1308,7 +1308,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
             },
         ],
     }
-    topic_op_id = project.append_op(
+    topic_op_id = project.append_change(
         "map.find_topic_sections",
         {"action_kind": "map.find_topic_sections"},
         label="find topic sections",

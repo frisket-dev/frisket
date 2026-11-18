@@ -58,7 +58,7 @@ try:
     png = base64.b64decode(png_b64)
 
     row_id = project.add_rows(sheet_id, [{"Source": "doc.pdf"}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.ocr",
         {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}},
         label="ocr docs",
@@ -159,7 +159,7 @@ try:
     source_column_id = project.add_column(sheet_id, "Source", "file")
     transcript_column_id = project.add_column(sheet_id, "Transcript", "text", ai_generated=True)
     row_id = project.add_rows(sheet_id, [{"Source": "hearing.wav"}], {"Source": source_column_id})[0]
-    op_id = project.append_op(
+    op_id = project.append_change(
         "media.transcribe",
         {"schema_version": "frisket.action.v2", "kind": "media.transcribe", "params": {"output_column": "Transcript"}},
         label="transcribe hearing",

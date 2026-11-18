@@ -88,7 +88,7 @@ from frisket.contracts.action import (
     ReceiptEvidence,
     ReceiptIO,
 )
-from frisket.ops.base import ActionContext, Recipe, RenderedCall
+from frisket.ops.base import ActionContext, ActionProgram, RenderedCall
 from frisket.engine.executor.action_lifecycle import (
     _PreparedMapExecution,
     _run_reserved_maprunner_action,
@@ -169,7 +169,7 @@ class TypedMapRowsPlan:
     request_identity: Mapping[str, Any]
     evaluation_context: ModelRowsEvaluationContext | None
     spec: Mapping[str, Any]
-    program: Recipe
+    program: ActionProgram
 
     def spec_dict(self) -> dict[str, Any]:
         return dict(self.spec)
@@ -264,7 +264,7 @@ class _MapTerminalPolicy:
         return "map_rows_failed"
 
 
-class _TypedMapRowsProgram(Recipe):
+class _TypedMapRowsProgram(ActionProgram):
     """Generic Recipe protocol adapter; never registered or action-specific."""
 
     consumes_resolution = False
@@ -2005,7 +2005,7 @@ def bound_typed_program_request_from_runner_spec(
 def typed_program_from_runner_spec(
     project: Any,
     runner_spec: Mapping[str, Any],
-) -> Recipe | None:
+) -> ActionProgram | None:
     """Rebuild an explicitly supported typed program from its durable spec."""
 
     bound = bound_typed_program_request_from_runner_spec(runner_spec, project=project)
@@ -3541,7 +3541,7 @@ def typed_queued_map_spec(
     bound: BoundTypedActionRequest,
     *,
     initial_plan: TypedMapRowsPlan | None = None,
-) -> tuple[_TypedProjectEnvelope, Any, Recipe]:
+) -> tuple[_TypedProjectEnvelope, Any, ActionProgram]:
     """Build one generic queued-project adapter for a typed map request.
 
     The returned internal envelope is structural execution identity, not a
@@ -3952,7 +3952,7 @@ def run_typed_map_rows_action(
 
     def authorized_runner_factory(current_project: Any, current_router: Any) -> Any:
         runner = map_runner_factory(current_project, current_router)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         return runner
 
     try:

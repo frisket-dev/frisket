@@ -7,7 +7,7 @@ from typing import Any
 
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.engine.store.evidence import mark_citations_stale_for_cell_refs
-from frisket.engine.store.op_log import append_op, set_undo_info
+from frisket.engine.store.op_log import append_change, set_undo_info
 from frisket.engine.store.prepared_edits import prepared_edit_values
 
 
@@ -25,7 +25,7 @@ def write_edit_overlay(
     """Write one edit operation and its citation transition in the caller's txn."""
 
     info = dict(undo_info or {})
-    op_id = append_op(
+    op_id = append_change(
         project,
         kind,
         dict(spec),

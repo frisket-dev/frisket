@@ -132,7 +132,7 @@ def test_estimate_prices_llm_engine_as_a_real_model_call(tmp_path: Path) -> None
         gliner_spec = {**llm_spec, "engine": "gliner", "model": None}
         llm = model_plan(llm_spec, project)
         gliner = model_plan(gliner_spec, project)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         llm_est = runner.estimate(llm.spec_dict(), program=llm.program)
         gliner_est = runner.estimate(gliner.spec_dict(), program=gliner.program)
         assert "avg_input_tokens" in llm_est

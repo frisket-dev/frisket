@@ -29,7 +29,7 @@ def test_run_outcomes_agree_across_status_trace_and_provenance(
     rows = project.add_rows(
         sheet, [{"story": "one"}, {"story": "two"}], {"story": source}
     )
-    op = project.append_op("map", {"action_kind": "map.classify"}, label="classify")
+    op = project.append_change("map", {"action_kind": "map.classify"}, label="classify")
     store = RunResultStore(project)
     run = store.start_run(
         op,

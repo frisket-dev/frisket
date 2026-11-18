@@ -39,7 +39,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 
 
 class UpperParams(ActionParams):
@@ -167,7 +167,7 @@ def run_typed_map_rows_action(
     )
 
 
-def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> Recipe:
+def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> ActionProgram:
     raise AssertionError("typed actions must not use the legacy recipe registry")
 
 
@@ -184,7 +184,7 @@ def test_typed_action_reserves_runs_and_finalizes_generic_receipt_refs(
         observed_reservation.append(receipt.status if receipt is not None else "")
         return _runner(project, router)
 
-    monkeypatch.setattr(validation, "recipe_for_spec", _forbid_registry_lookup)
+    monkeypatch.setattr(validation, "action_program_for_spec", _forbid_registry_lookup)
     result = run_typed_map_rows_action(
         store,
         "project-1",
@@ -710,7 +710,7 @@ def test_stale_running_receipt_is_retained_for_live_writer(
     action = REGISTRY.get(request.action_id)
     params_hash = typed_request_hash(BoundTypedActionRequest.bind(action, request))
     output = store.add_column(sheet_id, "upper")
-    op_id = store.append_op("map.upper_test", {}, label="live map run")
+    op_id = store.append_change("map.upper_test", {}, label="live map run")
     run_id = RunResultStore(store).start_run(
         op_id, sheet_id, action.action_id, row_ids=row_ids, total_rows=len(row_ids)
     )
