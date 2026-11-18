@@ -1070,7 +1070,11 @@ def test_an_import_notification_that_cannot_be_recorded_never_fails_the_import(
     assert session["failed_pages"] == 1 and session["error"]
     assert failures == [True]
     # The outcome is recorded on a later pass once the store accepts it.
-    (notice,) = _notifications(client, pid)
+    with controlled_time() as clock:
+        (notice,) = clock.wait_until(
+            lambda: _session(client, pid, ref) and _notifications(client, pid),
+            message="the import outcome was never recorded",
+        )
     assert notice["severity"] == "warning"
     _estimate_body, retried = _retry(client, pid, ref)
     assert retried.status_code == 200, retried.text
