@@ -147,6 +147,10 @@ exclude-newer = "1 week"
 # User-requested releases inside the normal one-week quarantine. Exceptions
 # stay scoped to each package and release day; versions and hashes are pinned.
 exclude-newer-package = { indra-ocr = "2026-10-13", surya-ocr = "2026-10-30" }
+# GLiNER 0.2.30 lifts its Transformers cap, which lets a re-lock move the
+# Transformers and tokenizers versions LightOnOCR was verified on. Hold GLiNER
+# until that engine is re-verified on the newer Transformers.
+constraint-dependencies = ["gliner<0.2.30"]
 # Surya 2.5 and Chandra can coexist, but neither resolves with FastEmbed's
 # dependency bounds. ``all`` includes FastEmbed, so keep those combinations
 # explicitly separate while allowing operators to install both OCR engines.
