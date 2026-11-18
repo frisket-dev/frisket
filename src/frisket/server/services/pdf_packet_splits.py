@@ -896,11 +896,6 @@ class PdfPacketSplitService:
             item for item in session.sources if item.key == target.occurrence_key
         )
         inventory = self._ocr_inventory(session, source)
-        with PdfSplitPreparationStore(inventory) as store:
-            cached = store.cached_preview(target)
-            ref = store.cached_ref(target)
-        if cached is not None:
-            return dict(cached)
         adapter = PdfSplitPreparationAdapter(
             self._workspace,
             preview_runs=self._preview_runs,
@@ -908,7 +903,14 @@ class PdfPacketSplitService:
             project_id=session.project_id,
             admitted_sources={item.key: item for item in session.sources},
         )
-        ref = ref or adapter.cached_reference(target)
+        with PdfSplitPreparationStore(inventory) as store:
+            # A sample shows a review preview too; a published page never does.
+            cached = store.cached_preview(target)
+            ref = (
+                None if cached is not None else adapter.reading_reference(store, target)
+            )
+        if cached is not None:
+            return dict(cached)
         if ref is None:
             return None
         project = self._workspace.get(session.project_id)
