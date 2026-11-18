@@ -6,7 +6,21 @@ import type {
   HttpLocalEndpointDiscoveryResponse,
   HttpActionJob,
   HttpModelPull,
+  HttpApiTokenCreateResponse,
+  HttpApiTokenList,
+  HttpOrganizationEnvList,
+  HttpOrganizationKeyList,
+  HttpOrganizationProviderCatalog,
+  HttpProjectInviteCreate,
+  HttpProjectMemberList,
+  HttpProjectMemberRemove,
+  HttpProjectMemberSet,
+  HttpProjectNetworkResponse,
+  HttpProjectProviderKeyCatalogResponse,
+  HttpProjectRetentionResponse,
+  HttpProjectSecretCatalogResponse,
   HttpProjectSettingsRequest,
+  HttpSpendReport,
   HttpProjectSettingsResponse,
   HttpReceipt,
   HttpRowSourceDocumentsResponse,
@@ -122,200 +136,42 @@ export interface RuntimeConfig {
 /** @see RuntimeConfig.recipe_fence_posture */
 export type RecipeFencePosture = 'enforced' | 'partial' | 'none' | 'unknown';
 
-export interface SpendRow {
-  project: string;
-  model: string | null;
-  month: string | null;
-  runs: number;
-  rows: number;
-  cost: number;
-}
+export type SpendReport = HttpSpendReport;
+export type SpendRow = SpendReport['rows'][number];
 
-export interface SpendReport {
-  rows: SpendRow[];
-  total_cost: number;
-  has_unknown_costs: boolean;
-  unknown_cost_models: string[];
-}
+export type OrganizationKeyInfo = HttpOrganizationKeyList[number];
+export type OrganizationEnvInfo = HttpOrganizationEnvList[number];
 
-/**
- * What GET /api/org/keys actually returns — provider and hint, nothing more.
- * It previously also declared spend_cap_usd / spent_usd / over_cap, none of
- * which the endpoint has ever sent: the control plane's `org_keys` table has
- * no cap or accrual column (metered caps against an organization key are private
- * commerce). The settings table rendered all three as `undefined`, i.e. "-".
- * Project-level provider keys carry the real, enforced cap.
- */
-export interface OrganizationKeyInfo {
-  provider: string;
-  hint: string;
-}
+export type ProviderCatalog = HttpOrganizationProviderCatalog;
+export type ProviderCatalogItem = ProviderCatalog['providers'][number];
 
-export interface OrganizationEnvInfo {
-  name: string;
-  hint: string;
-  created_at?: string | null;
-}
-
-export interface ProviderCatalogItem {
-  id: string;
-  label: string;
-  secret_name: string;
-  kind: string;
-  policy_fields: string[];
-}
-
-export interface ProviderCatalog {
-  schemaVersion: 'frisket.provider_catalog.v1';
-  providers: ProviderCatalogItem[];
-}
-
-export interface ApiTokenInfo {
-  id: number;
-  user_id: number;
-  created_by: string;
-  name: string;
-  prefix: string;
-  created_at: string | null;
-  last_used_at: string | null;
-  revoked: boolean;
-}
-
-export interface ApiTokenCreateResponse {
-  id: number;
-  token: string;
-  name: string;
-  prefix: string;
-}
-
-export interface RemovalResult {
-  ok: boolean;
-  removed: boolean;
-}
+export type ApiTokenInfo = HttpApiTokenList[number];
+export type ApiTokenCreateResponse = HttpApiTokenCreateResponse;
+export type RemovalResult = HttpProjectMemberRemove;
 
 export type ProjectRole = 'viewer' | 'reviewer' | 'editor' | 'owner';
 
 export type ProjectInviteRole = Extract<ProjectRole, 'viewer' | 'editor'>;
 
-export interface ProjectMember {
-  user_id: number;
-  email: string;
-  role: ProjectRole;
-}
+export type ProjectMember = HttpProjectMemberList[number];
+export type ProjectMemberChange = HttpProjectMemberSet;
 
-export interface ProjectMemberChange {
-  ok: boolean;
-  email: string;
-  role: ProjectRole;
-}
+export type ProjectInviteResponse = HttpProjectInviteCreate;
+export type ProjectInvite = ProjectInviteResponse['invite'];
 
-export interface ProjectInvite {
-  id: number;
-  email: string;
-  role: ProjectInviteRole;
-  created_at: string | null;
-  expires_at: string | null;
-  accepted_at: string | null;
-  revoked_at: string | null;
-}
-
-export interface ProjectInviteResponse {
-  sent: boolean;
-  invite: ProjectInvite;
-}
-
-export interface ProjectRetentionPolicy {
-  schemaVersion?: 'frisket.project_retention_policy.v1' | string;
-  default_evidence: string;
-  pin_evidence_by_default: boolean;
-  no_compact: boolean;
-  supported_default_evidence?: string[];
-  [key: string]: unknown;
-}
-
-export interface ProjectNetworkPolicy {
-  schemaVersion?: 'frisket.project_network_policy.v1' | string;
-  /** inherit = follow the organization default (local edition: on). */
-  mode: 'inherit' | 'on' | 'off' | string;
-  /** Organization-wide default materialized into the project; null = built-in "on". */
-  org_default?: 'on' | 'off' | null;
-  /** The resolved two-state value the dispatch gate reads. */
-  effective: 'on' | 'off' | string;
-  [key: string]: unknown;
-}
+export type ProjectRetentionPolicy = HttpProjectRetentionResponse;
+export type ProjectNetworkPolicy = HttpProjectNetworkResponse;
 
 export type ProjectRetrievalSettings = HttpProjectSettingsResponse['retrieval'];
 export type ProjectSettingsPatch = HttpProjectSettingsRequest & Record<string, unknown>;
+export type ProjectSettings = HttpProjectSettingsResponse;
 
-export interface ProjectSettings extends HttpProjectSettingsResponse {
-  /**
-   * EFFECTIVE value: whether media downloads may reach loopback and RFC1918
-   * addresses, after the server default (FRISKET_MEDIA_PRIVATE_HOSTS) and any
-   * project override are resolved. Link-local and cloud instance-metadata
-   * addresses are refused at every level. App-level filter on what dispatch
-   * accepts, not a network guarantee: direct downloads re-check each redirect
-   * hop, but the yt-dlp path is checked on entry only.
-   */
-  media_allow_private_hosts: boolean;
-  /**
-   * True when the server sets FRISKET_MEDIA_PRIVATE_HOSTS=deny-locked: the
-   * project override is refused (PATCHing it returns 400) and the toggle is
-   * hidden.
-   */
-  media_allow_private_hosts_locked: boolean;
-}
+export type ProjectProviderKeys = HttpProjectProviderKeyCatalogResponse;
+export type ProjectProviderKeyInfo = ProjectProviderKeys['providers'][number];
 
-export interface ProjectProviderKeyInfo extends ProviderCatalogItem {
-  configured: boolean;
-  hint: string | null;
-  spend_cap_usd: number | null;
-  /**
-   * Accrued spend on this key, summed from model-call facts whose
-   * credential_source is `project_key`. Only counts calls we could price —
-   * see `unmetered_calls`.
-   */
-  spent_usd: number;
-  /**
-   * Live calls on this key with no published price. When non-zero,
-   * `spent_usd` is a lower bound, not the total.
-   */
-  unmetered_calls: number;
-  updated_at: string | null;
-}
-
-export interface ProjectProviderKeys {
-  schemaVersion: 'frisket.project_provider_keys.v1';
-  projectId: string;
-  providers: ProjectProviderKeyInfo[];
-}
-
-interface ProjectSecretConsumer {
-  kind: string;
-  id: string;
-}
-
-export interface ProjectSecretInfo {
-  name: string;
-  hint: string | null;
-  configured: boolean;
-  updatedAt: string | null;
-  consumers: ProjectSecretConsumer[];
-}
-
-export interface ProjectSecretMigrationConflict {
-  plugin_id: string;
-  name: string;
-  hint: string | null;
-  status: string;
-  created_at: string | null;
-}
-
-export interface ProjectSecrets {
-  schemaVersion: 'frisket.project_secrets.v1';
-  projectId: string;
-  secrets: ProjectSecretInfo[];
-  conflicts: ProjectSecretMigrationConflict[];
-}
+export type ProjectSecrets = HttpProjectSecretCatalogResponse;
+export type ProjectSecretInfo = ProjectSecrets['secrets'][number];
+export type ProjectSecretMigrationConflict = ProjectSecrets['conflicts'][number];
 
 export interface AdminOverview {
   totals: {

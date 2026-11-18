@@ -34,13 +34,14 @@ const RETENTION_DESCRIPTIONS: Record<string, string> = {
   materialized: 'Keep result-linked supporting records as part of the stored result.',
 };
 
-function supportedRetentionOptions(policy: ProjectRetentionPolicy | null): string[] {
-  const raw = Array.isArray(policy?.supported_default_evidence)
-    ? policy.supported_default_evidence
-    : [...FALLBACK_RETENTION_VALUES];
-  const supported = raw.filter((value): value is string => (
-    typeof value === 'string' && value in RETENTION_LABELS
-  ));
+type RetentionValue = ProjectRetentionPolicy['default_evidence'];
+
+function isRetentionValue(value: string): value is RetentionValue {
+  return value in RETENTION_LABELS;
+}
+
+function supportedRetentionOptions(policy: ProjectRetentionPolicy | null): RetentionValue[] {
+  const supported = (policy?.supported_default_evidence ?? []).filter(isRetentionValue);
   return supported.length ? supported : [...FALLBACK_RETENTION_VALUES];
 }
 
@@ -191,7 +192,9 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
               value={policy.default_evidence}
               disabled={!canMutate}
               options={retentionSelectOptions}
-              onValueChange={(value) => void patch({ default_evidence: value })}
+              onValueChange={(value) => {
+                if (isRetentionValue(value)) void patch({ default_evidence: value });
+              }}
             />
             <small className="form-hint">
               This is the usual default. Frisket may keep particular supporting records when an action needs them
