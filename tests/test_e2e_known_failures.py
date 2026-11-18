@@ -125,7 +125,7 @@ def test_skipped_listed_test_is_neither_fixed_nor_stale(spec_root):
 
 
 def test_entry_for_a_deleted_spec_file_is_stale(spec_root):
-    known = {"gone.spec.ts": {"t": "seed"}}
+    known = {"gone.spec.ts": {"t": "seed:Local stories"}}
     result = verdict(known, report({"a.spec.ts": {"ok": PASS}}), spec_root=spec_root)
     assert result.stale == [(("gone.spec.ts", "t"), "its spec file no longer exists")]
     assert result.failed
@@ -178,10 +178,24 @@ def test_incomplete_shard_sets_are_refused(shards, message):
 
 
 def test_list_must_be_sorted_and_use_known_reasons():
-    assert kf.check_list({"a": {"x": "seed", "y": "flaky"}, "0": {}}) == [
+    known = {
+        "a": {"w": "seed:Local stories,Council audio", "x": "seed", "y": "flaky"},
+        "0": {},
+    }
+    assert kf.check_list(known) == [
         "spec files are not sorted",
+        "a › x: a seed entry names the projects its test opens, "
+        "seed:<project>[,<project>...]",
         "a › y: reason 'flaky' is not one of seed, retired-request, "
         "stale-expectation, environment, unclassified",
+    ]
+
+
+@pytest.mark.parametrize("reason", ["seed:", "seed:Local stories,", "seed: Local"])
+def test_a_seed_entry_names_its_projects_exactly(reason):
+    assert kf.check_list({"a": {"x": reason}}) == [
+        "a › x: a seed entry names the projects its test opens, "
+        "seed:<project>[,<project>...]"
     ]
 
 
@@ -251,22 +265,38 @@ def _seed_run(status, outcome):
     )
 
 
-def test_seed_entries_are_judged_when_no_seeded_project_opens(spec_root):
-    known = {"a.spec.ts": {"opens": "seed"}}
+@pytest.mark.parametrize("status", [ABSENT, PARTIAL])
+def test_a_seed_entry_is_judged_when_its_project_does_not_open(spec_root, status):
+    known = {"a.spec.ts": {"opens": "seed:Council audio"}}
     (spec_root / "seed.setup.ts").write_text("")
-    still = verdict(known, _seed_run(ABSENT, FAIL), spec_root=spec_root)
+    still = verdict(known, _seed_run(status, FAIL), spec_root=spec_root)
     assert still.still_failing == [("a.spec.ts", "opens")]
     assert not still.failed
-    fixed = verdict(known, _seed_run(ABSENT, PASS), spec_root=spec_root)
+    fixed = verdict(known, _seed_run(status, PASS), spec_root=spec_root)
     assert fixed.fixed == [("a.spec.ts", "opens")]
 
 
-@pytest.mark.parametrize("status", [USABLE, PARTIAL, None])
+def test_a_seed_entry_is_judged_when_any_of_its_projects_does_not_open(spec_root):
+    known = {"a.spec.ts": {"opens": "seed:Local stories,Council audio"}}
+    (spec_root / "seed.setup.ts").write_text("")
+    fixed = verdict(known, _seed_run(PARTIAL, PASS), spec_root=spec_root)
+    assert fixed.fixed == [("a.spec.ts", "opens")]
+
+
+@pytest.mark.parametrize(
+    ("reason", "status"),
+    [
+        ("seed:Local stories", USABLE),
+        ("seed:Local stories", PARTIAL),
+        ("seed:Council audio", USABLE),
+        ("seed:Council audio", None),
+    ],
+)
 @pytest.mark.parametrize("outcome", [PASS, FAIL])
-def test_seed_entries_are_reported_not_judged_when_seeds_open(
-    spec_root, status, outcome
+def test_a_seed_entry_is_reported_not_judged_when_its_projects_open(
+    spec_root, reason, status, outcome
 ):
-    known = {"a.spec.ts": {"opens": "seed"}}
+    known = {"a.spec.ts": {"opens": reason}}
     run = kf.parse_reports([_seed_run(status, outcome)])
     result = kf.classify(known, run, spec_root)
     assert not result.failed
@@ -278,8 +308,27 @@ def test_seed_entries_are_reported_not_judged_when_seeds_open(
     )
 
 
+def test_a_seed_entry_naming_an_unrecorded_project_is_stale(spec_root):
+    known = {"a.spec.ts": {"opens": "seed:Faces demo"}}
+    result = verdict(known, _seed_run(USABLE, FAIL), spec_root=spec_root)
+    assert result.stale == [
+        (
+            ("a.spec.ts", "opens"),
+            "names Faces demo, which the seed setup does not record",
+        )
+    ]
+    assert result.failed
+
+
+def test_seed_entries_count_under_the_seed_reason(spec_root):
+    known = {"a.spec.ts": {"opens": "seed:Council audio"}}
+    run = kf.parse_reports([_seed_run(ABSENT, FAIL)])
+    text = kf.summary(known, run, kf.classify(known, run, spec_root), enforcing=True)
+    assert "| seed | 1 | 1 |" in text
+
+
 def test_a_stale_seed_entry_is_still_stale(spec_root):
-    known = {"a.spec.ts": {"renamed": "seed"}}
+    known = {"a.spec.ts": {"renamed": "seed:Local stories"}}
     result = verdict(known, _seed_run(USABLE, PASS), spec_root=spec_root)
     assert result.stale == [
         (("a.spec.ts", "renamed"), "no test in the run has this title")

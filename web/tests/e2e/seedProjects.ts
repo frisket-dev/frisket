@@ -17,9 +17,10 @@ export type SeededProject = (typeof SEEDED_PROJECTS)[number];
 export type SeedStatus = Partial<Record<SeededProject, string | null>>;
 
 export const SEED_REMEDY =
-  'the seeded projects come from a cache that only a paid run rebuilds: delete ' +
-  '$FRISKET_E2E_BASE_WS (default ~/.frisket/e2e-ws) and run the suite once with model keys ' +
-  'and without FRISKET_CACHE_MODE=replay_strict (about $0.25)';
+  'the setup builds a missing "Local stories" and "People mentioned" without model keys; ' +
+  '"Council audio" and "Tariff impacts" need one run with model keys and without ' +
+  'FRISKET_CACHE_MODE=replay_strict (about $0.25). A project from an older schema is rebuilt ' +
+  'once it is deleted from $FRISKET_E2E_BASE_WS (default ~/.frisket/e2e-ws)';
 
 function statusPath(): string | null {
   const workspace = process.env.FRISKET_E2E_WS;
