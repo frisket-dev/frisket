@@ -43,11 +43,11 @@ from .ports import (
     EnvironmentModelsGatewayPort,
     JobHandlerContext,
     ModelsGatewayPort,
-    OrgKeyCredentialPort,
+    OrganizationKeyCredentialPort,
     SearchCredentialPort,
-    TrustedJobOrg,
-    TrustedJobOrgId,
-    TrustedJobOrgUnavailable,
+    TrustedJobOrganization,
+    TrustedJobOrganizationId,
+    TrustedJobOrganizationUnavailable,
     WorkerPorts,
 )
 from .runs import (
@@ -77,7 +77,7 @@ from frisket.ops.enclosures import ENCLOSURE_DOWNLOAD_KIND
 from .project_opener import (
     ProjectOpener,
     open_claimed_project,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
 )
 from .worker import (
     ECHO_KIND,
@@ -86,7 +86,7 @@ from .worker import (
     HandlerRegistry,
     Worker,
     default_registry,
-    register_hosted_handlers,
+    register_cloud_handlers,
     register_production_handlers,
 )
 
@@ -107,11 +107,11 @@ __all__ = [
     "EnvironmentModelsGatewayPort",
     "JobHandlerContext",
     "ModelsGatewayPort",
-    "OrgKeyCredentialPort",
+    "OrganizationKeyCredentialPort",
     "SearchCredentialPort",
-    "TrustedJobOrg",
-    "TrustedJobOrgId",
-    "TrustedJobOrgUnavailable",
+    "TrustedJobOrganization",
+    "TrustedJobOrganizationId",
+    "TrustedJobOrganizationUnavailable",
     "WorkerPorts",
     "HandlerRegistry",
     "HandlerRegistration",
@@ -119,7 +119,7 @@ __all__ = [
     "HandlerAuthorityAbandonResult",
     "ProjectOpener",
     "open_claimed_project",
-    "require_opener_storage_org_id",
+    "require_opener_storage_organization_id",
     "Job",
     "JobQueue",
     "PostgresJobQueue",
@@ -127,7 +127,7 @@ __all__ = [
     "Worker",
     "WorkerHeartbeat",
     "default_registry",
-    "register_hosted_handlers",
+    "register_cloud_handlers",
     "register_production_handlers",
     "jobs_metadata",
     "jobs_table",

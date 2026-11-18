@@ -8,14 +8,14 @@ from frisket.engine.jobs import SqliteJobQueue, Worker
 from frisket.engine.store.sources import SourceStore
 from frisket.server.source_enqueue import queue_source_poll
 from frisket.server.sources.progress import listing_progress_options
-from frisket.server.sources.rss import ensure_rss_poller
+from frisket.server.sources.rss import ensure_rss_feed_checker
 from test_source_scheduler import _feed, _project, _register
 
 
 def test_manual_poll_returns_empty_sheet_then_worker_populates(tmp_path):
     workspace = tmp_path / "ws"
     project = _project(workspace)
-    ensure_rss_poller()
+    ensure_rss_feed_checker()
     source_id = SourceStore(project).add_source(
         name="My feed", kind="rss", url="https://example.com/feed"
     )

@@ -92,7 +92,7 @@ async function fillState(page: Page, columnId: string): Promise<FillState | null
 
 // The run's output column id, discovered from the probe once the pulse turns on
 // (a brand-new ai_generated column with no current_run_id yet — the pending set).
-async function outputColumnId(page: Page): Promise<string> {
+async function generatedColumnId(page: Page): Promise<string> {
   let columnId = '';
   await expect
     .poll(async () => {
@@ -136,7 +136,7 @@ test('cells pulse during a run, fill in live before completion, and clear all pu
     'out',
   );
 
-  const columnId = await outputColumnId(page);
+  const columnId = await generatedColumnId(page);
 
   // (1) pulse present DURING + (2) intermediate fill visible BEFORE completion:
   // catch a live tick where the run is still active, at least one cell has
@@ -186,7 +186,7 @@ test('a failed row shows its error text inline instead of an empty dash', async 
     'out',
   );
 
-  const columnId = await outputColumnId(page);
+  const columnId = await generatedColumnId(page);
 
   // The run finishes; failed rows are counted and every pulse has cleared.
   await expect
@@ -226,7 +226,7 @@ test('run-status polling stops once the run is terminal (no forever-polling comp
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   await startPythonRun(page, "import time\ntime.sleep(0.2)\nresult = {'v': row['n']}", 'out');
-  const columnId = await outputColumnId(page);
+  const columnId = await generatedColumnId(page);
 
   // Wait for the run to reach a terminal status.
   await expect

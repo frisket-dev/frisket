@@ -75,7 +75,7 @@ def credential(monkeypatch):
 async def test_datalab_admits_each_page_and_keeps_first_purchase_when_second_fails(
     tmp_path, monkeypatch
 ):
-    from frisket.ops.ocr_engines_hosted import ocr_datalab
+    from frisket.ops.ocr_engines_remote import ocr_datalab
     from frisket.ops.integrations import datalab
     from frisket.ops.integrations.hosted_error import HostedEngineError
 
@@ -346,10 +346,10 @@ async def test_ask_search_owns_authority_in_actual_search_task():
     class Search:
         credential_source = "org_byok"
 
-        def quote(self, **kwargs):
+        def estimate(self, **kwargs):
             return SearchService(
                 preference="exa", effective_keys={"exa": "fixture"}
-            ).quote(**kwargs)
+            ).estimate(**kwargs)
 
         async def search(self, query, **kwargs):
             assert events[-1] == "admit"

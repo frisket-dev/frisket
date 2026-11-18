@@ -10,38 +10,38 @@ import { TextInput, FormField } from '../components/FormControls';
 // successful-create/update transitions belong to the workspace controller.
 import { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, Save, Trash2, X } from 'lucide-react';
-import type { SavedView, ViewSelection } from '../api/open';
+import type { View, ViewSelection } from '../api/open';
 import type {
-  SavedViewsConfirmation,
-  SavedViewsEditor,
-  SavedViewsPublication,
-} from '../state/savedViewsStore';
-import { summarizeSavedView } from './summarizeSavedView';
+  ViewsConfirmation,
+  ViewsEditor,
+  ViewsPublication,
+} from '../state/viewsStore';
+import { summarizeView } from './summarizeView';
 
 export interface ViewsPanelProps {
-  views: SavedView[];
+  views: View[];
   viewName: string;
-  editor: SavedViewsEditor | null;
+  editor: ViewsEditor | null;
   isSaving?: boolean;
-  lastPublication?: SavedViewsPublication | null;
+  lastPublication?: ViewsPublication | null;
   onPublicationConsumed?(token: number): void;
-  confirmation?: SavedViewsConfirmation | null;
+  confirmation?: ViewsConfirmation | null;
   confirmationError?: string | null;
   canEdit: boolean;
   viewModified?: boolean;
   currentSelection?: ViewSelection | null;
   onSelectionChange?(selection: ViewSelection): void;
   onClearSelection?(): void;
-  activeSavedViewId?: SavedView['id'] | null;
+  activeViewId?: View['id'] | null;
   onNameChange(name: string): void;
   onStartCreating(): void;
   onSave(): void;
   onUpdate(): void;
   onCancel(): void;
-  onEdit(view: SavedView): void;
-  onApply(view: SavedView): void;
-  onStartDefinitionUpdate(view: SavedView): void;
-  onStartDelete(view: SavedView): void;
+  onEdit(view: View): void;
+  onApply(view: View): void;
+  onStartDefinitionUpdate(view: View): void;
+  onStartDelete(view: View): void;
   onConfirmDefinitionUpdate(): void;
   onConfirmDelete(): void;
   onCancelConfirmation(): void;
@@ -57,7 +57,7 @@ export function ViewsPanel({
   confirmation = null,
   confirmationError = null,
   canEdit,
-  activeSavedViewId = null,
+  activeViewId = null,
   viewModified = false,
   currentSelection = null,
   onSelectionChange,
@@ -75,10 +75,10 @@ export function ViewsPanel({
   onConfirmDelete,
   onCancelConfirmation,
 }: ViewsPanelProps) {
-  const [resultsView, setResultsView] = useState<SavedView | null>(null);
+  const [resultsView, setResultsView] = useState<View | null>(null);
   const [statusEvent, setStatusEvent] = useState({ token: 0, message: '' });
   const nextStatusToken = useRef(0);
-  const savedViewRows = useRef(new Map<SavedView['id'], HTMLDivElement>());
+  const viewRows = useRef(new Map<View['id'], HTMLDivElement>());
   const listRef = useRef<HTMLDivElement>(null);
   const confirmationTrigger = useRef<HTMLElement | null>(null);
   const confirmationWasOpen = useRef(confirmation !== null);
@@ -110,7 +110,7 @@ export function ViewsPanel({
     }
     (lastPublication.focusViewId === null
       ? listRef.current
-      : savedViewRows.current.get(lastPublication.focusViewId) ?? listRef.current
+      : viewRows.current.get(lastPublication.focusViewId) ?? listRef.current
     )?.focus();
     const timeout = window.setTimeout(() => onPublicationConsumed?.(lastPublication.token), 0);
     return () => window.clearTimeout(timeout);
@@ -161,7 +161,7 @@ export function ViewsPanel({
           aria-busy={isSaving}
         >
           {editor.kind === 'edit' && (
-            <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeSavedView(editor.view).summary}</span>
+            <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeView(editor.view).summary}</span>
           )}
           <TextInput
             data-testid="view-name-input"
@@ -229,8 +229,8 @@ export function ViewsPanel({
               data-testid="saved-view-item"
               key={view.id}
               ref={(node) => {
-                if (node) savedViewRows.current.set(view.id, node);
-                else savedViewRows.current.delete(view.id);
+                if (node) viewRows.current.set(view.id, node);
+                else viewRows.current.delete(view.id);
               }}
               tabIndex={-1}
             >
@@ -247,8 +247,8 @@ export function ViewsPanel({
                 >
                   {view.name}
                 </button>
-                <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeSavedView(view).summary}</span>
-                {activeSavedViewId === view.id && <span className="saved-view-active">{viewModified ? 'Modified' : 'Active'}</span>}
+                <span className="saved-view-summary" data-testid="saved-view-filter-summary">{summarizeView(view).summary}</span>
+                {activeViewId === view.id && <span className="saved-view-active">{viewModified ? 'Modified' : 'Active'}</span>}
               </div>
               {canEdit && (
                 <div className="saved-view-actions">

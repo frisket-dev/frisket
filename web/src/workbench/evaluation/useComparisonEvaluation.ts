@@ -21,8 +21,8 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const sequence = useRef(0);
   const actionId = state.context.draft.action_id;
   const sheetId = state.context.sheet.id;
-  const outputColumns = state.context.output_columns;
-  const outputIds = useMemo(() => new Set(outputColumns.flatMap((column) => column.column_id ? [column.column_id] : [])), [outputColumns]);
+  const generatedColumns = state.context.output_columns;
+  const outputIds = useMemo(() => new Set(generatedColumns.flatMap((column) => column.column_id ? [column.column_id] : [])), [generatedColumns]);
   const matchesOutputs = (candidate: EvaluationLink) => candidate.action_id === actionId
     && candidate.fields.some((field) => outputIds.has(field.output_column_id));
   const available = isExpectedLinkAvailable;
@@ -39,17 +39,17 @@ export function useComparisonEvaluation(api: EvaluationApi | undefined, state: A
   const refreshShelf = useCallback(async () => {
     if (!api) return;
     const result = await api.getShelf(sheetId, actionId);
-    setItems(matchingShelf(result.items, outputColumns));
-  }, [api, sheetId, actionId, outputColumns]);
+    setItems(matchingShelf(result.items, generatedColumns));
+  }, [api, sheetId, actionId, generatedColumns]);
 
   useEffect(() => {
     if (!api) return;
     let alive = true;
     void Promise.all([api.getLinks(sheetId), api.getShelf(sheetId, actionId)]).then(([linkResult, shelfResult]) => {
-      if (alive) { setLinks(linkResult.links); setItems(matchingShelf(shelfResult.items, outputColumns)); }
+      if (alive) { setLinks(linkResult.links); setItems(matchingShelf(shelfResult.items, generatedColumns)); }
     }, (problem) => { if (alive) setError(String(problem.message ?? problem)); });
     return () => { alive = false; };
-  }, [api, sheetId, actionId, generation, dataRevision, outputColumns, setError]);
+  }, [api, sheetId, actionId, generation, dataRevision, generatedColumns, setError]);
 
   useEffect(() => {
     const current = ++sequence.current;

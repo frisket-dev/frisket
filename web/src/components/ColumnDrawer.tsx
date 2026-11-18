@@ -247,7 +247,7 @@ export function ColumnDrawer({
 
       {ai && (
         <ColumnInspectorRunsSectionFrame>
-          <AiColumnDetails
+          <GeneratedColumnDetails
             column={column}
             sheetId={sheetId}
             onBackfillComplete={onBackfillComplete}
@@ -738,7 +738,7 @@ function RunReviewScores({ run }: { run: ColumnRun }) {
   );
 }
 
-function AiColumnDetails({
+function GeneratedColumnDetails({
   column,
   sheetId,
   onBackfillComplete,

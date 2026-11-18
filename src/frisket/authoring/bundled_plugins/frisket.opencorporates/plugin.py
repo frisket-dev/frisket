@@ -5,7 +5,7 @@ diagnostics and company fields back onto each source row. It does not create
 officer, filing, or relationship tables. Reconciliation scores are provider
 ranking signals, not calibrated probabilities; the configurable threshold is
 therefore a provisional materialization rule that remains visible in the
-output columns.
+generated columns.
 """
 
 from __future__ import annotations

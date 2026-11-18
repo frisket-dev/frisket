@@ -125,13 +125,13 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
         finally:
             opened.close()
 
-        before_wrong_org = (list(opened_paths), list(store_keys))
+        before_wrong_organization = (list(opened_paths), list(store_keys))
         with pytest.raises((RuntimeError, ValueError)):
             opener(
                 ProjectStorageKey(storage_org_id=99, project_slug=key.project_slug),
                 bundle,
             )
-        assert (opened_paths, store_keys) == before_wrong_org
+        assert (opened_paths, store_keys) == before_wrong_organization
 
         direct_opens: list[Path] = []
 
@@ -354,15 +354,15 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
                 assert direct_opens == []
 
         # The actual global hosted notification recovery root is
-        # /data/projects, not a pre-selected per-org directory.
+        # /data/projects, not a pre-selected per-organization directory.
         global_root = tmp_path / "projects"
         recovery_key = ProjectStorageKey(storage_org_id=31, project_slug="recover")
         recovery_bundle = global_root / "31" / "recover.frisket"
         recovery = Project.create(recovery_bundle, name="Recover")
         recovery.close()
-        for invalid_org in ("0", "-9", "not-an-org"):
+        for invalid_organization in ("0", "-9", "not-an-org"):
             invalid = Project.create(
-                global_root / invalid_org / "invalid.frisket",
+                global_root / invalid_organization / "invalid.frisket",
                 name="Invalid",
             )
             invalid.close()
@@ -526,7 +526,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             "load_worker_edition",
             lambda edition: lambda *args, **kwargs: sentinel,
         )
-        forwarded = worker_module.register_hosted_handlers(
+        forwarded = worker_module.register_cloud_handlers(
             HandlerRegistry(), workspace_root=global_root, queue=queue
         )
         assert forwarded is sentinel
@@ -558,7 +558,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         monkeypatch.setattr(jobs_package, "Worker", CliWorker)
         monkeypatch.setattr(
             jobs_package,
-            "register_hosted_handlers",
+            "register_cloud_handlers",
             lambda *args, **kwargs: sentinel,
         )
         monkeypatch.setattr(

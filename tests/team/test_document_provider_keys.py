@@ -21,7 +21,7 @@ from frisket.credentials import resolve_credential_for_use
 from frisket.engine.jobs import Worker
 from frisket.engine.jobs.ports import (
     JobHandlerContext,
-    TrustedJobOrgUnavailable,
+    TrustedJobOrganizationUnavailable,
     WorkerPorts,
 )
 from frisket.engine.jobs.runs import resolve_run_action_credentials
@@ -50,7 +50,7 @@ def close_test_control_pool(tmp_path):
     "provider,engine", [("datalab", "datalab"), ("opendocrouter", ENGINE)]
 )
 @pytest.mark.parametrize("standalone", [False, True])
-def test_org_key_setup_selector_and_queued_ocr(
+def test_organization_key_setup_selector_and_queued_ocr(
     tmp_path, monkeypatch, provider, engine, standalone
 ):
     async def validate(_provider, _key):
@@ -156,10 +156,10 @@ def test_org_key_setup_selector_and_queued_ocr(
 
     missing = choice()
     assert missing["status"] == "needs_setup", missing
-    org_scope = next(
+    organization_scope = next(
         s for s in missing["setup"]["scopes"] if s["scope"] == "organization"
     )
-    assert org_scope["can_mutate"]
+    assert organization_scope["can_mutate"]
     checked = owner.post(
         "/api/org/keys/validate", json={"provider": provider, "key": "org-document-key"}
     )
@@ -186,13 +186,17 @@ def test_org_key_setup_selector_and_queued_ocr(
         composed.credential_use_context.credential_resolver.keys.get(provider)
         == "org-document-key"
     )
-    for identity in (TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG, 999):
+    for identity in (
+        TrustedJobOrganizationUnavailable.JOB_ROW_HAS_NO_ORGANIZATION,
+        999,
+    ):
         with pytest.raises(ValueError):
             workspace.execution_composition_for(
                 project,
                 workspace.router_for(project),
                 replace(
-                    ExecutionCompositionContext.direct(), trusted_job_org_id=identity
+                    ExecutionCompositionContext.direct(),
+                    trusted_job_organization_id=identity,
                 ),
             )
     ready = choice()
@@ -248,7 +252,7 @@ def test_org_key_setup_selector_and_queued_ocr(
     assert result.status_code == 200, result.text
     job_id = result.json()["job_id"]
     assert "org-document-key" not in repr(workspace.queue.get(job_id).payload)
-    # Rotation between admission and execution must use the current org key.
+    # Rotation between admission and execution must use the current organization key.
     expected_key = "rotated-org-document-key"
     checked = owner.post(
         "/api/org/keys/validate", json={"provider": provider, "key": expected_key}
@@ -267,7 +271,9 @@ def test_org_key_setup_selector_and_queued_ocr(
     if standalone:
         from frisket.engine.jobs.worker import HandlerRegistry
         from frisket.engine.jobs.runs import register_project_run_handler
-        from frisket.team.document_credentials import TeamOrgDocumentCredentialPort
+        from frisket.team.document_credentials import (
+            TeamOrganizationDocumentCredentialPort,
+        )
         from frisket.team.secret_box import TeamSecretBox
 
         registry = HandlerRegistry()
@@ -276,7 +282,7 @@ def test_org_key_setup_selector_and_queued_ocr(
             workspace_root=workspace.root,
             control_database_url=config.database_url,
             worker_ports=WorkerPorts(
-                action_credential_port=TeamOrgDocumentCredentialPort(
+                action_credential_port=TeamOrganizationDocumentCredentialPort(
                     TeamSecretBox(config).decrypt
                 )
             ),
@@ -340,7 +346,7 @@ def test_document_resolution_keeps_owner_and_project_precedence(
     assert "org-key" not in repr(resolver)
 
 
-def test_worker_action_port_uses_only_trusted_org_identity():
+def test_worker_action_port_uses_only_trusted_organization_identity():
     seen = []
 
     class Port:
@@ -350,7 +356,7 @@ def test_worker_action_port_uses_only_trusted_org_identity():
 
     ports = WorkerPorts(action_credential_port=Port())
     resolver = resolve_run_action_credentials(
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=17),
+        handler_context=JobHandlerContext.from_claimed_job(trusted_organization_id=17),
         ports=ports,
         control_database_url="sqlite:///control",
     )

@@ -5,7 +5,7 @@ import type { SheetMeta } from '../api/open';
 import type { EmbeddingApiPort } from '../api/ports';
 import { CreateEmbeddingIndexDialog } from './embeddings/CreateEmbeddingIndexDialog';
 import { EmbeddingIndexCard } from './embeddings/EmbeddingIndexCard';
-import { OpenLensContext } from './embeddings/openLensContext';
+import { OpenViewContext } from './embeddings/openViewContext';
 import { useEmbeddingsPanelController } from './embeddings/useEmbeddingsPanelController';
 
 export interface EmbeddingsPanelProps {
@@ -16,10 +16,10 @@ export interface EmbeddingsPanelProps {
    *  EmbeddingsPanel so an analysis action (PCA / k-means) can navigate to the
    *  child sheet it mints. */
   onSelectSheet(sheetId: string): void;
-  /** Open a saved lens AS A GRID VIEW. The LensList "Open"
+  /** Open a saved lens AS A GRID VIEW. The ViewList "Open"
    *  button delegates to App, which resolves the lens and pages the MAIN grid to
    *  its ranked row-set - opening a lens affects the grid, not just this list. */
-  onOpenLens(lensId: number, name: string): void;
+  onOpenView(viewId: number, name: string): void;
   selectedRowIds: readonly string[];
   onFindSimilar(input: {
     sheetId: string;
@@ -35,14 +35,14 @@ export function EmbeddingsPanel({
   projectId,
   sheet,
   onSelectSheet,
-  onOpenLens,
+  onOpenView,
   selectedRowIds,
   onFindSimilar,
 }: EmbeddingsPanelProps) {
   const panel = useEmbeddingsPanelController({ apiPort, sheet });
 
   return (
-    <OpenLensContext.Provider value={onOpenLens}>
+    <OpenViewContext.Provider value={onOpenView}>
       <section className="sidebar-embeddings" data-testid="embeddings">
         <div className="embeddings-body" data-testid="embeddings-panel">
           {panel.error && (
@@ -104,6 +104,6 @@ export function EmbeddingsPanel({
           />
         )}
       </section>
-    </OpenLensContext.Provider>
+    </OpenViewContext.Provider>
   );
 }

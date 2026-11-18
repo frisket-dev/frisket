@@ -22,7 +22,7 @@ def _direct_request(snapshot: dict[str, Any]) -> SimpleNamespace:
             execution_composition_context=ExecutionCompositionContext(
                 storage_key=None,
                 run_id=None,
-                trusted_job_org_id=direct.trusted_job_org_id,
+                trusted_job_organization_id=direct.trusted_job_organization_id,
                 edition_snapshot=snapshot,
             )
         )

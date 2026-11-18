@@ -17,18 +17,18 @@ from datetime import UTC, datetime
 import pytest
 
 from frisket.redaction import redact_text
-from frisket.server.sources.api_list_dicts import ApiListDictsPoller
+from frisket.server.sources.api_list_dicts import ApiListDictsFeedChecker
 from frisket.server.sources.courtlistener import (
     CourtListenerDocketListing,
-    CourtListenerDocketPoller,
+    CourtListenerDocketFeedChecker,
 )
 from frisket.server.sources.runtime import SourcePollContext, provider_error_text
-from frisket.server.sources.tiktok import TikTokProfilePoller
+from frisket.server.sources.tiktok import TikTokProfileFeedChecker
 from frisket.server.sources.youtube import (
     YOUTUBE_CHANNEL,
     YOUTUBE_PLAYLIST,
     YouTubeChannelListing,
-    YouTubeCollectionPoller,
+    YouTubeCollectionFeedChecker,
 )
 
 SECRET = "S3cr3tV4lue9"
@@ -128,8 +128,8 @@ def test_provider_error_text_names_an_empty_exception():
     assert provider_error_text(TimeoutError()) == "TimeoutError"
 
 
-def _poll(poller, source):
-    return poller.poll(SourcePollContext(source=source, cursor_before=None))
+def _poll(feed_checker, source):
+    return feed_checker.poll(SourcePollContext(source=source, cursor_before=None))
 
 
 def _failing(*_args, **_kwargs):
@@ -137,49 +137,49 @@ def _failing(*_args, **_kwargs):
 
 
 @pytest.mark.parametrize(
-    ("poller", "source"),
+    ("feed_checker", "source"),
     [
         (
-            ApiListDictsPoller(http_get=_failing, now=lambda: datetime.now(UTC)),
+            ApiListDictsFeedChecker(http_get=_failing, now=lambda: datetime.now(UTC)),
             {"url": "https://api.example.org/items", "config": {"list_path": ""}},
         ),
         (
-            CourtListenerDocketPoller(provider=_failing),
+            CourtListenerDocketFeedChecker(provider=_failing),
             {"url": "https://www.courtlistener.com/docket/123/x/"},
         ),
         (
-            YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=_failing),
+            YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=_failing),
             {"url": "https://www.youtube.com/playlist?list=PLabc123"},
         ),
         (
-            TikTokProfilePoller(provider=_failing),
+            TikTokProfileFeedChecker(provider=_failing),
             {"url": "https://www.tiktok.com/@example"},
         ),
     ],
     ids=["api_list_dicts", "courtlistener", "youtube", "tiktok"],
 )
-def test_each_source_poller_redacts_provider_failures(poller, source):
+def test_each_feed_checker_redacts_provider_failures(feed_checker, source):
     with pytest.raises(Exception) as error:
-        _poll(poller, source)
+        _poll(feed_checker, source)
     assert SECRET not in str(error.value)
 
 
-def test_source_poller_warnings_are_redacted():
-    youtube = YouTubeCollectionPoller(
+def test_feed_checker_warnings_are_redacted():
+    youtube = YouTubeCollectionFeedChecker(
         YOUTUBE_CHANNEL,
         provider=lambda *_a, **_k: YouTubeChannelListing(
             entries=[], warnings=[f"retry with accessToken={SECRET}"]
         ),
     )
-    court = CourtListenerDocketPoller(
+    court = CourtListenerDocketFeedChecker(
         provider=lambda **_k: CourtListenerDocketListing(
             docket={"id": 123}, warnings=[f'{{"token": "{SECRET}"}}']
         )
     )
-    for poller, source in (
+    for feed_checker, source in (
         (youtube, {"url": "https://www.youtube.com/@example"}),
         (court, {"url": "https://www.courtlistener.com/docket/123/x/"}),
     ):
-        result = _poll(poller, source)
+        result = _poll(feed_checker, source)
         assert result.warnings
         assert all(SECRET not in warning for warning in result.warnings)

@@ -35,7 +35,7 @@ class ActionRunCancelService:
             run_jobs=self._workspace.run_jobs,
             project_id=project_id,
             run_id=run_id,
-            storage_org_id=self._workspace.queue_storage_org_id,
+            storage_org_id=self._workspace.queue_storage_organization_id,
         )
         cancelled_row = cancelled.row
         if cancelled.disposition == "cancel_pending":

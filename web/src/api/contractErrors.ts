@@ -1,4 +1,4 @@
-import { quotedUsd } from '../actions/quotedCost';
+import { estimatedUsd } from '../actions/estimatedCost';
 import { UNKNOWN_COST_GATE_MESSAGE } from '../actions/model';
 import type { RunEstimate } from './types';
 import { isRecord } from './wireValues';
@@ -162,7 +162,7 @@ function actionResultError(
       ?? rowsEstimateFromDetail(details);
     return confirmationRequiredFrom(details, raw, (estimate) => firstNonEmptyString(
       typeof confirmError?.message === 'string' ? confirmError.message : '',
-      quotedUsd(estimate) === null ? UNKNOWN_COST_GATE_MESSAGE : '',
+      estimatedUsd(estimate) === null ? UNKNOWN_COST_GATE_MESSAGE : '',
       'confirmation required',
     ));
   }

@@ -98,7 +98,7 @@ class PurchasePolicy(Protocol):
     ) -> None: ...
 
 
-def hosted_context(context: Any) -> bool:
+def cloud_context(context: Any) -> bool:
     return (
         getattr(
             getattr(context, "credential_use_context", None), "deployment_owner", None
@@ -133,7 +133,7 @@ class LocalPurchasePolicy:
             if not cloud_llm_execution_bound(request.engine):
                 raise PurchasePolicyRequired("Cloud relay requires its admitted route")
             return PurchaseAdmission("relay")
-        if hosted_context(request.context):
+        if cloud_context(request.context):
             raise PurchasePolicyRequired("Hosted execution requires a purchase policy")
         return PurchaseAdmission(
             "byok"
@@ -159,7 +159,7 @@ def policy_for_context(context: Any) -> PurchasePolicy:
     if policy is None:
         policy = getattr(extras.get("router"), "model_call_policy", None)
     if policy is None:
-        if hosted_context(context):
+        if cloud_context(context):
             raise PurchasePolicyRequired("Hosted execution requires a purchase policy")
         return LOCAL_PURCHASE_POLICY
     if not callable(getattr(policy, "admit_purchase", None)):

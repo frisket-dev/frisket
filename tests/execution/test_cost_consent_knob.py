@@ -36,8 +36,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.credential_use import CredentialUseContext
@@ -114,12 +114,12 @@ def _gate_claim_fields(project, spec, *, unit_rate: str = "0.000164") -> list[st
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.gateway.audio_second",
             terms_version="test.gateway.terms.v1",
             unit_rate=unit_rate,
             quantity_unit="audio_second",
-            rounding=CommercialQuoteRounding("half_even", 3),
+            rounding=CommercialEstimateRounding("half_even", 3),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -167,7 +167,7 @@ def test_standing_consent_artifact_exists_with_recorded_threshold(audio_project)
 
 
 def test_default_threshold_covers_the_sub_dollar_bound(audio_project, gateway_env):
-    """The default $2 preapproval covers the quoted call and its egress."""
+    """The default $2 allowance covers the quoted call and its egress."""
     project, sheet_id = audio_project
     assert _gate_claim_fields(project, _spec(sheet_id)) == []
 
@@ -188,7 +188,7 @@ def test_knob_zero_gates_after_reconcile(audio_project, gateway_env, monkeypatch
 def test_knob_100_covers_a_five_dollar_bound_after_reconcile(
     audio_project, gateway_env, monkeypatch
 ):
-    """A $5 call gates at $2 and is preapproved at $100."""
+    """A $5 call gates at $2 and is covered by the allowance at $100."""
     project, sheet_id = audio_project
     assert _gate_claim_fields(project, _spec(sheet_id), unit_rate="2.5") == [
         "cost",
@@ -206,7 +206,7 @@ def test_knob_100_covers_a_five_dollar_bound_after_reconcile(
     assert sorted(thresholds) == ["100", "2"]
 
 
-def test_new_request_uses_changed_preapproval_without_project_reconcile(
+def test_new_request_uses_changed_allowance_without_project_reconcile(
     audio_project, gateway_env, monkeypatch
 ):
     """New request coverage follows the effective installation preference."""

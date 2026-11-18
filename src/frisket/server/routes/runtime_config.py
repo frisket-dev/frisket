@@ -135,7 +135,7 @@ def register_runtime_config_routes(
                 workspace.set_local_cache_mode(body.cache_mode)
             if body.cost_preapproval_usd is not None:
                 try:
-                    workspace.set_local_cost_preapproval_usd(body.cost_preapproval_usd)
+                    workspace.set_local_allowance_usd(body.cost_preapproval_usd)
                 except ValueError as exc:
                     raise HTTPException(422, str(exc)) from exc
             return response()

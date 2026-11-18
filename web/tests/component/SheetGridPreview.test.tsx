@@ -46,7 +46,7 @@ afterEach(() => {
   localStorage.clear();
 });
 const sheet: SheetMeta = { id: '1', name: 'Videos', rowCount: 2, columns: [columnDef({ id: 'old', name: 'Cuts', type: 'text' })] };
-const column: PreviewOverlayColumn = { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, overwritesColumnId: 'old' };
+const column: PreviewOverlayColumn = { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, replacesColumnId: 'old' };
 const temporal: PreviewOverlayCell = { value: {
   schema_version: 'frisket.timeline_points.v1',
   timeline: { artifact_stable_id: 'source_artifact:preview-only', fingerprint: `sha256:${'a'.repeat(64)}`, duration_ms: 30_000 },
@@ -95,15 +95,15 @@ describe('preview grid interactions', () => {
     await waitFor(() => expect(refreshRows).toHaveBeenCalledTimes(2));
   });
 
-  it.each([null, 'old'])('uses sampled types and opens sampled detail for target %s', async (overwritesColumnId) => {
-    const descriptor = { ...column, overwritesColumnId };
+  it.each([null, 'old'])('uses sampled types and opens sampled detail for target %s', async (replacesColumnId) => {
+    const descriptor = { ...column, replacesColumnId };
     const { grid, open, edit } = await mount(temporal, descriptor);
-    const index = overwritesColumnId === null ? 1 : 0;
+    const index = replacesColumnId === null ? 1 : 0;
     expect(grid.getCellContent([index, 0])).toMatchObject({
       kind: GridCellKind.Custom, data: { kind: 'frisket-timeline', label: '0:12.500' }, readonly: true, allowOverlay: false,
     });
     act(() => grid.onCellActivated?.([index, 0]));
-    expect(open).toHaveBeenCalledWith(rows[0], overwritesColumnId === null ? undefined : sheet.columns[0], { column: descriptor, cell: temporal });
+    expect(open).toHaveBeenCalledWith(rows[0], replacesColumnId === null ? undefined : sheet.columns[0], { column: descriptor, cell: temporal });
     act(() => grid.onCellEdited?.([index, 0], { kind: GridCellKind.Text, data: 'changed', displayData: 'changed', allowOverlay: true }));
     expect(edit).not.toHaveBeenCalled();
   });

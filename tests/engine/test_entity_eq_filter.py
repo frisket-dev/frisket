@@ -2,7 +2,7 @@
 
 `{entity_col: {entity_eq: {type, text?|fingerprint?}}}` selects rows carrying
 at least one matching entity, through the shared sheet-filter evaluator
-(`frisket.querysets`) — so /data, row counts, saved views, CSV/dataset export,
+(`frisket.querysets`) — so /data, row counts, views, CSV/dataset export,
 alerts, alerts, map points, embedding scopes and the query preview all
 honor it without their own branch.
 
@@ -331,7 +331,7 @@ def test_entity_eq_is_not_combinable_with_another_operator_on_one_column(project
 
 
 # ---------------------------------------------------------------------------
-# boundary crossings: saved views, CSV export, grid
+# boundary crossings: views, CSV export, grid
 # ---------------------------------------------------------------------------
 
 
@@ -366,7 +366,7 @@ def _seed_client(client: TestClient) -> tuple[str, int, dict[str, int]]:
     return pid, sheet_id, dict(zip("abc", row_ids))
 
 
-def test_saved_views_preserve_entity_eq_filter_json(tmp_path):
+def test_views_preserve_entity_eq_filter_json(tmp_path):
     """The saved-view precedent from
     tests/test_date_range_filters.py::test_saved_views_preserve_date_range_filter_json:
     the operator payload must survive save/list byte-semantically and must not

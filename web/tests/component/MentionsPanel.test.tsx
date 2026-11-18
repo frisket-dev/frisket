@@ -252,8 +252,8 @@ describe('MentionsPanel — results', () => {
 
     // Every category the base page carried is on screen together — no global
     // "load more" stands between organizations and the date section.
-    const org = await screen.findByTestId('mentions-type-organization');
-    expect(org).toBeInTheDocument();
+    const organization = await screen.findByTestId('mentions-type-organization');
+    expect(organization).toBeInTheDocument();
     expect(screen.getByTestId('mentions-type-date')).toBeInTheDocument();
     // The base load is ONE untyped request for the top-N of each category.
     expect(mockApi.entityMentionsPreview).toHaveBeenCalledTimes(1);
@@ -287,8 +287,8 @@ describe('MentionsPanel — results', () => {
     );
     renderPanel();
 
-    const orgToggle = await screen.findByTestId('mentions-type-toggle-organization');
-    expect(orgToggle).toHaveTextContent('42');
+    const organizationToggle = await screen.findByTestId('mentions-type-toggle-organization');
+    expect(organizationToggle).toHaveTextContent('42');
     expect(screen.getByTestId('mentions-type-toggle-date')).toHaveTextContent('1');
     // No COUNT reads in "group"/"groups": the old "Showing N of M groups" and
     // "N groups" wording is gone. ("grouped forms" in the blurb and the filter
@@ -490,7 +490,7 @@ describe('MentionsPanel — disclosure and the three selectors', () => {
 describe('MentionsPanel — per-section paging and coverage', () => {
   // 42 organizations, of which the base page carries 2; the second page of
   // organizations answers this category's own "Show more".
-  const MANY_ORGS = preview({
+  const MANY_ORGANIZATIONS = preview({
     items: [ACME, ZENITH, MARCH],
     totalGroups: 43,
     typeTotals: [
@@ -498,7 +498,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
       { type: 'date', totalGroups: 1 },
     ],
   });
-  const ORG_PAGE_TWO = preview({
+  const ORGANIZATION_PAGE_TWO = preview({
     type: 'organization',
     items: [GLOBEX],
     totalGroups: 42,
@@ -508,7 +508,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
   });
 
   it('offers a Show more only in categories that have more behind them', async () => {
-    mockApi.entityMentionsPreview.mockResolvedValue(MANY_ORGS);
+    mockApi.entityMentionsPreview.mockResolvedValue(MANY_ORGANIZATIONS);
     renderPanel();
 
     // Organizations has 42 but shows 2, so its section offers the next page…
@@ -521,8 +521,8 @@ describe('MentionsPanel — per-section paging and coverage', () => {
 
   it('appends a category page into ONLY that section and refreshes its total', async () => {
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
-      .mockResolvedValueOnce(ORG_PAGE_TWO);
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
+      .mockResolvedValueOnce(ORGANIZATION_PAGE_TWO);
     renderPanel();
 
     await screen.findByTestId('mentions-show-more-organization');
@@ -564,7 +564,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
           return new Promise<EntityMentionsPreview>((resolve) => { resolveStale = resolve; });
         }
         if (input.search) return Promise.resolve(SEARCHED);
-        return Promise.resolve(MANY_ORGS);
+        return Promise.resolve(MANY_ORGANIZATIONS);
       },
     );
     renderPanel();
@@ -582,7 +582,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
 
     // The stale organization page lands now, tagged with the pre-search query —
     // it must NOT append into the search results.
-    await act(async () => { resolveStale(ORG_PAGE_TWO); });
+    await act(async () => { resolveStale(ORGANIZATION_PAGE_TWO); });
     expect(screen.queryByTestId('mentions-group-organization-fingerprint-globex'))
       .not.toBeInTheDocument();
   });
@@ -613,7 +613,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Staying current. `map.ner` creates its output column when the run STARTS, so
+// Staying current. `map.ner` creates its generated column when the run STARTS, so
 // an open panel's first preview is the empty one taken at that instant — the
 // live bug was that it kept printing "0 of 4 rows extracted · No mentions
 // found in this extraction" for as long as the panel stayed open after a
@@ -699,7 +699,7 @@ describe('MentionsPanel — staying current after a run', () => {
   });
 
   it('re-reads the base page on refresh, dropping any appended category page', async () => {
-    const MANY_ORGS = preview({
+    const MANY_ORGANIZATIONS = preview({
       items: [ACME, ZENITH, MARCH],
       totalGroups: 43,
       typeTotals: [
@@ -707,7 +707,7 @@ describe('MentionsPanel — staying current after a run', () => {
         { type: 'date', totalGroups: 1 },
       ],
     });
-    const ORG_PAGE_TWO = preview({
+    const ORGANIZATION_PAGE_TWO = preview({
       type: 'organization',
       items: [GLOBEX],
       totalGroups: 42,
@@ -716,9 +716,9 @@ describe('MentionsPanel — staying current after a run', () => {
       limit: 100,
     });
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
-      .mockResolvedValueOnce(ORG_PAGE_TWO)
-      .mockResolvedValueOnce(MANY_ORGS);
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
+      .mockResolvedValueOnce(ORGANIZATION_PAGE_TWO)
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS);
     renderPanel();
 
     fireEvent.click(await screen.findByTestId('mentions-show-more-organization'));
@@ -746,7 +746,7 @@ describe('MentionsPanel — staying current after a run', () => {
 // ---------------------------------------------------------------------------
 
 describe('MentionsPanel — a failed category page stays inside its section', () => {
-  const MANY_ORGS = preview({
+  const MANY_ORGANIZATIONS = preview({
     items: [ACME, ZENITH, MARCH],
     totalGroups: 43,
     typeTotals: [
@@ -754,7 +754,7 @@ describe('MentionsPanel — a failed category page stays inside its section', ()
       { type: 'date', totalGroups: 1 },
     ],
   });
-  const ORG_PAGE_TWO = preview({
+  const ORGANIZATION_PAGE_TWO = preview({
     type: 'organization',
     items: [GLOBEX],
     totalGroups: 42,
@@ -765,7 +765,7 @@ describe('MentionsPanel — a failed category page stays inside its section', ()
 
   it('keeps the loaded groups and scopes the message to the asking section', async () => {
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
       .mockRejectedValueOnce(new ApiError(503, 'preview timed out', 'unavailable'));
     renderPanel();
 
@@ -791,9 +791,9 @@ describe('MentionsPanel — a failed category page stays inside its section', ()
 
   it('clears the section error when the retry succeeds', async () => {
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
       .mockRejectedValueOnce(new ApiError(503, 'preview timed out', 'unavailable'))
-      .mockResolvedValueOnce(ORG_PAGE_TWO);
+      .mockResolvedValueOnce(ORGANIZATION_PAGE_TWO);
     renderPanel();
 
     fireEvent.click(await screen.findByTestId('mentions-show-more-organization'));
@@ -808,9 +808,9 @@ describe('MentionsPanel — a failed category page stays inside its section', ()
 
   it('drops a section error the panel has already left behind', async () => {
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
       .mockRejectedValueOnce(new ApiError(503, 'preview timed out', 'unavailable'))
-      .mockResolvedValueOnce(MANY_ORGS);
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS);
     renderPanel();
 
     fireEvent.click(await screen.findByTestId('mentions-show-more-organization'));
@@ -835,7 +835,7 @@ describe('MentionsPanel — a failed category page stays inside its section', ()
 
 describe('MentionsPanel — a grid filter is not a data change', () => {
   it('keeps every loaded category page when the applied mention filter changes', async () => {
-    const MANY_ORGS = preview({
+    const MANY_ORGANIZATIONS = preview({
       items: [ACME, ZENITH, MARCH],
       totalGroups: 43,
       typeTotals: [
@@ -843,7 +843,7 @@ describe('MentionsPanel — a grid filter is not a data change', () => {
         { type: 'date', totalGroups: 1 },
       ],
     });
-    const ORG_PAGE_TWO = preview({
+    const ORGANIZATION_PAGE_TWO = preview({
       type: 'organization',
       items: [GLOBEX],
       totalGroups: 42,
@@ -852,8 +852,8 @@ describe('MentionsPanel — a grid filter is not a data change', () => {
       limit: 100,
     });
     mockApi.entityMentionsPreview
-      .mockResolvedValueOnce(MANY_ORGS)
-      .mockResolvedValueOnce(ORG_PAGE_TWO);
+      .mockResolvedValueOnce(MANY_ORGANIZATIONS)
+      .mockResolvedValueOnce(ORGANIZATION_PAGE_TWO);
     const onFilter = vi.fn();
     const { rerender } = render(
       <MentionsPanel

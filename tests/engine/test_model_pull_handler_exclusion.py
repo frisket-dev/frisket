@@ -20,7 +20,7 @@ import frisket.engine.jobs.worker as worker_module
 from frisket.engine.jobs.queue import open_queue
 from frisket.engine.jobs.worker import (
     HandlerRegistry,
-    register_hosted_handlers,
+    register_cloud_handlers,
     register_production_handlers,
 )
 from frisket.server.app import create_app
@@ -65,7 +65,7 @@ def test_hosted_composition_lacks_model_pull_even_if_it_calls_the_open_registrar
         )
 
         registry = HandlerRegistry()
-        register_hosted_handlers(registry, workspace_root=tmp_path, queue=queue)
+        register_cloud_handlers(registry, workspace_root=tmp_path, queue=queue)
         assert "model.pull" not in registry.kinds()
     finally:
         queue.close()

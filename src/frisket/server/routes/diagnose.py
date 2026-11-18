@@ -7,7 +7,7 @@ The route reflects the CALLER's actual
 effective router (``Workspace.diagnostic_router()``) rather than a bare
 env-only ``ModelRouter()`` -- local tier picks up the workspace's
 ``.frisket/provider_keys.json`` file keys, hosted tier reports the
-signed-in org's own router (each org already has an isolated
+signed-in organization's own router (each organization already has an isolated
 ``Workspace``/``create_app`` -- see ``hosted/app.py``'s
 ``_build_tenant_app``), and a platform env key is never fabricated for a
 tenant that has not configured one. ``frisket doctor`` (cli.py) is
@@ -31,7 +31,7 @@ rides on the PATH because the role ladder resolves a project only from
 downstream composition's tenant dispatch). While the project arrived as a
 ``project_id`` QUERY parameter on ``/api/diagnose``, the catalog could only
 classify that route ``project_role=None``, so the ladder never ran for the
-project the handler then opened: any org member could read any sibling
+project the handler then opened: any organization member could read any sibling
 project's plugin health, a bad slug degraded to ``available:false`` and made
 the route a project-existence oracle, and the probe's first-touch
 ``bootstrap_project_bundled_plugins`` was a latent WRITE into a bundle the

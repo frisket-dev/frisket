@@ -15,7 +15,7 @@ function deferred<T>() {
 }
 const outputs = [{ key: 'summary', column_type: 'text' }];
 const valid = { diagnostics: {}, logical_outputs: outputs };
-const quote = { cost: 0.01, rows: 2, billed_cost: 10_000, policy_id: 'frisket.identity.v1', promise_set_hash: 'old-display-only' };
+const knownEstimate = { cost: 0.01, rows: 2, billed_cost: 10_000, policy_id: 'frisket.identity.v1', promise_set_hash: 'old-display-only' };
 let dispose: (() => void) | undefined;
 beforeEach(() => { installPopoverPolyfill(); mockLocalProviders(); });
 afterEach(() => { cleanup(); dispose?.(); vi.restoreAllMocks(); });
@@ -25,7 +25,7 @@ async function mount(options: Partial<MountTypedFormOptions> = {}) {
     sheet: sheetMeta([columnDef({ id: '1', name: 'body', type: 'text' })], { id: '7', rowCount: 2 }),
     initialDraft: { action_id: 'map.summarize', scope: { kind: 'sheet_rows', sheet_id: 7 },
       params: { source: ['body'], model: 'test/model', context: '' }, output_names: { summary: 'summary' } },
-    resolveParams: async () => valid, estimateAction: async () => quote, ...options });
+    resolveParams: async () => valid, estimateAction: async () => knownEstimate, ...options });
   dispose = result.dispose;
   await waitFor(() => expect(screen.getByTestId('cost-estimate')).toHaveTextContent('$0.01'));
   expect(screen.getByTestId('generated-action-run')).toBeEnabled();
@@ -35,10 +35,10 @@ const changeContext = (value: string) => fireEvent.change(screen.getByTestId('fi
 const clickRun = () => fireEvent.click(screen.getByTestId('generated-action-run'));
 
 it('debounces edits while retaining the previous amount and enabled Run through validation and quotation', async () => {
-  const nextQuote = deferred<RunEstimate>();
+  const nextEstimate = deferred<RunEstimate>();
   const nextValidation = deferred<ActionParamResolution>();
   const { estimateAction, resolveParams } = await mount();
-  estimateAction.mockImplementation(() => nextQuote.promise);
+  estimateAction.mockImplementation(() => nextEstimate.promise);
   resolveParams.mockImplementation(() => nextValidation.promise);
   const previousCalls = estimateAction.mock.calls.length;
   for (const value of ['R', 'Re', 'Reporting']) {
@@ -50,7 +50,7 @@ it('debounces edits while retaining the previous amount and enabled Run through 
   await waitFor(() => expect(estimateAction).toHaveBeenCalledTimes(previousCalls + 1));
   expect(estimateAction.mock.lastCall?.[0].params.context).toBe('Reporting');
   expect(screen.getByTestId('generated-action-run')).toBeEnabled();
-  await act(async () => { nextValidation.resolve(valid); nextQuote.resolve({ ...quote, billed_cost: 20_000 }); });
+  await act(async () => { nextValidation.resolve(valid); nextEstimate.resolve({ ...knownEstimate, billed_cost: 20_000 }); });
   expect(screen.getByTestId('cost-estimate')).toHaveTextContent('Estimated cost: $0.02');
 });
 
@@ -66,7 +66,7 @@ it('replaces a previous known price with a current unknown quote and ignores lat
   await act(async () => current.resolve({ cost: null, rows: 2, billed_cost: null }));
   expect(screen.getByTestId('cost-estimate')).toHaveTextContent('UNKNOWN');
   expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent('$0.01');
-  await act(async () => old.resolve({ ...quote, billed_cost: 9_000_000 }));
+  await act(async () => old.resolve({ ...knownEstimate, billed_cost: 9_000_000 }));
   expect(screen.getByTestId('cost-estimate')).toHaveTextContent('UNKNOWN');
   expect(screen.getByTestId('cost-estimate')).not.toHaveTextContent('$9.00');
 });
@@ -84,7 +84,7 @@ it('Run awaits current validation and quotation, then executes only the exact la
   await act(async () => validation.resolve(valid));
   expect(onExecute).not.toHaveBeenCalled();
   expect(estimateAction.mock.lastCall?.[0].params.context).toBe('latest');
-  await act(async () => estimate.resolve({ ...quote, billed_cost: 50_000, promise_set_hash: 'new-display-only' }));
+  await act(async () => estimate.resolve({ ...knownEstimate, billed_cost: 50_000, promise_set_hash: 'new-display-only' }));
   expect(onExecute).toHaveBeenCalledTimes(1);
   expect(onExecute.mock.calls[0][0]).toMatchObject({ params: { context: 'latest' } });
   expect(onExecute.mock.calls[0][0]).not.toHaveProperty('confirmation');

@@ -96,13 +96,13 @@ def test_diagnose_and_config_routes_agree_on_the_cache_mode(tmp_path, strict_env
     assert diagnosed.json()["info"]["replay_mode"]["cache_mode"] == "replay_strict"
 
 
-def test_diagnostic_router_org_branch_carries_the_injected_routers_cache_posture(
+def test_diagnostic_router_organization_branch_carries_the_injected_routers_cache_posture(
     tmp_path, strict_env
 ):
     """The hosted half of the same bug, and the reason the cache object is
     threaded there: with a ``provider_keys_resolver`` the diagnostic router is
-    reconstructed from the org's keys, and it used to drop BOTH axes of the
-    injected base router -- reporting ``replay`` / no cache for an org whose
+    reconstructed from the organization's keys, and it used to drop BOTH axes of the
+    injected base router -- reporting ``replay`` / no cache for an organization whose
     real execution router was strict-with-cache."""
     base = _cached_router(tmp_path, "org", cache_mode="replay_strict")
     workspace = Workspace(
@@ -121,7 +121,7 @@ def test_diagnostic_router_org_branch_carries_the_injected_routers_cache_posture
     assert report["live_calls_possible"] is False
 
 
-def test_diagnostic_router_org_branch_without_a_base_router_uses_the_local_mode(
+def test_diagnostic_router_organization_branch_without_a_base_router_uses_the_local_mode(
     tmp_path, strict_env
 ):
     """No injected base router means no real cache to name, so the probe says
@@ -164,7 +164,7 @@ def test_diagnostic_router_never_claims_a_cache_it_does_not_have(tmp_path, stric
 class _Composition:
     label: str
     base_router_cache: str | None  # "cache" | "none" | None (no injected router)
-    org_resolver: bool
+    organization_resolver: bool
     workspace_file_key: bool
     project_key: bool
 
@@ -199,7 +199,9 @@ def _build(tmp_path: Path, composition: _Composition) -> tuple[Workspace, Projec
         root,
         router=base,
         provider_keys_resolver=(
-            (lambda: {"openai": "org-value"}) if composition.org_resolver else None
+            (lambda: {"openai": "org-value"})
+            if composition.organization_resolver
+            else None
         ),
     )
     if composition.workspace_file_key:

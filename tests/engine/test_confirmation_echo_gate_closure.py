@@ -52,8 +52,8 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     install_pricing_policy,
 )
 from http_test_helpers import drain_queue
@@ -62,8 +62,8 @@ from http_test_helpers import drain_queue
 class _PaidClosurePolicy:
     policy_id = "test.echo-closure.paid.v1"
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
-        return RatedQuote(
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
+        return RatedEstimate(
             billed_cost=5_000_000,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -72,7 +72,7 @@ class _PaidClosurePolicy:
 
 
 @pytest.fixture(autouse=True)
-def _pin_zero_standing_preapproval(monkeypatch: pytest.MonkeyPatch) -> None:
+def _pin_zero_standing_allowance(monkeypatch: pytest.MonkeyPatch) -> None:
     """Challenge positive quotes; free routes need an explicit paid fixture."""
 
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -86,7 +86,7 @@ WRONG_HASH = "0" * 64
 # promise-set content hash (frisket.promise_set.v1 — corpus-pinned bare hex,
 # HASH_FAMILIES output "hex"). A family minting "sha256:"-prefixed (or any
 # other) spelling reds here by name.
-_QUOTE_HASH_SPELLING = re.compile(r"[0-9a-f]{64}")
+_ESTIMATE_HASH_SPELLING = re.compile(r"[0-9a-f]{64}")
 
 # The COMPLETE set of quote-hash mints in this codebase. Consent is minted in
 # exactly two constructions and a family may use no other:
@@ -1099,12 +1099,14 @@ def test_wrong_echo_refuses_without_executing(
             f"errors={[e.code for e in (gated.errors or [])]}) — fix this "
             "kind's driver so the closure test actually reaches its gate"
         )
-        quote = (gated.errors[0].details or {}).get("promise_set_hash")
-        assert isinstance(quote, str) and _QUOTE_HASH_SPELLING.fullmatch(quote), (
-            f"{kind}: quote hash {quote!r} does not use the ONE bare-hex "
+        estimate = (gated.errors[0].details or {}).get("promise_set_hash")
+        assert isinstance(estimate, str) and _ESTIMATE_HASH_SPELLING.fullmatch(
+            estimate
+        ), (
+            f"{kind}: quote hash {estimate!r} does not use the ONE bare-hex "
             "sha256 spelling every family mints on the 402 envelope"
         )
-        assert quote != WRONG_HASH, f"{kind}: probe hash collides with WRONG_HASH"
+        assert estimate != WRONG_HASH, f"{kind}: probe hash collides with WRONG_HASH"
 
         # 1b. Mint closure: the hash this kind OFFERS must be one the shared
         #     mints produced. The spelling assertion above only proves the
@@ -1115,7 +1117,7 @@ def test_wrong_echo_refuses_without_executing(
             f"{kind}: its 402 minted no quote hash through any shared mint — "
             f"every confirmation is minted by one of {[name for _m, name in _MINTS]}"
         )
-        assert quote in minted, (
+        assert estimate in minted, (
             f"{kind}: the promise_set_hash on its 402 envelope was not "
             "produced by a shared mint, so this family is hashing a payload "
             "of its own — mint it through "
@@ -1146,7 +1148,7 @@ def test_wrong_echo_refuses_without_executing(
         # wrong-echo refusal must carry it too (two surfaces, one answer).
         details = refused.errors[0].details or {}
         re_offered = details.get("promise_set_hash")
-        assert isinstance(re_offered, str) and _QUOTE_HASH_SPELLING.fullmatch(
+        assert isinstance(re_offered, str) and _ESTIMATE_HASH_SPELLING.fullmatch(
             re_offered
         ), (
             f"{kind}: wrong-echo refusal dropped (or mis-spelled) the "

@@ -70,7 +70,7 @@ import { createOrganizationOperationsApi } from './organizationOperations';
 import { createProjectAttemptsApi } from './projectAttempts';
 import { createProjectSourcesApi } from './projectSources';
 import { createTeamLocalModelsApi } from './teamLocalModels';
-import { createViewsLensesApi } from './viewsLenses';
+import { createViewsApi } from './viewsLenses';
 import { createAlertsApi } from './alerts';
 import { createNotificationsApi } from './notifications';
 import type { RequestOptions } from './httpContract';
@@ -172,7 +172,7 @@ export async function updateRuntimeConfig(
 
 /** Save the unauthenticated local-installation amount through the existing
  * runtime config surface. Team accounts use updateProfile instead. */
-export async function updateLocalCostPreapproval(
+export async function updateLocalAllowance(
   amount: string,
 ): Promise<RuntimeConfig> {
   const config = await instanceRuntimeApi.updateRuntimeConfig(
@@ -193,13 +193,13 @@ export const { getHealth } = instanceRuntimeApi;
 // composition; this shared client does not classify a commercial edition.
 export const { getMe, updateProfile } = createIdentityProfileApi();
 export const { getSpend } = createSpendApi();
-export const { listOrgKeys, providerCatalog, validateOrgKey } = organizationProvidersApi;
-export const setOrgKey = invalidatesActionCatalog(organizationProvidersApi.setOrgKey);
-export const deleteOrgKey = invalidatesActionCatalog(organizationProvidersApi.deleteOrgKey);
+export const { listOrganizationKeys, providerCatalog, validateOrganizationKey } = organizationProvidersApi;
+export const setOrganizationKey = invalidatesActionCatalog(organizationProvidersApi.setOrganizationKey);
+export const deleteOrganizationKey = invalidatesActionCatalog(organizationProvidersApi.deleteOrganizationKey);
 export const {
-  listOrgEnvVars,
-  setOrgEnvVar,
-  deleteOrgEnvVar,
+  listOrganizationEnvVars,
+  setOrganizationEnvVar,
+  deleteOrganizationEnvVar,
   getMediaProxyStatus,
 } = organizationOperationsApi;
 export const { listApiKeys, createApiKey, revokeApiKey } = createApiTokensApi();
@@ -232,14 +232,14 @@ export const discoverLocalEndpoints = invalidatesActionCatalog(
 export const updateLocalEndpoint = invalidatesActionCatalog(localProvidersApi.updateLocalEndpoint);
 export const deleteLocalEndpoint = invalidatesActionCatalog(localProvidersApi.deleteLocalEndpoint);
 
-// Org (team-tier) local model catalog + pull. The dedicated generated port
+// Organization (team-tier) local model catalog + pull. The dedicated generated port
 // preserves its typed coded-error detail, including a busy pull's active DTO.
 export const {
-  listOrgLocalEndpoints,
-  orgStartArtifactPull,
-  orgListModelPulls,
-  orgGetModelPull,
-  orgCancelModelPull,
+  listOrganizationLocalEndpoints,
+  organizationStartArtifactPull,
+  organizationListModelPulls,
+  organizationGetModelPull,
+  organizationCancelModelPull,
 } = teamLocalModelsApi;
 
 export const { getAdminOverview } = createAdminOverviewApi();
@@ -350,7 +350,7 @@ export function createProjectApi(projectId: string) {
   return composeDisjoint(
     createAlertsApi(projectId),
     createNotificationsApi(projectId),
-    createViewsLensesApi(projectId),
+    createViewsApi(projectId),
     createColumnTypesApi(projectId),
     createProjectDataManagementApi(projectId),
     createProjectSourcesApi({ v1ActionSession }, projectId),
@@ -463,7 +463,7 @@ export function createProjectApi(projectId: string) {
         );
       },
 
-      /** Provenance for an AI column: a bounded newest-first run history page.
+      /** Provenance for a generated column: a bounded newest-first run history page.
        *  The selected run's spec is remembered for the column drawer. */
       async getColumnRuns(columnId: string, offset = 0, limit = 20): Promise<ColumnRunsInfo> {
         const result = await readColumnRuns(columnId, offset, limit);

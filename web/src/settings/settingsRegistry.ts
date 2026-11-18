@@ -3,7 +3,7 @@ export type SettingsScope = 'personal' | 'project' | 'organization';
 export type SettingsNavGroup = 'Personal' | 'Project' | 'Organization';
 
 // 'local-only' is hosted-only's mirror: enabled in the local tier, disabled
-// under a hosted identity (workspace provider keys are org-managed in
+// under a hosted identity (workspace provider keys are organization-managed in
 // hosted mode).
 export type SettingsVisibility = 'always' | 'project' | 'hosted-only' | 'local-only';
 

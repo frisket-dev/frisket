@@ -34,15 +34,15 @@ from frisket.engine.executor import run_action_spec
 import frisket.ops.ytdlp as youtube_ops
 from frisket.ai.llm import ModelRouter
 from frisket.server.sources.runtime import (
-    get_source_poller,
-    register_source_poller,
-    unregister_source_poller,
+    get_feed_checker,
+    register_feed_checker,
+    unregister_feed_checker,
 )
 from frisket.server.sources.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
     YOUTUBE_PLAYLIST,
-    YouTubeCollectionPoller,
+    YouTubeCollectionFeedChecker,
 )
 from frisket.engine.store import Project
 from frisket.ops.ytdlp import DownloadedMedia
@@ -80,15 +80,15 @@ class _FakePlaylistProvider:
 
 
 @pytest.fixture
-def restore_youtube_playlist_poller():
-    previous = get_source_poller(YOUTUBE_PLAYLIST_KIND)
+def restore_youtube_playlist_feed_checker():
+    previous = get_feed_checker(YOUTUBE_PLAYLIST_KIND)
     try:
         yield
     finally:
         if previous is None:
-            unregister_source_poller(YOUTUBE_PLAYLIST_KIND)
+            unregister_feed_checker(YOUTUBE_PLAYLIST_KIND)
         else:
-            register_source_poller(previous, replace=True)
+            register_feed_checker(previous, replace=True)
 
 
 def _source_poll_action(source: dict[str, Any]) -> dict[str, Any]:
@@ -134,7 +134,7 @@ def _rows(project: Project, sheet_id: int) -> list[dict[str, Any]]:
 
 def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
     make_project,
-    restore_youtube_playlist_poller: None,
+    restore_youtube_playlist_feed_checker: None,
 ) -> None:
     # extract_flat entries: title survives, channel/uploader/channel_id/
     # uploader_id are ALL absent, exactly as yt-dlp's flat playlist listing
@@ -163,8 +163,8 @@ def test_playlist_poll_fills_null_entry_channel_from_playlist_owner(
         channel_title="Playlist Owner Channel",
     )
     provider = _FakePlaylistProvider(listing)
-    register_source_poller(
-        YouTubeCollectionPoller(YOUTUBE_PLAYLIST, provider=provider), replace=True
+    register_feed_checker(
+        YouTubeCollectionFeedChecker(YOUTUBE_PLAYLIST, provider=provider), replace=True
     )
 
     project = make_project("YT")

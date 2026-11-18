@@ -9,7 +9,7 @@ decision table. Registered routes alone own their wire paths.
 It carries NO commerce effects: no ``paid.account``/``funding.reservation``
 resolvers, no funding reservation flag, and no managed-only endpoint
 declarations (commerce checkout/webhook, account funding, signup requests,
-fleet org creation, tenant dispatch). Those are an external managed
+fleet organization creation, tenant dispatch). Those are an external managed
 composition's CONTRIBUTION, declared in its own route-policy module, which
 enriches these base entries rather than redeclaring them.
 
@@ -174,7 +174,7 @@ _OUTER_ADMIN: tuple[RouteSpec, ...] = (
     ("admin_browser_revoke_invite", "DELETE"),
     ("admin_browser_update_user_role", "PATCH"),
     ("admin_browser_users", "GET"),
-    # Org-wide network default: owner-only, like the other org-shaping admin
+    # Organization-wide network default: owner-only, like the other org-shaping admin
     # actions.
     ("update_org_network", "PATCH"),
 )

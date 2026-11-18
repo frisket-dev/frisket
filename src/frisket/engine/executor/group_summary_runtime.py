@@ -489,7 +489,7 @@ async def _complete_reduce_group_summaries(
             params.summary_column_name: write.column_ids[params.summary_column_name]
         },
         output_fields=tuple(program.output_fields(spec)),
-        created_output_column_ids=frozenset()
+        created_generated_column_ids=frozenset()
         if params.refresh_target
         else frozenset([write.column_ids[params.summary_column_name]]),
         op_id=op_id,

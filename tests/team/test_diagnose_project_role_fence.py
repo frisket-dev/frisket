@@ -4,7 +4,7 @@
 ladder resolves a project only from ``path_params["pid"]``
 (``team/enforcement.py``). The catalog therefore classified it under
 ``tenant.session`` with ``project_role=None`` and the ladder never ran for the
-project the handler then opened -- an org member with a role on project A could
+project the handler then opened -- an organization member with a role on project A could
 read project B's plugin-runtime health, and a bad slug degraded to
 ``available:false``, making the route a project-existence oracle. The probe
 also calls ``bootstrap_project_bundled_plugins`` on that bundle; it is

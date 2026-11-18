@@ -7,7 +7,7 @@ from frisket.server.services.pdf_packet_sources import AdmittedPacketSource
 from tests.server.test_pdf_split_preparation import _runtime
 
 
-def _quote_fixture(tmp_path, monkeypatch):
+def _estimate_fixture(tmp_path, monkeypatch):
     adapter, preview, project, provider, read, _op, source = _runtime(
         tmp_path, monkeypatch
     )
@@ -23,15 +23,15 @@ def _quote_fixture(tmp_path, monkeypatch):
     return coordinator, preview, project, provider, admitted
 
 
-def test_sheet_quote_uses_actual_selected_missing_page_and_exact_approval(
+def test_sheet_estimate_uses_actual_selected_missing_page_and_exact_approval(
     tmp_path, monkeypatch
 ):
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
     try:
-        holder = coordinator.quote(
+        holder = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -78,12 +78,12 @@ def test_sheet_quote_uses_actual_selected_missing_page_and_exact_approval(
 
 
 def test_empty_accepted_ocr_and_none_have_no_paid_work(tmp_path, monkeypatch):
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
     try:
-        holder = coordinator.quote(
+        holder = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -114,12 +114,12 @@ def test_empty_accepted_ocr_and_none_have_no_paid_work(tmp_path, monkeypatch):
 def test_manual_flat_text_does_not_prevent_one_native_read_or_invent_page_text(
     tmp_path, monkeypatch
 ):
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
     try:
-        holder = coordinator.quote(
+        holder = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -130,7 +130,7 @@ def test_manual_flat_text_does_not_prevent_one_native_read_or_invent_page_text(
         )
         path = holder.native_files["first"][2]
         assert path.is_file()
-        holder2 = coordinator.quote(
+        holder2 = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -152,13 +152,13 @@ def test_manual_flat_text_does_not_prevent_one_native_read_or_invent_page_text(
         project.close()
 
 
-def test_native_quote_reads_contiguous_pages_in_batches_and_hands_off_saved_pages(
+def test_native_estimate_reads_contiguous_pages_in_batches_and_hands_off_saved_pages(
     tmp_path, monkeypatch
 ):
     from dataclasses import replace
     from frisket.server.services import pdf_packet_ocr
 
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     source = replace(source, page_start=1, page_end=3)
@@ -171,7 +171,7 @@ def test_native_quote_reads_contiguous_pages_in_batches_and_hands_off_saved_page
 
     monkeypatch.setattr(pdf_packet_ocr, "extract_pdf_text_batch", observed)
     try:
-        holder = coordinator.quote(
+        holder = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -183,7 +183,7 @@ def test_native_quote_reads_contiguous_pages_in_batches_and_hands_off_saved_page
         assert sum(count for _start, count in calls) == 3
         assert set(holder.native_files["first"]) == {1, 2, 3}
         assert all(path.is_file() for path in holder.native_files["first"].values())
-        coordinator.quote(
+        coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -198,13 +198,13 @@ def test_native_quote_reads_contiguous_pages_in_batches_and_hands_off_saved_page
         project.close()
 
 
-def test_quote_cancellation_stops_before_native_or_paid_work(tmp_path, monkeypatch):
-    coordinator, preview, project, provider, source = _quote_fixture(
+def test_estimate_cancellation_stops_before_native_or_paid_work(tmp_path, monkeypatch):
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     try:
         with pytest.raises(InterruptedError, match="cancelled"):
-            coordinator.quote(
+            coordinator.estimate(
                 project_id="pages",
                 sources=[source],
                 revision=1,
@@ -222,14 +222,14 @@ def test_quote_cancellation_stops_before_native_or_paid_work(tmp_path, monkeypat
         project.close()
 
 
-def test_image_page_quote_preserves_mime_and_does_not_run_pdf_native_reader(
+def test_image_page_estimate_preserves_mime_and_does_not_run_pdf_native_reader(
     tmp_path, monkeypatch
 ):
     import io
     from contextlib import contextmanager
     from PIL import Image
 
-    coordinator, preview, project, provider, _source = _quote_fixture(
+    coordinator, preview, project, provider, _source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     data = io.BytesIO()
@@ -246,7 +246,7 @@ def test_image_page_quote_preserves_mime_and_does_not_run_pdf_native_reader(
         "image", digest, "image.png", len(raw), 1, 1, 1, opened, mime="image/png"
     )
     try:
-        holder = coordinator.quote(
+        holder = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -269,14 +269,14 @@ def test_cached_reduction_keeps_old_confirmation_and_transfers_only_remaining_wo
     from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
     from frisket.server.services.pdf_imports.previews import preview_settings
 
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     source = replace(source, page_start=2, page_end=3)
     selection = {"kind": "engine", "engine": "anthropic/claude-haiku-4-5"}
     params = {"engine": selection["engine"]}
     try:
-        old = coordinator.quote(
+        old = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -299,7 +299,7 @@ def test_cached_reduction_keeps_old_confirmation_and_transfers_only_remaining_wo
                     "blocks": [],
                 },
             )
-        current = coordinator.quote(
+        current = coordinator.estimate(
             project_id="pages",
             sources=[source],
             revision=1,
@@ -324,7 +324,7 @@ def test_cached_reduction_keeps_old_confirmation_and_transfers_only_remaining_wo
         assert facts["ocr_authorization"]["scope"]["targets"][0]["page_number"] == 3
         assert (
             facts["ocr_authorization"]["allocation"]["approval_parent_hash"]
-            == old.quoted["authorization"]["promise_set_hash"]
+            == old.estimated["authorization"]["promise_set_hash"]
         )
         assert provider.calls == 0
     finally:
@@ -340,10 +340,10 @@ def test_original_sample_runs_accounted_preview_then_binds_cached_page_to_second
     from frisket.ai.llm import LLMResponse
     from frisket.engine.store.document_text import resolve_document_text_selection
     from frisket.engine.store.prepared_content import PreparedContentStore
-    from frisket.ops.ocr_engines_hosted import ocr_coordinate_profile
+    from frisket.ops.ocr_engines_remote import ocr_coordinate_profile
     from tests.server.test_pdf_split_preparation import _wait_preview
 
-    coordinator, preview, project, provider, source = _quote_fixture(
+    coordinator, preview, project, provider, source = _estimate_fixture(
         tmp_path, monkeypatch
     )
     with source.open_source() as path:

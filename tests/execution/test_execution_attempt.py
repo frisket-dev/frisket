@@ -207,8 +207,8 @@ def _mint(project, run_id, *, scope=(7, 11)):
         CommercialOffering,
         CommercialOfferingMatch,
         CommercialPresentation,
-        CommercialQuoteRounding,
-        CommercialQuoteTerms,
+        CommercialEstimateRounding,
+        CommercialEstimateTerms,
         CommercialSettlementTerms,
     )
     from frisket.execution.credential_use import CredentialUseContext
@@ -221,12 +221,12 @@ def _mint(project, run_id, *, scope=(7, 11)):
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.audio_minute",
             terms_version="test.synthetic.terms.v1",
             unit_rate="0.01",
             quantity_unit="audio_minute",
-            rounding=CommercialQuoteRounding("half_even", 6),
+            rounding=CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -273,7 +273,7 @@ def test_claim_requires_an_explicit_claimed_or_claimless_mode(
     assert attempt_receipt(project, attempt.attempt_id)["state"] == "admitted"
 
 
-def test_claimless_dispatch_refuses_an_output_column_plan(
+def test_claimless_dispatch_refuses_an_generated_column_plan(
     project,
     consented_run,
 ):

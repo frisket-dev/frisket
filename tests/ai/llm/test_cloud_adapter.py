@@ -45,7 +45,7 @@ def _attempt() -> CloudExecutionAttempt:
             engine=MODEL,
             route_revision="route-revision-1",
         ),
-        quote_authority=None,
+        estimate_authority=None,
     )
 
 

@@ -980,7 +980,7 @@ export async function clickHeaderMenu(
 
 // Toolbar diet (workbench-ia-toolbar-diet-v1) re-home helpers.
 //
-// Wrap text · row height · saved views · provenance moved into the toolbar ⋯
+// Wrap text · row height · views · provenance moved into the toolbar ⋯
 // overflow (same testids, relocated). Open it before touching those controls.
 export async function openToolbarOverflow(page: Page): Promise<void> {
   await page.getByTestId('toolbar-overflow-button').click();

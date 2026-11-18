@@ -2,7 +2,7 @@
 
 - markitdown (no-ML) converts html/docx/text-PDF offline in the base env,
   from inline content, local files, or ingested blobs
-- the output column lands as text with format='markdown' (markdown-cells)
+- the generated column lands as text with format='markdown' (markdown-cells)
 - docling lives in the frisket-models sidecar (POST /to-markdown)
 - renamed from convert_markdown; the retired id is noncanonical and resolves
   no action
@@ -136,7 +136,7 @@ def _make_pdf(path, text="Audit Findings 2026"):
 
 def test_convert_inline_html_light_engine(tmp_path):
     """Raw HTML held in a text cell converts to markdown with structure
-    preserved, and the output column is format='markdown'."""
+    preserved, and the generated column is format='markdown'."""
     p, sheet = _project(tmp_path, [{"doc": HTML}])
     prog = _run(p, _spec(sheet, engine="markitdown"))
     assert prog.status == "completed", prog.errors

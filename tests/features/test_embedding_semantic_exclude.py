@@ -237,7 +237,7 @@ def test_no_exclude_query_hash_is_unchanged():
     )
 
 
-def test_exclude_lens_stores_canonical_exclude():
+def test_exclude_view_stores_canonical_exclude():
     from frisket.contracts.query_spec import normalize_query_spec
 
     spec = normalize_query_spec(

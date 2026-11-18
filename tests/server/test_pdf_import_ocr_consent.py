@@ -7,16 +7,16 @@ import re
 from decimal import Decimal
 
 from frisket.ai.llm import ModelRouter
-from frisket.execution.pricing_policy import RatedQuote
-from frisket.server.services import pdf_import_ocr_approval
-from frisket.server.services.pdf_import_ocr_approval import (
-    PdfImportOcrApprovalQuoter,
+from frisket.execution.pricing_policy import RatedEstimate
+from frisket.server.services import pdf_import_ocr_consent
+from frisket.server.services.pdf_import_ocr_consent import (
+    PdfImportOcrConsentEstimator,
     PdfImportOcrGrant,
 )
 from frisket.server.workspace import Workspace
 
 
-def test_paid_import_quote_uses_exact_deterministic_child_quotes(
+def test_paid_import_estimate_uses_exact_deterministic_child_estimates(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -25,7 +25,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         policy_id = "test.pdf-import-retail.v1"
 
         def rate(self, facts):
-            return RatedQuote(
+            return RatedEstimate(
                 billed_cost=facts.provider_cost * 2,
                 provider_cost=facts.provider_cost,
                 lane="cost_plus",
@@ -33,7 +33,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
             )
 
     monkeypatch.setattr(
-        pdf_import_ocr_approval, "default_pricing_policy", lambda: RetailPolicy()
+        pdf_import_ocr_consent, "default_pricing_policy", lambda: RetailPolicy()
     )
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
@@ -45,15 +45,15 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         tmp_path / "workspace", router=router, enable_local_model_pull=False
     )
     workspace.create("Paid PDF import", project_id="paid")
-    quoted_rows = []
-    original_resolve = pdf_import_ocr_approval.resolve_for_action
+    estimated_rows = []
+    original_resolve = pdf_import_ocr_consent.resolve_for_action
 
     def resolve_with_row_capture(*args, **kwargs):
-        quoted_rows.append(kwargs["bounded_scratch_input"].row_quantities)
+        estimated_rows.append(kwargs["bounded_scratch_input"].row_quantities)
         return original_resolve(*args, **kwargs)
 
     monkeypatch.setattr(
-        pdf_import_ocr_approval, "resolve_for_action", resolve_with_row_capture
+        pdf_import_ocr_consent, "resolve_for_action", resolve_with_row_capture
     )
     child_partitions = [
         {
@@ -89,7 +89,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         "child_partitions": child_partitions,
     }
 
-    result = PdfImportOcrApprovalQuoter(workspace).quote("paid", binding)
+    result = PdfImportOcrConsentEstimator(workspace).estimate("paid", binding)
     estimate = result["estimate"]
     grant = PdfImportOcrGrant.from_mapping(result["authorization"])
     children = grant.allocation["children"]
@@ -113,7 +113,7 @@ def test_paid_import_quote_uses_exact_deterministic_child_quotes(
         "provider:anthropic",
     ]
     assert estimate["remote_capability"] == "provider:anthropic"
-    assert quoted_rows == [{1: 4, 2: 3}, {257: 3}, None]
+    assert estimated_rows == [{1: 4, 2: 3}, {257: 3}, None]
     assert all("row_pages" not in child for child in children)
     assert grant.allocation["approved_billed_cost"] == estimate["billed_cost"]
     assert grant.allocation["currency"] == "USD"

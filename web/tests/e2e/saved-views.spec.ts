@@ -14,7 +14,7 @@ import {
   uniqueName,
 } from './helpers';
 
-function savedViewData(
+function viewData(
   name: string,
   sheetId: number,
   definition: { filters?: { column_id: number; condition: Record<string, string> }[]; order?: { column_id: number; dir: 'asc' | 'desc' }[]; columns?: number[] } = {},
@@ -232,18 +232,18 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   const statusColumnId = (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'status')!.id;
   const seeded = await (
     await page.request.post(`/api/projects/${pid}/views`, {
-      data: savedViewData('Open only', sheetId, { filters: [{ column_id: statusColumnId, condition: { eq: 'open' } }] }),
+      data: viewData('Open only', sheetId, { filters: [{ column_id: statusColumnId, condition: { eq: 'open' } }] }),
     })
   ).json();
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('All rows', sheetId),
+    data: viewData('All rows', sheetId),
   });
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   await openToolbarOverflow(page);
-  const savedViewsTrigger = page.getByTestId('open-saved-views-submenu');
-  await savedViewsTrigger.hover();
+  const viewsTrigger = page.getByTestId('open-saved-views-submenu');
+  await viewsTrigger.hover();
   const menu = page.getByTestId('saved-views-overflow-menu');
   await expect(menu).toBeVisible();
   const overflowBox = await page.getByTestId('toolbar-overflow-menu').boundingBox();
@@ -264,16 +264,16 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   await page.getByTestId('saved-view-editor-cancel').click();
 
   await openToolbarOverflow(page);
-  await savedViewsTrigger.focus();
+  await viewsTrigger.focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.getByTestId(`saved-views-overflow-view-${seeded.id}`)).toBeFocused();
   await page.keyboard.press('ArrowLeft');
-  await expect(savedViewsTrigger).toBeFocused();
+  await expect(viewsTrigger).toBeFocused();
   await expect(menu).toBeHidden();
   await page.keyboard.press('ArrowRight');
   await expect(page.getByTestId(`saved-views-overflow-view-${seeded.id}`)).toBeFocused();
   await page.keyboard.press('Escape');
-  await expect(savedViewsTrigger).toBeFocused();
+  await expect(viewsTrigger).toBeFocused();
   await expect(menu).toBeHidden();
   await page.keyboard.press('ArrowRight');
   const applyResponse = page.waitForResponse((res) => {
@@ -312,10 +312,10 @@ test('a delayed Sheet A response cannot replace the active Sheet B Views list', 
   const sheetA = await importCsv(page.request, pid, 'a.csv', 'status\nopen\n');
   const sheetB = await importCsv(page.request, pid, 'b.csv', 'status\nclosed\n');
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Sheet A view', sheetA, { filters: [{ column_id: (await sheetColumns(page.request, pid, sheetA))[0].id, condition: { eq: 'open' } }] }),
+    data: viewData('Sheet A view', sheetA, { filters: [{ column_id: (await sheetColumns(page.request, pid, sheetA))[0].id, condition: { eq: 'open' } }] }),
   });
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Sheet B view', sheetB),
+    data: viewData('Sheet B view', sheetB),
   });
   await openProject(page, pid, sheetA);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
@@ -361,7 +361,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   const sheetId = await importCsv(page.request, pid, 'rows.csv', 'status\nopen\n');
   const existing = await (
     await page.request.post(`/api/projects/${pid}/views`, {
-      data: savedViewData('Existing view', sheetId),
+      data: viewData('Existing view', sheetId),
     })
   ).json();
   await openProject(page, pid, sheetId);
@@ -451,7 +451,7 @@ test('viewers can apply Saved Views but have no creation or mutation entry point
   const pid = await createProject(page.request, uniqueName('e2e-saved-views-viewer'));
   const sheetId = await importCsv(page.request, pid, 'rows.csv', 'status\nopen\n');
   const saved = await (await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Viewer can apply', sheetId),
+    data: viewData('Viewer can apply', sheetId),
   })).json();
   const projects = await (await page.request.get('/api/projects')).json() as Array<Record<string, unknown>>;
   await page.route('**/api/projects', async (route) => {
@@ -547,14 +547,14 @@ test('Saved Views summarizes filters, sorting, and custom displayed columns in o
   );
   const columns = await sheetColumns(page.request, pid, sheetId);
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Open cities', sheetId, {
+    data: viewData('Open cities', sheetId, {
       filters: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'status')!.id, condition: { eq: 'open' } }],
       order: [{ column_id: (await sheetColumns(page.request, pid, sheetId)).find((column) => column.name === 'city')!.id, dir: 'asc' }],
       columns: [columns.find(column => column.name === 'city')!.id, columns.find(column => column.name === 'status')!.id],
     }),
   });
   await page.request.post(`/api/projects/${pid}/views`, {
-    data: savedViewData('Everything', sheetId),
+    data: viewData('Everything', sheetId),
   });
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
@@ -578,7 +578,7 @@ test('Saved Views overflow adds local search only above eight views and resets i
     Array.from({ length: 9 }, (_, index) =>
       page.request
         .post(`/api/projects/${pid}/views`, {
-          data: savedViewData(`Saved view ${index + 1}`, sheetId),
+          data: viewData(`Saved view ${index + 1}`, sheetId),
         })
         .then((response) => response.json()),
     ),
@@ -628,7 +628,7 @@ test('Saved Views overflow does not show a search field at exactly eight views',
   await Promise.all(
     Array.from({ length: 8 }, (_, index) =>
       page.request.post(`/api/projects/${pid}/views`, {
-        data: savedViewData(`Saved view ${index + 1}`, sheetId),
+        data: viewData(`Saved view ${index + 1}`, sheetId),
       }),
     ),
   );

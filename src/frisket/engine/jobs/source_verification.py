@@ -66,14 +66,14 @@ def register_source_verification_handler(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         project_id, _root, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=project_opener is not None,
         )
         bundle_id = payload.get("bundle_id")

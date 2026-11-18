@@ -81,7 +81,7 @@ def test_receipt_write_failure_does_not_retry_provider(monkeypatch):
             calls.append(query)
             return []
 
-    def failed_record(self, attempt, *, response, error, quote):
+    def failed_record(self, attempt, *, response, error, estimate):
         raise RuntimeError("receipt write failed")
 
     monkeypatch.setattr(ddgs, "DDGS", Provider)
@@ -108,7 +108,7 @@ def test_cancelled_search_settles_and_records_the_returned_provider_call(monkeyp
     monkeypatch.setattr(
         AdmittedWebSearcher,
         "_record",
-        lambda self, attempt, *, response, error, quote: observed.append(
+        lambda self, attempt, *, response, error, estimate: observed.append(
             (attempt, response is not None)
         ),
     )
@@ -259,7 +259,7 @@ def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypa
         events.append("provider")
         return httpx.Response(200, json={"results": [], "usage": {"credits": 1}})
 
-    def record(self, attempt, *, response, error, quote):
+    def record(self, attempt, *, response, error, estimate):
         assert response is not None
         events.append("receipt")
 

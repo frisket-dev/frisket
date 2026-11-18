@@ -2,7 +2,7 @@
 
 This is the OPEN half of what used to be a single hosted auth store. It knows
 how to sign someone in — issue and redeem a magic link, ensure the user and
-their first org exist, mint a session, resolve a session back to a user — and
+their first organization exist, mint a session, resolve a session back to a user — and
 nothing else. It never reads or writes commerce state; a sign-in here completes
 against a database that has no commerce tables at all
 (the public package boundary).
@@ -10,7 +10,7 @@ against a database that has no commerce tables at all
 Editions extend it through two seams:
 
 * `_create_org` — an external edition overrides it to attach its own commerce
-  companion row to the new org (its `AuthIdentityStore` subclass).
+  companion row to the new organization (its `AuthIdentityStore` subclass).
 * `user_payload` — an external edition overrides it to add its own fields to
   the identity payload.
 
@@ -47,13 +47,13 @@ class IdentityStore:
         self,
         cx: sa.Connection,
         *,
-        provision_org_id: int | None = None,
+        provision_organization_id: int | None = None,
     ):
         self.cx = cx
-        self._provision_org_id = provision_org_id
+        self._provision_organization_id = provision_organization_id
 
     def _create_org(self, name: str) -> int:
-        """Create an identity org. Editions override to attach their own state."""
+        """Create an identity organization. Editions override to attach their own state."""
         return inserted_id(self.cx.execute(orgs.insert().values(name=name)))
 
     @staticmethod
@@ -98,7 +98,7 @@ class IdentityStore:
     def email_is_admissible(self, email: str, *, now: datetime) -> bool:
         if (
             self.user_for_local_login(email) is not None
-            or self._provision_org_id is None
+            or self._provision_organization_id is None
         ):
             return True
         return self.has_valid_pending_invite(email, now=now)
@@ -192,7 +192,7 @@ class IdentityStore:
             user_id = inserted_id(
                 self.cx.execute(users.insert().values(email=clean_email))
             )
-            if self._provision_org_id is not None:
+            if self._provision_organization_id is not None:
                 # A server does not expose public account registration. New
                 # identities must arrive through an invite; first ownership is
                 # created only by the claim operation.
@@ -315,9 +315,9 @@ class IdentityStore:
         org_id: int | None = None,
     ) -> dict[str, Any]:
         """The open identity payload. Editions override to add their own fields."""
-        effective_org_id = org_id
-        if effective_org_id is None:
-            effective_org_id = self._default_org_id_for_user(int(row.id))
+        effective_organization_id = org_id
+        if effective_organization_id is None:
+            effective_organization_id = self._default_org_id_for_user(int(row.id))
         return {
             "id": row.id,
             "email": row.email,
@@ -327,7 +327,7 @@ class IdentityStore:
                 if row.cost_preapproval_usd is None
                 else str(row.cost_preapproval_usd)
             ),
-            "org_id": effective_org_id,
+            "org_id": effective_organization_id,
             "new": new,
         }
 
@@ -336,7 +336,7 @@ class IdentityStore:
         row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
         return self.user_payload(row, new=False)
 
-    def update_cost_preapproval(
+    def update_allowance(
         self, *, user_id: int, threshold_usd: Decimal
     ) -> dict[str, Any]:
         self.cx.execute(
@@ -351,8 +351,8 @@ class IdentityStore:
         row = self.cx.execute(sa.select(users).where(users.c.id == user_id)).first()
         return None if row is None else self.user_payload(row, new=False)
 
-    def identity_for_org(self, org_id: int) -> dict[str, Any] | None:
-        """The org's own branding, for `/api/me`."""
+    def identity_for_organization(self, org_id: int) -> dict[str, Any] | None:
+        """The organization's own branding, for `/api/me`."""
         row = self.cx.execute(
             sa.select(
                 orgs.c.display_name,
@@ -369,12 +369,12 @@ class IdentityStore:
         }
 
     def first_instance_identity(self) -> dict[str, Any]:
-        """Identity for the first configured org (lowest id).
+        """Identity for the first configured organization (lowest id).
 
         Used to brand the pre-auth sign-in surface, where there is no signed
-        -in user's org to read yet. A third-party operator's single org is,
-        by definition, the first one — our own hosted org is not special-
-        cased, it is simply whichever org happens to be first.
+        -in user's organization to read yet. A third-party operator's single organization is,
+        by definition, the first one — our own hosted organization is not special-
+        cased, it is simply whichever organization happens to be first.
         """
         row = self.cx.execute(
             sa.select(
@@ -410,14 +410,14 @@ class IdentityStore:
             ).scalar_one_or_none()
             if still_member is not None:
                 return int(default_org_id)
-        owner_org_id = self.cx.execute(
+        owner_organization_id = self.cx.execute(
             sa.select(memberships.c.org_id)
             .where(memberships.c.user_id == user_id, memberships.c.role == "owner")
             .order_by(memberships.c.org_id)
             .limit(1)
         ).scalar_one_or_none()
-        if owner_org_id is not None:
-            return int(owner_org_id)
+        if owner_organization_id is not None:
+            return int(owner_organization_id)
         org_id = self.cx.execute(
             sa.select(memberships.c.org_id)
             .where(memberships.c.user_id == user_id)
@@ -427,10 +427,10 @@ class IdentityStore:
         if org_id is not None:
             return int(org_id)
         # A project-only collaborator intentionally has no memberships row.
-        # Resolve their session to the deterministic first live project org so
-        # identity/profile paths retain their normal org-scoped shape, while
+        # Resolve their session to the deterministic first live project organization so
+        # identity/profile paths retain their normal organization-scoped shape, while
         # project_roles remains the only authorization grant.
-        project_org_id = self.cx.execute(
+        project_organization_id = self.cx.execute(
             sa.select(project_roles.c.org_id)
             .select_from(
                 project_roles.join(
@@ -445,4 +445,4 @@ class IdentityStore:
             .order_by(project_roles.c.org_id, project_roles.c.slug)
             .limit(1)
         ).scalar_one_or_none()
-        return None if project_org_id is None else int(project_org_id)
+        return None if project_organization_id is None else int(project_organization_id)

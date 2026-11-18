@@ -215,7 +215,7 @@ class ResultGenerationStore:
         ).fetchall()
         return [self._generation_from_row(row) for row in rows]
 
-    def output_columns_for_runs(
+    def generated_columns_for_runs(
         self, run_ids: Iterable[int]
     ) -> dict[int, list[dict[str, Any]]]:
         """Read declared output identities with their current display labels."""
@@ -454,7 +454,7 @@ class ResultGenerationStore:
     ) -> None:
         current = None if current_head_run_id is None else int(current_head_run_id)
         if binding.write_mode == "create":
-            # Preparation mirrors a newly created output column to its owning
+            # Preparation mirrors a newly created generated column to its owning
             # run before the bound generation is declared.
             if current not in (None, binding.run_id):
                 raise GenerationClaimError(

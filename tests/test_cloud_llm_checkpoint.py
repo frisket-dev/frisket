@@ -11,7 +11,7 @@ from frisket.cloud_execution import (
     CloudExecutionRefused,
     CloudLLMExecutionBinding,
     CloudPayerSubject,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
     cloud_llm_execution_scope,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
@@ -143,7 +143,7 @@ def _coordinator(project, transport, *, payer=None, ceiling=100):
         project,
         transport,
         payer=payer or _payer(),
-        quote_authority=CloudQuoteAuthority(ceiling),
+        estimate_authority=CloudEstimateAuthority(ceiling),
         group_key="run:1:row:2",
         action_kind="map.extract",
     )
@@ -225,7 +225,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             project,
             uncertain,
             payer=_payer(),
-            quote_authority=CloudQuoteAuthority(100),
+            estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
             run_id=first_run,
@@ -248,7 +248,7 @@ def test_reserved_request_is_adopted_by_fresh_run_writer(tmp_path):
             project,
             recovered_transport,
             payer=_payer(),
-            quote_authority=CloudQuoteAuthority(100),
+            estimate_authority=CloudEstimateAuthority(100),
             group_key="map:stable-parent-key",
             action_kind="map.extract",
             run_id=second_run,
@@ -303,8 +303,8 @@ def test_changed_request_gets_new_child_and_only_remaining_allowance(tmp_path):
 
         first_attempt, second_attempt = [call[0] for call in transport.calls]
         assert first_attempt.request_id != second_attempt.request_id
-        assert first_attempt.quote_authority.maximum_charge_micro == 100
-        assert second_attempt.quote_authority.maximum_charge_micro == 80
+        assert first_attempt.estimate_authority.maximum_charge_micro == 100
+        assert second_attempt.estimate_authority.maximum_charge_micro == 80
         assert len(coordinator.returned_checkpoints) == 2
         project.close()
 
@@ -353,8 +353,8 @@ def test_explicit_unknown_quantity_covers_distinct_tool_and_repair_calls(tmp_pat
 
         first_attempt, second_attempt = [call[0] for call in transport.calls]
         assert first_attempt.request_id != second_attempt.request_id
-        assert first_attempt.quote_authority.maximum_charge_micro is None
-        assert second_attempt.quote_authority.maximum_charge_micro is None
+        assert first_attempt.estimate_authority.maximum_charge_micro is None
+        assert second_attempt.estimate_authority.maximum_charge_micro is None
         assert len(coordinator.returned_checkpoints) == 2
         project.close()
 
@@ -381,7 +381,7 @@ def test_account_key_unknown_receipt_cost_remains_fail_closed_for_later_call(tmp
             await coordinator.execute(_request(message="second"))
 
         [first_attempt] = [call[0] for call in transport.calls]
-        assert first_attempt.quote_authority.maximum_charge_micro == 100
+        assert first_attempt.estimate_authority.maximum_charge_micro == 100
         project.close()
 
     asyncio.run(scenario())
@@ -443,7 +443,7 @@ def test_pending_accounting_does_not_block_next_approved_call(tmp_path, ceiling)
             coordinator.returned_accounting[0]["cloud_accounting_status"] == "pending"
         )
         assert [
-            call[0].quote_authority.maximum_charge_micro for call in transport.calls
+            call[0].estimate_authority.maximum_charge_micro for call in transport.calls
         ] == ([None, None] if ceiling is None else [100, 99])
         # The explicit agent budget reserves a provisional estimate only; it
         # never turns that estimate into a settled charge or receipt.

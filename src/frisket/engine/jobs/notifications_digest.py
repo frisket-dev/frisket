@@ -22,7 +22,7 @@ from .project_opener import (
     project_bundle_paths,
     ProjectOpener,
     claimed_opener_key,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
 )
 
 from .project_scan import bundle_opener, scan_projects
@@ -105,7 +105,7 @@ def register_notification_digest_handlers(
     *,
     workspace_root: str | Path,
     queue: JobQueue | None = None,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     workspace = Path(workspace_root)
@@ -118,7 +118,7 @@ def register_notification_digest_handlers(
                 payload.get("workspace_root") or workspace
             )
             handler_project_id = str(payload["project_id"])
-            handler_storage_org_id = (
+            handler_storage_organization_id = (
                 int(payload["storage_org_id"])
                 if payload.get("storage_org_id") is not None
                 else None
@@ -137,15 +137,15 @@ def register_notification_digest_handlers(
                     payload,
                     workspace_root=workspace,
                     require_storage_identity=True,
-                    workspace_root_storage_org_id=workspace_root_storage_org_id,
+                    workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 )
             )
             handler_workspace_root = handler_project_root
-            handler_storage_org_id = claimed.storage_org_id
+            handler_storage_organization_id = claimed.storage_org_id
         return compose_notification_digest_job(
             workspace_root=handler_workspace_root,
             project_id=handler_project_id,
-            storage_org_id=handler_storage_org_id,
+            storage_org_id=handler_storage_organization_id,
             route_id=int(payload["route_id"]),
             window=_window_from_payload(payload),
             queue=queue,
@@ -175,7 +175,7 @@ def compose_notification_digest_job(
         if project_opener is None
         else project_opener(
             ProjectStorageKey(
-                storage_org_id=require_opener_storage_org_id(storage_org_id),
+                storage_org_id=require_opener_storage_organization_id(storage_org_id),
                 project_slug=project_id,
             ),
             bundle,

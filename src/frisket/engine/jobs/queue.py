@@ -94,7 +94,7 @@ def claimed_project_root(
     claimed: ProjectStorageKey,
     *,
     workspace_root: str | Path,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
 ) -> Path:
     """The directory a claimed key resolves to under a declared root.
 
@@ -104,20 +104,20 @@ def claimed_project_root(
     action-job recovery scan all route through here so a storage-routing fix
     cannot land in one and miss the others.
 
-    An org-scoped root (``workspace_root_storage_org_id`` set) IS that org's
+    An organization-scoped root (``workspace_root_storage_organization_id`` set) IS that organization's
     directory, so a matching claim resolves directly under it (appending the
-    org id would double-nest ``<org>/<org>/<slug>``) and a claim for any other
-    org fails closed. An unscoped root is the global projects root, so the
-    claim's org id is its per-org subdirectory.
+    organization id would double-nest ``<org>/<org>/<slug>``) and a claim for any other
+    organization fails closed. An unscoped root is the global projects root, so the
+    claim's organization id is its per-organization subdirectory.
     """
-    if workspace_root_storage_org_id is None:
+    if workspace_root_storage_organization_id is None:
         return Path(workspace_root) / str(claimed.storage_org_id)
-    if claimed.storage_org_id == workspace_root_storage_org_id:
+    if claimed.storage_org_id == workspace_root_storage_organization_id:
         return Path(workspace_root)
     raise ValueError(
         f"claimed storage identity (org {claimed.storage_org_id}) does "
         "not belong to this registration's org-scoped storage root "
-        f"(org {workspace_root_storage_org_id})"
+        f"(org {workspace_root_storage_organization_id})"
     )
 
 
@@ -126,34 +126,34 @@ def claimed_project_location(
     *,
     workspace_root: str | Path,
     require_storage_identity: bool,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
 ) -> tuple[str, Path, Path]:
     """Return trusted slug, workspace directory, and bundle path for a handler.
 
     A claimed ``ProjectStorageKey`` always beats the mutable payload fields:
-    identity (org + slug) comes from claimed queue columns and the directory
+    identity (organization + slug) comes from claimed queue columns and the directory
     comes from registration-time configuration, never from the payload's
     ``project_id``/``workspace_root``.
 
-    ``workspace_root_storage_org_id`` is declared registration config (the
+    ``workspace_root_storage_organization_id`` is declared registration config (the
     queue-hosted-posture-explicit-v1 direction: posture is a parameter
     threaded from the composition root, never inferred from the path). It
     states that ``workspace_root`` IS the storage directory of exactly that
-    org (the hosted per-org ``Workspace`` roots at
+    organization (the hosted per-organization ``Workspace`` roots at
     ``FRISKET_DATA_DIR/projects/<org_id>``), so a matching claim resolves the
-    slug directly under the root — appending the claim's org id there would
+    slug directly under the root — appending the claim's organization id there would
     double-nest to ``<org>/<org>/<slug>.frisket`` — and a claim for any OTHER
-    org fails closed rather than resolving into the wrong tenant's directory.
-    When it is ``None`` the root is the global, org-unscoped projects root
-    (the shared worker CLI and local workspaces) and the claim's org id is
-    appended as its per-org subdirectory.
+    organization fails closed rather than resolving into the wrong tenant's directory.
+    When it is ``None`` the root is the global, organization-unscoped projects root
+    (the shared worker CLI and local workspaces) and the claim's organization id is
+    appended as its per-organization subdirectory.
     """
     claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
     if isinstance(claimed, ProjectStorageKey):
         project_root = claimed_project_root(
             claimed,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         )
         return (
             claimed.project_slug,
@@ -236,11 +236,11 @@ def _job_refs(kind: str, payload: Mapping[str, object] | None) -> dict[str, obje
     }
 
 
-def normalize_queue_org_id(value: object) -> int | None:
-    """Coerce a queue org identity (the FUNDING account) to a positive int, or None.
+def normalize_queue_organization_id(value: object) -> int | None:
+    """Coerce a queue organization identity (the FUNDING account) to a positive int, or None.
 
     Absent/empty -> None (the local, unkeyed tier). Anything present must be a
-    positive integer org identity; a value that cannot be one raises so a
+    positive integer organization identity; a value that cannot be one raises so a
     malformed identity fails closed rather than normalizing into some tenant's
     keys. Mirrors ProjectStorageKey's fail-closed identity validation and the
     ``int(org_id)`` the credential seam (jobs/runs.resolve_run_keys) performs.
@@ -269,21 +269,21 @@ def normalize_queue_org_id(value: object) -> int | None:
     return org_id
 
 
-def _validate_hosted_attribution(
+def _validate_cloud_attribution(
     refs: Mapping[str, object], body: Mapping[str, object]
 ) -> None:
     """hosted-job-attribution-v1: on the hosted store, refuse a job that names
     no owner. Called only when the queue's DECLARED posture is ``hosted=True``
     (queue-hosted-posture-explicit-v1), so the local single-user tier and the
     self-hosted team server — both of which open the queue ``hosted=False`` and
-    enqueue these same kinds with no org at all — never reach it.
+    enqueue these same kinds with no organization at all — never reach it.
 
     Two facts, deliberately not merged (they diverge on a hosted tenant
     sub-app, where ``org_id`` is the FUNDING account and ``storage_org_id`` is
     the DATA OWNER — see a downstream composition's tenant-app builder):
 
     * ``storage_org_id`` is the tenancy label. It is what makes a
-      ``project_id`` sensitive — the org whose directory the bundle lives in —
+      ``project_id`` sensitive — the organization whose directory the bundle lives in —
       so it is what per-tenant surfaces filter on, and it is REQUIRED here.
     * ``org_id`` is who pays and whose BYOK keys resolve. Background work
       minted by the engine (source polls, alert evaluations, digests,
@@ -302,8 +302,8 @@ def _validate_hosted_attribution(
                 f"{SERVER_SCOPED_JOB_PAYLOAD_KEY}=True was set alongside "
                 f"project_id={refs['project_id']!r}"
             )
-        raw_storage_org_id = body.get("storage_org_id")
-        if raw_storage_org_id is None:
+        raw_storage_organization_id = body.get("storage_org_id")
+        if raw_storage_organization_id is None:
             raise ValueError(
                 "hosted project jobs require first-class storage_org_id identity"
             )
@@ -311,7 +311,7 @@ def _validate_hosted_attribution(
         # rejects bool/float/str fail-closed so a malformed identity can never
         # normalize into tenant 1 or persist a row a worker can't route safely.
         ProjectStorageKey(
-            storage_org_id=raw_storage_org_id,
+            storage_org_id=raw_storage_organization_id,
             project_slug=str(refs["project_id"]),
         )
     elif refs["storage_org_id"] is None and not server_scoped:
@@ -322,7 +322,7 @@ def _validate_hosted_attribution(
         )
     # Whatever funding account the caller claims is validated at the mint site,
     # so a malformed one is refused here rather than terminal-failing a claim.
-    normalize_queue_org_id(body.get("org_id"))
+    normalize_queue_organization_id(body.get("org_id"))
 
 
 def _validate_ref_lookup(
@@ -677,7 +677,7 @@ jobs_table = sa.Table(
     sqlite_autoincrement=True,
 )
 
-# ``-1`` groups unscoped rows because NULL index keys are distinct; real org
+# ``-1`` groups unscoped rows because NULL index keys are distinct; real organization
 # ids are positive. Storage scope prevents cross-tenant dedupe collisions.
 sa.Index(
     "uq_jobs_active_dedupe",
@@ -843,7 +843,7 @@ class JobQueue:
         body = payload or {}
         refs = _job_refs(kind, body)
         if self._hosted_storage:
-            _validate_hosted_attribution(refs, body)
+            _validate_cloud_attribution(refs, body)
         try:
             with engine_write_transaction(self.engine) as cx:
                 inserted = cx.execute(
@@ -995,7 +995,7 @@ class JobQueue:
         if type(preferred_row_id) is not int or preferred_row_id < 1:
             raise ValueError("preferred row id must be a positive integer")
         c = jobs_table.c
-        org_scope = (
+        organization_scope = (
             c.storage_org_id.is_(None)
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
@@ -1008,7 +1008,7 @@ class JobQueue:
                     c.kind == PROJECT_RUN_KIND,
                     c.action_kind == "media.ocr",
                     c.project_id == project_id,
-                    org_scope,
+                    organization_scope,
                     c.status.in_(("queued", "running")),
                 )
                 .values(
@@ -1500,7 +1500,7 @@ class JobQueue:
         """Same as :meth:`cancel`, but the WHERE clause additionally requires
         ``org_id`` AND ``kind`` to match exactly -- an atomic, single
         transaction gate rather than a separate authorization read followed
-        by a plain ``cancel()``. A wrong org or wrong kind refuses (``False``)
+        by a plain ``cancel()``. A wrong organization or wrong kind refuses (``False``)
         exactly like a missing or already-terminal job."""
         cancelled, _previous_status = self._cancel_impl(
             job_id, org_id=org_id, kind=kind
@@ -1711,7 +1711,7 @@ class JobQueue:
         """Same as :meth:`get`, but the WHERE clause additionally requires
         ``org_id`` AND ``kind`` to match exactly: a caller-scoped org/kind
         read, never fetch-then-
-        authorize. Returns ``None`` for a wrong org, a wrong kind, or a
+        authorize. Returns ``None`` for a wrong organization, a wrong kind, or a
         missing job -- all three look identical to the caller, which is the
         point (no oracle for "the job exists but isn't yours")."""
         c = jobs_table.c

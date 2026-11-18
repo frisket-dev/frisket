@@ -1,7 +1,7 @@
-"""CourtListener docket source poller.
+"""CourtListener docket feed checker.
 
 The v1 connector materializes docket metadata rows only. RECAP PDFs are linked
-as media metadata under ``link_only`` and are never downloaded by this poller.
+as media metadata under ``link_only`` and are never downloaded by this feed checker.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from frisket.server.sources.runtime import (
     hash_json,
     iso_timestamp,
     provider_error_text,
-    register_source_poller,
+    register_feed_checker,
     text_hash,
 )
 
@@ -98,7 +98,7 @@ class CourtListenerDocketConfig:
 CourtListenerDocketProvider = Callable[..., CourtListenerDocketListing]
 
 
-class CourtListenerDocketPoller:
+class CourtListenerDocketFeedChecker:
     kind = COURTLISTENER_DOCKET_KIND
 
     def __init__(
@@ -332,15 +332,15 @@ def fetch_courtlistener_docket(
     )
 
 
-def register_courtlistener_docket_poller(
+def register_courtlistener_docket_feed_checker(
     provider: CourtListenerDocketProvider | None = None,
     *,
     now: Callable[[], datetime] | None = None,
     replace: bool = False,
-) -> CourtListenerDocketPoller:
-    poller = CourtListenerDocketPoller(provider=provider, now=now)
-    register_source_poller(poller, replace=replace)
-    return poller
+) -> CourtListenerDocketFeedChecker:
+    feed_checker = CourtListenerDocketFeedChecker(provider=provider, now=now)
+    register_feed_checker(feed_checker, replace=replace)
+    return feed_checker
 
 
 def _resolve_config(
@@ -903,4 +903,4 @@ def _json_size(value: Any) -> int:
     return len(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str))
 
 
-register_courtlistener_docket_poller()
+register_courtlistener_docket_feed_checker()

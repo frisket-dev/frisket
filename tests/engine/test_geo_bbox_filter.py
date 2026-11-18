@@ -2,7 +2,7 @@
 
 `{geo_col: {bbox: {min_lon, min_lat, max_lon, max_lat}}}` filters a geo_point
 column by bounding box through the shared sheet-filter evaluator
-(`frisket.querysets`), so /data, saved views, and the map all honor it. geo_point
+(`frisket.querysets`), so /data, views, and the map all honor it. geo_point
 values are `{lat, lon}` JSON, so the operator extracts $.lon/$.lat.
 """
 

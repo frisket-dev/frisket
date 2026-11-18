@@ -327,11 +327,11 @@ def test_summarize_http_estimate_matches_cloud_run_confirmation(tmp_path) -> Non
             "params": {"source": ["source"], "model": "openai/gpt-5-mini"},
             "idempotency_key": "cloud-summarize-estimate",
         }
-        quoted = client.post(
+        estimated = client.post(
             f"/api/projects/{project_id}/actions/v1/estimate", json={"action": action}
         )
-        assert quoted.status_code == 200, quoted.text
-        estimate = quoted.json()["estimate"]
+        assert estimated.status_code == 200, estimated.text
+        estimate = estimated.json()["estimate"]
         assert 0 < estimate["billed_cost"] < 500_000
         assert estimate["cost_source"] == "cloud_route_quote"
         # Zero standing coverage requires the same confirmation at both seams.
@@ -347,7 +347,7 @@ def test_summarize_http_estimate_matches_cloud_run_confirmation(tmp_path) -> Non
     assert transport.llm_calls == []
 
 
-def test_summarize_http_estimate_honors_selected_cloud_payer_preapproval(
+def test_summarize_http_estimate_honors_selected_cloud_payer_allowance(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "2")
@@ -361,7 +361,7 @@ def test_summarize_http_estimate_honors_selected_cloud_payer_preapproval(
         sheet_id = project.add_sheet("Sources")
         source_id = project.add_column(sheet_id, "source")
         project.add_rows(sheet_id, [{"source": "A source."}], {"source": source_id})
-        quoted = client.post(
+        estimated = client.post(
             f"/api/projects/{project_id}/actions/v1/estimate",
             json={
                 "action": {
@@ -375,8 +375,8 @@ def test_summarize_http_estimate_honors_selected_cloud_payer_preapproval(
                 }
             },
         )
-        assert quoted.status_code == 200, quoted.text
-        estimate = quoted.json()["estimate"]
+        assert estimated.status_code == 200, estimated.text
+        estimate = estimated.json()["estimate"]
         assert 0 < estimate["billed_cost"] < 2_000_000
         assert estimate["requires_confirmation"] is False
         assert not estimate.get("claims")
@@ -410,9 +410,9 @@ def test_scratch_ocr_http_uses_admitted_cloud_binding(tmp_path) -> None:
             "files": {"file": ("scan.png", _png(), "image/png")},
             "data": {"payload": json.dumps({"engine": "dots.mocr"})},
         }
-        quote = client.post(f"{endpoint}/estimate", **upload)
-        assert quote.status_code == 200, quote.text
-        confirmation = quote.json()["estimate"]["promise_set_hash"]
+        estimate = client.post(f"{endpoint}/estimate", **upload)
+        assert estimate.status_code == 200, estimate.text
+        confirmation = estimate.json()["estimate"]["promise_set_hash"]
         upload["data"]["payload"] = json.dumps(
             {"engine": "dots.mocr", "confirmation": confirmation}
         )
@@ -444,9 +444,9 @@ def test_scratch_vision_ocr_uses_cloud_model_receipts_and_retires_repairs(
             "files": {"file": ("scan.png", _png(), "image/png")},
             "data": {"payload": json.dumps({"engine": "openai/gpt-5-mini"})},
         }
-        quote = client.post(f"{endpoint}/estimate", **upload)
-        assert quote.status_code == 200, quote.text
-        confirmation = quote.json()["estimate"]["promise_set_hash"]
+        estimate = client.post(f"{endpoint}/estimate", **upload)
+        assert estimate.status_code == 200, estimate.text
+        confirmation = estimate.json()["estimate"]["promise_set_hash"]
         upload["data"]["payload"] = json.dumps(
             {"engine": "openai/gpt-5-mini", "confirmation": confirmation}
         )
@@ -508,12 +508,12 @@ def test_scratch_vision_ocr_keeps_returned_checkpoints_when_accounting_write_fai
             "files": {"file": ("scan.png", _png(), "image/png")},
             "data": {"payload": json.dumps({"engine": "openai/gpt-5-mini"})},
         }
-        quote = client.post(f"{endpoint}/estimate", **upload)
-        assert quote.status_code == 200, quote.text
+        estimate = client.post(f"{endpoint}/estimate", **upload)
+        assert estimate.status_code == 200, estimate.text
         upload["data"]["payload"] = json.dumps(
             {
                 "engine": "openai/gpt-5-mini",
-                "confirmation": quote.json()["estimate"]["promise_set_hash"],
+                "confirmation": estimate.json()["estimate"]["promise_set_hash"],
             }
         )
         started = client.post(endpoint, **upload)

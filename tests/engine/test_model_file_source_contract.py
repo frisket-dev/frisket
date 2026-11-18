@@ -270,10 +270,10 @@ def test_model_sources_still_send_text_pixels_and_ordinary_json(
         columns,
     )
     body = request(kind, sheet_id, list(columns))
-    quote = run_action_spec(project, body, project_id="test", router=router)
-    assert quote.status == "needs_confirmation", quote.errors
+    estimate = run_action_spec(project, body, project_id="test", router=router)
+    assert estimate.status == "needs_confirmation", estimate.errors
     assert adapter.requests == []
-    body["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    body["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     result = run_action_spec(project, body, project_id="test", router=router)
     assert result.status == "completed", result.errors
     assert len(adapter.requests) == 1

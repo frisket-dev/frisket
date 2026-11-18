@@ -70,8 +70,8 @@ test('organization settings manage provider keys and secrets without leaking val
 
   await page.goto('/settings/organization/ai-providers');
 
-  const orgProviders = page.getByTestId('organization-ai-providers-settings');
-  await expect(orgProviders).toContainText('anthropic');
+  const organizationProviders = page.getByTestId('organization-ai-providers-settings');
+  await expect(organizationProviders).toContainText('anthropic');
   // The key form sits behind the explicit 'Add new key' affordance now, and
   // Save is validation-gated: a successful Test (POST /api/org/keys/validate,
   // validation_token) must precede Save (settings revamp:
@@ -81,12 +81,12 @@ test('organization settings manage provider keys and secrets without leaking val
     contentType: 'application/json',
     body: JSON.stringify({ ok: true, provider: 'anthropic', validation_token: 'tok-e2e', message: 'Key OK' }),
   }));
-  await orgProviders.getByRole('button', { name: 'Add new key' }).click();
-  await orgProviders.getByLabel('Provider key', { exact: true }).fill('sk-new-secret');
-  await orgProviders.getByRole('button', { name: 'Test', exact: true }).click();
-  await orgProviders.getByRole('button', { name: 'Save' }).click();
+  await organizationProviders.getByRole('button', { name: 'Add new key' }).click();
+  await organizationProviders.getByLabel('Provider key', { exact: true }).fill('sk-new-secret');
+  await organizationProviders.getByRole('button', { name: 'Test', exact: true }).click();
+  await organizationProviders.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('sk-new-secret')).toHaveCount(0);
-  await expect(orgProviders).toContainText('...cret');
+  await expect(organizationProviders).toContainText('...cret');
 
   await page.goto('/settings/organization/env-vars');
   await page.getByLabel('Secret name').fill('serp_api_key');

@@ -11,7 +11,7 @@ import { ApiError, ConfirmationRequiredError } from '../api/contractErrors';
 import { pollPreviewJob } from '../api/previewJobTransport';
 import { type GeneratedActionDraft, type JsonValue, type RunEstimate } from '../api/types';
 import type { EvaluationApi, EvaluationBoundedValue } from '../api/evaluation';
-import { prepareComparisonQuotePlan } from './evaluation/comparisonQuotePlan';
+import { prepareComparisonEstimatePlan } from './evaluation/comparisonEstimatePlan';
 import { jsonValuesEqual } from '../actions/canonicalJson';
 import { errorMessage } from '../hooks/errorMessage';
 
@@ -76,7 +76,7 @@ export interface ActionCompareSessionSnapshot {
 
 export type ActionCompareRunOutcome =
   | { status: 'ready'; previewId: string; result: ActionCompareVariantResult }
-  | { status: 'failed'; previewId?: string | null; error: string; requiresRequote?: boolean }
+  | { status: 'failed'; previewId?: string | null; error: string; requiresFreshEstimate?: boolean }
   | { status: 'cancelled'; previewId?: string | null; previewTerminal?: boolean }
   | { status: 'unavailable'; previewId?: string | null; error?: string };
 
@@ -505,7 +505,7 @@ export function createActionCompareSession(
       activeRun = null;
       publish({ activeVariantId: null });
     }
-    return outcome.status === 'cancelled' || (outcome.status === 'failed' && outcome.requiresRequote) ? 'stop' : 'continue';
+    return outcome.status === 'cancelled' || (outcome.status === 'failed' && outcome.requiresFreshEstimate) ? 'stop' : 'continue';
   }
 
   function runPending(): Promise<void> {
@@ -680,7 +680,7 @@ export function createActionCompareRunner(
     try { started = await api.startPreview(request); }
     catch (error) {
       if (signal.aborted) return { status: 'cancelled' };
-      if (error instanceof ConfirmationRequiredError) return { status: 'failed', requiresRequote: true,
+      if (error instanceof ConfirmationRequiredError) return { status: 'failed', requiresFreshEstimate: true,
         error: 'The comparison estimate changed. Retry this variant to consent to a fresh estimate.' };
       return { status: 'failed', error: errorMessage(error) };
     }
@@ -744,22 +744,22 @@ export function createActionCompareRunner(
     };
   };
 
-  let quoted: Record<string, { revision: number; context: string; requests: ActionComparisonPreviewRequest[] }> = {};
+  let estimated: Record<string, { revision: number; context: string; requests: ActionComparisonPreviewRequest[] }> = {};
   const contextIdentity = (context: ActionComparisonContext) => JSON.stringify([context.comparison_basis, context.sample_row_ids, context.expected_output_signature]);
   const prepareSequence: NonNullable<ActionCompareVariantRun['prepareSequence']> = async ({ context, variants, signal }) => {
-    quoted = {};
-    const plan = await prepareComparisonQuotePlan({ context, variants, quote: request => api.quotePreview(request, { signal }),
+    estimated = {};
+    const plan = await prepareComparisonEstimatePlan({ context, variants, estimatePreview: request => api.estimatePreview(request, { signal }),
       confirm: requestCostConfirmation, signal });
     if (!plan.approved || signal.aborted) return false;
-    quoted = Object.fromEntries(variants.map((variant) => [variant.id, { revision: variant.draftRevision,
+    estimated = Object.fromEntries(variants.map((variant) => [variant.id, { revision: variant.draftRevision,
       context: contextIdentity(context), requests: plan.chunks[variant.id] ?? [] }]));
     return true;
   };
   const runner: ActionCompareVariantRun = async ({ context, variant, signal, onStarted, onPartial, onCaptured }) => {
-    if (!quoted[variant.id] && !await prepareSequence({ context, variants: [variant], signal })) return { status: 'cancelled' };
-    const plan = quoted[variant.id];
+    if (!estimated[variant.id] && !await prepareSequence({ context, variants: [variant], signal })) return { status: 'cancelled' };
+    const plan = estimated[variant.id];
     if (!plan || plan.revision !== variant.draftRevision || plan.context !== contextIdentity(context)) return {
-      status: 'failed', requiresRequote: true, error: 'Comparison settings changed. Retry this variant to consent to a fresh estimate.',
+      status: 'failed', requiresFreshEstimate: true, error: 'Comparison settings changed. Retry this variant to consent to a fresh estimate.',
     };
     // Ordinary previews retain their 20-row boundary. A comparison owns the
     // sequence of admitted chunks and their result/consent identities.
@@ -778,7 +778,7 @@ export function createActionCompareRunner(
         Object.assign(result.rows, outcome.result.rows);
         onPartial?.(result);
       }
-      const terminalPreviewId = outcome.status === 'ready' || (outcome.status === 'failed' && !outcome.requiresRequote)
+      const terminalPreviewId = outcome.status === 'ready' || (outcome.status === 'failed' && !outcome.requiresFreshEstimate)
         || (outcome.status === 'cancelled' && outcome.previewTerminal) ? outcome.previewId : null;
       if (evaluationApi && terminalPreviewId) {
         try {

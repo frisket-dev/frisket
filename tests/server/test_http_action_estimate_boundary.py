@@ -8,8 +8,8 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
-    RatedQuote,
+    EstimateFacts,
+    RatedEstimate,
     install_pricing_policy,
 )
 from frisket.execution.provider import (
@@ -471,7 +471,7 @@ def test_v1_action_estimate_supports_local_ocr_without_creating_run_state(
 
 
 @pytest.mark.parametrize("configured", (False, True))
-def test_v1_action_estimate_requires_docling_route_before_zero_quote(
+def test_v1_action_estimate_requires_docling_route_before_zero_estimate(
     tmp_path, monkeypatch, configured
 ) -> None:
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
@@ -552,12 +552,12 @@ class _CountingCostPlusPolicy:
     policy_id = "test.preview.cost-plus.v1"
 
     def __init__(self) -> None:
-        self.facts: list[QuoteFacts] = []
+        self.facts: list[EstimateFacts] = []
 
-    def rate(self, facts: QuoteFacts) -> RatedQuote:
+    def rate(self, facts: EstimateFacts) -> RatedEstimate:
         self.facts.append(facts)
         assert facts.provider_cost is not None
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost * 2,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -565,7 +565,7 @@ class _CountingCostPlusPolicy:
         )
 
 
-def test_routed_action_preview_rates_once_and_returns_that_billed_quote(
+def test_routed_action_preview_rates_once_and_returns_that_billed_estimate(
     make_project,
 ) -> None:
     """Cross-seam pin for the routed producer and preview-service consumer.

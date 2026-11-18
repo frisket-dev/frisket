@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { EmbeddingApiPort } from '../../src/api/ports';
 import type { EmbeddingIndexAnalysisInput, EmbeddingIndexSummary } from '../../src/api/types';
 import { EmbeddingIndexCard } from '../../src/components/embeddings/EmbeddingIndexCard';
-import { OpenLensContext } from '../../src/components/embeddings/openLensContext';
+import { OpenViewContext } from '../../src/components/embeddings/openViewContext';
 
 afterEach(cleanup);
 
@@ -34,12 +34,12 @@ function mountCard(selectedRowIds: readonly string[] = []) {
   const apiPort = {
     runEmbeddingIndexAnalysis: runAnalysis, listViews: vi.fn().mockResolvedValue([]),
   } as unknown as EmbeddingApiPort;
-  render(<OpenLensContext.Provider value={vi.fn()}>
+  render(<OpenViewContext.Provider value={vi.fn()}>
     <EmbeddingIndexCard apiPort={apiPort} index={index} busy={false}
       onRefresh={vi.fn()} onChanged={vi.fn()} onSelectSheet={onSelectSheet}
       sheet={{ id: '3', name: 'People', rowCount: 10, columns: [{ id: '8', name: 'bio', type: 'text' }] } as never}
       selectedRowIds={selectedRowIds} onFindSimilar={onFindSimilar} />
-  </OpenLensContext.Provider>);
+  </OpenViewContext.Provider>);
   return { runAnalysis, onSelectSheet, onFindSimilar };
 }
 

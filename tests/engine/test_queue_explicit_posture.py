@@ -150,10 +150,10 @@ def test_hosted_terminalization_routes_by_declared_root_not_ambient_env(
     assert not (tmp_path / "decoy").exists()
 
 
-def test_hosted_terminalization_fails_closed_for_foreign_org_scoped_root(
+def test_hosted_terminalization_fails_closed_for_foreign_organization_scoped_root(
     tmp_path,
 ):
-    """An org-scoped registration root refuses a claim for any OTHER org: the
+    """An organization-scoped registration root refuses a claim for any OTHER organization: the
     row flips but no cross-tenant project write happens."""
     from frisket.contracts.action import Receipt
     from frisket.engine.executor.queue_terminalization import (
@@ -163,9 +163,9 @@ def test_hosted_terminalization_fails_closed_for_foreign_org_scoped_root(
     from frisket.engine.store import Project
     from frisket.engine.store.receipts import ReceiptStore
 
-    org7_root = tmp_path / "projects" / "7"
-    org7_root.mkdir(parents=True)
-    project = Project.create(org7_root / "slug.frisket", name="slug")
+    organization7_root = tmp_path / "projects" / "7"
+    organization7_root.mkdir(parents=True)
+    project = Project.create(organization7_root / "slug.frisket", name="slug")
     try:
         ReceiptStore(project).insert_queued(
             Receipt(
@@ -183,10 +183,12 @@ def test_hosted_terminalization_fails_closed_for_foreign_org_scoped_root(
 
     queue = open_queue(workspace=tmp_path / "queue", hosted=True)
     try:
-        # Registration declares the root as org 7's storage directory; the
-        # job's claim names org 42 — resolution must fail closed.
+        # Registration declares the root as organization 7's storage directory; the
+        # job's claim names organization 42 — resolution must fail closed.
         register_queue_terminalization(
-            queue, workspace_root=org7_root, workspace_root_storage_org_id=7
+            queue,
+            workspace_root=organization7_root,
+            workspace_root_storage_organization_id=7,
         )
         jid = queue.enqueue(
             ACTION_RUN_KIND,
@@ -201,7 +203,7 @@ def test_hosted_terminalization_fails_closed_for_foreign_org_scoped_root(
     finally:
         queue.close()
 
-    reopened = Project(org7_root / "slug.frisket")
+    reopened = Project(organization7_root / "slug.frisket")
     try:
         stored = ReceiptStore(reopened).find_by_id("r-foreign")
         assert stored is not None and stored.parsed().status == "queued", (

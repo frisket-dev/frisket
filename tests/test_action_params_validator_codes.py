@@ -2,7 +2,7 @@
 
 Params refusals use one code per rule: ONE
 code for output-name-non-blank (`invalid_params`), `duplicate_output_column`
-for duplicate EMITTED output columns, and `invalid_model` for the
+for duplicate EMITTED generated columns, and `invalid_model` for the
 `provider/model` id shape including ner's llm engine. These tests drive the
 owning public boundary: canonical `validate_root_action` for migrated actions,
 and `validate_action_spec` for remaining legacy actions.
@@ -190,7 +190,7 @@ def test_output_name_non_blank_is_rejected_at_each_action_boundary() -> None:
         )
 
 
-def test_duplicate_emitted_output_columns_refuse_at_typed_binder() -> None:
+def test_duplicate_emitted_generated_columns_refuse_at_typed_binder() -> None:
     # This pins only ActionRequest._valid_output_names (actions/types.py): a
     # generic values-distinct check on the output_names mapping that fires for
     # ANY action_id. It is NOT the reduce-specific emitted-column collision the
@@ -346,7 +346,9 @@ def test_reduce_group_summary_emitted_output_collisions_refuse_at_prepare(
 
 
 @pytest.mark.parametrize("duplicate", ["projection", "rename"])
-def test_typed_list_table_duplicate_output_columns_refuse_at_public_binder(duplicate):
+def test_typed_list_table_duplicate_generated_columns_refuse_at_public_binder(
+    duplicate,
+):
     request = {
         "action_id": "derive.table_from_list",
         "scope": {"kind": "project"},

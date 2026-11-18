@@ -128,7 +128,7 @@ def _admission(bound, prepared, *, consent_coverage):
         ActionScope,
         action_confirmation,
         mint_confirmation_hash,
-        quoted_usd,
+        estimated_usd,
     )
 
     estimate = prepared.estimate
@@ -139,7 +139,7 @@ def _admission(bound, prepared, *, consent_coverage):
             estimate=estimate,
         )
     )
-    price = quoted_usd(estimate)
+    price = estimated_usd(estimate)
     if (
         price is None or price > float(consent_coverage.threshold_usd)
     ) and bound.request.confirmation != token:

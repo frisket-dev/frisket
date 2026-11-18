@@ -131,7 +131,7 @@ def test_project_secret_consumer_refs_cover_source_job_and_mcp(tmp_path) -> None
     assert "shared-secret-value" not in client.get(f"/api/projects/{pid}/secrets").text
 
 
-def test_project_secret_resolution_prefers_project_secret_over_org_fallback(
+def test_project_secret_resolution_prefers_project_secret_over_organization_fallback(
     tmp_path,
 ) -> None:
     def fallback(project_id: str, name: str) -> str | None:
@@ -184,7 +184,7 @@ def test_project_secret_resolution_prefers_project_secret_over_org_fallback(
     )
     assert saved.status_code == 200, saved.text
     # The declared job consumer resolves the newly-set project secret (the
-    # shared source/job/mcp path still prefers project secret over org fallback).
+    # shared source/job/mcp path still prefers project secret over organization fallback).
     assert (
         service.resolve_project_secret_for_consumer(
             pid,
@@ -197,7 +197,7 @@ def test_project_secret_resolution_prefers_project_secret_over_org_fallback(
     # The plugin path is scoped to the plugin's
     # own secrets and no longer reads the global project_secrets namespace, so
     # setting a core project secret does NOT leak into the plugin — it keeps
-    # resolving only the org fallback it was already entitled to.
+    # resolving only the organization fallback it was already entitled to.
     assert _project_plugin_secrets(
         project,
         plugin_id="demo.plugin",

@@ -40,16 +40,16 @@ from frisket.project_identity import ProjectStorageKey
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.project_opener import (
     ProjectOpener,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
 )
 from frisket.ai.llm import CacheMode, ModelRouter, ResponseCache
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
 from frisket.server.project_qa_runtime import ProjectQARuntimePort
 from frisket.server.runtime_settings import (
     resolve_workspace_cache_mode,
-    resolve_workspace_cost_preapproval_usd,
+    resolve_workspace_allowance_usd,
     save_workspace_cache_mode,
-    save_workspace_cost_preapproval_usd,
+    save_workspace_allowance_usd,
 )
 from frisket.server.notifications.delivery import (
     NotificationDeliveryRuntime,
@@ -232,9 +232,7 @@ class Workspace:
         # the workspace and wins on later starts. Injected routers retain their
         # composition-owned mode and are never mutated through this local seam.
         self._local_cache_mode = resolve_workspace_cache_mode(self.root)
-        self._local_cost_preapproval_usd = resolve_workspace_cost_preapproval_usd(
-            self.root
-        )
+        self._local_allowance_usd = resolve_workspace_allowance_usd(self.root)
         self._runtime_settings_lock = threading.RLock()
         self._provider_keys_resolver = provider_keys_resolver
         self._search_provider_keys_resolver = search_provider_keys_resolver
@@ -281,14 +279,14 @@ class Workspace:
             # Declared storage posture, not path inference: an external managed
             # composition constructs this Workspace with
             # queue_payload_extra["storage_org_id"]
-            # equal to the org whose directory self.root IS
+            # equal to the organization whose directory self.root IS
             # (FRISKET_DATA_DIR/projects/<org_id>). Declaring it here lets a
-            # claimed ProjectStorageKey resolve against this org-scoped root
-            # without re-appending the org id (double-nesting), while claims
+            # claimed ProjectStorageKey resolve against this organization-scoped root
+            # without re-appending the organization id (double-nesting), while claims
             # for other orgs fail closed. Local workspaces have no
             # queue_payload_extra, so this stays None and the registration
             # root keeps its global/unscoped resolution.
-            workspace_root_storage_org_id=self.queue_storage_org_id,
+            workspace_root_storage_organization_id=self.queue_storage_organization_id,
             # THE open seam for this workspace's in-process worker: the same
             # callable that Workspace.get() uses for route opens, so a server
             # route, a job handler and a background derivation in this process
@@ -296,7 +294,7 @@ class Workspace:
             project_opener=self.project_opener,
             # A multi-tenant composition may own one global terminalization
             # router for the shared queue. In that case no lazily-created
-            # per-org Workspace may replace it.
+            # per-organization Workspace may replace it.
             install_queue_terminalization=install_queue_terminalization,
             plugin_composition_policy=plugin_composition_policy,
             execution_router_factory=self._execution_router_factory,
@@ -401,8 +399,8 @@ class Workspace:
         """The opener implied by this workspace's own declared configuration.
 
         A workspace that was given a per-project blob-store factory AND a
-        declared storage org already fully determines HOW its projects open
-        (bundle path + that org's blob store). Deriving the opener here means
+        declared storage organization already fully determines HOW its projects open
+        (bundle path + that organization's blob store). Deriving the opener here means
         the in-process worker's handlers open exactly the way the route path
         does, without every composition root having to hand-write and inject
         the same closure. An explicitly injected ``project_opener`` always
@@ -410,15 +408,15 @@ class Workspace:
         wrap, not merely reproduce, this.
         """
         factory = self.project_blob_store_factory
-        declared_org_id = self.queue_storage_org_id
-        if factory is None or declared_org_id is None:
+        declared_organization_id = self.queue_storage_organization_id
+        if factory is None or declared_organization_id is None:
             return None
 
         def open_declared_project(key: ProjectStorageKey, path: Path) -> Project:
-            if key.storage_org_id != declared_org_id:
+            if key.storage_org_id != declared_organization_id:
                 raise ValueError(
                     f"claimed storage identity (org {key.storage_org_id}) does "
-                    f"not belong to this workspace (org {declared_org_id})"
+                    f"not belong to this workspace (org {declared_organization_id})"
                 )
             return Project(path, blob_store=factory(key.project_slug))
 
@@ -446,8 +444,8 @@ class Workspace:
                 return Project(path, blob_store=blob_store)
             return self.project_opener(
                 ProjectStorageKey(
-                    storage_org_id=require_opener_storage_org_id(
-                        self.queue_storage_org_id
+                    storage_org_id=require_opener_storage_organization_id(
+                        self.queue_storage_organization_id
                     ),
                     project_slug=project_id,
                 ),
@@ -460,7 +458,7 @@ class Workspace:
             raise RouteError(409, str(exc)) from exc
 
     @property
-    def queue_storage_org_id(self) -> int | None:
+    def queue_storage_organization_id(self) -> int | None:
         value = self.queue_payload_extra.get("storage_org_id")
         try:
             return None if value is None else int(value)
@@ -524,34 +522,38 @@ class Workspace:
         # Per-project provider keys decrypt through the store seam
         # (Project.provider_model_keys) — the router never decrypts inline.
         project_keys = project.provider_model_keys()
-        # Hosted / injected base router: layer project keys over org secrets.
-        # The team edition resolves its org keys for each request so a key
+        # Hosted / injected base router: layer project keys over organization secrets.
+        # The team edition resolves its organization keys for each request so a key
         # written through /api/org/keys becomes effective immediately without
         # restarting the process.  The resolver is deliberately key-only: its
         # composition boundary fixes the non-secret provenance to org_byok.
-        resolved_org_keys = (
+        resolved_organization_keys = (
             dict(self._provider_keys_resolver())
             if self._provider_keys_resolver is not None
             else None
         )
-        # With no request-time org layer or project override, the injected
+        # With no request-time organization layer or project override, the injected
         # router is already the effective router. Preserve its adapters and
         # any other injected runtime state rather than reconstructing it.
-        if base_router is not None and resolved_org_keys is None and not project_keys:
+        if (
+            base_router is not None
+            and resolved_organization_keys is None
+            and not project_keys
+        ):
             return base_router
-        if base_router is not None or resolved_org_keys is not None:
+        if base_router is not None or resolved_organization_keys is not None:
             base_keys = (
-                resolved_org_keys
-                if resolved_org_keys is not None
+                resolved_organization_keys
+                if resolved_organization_keys is not None
                 else base_router.configured_keys()
             )
             base_sources = (
                 dict.fromkeys(base_keys, "org_byok")
-                if resolved_org_keys is not None
+                if resolved_organization_keys is not None
                 else base_router.configured_key_sources()
             )
             keys = {**base_keys, **project_keys}
-            # A request-time org resolver or project key overlay requires a
+            # A request-time organization resolver or project key overlay requires a
             # composed router. The composition boundary fixes resolver keys'
             # non-secret provenance to org_byok.
             sources = {
@@ -559,7 +561,7 @@ class Workspace:
                     provider: (
                         source
                         if (
-                            resolved_org_keys is not None
+                            resolved_organization_keys is not None
                             or base_router.has_explicit_key_source(provider)
                         )
                         else "org_byok"
@@ -591,7 +593,7 @@ class Workspace:
                     else None
                 ),
                 max_retries=(base_router.max_retries if base_router is not None else 3),
-                use_env_keys=resolved_org_keys is None,
+                use_env_keys=resolved_organization_keys is None,
                 local_endpoints=(
                     base_router.local_endpoints
                     if base_router is not None
@@ -794,16 +796,16 @@ class Workspace:
         edition_snapshot[PRODUCT_EDITION_SNAPSHOT_KEY] = self.edition
         return replace(context, edition_snapshot=edition_snapshot)
 
-    def org_provider_keys(self) -> dict[str, str]:
-        """The team/org-injected LLM provider keys this workspace resolves
+    def organization_provider_keys(self) -> dict[str, str]:
+        """The team/organization-injected LLM provider keys this workspace resolves
         RIGHT NOW, i.e. the same
         ``self._provider_keys_resolver()`` call ``router_for``/
         ``diagnostic_router`` already use at execution time. Public so the
         project action catalog route (server/routes/actions.py) can thread
         it into the catalog's availability hints (server/
         action_catalog_hints.py's ``_configured_llm_providers``) — without
-        this, a team-edition org key (``frisket.team.app``'s
-        ``org_provider_keys`` control-plane resolver, injected via
+        this, a team-edition organization key (``frisket.team.app``'s
+        ``organization_provider_keys`` control-plane resolver, injected via
         ``provider_keys_resolver=`` at Workspace construction) made an LLM
         remote engine (map.translate's ``llm``, media.ocr's openai/gemini
         tiers) usable at RUN time but reported "unavailable" at CATALOG time,
@@ -823,10 +825,10 @@ class Workspace:
         No ``Project`` is in scope at this route, so unlike ``router_for``
         there is no per-project key
         layer to add. In an external managed composition, the injected router
-        is already the caller's own org router: its composition root builds it
-        from that org's stored secrets only, and every org gets its own
+        is already the caller's own organization router: its composition root builds it
+        from that organization's stored secrets only, and every organization gets its own
         ``create_app``/``Workspace`` -- so
-        returning it here can never leak another org's or the platform's
+        returning it here can never leak another organization's or the platform's
         env-only presence. Local tier: layer the workspace's own
         ``.frisket/provider_keys.json`` file keys (same precedence as
         ``router_for``'s pure-local branch: env wins per
@@ -842,7 +844,7 @@ class Workspace:
         contradict ``/api/config`` (which reads ``self.cache_mode``) on the
         one operator surface whose job is describing the runtime honestly.
         The CACHE OBJECT is only threaded where a real one exists: an
-        injected base router's cache is that org's actual execution cache, so
+        injected base router's cache is that organization's actual execution cache, so
         it is passed through. The pure-local branch attaches NONE and says so
         -- every ResponseCache in this codebase is per-project
         (``project.path / "project.cache.db"``; see ``router_for``), no
@@ -891,7 +893,7 @@ class Workspace:
     def cache_mode(self) -> CacheMode:
         """The effective router cache mode for this workspace (onboard-replay-
         banner-v1): the injected router's mode when one was supplied (hosted
-        per-org routers, test fixtures), else the persisted local preference
+        per-organization routers, test fixtures), else the persisted local preference
         (seeded by FRISKET_CACHE_MODE, defaulting to "replay") every lazily-
         built per-project router above uses. Read by
         server/routes/runtime_config.py so the
@@ -911,7 +913,7 @@ class Workspace:
     def cost_preapproval_usd(self) -> str:
         """The local installation's cost-gate amount, defaulting to $2."""
 
-        return self._local_cost_preapproval_usd
+        return self._local_allowance_usd
 
     def set_local_cache_mode(self, mode: CacheMode) -> CacheMode:
         """Persist and activate a local instance's mode for future launches."""
@@ -923,7 +925,7 @@ class Workspace:
             self._local_cache_mode = mode
             return self._local_cache_mode
 
-    def set_local_cost_preapproval_usd(self, amount: str) -> str:
+    def set_local_allowance_usd(self, amount: str) -> str:
         """Persist and activate this unauthenticated installation's threshold."""
 
         if self._router is not None:
@@ -931,10 +933,8 @@ class Workspace:
                 "this deployment manages the allowance outside the local UI"
             )
         with self._runtime_settings_lock:
-            self._local_cost_preapproval_usd = save_workspace_cost_preapproval_usd(
-                self.root, amount
-            )
-            return self._local_cost_preapproval_usd
+            self._local_allowance_usd = save_workspace_allowance_usd(self.root, amount)
+            return self._local_allowance_usd
 
     def list(self) -> list[dict]:
         """Every project row, cheaply: a manifest.json read (name +

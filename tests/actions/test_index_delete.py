@@ -414,7 +414,7 @@ def test_delete_refuses_live_saved_search_references(tmp_path, reference_kind):
         project.close()
 
 
-def test_pausing_alert_does_not_remove_its_saved_view_index_dependency(tmp_path):
+def test_pausing_alert_does_not_remove_its_view_index_dependency(tmp_path):
     project = Project.create(tmp_path / "project")
     try:
         seeded = _seed(project, tmp_path)

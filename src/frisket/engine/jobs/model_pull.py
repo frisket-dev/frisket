@@ -524,7 +524,7 @@ def register_model_pull_handler(
     CLI command (unconditional), and ``cli.py``'s team/run-queue-backed
     worker branch, gated by ``FRISKET_ENABLE_MODEL_PULL`` via
     ``provider_config.team_model_pull_enabled``. The hosted worker
-    (``register_hosted_handlers``, an external ``cloud`` edition) never
+    (``register_cloud_handlers``, an external ``cloud`` edition) never
     calls this function at all and structurally cannot have ``model.pull``
     in its registry.
 

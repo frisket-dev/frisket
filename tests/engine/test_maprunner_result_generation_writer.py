@@ -884,7 +884,9 @@ def _seed_managed_regex_output(
     return sheet_id, row_ids, output_id, binding[0].run_id
 
 
-def test_undone_scalar_ai_column_does_not_block_fresh_managed_output(make_project):
+def test_undone_scalar_generated_column_does_not_block_fresh_managed_output(
+    make_project,
+):
     project = make_project("undone-scalar")
     sheet = project.add_sheet("Data")
     source = project.add_column(sheet, "note")
@@ -1070,7 +1072,7 @@ def test_prepared_atomic_resume_declaration_failure_preserves_retry(
     source = project.add_column(sheet, "seed")
     rows = project.add_rows(sheet, [{"seed": "one"}], {"seed": source})
     recipe = _CancellationBatchRecipe(atomic_output_columns=True)
-    recipe.keep_zero_success_output_columns = True
+    recipe.keep_zero_success_generated_columns = True
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),

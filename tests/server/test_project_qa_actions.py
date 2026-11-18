@@ -54,7 +54,7 @@ def _draft(sheet_id: int) -> dict[str, object]:
     }
 
 
-def _quote(action: dict[str, object]) -> dict[str, object]:
+def _estimate(action: dict[str, object]) -> dict[str, object]:
     assert action["idempotency_key"].startswith("ask-action:")
     return {
         "estimate": {
@@ -86,7 +86,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(
         title="Greet people",
         draft=_draft(sheet_id),
         catalog_payload=catalog,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
     )
     assert saved.event["payload"]["proposal"] == saved.proposal
     assert saved.event["payload"]["prepared_action"]["payload_identity"] == (
@@ -105,7 +105,7 @@ def test_prepared_ask_event_revalidates_then_uses_budget_and_action_services(
     launched: list[tuple[str, dict[str, object]]] = []
     service = ProjectAskActionService(
         catalog_payload_provider=lambda: catalog,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=_approval,
         admit_operation=lambda research_id, **kwargs: admitted.append(
@@ -195,7 +195,7 @@ def test_ask_action_revalidates_a_file_derived_column_receipt_at_launch(make_pro
             "output_names": {},
         },
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         output_grants=(grant,),
         output_grant_allows=_allows_output_cell,
     )
@@ -212,7 +212,7 @@ def test_ask_action_revalidates_a_file_derived_column_receipt_at_launch(make_pro
     admitted: list[dict[str, object]] = []
     service = ProjectAskActionService(
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=_approval,
         admit_operation=lambda research_id, **kwargs: admitted.append(
@@ -245,11 +245,11 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(
         title="Greet people",
         draft=_draft(sheet_id),
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=_quote,
+        estimate_provider=_estimate,
     )
     service = ProjectAskActionService(
         catalog_payload_provider=lambda: {"actions": []},
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
         admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
@@ -264,14 +264,14 @@ def test_prepared_ask_action_refuses_catalog_drift_before_budget_admission(
         )
 
 
-def test_launch_pauses_when_only_the_saved_quote_becomes_unpriceable(make_project):
+def test_launch_pauses_when_only_the_saved_estimate_becomes_unpriceable(make_project):
     project = make_project("project")
     store, turn, sheet_id = _turn(project)
-    quoted = True
+    estimated = True
 
-    def quote_or_unknown(action: dict[str, object]) -> dict[str, object]:
-        if quoted:
-            return _quote(action)
+    def estimate_or_unknown(action: dict[str, object]) -> dict[str, object]:
+        if estimated:
+            return _estimate(action)
         return {
             "estimate": {
                 "billed_cost": None,
@@ -287,12 +287,12 @@ def test_launch_pauses_when_only_the_saved_quote_becomes_unpriceable(make_projec
         title="Greet people",
         draft=_draft(sheet_id),
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=quote_or_unknown,
+        estimate_provider=estimate_or_unknown,
     )
-    quoted = False
+    estimated = False
     service = ProjectAskActionService(
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=quote_or_unknown,
+        estimate_provider=estimate_or_unknown,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
         admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
@@ -311,7 +311,7 @@ def test_launch_pauses_when_only_the_saved_quote_becomes_unpriceable(make_projec
     assert error.reason == "normal action quote has unknown cost"
 
 
-def test_launch_uses_the_saved_normal_quote_not_a_caller_price(make_project):
+def test_launch_uses_the_saved_normal_estimate_not_a_caller_price(make_project):
     project = make_project("project")
     store, turn, sheet_id = _turn(project)
     saved = save_prepared_project_ask_action(
@@ -321,12 +321,12 @@ def test_launch_uses_the_saved_normal_quote_not_a_caller_price(make_project):
         title="Greet people",
         draft=_draft(sheet_id),
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=_quote,
+        estimate_provider=_estimate,
     )
     admitted: list[dict[str, object]] = []
     service = ProjectAskActionService(
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=_approval,
         admit_operation=lambda research_id, **kwargs: admitted.append(
@@ -364,11 +364,11 @@ def test_launch_requires_its_research_turn_before_repreparing(make_project):
         title="Greet people",
         draft=_draft(sheet_id),
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=_quote,
+        estimate_provider=_estimate,
     )
     service = ProjectAskActionService(
         catalog_payload_provider=lambda: pytest.fail("must not read catalog"),
-        quote_provider=lambda _action: pytest.fail("must not quote"),
+        estimate_provider=lambda _action: pytest.fail("must not quote"),
         research_for_turn=lambda turn_id: {"id": "other", "turn_id": "other-turn"},
         authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
         admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
@@ -392,7 +392,7 @@ def test_unquoted_proposals_remain_visible_but_cannot_launch(make_project):
     assert saved.event["payload"]["proposal"] == saved.proposal
     service = ProjectAskActionService(
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=lambda _authority: pytest.fail("must not authorize"),
         admit_operation=lambda *_args, **_kwargs: pytest.fail("must not admit"),
@@ -421,12 +421,12 @@ def test_current_exact_approval_can_dispatch_a_non_map_action(make_project):
             "sheet_name": "Matches",
         },
         catalog_payload=root_action_catalog_payload(),
-        quote_provider=_quote,
+        estimate_provider=_estimate,
     )
     approved: list[dict[str, object]] = []
     service = ProjectAskActionService(
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         research_for_turn=lambda turn_id: {"id": "research-1", "turn_id": turn_id},
         authorize_dispatch=lambda authority: (
             approved.append(dict(authority)) or _approval(authority)

@@ -153,10 +153,10 @@ export function WorkspaceSheetToolbar() {
     workViewDisabledReasons,
     setWorkView,
     visibleRowCount,
-    canCreateSavedView,
-    openNewSavedView,
-    openSavedViews,
-    activeSavedViewId,
+    canCreateView,
+    openNewView,
+    openViews,
+    activeViewId,
     viewModified,
     views,
   } = useMainViewModel();
@@ -179,14 +179,14 @@ export function WorkspaceSheetToolbar() {
                   <span className="muted" data-testid="sheet-stats">
                     {countLabel(visibleRowCount, 'row')} · {countLabel(sheet.columns.length, 'column')}
                   </span>
-                  {activeSavedViewId !== null && views.find((view) => view.id === activeSavedViewId) && (
+                  {activeViewId !== null && views.find((view) => view.id === activeViewId) && (
                     <button
                       type="button"
                       className="active-saved-view-chip"
                       data-testid="active-saved-view-chip"
-                      onClick={openSavedViews}
+                      onClick={openViews}
                     >
-                      {viewModified ? 'Modified' : 'View'}: {views.find((view) => view.id === activeSavedViewId)!.name}
+                      {viewModified ? 'Modified' : 'View'}: {views.find((view) => view.id === activeViewId)!.name}
                     </button>
                   )}
                   <WorkViewSwitcher
@@ -218,14 +218,14 @@ export function WorkspaceSheetToolbar() {
                   <DeleteRowsButton count={selectedRowCount} onClick={requestDeleteRows} />
                   <div className="toolbar-spacer" />
 
-                  {canCreateSavedView && (
+                  {canCreateView && (
                     <button
                       type="button"
                       className="icon-btn"
                       data-testid="save-as-view"
                       title="Save current view"
                       aria-label="Save current view"
-                      onClick={() => openNewSavedView()}
+                      onClick={() => openNewView()}
                     >
                       <BookOpen size={15} />
                     </button>
@@ -249,18 +249,18 @@ export function WorkspaceSheetToolbar() {
   );
 }
 
-interface SavedViewsSubmenuPosition {
+interface ViewsSubmenuPosition {
   top: number;
   left: number;
   width: number;
   maxHeight: number;
 }
 
-function useSavedViewsSubmenuPosition(
+function useViewsSubmenuPosition(
   anchorRef: RefObject<HTMLElement | null>,
   enabled: boolean,
-): SavedViewsSubmenuPosition | null {
-  const [position, setPosition] = useState<SavedViewsSubmenuPosition | null>(null);
+): ViewsSubmenuPosition | null {
+  const [position, setPosition] = useState<ViewsSubmenuPosition | null>(null);
 
   useLayoutEffect(() => {
     if (!enabled) return undefined;
@@ -301,13 +301,13 @@ function ToolbarOverflowMenu() {
     provenanceOpen,
     toggleProvenanceWithDrawers,
     revealAllHiddenColumns,
-    canCreateSavedView,
+    canCreateView,
     ensureViewsLoaded,
-    openSavedViews,
-    openNewSavedView,
-    applySavedView,
+    openViews,
+    openNewView,
+    applyView,
     views,
-    activeSavedViewId,
+    activeViewId,
   } = useMainViewModel();
   const gridView = useGridViewHandle();
   const rowHeight = useSelector(gridView.store, (s) => s.rowHeight);
@@ -315,24 +315,24 @@ function ToolbarOverflowMenu() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const rowHeightMenuRef = useRef<HTMLDivElement>(null);
-  const savedViewsTriggerRef = useRef<HTMLButtonElement>(null);
-  const savedViewsMenuRef = useRef<HTMLDivElement>(null);
-  const savedViewsLoadRequestedRef = useRef(false);
-  const suppressNextSavedViewsFocusOpenRef = useRef(false);
-  const [savedViewsMenuOpen, setSavedViewsMenuOpen] = useState(false);
-  const [savedViewsQuery, setSavedViewsQuery] = useState('');
+  const viewsTriggerRef = useRef<HTMLButtonElement>(null);
+  const viewsMenuRef = useRef<HTMLDivElement>(null);
+  const viewsLoadRequestedRef = useRef(false);
+  const suppressNextViewsFocusOpenRef = useRef(false);
+  const [viewsMenuOpen, setViewsMenuOpen] = useState(false);
+  const [viewsQuery, setViewsQuery] = useState('');
   const [applyAnnouncement, setApplyAnnouncement] = useState('');
 
-  const closeSavedViewsSubmenu = useCallback(() => {
-    savedViewsLoadRequestedRef.current = false;
-    setSavedViewsMenuOpen(false);
-    setSavedViewsQuery('');
+  const closeViewsSubmenu = useCallback(() => {
+    viewsLoadRequestedRef.current = false;
+    setViewsMenuOpen(false);
+    setViewsQuery('');
   }, []);
 
-  const openSavedViewsSubmenu = useCallback(() => {
-    if (savedViewsLoadRequestedRef.current) return;
-    savedViewsLoadRequestedRef.current = true;
-    setSavedViewsMenuOpen(true);
+  const openViewsSubmenu = useCallback(() => {
+    if (viewsLoadRequestedRef.current) return;
+    viewsLoadRequestedRef.current = true;
+    setViewsMenuOpen(true);
     void ensureViewsLoaded();
   }, [ensureViewsLoaded]);
 
@@ -340,25 +340,25 @@ function ToolbarOverflowMenu() {
     (next: boolean) => {
       setOverflowMenuOpen(next);
       if (!next) {
-        closeSavedViewsSubmenu();
+        closeViewsSubmenu();
       }
     },
-    [closeSavedViewsSubmenu, setOverflowMenuOpen],
+    [closeViewsSubmenu, setOverflowMenuOpen],
   );
 
   useNativePopover(menuRef, () => setOverflowOpen(false), {
     enabled: overflowMenuOpen,
     ignoreSelector: '[data-testid="toolbar-overflow-button"]',
-    extraRefs: [rowHeightMenuRef, savedViewsMenuRef],
+    extraRefs: [rowHeightMenuRef, viewsMenuRef],
   });
 
-  useNativePopover(savedViewsMenuRef, (reason) => {
-    if (reason === 'escape') suppressNextSavedViewsFocusOpenRef.current = true;
-    closeSavedViewsSubmenu();
+  useNativePopover(viewsMenuRef, (reason) => {
+    if (reason === 'escape') suppressNextViewsFocusOpenRef.current = true;
+    closeViewsSubmenu();
   }, {
-    enabled: overflowMenuOpen && savedViewsMenuOpen,
-    focusRestore: savedViewsTriggerRef,
-    sourceRef: savedViewsTriggerRef,
+    enabled: overflowMenuOpen && viewsMenuOpen,
+    focusRestore: viewsTriggerRef,
+    sourceRef: viewsTriggerRef,
     ignoreSelector: '[data-testid="open-saved-views-submenu"]',
   });
 
@@ -368,11 +368,11 @@ function ToolbarOverflowMenu() {
     width: 210,
     gap: 4,
   });
-  const savedViewsMenuPos = useSavedViewsSubmenuPosition(
+  const viewsMenuPos = useViewsSubmenuPosition(
     menuRef,
-    overflowMenuOpen && savedViewsMenuOpen,
+    overflowMenuOpen && viewsMenuOpen,
   );
-  const normalizedViewsQuery = savedViewsQuery.trim().toLocaleLowerCase();
+  const normalizedViewsQuery = viewsQuery.trim().toLocaleLowerCase();
   const filteredViews = normalizedViewsQuery
     ? views.filter((view) => view.name.toLocaleLowerCase().includes(normalizedViewsQuery))
     : views;
@@ -422,27 +422,27 @@ function ToolbarOverflowMenu() {
           </div>
           <button
             type="button"
-            ref={savedViewsTriggerRef}
+            ref={viewsTriggerRef}
             className="menu-item"
             data-testid="open-saved-views-submenu"
             aria-haspopup="menu"
-            aria-expanded={savedViewsMenuOpen}
-            onPointerEnter={openSavedViewsSubmenu}
+            aria-expanded={viewsMenuOpen}
+            onPointerEnter={openViewsSubmenu}
             onFocus={() => {
-              if (suppressNextSavedViewsFocusOpenRef.current) {
-                suppressNextSavedViewsFocusOpenRef.current = false;
+              if (suppressNextViewsFocusOpenRef.current) {
+                suppressNextViewsFocusOpenRef.current = false;
                 return;
               }
-              openSavedViewsSubmenu();
+              openViewsSubmenu();
             }}
             onKeyDown={(event) => {
               if (event.key === 'ArrowRight' || event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                openSavedViewsSubmenu();
-                requestAnimationFrame(() => savedViewsMenuRef.current?.querySelector<HTMLElement>('button, input')?.focus());
+                openViewsSubmenu();
+                requestAnimationFrame(() => viewsMenuRef.current?.querySelector<HTMLElement>('button, input')?.focus());
               }
             }}
-            onClick={openSavedViewsSubmenu}
+            onClick={openViewsSubmenu}
           >
             <BookOpen size={13} className="menu-item-icon" />
             <span className="menu-item-name">Views</span>
@@ -479,23 +479,23 @@ function ToolbarOverflowMenu() {
           )}
         </div>
       )}
-      {overflowMenuOpen && savedViewsMenuOpen && (
+      {overflowMenuOpen && viewsMenuOpen && (
         <div
-          ref={savedViewsMenuRef}
+          ref={viewsMenuRef}
           className="menu-pop saved-views-overflow-menu"
           data-testid="saved-views-overflow-menu"
           role="menu"
           onKeyDown={(event) => {
             if (event.key === 'ArrowLeft') {
               event.preventDefault();
-              closeSavedViewsSubmenu();
-              suppressNextSavedViewsFocusOpenRef.current = true;
-              requestAnimationFrame(() => savedViewsTriggerRef.current?.focus());
+              closeViewsSubmenu();
+              suppressNextViewsFocusOpenRef.current = true;
+              requestAnimationFrame(() => viewsTriggerRef.current?.focus());
             }
           }}
           style={
-            savedViewsMenuPos
-              ? { position: 'fixed', inset: 'auto', top: savedViewsMenuPos.top, bottom: 'auto', left: savedViewsMenuPos.left, right: 'auto', width: savedViewsMenuPos.width, maxHeight: savedViewsMenuPos.maxHeight, margin: 0 }
+            viewsMenuPos
+              ? { position: 'fixed', inset: 'auto', top: viewsMenuPos.top, bottom: 'auto', left: viewsMenuPos.left, right: 'auto', width: viewsMenuPos.width, maxHeight: viewsMenuPos.maxHeight, margin: 0 }
               : { position: 'fixed', visibility: 'hidden' }
           }
         >
@@ -503,8 +503,8 @@ function ToolbarOverflowMenu() {
             <TextInput
               className="saved-views-overflow-search"
               aria-label="Search views"
-              value={savedViewsQuery}
-              onChange={(event) => setSavedViewsQuery(event.target.value)}
+              value={viewsQuery}
+              onChange={(event) => setViewsQuery(event.target.value)}
             />
           )}
           <div className="saved-views-overflow-list" data-testid="saved-views-overflow-list">
@@ -518,25 +518,25 @@ function ToolbarOverflowMenu() {
                   data-testid={`saved-views-overflow-view-${view.id}`}
                   key={view.id}
                   onClick={() => {
-                    applySavedView(view);
+                    applyView(view);
                     setApplyAnnouncement(`Applied ${view.name}`);
                     setOverflowOpen(false);
                   }}
                 >
                   <span className="menu-item-name">{view.name}</span>
-                  {activeSavedViewId === view.id && <span className="menu-item-note">Active</span>}
+                  {activeViewId === view.id && <span className="menu-item-note">Active</span>}
                 </button>
               ))
             )}
           </div>
-          {canCreateSavedView && (
+          {canCreateView && (
             <button
               type="button"
               className="menu-item"
               data-testid="saved-views-overflow-new"
               onClick={() => {
                 setOverflowOpen(false);
-                openNewSavedView();
+                openNewView();
               }}
             >
               <Plus size={13} className="menu-item-icon" />
@@ -549,7 +549,7 @@ function ToolbarOverflowMenu() {
             data-testid="saved-views-overflow-open-panel"
             onClick={() => {
               setOverflowOpen(false);
-              openSavedViews();
+              openViews();
             }}
           >
             <BookOpen size={13} className="menu-item-icon" />
@@ -601,7 +601,7 @@ export function WorkspaceGridControls() {
 
               {(activeGridFilter || activeGridSort || scopeRowIds !== null) && (
                 <div className="grid-active-bar">
-                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <Button type="button" onClick={() => gridView.store.set((state) => ({ ...state, activeSavedViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</Button></span>}
+                  {scopeRowIds !== null && <span className="active-grid-state">{scopeRowIds.length} selected rows <Button type="button" onClick={() => gridView.store.set((state) => ({ ...state, activeViewId: null, applied: { ...state.applied, scopeRowIds: null } }))}>Clear</Button></span>}
                   {activeGridFilter && (
                     <span className="active-grid-state active-grid-filter" data-testid="active-grid-filter">
                       <span className="active-grid-filter-label">

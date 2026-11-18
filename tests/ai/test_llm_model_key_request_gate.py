@@ -210,7 +210,7 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
     tmp_path,
     monkeypatch,
 ) -> None:
-    # Exercise explicit consent, rather than the normal $2 standing preapproval.
+    # Exercise explicit consent, rather than the normal $2 standing allowance.
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     model = "gemini/gemini-2.5-flash-lite"
     store = CloudConnectionStore(tmp_path / "profile")
@@ -375,7 +375,7 @@ def test_connected_cloud_model_runs_through_queued_worker_composition(
         (job.status, job.error)
         for job in client.app.state.workspace.queue.list_jobs(limit=10)
     ]
-    assert transport.calls[0][0].quote_authority.maximum_charge_micro is None
+    assert transport.calls[0][0].estimate_authority.maximum_charge_micro is None
     sheet = client.get(
         f"/api/projects/{project_id}/sheets/{imported.json()['sheet_id']}/data"
     )

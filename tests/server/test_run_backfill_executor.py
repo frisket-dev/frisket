@@ -129,10 +129,10 @@ def test_web_search_backfill_reuses_configured_search_provider(
         *,
         max_results: int = 6,
         timeout: float = 20.0,
-        quote=None,
+        estimate=None,
     ) -> SearchResponse:
         del timeout
-        quote = quote or service.quote(max_results=max_results)
+        estimate = estimate or service.estimate(max_results=max_results)
         calls.append((service.provider, query))
         return SearchResponse(
             provider=service.provider,
@@ -151,10 +151,10 @@ def test_web_search_backfill_reuses_configured_search_provider(
                 service=f"{service.provider}.search",
                 request_count=1,
                 provider_reported_cost_usd=None,
-                provider_cost_usd=quote.estimated_cost_usd,
+                provider_cost_usd=estimate.estimated_cost_usd,
                 cost_source="configured_catalog",
-                units=(SearchUsageUnit(name=quote.unit, quantity=1),),
-                quote=quote,
+                units=(SearchUsageUnit(name=estimate.unit, quantity=1),),
+                quote=estimate,
             ),
         )
 

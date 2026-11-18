@@ -217,7 +217,7 @@ class TestTranscribeEstimateHonesty:
         ("transcribe", "openai/whisper-1", "OPENAI_API_KEY"),
     ],
 )
-def test_unavailable_route_refuses_before_quote_or_consent(
+def test_unavailable_route_refuses_before_estimate_or_consent(
     project, monkeypatch, operation, kind, engine, remedy
 ):
     for key in (
@@ -458,7 +458,7 @@ class TestVlmOcrTraceCapturesModelCalls:
         confirmation = None
         if limit == "0":
             # Force the exact challenge/echo path explicitly. With normal
-            # preapproval this call would execute, but only the typed host
+            # allowance this call would execute, but only the typed host
             # below owns the output claims needed for execution.
             with pytest.raises(CostGate) as challenge:
                 asyncio.run(runner.run(spec, program=_program(spec), confirmed=True))

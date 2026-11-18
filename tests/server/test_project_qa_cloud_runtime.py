@@ -14,7 +14,7 @@ from frisket.cloud_connection import CloudConnectionStore
 from frisket.cloud_execution import (
     CloudExecutionRefused,
     CloudPayerSubject,
-    CloudQuoteAuthority,
+    CloudEstimateAuthority,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.contracts.http.cloud_connection import (
@@ -482,7 +482,7 @@ def test_ask_uses_cloud_coordinator_and_retires_after_usage_commit(tmp_path):
                         engine=MODEL,
                         route_revision="route-1",
                     ),
-                    quote_authority=CloudQuoteAuthority(1_000),
+                    estimate_authority=CloudEstimateAuthority(1_000),
                     group_key=f"ask:{turn_id}",
                     action_kind="project.ask",
                     claimless_direct_effect=True,
@@ -527,8 +527,8 @@ def test_ask_uses_cloud_coordinator_and_retires_after_usage_commit(tmp_path):
         saved = ProjectQAStore(project).get_turn(turn["id"])
         assert saved["status"] == "completed", saved["error_summary"]
         assert len(transport.calls) == 2
-        assert transport.calls[0][0].quote_authority.maximum_charge_micro == 1_000
-        assert transport.calls[1][0].quote_authority.maximum_charge_micro == 975
+        assert transport.calls[0][0].estimate_authority.maximum_charge_micro == 1_000
+        assert transport.calls[1][0].estimate_authority.maximum_charge_micro == 975
         assert scope_entries == []
         assert settled == []
         assert (
@@ -636,9 +636,9 @@ def test_solo_workspace_routes_ask_through_selected_cloud_account(
         else:
             assert saved["status"] == "completed", saved["error_summary"]
             assert len(transport.calls) == 2
-        assert transport.calls[0][0].quote_authority.maximum_charge_micro is None
+        assert transport.calls[0][0].estimate_authority.maximum_charge_micro is None
         if not disable_network_after_first_call:
-            assert transport.calls[1][0].quote_authority.maximum_charge_micro is None
+            assert transport.calls[1][0].estimate_authority.maximum_charge_micro is None
         assert transport.calls[0][0].payer.account_id == 41
         assert transport.calls[0][0].payer.user_id == 7
         if not disable_network_after_first_call:

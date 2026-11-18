@@ -9,7 +9,7 @@ from pathlib import Path
 from frisket.engine.store import Project
 from frisket.project_identity import ProjectStorageKey
 
-from .project_opener import ProjectOpener, require_opener_storage_org_id
+from .project_opener import ProjectOpener, require_opener_storage_organization_id
 
 LOG = logging.getLogger(__name__)
 
@@ -20,11 +20,11 @@ def bundle_opener(
     storage_org_id: int | None,
 ) -> Callable[[Path], Project]:
     """How a scan opens each bundle: ``direct``, or through the injected opener
-    keyed by the root's DECLARED storage org (never the directory name). A scan
+    keyed by the root's DECLARED storage organization (never the directory name). A scan
     that injects an opener refuses outright when that identity is missing."""
     if project_opener is None:
         return direct
-    org_id = require_opener_storage_org_id(storage_org_id)
+    org_id = require_opener_storage_organization_id(storage_org_id)
 
     def open_bundle(bundle: Path) -> Project:
         return project_opener(

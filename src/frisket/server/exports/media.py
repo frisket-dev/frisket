@@ -58,7 +58,7 @@ def project_export_columns(
     *,
     include_attachment_paths: bool = False,
 ) -> list[ExportColumn]:
-    """Project visible sheet columns into output columns.
+    """Project visible sheet columns into generated columns.
 
     Non-media columns pass through as value columns. Under
     ``media_policy='references'`` a media column expands into a base display

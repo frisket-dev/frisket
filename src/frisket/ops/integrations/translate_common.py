@@ -34,10 +34,10 @@ TranslateEngineError = HostedEngineError
 # The hosted engines that bill per character (DeepL, Google) — the local
 # opus_mt/hy_mt2 engines are free once provisioned. Used by the cost estimate,
 # the char-count confirmation gate, and per-row spend recording.
-HOSTED_TRANSLATE_ENGINES: tuple[str, ...] = ("deepl", "google_translate")
+REMOTE_TRANSLATE_ENGINES: tuple[str, ...] = ("deepl", "google_translate")
 
 
-def hosted_translate_response_accounting(
+def remote_translate_response_accounting(
     *,
     engine: str,
     provider: str,
@@ -56,7 +56,7 @@ def hosted_translate_response_accounting(
     from frisket.ai.models.metadata import ModelCallMeta
 
     cost = (
-        hosted_translate_cost(engine, billed_characters)
+        remote_translate_cost(engine, billed_characters)
         if billed_characters is not None
         else None
     )
@@ -85,7 +85,7 @@ def hosted_translate_response_accounting(
     }
 
 
-def hosted_translate_cost(engine: str, char_count: int) -> float | None:
+def remote_translate_cost(engine: str, char_count: int) -> float | None:
     """Estimated USD spend for ``char_count`` characters on a hosted engine,
     from the pinned per-character rate (external_pricing, marked estimated).
     ``None`` when the rate is unknown (engine unpriced) so callers record an

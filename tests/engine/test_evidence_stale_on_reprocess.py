@@ -60,7 +60,7 @@ def _ocr_action(
         "idempotency_key": idempotency_key,
     }
     if overwrite_existing:
-        # a re-OCR into the SAME output column reuses the prior AI-generated
+        # a re-OCR into the SAME generated column reuses the prior AI-generated
         # column (censusfix report 3b's overwrite_existing output intent) --
         # otherwise the precheck rejects it as a column collision.
         action["replace_existing"] = True

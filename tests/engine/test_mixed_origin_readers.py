@@ -573,7 +573,7 @@ def test_managed_sheet_grid_wire_separates_cell_authority_from_latest_family(
     rows = {int(row["id"]): row for row in grid["rows"]}
     output_key = str(fixture.output_column_id)
 
-    # AI columns publish the retired scalar as null. The newest applied output
+    # Generated columns publish the retired scalar as null. The newest applied output
     # family is separate display metadata, while mixed-ness is derived from
     # the exact head set.
     assert {

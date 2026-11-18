@@ -27,7 +27,7 @@ function outputNameRichOptionId(testid: string, columnId: string): string {
   return `${testid}-option-id-${optionSlug(columnId)}`;
 }
 
-function filterOutputColumns(columns: ColumnDef[], query: string): ColumnDef[] {
+function filterGeneratedColumns(columns: ColumnDef[], query: string): ColumnDef[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return columns;
   return columns.filter((column) => (
@@ -58,22 +58,22 @@ export function OutputNameCombobox({
   const comboboxRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const generatedInputId = useId();
-  const overwriteColumn = existingColumnByName(columns, value);
+  const replaceColumn = existingColumnByName(columns, value);
   // A typed name that doesn't match any existing column is a NEW column —
   // surface that plainly instead of only implying it via the datalist's
   // empty-state text (the "New column" line inside the options popover,
   // which only shows while the popover is open).
-  const isNewColumnName = value.trim().length > 0 && !overwriteColumn;
+  const isNewColumnName = value.trim().length > 0 && !replaceColumn;
   const datalistId = outputNameOptionId(inputTestId);
   const listboxId = outputNameListboxId(inputTestId);
   const visibleColumns = useMemo(
-    () => allowExistingTargets ? filterOutputColumns(columns, filterQuery) : [],
+    () => allowExistingTargets ? filterGeneratedColumns(columns, filterQuery) : [],
     [allowExistingTargets, columns, filterQuery],
   );
-  const warningText = overwriteColumn
-    ? `This will replace the existing "${overwriteColumn.name}" column.`
+  const warningText = replaceColumn
+    ? `This will replace the existing "${replaceColumn.name}" column.`
     : '';
-  const warningOpen = Boolean(overwriteColumn && warningColumnName === overwriteColumn.name);
+  const warningOpen = Boolean(replaceColumn && warningColumnName === replaceColumn.name);
   const effectiveActiveOptionId = open
     ? (
       visibleColumns.some((column) => column.id === activeOptionId)
@@ -139,7 +139,7 @@ export function OutputNameCombobox({
             }}
             onChange={(e) => {
               const nextValue = e.target.value;
-              const nextVisibleColumns = filterOutputColumns(columns, nextValue);
+              const nextVisibleColumns = filterGeneratedColumns(columns, nextValue);
               onChange(nextValue);
               setFilterQuery(nextValue);
               setActiveOptionId((current) => (
@@ -257,7 +257,7 @@ export function OutputNameCombobox({
             </MenuPop>
           )}
         </div>
-        {allowExistingTargets && overwriteColumn ? (
+        {allowExistingTargets && replaceColumn ? (
           <button
             type="button"
             className={`icon-btn ${styles.warning}`}
@@ -265,7 +265,7 @@ export function OutputNameCombobox({
             aria-label={warningText}
             title={warningText}
             onClick={() => setWarningColumnName((current) => (
-              current === overwriteColumn.name ? null : overwriteColumn.name
+              current === replaceColumn.name ? null : replaceColumn.name
             ))}
           >
             <AlertTriangle size={14} />
@@ -280,7 +280,7 @@ export function OutputNameCombobox({
           </span>
         ) : null}
       </div>
-      {allowExistingTargets && warningOpen && overwriteColumn && (
+      {allowExistingTargets && warningOpen && replaceColumn && (
         <p className={`form-hint ${styles.warningText}`} data-testid="save-to-overwrite-message">
           {warningText}
         </p>

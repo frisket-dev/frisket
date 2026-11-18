@@ -100,7 +100,7 @@ from typing import Any, Awaitable, Callable, NoReturn
 import httpx
 
 from frisket.ai.models.metadata import ModelCallMeta, duration_ms_value
-from frisket.ops.integrations.hosted_error import HostedEngineError, call_hosted_json
+from frisket.ops.integrations.hosted_error import HostedEngineError, call_remote_json
 
 DATALAB_BASE_URL = "https://www.datalab.to/api/v1"
 DEFAULT_POLL_INTERVAL_S = 2.0
@@ -207,7 +207,7 @@ async def _post(
     mime: str,
     data: dict[str, str],
 ) -> dict[str, Any]:
-    response, body = await call_hosted_json(
+    response, body = await call_remote_json(
         lambda: http.post(
             f"{DATALAB_BASE_URL}{path}",
             headers=_headers(api_key),
@@ -273,7 +273,7 @@ async def _poll(
                 code="cancelled",
                 message="Datalab polling stopped: the run was cancelled.",
             )
-        response, body = await call_hosted_json(
+        response, body = await call_remote_json(
             lambda: http.get(check_url, headers=_headers(api_key)),
             error_cls=DatalabEngineError,
             provider_name="Datalab",

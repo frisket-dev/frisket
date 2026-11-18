@@ -11,7 +11,7 @@ from frisket.cloud_execution import (
     CloudLLMExecutionBinding,
     CloudMediaExecutionBinding,
     CloudPayerSubject,
-    cloud_quote_authority_for_row,
+    cloud_estimate_authority_for_row,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.engine.store import Project
@@ -112,7 +112,7 @@ def cloud_runtime_binding(
         raise RecipeInvocationHalt(
             "promise_violation", "Cloud execution transport is unavailable"
         )
-    quote = cloud_quote_authority_for_row(attempt.cost_basis, row_id=row_id)
+    estimate = cloud_estimate_authority_for_row(attempt.cost_basis, row_id=row_id)
 
     if transport_kind == "frisket.cloud.media.v1" and capability in {
         "ocr",
@@ -125,7 +125,7 @@ def cloud_runtime_binding(
                 CloudExecutionAttempt(
                     request_id=request_id,
                     payer=payer,
-                    quote_authority=quote,
+                    estimate_authority=estimate,
                 ),
                 capability,
             ),
@@ -142,7 +142,7 @@ def cloud_runtime_binding(
                 project,
                 transport,
                 payer=payer,
-                quote_authority=quote,
+                estimate_authority=estimate,
                 group_key=group_key,
                 action_kind=action_kind,
                 run_id=run_id,

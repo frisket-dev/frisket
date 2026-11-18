@@ -7,7 +7,7 @@ import { ConfirmationRequiredError, type RunEstimate, type SheetMeta } from '../
 import { useEscapeDismiss } from '../hooks/useEscapeDismiss';
 import { formatUsd } from '../format';
 import { StatusChip } from '../components/PanelPrimitives';
-import { quotedCost } from '../actions/quotedCost';
+import { estimatedCost } from '../actions/estimatedCost';
 import { CascadeConfirmDialog } from '../workbench/LineagePanel';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { sourceFreshnessLabel } from '../workbench/lineageStale';
@@ -64,7 +64,7 @@ export function SheetInfoPopover({
     message: string;
     estimate: RunEstimate;
   } | null>(null);
-  const sheetRefreshQuote = quotedCost(costGate?.estimate);
+  const sheetRefreshEstimate = estimatedCost(costGate?.estimate);
   const refreshable = sheet.refreshable === true;
   const stale = sheet.syncState === 'stale';
   const parent = sheet.parent;
@@ -151,9 +151,9 @@ export function SheetInfoPopover({
             <div className="sheet-info-costGate-message">
               This re-run calls a model
               {/* Display the exact server-hashed consent cost. */}
-              {sheetRefreshQuote.usd != null
-                ? ` · est. ${formatUsd(sheetRefreshQuote.usd)}`
-                : sheetRefreshQuote.refused
+              {sheetRefreshEstimate.usd != null
+                ? ` · est. ${formatUsd(sheetRefreshEstimate.usd)}`
+                : sheetRefreshEstimate.refused
                   ? ' · est. UNKNOWN'
                   : ''}
             </div>

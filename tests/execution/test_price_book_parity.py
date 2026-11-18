@@ -16,16 +16,16 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.price_book import (
     OperatorBorne,
     PlatformMetered,
     byok_audio_second_rate,
-    quote_commercial_offering,
-    quote_transcription,
+    estimate_commercial_offering,
+    estimate_transcription,
     settle,
     sku_for,
 )
@@ -45,7 +45,7 @@ from frisket.execution.targets import (
 def _offering(
     *,
     rate: str = "0.017",
-    rounding: CommercialQuoteRounding | None = None,
+    rounding: CommercialEstimateRounding | None = None,
     row_mode: str = "all_metered",
 ) -> CommercialOffering:
     return CommercialOffering(
@@ -54,12 +54,12 @@ def _offering(
             capability="transcribe",
             engine="parakeet-tdt",
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key="test.synthetic.audio_minute",
             terms_version="test.synthetic.terms.v3",
             unit_rate=rate,
             quantity_unit="audio_minute",
-            rounding=rounding or CommercialQuoteRounding("half_even", 6),
+            rounding=rounding or CommercialEstimateRounding("half_even", 6),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds",
@@ -84,10 +84,10 @@ def _offering(
         ("remote-api:openai", "openai/definitely-not-a-model", UnpriceableCost),
     ],
 )
-def test_provider_direct_quote_posture_is_unchanged(
+def test_provider_direct_estimate_posture_is_unchanged(
     target_id: str, engine: str, expected_type: type
 ) -> None:
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target_id,
         engine=engine,
         funding=OperatorBorne(),
@@ -99,7 +99,7 @@ def test_provider_direct_quote_posture_is_unchanged(
 
 
 def test_known_own_key_audio_price_stays_visible() -> None:
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id="remote-api:openai",
         engine="openai/whisper-1",
         funding=OperatorBorne(),
@@ -138,10 +138,10 @@ def test_audio_rate_lookup_carries_provenance_by_value(
     source: str,
     key: str | None,
 ) -> None:
-    quoted = byok_audio_second_rate(engine)
-    assert quoted.rate == rate
-    assert quoted.cost_source == source
-    assert quoted.pricing_key == key
+    estimated = byok_audio_second_rate(engine)
+    assert estimated.rate == rate
+    assert estimated.cost_source == source
+    assert estimated.pricing_key == key
 
 
 @pytest.mark.parametrize(
@@ -238,8 +238,8 @@ def test_transcription_estimate_preserves_audio_rate_provenance(
     assert estimate.get("pricing_key") == (key if cost is not None else None)
 
 
-def test_funding_alone_never_mints_a_platform_quote() -> None:
-    basis = quote_transcription(
+def test_funding_alone_never_mints_a_platform_estimate() -> None:
+    basis = estimate_transcription(
         target_id="local-onnx",
         engine="parakeet-tdt",
         funding=PlatformMetered(),
@@ -259,8 +259,8 @@ def test_funding_alone_never_mints_a_platform_quote() -> None:
     )
 
 
-def test_synthetic_offer_pins_every_quote_and_settlement_term() -> None:
-    basis = quote_commercial_offering(
+def test_synthetic_offer_pins_every_estimate_and_settlement_term() -> None:
+    basis = estimate_commercial_offering(
         offering=_offering(),
         metered_quantity=121,
     )
@@ -282,7 +282,7 @@ def test_synthetic_offer_pins_every_quote_and_settlement_term() -> None:
 
 
 def test_synthetic_offer_settles_from_the_pin_and_caps_at_consent() -> None:
-    basis = quote_commercial_offering(
+    basis = estimate_commercial_offering(
         offering=_offering(rate="0.02"),
         metered_quantity=120,
     )
@@ -302,7 +302,7 @@ def test_synthetic_offer_settles_from_the_pin_and_caps_at_consent() -> None:
 
 
 def test_unknown_offered_quantity_pins_terms_but_cannot_invent_a_ceiling() -> None:
-    basis = quote_commercial_offering(
+    basis = estimate_commercial_offering(
         offering=_offering(rate="0.02"),
         metered_quantity=None,
     )
@@ -322,7 +322,7 @@ def test_unknown_offered_quantity_pins_terms_but_cannot_invent_a_ceiling() -> No
 
 
 def test_unequal_row_allocations_sum_to_the_exact_pinned_aggregate() -> None:
-    basis = quote_commercial_offering(
+    basis = estimate_commercial_offering(
         offering=_offering(row_mode="quoted_successful_rows"),
         metered_quantity=181.23474,
         row_metered_quantities={9: 0.00006, 3: 60.00012, 8: 121.23456},
@@ -340,7 +340,7 @@ def test_unequal_row_allocations_sum_to_the_exact_pinned_aggregate() -> None:
 
 
 def test_row_offer_derives_aggregate_from_the_exact_row_values() -> None:
-    basis = quote_commercial_offering(
+    basis = estimate_commercial_offering(
         offering=_offering(row_mode="quoted_successful_rows"),
         # Deliberately carries the ordinary binary-float sum. The row map is
         # the quote authority, so this cannot disagree with a separate sum.
@@ -354,7 +354,7 @@ def test_row_offer_derives_aggregate_from_the_exact_row_values() -> None:
 
 def test_capability_mint_rejects_an_offer_for_another_execution_choice() -> None:
     with pytest.raises(ValueError, match="does not match the selected"):
-        quote_transcription(
+        estimate_transcription(
             target_id="local",
             engine="openai/whisper-1",
             funding=PlatformMetered(),
@@ -365,7 +365,7 @@ def test_capability_mint_rejects_an_offer_for_another_execution_choice() -> None
 
 
 def test_settlement_rejects_malformed_pinned_text_instead_of_coercing_it() -> None:
-    basis = quote_commercial_offering(
+    basis = estimate_commercial_offering(
         offering=_offering(),
         metered_quantity=60,
     )
@@ -408,21 +408,21 @@ def test_base_contains_no_platform_card_or_concrete_retail_rate(
             CAPABILITY_GEOCODE,
             NOMINATIM_TARGET_ID,
             "nominatim",
-            price_book.quote_geocode,
+            price_book.estimate_geocode,
         ),
         (
             CAPABILITY_CENSUS,
             US_CENSUS_TARGET_ID,
             "us_census_acs",
-            price_book.quote_census,
+            price_book.estimate_census,
         ),
     )
-    for capability, target_id, engine, quote in free_venues:
+    for capability, target_id, engine, estimate in free_venues:
         assert (
             sku_for(capability=capability, target_id=target_id, engine=engine) is None
         )
         assert (
-            quote(
+            estimate(
                 target_id=target_id,
                 engine=engine,
                 funding=OperatorBorne(),

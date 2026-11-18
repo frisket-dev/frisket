@@ -157,7 +157,7 @@ function locateSheetRowQuery(
 
 export function createSheetGridApi(dependencies: SheetGridDependencies, projectId: string) {
   const captureProjectIdentity = (): ProjectIdentity => ({ cacheId: projectId, pathId: projectId });
-  function enrichAiColumn<Column extends ColumnDef>(
+  function enrichGeneratedColumn<Column extends ColumnDef>(
     project: ProjectIdentity,
     sheetId: string,
     column: Column,
@@ -218,7 +218,7 @@ export function createSheetGridApi(dependencies: SheetGridDependencies, projectI
       sheetDataQuery(offset, limit, options),
     );
     const columns = data.columns.map((column) =>
-      enrichAiColumn(project, sheetId, column),
+      enrichGeneratedColumn(project, sheetId, column),
     );
     const rows = enrichRows(project, sheetId, offset, { ...data, columns }).map((row) => (
       options?.columnIds ? { ...row, loadedColumnIds: options.columnIds } : row

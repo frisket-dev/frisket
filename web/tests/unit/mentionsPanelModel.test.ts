@@ -200,7 +200,7 @@ describe('mentionTypeSections — the server order is the order', () => {
 });
 
 describe('mentionTypeSections — each section carries its typeTotals total', () => {
-  const orgGroup = (label: string) =>
+  const organizationGroup = (label: string) =>
     group({ label, selector: { kind: 'fingerprint', fingerprint: label.toLowerCase() } });
   const dateGroup = group({
     type: 'date', selector: { kind: 'text', text: 'March 2022' }, label: 'March 2022',
@@ -210,7 +210,7 @@ describe('mentionTypeSections — each section carries its typeTotals total', ()
     // Top-N-per-type is on screen (2 orgs, 1 date) but each category holds more
     // behind it: the heading count is the typeTotals fact.
     const sections = mentionTypeSections(
-      [orgGroup('Acme Corp.'), orgGroup('Zenith'), dateGroup],
+      [organizationGroup('Acme Corp.'), organizationGroup('Zenith'), dateGroup],
       [
         { type: 'organization', totalGroups: 40 },
         { type: 'date', totalGroups: 5 },
@@ -224,7 +224,7 @@ describe('mentionTypeSections — each section carries its typeTotals total', ()
 
   it('offers no "Show more" for a category already fully loaded', () => {
     const sections = mentionTypeSections(
-      [orgGroup('Acme Corp.'), orgGroup('Zenith')],
+      [organizationGroup('Acme Corp.'), organizationGroup('Zenith')],
       [{ type: 'organization', totalGroups: 2 }],
     );
     expect(sections[0].total).toBe(2);
@@ -234,7 +234,7 @@ describe('mentionTypeSections — each section carries its typeTotals total', ()
   it('falls back to the loaded length when typeTotals lacks the category', () => {
     // A pre-v2 payload carries no total for the type: the loaded groups are all
     // the section can honestly claim, so nothing invites paging past them.
-    const sections = mentionTypeSections([orgGroup('Acme Corp.'), orgGroup('Zenith')], []);
+    const sections = mentionTypeSections([organizationGroup('Acme Corp.'), organizationGroup('Zenith')], []);
     expect(sections[0].total).toBe(2);
     expect(sections[0].remaining).toBe(0);
   });

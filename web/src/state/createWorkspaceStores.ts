@@ -12,7 +12,7 @@ import { resetForRouteSheetChange } from './workspaceTransitions';
 import { createRowCacheStore, type RowCacheStoreHandle } from './rowCacheStore';
 import { createSelectionStore, type SelectionStoreHandle } from './selectionStore';
 import { createDetailStore, type DetailStoreHandle } from './detailStore';
-import { createSavedViewsStore, type SavedViewsStoreHandle } from './savedViewsStore';
+import { createViewsStore, type ViewsStoreHandle } from './viewsStore';
 import { createWorkViewStore, type WorkViewStoreHandle } from './workViewStore';
 import {
   createCompareViewStore,
@@ -80,8 +80,8 @@ export interface WorkspaceStores {
   selection: SelectionStoreHandle;
   /** Row/column drawers, header menu, child filter, proposal inspect. */
   detail: DetailStoreHandle;
-  /** Saved views list + name/editor. */
-  savedViews: SavedViewsStoreHandle;
+  /** Views list + name/editor. */
+  viewsStore: ViewsStoreHandle;
   /** Work-view-switcher session state. Structurally unpersistable/unroutable
    *  by design — see workViewStore.ts's header. */
   workView: WorkViewStoreHandle;
@@ -141,7 +141,7 @@ export interface WorkspaceStores {
   // not a new field, since nothing here needs one yet). Characterization
   // only; none of the three is constructed by WEB-01.
   /** Disposes every controller/subscription this instance owns. gridView,
-   *  rowCache, selection, detail, savedViews, workView, compareView,
+   *  rowCache, selection, detail, viewsStore, workView, compareView,
    *  alertCheckLink, chrome, and actSurface are plain state containers with no
    *  long-lived subscriptions of their own, so their share of this is a no-op;
    *  pluginLayout.dispose() clears its timer/visibility listener and invalidates
@@ -184,17 +184,17 @@ export function createWorkspaceStores(
   // ids repeat across projects (SheetGrid.tsx's widthsKey comment), so two
   // projects sharing a sheet id must never share a cache slot.
   const rowCache = createRowCacheStore();
-  // selection/detail/savedViews/workView/compareView/previewView/alertCheckLink are not project-scoped
+  // selection/detail/viewsStore/workView/compareView/previewView/alertCheckLink are not project-scoped
   // persistence either — every field they own is either pure in-memory
   // session state (selection, detail's drawers, workView, compareView, previewView,
   // alertCheckLink) or a
-  // plain component-state list re-fetched per sheet (savedViews' `views`,
+  // plain component-state list re-fetched per sheet (viewsStore's `views`,
   // from api.listViews on the active-sheet transition), matching gridView/job's
   // precedent above. Preview receives projectId only for its existing product-
   // telemetry transport; it does not persist preview state.
   const selection = createSelectionStore();
   const detail = createDetailStore();
-  const savedViews = createSavedViewsStore();
+  const viewsStore = createViewsStore();
   const workView = createWorkViewStore();
   const compareView = createCompareViewStore();
   const previewView = createPreviewViewStore(projectApi, projectId);
@@ -267,7 +267,7 @@ export function createWorkspaceStores(
     rowCache,
     selection,
     detail,
-    savedViews,
+    viewsStore,
     workView,
     compareView,
     previewView,

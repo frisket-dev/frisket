@@ -273,7 +273,7 @@ def _enqueue_moss_transcribe(client, project_id: str, sheet_id: int, *, key: str
         },
         "idempotency_key": key,
     }
-    # Known-free MOSS fits even zero preapproval, including operator_lan
+    # Known-free MOSS fits even zero allowance, including operator_lan
     # egress. The unconfirmed launch queues with durable exact consent.
     queued = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
@@ -550,7 +550,7 @@ def test_moss_durable_run_dead_worker_fails_honestly_and_commits_nothing(
     assert error["code"] == "external_rows_failed"
     assert error["message"] == "media.transcribe failed for every target row"
 
-    # nothing committed: the output columns exist only as hidden placeholders
+    # nothing committed: the generated columns exist only as hidden placeholders
     # with zero cell values, and no model-call facts were recorded
     columns = _columns(project, sheet_id)
     output_ids = tuple(
@@ -568,7 +568,7 @@ def test_moss_durable_run_dead_worker_fails_honestly_and_commits_nothing(
     claims = project.db.execute(
         "SELECT output_name, status FROM output_column_claims ORDER BY output_name"
     ).fetchall()
-    # The single preapproved launch owns a pair of claims; both go terminal.
+    # The single covered by the allowance launch owns a pair of claims; both go terminal.
     assert [(c["output_name"], c["status"]) for c in claims] == [
         ("transcript", "failed"),
         ("transcript_segments", "failed"),
@@ -689,7 +689,7 @@ def test_moss_durable_run_refuses_declaration_violating_result(
     claims = project.db.execute(
         "SELECT output_name, status FROM output_column_claims ORDER BY output_name"
     ).fetchall()
-    # The single preapproved launch reserves these outputs, then fails them.
+    # The single covered by the allowance launch reserves these outputs, then fails them.
     assert [(c["output_name"], c["status"]) for c in claims] == [
         ("transcript", "failed"),
         ("transcript_segments", "failed"),

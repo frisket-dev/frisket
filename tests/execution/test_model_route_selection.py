@@ -42,12 +42,12 @@ MODEL = "openai/gpt-5-mini"
 
 
 @pytest.mark.parametrize("action_kind", ["map.summarize", "map.ask", "map.extract"])
-def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
+def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
     make_project, action_kind
 ):
     from frisket.actions.system import typed_action_for_request
     from frisket.ai.llm import ModelRouter
-    from frisket.cloud_execution import cloud_quote_authority_for_row
+    from frisket.cloud_execution import cloud_estimate_authority_for_row
     from frisket.contracts.http.cloud_connection import CloudTokenPrice
     from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
     from frisket.engine.runner import validation
@@ -163,7 +163,7 @@ def test_cloud_model_estimate_and_run_quote_the_same_uncapped_purchase(
     assert cost.basis["ceiling_mode"] == "none"
     assert cost.basis["row_settlement_mode"] == "all_metered"
     assert (
-        cloud_quote_authority_for_row(
+        cloud_estimate_authority_for_row(
             resolved.cost_basis, row_id=1
         ).maximum_charge_micro
         is None

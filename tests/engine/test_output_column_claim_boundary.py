@@ -138,7 +138,7 @@ def _regex_action(sheet_id: int, *, key: str) -> dict[str, Any]:
     }
 
 
-def _output_column_id(project: Project, *, sheet_id: int, name: str) -> int:
+def _generated_column_id(project: Project, *, sheet_id: int, name: str) -> int:
     row = project.db.execute(
         "SELECT id FROM columns WHERE sheet_id=? AND name=?", (sheet_id, name)
     ).fetchone()
@@ -260,7 +260,7 @@ def test_output_claim_blocks_competing_run_and_releases_after_success(
         assert completed.run_id is not None
         assert _active_claim_count(project, "rendered_note") == 0
         assert (
-            _output_column_id(project, sheet_id=sheet_id, name="rendered_note")
+            _generated_column_id(project, sheet_id=sheet_id, name="rendered_note")
             == completed.outputs[0].column_id
         )
         claim_rows = project.db.execute(
@@ -288,7 +288,7 @@ def test_output_claim_blocks_manual_and_metadata_edits(
             project_id=PROJECT_ID,
         )
         assert generated.status == "completed"
-        output_column_id = _output_column_id(
+        output_column_id = _generated_column_id(
             project, sheet_id=sheet_id, name="rendered_note"
         )
         _claim_output(project, sheet_id=sheet_id)
@@ -385,7 +385,7 @@ def test_output_claim_does_not_block_undo_of_completed_changes(
         assert generated.status == "completed"
         assert generated.op_ids
         map_op_id = generated.op_ids[0]
-        output_column_id = _output_column_id(
+        output_column_id = _generated_column_id(
             project, sheet_id=sheet_id, name="rendered_note"
         )
 

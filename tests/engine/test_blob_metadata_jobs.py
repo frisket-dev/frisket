@@ -219,7 +219,7 @@ def test_worker_yields_to_other_work_between_batches(tmp_path, monkeypatch):
             assert MediaBlobStore(project).hashes_needing_metadata() == []
 
 
-def test_continuation_preserves_claimed_tenant_not_payload_identity(
+def test_continuation_preserves_claimed_organization_not_payload_identity(
     tmp_path, monkeypatch
 ):
     root = tmp_path / "7"
@@ -234,7 +234,10 @@ def test_continuation_preserves_claimed_tenant_not_payload_identity(
         return Project(path)
 
     handler = _handler(
-        root, queue=queue, project_opener=opener, workspace_root_storage_org_id=7
+        root,
+        queue=queue,
+        project_opener=opener,
+        workspace_root_storage_organization_id=7,
     )
     key = ProjectStorageKey(7, "files")
     handler(
@@ -245,7 +248,7 @@ def test_continuation_preserves_claimed_tenant_not_payload_identity(
             "org_id": 99,
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
         },
-        JobHandlerContext.from_claimed_job(trusted_org_id=8),
+        JobHandlerContext.from_claimed_job(trusted_organization_id=8),
     )
     assert opened == [(key, root / "files.frisket")]
     [call] = queue.enqueue.call_args_list

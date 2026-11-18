@@ -401,7 +401,7 @@ def test_cloud_first_resolves_target_specific_payer_and_offering():
         engine=CLOUD_OCR_ENGINE,
     )
     assert offering is not None
-    assert offering.quote.unit_rate == "0.0025"
+    assert offering.estimate.unit_rate == "0.0025"
     assert offering.settlement.row_settlement_mode == "all_metered"
 
 

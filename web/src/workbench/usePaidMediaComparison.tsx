@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { ProjectApi } from '../api/ports';
 import type { PreviewSampleResult, PreviewStartResult, RunEstimate } from '../api/types';
 import { pollPreviewJob } from '../api/previewJobTransport';
-import { quotedUsd } from '../actions/quotedCost';
+import { estimatedUsd } from '../actions/estimatedCost';
 import { CostGateModal } from '../components/CostGateModal';
 import { formatUsd } from '../format';
 import type { CompareColumn, MediaCompareConfig, ScratchDoc } from './mediaCompareSession';
@@ -17,26 +17,26 @@ interface ComparisonCalls<R, Input> {
   readResult(preview: PreviewSampleResult, engineId: string): R;
 }
 
-type Quote<Input> = { input: Input; estimate: RunEstimate } | { error: string };
+type Estimate<Input> = { input: Input; estimate: RunEstimate } | { error: string };
 const pairKey = (doc: { id: string }, column: CompareColumn) => `${doc.id}:${column.id}`;
 
 /** Shared by the two upload comparisons: quote first, confirm once, then
  * retain each candidate's exact input and token through normal preview jobs. */
 export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input>) {
-  const quotes = useRef(new Map<string, Quote<Input>>());
-  const [currentQuote, setCurrentQuote] = useState<RunEstimate | null>(null);
+  const estimates = useRef(new Map<string, Estimate<Input>>());
+  const [currentEstimate, setCurrentEstimate] = useState<RunEstimate | null>(null);
   const [consent, setConsent] = useState<{
     estimate: RunEstimate; message: string; finish(accepted: boolean): void;
   } | null>(null);
-  const clearQuote = useCallback(() => setCurrentQuote(null), []);
+  const clearEstimate = useCallback(() => setCurrentEstimate(null), []);
 
   const prepareRun: NonNullable<MediaCompareConfig<R>['prepareRun']> = async (pairs, signal) => {
     // A changed selection only earns a new display after this batch's exact
     // inputs have been quoted. Never leave an old amount beside a new run.
-    clearQuote();
-    const prepared = new Map<string, Quote<Input>>();
+    clearEstimate();
+    const prepared = new Map<string, Estimate<Input>>();
     const paid: Array<{ estimate: RunEstimate; label: string }> = [];
-    const quoted: Array<{ estimate: RunEstimate; label: string }> = [];
+    const estimated: Array<{ estimate: RunEstimate; label: string }> = [];
     for (const { doc, column } of pairs) {
       if (signal.aborted) return false;
       try {
@@ -48,26 +48,26 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
           throw new Error('The estimate is missing its required confirmation token.');
         }
         prepared.set(pairKey(doc, column), { input, estimate });
-        quoted.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
+        estimated.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
         if (estimate.requires_confirmation) paid.push({ estimate, label: `${doc.filename}: ${column.engineId}` });
       } catch (error) {
         prepared.set(pairKey(doc, column), { error: errorMessage(error) });
       }
     }
     if (signal.aborted) return false;
-    quotes.current = prepared;
-    const quotePrices = quoted.map(({ estimate }) => quotedUsd(estimate));
-    const quoteKnown = quotePrices.every((price): price is number => price !== null);
-    setCurrentQuote({
+    estimates.current = prepared;
+    const estimatePrices = estimated.map(({ estimate }) => estimatedUsd(estimate));
+    const estimateKnown = estimatePrices.every((price): price is number => price !== null);
+    setCurrentEstimate({
       cost: null,
-      rows: quoted.length,
+      rows: estimated.length,
       policy_id: 'media_compare',
-      billed_cost: quoteKnown
-        ? Math.round(quotePrices.reduce((sum, price) => sum + price, 0) * 1_000_000)
+      billed_cost: estimateKnown
+        ? Math.round(estimatePrices.reduce((sum, price) => sum + price, 0) * 1_000_000)
         : null,
     });
     if (!paid.length) return true;
-    const prices = paid.map(({ estimate }) => quotedUsd(estimate));
+    const prices = paid.map(({ estimate }) => estimatedUsd(estimate));
     const known = prices.every((price): price is number => price !== null);
     const estimate: RunEstimate = {
       cost: null, rows: paid.length, policy_id: 'media_compare',
@@ -89,14 +89,14 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
   };
 
   const runColumn: MediaCompareConfig<R>['runColumn'] = async (doc, column, _engine, signal) => {
-    const quote = quotes.current.get(pairKey(doc, column));
-    if (!quote) return { ok: false, message: 'Estimate this comparison before running it.' };
-    if ('error' in quote) return { ok: false, message: quote.error };
+    const candidate = estimates.current.get(pairKey(doc, column));
+    if (!candidate) return { ok: false, message: 'Estimate this comparison before running it.' };
+    if ('error' in candidate) return { ok: false, message: candidate.error };
     if (signal.aborted) return { ok: false, message: 'Comparison cancelled.' };
     const startedAt = performance.now();
     const started = await calls.start(doc.file, {
-      ...quote.input,
-      ...(quote.estimate.requires_confirmation ? { confirmation: quote.estimate.promise_set_hash } : {}),
+      ...candidate.input,
+      ...(candidate.estimate.requires_confirmation ? { confirmation: candidate.estimate.promise_set_hash } : {}),
     });
     const preview = await pollPreviewJob(calls.api, started.previewId, {
       signal, intervalMs: 250, initialDelayMs: 0, visibility: 'continue',
@@ -110,16 +110,16 @@ export function usePaidMediaComparison<R, Input>(calls: ComparisonCalls<R, Input
       preview, elapsedMs: Math.max(0, performance.now() - startedAt) };
   };
 
-  const currentQuoteUsd = quotedUsd(currentQuote);
-  const quote = currentQuote && (
+  const currentEstimateUsd = estimatedUsd(currentEstimate);
+  const estimateLine = currentEstimate && (
     <div className="cost-line cost-paid" data-testid="media-compare-cost-estimate">
       <span className="cost-dot" aria-hidden />
-      Comparison estimate: <strong>{currentQuoteUsd === null
-        ? 'UNKNOWN' : formatUsd(currentQuoteUsd)}</strong>
-      {currentQuote.rows > 0 && <> · {currentQuote.rows} variant{currentQuote.rows === 1 ? '' : 's'}</>}
+      Comparison estimate: <strong>{currentEstimateUsd === null
+        ? 'UNKNOWN' : formatUsd(currentEstimateUsd)}</strong>
+      {currentEstimate.rows > 0 && <> · {currentEstimate.rows} variant{currentEstimate.rows === 1 ? '' : 's'}</>}
     </div>
   );
 
-  return { prepareRun, runColumn, quote, clearQuote, gate: consent && <CostGateModal estimate={consent.estimate}
+  return { prepareRun, runColumn, estimateLine, clearEstimate, gate: consent && <CostGateModal estimate={consent.estimate}
     message={consent.message} onConfirm={() => consent.finish(true)} onCancel={() => consent.finish(false)} /> };
 }

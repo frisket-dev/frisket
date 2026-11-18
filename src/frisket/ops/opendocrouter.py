@@ -28,7 +28,7 @@ from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.integrations.opendocrouter import parse_document
 from frisket.ops.markdown_plain import markdown_to_plain_text
 from frisket.ops.media_metadata import image_dimensions
-from frisket.ops.ocr_engines_hosted import halt_unless_consented_credential
+from frisket.ops.ocr_engines_remote import halt_unless_consented_credential
 from frisket.sdk.ops._hosted_accounting import persist_hosted_accepted_accounting
 
 

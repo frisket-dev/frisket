@@ -151,7 +151,7 @@ def test_opus_mt_source_url_shape():
     )
 
 
-def test_opus_mt_pins_agree_with_the_org_constant():
+def test_opus_mt_pins_agree_with_the_organization_constant():
     # The constant, generator, and pinned URLs must name ONE publisher org
     # (frisket-models) so a newly converted pair is uploaded to and pulled from
     # the same place — never a 404 pin. Every frisket-hosted CT2

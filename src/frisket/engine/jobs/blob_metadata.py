@@ -29,7 +29,7 @@ def register_blob_metadata_handler(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     def handle(payload: dict, context: JobHandlerContext) -> dict[str, Any]:
@@ -42,7 +42,7 @@ def register_blob_metadata_handler(
         project_id, project_root, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=project_opener is not None,
         )
         if project_opener is None:
@@ -83,8 +83,8 @@ def register_blob_metadata_handler(
                 claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
                 if isinstance(claimed, ProjectStorageKey):
                     continuation["storage_org_id"] = claimed.storage_org_id
-                if isinstance(context.trusted_job_org_id, int):
-                    continuation["org_id"] = context.trusted_job_org_id
+                if isinstance(context.trusted_job_organization_id, int):
+                    continuation["org_id"] = context.trusted_job_organization_id
                 queue.enqueue(BLOB_METADATA_KIND, continuation)
             return {"project_id": project_id, "updated": updated, "failed": failed}
         finally:

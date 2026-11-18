@@ -68,7 +68,7 @@ def test_service_promotes_only_the_marked_run_that_admits_the_exact_target(
         )
         workspace = SimpleNamespace(
             queue=queue,
-            queue_storage_org_id=None,
+            queue_storage_organization_id=None,
             get=lambda requested: (
                 project
                 if requested == project_id

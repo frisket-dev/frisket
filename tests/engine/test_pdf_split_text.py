@@ -300,8 +300,10 @@ def test_merged_original_cache_is_narrowed_before_real_child_fanout(
         },
     )
     try:
-        quoted = adapter.quote(targets=[target], plan_token="late-original-cache")
-        adapter.approve(quoted, confirmation=quoted["estimate"]["promise_set_hash"])
+        estimated = adapter.estimate(targets=[target], plan_token="late-original-cache")
+        adapter.approve(
+            estimated, confirmation=estimated["estimate"]["promise_set_hash"]
+        )
         with PdfSplitPreparationStore(adapter.inventory_path) as store:
             store.admit(
                 operation_id=binding.operation_id,

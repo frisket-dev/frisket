@@ -17,9 +17,9 @@ const WEB_DIR = process.cwd();
 const ROOT = path.resolve(WEB_DIR, '..');
 
 /**
- * Self-booting SINGLE-ORG TEAM stack for specs that only exist under
+ * Self-booting SINGLE-ORGANIZATION TEAM stack for specs that only exist under
  * `capabilities.team`/`capabilities.identity`. Boots the
- * real open single-org ASGI entrypoint (`frisket.team.asgi:app`, the same
+ * real open single-organization ASGI entrypoint (`frisket.team.asgi:app`, the same
  * module `uvicorn` serves in the shipped team image — see
  * scripts/build_release_artifacts.py) as the backend, and `vite dev` with
  * `FRISKET_EDITION=team` as the frontend — mirroring playwright.local-stack.ts

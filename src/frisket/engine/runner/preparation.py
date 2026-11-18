@@ -1,5 +1,5 @@
 """Run preparation for the map runner (extracted from ``MapRunner._prepare_validated``):
-materialize a validated spec into output columns and an op/run row (fresh launch)
+materialize a validated spec into generated columns and an op/run row (fresh launch)
 or repoint an existing run's dispatch scope (resume) — the writing half of
 ``_prepare``, which stays in the engine as the orchestrating facade (savepoint
 handling for atomic-output-column recipes)."""
@@ -15,7 +15,7 @@ from frisket.ops.base import Recipe
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner.column_retirement import (
     retire_empty_failed_output,
-    retire_dropped_output_columns,
+    retire_dropped_generated_columns,
 )
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
@@ -29,7 +29,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 
-PREPARED_ATOMIC_OUTPUT_COLUMNS_KEY = "prepared_atomic_output_columns"
+PREPARED_ATOMIC_GENERATED_COLUMNS_KEY = "prepared_atomic_output_columns"
 
 
 @dataclass
@@ -40,7 +40,7 @@ class PreparedRun:
     row_ids: list[int]
     out_cols: dict[str, int]
     output_fields: tuple[dict[str, Any], ...]
-    created_output_column_ids: frozenset[int]
+    created_generated_column_ids: frozenset[int]
     op_id: int
     run_id: int
     row_count: int
@@ -50,7 +50,7 @@ class PreparedRun:
     read_inputs: Callable[[int], dict[str, Any]] | None = None
 
 
-def _created_output_column_ids(project: Project, op_id: int) -> frozenset[int]:
+def _created_generated_column_ids(project: Project, op_id: int) -> frozenset[int]:
     row = project.db.execute(
         "SELECT undo_info FROM ops WHERE id=?",
         (op_id,),
@@ -68,7 +68,7 @@ def persistable_spec(spec: dict) -> dict:
     return {key: value for key, value in spec.items() if key != "confirmed"}
 
 
-def prepared_atomic_output_columns_for_resume(
+def prepared_atomic_generated_columns_for_resume(
     project: Project,
     *,
     run_row: Any,
@@ -86,7 +86,9 @@ def prepared_atomic_output_columns_for_resume(
     except (TypeError, json.JSONDecodeError):
         raise ValueError(error) from None
     prepared = (
-        info.get(PREPARED_ATOMIC_OUTPUT_COLUMNS_KEY) if isinstance(info, dict) else None
+        info.get(PREPARED_ATOMIC_GENERATED_COLUMNS_KEY)
+        if isinstance(info, dict)
+        else None
     )
     expected = {str(field["name"]): field for field in fields}
     if not isinstance(prepared, dict) or set(prepared) != set(expected):
@@ -168,7 +170,7 @@ def _validate_managed_resume(
     # A coupled action hides only its fresh columns until final publication.
     # Require that exact staging state; do not excuse arbitrary visibility drift.
     staged_columns = (
-        _created_output_column_ids(project, int(operation["id"]))
+        _created_generated_column_ids(project, int(operation["id"]))
         if operation is not None
         and json.loads(operation["spec"]).get("deferred_publication") is True
         else frozenset()
@@ -455,7 +457,7 @@ def prepare_validated(
         spec=spec,
     )
 
-    # output columns (created once; reused on re-run of same names)
+    # generated columns (created once; reused on re-run of same names)
     out_cols: dict[str, int] = dict(managed_out_cols)
     created_columns: list[int] = []
     field_names = {str(field["name"]) for field in output_fields}
@@ -472,7 +474,7 @@ def prepare_validated(
         raise ValueError(
             "output target preconditions must cover every output descriptor"
         )
-    output_column_ids_by_name = {
+    generated_column_ids_by_name = {
         str(name): int(column_id)
         for name, column_id in raw_target_preconditions.items()
         if column_id is not None
@@ -496,7 +498,7 @@ def prepare_validated(
             raise OutputColumnExists([str(row["name"]) for row in collisions])
     if recipe.atomic_output_columns and not managed_bindings:
         if run_row is not None:
-            out_cols = prepared_atomic_output_columns_for_resume(
+            out_cols = prepared_atomic_generated_columns_for_resume(
                 project,
                 run_row=run_row,
                 sheet_id=sheet_id,
@@ -509,7 +511,7 @@ def prepare_validated(
             )
     for f in [] if recipe.atomic_output_columns or managed_bindings else output_fields:
         output_name = str(f["name"])
-        expected_column_id = output_column_ids_by_name.get(output_name)
+        expected_column_id = generated_column_ids_by_name.get(output_name)
         target_precondition = raw_target_preconditions.get(output_name)
         existing = next(
             (
@@ -688,7 +690,7 @@ def prepare_validated(
         run_id = resume_run_id
         assert run_row is not None
         op_id = run_row["op_id"]
-        created_columns = list(_created_output_column_ids(project, int(op_id)))
+        created_columns = list(_created_generated_column_ids(project, int(op_id)))
         output_column_ids = sorted(out_cols.values())
         if managed_bindings and output_column_ids != sorted(
             binding.column_id for binding in managed_bindings
@@ -744,7 +746,7 @@ def prepare_validated(
         undo_info: dict[str, Any] = {}
         if recipe.atomic_output_columns:
             # Persist ids because names may change before a queued resume.
-            undo_info[PREPARED_ATOMIC_OUTPUT_COLUMNS_KEY] = dict(out_cols)
+            undo_info[PREPARED_ATOMIC_GENERATED_COLUMNS_KEY] = dict(out_cols)
         if created_columns:
             undo_info["created_columns"] = created_columns
         if undo_info:
@@ -783,7 +785,7 @@ def prepare_validated(
         if created_columns and not defer_commits:
             project.db.commit()
         # Retire dropped output roles instead of exposing stale values.
-        retire_dropped_output_columns(
+        retire_dropped_generated_columns(
             project,
             op_id=op_id,
             recipe=recipe,
@@ -806,7 +808,7 @@ def prepare_validated(
         row_ids=row_ids,
         out_cols=out_cols,
         output_fields=tuple(dict(field) for field in output_fields),
-        created_output_column_ids=frozenset(created_columns).intersection(
+        created_generated_column_ids=frozenset(created_columns).intersection(
             out_cols.values()
         ),
         op_id=op_id,

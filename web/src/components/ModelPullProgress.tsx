@@ -36,7 +36,7 @@ interface ModelPullProgressProps {
   onDismiss?: () => void;
   /** Injectable fetch/cancel, defaulting to the workspace-tier local pull
    *  route (getModelPull/cancelModelPull). The org/team settings card
-   *  injects orgGetModelPull/orgCancelModelPull instead -- same ModelPullDto shape,
+   *  injects organizationGetModelPull/organizationCancelModelPull instead -- same ModelPullDto shape,
    *  a different route underneath. Every other caller is unaffected: the
    *  defaults preserve the pre-existing behavior exactly. */
   fetchPull?: (id: number) => Promise<ModelPullDto>;

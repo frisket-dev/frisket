@@ -28,7 +28,7 @@ from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.batch_normalization import normalize_batch_row
-from frisket.engine.runner.confirmation_context import ConsentQuote
+from frisket.engine.runner.confirmation_context import ConsentEstimate
 from frisket.engine.runner.network_policy import (
     row_effect_cannot_egress,
     row_effect_spends_or_meters,
@@ -93,11 +93,13 @@ def _has_exact_free_local_terms(recipe: Recipe, spec: dict, estimate: Any) -> bo
     if not row_effect_cannot_egress(recipe, spec) or not isinstance(estimate, Mapping):
         return False
     try:
-        quote = ConsentQuote.from_estimate(estimate)
+        consent_estimate = ConsentEstimate.from_estimate(estimate)
     except (OverflowError, TypeError, ValueError):
         return False
     return (
-        quote.cost_source == "free_local" and quote.cost == 0 and quote.billed_cost == 0
+        consent_estimate.cost_source == "free_local"
+        and consent_estimate.cost == 0
+        and consent_estimate.billed_cost == 0
     )
 
 
@@ -120,7 +122,7 @@ def _caught_gate_is_safe(
 
 @dataclass
 class PreviewColumn:
-    """A virtual output column the preview would produce. ``overwrites_column_id``
+    """A virtual generated column the preview would produce. ``replaces_column_id``
     is set when the output name collides with an existing column (the overlay
     replaces that column's values for the sampled rows); None means a brand-new
     virtual column the frontend appends to the grid."""
@@ -129,7 +131,7 @@ class PreviewColumn:
     column_type: str
     format: str | None = None
     hidden: bool = False
-    overwrites_column_id: int | None = None
+    replaces_column_id: int | None = None
 
 
 @dataclass
@@ -399,7 +401,7 @@ async def run_preview(
     required_field_names = required_publication_fields(recipe, output_fields)
     managed_publication = True
 
-    # Virtual output columns; mark which overwrite an existing column by name
+    # Virtual generated columns; mark which overwrite an existing column by name
     # (overlay replaces its sampled values) vs. a brand-new virtual column.
     preview_columns: list[PreviewColumn] = []
     for f in output_fields:
@@ -410,7 +412,7 @@ async def run_preview(
                 column_type=f["column_type"],
                 format=f.get("format"),
                 hidden=bool(f.get("hidden", False)),
-                overwrites_column_id=existing["id"] if existing else None,
+                replaces_column_id=existing["id"] if existing else None,
             )
         )
 

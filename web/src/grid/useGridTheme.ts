@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Theme } from '@glideapps/glide-data-grid';
 
 import {
-  readAiColumnTheme,
+  readGeneratedColumnTheme,
   readGridCellPalette,
   readGridDifferenceTheme,
   readExpectedColumnTheme,
@@ -12,7 +12,7 @@ import {
 
 interface GridThemeSnapshot {
   gridTheme: Partial<Theme>;
-  aiColumnTheme: Partial<Theme>;
+  generatedColumnTheme: Partial<Theme>;
   expectedColumnTheme: Partial<Theme>;
   gridCellPalette: GridCellPalette;
   differenceTheme: Partial<Theme>;
@@ -21,7 +21,7 @@ interface GridThemeSnapshot {
 function readGridThemeSnapshot(): GridThemeSnapshot {
   return {
     gridTheme: readGridTheme(),
-    aiColumnTheme: readAiColumnTheme(),
+    generatedColumnTheme: readGeneratedColumnTheme(),
     expectedColumnTheme: readExpectedColumnTheme(),
     gridCellPalette: readGridCellPalette(),
     differenceTheme: readGridDifferenceTheme(),

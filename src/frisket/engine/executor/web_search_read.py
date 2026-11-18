@@ -18,7 +18,7 @@ from frisket.execution.dispatch_control import dispatch_for_context
 from frisket.actions.types import RowError
 from frisket.ai.research.search import (
     SearchProviderError,
-    SearchQuote,
+    SearchEstimate,
     SearchResponse,
     SearchService,
 )
@@ -98,25 +98,25 @@ class AdmittedWebSearcher:
     async def _call(self, query, max_results, attempt, timeout):
         from frisket.engine.executor.visual_cuts_read import _settle
 
-        quote = self._service.quote(max_results=max_results)
+        estimate = self._service.estimate(max_results=max_results)
         # The owned task finishes its accounting even if the outer caller stops
         # waiting. Closing the invocation drains it before releasing ownership.
         task = asyncio.create_task(
             execute_purchase(
                 PurchaseRequest(
-                    provider=quote.provider,
+                    provider=estimate.provider,
                     capability="web.search",
-                    engine=quote.provider,
+                    engine=estimate.provider,
                     credential_source=self._service.credential_source,
                     prepared={"query": query, "max_results": max_results},
-                    estimated_cost_usd=quote.estimated_cost_usd,
-                    quote=quote,
+                    estimated_cost_usd=estimate.estimated_cost_usd,
+                    quote=estimate,
                     context=self._ctx,
                 ),
                 policy=policy_for_context(self._ctx),
                 dispatch=dispatch_for_context(self._ctx),
                 invoke=lambda: self._service.search(
-                    query, max_results=max_results, timeout=timeout, quote=quote
+                    query, max_results=max_results, timeout=timeout, estimate=estimate
                 ),
                 observe=search_observation,
             )
@@ -143,7 +143,7 @@ class AdmittedWebSearcher:
                     returned = getattr(exc, "provider_result", None)
                     if isinstance(returned, SearchResponse):
                         response = returned
-            self._record(attempt, response=response, error=error, quote=quote)
+            self._record(attempt, response=response, error=error, estimate=estimate)
 
     def _record(
         self,
@@ -151,7 +151,7 @@ class AdmittedWebSearcher:
         *,
         response: SearchResponse | None,
         error: SearchProviderError | None,
-        quote: SearchQuote,
+        estimate: SearchEstimate,
     ) -> None:
         ctx = self._ctx
         if ctx.project is None:
@@ -198,10 +198,10 @@ class AdmittedWebSearcher:
             evidence["provider_reported_cost_usd"] = usage.provider_reported_cost_usd
         evidence.update(
             {
-                "pricing_key": quote.pricing_key,
-                "pricing_unit": quote.unit,
-                "unit_price_usd": quote.unit_price_usd,
-                "estimated_cost_usd": quote.estimated_cost_usd,
+                "pricing_key": estimate.pricing_key,
+                "pricing_unit": estimate.unit,
+                "unit_price_usd": estimate.unit_price_usd,
+                "estimated_cost_usd": estimate.estimated_cost_usd,
             }
         )
         if error is not None:

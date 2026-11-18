@@ -11,7 +11,7 @@ import type { GeneratedActionCustomization } from './generatedActionCustomizatio
 import { compatibleSourceColumns, formatUsd, isProjectScopedAction } from '../../actions/model';
 import { draftUsesPdf } from '../../actions/pdfInput';
 import { jsonValuesEqual } from '../../actions/canonicalJson';
-import { quotedUsd } from '../../actions/quotedCost';
+import { estimatedUsd } from '../../actions/estimatedCost';
 import { formatDuration } from '../../format';
 import { parseStrictJson } from '../../actions/strictJson';
 import type { ActionParamResolution, ActionTemplate, GeneratedActionCatalogEntry,
@@ -201,7 +201,7 @@ export type GeneratedActionLaunchMode = GeneratedActionLaunchModeBase & (
       kind: 'edit-existing' | 'use-comparison-variant';
   /** Current-name to physical-column ID fence, derived from the transient
    * comparison context and sent only by an explicit final replacement. */
-      expectedOutputColumns: Readonly<Record<string, number | null>>;
+      expectedGeneratedColumns: Readonly<Record<string, number | null>>;
     }
 );
 
@@ -498,7 +498,7 @@ function validateOutputNames(
   return null;
 }
 
-function compatibleOutputColumns(
+function compatibleGeneratedColumns(
   columns: SheetMeta['columns'],
   columnType: string | null,
   existingColumnPolicy: 'generated' | 'compatible' = 'generated',
@@ -1197,13 +1197,13 @@ function GeneratedActionFormContents({
   // The retained quote is presentation only. A current UNKNOWN result must
   // replace an older known amount; it is never permission to execute.
   const displayedEstimate = estimateState.actionId === catalogEntry.kind ? estimateState.estimate : null;
-  const quotedEstimate = quotedUsd(displayedEstimate);
+  const displayedUsd = estimatedUsd(displayedEstimate);
   const venueLabel = displayedEstimate?.venue_label?.trim() || null;
   const billingLabel = displayedEstimate?.billing_label?.trim() || null;
   const estimateWarning = displayedEstimate?.warning?.trim() || null;
   const estimateRowCount = displayedEstimate?.rows
     ?? (sheet ? effectiveRunScope === 'selected' ? viewSelection ? null : scopeSelectedRowIds.length : sheet.rowCount : null);
-  const outputColumnCount = dynamicOutputs && resolvedIdentity !== resolutionIdentity ? 0 : outputs.length;
+  const generatedColumnCount = dynamicOutputs && resolvedIdentity !== resolutionIdentity ? 0 : outputs.length;
 
   const primaryOutputName = outputs[0] ? outputNames[outputs[0].key]?.trim() : '';
   const backfillTargetColumn = primaryOutputName
@@ -1228,7 +1228,7 @@ function GeneratedActionFormContents({
       idempotency_key: freshActionRequestKey(catalogEntry.kind),
       ...(intent === 'run' && replacementLaunch ? {
         replace_existing: true,
-        expected_output_columns: launchMode.expectedOutputColumns,
+        expected_output_columns: launchMode.expectedGeneratedColumns,
       } : {}),
     } satisfies GeneratedActionRequest;
     const capturedIdentity = `${JSON.stringify({ ...estimateDraft, scope: request.scope })}:${setupVersion}`;
@@ -1279,21 +1279,21 @@ function GeneratedActionFormContents({
       </div>
     )}
     {(freePublicApi || priceable) && (
-      <div className={`cost-line ${freePublicApi || quotedEstimate === 0
+      <div className={`cost-line ${freePublicApi || displayedUsd === 0
         ? 'cost-local' : 'cost-paid'}`} data-testid="cost-estimate" aria-busy={currentEstimatePending}>
         <span className="cost-dot" aria-hidden />
         {freePublicApi ? <>
           <strong>No provider/API charge</strong> · {customization?.freePublicApiLabel ?? 'Free public API request'}
         </> : currentEstimatePending && !displayedEstimate
           ? 'Estimating cost…'
-          : <>{previousEstimate && displayedEstimate ? 'Previous estimate' : 'Estimated cost'}: <strong>{quotedEstimate === null
-            ? 'UNKNOWN' : formatUsd(quotedEstimate)}</strong>{displayedEstimate?.audio_seconds != null
+          : <>{previousEstimate && displayedEstimate ? 'Previous estimate' : 'Estimated cost'}: <strong>{displayedUsd === null
+            ? 'UNKNOWN' : formatUsd(displayedUsd)}</strong>{displayedEstimate?.audio_seconds != null
               ? ` · ${formatDuration(displayedEstimate.audio_seconds * 1000)} of audio`
               : estimateRowCount !== null
                 ? ` · ${estimateRowCount.toLocaleString()} ${estimateRowCount === 1 ? 'row' : 'rows'}`
                 : null}
-            {outputColumnCount > 0
-              ? ` · ${outputColumnCount} generated ${outputColumnCount === 1 ? 'column' : 'columns'}`
+            {generatedColumnCount > 0
+              ? ` · ${generatedColumnCount} generated ${generatedColumnCount === 1 ? 'column' : 'columns'}`
               : null}
             {venueLabel ? <> · <span data-testid="cost-venue-label">{venueLabel}</span></> : null}
             {billingLabel ? <> · <span data-testid="cost-billing-label">{billingLabel}</span></> : null}
@@ -1393,7 +1393,7 @@ function GeneratedActionFormContents({
       {!paramsOnly && prefixConfig && <fieldset disabled={running || structureLocked}
         className="resolve-drawer-body-fields">
         {prefixConfig.keys?.length ? <OutputNameCombobox
-          columns={createsSheet || !prefixOutput ? [] : compatibleOutputColumns(
+          columns={createsSheet || !prefixOutput ? [] : compatibleGeneratedColumns(
             columns, prefixOutput.column_type, prefixOutput.existing_column_policy,
           )}
           label={prefixLabel} inputTestId="field-output-prefix"
@@ -1427,7 +1427,7 @@ function GeneratedActionFormContents({
         return <Fragment key={key}>
           <fieldset className="locked-param-fields" disabled={structureLocked}>
           <OutputNameCombobox
-            columns={createsSheet ? [] : compatibleOutputColumns(
+            columns={createsSheet ? [] : compatibleGeneratedColumns(
               columns,
               columnType,
               existingColumnPolicy,
@@ -1517,7 +1517,7 @@ function GeneratedActionFormContents({
         showPreview={launchMode?.kind !== 'compare-setup'}
         runOnScopeSelect={launchMode?.kind !== 'compare-setup' && (Boolean(launchMode)
           || catalogEntry.cost_policy?.requires_confirmation !== true
-          || (estimateState.identity === estimateIdentity && quotedEstimate === 0))}
+          || (estimateState.identity === estimateIdentity && displayedUsd === 0))}
         allowedScopes={launchMode?.kind === 'compare-setup' ? ['all_rows'] : allowedScopes}
         allowEmptySelection={hasExactRowScopeInitializer}
         primaryButtonType={editComparePrimary ? 'button' : 'submit'}

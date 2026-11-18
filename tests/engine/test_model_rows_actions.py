@@ -225,7 +225,7 @@ def _zero_consent_deps(project: Project) -> ExecutorDeps:
     return ExecutorDeps(consent_coverage=_zero_consent_coverage(project))
 
 
-def _pin_zero_preapproval(client: TestClient) -> None:
+def _pin_zero_allowance(client: TestClient) -> None:
     workspace = client.app.state.workspace
 
     def executor_deps(project_id: str, _request: Any) -> ExecutorDeps:
@@ -1089,7 +1089,7 @@ def test_model_rows_queued_confirmation_and_empty_row_skip(tmp_path: Path) -> No
             run_status_grace_seconds=3600,
         )
     )
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Model rows"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)
@@ -1126,7 +1126,7 @@ def test_queued_typed_summarize_can_backfill_new_row_into_exact_output(
 ) -> None:
     requests: list[LLMRequest] = []
     client = TestClient(create_app(tmp_path / "workspace", router=_router(requests)))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Backfill"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)
@@ -1219,12 +1219,12 @@ def test_typed_model_backfill_can_repeat_from_successor_generations(
 
     requests: list[LLMRequest] = []
     client = TestClient(create_app(tmp_path / "workspace", router=_router(requests)))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Successors"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)
 
-    def zero_preapproval_factory(target, selected):
+    def zero_allowance_factory(target, selected):
         runner = _default_map_runner_factory(target, selected)
         coverage = _zero_consent_coverage(target)
         runner.consent_coverage = coverage
@@ -1249,7 +1249,7 @@ def test_typed_model_backfill_can_repeat_from_successor_generations(
                 project_id,
                 bound,
                 client.app.state.workspace.router_for(project),
-                zero_preapproval_factory,
+                zero_allowance_factory,
             )
         return ActionResult.model_validate(
             client.post(f"/api/projects/{project_id}/actions/v1/run", json=body).json()
@@ -1339,7 +1339,7 @@ def test_typed_model_backfill_can_repeat_from_successor_generations(
 def test_typed_backfill_refuses_tampered_source_run_identity(tmp_path: Path) -> None:
     requests: list[LLMRequest] = []
     client = TestClient(create_app(tmp_path / "workspace", router=_router(requests)))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Tamper"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)
@@ -1391,7 +1391,7 @@ def test_model_rows_can_replace_compatible_cross_action_output_by_id(
 ) -> None:
     requests: list[LLMRequest] = []
     client = TestClient(create_app(tmp_path / "workspace", router=_router(requests)))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Replace"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)
@@ -1475,7 +1475,7 @@ def test_queued_model_rows_replacement_refuses_target_rename_before_worker(
 ) -> None:
     requests: list[LLMRequest] = []
     client = TestClient(create_app(tmp_path / "workspace", router=_router(requests)))
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Replace drift"}).json()[
         "id"
     ]
@@ -1575,7 +1575,7 @@ def test_model_rows_metered_preview_requires_consent_before_dispatch(
             run_status_grace_seconds=3600,
         )
     )
-    _pin_zero_preapproval(client)
+    _pin_zero_allowance(client)
     project_id = client.post("/api/projects", json={"name": "Model rows"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id, row_ids = _seed(project)

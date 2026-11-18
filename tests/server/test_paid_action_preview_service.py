@@ -59,9 +59,9 @@ def _wait(service, preview_id):
 
 
 def _confirm(service, body):
-    quote = service.start_preview("paid", body)
-    assert quote.status_code == 402, quote.payload
-    details = quote.payload["error"]["details"]
+    estimate = service.start_preview("paid", body)
+    assert estimate.status_code == 402, estimate.payload
+    details = estimate.payload["error"]["details"]
     assert details["estimate"]
     return {**body, "confirmation": details["promise_set_hash"]}
 
@@ -340,9 +340,9 @@ def test_actual_ocr_preview_keeps_scope_finalizer_facts(tmp_path, monkeypatch, m
 
             # OCR Compare quotes through the ordinary estimate endpoint, then
             # submits that exact token to preview, not to a separate compare API.
-            quote = ActionPreviewService(service._workspace).estimate("paid", body)
-            assert quote["estimate"]["promise_set_hash"] == confirmed["confirmation"]
-            assert quote["estimate"]["requires_confirmation"]
+            estimate = ActionPreviewService(service._workspace).estimate("paid", body)
+            assert estimate["estimate"]["promise_set_hash"] == confirmed["confirmation"]
+            assert estimate["estimate"]["requires_confirmation"]
         started = service.start_preview("paid", confirmed)
         assert started.status_code == 202, started.payload
         result = _wait(service, started.payload["preview_id"])
@@ -383,11 +383,11 @@ def test_late_cancel_keeps_completed_result_and_snapshot(tmp_path, monkeypatch):
     )
 
     try:
-        quote = service.start_preview("paid", body, request_context=context)
-        assert quote.status_code == 402
+        estimate = service.start_preview("paid", body, request_context=context)
+        assert estimate.status_code == 402
         confirmed = {
             **body,
-            "confirmation": quote.payload["error"]["details"]["promise_set_hash"],
+            "confirmation": estimate.payload["error"]["details"]["promise_set_hash"],
         }
         started = service.start_preview("paid", confirmed, request_context=context)
         assert started.status_code == 202, started.payload

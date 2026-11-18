@@ -299,7 +299,7 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
             assert totals.get("users") == 2
             assert totals.get("projects") == 0
             assert totals.get("pending_invites") == 0
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
     invited = owner.post(
         "/api/admin/browser/users/invite",
         json={"org_id": org_id, "email": "remove@example.com"},
@@ -320,7 +320,7 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
     )
     assert revoke.status_code == 200, revoke.text
     with app.state.control_engine.connect() as cx:
-        org_count = cx.execute(
+        organization_count = cx.execute(
             sa.select(sa.func.count()).select_from(orgs)
         ).scalar_one()
         removed = cx.execute(
@@ -328,11 +328,11 @@ def test_admin_health_overview_and_invite_revocation_require_browser_admin_and_a
                 pending_invites.c.email == "remove@example.com"
             )
         ).scalar_one_or_none()
-    assert org_count == 1, "admin route must not create a second organization"
+    assert organization_count == 1, "admin route must not create a second organization"
     assert removed is None, "admin revoke must remove the pending invite row"
 
 
-def test_admin_invite_delivers_usable_magic_link_into_the_single_org(
+def test_admin_invite_delivers_usable_magic_link_into_the_single_organization(
     tmp_path: Path,
 ) -> None:
     deliveries: list[tuple[str, str]] = []
@@ -340,11 +340,11 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_org(
     owner = TestClient(app)
     _sign_in(owner, app, "owner@example.com")
 
-    org_invite = owner.post(
+    organization_invite = owner.post(
         "/api/admin/browser/users/invite",
-        json={"org_id": app.state.team_org_id, "email": "member@example.com"},
+        json={"org_id": app.state.team_organization_id, "email": "member@example.com"},
     )
-    assert org_invite.status_code == 200, org_invite.text
+    assert organization_invite.status_code == 200, organization_invite.text
     link = _delivered_link(deliveries, "member@example.com")
     parsed = urlparse(link)
     assert parsed.path == "/auth/callback"
@@ -365,7 +365,7 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_org(
     assert completed.json() == {"ok": True}
     assert member.cookies.get("frisket_session")
     with app.state.control_engine.connect() as cx:
-        org_count = cx.execute(
+        organization_count = cx.execute(
             sa.select(sa.func.count()).select_from(orgs)
         ).scalar_one()
         member_count = cx.execute(
@@ -373,7 +373,7 @@ def test_admin_invite_delivers_usable_magic_link_into_the_single_org(
             .select_from(memberships.join(users, memberships.c.user_id == users.c.id))
             .where(users.c.email == "member@example.com")
         ).scalar_one()
-    assert org_count == 1
+    assert organization_count == 1
     assert member_count == 1
 
 
@@ -421,7 +421,7 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
     assert project_id in {project["id"] for project in invited_projects.json()}
     invited_project = invitee.get(f"/api/projects/{project_id}")
     assert invited_project.status_code == 200, invited_project.text
-    forbidden_org_scope = {
+    forbidden_organization_scope = {
         "create_project": invitee.post(
             "/api/projects", json={"name": "Project-only user must not create"}
         ).status_code,
@@ -432,13 +432,15 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
             "/api/org/tokens", json={"name": "forbidden project-only token"}
         ).status_code,
     }
-    assert forbidden_org_scope == {
+    assert forbidden_organization_scope == {
         "create_project": 403,
         "org_keys": 403,
         "org_env": 403,
         "oauth_connections": 403,
         "create_pat": 403,
-    }, f"project-only invite leaked organization capabilities: {forbidden_org_scope}"
+    }, (
+        f"project-only invite leaked organization capabilities: {forbidden_organization_scope}"
+    )
     repeated = invitee.post(
         parsed.path, json={"password": "a sufficiently long password"}
     )
@@ -447,7 +449,7 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
         collab_id = cx.execute(
             sa.select(users.c.id).where(users.c.email == "collab@example.com")
         ).scalar_one()
-        org_membership = cx.execute(
+        organization_membership = cx.execute(
             sa.select(memberships.c.user_id).where(memberships.c.user_id == collab_id)
         ).scalar_one_or_none()
         project_role = cx.execute(
@@ -456,12 +458,14 @@ def test_project_invite_acceptance_is_open_single_use_and_project_scoped(
                 project_roles.c.slug == project_id,
             )
         ).scalar_one_or_none()
-        org_count = cx.execute(
+        organization_count = cx.execute(
             sa.select(sa.func.count()).select_from(orgs)
         ).scalar_one()
-    assert org_membership is None, "project invite must not grant whole-org membership"
+    assert organization_membership is None, (
+        "project invite must not grant whole-org membership"
+    )
     assert project_role == "viewer"
-    assert org_count == 1
+    assert organization_count == 1
     inspector = sa.inspect(app.state.control_engine)
     assert not any("funding" in table for table in inspector.get_table_names())
 
@@ -849,7 +853,7 @@ def test_diagnostic_report_retention_enforces_age_and_row_bounds(
     now = datetime.now(UTC)
     recent_rows = [
         {
-            "org_id": app.state.team_org_id,
+            "org_id": app.state.team_organization_id,
             "user_id": None,
             "source": "diagnostic_report",
             "severity": "info",
@@ -862,7 +866,7 @@ def test_diagnostic_report_retention_enforces_age_and_row_bounds(
     ]
     expired_rows = [
         {
-            "org_id": app.state.team_org_id,
+            "org_id": app.state.team_organization_id,
             "user_id": None,
             "source": "diagnostic_report",
             "severity": "info",

@@ -32,7 +32,7 @@ def _replay_output_column_row(
     sheet_id: int,
     allow_hidden: bool = False,
 ) -> Any | None:
-    """Look up a replay target output column, tolerating the all-rows-
+    """Look up a replay target generated column, tolerating the all-rows-
     failed-no-columns-v1 zero-success hide: a column is still a legitimate
     replay target when it's hidden ONLY because its creating op's run
     produced zero successful rows (``zero_success_columns``) AND that op is

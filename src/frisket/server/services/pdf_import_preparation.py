@@ -17,9 +17,9 @@ from frisket.engine.store.import_intake import import_intake_dir, read_import_he
 from frisket.engine.store.import_sessions import ImportSessionStore
 from frisket.engine.store.cells import replay_generated_value_hash
 from frisket.engine.store.media_blobs import MediaBlobStore
-from frisket.engine.runner.confirmation_context import ConsentQuote
+from frisket.engine.runner.confirmation_context import ConsentEstimate
 from frisket.engine.runner.validation import (
-    TrustedConsentApproval,
+    TrustedConsentGrant,
     TrustedConsentContext,
     TrustedConsentRefusal,
 )
@@ -27,7 +27,7 @@ from frisket.execution.promises import promise_rows_hash
 from frisket.execution.resolve_for_action import promise_rows, target_snapshot
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.route_errors import RouteError
-from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
+from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrGrant
 from frisket.server.services.pdf_imports.inventory import pdf_ocr_selected
 
 _CHILD_STATUS_PAGE = 100
@@ -930,9 +930,9 @@ class PdfImportPreparationCoordinator:
         ):
             raise ValueError("paid PDF OCR child scope changed after approval")
         expected_promises = child.get("promises")
-        expected_quote = child.get("quote")
+        expected_estimate = child.get("quote")
         if not isinstance(expected_promises, list) or not isinstance(
-            expected_quote, Mapping
+            expected_estimate, Mapping
         ):
             raise ValueError("paid PDF OCR child authority is incomplete")
         canonical_quantities = [
@@ -974,12 +974,12 @@ class PdfImportPreparationCoordinator:
             if self._route_snapshot(context) != child.get("route"):
                 return refusal("paid PDF OCR route changed")
             try:
-                actual_quote = ConsentQuote.from_estimate(context.estimate).model_dump(
-                    mode="json"
-                )
+                actual_estimate = ConsentEstimate.from_estimate(
+                    context.estimate
+                ).model_dump(mode="json")
             except (TypeError, ValueError) as exc:
                 return refusal(f"paid PDF OCR runtime quote is invalid: {exc}")
-            if actual_quote != dict(expected_quote):
+            if actual_estimate != dict(expected_estimate):
                 return refusal("paid PDF OCR price or pricing policy changed")
             actual_promises = promise_rows(resolved.promise_set)
             row_quantities: dict[int, int] = {}
@@ -1041,13 +1041,13 @@ class PdfImportPreparationCoordinator:
                 actual_promises
             ) != self._promises_without_row_coordinates(expected_promises):
                 return refusal("paid PDF OCR promise terms changed")
-            return TrustedConsentApproval("pdf_import_grant_derived")
+            return TrustedConsentGrant("pdf_import_grant_derived")
 
         return authorize
 
     def reserve(self, project_id: str, *, receipt_id: str, import_ref: str) -> None:
         self.pending_store.create_pending_import(
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             project_id=project_id,
             receipt_id=receipt_id,
             import_ref=import_ref,
@@ -1213,7 +1213,7 @@ class PdfImportPreparationCoordinator:
             receipt_id = header.envelope.get("receipt_id")
             if isinstance(receipt_id, str) and receipt_id:
                 pending = self.pending_store.for_receipt(
-                    storage_org_id=self.workspace.queue_storage_org_id,
+                    storage_org_id=self.workspace.queue_storage_organization_id,
                     project_id=project_id,
                     receipt_id=receipt_id,
                     include_pending=True,
@@ -1222,7 +1222,7 @@ class PdfImportPreparationCoordinator:
                     self.pending_store.mark_settled(
                         pending.id,
                         project_id=project_id,
-                        storage_org_id=self.workspace.queue_storage_org_id,
+                        storage_org_id=self.workspace.queue_storage_organization_id,
                     )
             return summary
 

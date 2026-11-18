@@ -160,17 +160,17 @@ describe('createJobStore — defaults (parity with the pre-migration hook state)
       'actionJobs',
       'completedClusterReceiptId',
       'costGate',
+      'generatedColumnCollision',
       'launchPending',
-      'outputColumnCollision',
       'run',
     ]);
     expect(Object.keys(jobs).sort()).toEqual([
       'afterBackfill',
       'cancelCostGate',
       'cancelCurrentRun',
-      'cancelOutputColumnCollision',
+      'cancelGeneratedColumnCollision',
       'confirmCostGate',
-      'confirmOutputColumnCollision',
+      'confirmGeneratedColumnCollision',
       'dismissCompletedClusterResult',
       'dispose',
       'liveActionJobs',
@@ -189,7 +189,7 @@ describe('createJobStore — defaults (parity with the pre-migration hook state)
       costGate: null,
       // The SAME confirm/cancel-pair
       // shape costGate uses, for a server-side output_column_exists 409.
-      outputColumnCollision: null,
+      generatedColumnCollision: null,
     });
   });
 });
@@ -716,12 +716,12 @@ describe('createJobStore — complete WEB-03-4B scheduler/resource red contract'
       projectId: 'project-a',
       signal: expect.any(AbortSignal),
     });
-    expect(jobs.store.get().outputColumnCollision).not.toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).not.toBeNull();
 
     jobs.dispose();
     await expect(confirmation).resolves.toBe(false);
     expect(jobs.store.get().costGate).toBeNull();
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
     expect(runAction).toHaveBeenCalledTimes(1);
   });
 });
@@ -2183,7 +2183,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     const priorCancel = vi.fn(() => jobs.dispose());
     jobs.store.set((state) => ({
       ...state,
-      outputColumnCollision: {
+      generatedColumnCollision: {
         columns: ['prior'],
         message: 'Prior collision',
         onConfirm: vi.fn(),
@@ -2203,16 +2203,16 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     await Promise.resolve();
 
     expect(priorCancel).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
   });
 
   it('clears a prior collision before its cancel callback re-enters the public command', async () => {
     const jobs = createJobStore('test-project', projectPort());
     const priorCancel = vi.fn(() => {
-      jobs.cancelOutputColumnCollision();
+      jobs.cancelGeneratedColumnCollision();
       jobs.store.set((state) => ({
         ...state,
-        outputColumnCollision: {
+        generatedColumnCollision: {
           columns: ['nested'],
           message: 'Nested collision C',
           onConfirm: vi.fn(),
@@ -2222,7 +2222,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     });
     jobs.store.set((state) => ({
       ...state,
-      outputColumnCollision: {
+      generatedColumnCollision: {
         columns: ['prior'],
         message: 'Prior collision',
         onConfirm: vi.fn(),
@@ -2241,7 +2241,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     await flushMicrotasks();
 
     expect(priorCancel).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().outputColumnCollision).toMatchObject({
+    expect(jobs.store.get().generatedColumnCollision).toMatchObject({
       columns: ['nested'],
       message: 'Nested collision C',
     });
@@ -2262,7 +2262,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
         jobs: [actionJob()],
         loading: true,
       },
-      outputColumnCollision: {
+      generatedColumnCollision: {
         columns: ['result'],
         message: 'Collision',
         onConfirm: vi.fn(),
@@ -2270,10 +2270,10 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
       },
     }));
 
-    jobs.cancelOutputColumnCollision();
+    jobs.cancelGeneratedColumnCollision();
 
     expect(cancel).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
     expect(jobs.store.get().actionJobs).toEqual({ error: null, jobs: [], loading: false });
   });
 
@@ -2362,16 +2362,16 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     jobs.startRun(request, { id: 'sheet-1', rowCount: 5 } as never);
     await Promise.resolve();
     await Promise.resolve();
-    expect(jobs.store.get().outputColumnCollision).not.toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).not.toBeNull();
 
     let disposed = false;
     const unsubscribe = jobs.store.subscribe(() => {
-      if (!disposed && jobs.store.get().outputColumnCollision === null) {
+      if (!disposed && jobs.store.get().generatedColumnCollision === null) {
         disposed = true;
         jobs.dispose();
       }
     });
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
     unsubscribe();
 
     expect(disposed).toBe(true);
@@ -2390,7 +2390,7 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     };
     jobs.store.set((state) => ({
       ...state,
-      outputColumnCollision: {
+      generatedColumnCollision: {
         columns: ['outer'],
         message: 'outer',
         onConfirm: outerConfirm,
@@ -2399,18 +2399,18 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     }));
     let installed = false;
     const unsubscribe = jobs.store.subscribe(() => {
-      if (!installed && jobs.store.get().outputColumnCollision === null) {
+      if (!installed && jobs.store.get().generatedColumnCollision === null) {
         installed = true;
-        jobs.store.set((state) => ({ ...state, outputColumnCollision: successor }));
+        jobs.store.set((state) => ({ ...state, generatedColumnCollision: successor }));
       }
     });
 
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
 
     expect(outerConfirm).not.toHaveBeenCalled();
-    expect(jobs.store.get().outputColumnCollision).toBe(successor);
+    expect(jobs.store.get().generatedColumnCollision).toBe(successor);
     unsubscribe();
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
     expect(successorConfirm).toHaveBeenCalledOnce();
   });
 
@@ -2468,13 +2468,13 @@ describe('createJobStore — action-launch generation (WEB-03-4A)', () => {
     jobs.startRun(request, { id: 'sheet-1', rowCount: 5 } as never);
     await Promise.resolve();
     await Promise.resolve();
-    expect(jobs.store.get().outputColumnCollision).not.toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).not.toBeNull();
 
     jobs.dispose();
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
 
     expect(runAction).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
   });
 
   it('dispose aborts a typed proposal dispatch and fences its completion', async () => {
@@ -3016,8 +3016,8 @@ describe('createJobStore — canonical extraction composite consent', () => {
     jobs.startRun(request, { id: '7', rowCount: 2 } as never);
     await Promise.resolve();
     await Promise.resolve();
-    expect(jobs.store.get().outputColumnCollision?.columns).toEqual(['findings']);
-    jobs.confirmOutputColumnCollision();
+    expect(jobs.store.get().generatedColumnCollision?.columns).toEqual(['findings']);
+    jobs.confirmGeneratedColumnCollision();
     await Promise.resolve();
     await Promise.resolve();
     expect(runAction.mock.calls[1][0]).toEqual({ ...request, replace_existing: true });
@@ -3029,7 +3029,7 @@ describe('createJobStore — canonical extraction composite consent', () => {
 describe('createJobStore — startRun / output-column collision replacement', () => {
   const req = runRequest({ actionKind: 'map.extract', targetColumnId: 'officials' });
 
-  it('a 409 output_column_exists ApiError sets outputColumnCollision instead of showError', async () => {
+  it('a 409 output_column_exists ApiError sets generatedColumnCollision instead of showError', async () => {
     const jobs = createJobStore('test-project', projectPort());
     const deps = noopDeps();
     vi.spyOn(api, 'runAction').mockRejectedValueOnce(
@@ -3045,7 +3045,7 @@ describe('createJobStore — startRun / output-column collision replacement', ()
 
     expect(deps.showError).not.toHaveBeenCalled();
     expect(jobs.store.get().run).toBeNull();
-    expect(jobs.store.get().outputColumnCollision?.columns).toEqual(['officials']);
+    expect(jobs.store.get().generatedColumnCollision?.columns).toEqual(['officials']);
   });
 
   it('confirming resubmits the SAME request with overwrite:true', async () => {
@@ -3062,10 +3062,10 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     jobs.startRun(req, { id: 'sheet-1', rowCount: 5 } as never);
     await Promise.resolve();
     await Promise.resolve();
-    expect(jobs.store.get().outputColumnCollision).not.toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).not.toBeNull();
 
-    jobs.confirmOutputColumnCollision();
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    jobs.confirmGeneratedColumnCollision();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
 
     await Promise.resolve();
     await Promise.resolve();
@@ -3096,9 +3096,9 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     jobs.startRun(req, { id: 'sheet-1', rowCount: 5 } as never);
     await Promise.resolve();
     await Promise.resolve();
-    expect(jobs.store.get().outputColumnCollision).not.toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).not.toBeNull();
 
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
     await vi.waitFor(() => expect(deps.showError).toHaveBeenCalledTimes(1));
 
     expect(api.runAction).toHaveBeenCalledTimes(2);
@@ -3107,7 +3107,7 @@ describe('createJobStore — startRun / output-column collision replacement', ()
       { projectId: 'test-project', signal: expect.any(AbortSignal) },
     );
     expect(jobs.store.get().run).toBeNull();
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
     expect(deps.showError).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringMatching(/replacement was rejected/i) }),
     );
@@ -3125,8 +3125,8 @@ describe('createJobStore — startRun / output-column collision replacement', ()
     await Promise.resolve();
     await Promise.resolve();
 
-    jobs.cancelOutputColumnCollision();
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    jobs.cancelGeneratedColumnCollision();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
     expect(api.runAction).toHaveBeenCalledTimes(1);
   });
 
@@ -3148,11 +3148,11 @@ describe('createJobStore — startRun / output-column collision replacement', ()
 
     jobs.startRun(registeredReq, { id: '7', rowCount: 5 } as never);
     await flushMicrotasks();
-    expect(jobs.store.get().outputColumnCollision?.columns).toEqual(['generated_text']);
-    jobs.cancelOutputColumnCollision();
+    expect(jobs.store.get().generatedColumnCollision?.columns).toEqual(['generated_text']);
+    jobs.cancelGeneratedColumnCollision();
 
     expect(api.runAction).toHaveBeenCalledTimes(1);
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
   });
 
   it('confirms one registered replacement retry and terminates if the server rejects it', async () => {
@@ -3171,14 +3171,14 @@ describe('createJobStore — startRun / output-column collision replacement', ()
 
     jobs.startRun(registeredReq, { id: '7', rowCount: 5 } as never);
     await flushMicrotasks();
-    jobs.confirmOutputColumnCollision();
+    jobs.confirmGeneratedColumnCollision();
     await vi.waitFor(() => expect(deps.showError).toHaveBeenCalledTimes(1));
 
     expect(api.runAction).toHaveBeenLastCalledWith(
       { ...registeredReq, replace_existing: true },
       { projectId: 'test-project', signal: expect.any(AbortSignal) },
     );
-    expect(jobs.store.get().outputColumnCollision).toBeNull();
+    expect(jobs.store.get().generatedColumnCollision).toBeNull();
     expect(deps.showError).toHaveBeenCalledWith(
       expect.objectContaining({ message: expect.stringMatching(/replacement was rejected/i) }),
     );

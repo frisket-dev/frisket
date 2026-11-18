@@ -188,8 +188,8 @@ test('an Alert captures the current grid in a persistent Saved View', async ({ p
   );
   await panel.getByLabel('Dismiss notification setup guidance').click();
   await expect(panel.getByTestId('alert-notification-setup-notice')).toHaveCount(0);
-  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
-  expect(savedViews.some((view) => view.id === request.view_id)).toBe(true);
+  const viewsStore = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
+  expect(viewsStore.some((view) => view.id === request.view_id)).toBe(true);
 });
 
 test('editable Alert controls preserve failed state and describe delete consequences', async ({ page }) => {
@@ -341,8 +341,8 @@ test('Alert lifecycle controls remain usable at Discover\'s constrained width', 
   });
   expect(await createdFromGrid.json()).toMatchObject({ detection_policy: { kind: 'conditions', entered: true } });
   await expect(panel.getByTestId('alert-item').filter({ hasText: 'Narrow current watch' })).toBeVisible();
-  const savedViews = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
-  expect(savedViews.some((view) => view.id === createdFromGrid.request().postDataJSON().view_id)).toBe(true);
+  const viewsStore = await (await page.request.get(`/api/projects/${pid}/views`)).json() as Array<{ id: number }>;
+  expect(viewsStore.some((view) => view.id === createdFromGrid.request().postDataJSON().view_id)).toBe(true);
 });
 
 test('an old Watch-list response cannot restore renamed, paused, or deleted Alerts', async ({ page }) => {

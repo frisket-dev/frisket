@@ -70,13 +70,13 @@ const mutations = [
   },
   {
     name: 'organization set',
-    invoke: () => real.setOrgKey('openai', 'secret', 'validation-token'),
+    invoke: () => real.setOrganizationKey('openai', 'secret', 'validation-token'),
     returnsVoid: true,
     response: { provider: 'openai', hint: '…cret' },
   },
   {
     name: 'organization delete',
-    invoke: () => real.deleteOrgKey('openai'),
+    invoke: () => real.deleteOrganizationKey('openai'),
     returnsVoid: true,
     response: { deleted: true },
   },

@@ -18,7 +18,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   getRuntimeConfig,
-  listOrgKeys,
+  listOrganizationKeys,
   listProviders,
   onRuntimeConfigChanged,
   type RuntimeConfig,
@@ -85,15 +85,15 @@ export function ReplayModeBanner() {
         if (provider.kind === 'platform_api' && provider.configured) labels.add(provider.label);
       }
     };
-    const addOrgProviders = async () => {
-      const keys = await listOrgKeys();
+    const addOrganizationProviders = async () => {
+      const keys = await listOrganizationKeys();
       for (const key of keys) labels.add(key.provider);
     };
     const addProjectProviders = async () => {
       if (!projectId) return;
       for (const label of await fetchProjectProviderKeyLabels(projectId)) labels.add(label);
     };
-    await Promise.allSettled([addLocalProviders(), addOrgProviders(), addProjectProviders()]);
+    await Promise.allSettled([addLocalProviders(), addOrganizationProviders(), addProjectProviders()]);
     return { key: providerSnapshotKey, providers: Array.from(labels).sort() };
   }, [projectId, providerSnapshotKey, visible], { keepPreviousData: true, enabled: visible }).data;
 

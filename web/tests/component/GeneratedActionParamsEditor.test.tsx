@@ -188,7 +188,7 @@ function mountFinalForm(
         launchMode={{
           ...(kind === 'use-new-comparison-variant' ? { kind } : {
             kind,
-            expectedOutputColumns: { pdf_party: 101 },
+            expectedGeneratedColumns: { pdf_party: 101 },
           }),
           contextLabel: kind === 'edit-existing'
             ? 'on Court filings · settings from run 42'

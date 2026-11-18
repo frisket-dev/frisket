@@ -74,7 +74,7 @@ def _wait(client, pid, preview_id):
     [False, True],
     ids=("completed", "cancelled-after-provider-acceptance"),
 )
-def test_scratch_transcription_default_limit_quote_and_paid_receipt(
+def test_scratch_transcription_default_limit_estimate_and_paid_receipt(
     tmp_path, monkeypatch, cancel_after_provider_acceptance
 ):
     client, pid = _client(tmp_path, monkeypatch)
@@ -115,18 +115,18 @@ def test_scratch_transcription_default_limit_quote_and_paid_receipt(
         transcribe_engines.OpenAITranscriptionAdapter, "transcribe", transcribe
     )
     request = {"engine": "openai/whisper-1"}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(request),
     )
-    assert quote.status_code == 200, quote.text
-    quoted = quote.json()
-    assert quoted["source"]["time_limit_seconds"] == 600
-    assert quoted["source"]["duration_seconds"] == 15
-    assert quoted["source"]["effective_duration_seconds"] == 15
-    assert quoted["estimate"]["audio_seconds"] == 15
-    assert quoted["estimate"]["requires_confirmation"] is True
-    token = quoted["estimate"]["promise_set_hash"]
+    assert estimate.status_code == 200, estimate.text
+    estimated = estimate.json()
+    assert estimated["source"]["time_limit_seconds"] == 600
+    assert estimated["source"]["duration_seconds"] == 15
+    assert estimated["source"]["effective_duration_seconds"] == 15
+    assert estimated["estimate"]["audio_seconds"] == 15
+    assert estimated["estimate"]["requires_confirmation"] is True
+    token = estimated["estimate"]["promise_set_hash"]
 
     refused = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch",
@@ -297,12 +297,12 @@ def test_scratch_transcription_custom_limit_clips_same_prefix(
         transcribe_engines.FasterWhisperAdapter, "transcribe", transcribe
     )
     payload = {"engine": "faster_whisper", "time_limit_seconds": sample_seconds}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(payload),
     )
-    assert quote.status_code == 200, quote.text
-    assert quote.json()["source"]["effective_duration_seconds"] == sample_seconds
+    assert estimate.status_code == 200, estimate.text
+    assert estimate.json()["source"]["effective_duration_seconds"] == sample_seconds
     started = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch", **_multipart(payload)
     )
@@ -349,12 +349,12 @@ def test_scratch_transcription_probes_and_cuts_real_uploaded_audio(
                 )
             },
         }
-        quote = client.post(
+        estimate = client.post(
             f"/api/projects/{pid}/transcribe/compare-scratch/estimate", **request
         )
-        assert quote.status_code == 200, quote.text
-        assert quote.json()["source"]["duration_seconds"] == pytest.approx(2)
-        assert quote.json()["source"]["effective_duration_seconds"] == 0.5
+        assert estimate.status_code == 200, estimate.text
+        assert estimate.json()["source"]["duration_seconds"] == pytest.approx(2)
+        assert estimate.json()["source"]["effective_duration_seconds"] == 0.5
         start = client.post(
             f"/api/projects/{pid}/transcribe/compare-scratch", **request
         )
@@ -456,14 +456,14 @@ def test_scratch_transcription_preserves_returned_remote_failure_accounting(
     monkeypatch.setattr(httpx.AsyncClient, "post", failed_response)
 
     request = {"engine": "openai/whisper-1"}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(request),
     ).json()
     started = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch",
         **_multipart(
-            {**request, "confirmation": quote["estimate"]["promise_set_hash"]}
+            {**request, "confirmation": estimate["estimate"]["promise_set_hash"]}
         ),
     )
     assert started.status_code == 202, started.text
@@ -498,14 +498,14 @@ def test_scratch_transport_failure_keeps_terminal_outcome_unresolved(
         transcribe_engines.OpenAITranscriptionAdapter, "transcribe", timeout
     )
     request = {"engine": "openai/whisper-1"}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(request),
     ).json()
     started = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch",
         **_multipart(
-            {**request, "confirmation": quote["estimate"]["promise_set_hash"]}
+            {**request, "confirmation": estimate["estimate"]["promise_set_hash"]}
         ),
     )
     assert entered.wait(5)
@@ -555,14 +555,14 @@ def test_cancellation_does_not_hide_an_ambiguous_transport_failure(
         transcribe_engines.OpenAITranscriptionAdapter, "transcribe", timeout
     )
     request = {"engine": "openai/whisper-1"}
-    quote = client.post(
+    estimate = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch/estimate",
         **_multipart(request),
     ).json()
     started = client.post(
         f"/api/projects/{pid}/transcribe/compare-scratch",
         **_multipart(
-            {**request, "confirmation": quote["estimate"]["promise_set_hash"]}
+            {**request, "confirmation": estimate["estimate"]["promise_set_hash"]}
         ),
     )
     preview_id = started.json()["preview_id"]

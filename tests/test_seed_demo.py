@@ -179,7 +179,7 @@ def test_wait_run_times_out_after_600_polls(monkeypatch):
 
 def test_run_echoes_exact_confirmation_hash_with_same_action_identity(monkeypatch):
     requests: list[dict] = []
-    quote = "server-authored-promise-set-hash"
+    estimate = "server-authored-promise-set-hash"
 
     def handle(request: httpx.Request) -> httpx.Response:
         requests.append(json.loads(request.content))
@@ -188,7 +188,7 @@ def test_run_echoes_exact_confirmation_hash_with_same_action_identity(monkeypatc
                 402,
                 json={
                     "status": "needs_confirmation",
-                    "errors": [{"details": {"promise_set_hash": quote}}],
+                    "errors": [{"details": {"promise_set_hash": estimate}}],
                 },
             )
         return httpx.Response(200, json={"run_id": 41})
@@ -215,7 +215,7 @@ def test_run_echoes_exact_confirmation_hash_with_same_action_identity(monkeypatc
     assert challenge == original
     assert "confirmation" not in challenge
     assert "confirmed" not in challenge["params"]
-    assert retry == {**challenge, "confirmation": quote}
+    assert retry == {**challenge, "confirmation": estimate}
     assert waited == [("project-1", 41, "classify stories")]
 
 
@@ -512,7 +512,7 @@ def test_typed_run_echoes_confirmation_without_changing_request():
         output_names={"summary": "summary"},
     )
     requests = []
-    quote = "server-authored-promise-set-hash"
+    estimate = "server-authored-promise-set-hash"
 
     def handle(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
@@ -524,7 +524,7 @@ def test_typed_run_echoes_confirmation_without_changing_request():
                 402,
                 json={
                     "status": "needs_confirmation",
-                    "errors": [{"details": {"promise_set_hash": quote}}],
+                    "errors": [{"details": {"promise_set_hash": estimate}}],
                 },
             )
         return httpx.Response(200, json={"status": "completed"})
@@ -533,7 +533,7 @@ def test_typed_run_echoes_confirmation_without_changing_request():
         base_url="http://frisket.test", transport=httpx.MockTransport(handle)
     ) as client:
         seed_demo.run(client, "demo", original, "summarize")
-    assert requests == [original, {**original, "confirmation": quote}]
+    assert requests == [original, {**original, "confirmation": estimate}]
     assert "confirmation" not in original
 
 

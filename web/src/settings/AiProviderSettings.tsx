@@ -48,7 +48,7 @@ import { InlineStatus, SettingsTable } from './SettingsPrimitives';
  * real money we cannot name, which is not the same as spending zero.
  *
  * Covered: LLM calls made through a project provider key, plus routed
- * transcribe/OCR work billed to one. NOT covered: spend on org or platform
+ * transcribe/OCR work billed to one. NOT covered: spend on organization or platform
  * keys, and LLM calls outside a run (ask, preview translation, sandbox
  * broker) — those never reach the accrual seam.
  */

@@ -20,7 +20,7 @@ from .runtime import (
     SourcePollItem,
     SourcePollResult,
     provider_error_text,
-    register_source_poller,
+    register_feed_checker,
 )
 
 TIKTOK_PROFILE_KIND = "tiktok_profile"
@@ -84,7 +84,7 @@ def list_tiktok_profile(
         return {**info, "entries": list(islice(info["entries"], item_cap))}
 
 
-class TikTokProfilePoller:
+class TikTokProfileFeedChecker:
     kind = TIKTOK_PROFILE_KIND
 
     def __init__(self, provider: Callable[..., dict[str, Any]] | None = None) -> None:
@@ -183,4 +183,4 @@ class TikTokProfilePoller:
         )
 
 
-register_source_poller(TikTokProfilePoller())
+register_feed_checker(TikTokProfileFeedChecker())

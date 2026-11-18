@@ -1,6 +1,6 @@
 import { ConfirmDialog } from './Modal';
 
-interface OutputColumnCollisionModalProps {
+interface GeneratedColumnCollisionModalProps {
   columns: string[];
   message: string;
   onConfirm(): void;
@@ -8,7 +8,7 @@ interface OutputColumnCollisionModalProps {
 }
 
 /** Server-reported collision: confirmation resubmits with replace_existing. */
-export function OutputColumnCollisionModal({ columns, message, onConfirm, onCancel }: OutputColumnCollisionModalProps) {
+export function GeneratedColumnCollisionModal({ columns, message, onConfirm, onCancel }: GeneratedColumnCollisionModalProps) {
   const noun = columns.length === 1 ? 'column' : 'columns';
   return <ConfirmDialog title={`Replace existing ${noun}?`}
     confirmLabel={`Replace existing ${noun}`} onConfirm={onConfirm} onCancel={onCancel}

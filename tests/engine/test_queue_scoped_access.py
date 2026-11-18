@@ -15,7 +15,7 @@ def _queue(tmp_path):
     return SqliteJobQueue(tmp_path / "q.db")
 
 
-def test_get_scoped_returns_job_for_matching_org_and_kind(tmp_path) -> None:
+def test_get_scoped_returns_job_for_matching_organization_and_kind(tmp_path) -> None:
     queue = _queue(tmp_path)
     try:
         jid = queue.enqueue(
@@ -28,7 +28,7 @@ def test_get_scoped_returns_job_for_matching_org_and_kind(tmp_path) -> None:
         queue.close()
 
 
-def test_get_scoped_refuses_wrong_org(tmp_path) -> None:
+def test_get_scoped_refuses_wrong_organization(tmp_path) -> None:
     queue = _queue(tmp_path)
     try:
         jid = queue.enqueue(
@@ -59,7 +59,9 @@ def test_get_scoped_refuses_missing_job(tmp_path) -> None:
         queue.close()
 
 
-def test_cancel_scoped_cancels_queued_job_for_matching_org_and_kind(tmp_path) -> None:
+def test_cancel_scoped_cancels_queued_job_for_matching_organization_and_kind(
+    tmp_path,
+) -> None:
     queue = _queue(tmp_path)
     try:
         jid = queue.enqueue(
@@ -85,7 +87,9 @@ def test_cancel_scoped_cancels_running_cooperatively_cancellable_kind(tmp_path) 
         queue.close()
 
 
-def test_cancel_scoped_refuses_wrong_org_and_leaves_job_untouched(tmp_path) -> None:
+def test_cancel_scoped_refuses_wrong_organization_and_leaves_job_untouched(
+    tmp_path,
+) -> None:
     queue = _queue(tmp_path)
     try:
         jid = queue.enqueue(

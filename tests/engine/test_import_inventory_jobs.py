@@ -216,7 +216,7 @@ async def test_server_reconciles_preparation_after_separate_worker_completion(
             workspace = SimpleNamespace(
                 get=lambda _project_id: project,
                 queue=queue,
-                queue_storage_org_id=None,
+                queue_storage_organization_id=None,
                 queue_payload_extra={},
                 root=tmp_path,
                 edition="solo",
@@ -338,7 +338,7 @@ def test_resolution_enqueues_one_terminal_cleanup_after_failure(
                 queue=queue,
                 root=tmp_path,
                 queue_payload_extra={},
-                queue_storage_org_id=None,
+                queue_storage_organization_id=None,
             )
             service = ImportSessionService(workspace)
             assert service.cancel("files", REF).state == "cancelled"

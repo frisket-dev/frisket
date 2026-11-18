@@ -39,12 +39,12 @@ describe('organization operations generated HTTP port', () => {
     const { createOrganizationOperationsApi } = await import('../../src/api/organizationOperations');
     const api = createOrganizationOperationsApi();
 
-    await expect(api.listOrgEnvVars(options)).resolves.toEqual([
+    await expect(api.listOrganizationEnvVars(options)).resolves.toEqual([
       { name: 'PUBLIC_ONLY', hint: '...only' },
       { name: 'HOSTED', hint: '...sted', created_at: '2026-08-13T00:00:00Z' },
     ]);
-    await expect(api.setOrgEnvVar('CLIENT_SECRET', 'secret', options)).resolves.toBeUndefined();
-    await expect(api.deleteOrgEnvVar('CLIENT/SECRET', options)).resolves.toBeUndefined();
+    await expect(api.setOrganizationEnvVar('CLIENT_SECRET', 'secret', options)).resolves.toBeUndefined();
+    await expect(api.deleteOrganizationEnvVar('CLIENT/SECRET', options)).resolves.toBeUndefined();
     await expect(api.getMediaProxyStatus(options)).resolves.toEqual({
       configured: true,
       connected: false,
@@ -72,7 +72,7 @@ describe('organization operations generated HTTP port', () => {
     const { createOrganizationOperationsApi } = await import('../../src/api/organizationOperations');
     const api = createOrganizationOperationsApi();
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ detail: 'forbidden' }, 403)));
-    await expect(api.listOrgEnvVars()).rejects.toMatchObject({
+    await expect(api.listOrganizationEnvVars()).rejects.toMatchObject({
       name: 'ApiError',
       status: 403,
       message: 'forbidden',
@@ -91,8 +91,8 @@ describe('organization operations generated HTTP port', () => {
     ];
     vi.stubGlobal('fetch', vi.fn(async () => responses.shift()!));
     const real = await import('../../src/api/real');
-    await expect(real.setOrgEnvVar('CLIENT_SECRET', 'secret')).resolves.toBeUndefined();
-    await expect(real.deleteOrgEnvVar('CLIENT_SECRET')).resolves.toBeUndefined();
+    await expect(real.setOrganizationEnvVar('CLIENT_SECRET', 'secret')).resolves.toBeUndefined();
+    await expect(real.deleteOrganizationEnvVar('CLIENT_SECRET')).resolves.toBeUndefined();
     await expect(real.getMediaProxyStatus()).resolves.toEqual({
       configured: false,
       connected: null,

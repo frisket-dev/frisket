@@ -188,7 +188,7 @@ def test_commit_is_undoable(tmp_path):
         project.close()
 
 
-def test_output_column_exists_guard(tmp_path):
+def test_generated_column_exists_guard(tmp_path):
     project, sid = _seed(tmp_path, ["Jon Smith", "Smith, Jon"])
     try:
         project.add_column(sid, "org_canonical", type="text")

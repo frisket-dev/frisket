@@ -38,8 +38,8 @@ from frisket.engine.executor import ExecutorDeps
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.execution.promises import promise_rows_hash
 from frisket.server.services.pdf_import_preparation import PdfImportPreparationStore
-from frisket.server.services.pdf_import_ocr_approval import (
-    PdfImportOcrApprovalQuoter,
+from frisket.server.services.pdf_import_ocr_consent import (
+    PdfImportOcrConsentEstimator,
     PdfImportOcrGrant,
 )
 
@@ -1315,7 +1315,7 @@ def test_stop_completed_import_keeps_rows_and_terminates_pending_preparation(
     preparation.recover()
     assert len(actions.bodies) == before
     pending = preparation.store.for_receipt(
-        storage_org_id=workspace.queue_storage_org_id,
+        storage_org_id=workspace.queue_storage_organization_id,
         project_id=project_id,
         receipt_id=result.receipt_id,
         include_pending=True,
@@ -1468,7 +1468,7 @@ def test_paid_parent_grant_admits_exact_ordinary_child_once(
         }
     ]
     action_params = {"engine": "anthropic/claude-haiku-4-5"}
-    grant = PdfImportOcrApprovalQuoter(workspace).quote(
+    grant = PdfImportOcrConsentEstimator(workspace).estimate(
         project_id,
         {
             "selected_count": 2,

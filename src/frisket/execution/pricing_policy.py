@@ -10,7 +10,7 @@ figure they are billed can be the SAME number under either policy — quoted
 once, hashed into the consent, and displayed.
 
 **What crosses the seam is a VALUE, not a policy object.** A
-:class:`RatedQuote` (or an :class:`Unpriceable`) is minted once, where the
+:class:`RatedEstimate` (or an :class:`Unpriceable`) is minted once, where the
 estimate facts are finalized, and everything downstream — the 402 message,
 the estimate payload, the consent hash, the persisted consent row, the
 dispatch-time reconstruction — reads that one rating. Dispatch is
@@ -101,7 +101,7 @@ PricingLane = Literal["published_sku", "cost_plus", "byok", "free"]
 
 
 @dataclass(frozen=True)
-class QuoteFacts:
+class EstimateFacts:
     """The neutral, provider-side facts a policy rates over.
 
     Bundled rather than passed as five arguments because they only ever occur
@@ -122,7 +122,7 @@ class QuoteFacts:
 
 
 @dataclass(frozen=True)
-class RatedQuote:
+class RatedEstimate:
     """What the user will be billed, and by whose price list.
 
     ``billed_cost`` is the figure a 402 quotes and a receipt must agree with.
@@ -167,7 +167,7 @@ class Unpriceable:
             raise ValueError("an unpriceable quote must name the policy")
 
 
-Rating = Union[RatedQuote, Unpriceable]
+Rating = Union[RatedEstimate, Unpriceable]
 
 
 @dataclass(frozen=True)
@@ -175,7 +175,7 @@ class PersistedRating:
     """The rated projection read back off a persisted consent at dispatch —
     and the whole of what dispatch is allowed to take from that record.
 
-    A separate type from :class:`RatedQuote` because it is a genuinely smaller
+    A separate type from :class:`RatedEstimate` because it is a genuinely smaller
     fact. ``lane`` and ``provider_cost`` are not recoverable from a consent
     row: they were never hashed, so they were never bound, so reconstructing
     them would mean inventing them. Naming the pair keeps that honest and
@@ -216,8 +216,8 @@ class PricingPolicy(Protocol):
         """
         ...
 
-    def rate(self, facts: QuoteFacts) -> Rating:
-        """The one rating call. See :class:`RatedQuote` / :class:`Unpriceable`."""
+    def rate(self, facts: EstimateFacts) -> Rating:
+        """The one rating call. See :class:`RatedEstimate` / :class:`Unpriceable`."""
         ...
 
 
@@ -237,7 +237,7 @@ class IdentityPricingPolicy:
 
     policy_id: str = "frisket.pricing.identity.v1"
 
-    def rate(self, facts: QuoteFacts) -> Rating:
+    def rate(self, facts: EstimateFacts) -> Rating:
         if facts.provider_cost is None:
             # ``cost_source == "unknown"``: a billable engine whose pre-run
             # cost is genuinely unknowable. The identity of "no number" is
@@ -246,14 +246,14 @@ class IdentityPricingPolicy:
                 reason="provider cost is unknown before the run",
                 policy_id=self.policy_id,
             )
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost,
             provider_cost=facts.provider_cost,
             lane=self._lane(facts),
             policy_id=self.policy_id,
         )
 
-    def _lane(self, facts: QuoteFacts) -> PricingLane:
+    def _lane(self, facts: EstimateFacts) -> PricingLane:
         if facts.provider_cost == 0:
             # Zero is not a rounded-down charge here: the estimate
             # constructors that emit it (``free_local_estimate``,
@@ -340,8 +340,8 @@ def install_pricing_policy(policy: PricingPolicy) -> None:
     """
     if not isinstance(policy, PricingPolicy):
         raise TypeError(
-            "pricing_policy must implement PricingPolicy (a `rate(QuoteFacts)"
-            " -> RatedQuote | Unpriceable` method and a `policy_id`); got "
+            "pricing_policy must implement PricingPolicy (a `rate(EstimateFacts)"
+            " -> RatedEstimate | Unpriceable` method and a `policy_id`); got "
             f"{type(policy).__name__}"
         )
     policy_id = getattr(policy, "policy_id", "")

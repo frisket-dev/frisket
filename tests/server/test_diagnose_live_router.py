@@ -117,13 +117,13 @@ def test_diagnose_local_tier_env_still_wins_over_file_key(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
-# Hosted tier: per-org isolation -- an org's own BYO key shows up, an
+# Hosted tier: per-organization isolation -- an organization's own BYO key shows up, an
 # operator-seeded platform default is truthfully reported (not a leak, see
-# module docstring), and org A's key is never visible to org B (the real
+# module docstring), and organization A's key is never visible to organization B (the real
 # forbidden outcome).
 
 
-def _validated_org_key_body(provider: str, key: str) -> dict[str, str]:
+def _validated_organization_key_body(provider: str, key: str) -> dict[str, str]:
     return {
         "provider": provider,
         "key": key,

@@ -6,7 +6,7 @@
   ingress the HTTP API is built on, so there is no business-logic fork and
   `frisket mcp <dir>` needs no running server.
 - :class:`HostedBackend` — a thin httpx client over the hosted /api/*
-  surface, authenticated with an org-scoped PAT
+  surface, authenticated with an organization-scoped PAT
   (`Authorization: Bearer frisket_pat_*`). All caps/guards/auth are the
   hosted server's; this class only maps tool calls to endpoints and
   normalizes responses to the same shapes LocalBackend returns.
@@ -40,7 +40,7 @@ import httpx
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs import Worker
-from frisket.engine.runner.confirmation_context import quoted_usd
+from frisket.engine.runner.confirmation_context import estimated_usd
 from frisket.server.run_status import public_run_progress
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
@@ -75,7 +75,7 @@ def cost_gate_response(
     approval surface can show the exact rows/rate/claims it is authorizing.
     ``estimate=None`` means UNKNOWN price, not zero.
 
-    The scalar is the BILLED figure — ``quoted_usd``, the same three-state
+    The scalar is the BILLED figure — ``estimated_usd``, the same three-state
     selector every other money gate compares and quotes with. Reading the
     envelope's ``cost`` here published the PROVIDER's number to the agent
     under a deployment tariff, and published a confident number for a price
@@ -87,10 +87,10 @@ def cost_gate_response(
     if isinstance(estimate_payload, dict):
         estimate_details = dict(estimate_payload)
         try:
-            estimate_usd = quoted_usd(estimate_details)
+            estimate_usd = estimated_usd(estimate_details)
         except (TypeError, ValueError):
             # An envelope whose money facts do not project (a hosted server on
-            # a shape this build cannot read, a ``ConsentQuoteRefused``) is
+            # a shape this build cannot read, a ``ConsentEstimateRefused``) is
             # UNKNOWN, which gates exactly as an unpriced run does. Never a
             # confident figure, and never an exception blob: this surface's
             # contract is that a gated run always returns needs_confirmation.

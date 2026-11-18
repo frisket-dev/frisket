@@ -1,4 +1,4 @@
-"""Request-scoped actor and per-run cost preapproval."""
+"""Request-scoped actor and per-run allowance."""
 
 from __future__ import annotations
 
@@ -38,11 +38,11 @@ def effective_consent_coverage(
         _installation_root,
         instance_principal,
     )
-    from frisket.local_runtime_config import resolve_local_cost_preapproval_usd
+    from frisket.local_runtime_config import resolve_local_allowance_usd
 
     return ConsentCoverage(
         instance_principal(project),
-        Decimal(resolve_local_cost_preapproval_usd(_installation_root(project))),
+        Decimal(resolve_local_allowance_usd(_installation_root(project))),
     )
 
 

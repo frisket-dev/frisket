@@ -148,7 +148,7 @@ def test_oauth_connection_public_omissions_and_private_compatible_fields_are_exa
     assert issubclass(OAuthConnectionList, WireModel)
 
 
-def test_oauth_connection_list_keeps_org_member_bytes_and_browser_only_auth(
+def test_oauth_connection_list_keeps_organization_member_bytes_and_browser_only_auth(
     tmp_path: Path,
 ) -> None:
     app, config = _app(tmp_path)
@@ -158,7 +158,7 @@ def test_oauth_connection_list_keeps_org_member_bytes_and_browser_only_auth(
         secret_box=TeamSecretBox(config),
     )
     service.connect_google_account(
-        org_id=app.state.team_org_id,
+        org_id=app.state.team_organization_id,
         user_id=1,
         external_subject="subject-1",
         refresh_token="refresh-secret-never-public",

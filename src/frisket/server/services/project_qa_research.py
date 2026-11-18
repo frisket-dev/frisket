@@ -347,8 +347,8 @@ class ResearchSession:
     ) -> SearchResponse:
         if not query.strip() or len(query) > 500:
             raise ValueError("Enter a search query up to 500 characters.")
-        quote = service.quote()
-        identity = payload_identity({"query": query, "quote": asdict(quote)})
+        estimate = service.estimate()
+        identity = payload_identity({"query": query, "quote": asdict(estimate)})
         operation_id = f"search_{uuid.uuid4().hex}"
         while True:
             try:
@@ -356,15 +356,15 @@ class ResearchSession:
                     operation_id,
                     identity,
                     "search",
-                    usd_to_micros(quote.estimated_cost_usd)
-                    if quote.estimated_cost_usd is not None
+                    usd_to_micros(estimate.estimated_cost_usd)
+                    if estimate.estimated_cost_usd is not None
                     else None,
-                    metadata={"provider": quote.provider, "quote": asdict(quote)},
+                    metadata={"provider": estimate.provider, "quote": asdict(estimate)},
                 )
                 break
             except ResearchPaused as pause:
                 await self.pause(pause.approval)
-        result = await search(query, quote=quote)
+        result = await search(query, estimate=estimate)
         if result.usage.provider_cost_usd is None:
             await self.pause(
                 {

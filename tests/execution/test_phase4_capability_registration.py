@@ -506,7 +506,7 @@ _ROUTING_CASES = [
 @pytest.mark.parametrize(
     "recipe_name,capability,extras,venue,sku,unit,quantity", _ROUTING_CASES
 )
-def test_a_routing_recipe_binds_its_venue_and_quotes_its_own_sku(
+def test_a_routing_recipe_binds_its_venue_and_estimates_its_own_sku(
     phase4_project,
     monkeypatch,
     recipe_name,
@@ -729,7 +729,7 @@ def test_the_canonical_preview_envelope_is_fully_classified() -> None:
     """Every canonical money or rendered presentation key is classified."""
     from frisket.engine.runner.confirmation_context import (
         KNOWN_DISPLAY_KEYS,
-        ConsentQuote,
+        ConsentEstimate,
     )
 
     lane_envelope_keys = {
@@ -750,7 +750,7 @@ def test_the_canonical_preview_envelope_is_fully_classified() -> None:
         "policy_id",
     }
     unclassified = sorted(
-        lane_envelope_keys - set(ConsentQuote.model_fields) - KNOWN_DISPLAY_KEYS
+        lane_envelope_keys - set(ConsentEstimate.model_fields) - KNOWN_DISPLAY_KEYS
     )
     assert not unclassified, (
         f"the Phase-4 lanes will emit unclassified estimate keys: "
@@ -760,18 +760,21 @@ def test_the_canonical_preview_envelope_is_fully_classified() -> None:
     )
 
 
-def test_a_phase_4_lane_envelope_projects_into_a_consent_quote():
+def test_a_phase_4_lane_envelope_projects_into_a_consent_estimate():
     """The projection itself, end to end, for one priced lane envelope — the
     check the test above makes over key names, executed. A key that is
     classified but malformed still refuses, which is why this drives
     ``from_estimate`` rather than re-checking the sets."""
-    from frisket.engine.runner.confirmation_context import ConsentQuote, rate_estimate
-    from frisket.execution.price_book import OperatorBorne, quote_geocode
+    from frisket.engine.runner.confirmation_context import (
+        ConsentEstimate,
+        rate_estimate,
+    )
+    from frisket.execution.price_book import OperatorBorne, estimate_geocode
     from frisket.execution.pricing_policy import IDENTITY_PRICING_POLICY
     from frisket.execution.promise_compiler import PricedCostBasis
     from frisket.ops.cost_source import cost_estimate
 
-    basis = quote_geocode(
+    basis = estimate_geocode(
         target_id="opencage",
         engine="opencage",
         funding=OperatorBorne(),
@@ -787,13 +790,13 @@ def test_a_phase_4_lane_envelope_projects_into_a_consent_quote():
         rows=10,
     )
     # Through the RATING site, as every real mint is: ``policy_id`` is a
-    # required ConsentQuote field, so an unrated envelope refuses at the
+    # required ConsentEstimate field, so an unrated envelope refuses at the
     # projection. A lane that renders a cost basis and skips ``rate_estimate``
     # would fail exactly here, which is the point of the requirement.
-    quote = ConsentQuote.from_estimate(
+    estimate = ConsentEstimate.from_estimate(
         rate_estimate(envelope, policy=IDENTITY_PRICING_POLICY)
     )
-    assert quote.pricing_key == "geocode.opencage.row"
-    assert quote.rows == 10
-    assert quote.cost == pytest.approx(0.1)
-    assert quote.policy_id == IDENTITY_PRICING_POLICY.policy_id
+    assert estimate.pricing_key == "geocode.opencage.row"
+    assert estimate.rows == 10
+    assert estimate.cost == pytest.approx(0.1)
+    assert estimate.policy_id == IDENTITY_PRICING_POLICY.policy_id

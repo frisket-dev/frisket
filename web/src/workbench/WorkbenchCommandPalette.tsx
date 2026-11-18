@@ -202,10 +202,10 @@ export function WorkbenchCommandPalette({
     namedIndexId,
     setNamedIndexId,
     namedIndexError,
-    canSaveLens,
+    canSaveView,
     saveBusy,
     saveStatus,
-    saveSearchLens,
+    saveSearchView,
     sheetName,
     anchor,
     anchorLabel,
@@ -250,12 +250,12 @@ export function WorkbenchCommandPalette({
     void listSearchPreparations(projectId, { signal: controller.signal })
       .then(({ batches }) => {
         if (!isCurrent()) return;
-        const awaitingApproval = batches.find((batch) => (
+        const awaitingConsent = batches.find((batch) => (
           batch.sheet_id === Number(activeSearchSheetId) && batch.status === 'needs_consent'
         ));
         setPreparationState({
           scope: preparationScope, signal: controller.signal, busy: false, error: null,
-          target: awaitingApproval ? { sheetId: awaitingApproval.sheet_id, batchId: awaitingApproval.id } : null,
+          target: awaitingConsent ? { sheetId: awaitingConsent.sheet_id, batchId: awaitingConsent.id } : null,
         });
       })
       .catch((error: Error) => {
@@ -542,10 +542,10 @@ export function WorkbenchCommandPalette({
             alertBusy={alertBusy}
             alertStatus={alertStatus}
             onCreateAlert={createSearchAlert}
-            canSaveLens={canSaveLens}
+            canSaveView={canSaveView}
             saveBusy={saveBusy}
             saveStatus={saveStatus}
-            onSaveLens={saveSearchLens}
+            onSaveView={saveSearchView}
             searchError={searchError}
             groups={groups}
             coverage={coverage}

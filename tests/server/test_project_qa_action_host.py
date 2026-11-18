@@ -37,8 +37,8 @@ class _Workspace:
         self.calls.append(("composition", (project, router, context)))
         return {"context": context}
 
-    def org_provider_keys(self) -> dict[str, str]:
-        self.calls.append(("org_provider_keys", ()))
+    def organization_provider_keys(self) -> dict[str, str]:
+        self.calls.append(("organization_provider_keys", ()))
         return {"openai": "configured"}
 
 
@@ -70,14 +70,14 @@ def test_catalog_uses_the_live_project_composition_and_sidecar_facts(
         "project": workspace.project,
         "sidecar_capabilities": {"engines": [{"name": "gliner"}]},
         "execution_composition": {"context": "edition:admission-1"},
-        "org_provider_keys": {"openai": "configured"},
+        "organization_provider_keys": {"openai": "configured"},
         "has_local_model_endpoint": True,
         "effective_router": workspace.router,
         "connected_account_resolver_configured": True,
     }
 
 
-def test_quote_and_run_refresh_the_trusted_context(
+def test_estimate_and_run_refresh_the_trusted_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = _Workspace()
@@ -115,7 +115,9 @@ def test_quote_and_run_refresh_the_trusted_context(
         sidecar_capabilities_provider=lambda: pytest.fail("catalog was not requested"),
     )
 
-    assert host.quote({"action_id": "map.template"}) == {"estimate": {"billed_cost": 0}}
+    assert host.estimate({"action_id": "map.template"}) == {
+        "estimate": {"billed_cost": 0}
+    }
     assert host.run("project-1", {"action_id": "map.template"}) == {"status": "queued"}
     assert observed == [
         ("quote", "project-1", {"action_id": "map.template"}, "quote-context"),

@@ -48,8 +48,8 @@ class AdminMembershipService:
         self._engine = engine
         self.org_id = org_id
 
-    def require_org(self, requested_org_id: int) -> None:
-        if requested_org_id != self.org_id:
+    def require_organization(self, requested_organization_id: int) -> None:
+        if requested_organization_id != self.org_id:
             raise AdminMembershipNotFound("organization not found")
 
     def _require_owner_in_transaction(
@@ -69,7 +69,7 @@ class AdminMembershipService:
     def _inventory(self) -> tuple[Any, list[Any], list[Any]]:
         now = datetime.now(UTC)
         with self._engine.connect() as cx:
-            org = cx.execute(
+            organization = cx.execute(
                 sa.select(orgs.c.id, orgs.c.name).where(orgs.c.id == self.org_id)
             ).one()
             rows = cx.execute(
@@ -99,17 +99,17 @@ class AdminMembershipService:
                 )
                 .order_by(pending_invites.c.email)
             ).all()
-        return org, rows, invited
+        return organization, rows, invited
 
     def browser_users_payload(self) -> dict[str, Any]:
-        org, rows, invited = self._inventory()
+        organization, rows, invited = self._inventory()
         members = {str(row.email) for row in rows}
         return {
             "schema_version": "frisket.admin_users.v1",
             "orgs": [
                 {
-                    "id": int(org.id),
-                    "name": str(org.name),
+                    "id": int(organization.id),
+                    "name": str(organization.name),
                     "suspended": False,
                     "users": [
                         {
@@ -146,10 +146,10 @@ class AdminMembershipService:
         actor: dict[str, Any],
         user_id: int,
         role: str,
-        requested_org_id: int | None = None,
+        requested_organization_id: int | None = None,
     ) -> dict[str, Any]:
-        if requested_org_id is not None:
-            self.require_org(requested_org_id)
+        if requested_organization_id is not None:
+            self.require_organization(requested_organization_id)
         if role not in {"owner", "member"}:
             raise AdminMembershipInvalid("role must be owner or member")
         with locked_transaction(
@@ -200,10 +200,10 @@ class AdminMembershipService:
         *,
         actor: dict[str, Any],
         user_ref: str,
-        requested_org_id: int | None = None,
+        requested_organization_id: int | None = None,
     ) -> dict[str, Any]:
-        if requested_org_id is not None:
-            self.require_org(requested_org_id)
+        if requested_organization_id is not None:
+            self.require_organization(requested_organization_id)
         clean_ref = user_ref.lower().strip()
         with locked_transaction(
             self._engine, lock_scope=("org-membership", self.org_id)

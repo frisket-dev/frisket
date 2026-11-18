@@ -9,7 +9,7 @@ import { useAction } from '../hooks/useAction';
 
 /** First signed-in use records a person's standing amount. The server keeps
  * the null marker until this form succeeds, so a reload cannot skip it. */
-export function CostPreapprovalSetupModal({ onComplete }: { onComplete?: () => void }) {
+export function AllowanceSetupModal({ onComplete }: { onComplete?: () => void }) {
   const [amount, setAmount] = useState('2');
   const { busy: saving, error, run } = useAction();
   const [complete, setComplete] = useState(false);

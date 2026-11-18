@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// ModelPullProgress's injectable fetchPull/cancelPull props let the org settings
+// ModelPullProgress's injectable fetchPull/cancelPull props let the organization settings
 // card use the same live-progress component pointed at
 // /api/org/models/pulls/{id} instead of the workspace-tier
 // /api/providers/models/pulls/{id} route. Kept as a SEPARATE file from

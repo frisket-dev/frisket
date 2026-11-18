@@ -123,7 +123,7 @@ def test_undecryptable_provider_key_raises_naming_the_provider(tmp_path) -> None
     `except Exception: continue`, degrading the project to "no project keys".
 
     That is not a harmless downgrade. Both key brokers layer project keys ON
-    TOP of the workspace file / org BYOK / process env
+    TOP of the workspace file / organization BYOK / process env
     (`jobs/runs.py:_router_for`, `server/workspace.py:router_for`), so the
     run silently continued on a DIFFERENT credential — spending against a key
     with no per-key spend cap, and stamping a `credential_source` on every

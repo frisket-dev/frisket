@@ -58,7 +58,7 @@ class MixedOriginInputProvenanceUnsupported(ValueError):
 
 @dataclass(frozen=True)
 class OutputFact:
-    """One generated output column: the recipe field def + the live column."""
+    """One generated column: the recipe field def + the live column."""
 
     field: dict[str, Any]
     name: str
@@ -136,7 +136,7 @@ def _capture_result_warnings(project: Any, run_id: int) -> list[str]:
 def maprunner_output_refs(
     facts: CapturedFacts, *, output_kind: str
 ) -> list[dict[str, Any]]:
-    """Present captured output columns in the shared receipt-reference shape."""
+    """Present captured generated columns in the shared receipt-reference shape."""
 
     return [
         {

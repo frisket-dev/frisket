@@ -69,7 +69,7 @@ function makeIndex(sheetId: number) {
   };
 }
 
-interface GridLensStubs {
+interface GridViewStubs {
   /** The ranked row-id order the resolve serves (also the grid order). */
   rankedRowIds: number[];
   setResolveError(code: string | null): void;
@@ -86,17 +86,17 @@ async function fetchRowIds(
   return data.rows.map((r) => r.id);
 }
 
-async function stubIndexAndLens(
+async function stubIndexAndView(
   page: Page,
   pid: string,
   sheetId: number,
   rankedRowIds: number[],
   totalOverride?: number,
   maxResolveWindow?: number,
-): Promise<GridLensStubs> {
+): Promise<GridViewStubs> {
   let resolveErrorCode: string | null = null;
   // a single pre-seeded lens over THIS index (the save path is covered elsewhere)
-  const lens = {
+  const view = {
     id: 1,
     name: 'Similar to row',
     sheet_id: sheetId,
@@ -130,7 +130,7 @@ async function stubIndexAndLens(
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([lens]),
+      body: JSON.stringify([view]),
     }),
   );
 
@@ -195,7 +195,7 @@ async function stubIndexAndLens(
   };
 }
 
-async function openLensFromPanel(page: Page) {
+async function openViewFromPanel(page: Page) {
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId(`embedding-index-${INDEX_ID}`)).toBeVisible();
   await expect(page.getByTestId('embedding-lens-open-1')).toBeVisible();
@@ -218,19 +218,19 @@ test('opening a lens shows ONLY the lens row_ids in the grid, in score order', a
   // pick a 2-row subset in a non-source order (descending row id) so the
   // ranked order is observable and distinct from the natural sheet order.
   const ranked = [allIds[3], allIds[1]];
-  await stubIndexAndLens(page, pid, sheetId, ranked);
+  await stubIndexAndView(page, pid, sheetId, ranked);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   // the grid's data request must carry the ranked row_ids in order
-  const lensDataResponse = page.waitForResponse((res) => {
+  const viewDataResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
     const url = new URL(res.url());
     if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
     return url.searchParams.get('row_ids') === ranked.join(',');
   });
-  await openLensFromPanel(page);
-  const body = await (await lensDataResponse).json();
+  await openViewFromPanel(page);
+  const body = await (await viewDataResponse).json();
   // backend returns EXACTLY the lens rows, in the ranked order (not the full sheet)
   expect(body.total).toBe(2);
   expect(body.rows.map((r: { id: number }) => r.id)).toEqual(ranked);
@@ -253,10 +253,10 @@ test('distance and score are visible in the grid path (result columns)', async (
   );
   const allIds = await fetchRowIds(request, pid, sheetId);
   const ranked = [allIds[2], allIds[0]];
-  await stubIndexAndLens(page, pid, sheetId, ranked);
+  await stubIndexAndView(page, pid, sheetId, ranked);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openLensFromPanel(page);
+  await openViewFromPanel(page);
 
   // distance/score surface as grid result columns (NOT only the sidebar list,
   // NOT raw vectors) — the canvas grid header advertises them.
@@ -279,12 +279,12 @@ test('a stale/incomplete resolve blocks the grid open with refresh-needed, no pa
   );
   const allIds = await fetchRowIds(request, pid, sheetId);
   const ranked = [allIds[1], allIds[0]];
-  const { setResolveError } = await stubIndexAndLens(page, pid, sheetId, ranked);
+  const { setResolveError } = await stubIndexAndView(page, pid, sheetId, ranked);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   setResolveError('embedding_index_incomplete');
-  await openLensFromPanel(page);
+  await openViewFromPanel(page);
 
   // refresh-needed surfaces in the GRID open path, not the sidebar list
   const err = page.getByTestId('lens-view-open-error');
@@ -307,10 +307,10 @@ test('exiting the lens view restores the full sheet in the grid', async ({
   );
   const allIds = await fetchRowIds(request, pid, sheetId);
   const ranked = [allIds[3], allIds[2]];
-  await stubIndexAndLens(page, pid, sheetId, ranked);
+  await stubIndexAndView(page, pid, sheetId, ranked);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openLensFromPanel(page);
+  await openViewFromPanel(page);
   await expect(page.getByTestId('lens-view-banner')).toBeVisible();
 
   // exiting clears row_ids → the grid pages the FULL sheet again
@@ -343,10 +343,10 @@ test('the banner honestly shows "showing N of M" when the window is smaller than
   // resolve returns a 2-row window but the index has 60 similar rows total —
   // the banner must say "showing 2 of 60 ranked rows", not just "2 ranked rows".
   const ranked = [allIds[3], allIds[1]];
-  await stubIndexAndLens(page, pid, sheetId, ranked, 60);
+  await stubIndexAndView(page, pid, sheetId, ranked, 60);
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openLensFromPanel(page);
+  await openViewFromPanel(page);
   const banner = page.getByTestId('lens-view-banner');
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('showing 2 of 60 ranked rows');
@@ -365,7 +365,7 @@ test('NER initialized from a lens submits complete exact membership, not its gri
   );
   const allIds = await fetchRowIds(request, pid, sheetId);
   const ranked = [allIds[3], allIds[1], allIds[2], allIds[0]];
-  await stubIndexAndLens(page, pid, sheetId, ranked, ranked.length, 2);
+  await stubIndexAndView(page, pid, sheetId, ranked, ranked.length, 2);
 
   // This is a request-serialization test; make the intercepted local engine
   // selectable even when the optional spaCy runtime is absent on the host.
@@ -411,7 +411,7 @@ test('NER initialized from a lens submits complete exact membership, not its gri
 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openLensFromPanel(page);
+  await openViewFromPanel(page);
   await expect(page.getByTestId('lens-view-banner')).toContainText(
     'showing 2 of 4 ranked rows',
   );

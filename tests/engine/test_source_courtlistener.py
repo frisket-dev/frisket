@@ -18,15 +18,15 @@ from frisket.engine.jobs import (
 from frisket.server.sources.courtlistener import (
     COURTLISTENER_DOCKET_KIND,
     CourtListenerDocketListing,
-    CourtListenerDocketPoller,
+    CourtListenerDocketFeedChecker,
     CourtListenerProviderError,
     fetch_courtlistener_docket,
 )
 from frisket.server.sources.runtime import (
     SourcePollContext,
-    get_source_poller,
-    register_source_poller,
-    unregister_source_poller,
+    get_feed_checker,
+    register_feed_checker,
+    unregister_feed_checker,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.sources import SourceStore
@@ -69,15 +69,15 @@ class FakeCourtListenerProvider:
 
 
 @pytest.fixture
-def restore_courtlistener_poller() -> Iterator[None]:
-    previous = get_source_poller(COURTLISTENER_DOCKET_KIND)
+def restore_courtlistener_feed_checker() -> Iterator[None]:
+    previous = get_feed_checker(COURTLISTENER_DOCKET_KIND)
     try:
         yield
     finally:
         if previous is None:
-            unregister_source_poller(COURTLISTENER_DOCKET_KIND)
+            unregister_feed_checker(COURTLISTENER_DOCKET_KIND)
         else:
-            register_source_poller(previous, replace=True)
+            register_feed_checker(previous, replace=True)
 
 
 def _source_poll_action(
@@ -331,7 +331,7 @@ def test_courtlistener_provider_separates_total_limit_from_page_size(
     )
     if max_entries is None:
         source["config"].pop("max_entries_per_poll")
-    polled = CourtListenerDocketPoller(provider=lambda **_kwargs: listing).poll(
+    polled = CourtListenerDocketFeedChecker(provider=lambda **_kwargs: listing).poll(
         SourcePollContext(source=source, cursor_before=None)
     )
     assert polled.cursor_after["truncated"] is expected_truncated
@@ -415,7 +415,7 @@ def test_courtlistener_provider_never_follows_unsafe_or_cyclic_next_links(
 
 def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
     make_project,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
 ) -> None:
     entries = [
         _entry(20_000 + index, str(index + 1), f"Entry {index + 1}")
@@ -424,7 +424,9 @@ def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
     provider = FakeCourtListenerProvider(
         [_listing(entries=entries, parties=[], pages_fetched=2)]
     )
-    register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=provider), replace=True
+    )
     source = _courtlistener_source(
         {"include_parties": False, "include_documents": False}
     )
@@ -468,7 +470,7 @@ def test_courtlistener_solo_poll_materializes_legacy_cap_plus_one(
 
 def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
     make_project,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
 ) -> None:
     first_documents = [_document(7001, "1", "Complaint PDF with injunction exhibit")]
     first_entries = [
@@ -506,7 +508,9 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
             _listing(entries=third_entries),
         ]
     )
-    register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=provider), replace=True
+    )
 
     project = make_project("CourtListener")
     first = run_action_spec(
@@ -678,7 +682,7 @@ def test_courtlistener_docket_source_poll_materializes_rows_and_dedupes(
 
 def test_courtlistener_entry_cap_retains_all_documents_from_kept_entry(
     make_project,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
 ) -> None:
     retained_documents = [
         _document(7001, "1", "First retained PDF"),
@@ -706,7 +710,9 @@ def test_courtlistener_entry_cap_retains_all_documents_from_kept_entry(
             )
         ]
     )
-    register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=provider), replace=True
+    )
 
     project = make_project("Court")
     result = run_action_spec(
@@ -745,9 +751,9 @@ def test_courtlistener_entry_cap_retains_all_documents_from_kept_entry(
 
 def test_courtlistener_validation_caps_and_provider_failure_redaction(
     make_project,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
 ) -> None:
-    assert get_source_poller(COURTLISTENER_DOCKET_KIND) is not None
+    assert get_feed_checker(COURTLISTENER_DOCKET_KIND) is not None
 
     invalid_project = make_project("Invalid")
     invalid = run_action_spec(
@@ -801,8 +807,8 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
             )
         ]
     )
-    register_source_poller(
-        CourtListenerDocketPoller(provider=capped_provider), replace=True
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=capped_provider), replace=True
     )
     capped_project = make_project("Capped")
     capped = run_action_spec(
@@ -857,8 +863,8 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
             )
         ]
     )
-    register_source_poller(
-        CourtListenerDocketPoller(provider=failing_provider), replace=True
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=failing_provider), replace=True
     )
     failed_project = make_project("Failed")
     source_id = SourceStore(failed_project).add_source(
@@ -892,11 +898,11 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
 
 def test_courtlistener_missing_token_returns_disabled_source_state(
     make_project,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("COURTLISTENER_API_TOKEN", raising=False)
-    register_source_poller(CourtListenerDocketPoller(), replace=True)
+    register_feed_checker(CourtListenerDocketFeedChecker(), replace=True)
 
     project = make_project("Missing Token")
     result = run_action_spec(
@@ -926,12 +932,14 @@ def test_courtlistener_missing_token_returns_disabled_source_state(
 
 def test_courtlistener_scheduled_source_dispatches_generic_source_poll(
     tmp_path: Path,
-    restore_courtlistener_poller: None,
+    restore_courtlistener_feed_checker: None,
 ) -> None:
     provider = FakeCourtListenerProvider(
         [_listing(entries=[_entry(9001, "1", "Scheduled docket entry")])]
     )
-    register_source_poller(CourtListenerDocketPoller(provider=provider), replace=True)
+    register_feed_checker(
+        CourtListenerDocketFeedChecker(provider=provider), replace=True
+    )
 
     workspace = tmp_path / "ws"
     workspace.mkdir()

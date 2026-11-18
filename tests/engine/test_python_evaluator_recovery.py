@@ -102,7 +102,7 @@ def test_worker_recovery_preserves_actual_code_evidence(
     client, project, queued, handler, payload, actual_code = _queued(
         tmp_path, custom=custom
     )
-    context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+    context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
     original = runs.queued_v1_finalize_action_result
     if crash:
 
@@ -231,9 +231,9 @@ def test_python_capability_does_not_replace_other_capability_provider_facts(
         "params": {"query": "address", "selected": "opencage"},
         "idempotency_key": "mixed-geocode-python",
     }
-    quoted = run(body)
-    assert quoted.status == "needs_confirmation", quoted.errors
-    body["confirmation"] = quoted.errors[0].details["promise_set_hash"]
+    estimated = run(body)
+    assert estimated.status == "needs_confirmation", estimated.errors
+    body["confirmation"] = estimated.errors[0].details["promise_set_hash"]
     completed = run(body)
     assert completed.status == "completed", completed.errors
     assert len(calls) == 1
@@ -259,9 +259,9 @@ def test_python_capability_does_not_replace_other_capability_provider_facts(
         "params": {"column": receipt.outputs[0].name},
         "idempotency_key": "mixed-geocode-python-backfill",
     }
-    quoted = run(backfill_body)
-    assert quoted.status == "needs_confirmation", quoted.errors
-    backfill_body["confirmation"] = quoted.errors[0].details["promise_set_hash"]
+    estimated = run(backfill_body)
+    assert estimated.status == "needs_confirmation", estimated.errors
+    backfill_body["confirmation"] = estimated.errors[0].details["promise_set_hash"]
     backfilled = run(backfill_body)
     assert backfilled.status == "completed", backfilled.errors
     assert len(calls) == 2

@@ -12,7 +12,7 @@ from frisket.engine.jobs.runs import resolve_run_models_gateway
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.team.gateway_routes import (
     TeamModelsGatewayStore,
-    TeamOrgModelsGatewayPort,
+    TeamOrganizationModelsGatewayPort,
     register_team_models_gateway_routes,
     team_models_gateway_service,
 )
@@ -211,7 +211,7 @@ def test_team_environment_pair_is_read_only_and_partial_pair_refuses_fallback(
     assert "FRISKET_MODELS_TOKEN is required" in partial["error"]
 
 
-def test_saved_team_pair_reaches_queued_target_via_trusted_org_port(
+def test_saved_team_pair_reaches_queued_target_via_trusted_organization_port(
     tmp_path, monkeypatch
 ) -> None:
     _app_instance, engine = _app(tmp_path, monkeypatch)
@@ -223,11 +223,11 @@ def test_saved_team_pair_reaches_queued_target_via_trusted_org_port(
         env={},
     ).save(ORIGIN, TOKEN)
     ports = WorkerPorts(
-        models_gateway_port=TeamOrgModelsGatewayPort(_decrypt),
+        models_gateway_port=TeamOrganizationModelsGatewayPort(_decrypt),
     )
     resolved = resolve_run_models_gateway(
         tmp_path,
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=9),
+        handler_context=JobHandlerContext.from_claimed_job(trusted_organization_id=9),
         ports=ports,
         control_database_url=str(engine.url),
     )
@@ -253,14 +253,14 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
     TeamModelsGatewayStore(
         engine, org_id=9, encrypt=_encrypt, decrypt=_decrypt, env={}
     ).save(ORIGIN, TOKEN)
-    port = TeamOrgModelsGatewayPort(_decrypt)
+    port = TeamOrganizationModelsGatewayPort(_decrypt)
     calls = []
     real_open = runs.open_execution_composition
 
     def inspect_composition(project, router, context, **kwargs):
         composition = real_open(project, router, context, **kwargs)
         connection = composition.provider.connection("models-gateway")
-        calls.append((context.trusted_job_org_id, kwargs, connection))
+        calls.append((context.trusted_job_organization_id, kwargs, connection))
         return composition
 
     options = {}
@@ -312,8 +312,8 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
     worker = Worker(workspace.queue, workspace.registry, poll_interval=0.01)
     assert worker.run_once()
     assert len(calls) == 1
-    trusted_org_id, factory_options, connection = calls[0]
-    assert trusted_org_id == 9
+    trusted_organization_id, factory_options, connection = calls[0]
+    assert trusted_organization_id == 9
     if custom_factory:
         assert factory_options == {}
         assert connection is None

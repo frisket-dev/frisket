@@ -182,21 +182,21 @@ def test_actual_scratch_receipt_reads_original_page_once_and_retains_reference(
         tmp_path, monkeypatch
     )
     try:
-        quoted = adapter.quote(
+        estimated = adapter.estimate(
             targets=[read, replace(read, occurrence_key="second")],
             plan_token="admitted-plan",
         )
-        assert quoted["pages"] == 1
-        assert quoted["estimate"]["requires_confirmation"]
+        assert estimated["pages"] == 1
+        assert estimated["estimate"]["requires_confirmation"]
         with pytest.raises(ValueError, match="exact claims"):
-            adapter.approve(quoted, confirmation=None)
+            adapter.approve(estimated, confirmation=None)
         assert provider.calls == 0
         jobs = adapter.start_preview(
             targets=[read, replace(read, occurrence_key="second")],
             plan_token="admitted-plan",
             operation_id=op,
             generation="preview-one",
-            confirmation=quoted["estimate"]["promise_set_hash"],
+            confirmation=estimated["estimate"]["promise_set_hash"],
         )
         result = _wait_preview(preview, jobs)
         assert result[0]["status"] == "done", result
@@ -215,10 +215,14 @@ def test_actual_scratch_receipt_reads_original_page_once_and_retains_reference(
             == 1
         )
         assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-        assert adapter.quote(targets=[read], plan_token="admitted-plan")["pages"] == 0
+        assert (
+            adapter.estimate(targets=[read], plan_token="admitted-plan")["pages"] == 0
+        )
         adapter.inventory_path = tmp_path / "reopened-inventory.db"
         assert adapter.cached_reference(read) == ref
-        assert adapter.quote(targets=[read], plan_token="reopened-plan")["pages"] == 0
+        assert (
+            adapter.estimate(targets=[read], plan_token="reopened-plan")["pages"] == 0
+        )
     finally:
         preview._registry.shutdown()
         project.close()
@@ -237,13 +241,13 @@ def test_upload_sample_uses_existing_draft_cache_without_project_artifact(
         project.db.commit()
         read = replace(read, source_artifact_id=None)
         adapter.admitted_sources[read.occurrence_key] = source
-        quoted = adapter.quote(targets=[read], plan_token="upload-manifest")
+        estimated = adapter.estimate(targets=[read], plan_token="upload-manifest")
         jobs = adapter.start_preview(
             targets=[read],
             plan_token="upload-manifest",
             operation_id=0,
             generation="upload-preview",
-            confirmation=quoted["estimate"]["promise_set_hash"],
+            confirmation=estimated["estimate"]["promise_set_hash"],
         )
         result = _wait_preview(preview, jobs)
         assert result[0]["status"] == "done", result
@@ -255,7 +259,9 @@ def test_upload_sample_uses_existing_draft_cache_without_project_artifact(
             project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
             == 0
         )
-        assert adapter.quote(targets=[read], plan_token="upload-manifest")["pages"] == 0
+        assert (
+            adapter.estimate(targets=[read], plan_token="upload-manifest")["pages"] == 0
+        )
     finally:
         preview._registry.shutdown()
         project.close()
@@ -267,7 +273,7 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
     from dataclasses import replace
     import pytest
     from frisket.engine.runner.validation import TrustedConsentRefused
-    from frisket.server.services.pdf_import_ocr_approval import (
+    from frisket.server.services.pdf_import_ocr_consent import (
         PdfImportOcrGrant,
         source_page_ocr_authorizer,
     )
@@ -277,17 +283,19 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
         tmp_path, monkeypatch
     )
     try:
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        quoted["estimate"]["requires_confirmation"] = False
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        estimated["estimate"]["requires_confirmation"] = False
         with pytest.raises(ValueError, match="exact claims"):
-            adapter.approve(quoted, confirmation=None)
+            adapter.approve(estimated, confirmation=None)
         import copy
 
-        tampered = copy.deepcopy(quoted)
+        tampered = copy.deepcopy(estimated)
         tampered["authorization"]["allocation"]["requires_confirmation"] = False
         with pytest.raises(ValueError, match="estimate changed"):
             adapter.approve(tampered, confirmation=None)
-        adapter.approve(quoted, confirmation=quoted["estimate"]["promise_set_hash"])
+        adapter.approve(
+            estimated, confirmation=estimated["estimate"]["promise_set_hash"]
+        )
         with PdfSplitPreparationStore(adapter.inventory_path) as store:
             for changed in [
                 replace(read, page_number=3),
@@ -300,12 +308,12 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
                         targets=[changed],
                         approved_plan_token="admitted-plan",
                     )
-        grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+        grant = PdfImportOcrGrant.from_mapping(estimated["authorization"])
         authorizer = source_page_ocr_authorizer(
             grant,
             project_id="pages",
             plan_token="admitted-plan",
-            target=read.approval_identity,
+            target=read.consent_identity,
             work_key=read.work_key,
         )
         for changed in [
@@ -340,7 +348,7 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
         project.close()
 
 
-def _admit_split(adapter, project, read, quoted):
+def _admit_split(adapter, project, read, estimated):
     from frisket.engine.store.pdf_split import PdfSplitWriter, PdfSplitSource
     from frisket.server.services.pdf_split_preparation import PdfSplitChildBinding
 
@@ -375,7 +383,7 @@ def _admit_split(adapter, project, read, quoted):
         value,
         "",
     )
-    adapter.approve(quoted, confirmation=quoted["estimate"]["promise_set_hash"])
+    adapter.approve(estimated, confirmation=estimated["estimate"]["promise_set_hash"])
     with PdfSplitPreparationStore(adapter.inventory_path) as store:
         store.admit(
             operation_id=session.op_id,
@@ -401,8 +409,8 @@ def test_automatic_page_fanout_is_owned_by_split_without_new_operation(
         adapter.publish_child_pages = lambda bindings, ref: [
             published.append((binding, ref)) or True for binding in bindings
         ]
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        writer = _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        writer = _admit_split(adapter, project, read, estimated)
         count = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
         jobs = adapter.start_pending(generation="generation-one")
         results = _wait_preview(preview, jobs)
@@ -453,8 +461,8 @@ def test_undo_redo_while_provider_runs_never_revives_worker_or_refunds_call(
         adapter.publish_child_pages = lambda bindings, ref: [
             published.append((binding, ref)) or True for binding in bindings
         ]
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, estimated)
         jobs = adapter.start_pending(generation="generation-one")
         assert entered.wait(5)
         project.undo()
@@ -501,8 +509,8 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
         adapter.publish_child_pages = lambda bindings, ref: [
             published.append((binding, ref)) or True for binding in bindings
         ]
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, estimated)
         operations = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
         cells = [tuple(row) for row in project.db.execute("SELECT * FROM cells")]
         jobs = adapter.start_pending(generation="generation-one")
@@ -546,7 +554,7 @@ def test_paid_page_finishing_after_stop_is_cached_without_publishing_or_rebillin
         assert adapter.start_pending(generation="generation-one") == ()
         # A later review can reuse both the inventory cache and the durable
         # original-page reference after that inventory has been discarded.
-        assert adapter.quote(targets=[read], plan_token="later-review")["pages"] == 0
+        assert adapter.estimate(targets=[read], plan_token="later-review")["pages"] == 0
         adapter.inventory_path = tmp_path / "later-inventory.db"
         assert adapter.cached_reference(read) == ref_id
         assert (
@@ -578,19 +586,21 @@ def test_successfully_read_empty_upload_page_is_never_retried_as_missing(
     try:
         read = replace(read, source_artifact_id=None)
         adapter.admitted_sources[read.occurrence_key] = source
-        quoted = adapter.quote(targets=[read], plan_token="empty-page-plan")
+        estimated = adapter.estimate(targets=[read], plan_token="empty-page-plan")
         jobs = adapter.start_preview(
             targets=[read],
             plan_token="empty-page-plan",
             operation_id=0,
             generation="empty-preview",
-            confirmation=quoted["estimate"]["promise_set_hash"],
+            confirmation=estimated["estimate"]["promise_set_hash"],
         )
         results = _wait_preview(preview, jobs)
         assert results[0]["status"] == "done", results
         with PdfSplitPreparationStore(adapter.inventory_path) as store:
             assert store.cached_preview(read)["text"] == ""
-        assert adapter.quote(targets=[read], plan_token="empty-page-plan")["pages"] == 0
+        assert (
+            adapter.estimate(targets=[read], plan_token="empty-page-plan")["pages"] == 0
+        )
         assert provider.calls == 1
     finally:
         preview._registry.shutdown()
@@ -619,13 +629,13 @@ def test_running_original_page_refuses_second_generation_and_rescan_until_termin
 
     provider.complete = blocked
     try:
-        quoted = adapter.quote(targets=[read], plan_token="same-page")
+        estimated = adapter.estimate(targets=[read], plan_token="same-page")
         jobs = adapter.start_preview(
             targets=[read],
             plan_token="same-page",
             operation_id=op,
             generation="first-flight",
-            confirmation=quoted["estimate"]["promise_set_hash"],
+            confirmation=estimated["estimate"]["promise_set_hash"],
         )
         assert entered.wait(5)
         assert preview._registry.has_active_jobs()
@@ -650,7 +660,7 @@ def test_running_original_page_refuses_second_generation_and_rescan_until_termin
         with pytest.raises(
             PdfSplitPreparationInProgress, match="already being prepared"
         ):
-            adapter.quote(targets=[read], plan_token="second-page")
+            adapter.estimate(targets=[read], plan_token="second-page")
         with PdfSplitPreparationStore(adapter.inventory_path) as store:
             with pytest.raises(PdfSplitPreparationInProgress):
                 store.admit(
@@ -662,8 +672,8 @@ def test_running_original_page_refuses_second_generation_and_rescan_until_termin
         release.set()
         assert _wait_preview(preview, jobs)[0]["status"] == "done"
         assert provider.calls == 1
-        assert adapter.quote(targets=[read], plan_token="same-page")["pages"] == 0
-        rescanned = adapter.quote(
+        assert adapter.estimate(targets=[read], plan_token="same-page")["pages"] == 0
+        rescanned = adapter.estimate(
             targets=[read], plan_token="rescan", force_rescan=True
         )
         assert rescanned["pages"] == 1
@@ -702,7 +712,7 @@ def test_accepted_job_tracking_error_never_requeues_or_duplicates_paid_page(
 
     provider.complete = blocked
     try:
-        quoted = adapter.quote(targets=[read], plan_token="tracking-error")
+        estimated = adapter.estimate(targets=[read], plan_token="tracking-error")
         monkeypatch.setattr(
             preview._registry,
             "get",
@@ -713,7 +723,7 @@ def test_accepted_job_tracking_error_never_requeues_or_duplicates_paid_page(
             plan_token="tracking-error",
             operation_id=op,
             generation="tracking-flight",
-            confirmation=quoted["estimate"]["promise_set_hash"],
+            confirmation=estimated["estimate"]["promise_set_hash"],
         )
         assert entered.wait(5)
         monkeypatch.setattr(preview._registry, "get", original_get)
@@ -798,14 +808,14 @@ def test_independent_preview_inventories_share_one_original_page_flight(
 
     provider.complete = blocked
     try:
-        first_quote = adapter.quote(targets=[read], plan_token="first-tab")
-        second_quote = other.quote(targets=[read], plan_token="second-tab")
+        first_estimate = adapter.estimate(targets=[read], plan_token="first-tab")
+        second_estimate = other.estimate(targets=[read], plan_token="second-tab")
         jobs = adapter.start_preview(
             targets=[read],
             plan_token="first-tab",
             operation_id=op,
             generation="first-tab",
-            confirmation=first_quote["estimate"]["promise_set_hash"],
+            confirmation=first_estimate["estimate"]["promise_set_hash"],
         )
         assert entered.wait(5)
         with pytest.raises(
@@ -816,7 +826,7 @@ def test_independent_preview_inventories_share_one_original_page_flight(
                 plan_token="second-tab",
                 operation_id=op,
                 generation="second-tab",
-                confirmation=second_quote["estimate"]["promise_set_hash"],
+                confirmation=second_estimate["estimate"]["promise_set_hash"],
             )
         other.stop(generation="second-tab")
         release.set()
@@ -855,10 +865,10 @@ def test_background_source_page_carries_the_approved_nondefault_actor(
 
     try:
         monkeypatch.setattr(preview, "prepare_ocr_scratch_path", as_authenticated_user)
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        assert quoted["authorization"]["actor"] == "user:approved-reader"
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        assert estimated["authorization"]["actor"] == "user:approved-reader"
         monkeypatch.setattr(preview, "prepare_ocr_scratch_path", original)
-        _admit_split(adapter, project, read, quoted)
+        _admit_split(adapter, project, read, estimated)
         adapter.publish_child_pages = lambda bindings, ref: [
             True for binding in bindings
         ]
@@ -878,16 +888,18 @@ def test_background_source_page_carries_the_approved_nondefault_actor(
         project.close()
 
 
-def test_approved_page_quote_ignores_only_confirmation_display(tmp_path, monkeypatch):
+def test_approved_page_estimate_ignores_only_confirmation_display(
+    tmp_path, monkeypatch
+):
     from dataclasses import replace
     from frisket.engine.runner.validation import (
         TrustedConsentContext,
-        TrustedConsentApproval,
+        TrustedConsentGrant,
         TrustedConsentRefusal,
     )
     from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
     from frisket.server.services.action_preview_runs import _scratch_claims
-    from frisket.server.services.pdf_import_ocr_approval import (
+    from frisket.server.services.pdf_import_ocr_consent import (
         PdfImportOcrGrant,
         source_page_ocr_authorizer,
     )
@@ -898,13 +910,13 @@ def test_approved_page_quote_ignores_only_confirmation_display(tmp_path, monkeyp
     )
     lease = None
     try:
-        quoted = adapter.quote(targets=[read], plan_token="preapproved-page")
-        grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+        estimated = adapter.estimate(targets=[read], plan_token="preapproved-page")
+        grant = PdfImportOcrGrant.from_mapping(estimated["authorization"])
         authorize = source_page_ocr_authorizer(
             grant,
             project_id="pages",
             plan_token="preapproved-page",
-            target=read.approval_identity,
+            target=read.consent_identity,
             work_key=read.work_key,
         )
         lease, prepared = adapter._prepare(
@@ -919,13 +931,13 @@ def test_approved_page_quote_ignores_only_confirmation_display(tmp_path, monkeyp
             estimate=estimate,
             principal=grant.actor,
         )
-        assert isinstance(authorize(context), TrustedConsentApproval)
+        assert isinstance(authorize(context), TrustedConsentGrant)
         flipped = {
             **estimate,
             "requires_confirmation": not estimate["requires_confirmation"],
         }
         assert isinstance(
-            authorize(replace(context, estimate=flipped)), TrustedConsentApproval
+            authorize(replace(context, estimate=flipped)), TrustedConsentGrant
         )
         for field, value in (
             ("cost", estimate["cost"] + 1),
@@ -959,8 +971,8 @@ def test_split_undo_stops_provider_retry_without_explicit_stop(tmp_path, monkeyp
 
     provider.complete = refuse_after_undo
     try:
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, estimated)
         jobs = adapter.start_pending(generation="generation-one")
         results = _wait_preview(preview, jobs)
         assert provider.calls == 1

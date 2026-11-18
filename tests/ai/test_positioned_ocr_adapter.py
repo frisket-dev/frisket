@@ -13,7 +13,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.structured import StructuredCompleter
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.base import OpContext
-from frisket.ops.ocr_engines_hosted import (
+from frisket.ops.ocr_engines_remote import (
     accumulate_vlm_response_usage,
     ocr_coordinate_profile,
     ocr_vlm,

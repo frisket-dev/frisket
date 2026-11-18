@@ -19,10 +19,10 @@ from typing import Any
 
 import httpx
 
-from frisket.ops.integrations.hosted_error import call_hosted_json
+from frisket.ops.integrations.hosted_error import call_remote_json
 from frisket.ops.integrations.translate_common import (
     TranslateEngineError,
-    hosted_translate_response_accounting,
+    remote_translate_response_accounting,
 )
 
 GOOGLE_TRANSLATE_URL = "https://translation.googleapis.com/language/translate/v2"
@@ -118,7 +118,7 @@ async def google_translate(
     payload: dict[str, Any] = {"q": texts, "target": target_lang, "format": "text"}
     if source_lang:
         payload["source"] = source_lang
-    response, body = await call_hosted_json(
+    response, body = await call_remote_json(
         lambda: http.post(
             GOOGLE_TRANSLATE_URL,
             params={"key": api_key},
@@ -143,7 +143,7 @@ async def google_translate(
             )
     except TranslateEngineError as exc:
         if exc.accounting is None:
-            exc.accounting = hosted_translate_response_accounting(
+            exc.accounting = remote_translate_response_accounting(
                 engine="google_translate",
                 provider="google",
                 credential_source=credential_source,

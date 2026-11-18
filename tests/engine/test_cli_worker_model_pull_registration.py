@@ -3,7 +3,7 @@ worker command path is the other real local-tier registration site besides
 ``Workspace`` -- ``cli.py``'s ``_run_worker(hosted=False)`` branch is the
 process ``frisket serve`` auto-spawns and the one a bare
 ``frisket worker <workspace>`` invocation runs. It must register
-``model.pull``; the ``hosted=True`` branch (``register_hosted_handlers``,
+``model.pull``; the ``hosted=True`` branch (``register_cloud_handlers``,
 an external managed edition) must never see this call at all.
 """
 

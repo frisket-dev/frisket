@@ -9,7 +9,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import {
-  readAiColumnTheme,
+  readGeneratedColumnTheme,
   readGridCellPalette,
   readGridDifferenceTheme,
   readGridTheme,
@@ -104,7 +104,7 @@ describe('grid canvas theme derivation', () => {
     setToken('--ai', '#7c5ce6');
     setToken('--ai-bg', '#eee7fb');
     setToken('--text', '#211f1b');
-    const ai = readAiColumnTheme();
+    const ai = readGeneratedColumnTheme();
     expect(ai.bgCell).toBe('#eee7fb');
     expect(ai.bgIconHeader).toBe('#7c5ce6');
     expect(ai.textHeader).toBe('#211f1b');
@@ -124,7 +124,7 @@ describe('grid canvas theme derivation', () => {
     setToken('--ai', '#7c5ce6');
     setToken('--ai-bg', '#eee7fb');
     setToken('--text-mid', '#57534a');
-    const ai = readAiColumnTheme();
+    const ai = readGeneratedColumnTheme();
     expect(ai.bgHeader).toBe('#eee7fb');
     expect(ai.textGroupHeader).toBe('#57534a');
     expect(ai.bgHeaderHovered).toMatch(/^#[0-9a-f]{6}$/i);
@@ -134,7 +134,7 @@ describe('grid canvas theme derivation', () => {
   it('re-derives the header/banner wash on a dark-mode flip instead of staying pinned to the light hex', () => {
     setToken('--ai', '#7c5ce6');
     setToken('--ai-bg', '#eee7fb');
-    expect(readAiColumnTheme().bgHeader).toBe('#eee7fb');
+    expect(readGeneratedColumnTheme().bgHeader).toBe('#eee7fb');
 
     // styles.css's dark :root values — a subdued dark-purple wash, not the
     // light-mode #f4f0ff/#ebe3fb/#563d9a the old hardcoded banner literal
@@ -142,7 +142,7 @@ describe('grid canvas theme derivation', () => {
     setToken('--ai', '#b3a0f2');
     setToken('--ai-bg', '#2f2947');
     setToken('--text-mid', '#b7b0a2');
-    const dark = readAiColumnTheme();
+    const dark = readGeneratedColumnTheme();
     expect(dark.bgHeader).toBe('#2f2947');
     expect(dark.textGroupHeader).toBe('#b7b0a2');
     expect(dark.bgHeader).not.toBe('#f4f0ff');

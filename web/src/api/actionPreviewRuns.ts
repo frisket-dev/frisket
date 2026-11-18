@@ -104,7 +104,7 @@ function previewOverlayColumn(wire: WirePreviewColumn): PreviewOverlayColumn {
     columnType: wire.column_type,
     format: wire.format ?? null,
     hidden: wire.hidden ?? false,
-    overwritesColumnId:
+    replacesColumnId:
       wire.overwrites_column_id == null ? null : String(wire.overwrites_column_id),
   };
 }

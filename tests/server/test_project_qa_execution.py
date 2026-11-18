@@ -27,7 +27,7 @@ from frisket.server.services.project_qa_execution import (
 )
 
 
-def _quote(action: dict[str, Any]) -> dict[str, Any]:
+def _estimate(action: dict[str, Any]) -> dict[str, Any]:
     return {
         "estimate": {
             "billed_cost": 17,
@@ -248,7 +248,7 @@ async def test_safe_additive_action_runs_once_and_checkpoints_receipt_grant(tmp_
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda _project_id, body: (
             launched.append(dict(body)) or _response(body["idempotency_key"])
         ),
@@ -329,7 +329,7 @@ async def test_action_approval_survives_budget_pause_without_budget_granting_it(
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda _project_id, body: (
             launched.append(body["idempotency_key"])
             or _response(body["idempotency_key"])
@@ -368,7 +368,7 @@ async def test_replay_keeps_one_budget_operation_and_one_usage_event(tmp_path):
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda _project_id, body: (
             launched.append(body["idempotency_key"])
             or _response(body["idempotency_key"])
@@ -428,7 +428,7 @@ async def test_cancellation_during_launch_links_stops_and_settles_child(tmp_path
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=run_action,
         wait_child=wait_child,
     )
@@ -490,7 +490,7 @@ async def test_cancellation_while_waiting_settles_terminal_callback(tmp_path):
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda _project_id, body: _response(body["idempotency_key"]),
         wait_child=wait_child,
     )
@@ -528,7 +528,7 @@ async def test_skip_does_not_admit_or_dispatch(tmp_path):
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
@@ -554,7 +554,7 @@ async def test_external_action_needs_approval_even_in_full_access(tmp_path):
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
@@ -600,7 +600,7 @@ async def test_unknown_catalog_effect_needs_approval_even_in_full_access(tmp_pat
         store,
         session,
         catalog_payload_provider=catalog_with_unknown_effect,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
@@ -615,15 +615,15 @@ async def test_unknown_catalog_effect_needs_approval_even_in_full_access(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_quote_becoming_unknown_pauses_before_admission_or_dispatch(tmp_path):
+async def test_estimate_becoming_unknown_pauses_before_admission_or_dispatch(tmp_path):
     project, sheet_id, turn, store, session = _project_state(tmp_path)
     session.decisions[:] = ["skip"]
-    quote_calls = 0
+    estimate_calls = 0
 
-    def changing_quote(action: dict[str, Any]) -> dict[str, Any]:
-        nonlocal quote_calls
-        quote_calls += 1
-        return _quote(action) if quote_calls == 1 else {}
+    def changing_estimate(action: dict[str, Any]) -> dict[str, Any]:
+        nonlocal estimate_calls
+        estimate_calls += 1
+        return _estimate(action) if estimate_calls == 1 else {}
 
     service = ProjectQAExecutionService(
         project,
@@ -632,7 +632,7 @@ async def test_quote_becoming_unknown_pauses_before_admission_or_dispatch(tmp_pa
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=changing_quote,
+        estimate_provider=changing_estimate,
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
@@ -667,7 +667,7 @@ async def test_action_that_stays_unpriced_pauses_before_dispatch(tmp_path):
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=lambda _action: {},
+        estimate_provider=lambda _action: {},
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )
@@ -731,7 +731,7 @@ async def test_replacement_respects_write_mode_at_frozen_target(
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda _project_id, body: (
             launched.append(body["idempotency_key"])
             or _response(body["idempotency_key"])
@@ -770,7 +770,7 @@ async def test_malformed_reference_and_forbidden_authority_are_refused(
         store,
         session,
         catalog_payload_provider=root_action_catalog_payload,
-        quote_provider=_quote,
+        estimate_provider=_estimate,
         run_action=lambda *_args: pytest.fail("must not dispatch"),
         wait_child=lambda **_kwargs: pytest.fail("must not wait"),
     )

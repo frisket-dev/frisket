@@ -2436,7 +2436,7 @@ def require_current_schema(
         return
     # The bundle's NAME, never its path: this message is served to an HTTP
     # client, and on the hosted tier the path spells out the data root's
-    # per-org directory layout. The name is what identifies the project to
+    # per-organization directory layout. The name is what identifies the project to
     # the person reading it anyway.
     where = f" ({Path(bundle_path).name})" if bundle_path is not None else ""
     raise BundleSchemaMismatch(

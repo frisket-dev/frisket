@@ -276,7 +276,7 @@ def _conflicting_labels_action(seeded: dict[str, Any]) -> dict[str, Any]:
 
 def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
     # ner tolerates "partial"/"failed" runs, so replay is receipt-scoped
-    #: hiding the output column is still caught (an
+    #: hiding the generated column is still caught (an
     # identity check, not a row/value one), but the wire code is now the op's
     # own map_error_code instead of "stale_replay" -- see stale_code below.
     project.db.execute(

@@ -14,11 +14,11 @@ import { CompletedClusterResult } from '../components/CompletedClusterResult';
 import { entityTableDraft } from '../actions/entityTable';
 import { CostGateModal } from '../components/CostGateModal';
 import { ConfirmDeleteRowsModal } from '../components/ConfirmDeleteRowsModal';
-import { OutputColumnCollisionModal } from '../components/OutputColumnCollisionModal';
+import { GeneratedColumnCollisionModal } from '../components/GeneratedColumnCollisionModal';
 import { SupportContactNote } from '../components/SupportContactNote';
 import { remediateApiError } from '../errors/remediation';
 import { SourcesConnectionsDialog } from '../components/sources/SourcesConnectionsDialog';
-import { CostGateWorkbenchViewFrame, EvidenceWorkbenchViewFrame, OutputColumnCollisionWorkbenchViewFrame, ProvenanceWorkbenchPanelFrame, ResolvedWorkbenchLayoutRegion, ReviewQueueWorkbenchViewFrame, RowDeleteConfirmWorkbenchViewFrame } from '../workbench/contributions';
+import { CostGateWorkbenchViewFrame, EvidenceWorkbenchViewFrame, GeneratedColumnCollisionWorkbenchViewFrame, ProvenanceWorkbenchPanelFrame, ResolvedWorkbenchLayoutRegion, ReviewQueueWorkbenchViewFrame, RowDeleteConfirmWorkbenchViewFrame } from '../workbench/contributions';
 import { type WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import { PluginPeekHost } from '../workbench/PluginPeekHost';
 import { WorkbenchCommandPalette } from '../workbench/WorkbenchCommandPalette';
@@ -112,16 +112,16 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   const jobs = useJobsHandle();
   const run = useSelector(jobs.store, (state) => state.run);
   const costGate = useSelector(jobs.store, (state) => state.costGate);
-  const outputColumnCollision = useSelector(
+  const generatedColumnCollision = useSelector(
     jobs.store,
-    (state) => state.outputColumnCollision,
+    (state) => state.generatedColumnCollision,
   );
   const afterBackfill = jobs.afterBackfill;
   const cancelCostGate = jobs.cancelCostGate;
   const cancelCurrentRun = jobs.cancelCurrentRun;
   const confirmCostGate = jobs.confirmCostGate;
-  const cancelOutputColumnCollision = jobs.cancelOutputColumnCollision;
-  const confirmOutputColumnCollision = jobs.confirmOutputColumnCollision;
+  const cancelGeneratedColumnCollision = jobs.cancelGeneratedColumnCollision;
+  const confirmGeneratedColumnCollision = jobs.confirmGeneratedColumnCollision;
   const requestCostConfirmation = jobs.requestCostConfirmation;
 
   const paletteLauncherCommands = useMemo(
@@ -309,15 +309,15 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
         </RowDeleteConfirmWorkbenchViewFrame>
       )}
 
-      {outputColumnCollision && (
-        <OutputColumnCollisionWorkbenchViewFrame>
-          <OutputColumnCollisionModal
-            columns={outputColumnCollision.columns}
-            message={outputColumnCollision.message}
-            onCancel={cancelOutputColumnCollision}
-            onConfirm={confirmOutputColumnCollision}
+      {generatedColumnCollision && (
+        <GeneratedColumnCollisionWorkbenchViewFrame>
+          <GeneratedColumnCollisionModal
+            columns={generatedColumnCollision.columns}
+            message={generatedColumnCollision.message}
+            onCancel={cancelGeneratedColumnCollision}
+            onConfirm={confirmGeneratedColumnCollision}
           />
-        </OutputColumnCollisionWorkbenchViewFrame>
+        </GeneratedColumnCollisionWorkbenchViewFrame>
       )}
 
       {columnDrawer && sheet && (

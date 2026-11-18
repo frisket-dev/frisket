@@ -4,7 +4,7 @@
 ``estimate_known``, and to get a human's approval for that number. So those
 two fields are a money gate's rendering, and they answer to the same
 three-state selector every other gate compares with
-(``confirmation_context.quoted_usd``):
+(``confirmation_context.estimated_usd``):
 
 * a policy rated it -> the billed figure, not the provider's cost;
 * a policy DECLINED to rate it -> unknown, never a confident number;
@@ -26,9 +26,9 @@ import pytest
 
 from frisket.ai.llm import ModelRouter
 from frisket.execution.pricing_policy import (
-    QuoteFacts,
+    EstimateFacts,
     Rating,
-    RatedQuote,
+    RatedEstimate,
     Unpriceable,
     _reset_pricing_policy_for_tests,
     install_pricing_policy,
@@ -50,10 +50,10 @@ class _CostPlusPolicy:
 
     policy_id = "test.mcp.cost_plus.v1"
 
-    def rate(self, facts: QuoteFacts) -> Rating:
+    def rate(self, facts: EstimateFacts) -> Rating:
         if facts.provider_cost is None:
             return Unpriceable(reason="no provider cost", policy_id=self.policy_id)
-        return RatedQuote(
+        return RatedEstimate(
             billed_cost=facts.provider_cost * 2,
             provider_cost=facts.provider_cost,
             lane="cost_plus",
@@ -78,7 +78,7 @@ def _gate(estimate: Any, details: dict[str, Any] | None = None) -> dict[str, Any
     return cost_gate_response(estimate, "confirm this run", details=details)
 
 
-def test_the_envelope_quotes_the_billed_figure_not_the_provider_cost() -> None:
+def test_the_envelope_states_the_billed_figure_not_the_provider_cost() -> None:
     """The demonstrated defect: 2x policy, $0.11 provider, $0.22 billed.
 
     The caller already passes the billed scalar; the renderer used to discard

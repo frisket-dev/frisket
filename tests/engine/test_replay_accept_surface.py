@@ -207,7 +207,7 @@ def test_edited_cell_no_longer_hard_errors_but_structural_staleness_does(fx):
         "stale_replay under the surface policy"
     )
 
-    # STRUCTURAL staleness (a renamed output column) stays a real stale_replay.
+    # STRUCTURAL staleness (a renamed generated column) stays a real stale_replay.
     fx.project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (fx.col,))
     fx.project.db.commit()
     structural = output_columns_replay_error(

@@ -245,7 +245,7 @@ def _build_export_columns(
     *,
     include_attachment_paths: bool = False,
 ) -> list[ExportColumn]:
-    """Project visible sheet columns into output columns via media projection."""
+    """Project visible sheet columns into generated columns via media projection."""
     from frisket.server.exports import media as _media
 
     return _media.project_export_columns(

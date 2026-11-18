@@ -9,7 +9,7 @@ from typing import Any
 
 from frisket.engine.runner.preparation import (
     PreparedRun,
-    _created_output_column_ids,
+    _created_generated_column_ids,
     _validate_managed_recipe_identity,
 )
 from frisket.engine.store import Project
@@ -95,7 +95,7 @@ def _write_mode_for_prepared_column(
     declaration exactly idempotent after a crash.
     """
 
-    if int(column_id) not in prepared.created_output_column_ids:
+    if int(column_id) not in prepared.created_generated_column_ids:
         return "replace_scope"
     prior_generation = project.db.execute(
         "SELECT 1 FROM run_output_generations WHERE column_id=? AND run_id<>? LIMIT 1",
@@ -239,7 +239,7 @@ def declare_prepared_outputs(
             # target still exposes its previous descriptor and values.
             project.db.executemany(
                 "UPDATE columns SET hidden=1 WHERE id=?",
-                ((column_id,) for column_id in prepared.created_output_column_ids),
+                ((column_id,) for column_id in prepared.created_generated_column_ids),
             )
     except BaseException:
         project.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
@@ -299,7 +299,7 @@ def declare_bound_run_outputs(
         recipe=recipe,
         action_kind=str(spec["action_kind"]),
     )
-    created_ids = _created_output_column_ids(project, int(run_row["op_id"]))
+    created_ids = _created_generated_column_ids(project, int(run_row["op_id"]))
     declare_prepared_outputs(
         project,
         run_store,
@@ -310,7 +310,7 @@ def declare_bound_run_outputs(
             row_ids=[],
             out_cols=out_cols,
             output_fields=tuple(dict(field) for field in output_fields),
-            created_output_column_ids=created_ids.intersection(out_cols.values()),
+            created_generated_column_ids=created_ids.intersection(out_cols.values()),
             op_id=int(run_row["op_id"]),
             run_id=int(run_id),
             row_count=int(run_row["total_rows"] or 0),

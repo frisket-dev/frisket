@@ -271,7 +271,7 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     ] == ["First page", "Second page"]
 
 
-def test_pdf_prepared_text_uses_renamed_output_column(
+def test_pdf_prepared_text_uses_renamed_generated_column(
     tmp_path: Path, make_project
 ) -> None:
     source = tmp_path / "renamed.pdf"

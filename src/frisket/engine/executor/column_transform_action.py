@@ -819,7 +819,7 @@ def build_column_transform_preview_plan(
                 PreviewColumn(
                     name=output_name,
                     column_type=output_type,
-                    overwrites_column_id=None,
+                    replaces_column_id=None,
                 )
             ],
             values={

@@ -80,7 +80,7 @@ def raw_cost_failures() -> list[str]:
         ):
             if not RAW_ESTIMATE_COST.search(line):
                 continue
-            if rel == "src/actions/quotedCost.ts":
+            if rel == "src/actions/estimatedCost.ts":
                 continue
             if rel == "src/api/actionEstimateValidation.ts" and WIRE_COST_PROJECTION.match(line):
                 continue

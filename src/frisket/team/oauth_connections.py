@@ -48,7 +48,7 @@ GoogleConnectionExchange = Callable[..., Awaitable[dict[str, Any] | None]]
 
 
 class TeamOAuthConnectionService:
-    """Single-org-safe connection store. `list_connections`/`_metadata` stay
+    """Single-organization-safe connection store. `list_connections`/`_metadata` stay
     token-free (browser-facing); `connection(..., include_refresh_token=True)`
     is the one path that decrypts a stored refresh token, and it exists for
     exactly one caller: the `connected_account_resolver` this module's app

@@ -75,7 +75,7 @@ def _protect(
     app: FastAPI,
     access: _RecordingProjectAccess,
     *,
-    org_role: Callable[[int, int], str | None] | None = None,
+    organization_role: Callable[[int, int], str | None] | None = None,
     actor: dict[str, Any] | None = ACTOR,
 ) -> FastAPI:
     def resolve_user(_request: Request) -> dict[str, Any] | None:
@@ -86,7 +86,7 @@ def _protect(
         resolve_user=resolve_user,
         admin_emails=lambda: {ACTOR["email"]},
         project_access=access,
-        org_role=org_role,
+        organization_role=organization_role,
     )
 
 
@@ -434,13 +434,13 @@ def test_project_invite_replay_and_stale_inviter_are_refused(tmp_path: Path) -> 
         engine.dispose()
 
 
-def test_org_role_port_takes_priority_over_server_admin_fallback(
+def test_organization_role_port_takes_priority_over_server_admin_fallback(
     tmp_path: Path,
 ) -> None:
     with_port = _protect(
         _core(tmp_path, "spend-with-org-role"),
         _RecordingProjectAccess("owner"),
-        org_role=lambda _user_id, _org_id: "member",
+        organization_role=lambda _user_id, _organization_id: "member",
     )
     without_port = _protect(
         _core(tmp_path, "spend-without-org-role"),
@@ -468,7 +468,7 @@ def test_org_role_port_takes_priority_over_server_admin_fallback(
         ("editor", "pat", 403),
     ),
 )
-def test_spend_requires_org_owner_or_admin_for_session_and_pat(
+def test_spend_requires_organization_owner_or_admin_for_session_and_pat(
     tmp_path: Path,
     role: str,
     auth: str,
@@ -480,7 +480,7 @@ def test_spend_requires_org_owner_or_admin_for_session_and_pat(
         _core(tmp_path, f"spend-{role}-{auth}"),
         access,
         actor=actor,
-        org_role=lambda _user_id, _org_id: role,
+        organization_role=lambda _user_id, _organization_id: role,
     )
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -494,13 +494,15 @@ def test_spend_requires_org_owner_or_admin_for_session_and_pat(
         )
 
 
-def test_spend_requires_authentication_before_org_resolution(tmp_path: Path) -> None:
+def test_spend_requires_authentication_before_organization_resolution(
+    tmp_path: Path,
+) -> None:
     access = _RecordingProjectAccess("owner")
     app = _protect(
         _core(tmp_path, "spend-anonymous"),
         access,
         actor=None,
-        org_role=lambda _user_id, _org_id: "owner",
+        organization_role=lambda _user_id, _organization_id: "owner",
     )
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -511,7 +513,7 @@ def test_spend_requires_authentication_before_org_resolution(tmp_path: Path) -> 
     assert access.required_roles == []
 
 
-def test_org_owner_fallback_satisfies_the_strongest_base_project_role(
+def test_organization_owner_fallback_satisfies_the_strongest_base_project_role(
     tmp_path: Path,
 ) -> None:
     engine = sa.create_engine(f"sqlite:///{tmp_path / 'roles.db'}", future=True)

@@ -106,7 +106,7 @@ def test_unavailable_binding_is_explicit_not_silently_all_rows(view_api):
     assert not project.views()
 
 
-def test_resolver_pagination_is_bounded_and_catalog_has_no_lenses(view_api):
+def test_resolver_pagination_is_bounded_and_catalog_has_no_views(view_api):
     client, pid, project, sheet, col, rows, selection = view_api
     view = client.post(
         f"/api/projects/{pid}/views", json={"name": "V", "selection": selection}

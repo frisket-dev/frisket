@@ -23,7 +23,7 @@
 //      "does a dispatch site exist" was evaded by nine commands whose only
 //      dispatch site was an unreachable
 //      switch case (view.grid/map/graph, discover.toggle, wrap.toggle,
-//      rowHeight.cycle, savedViews.toggle, provenance.toggle, palette.open —
+//      rowHeight.cycle, viewsStore.toggle, provenance.toggle, palette.open —
 //      all deleted, see REMOVED_COMMAND_TYPES);
 //   3. hostContext.navigation call sites — the concrete dispatchCommand(...)
 //      wrappers built in useWorkspaceModel.tsx's workbenchHostContext.navigation

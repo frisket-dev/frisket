@@ -19,7 +19,7 @@ it('marks real browsing edits modified without depending on JSON object key orde
   expect(sameViewDefinition(a, { presentation: a.presentation, selection: { ...selection } })).toBe(true);
   expect(sameViewDefinition(a, { ...a, selection: { ...selection, limit: 21 } })).toBe(false);
 });
-it('invalidates cached pages when any selection criterion or saved view identity changes', () => {
+it('invalidates cached pages when any selection criterion or view identity changes', () => {
   const key = computeRowCacheKey('1', 0, { selection });
   expect(computeRowCacheKey('1', 0, { selection: { ...selection, limit: 21 } })).not.toBe(key);
   expect(computeRowCacheKey('1', 0, { viewId: 4 })).not.toBe(computeRowCacheKey('1', 0, { viewId: 5 }));

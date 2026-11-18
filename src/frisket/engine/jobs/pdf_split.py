@@ -353,7 +353,7 @@ def register_pdf_split_handler(
     workspace_root: str | Path,
     queue: JobQueue,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     on_terminal_import: Callable[[str, str, int], None] | None = None,
     cancelled: Callable[[], bool] | None = None,
@@ -369,7 +369,7 @@ def register_pdf_split_handler(
         project_id, _, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             require_storage_identity=require_storage_identity
             or project_opener is not None,
         )

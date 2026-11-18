@@ -95,7 +95,7 @@ def test_browser_admin_users_and_all_mutations_use_the_canonical_wires(
         return True
 
     app, owner = _claimed_app(tmp_path, send_mail=mail)
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
 
     listed = owner.get("/api/admin/browser/users")
     assert listed.status_code == 200, listed.text
@@ -307,7 +307,7 @@ def test_browser_admin_audit_combines_filters_and_errors_honor_limit(
     tmp_path: Path,
 ) -> None:
     app, owner = _claimed_app(tmp_path)
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
     project_id = owner.post("/api/projects", json={"name": "Alpha"}).json()["id"]
     with app.state.control_engine.begin() as cx:
         owner_id = int(
@@ -414,7 +414,7 @@ def test_browser_admin_rejects_anonymous_member_and_pat_on_read_and_mutation(
     tmp_path: Path,
 ) -> None:
     app, owner = _claimed_app(tmp_path)
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
     anonymous = TestClient(app)
     member = _member_client(app)
     pat = owner.post("/api/org/tokens", json={"name": "browser-admin-probe"}).json()[
@@ -473,7 +473,7 @@ def test_operator_token_can_create_and_revoke_invites_on_the_browser_wire(
     tmp_path: Path,
 ) -> None:
     app, _owner = _claimed_app(tmp_path)
-    org_id = app.state.team_org_id
+    org_id = app.state.team_organization_id
     operator_token, _label = mint_operator_token(
         app.state.control_engine, org_id=org_id, label="invite-wires"
     )

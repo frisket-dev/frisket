@@ -326,7 +326,7 @@ class Recipe:
     action_lifecycle_only: bool = False
     # Most recipes hide freshly-created columns when every row fails. Some
     # deterministic families retain useful, retryable per-row errors instead.
-    keep_zero_success_output_columns: bool = False
+    keep_zero_success_generated_columns: bool = False
     # Private runner-facing error location for the source control. Typed
     # Typed ModelRows uses one canonical ``source`` union instead of legacy columns.
     empty_input_error_field: str = "params.input_columns"

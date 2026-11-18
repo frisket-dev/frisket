@@ -1,5 +1,5 @@
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
-import type { MediaProxyStatus, OrgEnvInfo } from './types';
+import type { MediaProxyStatus, OrganizationEnvInfo } from './types';
 
 type OrganizationEnvSaveWire =
   HttpContractSuccessResponse<'outer.set_org_env_var.post'>;
@@ -26,7 +26,7 @@ function mapMediaStatus(wire: OrganizationMediaProxyStatusWire): MediaProxyStatu
 
 export function createOrganizationOperationsApi() {
   return {
-    listOrgEnvVars(options: RequestOptions = {}): Promise<OrgEnvInfo[]> {
+    listOrganizationEnvVars(options: RequestOptions = {}): Promise<OrganizationEnvInfo[]> {
       return httpContract(
         'outer.list_org_env_vars.get',
         {
@@ -35,7 +35,7 @@ export function createOrganizationOperationsApi() {
       );
     },
 
-    setOrgEnvVar(name: string, value: string, options: RequestOptions = {}): Promise<void> {
+    setOrganizationEnvVar(name: string, value: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.set_org_env_var.post',
         {
@@ -46,7 +46,7 @@ export function createOrganizationOperationsApi() {
       );
     },
 
-    deleteOrgEnvVar(name: string, options: RequestOptions = {}): Promise<void> {
+    deleteOrganizationEnvVar(name: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         'outer.delete_org_env_var.delete',
         {
@@ -58,7 +58,7 @@ export function createOrganizationOperationsApi() {
     },
 
     /** Egress-proxy status for the youtube_provider_blocked remediation card.
-     *  Local tier (no org identity) 404s — callers branch on ApiError.status. */
+     *  Local tier (no organization identity) 404s — callers branch on ApiError.status. */
     getMediaProxyStatus(options: RequestOptions = {}): Promise<MediaProxyStatus> {
       return httpContract(
         'outer.org_media_proxy_status.get',

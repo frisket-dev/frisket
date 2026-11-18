@@ -395,10 +395,12 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     tmp_path: Path,
 ) -> None:
     registered_root = tmp_path / "data" / "projects"
-    org_root = registered_root / "1"
-    org_root.mkdir(parents=True)
+    organization_root = registered_root / "1"
+    organization_root.mkdir(parents=True)
     project_id = "hosted-delivery-root"
-    project = Project.create(org_root / f"{project_id}.frisket", name=project_id)
+    project = Project.create(
+        organization_root / f"{project_id}.frisket", name=project_id
+    )
     try:
         channel = project.create_notification_channel(
             kind="email",
@@ -448,7 +450,7 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     )
     enqueue_notification_delivery(
         queue,
-        workspace_root=org_root,
+        workspace_root=organization_root,
         project_id=project_id,
         request_id=request_id,
     )
@@ -456,7 +458,7 @@ def test_notification_delivery_handler_uses_payload_workspace_root(
     worker = Worker(queue, registry, worker_id="hosted-root", retry_base_seconds=0)
     assert worker.run_once() is True
 
-    project = Project(org_root / f"{project_id}.frisket")
+    project = Project(organization_root / f"{project_id}.frisket")
     try:
         request = project.public_notification_delivery_request(request_id)
         assert request["status"] == "sent"

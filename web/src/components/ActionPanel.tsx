@@ -547,7 +547,7 @@ export function ActionPanel({
     return {
       ...common,
       kind: actionCompareLaunch.kind,
-      expectedOutputColumns: Object.fromEntries(actionCompareLaunch.context.replacement_targets.map(
+      expectedGeneratedColumns: Object.fromEntries(actionCompareLaunch.context.replacement_targets.map(
         (target) => [target.current_name, target.column_id],
       )),
     };

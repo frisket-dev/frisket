@@ -63,8 +63,8 @@ export interface AnnotationToggle {
   /** The column the producer wrote its result into. The name is shown only to
    *  disambiguate two toggles of the same family (two NER runs, two columns);
    *  the id is where a replay of the stored action starts. */
-  outputColumnId: string;
-  outputColumnName: string | null;
+  generatedColumnId: string;
+  generatedColumnName: string | null;
   enabled: boolean;
   /** Marks currently drawable, or — when the layer cannot be positioned — its
    *  LAST-KNOWN total, which is the only honest number left. */
@@ -125,8 +125,8 @@ export function annotationToggles(
       toggleKey: layer.toggleKey,
       layerFamily: layer.layerFamily,
       label: layerFamilyLabel(layer.layerFamily),
-      outputColumnId: layer.outputColumn.id,
-      outputColumnName: layer.outputColumn.name,
+      generatedColumnId: layer.generatedColumn.id,
+      generatedColumnName: layer.generatedColumn.name,
       enabled: !disabled.has(layer.toggleKey),
       count,
       positioned: layer.positioned,
@@ -168,7 +168,7 @@ function spanToMark(span: TextAnnotationSpan, layer: TextAnnotationLayer): Annot
     layerFamily: layer.layerFamily,
     entityType: span.entityType,
     entityFingerprint: span.entityFingerprint,
-    entityColumnId: layer.outputColumn.id,
+    entityColumnId: layer.generatedColumn.id,
     start: span.start,
     end: span.end,
     quote: span.quote,

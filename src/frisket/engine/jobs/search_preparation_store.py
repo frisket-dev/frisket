@@ -358,7 +358,7 @@ class SearchPreparationStore:
             + canonical_plan_hash({"sheet_id": sheet_id, "sources": scope["sources"]})
         )
         c = search_preparation_batches_table.c
-        org = (
+        organization = (
             c.storage_org_id.is_(None)
             if storage_org_id is None
             else c.storage_org_id == storage_org_id
@@ -369,7 +369,7 @@ class SearchPreparationStore:
                     sa.select(search_preparation_batches_table)
                     .where(
                         c.workspace_root == self.workspace_root,
-                        org,
+                        organization,
                         c.project_id == project_id,
                         c.id == pending.id
                         if pending is not None

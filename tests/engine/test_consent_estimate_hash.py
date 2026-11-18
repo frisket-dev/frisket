@@ -12,8 +12,8 @@ import pytest
 
 from frisket.engine.runner.confirmation_context import (
     KNOWN_DISPLAY_KEYS,
-    ConsentQuoteRefused,
-    ConsentQuote,
+    ConsentEstimateRefused,
+    ConsentEstimate,
     rate_estimate,
 )
 from frisket.engine.runner.validation import confirmation_context_hash
@@ -73,7 +73,7 @@ def rated_digest(estimate: dict[str, Any]) -> str:
 def digest(estimate: dict[str, Any]) -> str:
     """The real path: rate through base's identity policy, then hash.
 
-    Rating is not optional at a money mint — ``ConsentQuote`` refuses an
+    Rating is not optional at a money mint — ``ConsentEstimate`` refuses an
     estimate no policy has touched — so a test that hashed a bare producer
     shape would be testing a state that cannot reach a user.
     """
@@ -219,7 +219,7 @@ def test_display_fields_do_not_change_the_digest() -> None:
     # the same thing there, and that thing is a refusal, not a quote. Its
     # own behaviour is pinned by
     # ``test_an_unrated_estimate_refuses_to_mint_a_money_consent``.
-    sorted(set(ConsentQuote.model_fields) - {"policy_id"}),
+    sorted(set(ConsentEstimate.model_fields) - {"policy_id"}),
 )
 def test_absent_and_null_project_identically(field: str) -> None:
     """Producers are inconsistent about omitting versus nulling a key
@@ -236,13 +236,13 @@ def test_absent_and_null_project_identically(field: str) -> None:
 
 
 def test_basis_is_frozen_and_closed() -> None:
-    basis = ConsentQuote.from_estimate(
+    basis = ConsentEstimate.from_estimate(
         rate_estimate(PRICED_ESTIMATE, policy=IDENTITY_PRICING_POLICY)
     )
     with pytest.raises(ValueError):
         basis.cost = 1.0  # type: ignore[misc]
     with pytest.raises(ValueError):
-        ConsentQuote(pages=42)  # type: ignore[call-arg]
+        ConsentEstimate(pages=42)  # type: ignore[call-arg]
 
 
 def test_an_unrated_estimate_refuses_to_mint_a_money_consent() -> None:
@@ -257,7 +257,7 @@ def test_an_unrated_estimate_refuses_to_mint_a_money_consent() -> None:
 
     Sever ``rate_estimate`` from any family's mint and this is what fires.
     """
-    with pytest.raises(ConsentQuoteRefused) as caught:
+    with pytest.raises(ConsentEstimateRefused) as caught:
         rated_digest(PRICED_ESTIMATE)
     assert caught.value.key == "policy_id"
 
@@ -268,7 +268,7 @@ def test_billed_cost_must_be_whole_micro_dollars() -> None:
     number the user never saw inside their consent."""
     rated = rate_estimate(PRICED_ESTIMATE, policy=IDENTITY_PRICING_POLICY)
     for bad in (0.0075, -1, "7500"):
-        with pytest.raises(ConsentQuoteRefused) as caught:
+        with pytest.raises(ConsentEstimateRefused) as caught:
             rated_digest({**rated, "billed_cost": bad})
         assert caught.value.key == "billed_cost"
 
@@ -297,12 +297,12 @@ def test_non_finite_cost_refuses(spelling: str) -> None:
     ``model_dump(mode="json")`` + ``json.dumps`` would hash NaN, Inf, and an
     honestly-unknown cost identically."""
 
-    with pytest.raises(ConsentQuoteRefused) as caught:
+    with pytest.raises(ConsentEstimateRefused) as caught:
         digest({**PRICED_ESTIMATE, "cost": NON_FINITE[spelling]})
     assert caught.value.key == "cost"
 
 
-def test_non_finite_cost_never_matches_the_unknown_cost_quote() -> None:
+def test_non_finite_cost_never_matches_the_unknown_cost_estimate() -> None:
     """The inequality the refusal protects, asserted against the digest that
     would swallow it: a run whose cost is not a number must never be
     admitted under the consent a user gave for a run whose cost is honestly
@@ -312,7 +312,7 @@ def test_non_finite_cost_never_matches_the_unknown_cost_quote() -> None:
     unknown = digest({**PRICED_ESTIMATE, "cost": None})
     assert len(unknown) == 64
     for value in NON_FINITE.values():
-        with pytest.raises(ConsentQuoteRefused):
+        with pytest.raises(ConsentEstimateRefused):
             digest({**PRICED_ESTIMATE, "cost": value})
 
 
@@ -339,7 +339,7 @@ MALFORMED: dict[str, tuple[str, Any]] = {
 @pytest.mark.parametrize("case", sorted(MALFORMED))
 def test_malformed_money_value_refuses_by_name(case: str) -> None:
     key, value = MALFORMED[case]
-    with pytest.raises(ConsentQuoteRefused) as caught:
+    with pytest.raises(ConsentEstimateRefused) as caught:
         digest({**PRICED_ESTIMATE, key: value})
     assert caught.value.key == key
     # The offending VALUE never reaches the message (a pydantic
@@ -355,13 +355,13 @@ def test_unclassified_estimate_key_refuses() -> None:
     stay echo-valid for a $5.00 dispatch. An unclassified key refuses until
     a human files it as money (a basis field) or display (a roster line)."""
 
-    with pytest.raises(ConsentQuoteRefused) as caught:
+    with pytest.raises(ConsentEstimateRefused) as caught:
         digest({**PRICED_ESTIMATE, "surcharge": 4.0})
     assert caught.value.key == "surcharge"
 
 
 def test_display_roster_and_basis_fields_are_disjoint() -> None:
-    assert not KNOWN_DISPLAY_KEYS & set(ConsentQuote.model_fields)
+    assert not KNOWN_DISPLAY_KEYS & set(ConsentEstimate.model_fields)
 
 
 def test_every_display_key_used_by_the_tests_is_rostered() -> None:
@@ -392,7 +392,7 @@ def test_only_the_routed_recipes_consume_resolution() -> None:
     set.
 
     If any declaration flips, this goes red and its quantity key must move up
-    into ``ConsentQuote`` — otherwise an unpriced 900-page job and an
+    into ``ConsentEstimate`` — otherwise an unpriced 900-page job and an
     unpriced 3-page job would share one consent.
     """
 
@@ -514,7 +514,7 @@ def test_pinned_producer_shapes_project_without_refusing(shape: dict[str, Any]) 
 
 def test_every_unrouted_recipe_overriding_estimate_has_a_pinned_shape() -> None:
     """Closure over the typed project-run programs, so roster drift is one
-    named failure here rather than ``ConsentQuoteRefused`` surfacing in
+    named failure here rather than ``ConsentEstimateRefused`` surfacing in
     unrelated suites.
 
     The recipe registry is retired; every queued program is reconstructed

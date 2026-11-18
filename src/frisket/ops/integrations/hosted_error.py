@@ -66,7 +66,7 @@ def transport_outcome_is_uncertain(error: BaseException) -> bool:
     )
 
 
-async def call_hosted_json(
+async def call_remote_json(
     make_request: Callable[[], Awaitable[httpx.Response]],
     *,
     error_cls: type[HostedEngineError],

@@ -66,7 +66,7 @@ class PdfSplitPageTarget:
         object.__setattr__(self, "blob_hash", "sha256:" + digest)
 
     @property
-    def approval_identity(self) -> dict[str, Any]:
+    def consent_identity(self) -> dict[str, Any]:
         value = asdict(self)
         value.pop("source_artifact_id")
         return value
@@ -208,7 +208,7 @@ class PdfSplitPreparationStore:
                             and self.cached_preview(target) is None
                         )
                     )
-                    and {"work_key": target.work_key, **target.approval_identity}
+                    and {"work_key": target.work_key, **target.consent_identity}
                     not in grant.scope["targets"]
                 ):
                     raise ValueError("source page is outside the approved plan")
@@ -220,7 +220,7 @@ class PdfSplitPreparationStore:
                     if (
                         self.cached_ref(target) is None
                         and self.cached_preview(target) is None
-                        and {"work_key": target.work_key, **target.approval_identity}
+                        and {"work_key": target.work_key, **target.consent_identity}
                         not in grant.scope["targets"]
                     ):
                         raise ValueError("source page is outside the approved plan")
@@ -503,7 +503,7 @@ class PdfSplitPreparationStore:
             )
 
     def _plan_grant(self, plan_token: str):
-        from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
+        from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrGrant
 
         row = self.db.execute(
             "SELECT grant_json FROM pdf_split_page_grants WHERE plan_token=?",
@@ -656,7 +656,7 @@ class PdfSplitPreparationAdapter:
             lease.close()
             raise
 
-    def quote(
+    def estimate(
         self,
         *,
         targets: Sequence[PdfSplitPageTarget],
@@ -664,10 +664,10 @@ class PdfSplitPreparationAdapter:
         request_context: Any = None,
         force_rescan: bool = False,
     ) -> dict[str, Any]:
-        from frisket.engine.runner.confirmation_context import ConsentQuote
+        from frisket.engine.runner.confirmation_context import ConsentEstimate
         from frisket.execution.resolve_for_action import promise_rows, target_snapshot
         from frisket.server.services.action_preview_runs import _scratch_claims
-        from frisket.server.services.pdf_import_ocr_approval import (
+        from frisket.server.services.pdf_import_ocr_consent import (
             _route_snapshot,
             source_page_ocr_grant,
         )
@@ -696,7 +696,7 @@ class PdfSplitPreparationAdapter:
                     or store.cached_preview(target) is not None
                 ):
                     continue
-                roster.append({"work_key": target.work_key, **target.approval_identity})
+                roster.append({"work_key": target.work_key, **target.consent_identity})
                 if target.work_key in seen:
                     continue
                 seen.add(target.work_key)
@@ -717,7 +717,7 @@ class PdfSplitPreparationAdapter:
                             "target": target_snapshot(resolved.resolution),
                             "route": _route_snapshot(resolved),
                             "promises": promise_rows(resolved.promise_set),
-                            "quote": ConsentQuote.from_estimate(estimate).model_dump(
+                            "quote": ConsentEstimate.from_estimate(estimate).model_dump(
                                 mode="json"
                             ),
                         }
@@ -734,7 +734,7 @@ class PdfSplitPreparationAdapter:
                 },
                 "authorization": None,
             }
-        quoted = source_page_ocr_grant(
+        estimated = source_page_ocr_grant(
             project_id=self.project_id,
             plan_token=plan_token,
             project=project,
@@ -747,16 +747,18 @@ class PdfSplitPreparationAdapter:
         with PdfSplitPreparationStore(self.inventory_path) as store, store.db:
             store.db.execute(
                 "INSERT OR REPLACE INTO pdf_split_page_quotes VALUES(?,?)",
-                (plan_token, _json(quoted.authorization)),
+                (plan_token, _json(estimated.authorization)),
             )
-        return {"pages": len(children), **quoted.as_mapping()}
+        return {"pages": len(children), **estimated.as_mapping()}
 
-    def approve(self, quoted: Mapping[str, Any], *, confirmation: str | None) -> None:
-        from frisket.server.services.pdf_import_ocr_approval import PdfImportOcrGrant
+    def approve(
+        self, estimated: Mapping[str, Any], *, confirmation: str | None
+    ) -> None:
+        from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrGrant
 
-        if quoted["authorization"] is None:
+        if estimated["authorization"] is None:
             return
-        grant = PdfImportOcrGrant.from_mapping(quoted["authorization"])
+        grant = PdfImportOcrGrant.from_mapping(estimated["authorization"])
         if grant.scope.get("project_id") != self.project_id:
             raise ValueError("source-page approval belongs to another project")
         with PdfSplitPreparationStore(self.inventory_path) as store:
@@ -1021,7 +1023,7 @@ class PdfSplitPreparationAdapter:
         parent_receipt_id: str | None = None,
     ) -> tuple[dict[str, Any], ...]:
         from dataclasses import replace
-        from frisket.server.services.pdf_import_ocr_approval import (
+        from frisket.server.services.pdf_import_ocr_consent import (
             source_page_ocr_authorizer,
         )
 
@@ -1064,7 +1066,7 @@ class PdfSplitPreparationAdapter:
                 grant,
                 project_id=self.project_id,
                 plan_token=str(grant.scope["plan_token"]),
-                target=work.target.approval_identity,
+                target=work.target.consent_identity,
                 work_key=work.work_key,
             )
             with PdfSplitPreparationStore(self.inventory_path) as store:
@@ -1211,7 +1213,7 @@ class PdfSplitPreparationAdapter:
                 admission = nullcontext(None)
                 receipt_id = None
                 if parent_receipt_id is not None and import_child_port(self.workspace):
-                    quote = self.preview_runs.scratch_estimate(self.project_id, plan)
+                    estimate = self.preview_runs.scratch_estimate(self.project_id, plan)
                     receipt_id = (
                         "receipt_"
                         + hashlib.sha256(
@@ -1223,7 +1225,7 @@ class PdfSplitPreparationAdapter:
                         self.project_id,
                         parent_receipt_id,
                         child_key,
-                        quote,
+                        estimate,
                         receipt_id=receipt_id,
                     )
                 with admission as child_context:
@@ -1310,14 +1312,14 @@ class PdfSplitPreparationAdapter:
         original_publication: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], ...]:
         """Run explicitly requested sample OCR under its earlier preparation op."""
-        quoted = self.quote(
+        estimated = self.estimate(
             targets=targets,
             plan_token=plan_token,
             request_context=request_context,
             force_rescan=force_rescan,
         )
-        self.approve(quoted, confirmation=confirmation)
-        if quoted["authorization"] is None:
+        self.approve(estimated, confirmation=confirmation)
+        if estimated["authorization"] is None:
             return ()
         with PdfSplitPreparationStore(self.inventory_path) as store:
             store.admit(

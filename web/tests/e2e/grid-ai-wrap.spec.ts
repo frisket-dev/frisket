@@ -72,7 +72,7 @@ test('a generated markdown column inherits wrap text before and after reload', a
   const generated = seedGeneratedCellEvidence({
     pid,
     sheetId,
-    outputColumnName: columnName,
+    generatedColumnName: columnName,
     outputValue: 'The council approved a long riverfront contract after several hours of public testimony from neighborhood residents.',
     producerKind: 'map.extract',
   });
@@ -106,7 +106,7 @@ test('a generated plain-text column soft-wraps before canvas drawing', async ({ 
 
   const pid = await createProject(page.request, uniqueName('grid-ai-soft-wrap'));
   const sheetId = await importCsv(page.request, pid, 'notes.csv', 'source\nseed\n');
-  seedGeneratedCellEvidence({ pid, sheetId, outputColumnName: 'summary', outputValue, producerKind: 'map.summarize' });
+  seedGeneratedCellEvidence({ pid, sheetId, generatedColumnName: 'summary', outputValue, producerKind: 'map.summarize' });
 
   await openProject(page, pid, sheetId);
   const wrap = page.getByTestId('toggle-wrap');

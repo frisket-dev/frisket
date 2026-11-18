@@ -75,8 +75,8 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
             execution_context=ExecutionCompositionContext(
                 storage_key=None,
                 run_id=None,
-                trusted_job_org_id=(
-                    ExecutionCompositionContext.direct().trusted_job_org_id
+                trusted_job_organization_id=(
+                    ExecutionCompositionContext.direct().trusted_job_organization_id
                 ),
                 edition_snapshot=original_context,
             ),
@@ -99,8 +99,8 @@ def test_map_find_queue_persists_original_edition_context_on_receipt_replay(
             execution_context=ExecutionCompositionContext(
                 storage_key=None,
                 run_id=None,
-                trusted_job_org_id=(
-                    ExecutionCompositionContext.direct().trusted_job_org_id
+                trusted_job_organization_id=(
+                    ExecutionCompositionContext.direct().trusted_job_organization_id
                 ),
                 edition_snapshot={"reservation_id": 999},
             ),
@@ -204,7 +204,7 @@ def _runless_handler_case(
     from frisket.engine.store.runs import RunResultStore
     from frisket.project_identity import ProjectStorageKey
 
-    trusted_org_id = 42
+    trusted_organization_id = 42
     trusted_project_id = f"runless-{terminal_status}"
     untrusted_project_id = "payload-project-must-not-fund"
     project = Project.create(tmp_path / f"{trusted_project_id}.frisket")
@@ -213,7 +213,7 @@ def _runless_handler_case(
         params={},
         idempotency_key=f"runless-settlement-{terminal_status}@sha256:stable",
     )
-    context = {"reservation_id": 101, "funding_account_id": trusted_org_id}
+    context = {"reservation_id": 101, "funding_account_id": trusted_organization_id}
     reservation = reserve_queued_action_job_receipt(
         project,
         action,
@@ -274,7 +274,7 @@ def _runless_handler_case(
         "project_id": untrusted_project_id,
         "action_job": envelope.to_json(),
         CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: ProjectStorageKey(
-            storage_org_id=trusted_org_id,
+            storage_org_id=trusted_organization_id,
             project_slug=trusted_project_id,
         ),
     }
@@ -310,13 +310,15 @@ def _runless_handler_case(
             admission_port=_RefuseAdmission() if refuse_before_egress else None,
         ),
         require_storage_identity=True,
-        workspace_root_storage_org_id=trusted_org_id,
+        workspace_root_storage_organization_id=trusted_organization_id,
     )
     handler = registry.get(ACTION_RUN_KIND)
     assert handler is not None
     result = handler(
         payload,
-        JobHandlerContext.from_claimed_job(trusted_org_id=trusted_org_id),
+        JobHandlerContext.from_claimed_job(
+            trusted_organization_id=trusted_organization_id
+        ),
     )
     observed_project = Project(tmp_path / f"{trusted_project_id}.frisket")
     try:

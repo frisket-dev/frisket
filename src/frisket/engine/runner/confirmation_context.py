@@ -9,7 +9,7 @@ with the other's; nothing in the payloads said which family produced them.
 This module holds one envelope and one mint:
 
   * :class:`MoneyConfirmationContext` — a gate that costs money. Carries a
-    :class:`ConsentQuote`, the typed projection of the money-bearing
+    :class:`ConsentEstimate`, the typed projection of the money-bearing
     estimate fields.
   * :class:`ScopeConfirmationContext` — a gate that binds SCOPE and has no
     price at all (``derive.join``'s fan-out cap, ``derive.collection_expand``'s
@@ -36,7 +36,7 @@ Two projection policies, and they differ for a reason (see
 
   * The recipe lane DROPS rostered display keys. Adding a page count or a
     warning to a recipe's ``estimate()`` must not invalidate every persisted
-    consent — that is the defect ``ConsentQuote`` was introduced to fix — so
+    consent — that is the defect ``ConsentEstimate`` was introduced to fix — so
     the roster is a closed classification and an unclassified key REFUSES at
     mint rather than silently changing (or silently not changing) the quote.
   * The executor families BIND every non-quote key. They hash their whole
@@ -66,7 +66,7 @@ from frisket.execution.pricing_policy import (
     MICROS_PER_USD,
     PersistedRating,
     PricingPolicy,
-    QuoteFacts,
+    EstimateFacts,
     Rating,
     Unpriceable,
     usd_to_micros,
@@ -94,7 +94,7 @@ _HASHABLE_PAYLOAD = ConfigDict(
 )
 
 
-class ConsentQuoteRefused(ValueError):
+class ConsentEstimateRefused(ValueError):
     """An estimate whose money facts cannot be projected — so no confirmation
     hash exists for it, at mint or at dispatch.
 
@@ -121,12 +121,12 @@ class ConsentQuoteRefused(ValueError):
         self.key = key
 
 
-def _quote_amount(estimate: Mapping[str, Any], key: str) -> float | None:
+def _estimate_amount(estimate: Mapping[str, Any], key: str) -> float | None:
     value = estimate.get(key)
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ConsentQuoteRefused(key, "is not a number")
+        raise ConsentEstimateRefused(key, "is not a number")
     if not math.isfinite(value):
         # Refused HERE, by name, rather than four frames later inside
         # json.dumps(allow_nan=False) as a bare "Out of range float values"
@@ -138,32 +138,32 @@ def _quote_amount(estimate: Mapping[str, Any], key: str) -> float | None:
         # so a payload encoded with model_dump_json() rather than
         # model_dump(mode="json") + json.dumps would hash NaN, +Inf, and an
         # honestly-unknown cost identically — three quotes, one consent.
-        raise ConsentQuoteRefused(key, "is not a finite number")
+        raise ConsentEstimateRefused(key, "is not a finite number")
     return float(value)
 
 
-def _quote_count(estimate: Mapping[str, Any], key: str) -> int | None:
+def _estimate_count(estimate: Mapping[str, Any], key: str) -> int | None:
     value = estimate.get(key)
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ConsentQuoteRefused(key, "is not a whole count")
+        raise ConsentEstimateRefused(key, "is not a whole count")
     return value
 
 
-def _quote_name(estimate: Mapping[str, Any], key: str) -> str | None:
+def _estimate_name(estimate: Mapping[str, Any], key: str) -> str | None:
     value = estimate.get(key)
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ConsentQuoteRefused(key, "is not a string")
+        raise ConsentEstimateRefused(key, "is not a string")
     return value
 
 
-def _quote_micros(estimate: Mapping[str, Any], key: str) -> int | None:
+def _estimate_micros(estimate: Mapping[str, Any], key: str) -> int | None:
     """A rated money figure, in integer micro-dollars.
 
-    Stricter than :func:`_quote_amount` on purpose: a rated figure is minted
+    Stricter than :func:`_estimate_amount` on purpose: a rated figure is minted
     by a pricing policy through :func:`usd_to_micros`, never typed by a recipe
     author, so a float or a negative here is a broken policy rather than a
     sloppy estimate — and both would put a number the user never saw inside
@@ -173,24 +173,24 @@ def _quote_micros(estimate: Mapping[str, Any], key: str) -> int | None:
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ConsentQuoteRefused(key, "is not a whole number of micro-dollars")
+        raise ConsentEstimateRefused(key, "is not a whole number of micro-dollars")
     if value < 0:
-        raise ConsentQuoteRefused(key, "is negative")
+        raise ConsentEstimateRefused(key, "is negative")
     return value
 
 
-def _quote_flag(estimate: Mapping[str, Any], key: str) -> bool:
+def _estimate_flag(estimate: Mapping[str, Any], key: str) -> bool:
     value = estimate.get(key)
     if value is None:
         return False
     if not isinstance(value, bool):
         # Coercing would make the string "false" mean True in the hash.
-        raise ConsentQuoteRefused(key, "is not a bool")
+        raise ConsentEstimateRefused(key, "is not a bool")
     return value
 
 
 # Every estimate key this codebase produces that is NOT money-bearing, with
-# the producer that emits it. Together with ``ConsentQuote``'s fields
+# the producer that emits it. Together with ``ConsentEstimate``'s fields
 # this is a CLOSED classification of the estimate envelope: a key in neither
 # set refuses at mint (see ``from_estimate``), which is what makes the
 # projection mechanically complete instead of remembered. Adding a key to a
@@ -210,7 +210,7 @@ KNOWN_DISPLAY_KEYS = frozenset(
 )
 
 
-class ConsentQuote(ContractModel):
+class ConsentEstimate(ContractModel):
     """The money-bearing projection of an estimate that a confirmation binds.
 
     The estimate envelope carries two kinds of field: what the run will cost
@@ -263,13 +263,13 @@ class ConsentQuote(ContractModel):
     billed_cost: int | None = None
     policy_id: str = Field(min_length=1)
     # Who gets paid / where the data goes. Both explicit confirmation and
-    # standing cost preapproval cover this provider call, including its inputs.
+    # standing allowance cover this provider call, including its inputs.
     engine: str | None = None
     requires_confirmation: bool = False
     remote_capability: str | None = None
 
     @classmethod
-    def from_estimate(cls, estimate: Mapping[str, Any]) -> ConsentQuote:
+    def from_estimate(cls, estimate: Mapping[str, Any]) -> ConsentEstimate:
         """The ONE projection site. Both the 402 mint and the dispatch
         recompute reach it through ``confirmation_context_hash``; adding a
         money-bearing fact is a field above plus a line here, never a second
@@ -280,18 +280,18 @@ class ConsentQuote(ContractModel):
         it prevents is the silent one: a surcharge key added to an estimate
         would otherwise leave a $1.00 consent echo-valid for a $5.00
         dispatch, with nothing red anywhere. A malformed value refuses for
-        the same reason — see ``ConsentQuoteRefused``."""
+        the same reason — see ``ConsentEstimateRefused``."""
 
         unclassified = sorted(
             set(estimate) - set(cls.model_fields) - KNOWN_DISPLAY_KEYS
         )
         if unclassified:
-            raise ConsentQuoteRefused(
+            raise ConsentEstimateRefused(
                 unclassified[0],
-                "is neither a ConsentQuote field nor a known display key, "
+                "is neither a ConsentEstimate field nor a known display key, "
                 "so nobody has decided whether it changes what this run costs",
             )
-        policy_id = _quote_name(estimate, POLICY_ID_KEY)
+        policy_id = _estimate_name(estimate, POLICY_ID_KEY)
         if not policy_id:
             # THE fence for the whole pricing-policy seam, and the reason it
             # is a required field rather than an optional one. A money gate
@@ -302,23 +302,23 @@ class ConsentQuote(ContractModel):
             # family's mint reaches, instead of at each of the mint sites,
             # because a fence at the sites is a list somebody has to keep
             # complete. ``rate_estimate`` is what fills it.
-            raise ConsentQuoteRefused(
+            raise ConsentEstimateRefused(
                 POLICY_ID_KEY,
                 "is absent, so no pricing policy ever rated this quote and "
                 "the billed figure is unknown",
             )
         return cls(
-            cost=_quote_amount(estimate, "cost"),
-            rows=_quote_count(estimate, "rows"),
-            cost_source=_quote_name(estimate, "cost_source"),
-            pricing_key=_quote_name(estimate, "pricing_key"),
-            billed_cost=_quote_micros(estimate, BILLED_COST_KEY),
+            cost=_estimate_amount(estimate, "cost"),
+            rows=_estimate_count(estimate, "rows"),
+            cost_source=_estimate_name(estimate, "cost_source"),
+            pricing_key=_estimate_name(estimate, "pricing_key"),
+            billed_cost=_estimate_micros(estimate, BILLED_COST_KEY),
             policy_id=policy_id,
-            engine=_quote_name(estimate, "engine"),
+            engine=_estimate_name(estimate, "engine"),
             # Absent means "no confirmation demanded" to every gate that
             # reads this key, so it projects to False, not to None.
-            requires_confirmation=_quote_flag(estimate, "requires_confirmation"),
-            remote_capability=_quote_name(estimate, "remote_capability"),
+            requires_confirmation=_estimate_flag(estimate, "requires_confirmation"),
+            remote_capability=_estimate_name(estimate, "remote_capability"),
         )
 
 
@@ -328,24 +328,24 @@ class ConsentQuote(ContractModel):
 # ---------------------------------------------------------------------------
 
 
-def quote_facts(estimate: Mapping[str, Any]) -> QuoteFacts:
+def estimate_facts(estimate: Mapping[str, Any]) -> EstimateFacts:
     """The neutral provider-side facts a pricing policy rates over.
 
     Projected through the same by-name refusals the quote itself uses, so a
     malformed cost is named once — here — rather than reaching a deployment's
     tariff function as a string and coming back as a confident number.
     """
-    cost = _quote_amount(estimate, "cost")
-    return QuoteFacts(
+    cost = _estimate_amount(estimate, "cost")
+    return EstimateFacts(
         provider_cost=None if cost is None else usd_to_micros(cost),
-        cost_source=_quote_name(estimate, "cost_source"),
-        pricing_key=_quote_name(estimate, "pricing_key"),
-        engine=_quote_name(estimate, "engine"),
-        rows=_quote_count(estimate, "rows"),
+        cost_source=_estimate_name(estimate, "cost_source"),
+        pricing_key=_estimate_name(estimate, "pricing_key"),
+        engine=_estimate_name(estimate, "engine"),
+        rows=_estimate_count(estimate, "rows"),
     )
 
 
-def persisted_rating(quote: ConsentQuote) -> PersistedRating:
+def persisted_rating(estimate: ConsentEstimate) -> PersistedRating:
     """Dispatch's read half: the rated projection of a persisted consent.
 
     Exactly two fields, and nothing else — every neutral fact beside them is
@@ -354,7 +354,9 @@ def persisted_rating(quote: ConsentQuote) -> PersistedRating:
     never bound by the user's approval, and inventing them here would be a
     fabricated fact riding inside a money verification.
     """
-    return PersistedRating(billed_cost=quote.billed_cost, policy_id=quote.policy_id)
+    return PersistedRating(
+        billed_cost=estimate.billed_cost, policy_id=estimate.policy_id
+    )
 
 
 def apply_rating(
@@ -362,7 +364,7 @@ def apply_rating(
 ) -> dict[str, Any]:
     """Fold a rating onto an estimate envelope, additively.
 
-    Two keys, and they are ConsentQuote fields, so they ride into the hash,
+    Two keys, and they are ConsentEstimate fields, so they ride into the hash,
     into the 402's ``estimate_details``, and onto the estimate endpoint's
     payload through the paths those facts already travel — no enumeration of
     response builders, and no second representation of one fact.
@@ -375,7 +377,7 @@ def apply_rating(
     return rated
 
 
-def quoted_usd(estimate: Mapping[str, Any]) -> float | None:
+def estimated_usd(estimate: Mapping[str, Any]) -> float | None:
     """The dollar figure a gate is asking the user to agree to, or ``None``
     for a policy's explicit "cannot say".
 
@@ -405,18 +407,18 @@ def quoted_usd(estimate: Mapping[str, Any]) -> float | None:
     the two nulls would collapse and malformed/unrated work could be admitted
     on the provider's cheaper figure.
     """
-    policy_id = _quote_name(estimate, POLICY_ID_KEY)
+    policy_id = _estimate_name(estimate, POLICY_ID_KEY)
     if not policy_id:
-        raise ConsentQuoteRefused(
+        raise ConsentEstimateRefused(
             POLICY_ID_KEY,
             "is absent, so no pricing policy rated this quote",
         )
     if BILLED_COST_KEY not in estimate:
-        raise ConsentQuoteRefused(
+        raise ConsentEstimateRefused(
             BILLED_COST_KEY,
             "is absent, so the policy verdict is incomplete",
         )
-    billed = _quote_micros(estimate, BILLED_COST_KEY)
+    billed = _estimate_micros(estimate, BILLED_COST_KEY)
     return None if billed is None else billed / MICROS_PER_USD
 
 
@@ -430,7 +432,7 @@ def rate_estimate(
     shown, so the figure in the 402 message, the figure in the hash, and the
     figure the modal renders are one number that was computed once.
     """
-    return apply_rating(estimate, policy.rate(quote_facts(estimate)))
+    return apply_rating(estimate, policy.rate(estimate_facts(estimate)))
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +511,7 @@ class MoneyConfirmationContext(ContractModel):
     # a provider id, a resolved prompt hash). Bound, never dropped: binding
     # more can only make a consent stricter.
     bindings: dict[str, Any] = Field(default_factory=dict)
-    quote: ConsentQuote
+    quote: ConsentEstimate
 
 
 class ScopeConfirmationContext(ContractModel):
@@ -518,7 +520,7 @@ class ScopeConfirmationContext(ContractModel):
     previewed item count).
 
     It has no ``quote`` field at all. Giving it one and setting it to a
-    null/zero ConsentQuote would put a cost sentinel in front of every
+    null/zero ConsentEstimate would put a cost sentinel in front of every
     reader of a gate that never had a cost — the union exists so that
     cannot happen.
     """
@@ -579,19 +581,19 @@ def recipe_confirmation(
     estimate: Mapping[str, Any],
 ) -> MoneyConfirmationContext:
     """The recipe lane's money gate: the estimate projects through
-    ``ConsentQuote`` and rostered display keys are DROPPED.
+    ``ConsentEstimate`` and rostered display keys are DROPPED.
 
     ``register_recipe`` is an open extension point, so this lane cannot
     enumerate its producers; the roster is what makes the classification
     closed anyway. An unclassified key refuses here (see
-    ``ConsentQuote.from_estimate``) rather than silently deciding for its
+    ``ConsentEstimate.from_estimate``) rather than silently deciding for its
     author whether it changes what the run costs.
     """
 
     return MoneyConfirmationContext(
         family_kind=family_kind,
         scope=scope,
-        quote=ConsentQuote.from_estimate(estimate),
+        quote=ConsentEstimate.from_estimate(estimate),
     )
 
 
@@ -602,7 +604,7 @@ def action_confirmation(
     estimate: Mapping[str, Any],
 ) -> MoneyConfirmationContext:
     """An executor family's money gate: every key of ``estimate`` that is not
-    a ``ConsentQuote`` field is BOUND as a scope fact.
+    a ``ConsentEstimate`` field is BOUND as a scope fact.
 
     These families hash their whole estimate today and this keeps that
     property exactly, with the money-bearing half now reaching the same
@@ -613,15 +615,15 @@ def action_confirmation(
     here there are none.
     """
 
-    quote_fields = set(ConsentQuote.model_fields)
+    estimate_fields = set(ConsentEstimate.model_fields)
     return MoneyConfirmationContext(
         family_kind=family_kind,
         scope=scope,
         bindings={
-            key: value for key, value in estimate.items() if key not in quote_fields
+            key: value for key, value in estimate.items() if key not in estimate_fields
         },
-        quote=ConsentQuote.from_estimate(
-            {key: value for key, value in estimate.items() if key in quote_fields}
+        quote=ConsentEstimate.from_estimate(
+            {key: value for key, value in estimate.items() if key in estimate_fields}
         ),
     )
 

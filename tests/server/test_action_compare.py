@@ -1245,7 +1245,7 @@ def test_preview_input_change_during_execution_invalidates_identity(
         service._registry.shutdown()
 
 
-def test_compare_quote_is_write_free_and_its_confirmation_starts_same_preview(
+def test_compare_estimate_is_write_free_and_its_confirmation_starts_same_preview(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1278,15 +1278,15 @@ def test_compare_quote_is_write_free_and_its_confirmation_starts_same_preview(
             },
         }
         service = ActionPreviewRunService(workspace)
-        quoted = service.quote_compare_preview(pid, body)
-        assert quoted.status_code == 200, quoted.payload
+        estimated = service.estimate_compare_preview(pid, body)
+        assert estimated.status_code == 200, estimated.payload
         assert not service._registry._jobs
-        wire_quote = client.post(
+        wire_estimate = client.post(
             f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
         )
-        assert wire_quote.status_code == 200, wire_quote.text
-        assert wire_quote.json()["estimate"] == quoted.payload["estimate"]
-        estimate = quoted.payload["estimate"]
+        assert wire_estimate.status_code == 200, wire_estimate.text
+        assert wire_estimate.json()["estimate"] == estimated.payload["estimate"]
+        estimate = estimated.payload["estimate"]
         assert estimate["rows"] == 1
         assert "billed_cost" in estimate and estimate["policy_id"]
         assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
@@ -1342,7 +1342,7 @@ def _translate_draft(sheet_id: int, rows: list[int]) -> dict[str, Any]:
     }
 
 
-def test_translate_comparison_quotes_confirms_and_previews_without_writing_cells(
+def test_translate_comparison_estimates_confirms_and_previews_without_writing_cells(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -1385,11 +1385,11 @@ def test_translate_comparison_quotes_confirms_and_previews_without_writing_cells
             **body["action"]["params"],
             "context": "Use a formal newsroom style.",
         }
-        quoted = client.post(
+        estimated = client.post(
             f"/api/projects/{pid}/actions/v1/compare-preview-quote", json=body
         )
-        assert quoted.status_code == 200, quoted.text
-        estimate = quoted.json()["estimate"]
+        assert estimated.status_code == 200, estimated.text
+        estimate = estimated.json()["estimate"]
         assert estimate["requires_confirmation"] is True
         assert estimate["rows"] == 1
         assert adapter.calls == []
@@ -1421,7 +1421,7 @@ def test_translate_comparison_quotes_confirms_and_previews_without_writing_cells
         ("save_detected_language", False, "comparison_output_mismatch"),
     ],
 )
-def test_translate_comparison_refuses_changed_task_or_output_before_quote(
+def test_translate_comparison_refuses_changed_task_or_output_before_estimate(
     tmp_path: Path, param: str, value: Any, code: str
 ) -> None:
     workspace, sheet, rows = _workspace(tmp_path / "workspace")
@@ -1445,7 +1445,7 @@ def test_translate_comparison_refuses_changed_task_or_output_before_quote(
         },
     }
     service = ActionPreviewRunService(workspace)
-    for method in (service.quote_compare_preview, service.start_compare_preview):
+    for method in (service.estimate_compare_preview, service.start_compare_preview):
         response = method("compare", body)
         assert response.status_code == 409, response.payload
         assert response.payload["error"]["code"] == code
@@ -1474,7 +1474,7 @@ def test_translate_comparison_normalizes_omitted_and_explicit_target_defaults(
         action["params"].pop("target_language")
     else:
         action["params"]["target_language"] = " English "
-    quote = ActionPreviewRunService(workspace).quote_compare_preview(
+    estimate = ActionPreviewRunService(workspace).estimate_compare_preview(
         "compare",
         {
             "action": action,
@@ -1484,4 +1484,4 @@ def test_translate_comparison_normalizes_omitted_and_explicit_target_defaults(
             },
         },
     )
-    assert quote.status_code == 200, quote.payload
+    assert estimate.status_code == 200, estimate.payload

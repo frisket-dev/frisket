@@ -24,7 +24,7 @@ from frisket.contracts.query_spec import canonical_json
 
 
 CatalogPayloadProvider = Callable[[], Mapping[str, Any]]
-QuoteProvider = Callable[[dict[str, Any]], Mapping[str, Any]]
+EstimateProvider = Callable[[dict[str, Any]], Mapping[str, Any]]
 ResearchForTurn = Callable[[str], Mapping[str, Any]]
 DispatchAuthorizer = Callable[[Mapping[str, Any]], Mapping[str, Any] | None]
 ActionRunner = Callable[[str, dict[str, Any]], Any]
@@ -163,15 +163,15 @@ def _prepared_target_facts(
     )
 
 
-def _quote_facts(
-    quote_provider: QuoteProvider | None, action: dict[str, Any]
+def _estimate_facts(
+    estimate_provider: EstimateProvider | None, action: dict[str, Any]
 ) -> tuple[dict[str, Any] | None, str | None]:
     """Accept only a normal server estimate with an integer billed amount."""
 
-    if quote_provider is None:
+    if estimate_provider is None:
         return None, "normal action quote is unavailable"
     try:
-        result = quote_provider(action)
+        result = estimate_provider(action)
     except (KeyError, TypeError, ValueError):
         return None, "normal action quote is unavailable"
     estimate = result.get("estimate") if isinstance(result, Mapping) else None
@@ -203,7 +203,7 @@ def _prepared_payload(
     prepared: PreparedProjectAskDraft,
     *,
     dispatch_id: str,
-    quote_provider: QuoteProvider | None,
+    estimate_provider: EstimateProvider | None,
 ) -> dict[str, Any]:
     """Canonical facts a launch must reproduce before budget admission."""
 
@@ -213,7 +213,7 @@ def _prepared_payload(
         dispatch_id=dispatch_id,
         effects=effects,
     )
-    quote, quote_reason = _quote_facts(quote_provider, action)
+    estimate, estimate_reason = _estimate_facts(estimate_provider, action)
     catalog_effects = prepared.catalog_entry.get("side_effects")
     required_capabilities = prepared.catalog_entry.get("required_capabilities")
     if not isinstance(catalog_effects, list) or not isinstance(
@@ -222,7 +222,7 @@ def _prepared_payload(
         raise ValueError("prepared action catalog facts are malformed")
     automatic_eligible = (
         effects_reason is None
-        and quote_reason is None
+        and estimate_reason is None
         and not prepared.request.replace_existing
     )
     authority = {
@@ -233,16 +233,16 @@ def _prepared_payload(
         "effects": effects,
         "catalog_effects": list(catalog_effects),
         "required_capabilities": list(required_capabilities),
-        "quote": quote,
+        "quote": estimate,
         "automatic_eligible": automatic_eligible,
-        "preparation_reason": effects_reason or quote_reason,
+        "preparation_reason": effects_reason or estimate_reason,
         "scope": prepared.request.scope.model_dump(mode="json"),
         "owned_output_inputs": _owned_output_inputs(prepared),
     }
     return {**authority, "payload_identity": _hash(authority)}
 
 
-def _non_quote_authority(payload: Mapping[str, Any]) -> dict[str, Any]:
+def _non_estimate_authority(payload: Mapping[str, Any]) -> dict[str, Any]:
     """Compare durable authority while allowing only quote-derived drift."""
 
     return {
@@ -266,7 +266,7 @@ def save_prepared_project_ask_action(
     title: str,
     draft: Mapping[str, Any],
     catalog_payload: Mapping[str, Any],
-    quote_provider: QuoteProvider | None = None,
+    estimate_provider: EstimateProvider | None = None,
     output_grants: tuple[Any, ...] = (),
     output_grant_allows: OutputGrantAllows | None = None,
 ) -> PreparedProjectAskAction:
@@ -294,7 +294,7 @@ def save_prepared_project_ask_action(
         project,
         prepared,
         dispatch_id=dispatch_id,
-        quote_provider=quote_provider,
+        estimate_provider=estimate_provider,
     )
     event = store.append_event(
         str(turn["id"]),
@@ -357,7 +357,7 @@ class ProjectAskActionService:
         self,
         *,
         catalog_payload_provider: CatalogPayloadProvider,
-        quote_provider: QuoteProvider,
+        estimate_provider: EstimateProvider,
         research_for_turn: ResearchForTurn,
         authorize_dispatch: DispatchAuthorizer,
         admit_operation: OperationAdmitter,
@@ -366,7 +366,7 @@ class ProjectAskActionService:
         output_grant_allows: OutputGrantAllows | None = None,
     ) -> None:
         self._catalog_payload_provider = catalog_payload_provider
-        self._quote_provider = quote_provider
+        self._estimate_provider = estimate_provider
         self._research_for_turn = research_for_turn
         self._authorize_dispatch = authorize_dispatch
         self._admit_operation = admit_operation
@@ -414,11 +414,11 @@ class ProjectAskActionService:
             project,
             prepared,
             dispatch_id=reference.dispatch_id,
-            quote_provider=self._quote_provider,
+            estimate_provider=self._estimate_provider,
         )
-        if current["quote"] is None and _non_quote_authority(
+        if current["quote"] is None and _non_estimate_authority(
             current
-        ) == _non_quote_authority(stored):
+        ) == _non_estimate_authority(stored):
             raise ProjectAskActionUnpriced(
                 reference=reference,
                 action=current["request"],

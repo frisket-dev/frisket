@@ -253,7 +253,7 @@ class TestHappyPath:
         assert all(v == 7 for v in vals.values())
         assert col["current_run_id"] == progress.run_id
 
-    def test_output_column_marked_ai(self, project, tmp_path):
+    def test_generated_column_marked_ai(self, project, tmp_path):
         sheet, _ = seed_sheet(project, ["a"])
         spec = classify_spec(sheet)
         cache = ResponseCache(tmp_path / "c.db")
@@ -626,7 +626,7 @@ class TestResumeExtendCostGate:
     """
 
     def _prepared_run_id(self, project, spec, *, program: Recipe | None = None) -> int:
-        # Create the run row + output columns + recorded scope WITHOUT executing
+        # Create the run row + generated columns + recorded scope WITHOUT executing
         # any rows, after the same 402 -> exact echo flow as a live launch.
         program = program or _program(spec)
         runner = MapRunner(

@@ -8,7 +8,7 @@
 // re-homed:
 //   - filter/sort panels + column settings → the column ▾ caret menu (advanced
 //     Filter/Sort rows + the existing settings row; the panels survive)
-//   - wrap text · row height · saved views · provenance → the ⋯ overflow menu
+//   - wrap text · row height · views · provenance → the ⋯ overflow menu
 //     with the same testids, relocated.
 // The Window menu retires fully; hide/reveal stays through the ⌘K palette.
 
@@ -164,7 +164,7 @@ test('⋯ overflow hosts wrap / row-height / views / provenance and each works',
   await expect(rowHeightMenu).toHaveCount(0);
   await expect(overflowMenu).toBeVisible();
 
-  // Saved views opens the views panel.
+  // Views opens the views panel.
   await openOverflow();
   await page.getByTestId('open-saved-views-submenu').click();
   await page.getByTestId('saved-views-overflow-open-panel').click();

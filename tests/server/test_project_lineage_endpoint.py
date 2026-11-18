@@ -2,7 +2,7 @@
 
 A dedicated PRODUCT endpoint (``/debug`` stays debug-only) that generalizes
 ProjectDebugService.debug's lineage shape into a three-tier DAG:
-sources -> sheets -> AI columns. Stale sheet nodes and the edges into them are
+sources -> sheets -> generated columns. Stale sheet nodes and the edges into them are
 flagged from the lazy staleness resolver so the UI paints them amber without
 inventing state. These tests drive real actions and assert the tiers + a stale
 node appear.

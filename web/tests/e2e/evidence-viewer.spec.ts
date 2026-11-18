@@ -21,7 +21,7 @@ type SeededEvidence = {
   sheetId: number;
   rowId: number;
   sourceColumnId: number;
-  outputColumnId: number;
+  generatedColumnId: number;
   activeLinkStableId: string;
   sourceLinkStableId: string;
 };
@@ -296,7 +296,7 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   const columns = await sheetColumns(request, pid, seeded.sheetId);
 
   const activeEvidenceResponse = await request.get(
-    `/api/projects/${pid}/cells/${seeded.rowId}/${seeded.outputColumnId}/evidence`,
+    `/api/projects/${pid}/cells/${seeded.rowId}/${seeded.generatedColumnId}/evidence`,
   );
   expect(activeEvidenceResponse.ok()).toBeTruthy();
   expect((await activeEvidenceResponse.json()).links).toContainEqual(
@@ -402,12 +402,12 @@ test('row drawer opens the shared evidence viewer and hides stale support by def
   await editCells(request, pid, [
     {
       rowId: seeded.rowId,
-      columnId: seeded.outputColumnId,
+      columnId: seeded.generatedColumnId,
       value: 'manually corrected value',
     },
   ]);
   const staleDefault = await request.get(
-    `/api/projects/${pid}/cells/${seeded.rowId}/${seeded.outputColumnId}/evidence`,
+    `/api/projects/${pid}/cells/${seeded.rowId}/${seeded.generatedColumnId}/evidence`,
   );
   expect(staleDefault.ok()).toBeTruthy();
   const staleDefaultPayload = await staleDefault.json();

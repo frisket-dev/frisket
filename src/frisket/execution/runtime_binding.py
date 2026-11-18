@@ -277,7 +277,7 @@ def _route_cost_source(
 
     - zero-tariff transports (local workers, the operator's own gateway):
       ``operator_borne`` -> ``free_local`` — genuinely zero, not unknown.
-    - ``org_key`` posture: the org's own provider bill -> ``provider_billed``.
+    - ``org_key`` posture: the organization's own provider bill -> ``provider_billed``.
     - metered remote paths (``platform_metered`` or the open edition's
       operator-paid provider bills): costs come from pricing data; a missing
       observed cost is honestly ``unknown``.

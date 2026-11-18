@@ -225,7 +225,7 @@ class Refusal:
     # True only when composition filtering made the exact commercial choice
     # absent.  Estimate surfaces must not fall back to an unrouted/provider
     # quote for this refusal: absence means no target and no quote.
-    quote_absent: bool = False
+    estimate_absent: bool = False
 
 
 @dataclass(frozen=True)
@@ -916,7 +916,7 @@ def _open_edition_facts(target: ExecutionTarget, engine_id: str) -> RouteRowFact
     (``CompositionFacts.__post_init__`` refuses any other funding for
     edition="open"), so both facts are derived from that one funding class
     rather than restated as literals — the same derivation
-    :func:`_hosted_edition_facts` uses, so the two editions cannot drift on
+    :func:`_cloud_edition_facts` uses, so the two editions cannot drift on
     what "the operator's own key" means (§3.5)."""
     funding = OperatorBorne()
     return RouteRowFacts(
@@ -930,7 +930,7 @@ def _open_edition_facts(target: ExecutionTarget, engine_id: str) -> RouteRowFact
     )
 
 
-def _hosted_edition_facts(
+def _cloud_edition_facts(
     target: ExecutionTarget, engine_id: str, composition: CompositionFacts
 ) -> RouteRowFacts:
     """The sibling of :func:`_open_edition_facts` for edition="hosted",
@@ -980,7 +980,7 @@ def _edition_facts(
     if composition.edition == "open":
         return _open_edition_facts(target, engine_id)
     if composition.edition == "hosted":
-        return _hosted_edition_facts(target, engine_id, composition)
+        return _cloud_edition_facts(target, engine_id, composition)
     raise ValueError(f"unknown composition edition {composition.edition!r}")
 
 

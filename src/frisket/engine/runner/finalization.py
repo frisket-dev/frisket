@@ -31,7 +31,7 @@ def _finalize_run_in_transaction(
     out_cols: dict[str, int],
     writer_attempt_id: str | None = None,
     claimless_direct_effect: bool = False,
-    keep_zero_success_output_columns: bool = False,
+    keep_zero_success_generated_columns: bool = False,
     halted_code: str | None = None,
     halted_reason: str | None = None,
     auto_verify: bool = False,
@@ -54,12 +54,12 @@ def _finalize_run_in_transaction(
     does, and the run stays ``running`` for the next attempt.
 
     The zero-success rollback is purely a VISIBILITY fix layered on top:
-    for each output column THIS op created fresh (``ops.undo_info.
+    for each generated column THIS op created fresh (``ops.undo_info.
     created_columns`` — the same list undo/redo already hide/reveal), hide
     it only when the finished run has zero successful result cells for
     that column. Successful sibling outputs stay visible even if every row
     has some other field error. Columns this op only REUSED
-    (``overwrite=True`` on an existing AI column) are left untouched —
+    (``overwrite=True`` on an existing generated column) are left untouched —
     only genuinely new columns roll back, so a fixed-and-retried action
     later revives the same hidden column id via ``Project.add_column``'s
     hidden-revival path instead of leaving a duplicate. A cancelled run
@@ -168,7 +168,7 @@ def _finalize_run_in_transaction(
     if status != "cancelled":
         zero_success_columns = (
             set()
-            if keep_zero_success_output_columns
+            if keep_zero_success_generated_columns
             else zero_success_created_columns_for_run(
                 project,
                 run_store,

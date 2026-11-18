@@ -189,7 +189,7 @@ def test_manual_query_preparation_is_explicit_then_reused_for_view_and_alert(tmp
     assert gateway.calls == 1
 
 
-def test_hybrid_saved_view_reuses_prepared_vector_and_preserves_union(tmp_path):
+def test_hybrid_view_reuses_prepared_vector_and_preserves_union(tmp_path):
     from frisket.ai.embeddings.similarity import resolve_embedding_similarity
     from frisket.search_index import drain_index
 

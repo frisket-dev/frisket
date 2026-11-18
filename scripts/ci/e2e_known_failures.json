@@ -57,7 +57,7 @@
   "project menu exports either the entire sheet or the active grid view as CSV": "stale-expectation"
  },
  "date-range-filter.spec.ts": {
-  "date-range filters use date columns and round-trip through saved views": "stale-expectation",
+  "date-range filters use date columns and round-trip through views": "stale-expectation",
   "relative date filters stay relative on the wire": "stale-expectation"
  },
  "deckgl-map-filter-to-viewport.spec.ts": {
@@ -263,7 +263,7 @@
   "1b — the same map.ner drawer opened from the Act ribbon fills the Mentions panel": "stale-expectation",
   "2 — a multi-form group discloses its spellings; grouped and exact filters match their counts": "retired-request",
   "3 — a spelling beyond the first page is found by server search, with whole-group counts": "retired-request",
-  "4 — a saved view keeps its entity_eq mention filter through leave and restore": "retired-request",
+  "4 — a view keeps its entity_eq mention filter through leave and restore": "retired-request",
   "5 — a legacy entity column offers Rebuild and shows none of its old items": "retired-request",
   "6 — filtering by a group that only exists on page 2 keeps both pages loaded": "retired-request",
   "7 — type headings read as their names, not as norp / work_of_art": "retired-request"

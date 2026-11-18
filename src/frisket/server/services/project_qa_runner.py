@@ -113,29 +113,29 @@ async def _search_with_purchase(
     policy: PurchasePolicy,
     dispatch: DispatchControl,
     call_scope=None,
-    quote=None,
+    estimate=None,
     **kwargs,
 ):
     """Own the paid search scope in the task that actually sends the request."""
-    quote = quote or service.quote(max_results=kwargs.get("max_results", 6))
+    estimate = estimate or service.estimate(max_results=kwargs.get("max_results", 6))
     with call_scope() if call_scope is not None else nullcontext():
         try:
             return await execute_purchase(
                 PurchaseRequest(
-                    provider=quote.provider,
+                    provider=estimate.provider,
                     capability="web.search",
-                    engine=quote.provider,
+                    engine=estimate.provider,
                     credential_source=service.credential_source,
                     prepared={
                         "query": query,
                         "max_results": kwargs.get("max_results", 6),
                     },
-                    estimated_cost_usd=quote.estimated_cost_usd,
-                    quote=quote,
+                    estimated_cost_usd=estimate.estimated_cost_usd,
+                    quote=estimate,
                 ),
                 policy=policy,
                 dispatch=dispatch,
-                invoke=lambda: service.search(query, quote=quote, **kwargs),
+                invoke=lambda: service.search(query, estimate=estimate, **kwargs),
                 observe=search_observation,
             )
         except PurchaseRecordingError as error:
@@ -186,7 +186,7 @@ async def run_turn(
         turn,
         store,
         catalog_payload_provider=action_host.catalog if action_host else None,
-        quote_provider=action_host.quote if action_host and research else None,
+        estimate_provider=action_host.estimate if action_host and research else None,
         output_grants_provider=(
             lambda: derive_output_read_grants(
                 project, research.store.get(research.id)["output_grants"]

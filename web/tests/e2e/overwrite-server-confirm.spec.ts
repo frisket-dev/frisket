@@ -16,7 +16,7 @@ import {
 // the form's back. Fix: (a) a server-side output_column_exists rejection
 // (map_ai.py's precheck_fn, mapped to HTTP 409) converts into the SAME
 // overwrite-confirm affordance the client-detected case already offers
-// (OutputColumnCollisionModal, App.tsx's WorkspaceOverlayRegion) instead of
+// (GeneratedColumnCollisionModal, App.tsx's WorkspaceOverlayRegion) instead of
 // a dead-end toast; (b) the drawer refreshes the sheet's column list when it
 // opens, closing the most common staleness window.
 //

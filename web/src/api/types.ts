@@ -142,16 +142,16 @@ export interface SpendReport {
  * What GET /api/org/keys actually returns — provider and hint, nothing more.
  * It previously also declared spend_cap_usd / spent_usd / over_cap, none of
  * which the endpoint has ever sent: the control plane's `org_keys` table has
- * no cap or accrual column (metered caps against an org key are private
+ * no cap or accrual column (metered caps against an organization key are private
  * commerce). The settings table rendered all three as `undefined`, i.e. "-".
  * Project-level provider keys carry the real, enforced cap.
  */
-export interface OrgKeyInfo {
+export interface OrganizationKeyInfo {
   provider: string;
   hint: string;
 }
 
-export interface OrgEnvInfo {
+export interface OrganizationEnvInfo {
   name: string;
   hint: string;
   created_at?: string | null;
@@ -235,9 +235,9 @@ export interface ProjectRetentionPolicy {
 
 export interface ProjectNetworkPolicy {
   schemaVersion?: 'frisket.project_network_policy.v1' | string;
-  /** inherit = follow the org default (local edition: on). */
+  /** inherit = follow the organization default (local edition: on). */
   mode: 'inherit' | 'on' | 'off' | string;
-  /** Org-wide default materialized into the project; null = built-in "on". */
+  /** Organization-wide default materialized into the project; null = built-in "on". */
   org_default?: 'on' | 'off' | null;
   /** The resolved two-state value the dispatch gate reads. */
   effective: 'on' | 'off' | string;
@@ -352,9 +352,9 @@ export type {
   AdminHealth,
   AdminJob,
   AdminJobs,
-  AdminOrgRole,
+  AdminOrganizationRole,
   AdminUsers,
-  AdminUsersOrg,
+  AdminUsersOrganization,
 } from './adminBrowser';
 
 /** The core column types. The palette is OPEN: plugins register more over
@@ -401,7 +401,7 @@ export interface ProjectExportOptions {
   includeTraces?: boolean;
 }
 
-/** One prior run of the op that owns an AI column (run-based versioning). */
+/** One prior run of the op that owns a generated column (run-based versioning). */
 export interface RunVersion {
   runId: string;
   version: number;
@@ -412,7 +412,7 @@ export interface RunVersion {
   status: 'complete' | 'partial' | 'superseded';
 }
 
-/** Op metadata owned by an AI column header ("column headers own op metadata"). */
+/** Op metadata owned by a generated column header ("column headers own op metadata"). */
 export interface ColumnAiMeta {
   actionName: string;
   prompt: string;
@@ -710,7 +710,7 @@ export type TextAnnotationLayer = {
   layerFamily: string;
   producerKind: string | null;
   producerEngine: string | null;
-  outputColumn: { id: string; name: string | null };
+  generatedColumn: { id: string; name: string | null };
 } & (
   | {
       positioned: true;
@@ -1217,7 +1217,7 @@ export interface ActionTemplate {
    *  ActionPanel shows a needs-credential banner + Settings deep link and
    *  blocks Run while this is non-empty. */
   missingCredentials?: string[];
-  /** True for catalog actions whose output columns are DECLARED by the action
+  /** True for catalog actions whose generated columns are DECLARED by the action
    *  itself (plugin @plugin.op writes, core recipe output contracts), not
    *  defined by the user. The output-fields builder renders them read-only:
    *  no add/remove/rename, no extraction placeholder copy. Only genuinely
@@ -1244,7 +1244,7 @@ export interface LanguageDeclaration {
   default: string; // 'auto' or an ISO code
   fixed_language?: string | null;
   choices?: LanguageChoice[] | null; // null for auto_only / fixed
-  detects: boolean; // gates the detected_language output column
+  detects: boolean; // gates the detected_language generated column
   // False only for a single-mode engine that REQUIRES an explicit language and
   // cannot auto-detect (Opus-MT: pair-based, no LID). Absent/true elsewhere; the
   // single picker drops its Auto-first option when this is false.
@@ -1699,7 +1699,7 @@ export interface ModelOption {
 }
 
 /** Local-tier provider catalog for the Braintrust-style model picker
- * (GET /api/providers). Distinct from the hosted-org ProviderCatalog above. */
+ * (GET /api/providers). Distinct from the hosted-organization ProviderCatalog above. */
 export interface LocalProviderModel {
   id: string; // e.g. "anthropic/claude-haiku-4-5"
   label: string;
@@ -1857,7 +1857,7 @@ export interface RegisteredActionDraft<
 export interface RegisteredActionRequest extends RegisteredActionDraft {
   idempotency_key: string;
   confirmation?: string;
-  /** One-run consent to replace compatible generated output columns. Saved
+  /** One-run consent to replace compatible generated columns. Saved
    * action drafts deliberately never carry this destructive invocation fact. */
   replace_existing?: boolean;
   /** Physical target preconditions for an explicitly restored replacement. */
@@ -1929,7 +1929,7 @@ export interface PreviewStartResult {
 
 export type PreviewStatus = 'running' | 'done' | 'error' | 'cancelled';
 
-/** A virtual output column the sample produced. `overwritesColumnId` is set when
+/** A virtual generated column the sample produced. `replacesColumnId` is set when
  *  the output name matches an existing column (the overlay replaces that column's
  *  sampled cells in place); null means a brand-new trailing preview column. */
 export interface PreviewOverlayColumn {
@@ -1937,7 +1937,7 @@ export interface PreviewOverlayColumn {
   columnType: string;
   format: string | null;
   hidden: boolean;
-  overwritesColumnId: string | null;
+  replacesColumnId: string | null;
 }
 
 /** One sampled cell, mirroring the runner's per-field cell shape. A per-cell
@@ -2637,7 +2637,7 @@ export type ViewSelection = {
   rank_constant?: number;
 };
 
-export interface SavedViewColumnGroup {
+export interface ViewColumnGroup {
   run_id: number;
   label: string;
   columns: string[];
@@ -2647,25 +2647,25 @@ export interface SavedViewColumnGroup {
 
 export interface ViewPresentation {
   columns?: number[] | null;
-  column_groups?: (Omit<SavedViewColumnGroup, 'columns'> & { columns: number[] })[] | null;
+  column_groups?: (Omit<ViewColumnGroup, 'columns'> & { columns: number[] })[] | null;
 }
 
-export interface SavedViewDefinitionInput {
+export interface ViewDefinitionInput {
   selection: ViewSelection;
   presentation: ViewPresentation;
 }
 
-export interface SavedView {
+export interface View {
   id: number;
   name: string;
   sheet_id: number | null;
-  spec: SavedViewDefinitionInput | null;
+  spec: ViewDefinitionInput | null;
   op_id: number | null;
   unavailable_reason: string | null;
 }
-export interface SavedViewCreateInput extends SavedViewDefinitionInput { name: string; }
-export interface SavedViewRenameInput { name: string; }
-export type SavedViewDefinitionReplaceInput = SavedViewDefinitionInput;
+export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
+export interface ViewRenameInput { name: string; }
+export type ViewDefinitionReplaceInput = ViewDefinitionInput;
 
 export interface ViewResolved {
   view_id: number;
@@ -2984,7 +2984,7 @@ export interface RunRowErrorSummary {
 /** Server-side media egress proxy status (GET /api/org/media-proxy/status),
  *  polled by MediaProxyRemediationCard for the youtube_provider_blocked
  *  triage card. `connected` is null exactly when `configured` is false; the
- *  local tier (no org identity) 404s instead of returning this shape. */
+ *  local tier (no organization identity) 404s instead of returning this shape. */
 export interface MediaProxyStatus {
   configured: boolean;
   connected: boolean | null;
@@ -3057,7 +3057,7 @@ export interface ActionJob {
   context?: {
     sheetId: string;
     sheetName: string | null;
-    outputColumns: Array<{ id: string; name: string }>;
+    generatedColumns: Array<{ id: string; name: string }>;
   } | null;
   status: string;
   actionKind: string | null;
@@ -3182,7 +3182,7 @@ export interface AttemptReceipt {
 }
 
 /** Providers whose cost landed on a credential the operator holds (a project
- *  key, an org BYOK key, or the deployment's env key). Empty means every call
+ *  key, an organization BYOK key, or the deployment's env key). Empty means every call
  *  ran locally or came from cache — genuinely free. */
 export interface AttemptReceiptBorneBy {
   credentialed_providers: string[];
@@ -3492,7 +3492,7 @@ export interface RunRowsPage extends PageMeta {
   rows: RunInspectorRow[];
 }
 
-/** One run that wrote into an AI column (column provenance). */
+/** One run that wrote into a generated column (column provenance). */
 export interface ReviewPassRate {
   passed: number;
   graded: number;
@@ -3729,7 +3729,7 @@ export interface V1Receipt {
 // ---------------------------------------------------------------------------
 // History (the OpenRefine-style op log)
 
-/** An output column a run actually wrote cells to. */
+/** A generated column a run actually wrote cells to. */
 export interface HistoryOpRunColumn {
   id: string;
   name: string;
@@ -3758,7 +3758,7 @@ export interface HistoryOpRun {
   finishedAt: string | null; // ISO
   /** Claimant stamp — which code touched this run. */
   workerVersion: string | null;
-  outputColumns: HistoryOpRunColumn[];
+  generatedColumns: HistoryOpRunColumn[];
   /** Undefined when nothing failed. Feeds the History panel's run-detail
    *  deep link (HistoryPanel.tsx's renderDetail). */
   rowErrors?: RunRowErrorSummary;

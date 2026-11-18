@@ -132,10 +132,10 @@ def resolve_env_local_endpoint(
     env: dict[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig | None, list[str]]:
     """The env bundle candidate ONLY (no file/default fallback) — shared by
-    ``frisket.server.provider_config.resolve_local_endpoints``, the org-run
+    ``frisket.server.provider_config.resolve_local_endpoints``, the organization-run
     env-bundle carve-out in
-    ``jobs/runs.py`` (org runs read ONLY the operator's env bundle, never the
-    workspace file), and the team tier's org routes.
+    ``jobs/runs.py`` (organization runs read ONLY the operator's env bundle, never the
+    workspace file), and the team tier's organization routes.
 
     Returns ``(None, notes)`` when no env field is set at all (env is not a
     candidate) OR when the candidate is rejected as a unit — an invalid/

@@ -16,10 +16,10 @@ from typing import Any
 
 import httpx
 
-from frisket.ops.integrations.hosted_error import call_hosted_json
+from frisket.ops.integrations.hosted_error import call_remote_json
 from frisket.ops.integrations.translate_common import (
     TranslateEngineError,
-    hosted_translate_response_accounting,
+    remote_translate_response_accounting,
 )
 
 DEEPL_FREE_HOST = "https://api-free.deepl.com"
@@ -112,7 +112,7 @@ async def deepl_translate(
     }
     if source_lang:
         payload["source_lang"] = source_lang
-    response, body = await call_hosted_json(
+    response, body = await call_remote_json(
         lambda: http.post(
             f"{deepl_base_url(api_key)}/v2/translate",
             headers={"Authorization": f"DeepL-Auth-Key {api_key}"},
@@ -157,7 +157,7 @@ async def deepl_translate(
             )
     except TranslateEngineError as exc:
         if exc.accounting is None:
-            exc.accounting = hosted_translate_response_accounting(
+            exc.accounting = remote_translate_response_accounting(
                 engine="deepl",
                 provider="deepl",
                 credential_source=credential_source,

@@ -1,6 +1,6 @@
 """Explicit edition credentials and admission for the worker.
 
-The open default resolves org keys from its identity control plane and admits
+The open default resolves organization keys from its identity control plane and admits
 local actions. Hosted composition supplies its own credential and admission
 ports. Provider purchases own their accounting independently of job completion.
 Ports are checked structurally at composition time.
@@ -18,17 +18,17 @@ from frisket.ai.models.gateway_config import (
     ModelsGatewayConnection,
     resolve_models_gateway_env,
 )
-from frisket.team.control_plane import control_plane_engine, org_provider_keys
+from frisket.team.control_plane import control_plane_engine, organization_provider_keys
 
 
 @runtime_checkable
 class CredentialPort(Protocol):
-    """Resolves the provider keys a run may use on behalf of an org."""
+    """Resolves the provider keys a run may use on behalf of an organization."""
 
     def provider_keys(
         self, *, org_id: int, control_database_url: str | None
     ) -> Mapping[str, str]:
-        """Provider name -> plaintext key. Empty when the org has none."""
+        """Provider name -> plaintext key. Empty when the organization has none."""
         ...
 
 
@@ -52,7 +52,7 @@ class ActionCredentialPort(Protocol):
 
 @runtime_checkable
 class ModelsGatewayPort(Protocol):
-    """Resolves an org gateway through row-backed trusted worker context."""
+    """Resolves an organization gateway through row-backed trusted worker context."""
 
     def models_gateway_connection(
         self, *, org_id: int, control_database_url: str | None
@@ -71,58 +71,60 @@ class AdmissionPort(Protocol):
     def execution_denied(self, *, body: Mapping[str, Any]) -> bool: ...
 
 
-TrustedJobOrgId = NewType("TrustedJobOrgId", int)
+TrustedJobOrganizationId = NewType("TrustedJobOrganizationId", int)
 
 
-class TrustedJobOrgUnavailable(enum.Enum):
-    """Why a handler invocation has no org attested by a claimed job row.
+class TrustedJobOrganizationUnavailable(enum.Enum):
+    """Why a handler invocation has no organization attested by a claimed job row.
 
     Neither arm authorizes an execution adapter to recover an identity from
     the handler payload, the storage owner, or ambient process state. A hosted
-    adapter that requires a funding org must refuse before an effect or ledger
+    adapter that requires a funding organization must refuse before an effect or ledger
     mutation unless its separate, typed non-queued contract proves one.
     """
 
     NO_JOB_ROW = "no_job_row"
-    JOB_ROW_HAS_NO_ORG = "job_row_has_no_org"
+    JOB_ROW_HAS_NO_ORGANIZATION = "job_row_has_no_org"
 
 
-type TrustedJobOrg = TrustedJobOrgId | TrustedJobOrgUnavailable
+type TrustedJobOrganization = (
+    TrustedJobOrganizationId | TrustedJobOrganizationUnavailable
+)
 
 
 @dataclasses.dataclass(frozen=True)
 class JobHandlerContext:
     """Immutable row-backed facts delivered separately from a job payload."""
 
-    trusted_job_org_id: TrustedJobOrg
+    trusted_job_organization_id: TrustedJobOrganization
     job_id: int | None = None
     job_attempt: int | None = None
     handler_authority_id: str | None = None
 
     def __post_init__(self) -> None:
-        value = self.trusted_job_org_id
-        if isinstance(value, TrustedJobOrgUnavailable):
+        value = self.trusted_job_organization_id
+        if isinstance(value, TrustedJobOrganizationUnavailable):
             return
         if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(
                 "trusted job org id must be a positive integer or an explicit "
-                "TrustedJobOrgUnavailable arm"
+                "TrustedJobOrganizationUnavailable arm"
             )
 
     @classmethod
     def from_claimed_job(
         cls,
         *,
-        trusted_org_id: int | None,
+        trusted_organization_id: int | None,
         job_id: int | None = None,
         job_attempt: int | None = None,
         handler_authority_id: str | None = None,
     ) -> JobHandlerContext:
         """Mint context from the worker's normalized immutable job column."""
         return cls(
-            TrustedJobOrgUnavailable.JOB_ROW_HAS_NO_ORG
-            if trusted_org_id is None
-            else TrustedJobOrgId(trusted_org_id),
+            TrustedJobOrganizationUnavailable.JOB_ROW_HAS_NO_ORGANIZATION
+            if trusted_organization_id is None
+            else TrustedJobOrganizationId(trusted_organization_id),
             job_id=job_id,
             job_attempt=job_attempt,
             handler_authority_id=handler_authority_id,
@@ -131,14 +133,14 @@ class JobHandlerContext:
     @classmethod
     def without_job_row(cls) -> JobHandlerContext:
         """Explicit context for direct/non-queued handler invocation."""
-        return cls(TrustedJobOrgUnavailable.NO_JOB_ROW)
+        return cls(TrustedJobOrganizationUnavailable.NO_JOB_ROW)
 
 
-class OrgKeyCredentialPort:
-    """The OPEN default: org BYOK keys read from the identity control plane.
+class OrganizationKeyCredentialPort:
+    """The OPEN default: organization BYOK keys read from the identity control plane.
 
     No spend caps and no platform-key fallback — both are commerce policy. An
-    org with no stored key simply gets no key, and the run fails the way any
+    organization with no stored key simply gets no key, and the run fails the way any
     unkeyed run fails.
     """
 
@@ -148,7 +150,7 @@ class OrgKeyCredentialPort:
         if not control_database_url:
             return {}
         engine = control_plane_engine(control_database_url)
-        return org_provider_keys(engine, org_id=org_id)
+        return organization_provider_keys(engine, org_id=org_id)
 
 
 class EnvironmentModelsGatewayPort:
@@ -180,13 +182,13 @@ class WorkerPorts:
     """The port carrier a composition hands to the open worker registration."""
 
     credential_port: CredentialPort | None = dataclasses.field(
-        default_factory=OrgKeyCredentialPort
+        default_factory=OrganizationKeyCredentialPort
     )
     admission_port: AdmissionPort | None = None
     models_gateway_port: ModelsGatewayPort | None = dataclasses.field(
         default_factory=EnvironmentModelsGatewayPort
     )
-    # Deliberately absent by default. An org-scoped edition must opt into its
+    # Deliberately absent by default. An organization-scoped edition must opt into its
     # own search-secret authority; worker environment keys never fill this.
     # Append optional ports to preserve the existing positional carrier order.
     search_credential_port: SearchCredentialPort | None = None
@@ -209,7 +211,7 @@ class WorkerPorts:
 
     def credentials(self) -> CredentialPort:
         """The credential port, falling back to the OPEN default."""
-        return self.credential_port or OrgKeyCredentialPort()
+        return self.credential_port or OrganizationKeyCredentialPort()
 
     def search_credentials(self) -> SearchCredentialPort | None:
         return self.search_credential_port

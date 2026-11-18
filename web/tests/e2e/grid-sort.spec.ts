@@ -1,6 +1,6 @@
 // RED-FIRST (authored 2026-06-13): general sheet sorting is not implemented.
 // The gate requires a grid sort control backed by GET /sheets/{id}/data so
-// paging and saved views observe the same ordered row set.
+// paging and views observe the same ordered row set.
 
 import { expect, test } from '@playwright/test';
 import {

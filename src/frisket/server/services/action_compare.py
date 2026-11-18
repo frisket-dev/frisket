@@ -106,7 +106,7 @@ class ActionCompareService:
             }
 
         source_columns = _source_columns(project, bound, plan)
-        output_columns = _output_columns(plan, bindings)
+        output_columns = _generated_columns(plan, bindings)
         replacement_targets = [
             {
                 "logical_key": output["logical_key"],
@@ -207,7 +207,7 @@ class ActionCompareService:
                 "comparison_action_mismatch",
                 "Every comparison variant must use the same action family.",
             )
-        candidate_outputs = _output_columns(plan, [])
+        candidate_outputs = _generated_columns(plan, [])
         candidate_signature = _output_signature(candidate_outputs)
         if (
             comparison.get("expected_output_signature")
@@ -431,7 +431,7 @@ def _source_columns(project, bound, plan: MapPreviewPlan) -> list[dict[str, Any]
     return columns
 
 
-def _output_columns(plan: MapPreviewPlan, bindings) -> list[dict[str, Any]]:
+def _generated_columns(plan: MapPreviewPlan, bindings) -> list[dict[str, Any]]:
     names = dict(plan.runner_spec.get("output_names") or {})
     logical_by_name = {str(name): str(logical) for logical, name in names.items()}
     bindings_by_logical = dict(bindings) if isinstance(bindings, Mapping) else {}

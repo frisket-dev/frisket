@@ -28,7 +28,7 @@ from frisket.contracts.actions.schemas._engines import opendocrouter_engines
 from frisket.actions.markdown import ToMarkdownParams
 from frisket.actions.media_options import OcrOptions
 from frisket.execution.definitions import StaticExecutionTargetProvider
-from frisket.execution.price_book import OperatorBorne, quote_ocr, live_cost_fact
+from frisket.execution.price_book import OperatorBorne, estimate_ocr, live_cost_fact
 from frisket.execution.promise_compiler import ProviderUsageCost
 from frisket.execution.resolver import Refusal, preferred_static_choice
 
@@ -81,15 +81,15 @@ def test_daily_refresh_updates_existing_provider_and_cached_restart(document, tm
         ("ocr", "opendocrouter.parse"),
         ("document.convert", "opendocrouter.parse"),
     }
-    quote = quote_ocr(
+    estimate = estimate_ocr(
         target_id="opendocrouter",
         engine=engine,
         funding=OperatorBorne(),
         offering=None,
         pages=3,
     )
-    assert quote.bound == Decimal("0.375")
-    assert quote.charge_authority == "provider_usage"
+    assert estimate.bound == Decimal("0.375")
+    assert estimate.charge_authority == "provider_usage"
     assert fetched == [PRICING_URL, MODEL_CATALOG_URL]
     assert not refresh_pricing_once(cache_dir=tmp_path, now=100001, fetch=fetch)
     assert fetched == [PRICING_URL, MODEL_CATALOG_URL]
@@ -157,7 +157,7 @@ def test_catalog_removal_keeps_engine_resolvable_but_unlisted_and_unpriced(docum
     document["opendocrouter"]["data"][-1]["max_charge_per_page_usd"] = None
     pricing.install_pricing_data(document)
     assert isinstance(
-        quote_ocr(
+        estimate_ocr(
             target_id="opendocrouter",
             engine=engine,
             funding=OperatorBorne(),
@@ -242,10 +242,10 @@ def test_malformed_provider_section_keeps_catalog_and_installs_independent_price
     assert "preserving the previous complete snapshot" in caplog.text
 
 
-def test_quote_and_live_fence_observe_same_refreshed_rate(document):
+def test_estimate_and_live_fence_observe_same_refreshed_rate(document):
     engine = future_model(document)
     pricing.install_pricing_data(document)
-    quote = quote_ocr(
+    estimate = estimate_ocr(
         target_id="opendocrouter",
         engine=engine,
         funding=OperatorBorne(),
@@ -263,11 +263,11 @@ def test_quote_and_live_fence_observe_same_refreshed_rate(document):
             hardware_class=None,
         )
 
-    assert live()["unit_rate"] == quote.unit_rate
+    assert live()["unit_rate"] == estimate.unit_rate
     document["opendocrouter"]["data"][-1]["max_charge_per_page_usd"] = 0.25
     pricing.install_pricing_data(document)
     assert live()["unit_rate"] == "0.25"
-    assert quote.unit_rate == "0.125"
+    assert estimate.unit_rate == "0.125"
 
 
 def test_updater_keeps_model_metadata_and_delta_reports_it(

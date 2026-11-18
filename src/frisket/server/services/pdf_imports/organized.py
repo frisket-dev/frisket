@@ -12,7 +12,7 @@ from frisket.server.services.pdf_packet_commit import (
 )
 from frisket.server.services.pdf_packet_ocr import (
     PdfPacketOcrCoordinator,
-    PdfPacketOcrQuote,
+    PdfPacketOcrEstimate,
     packet_ocr_params,
 )
 from frisket.server.services.pdf_packet_sources import AdmittedPacketSource
@@ -95,7 +95,7 @@ def cached_pages(directory, sources, selection, page_numbers=None):
     return cached
 
 
-def quote_pages(
+def prepare_page_estimate(
     service, project_id, directory, header, inventory, *, request_context=None
 ):
     sources = draft_sources(service, project_id, directory, header, inventory)
@@ -113,7 +113,7 @@ def quote_pages(
         preview_runs=service._preview_runs,
         inventory_path=directory / "inventory.db",
     )
-    holder = coordinator.quote(
+    holder = coordinator.estimate(
         project_id=project_id,
         sources=sources,
         revision=inventory.selected_through(),
@@ -129,7 +129,7 @@ def quote_pages(
 def estimate_pages(
     service, project_id, directory, header, inventory, *, request_context=None
 ):
-    _coordinator, holder, _sources, _cached = quote_pages(
+    _coordinator, holder, _sources, _cached = prepare_page_estimate(
         service,
         project_id,
         directory,
@@ -140,7 +140,7 @@ def estimate_pages(
     header["page_ocr_quote"] = holder.snapshot(directory)
     estimate = dict(holder.public["estimate"])
     count = int(holder.public["pages"])
-    authorization = holder.quoted.get("authorization") or {}
+    authorization = holder.estimated.get("authorization") or {}
     source_count = len(
         {
             target["occurrence_key"]
@@ -178,7 +178,7 @@ def approve_pages(
     confirmation,
     request_context=None,
 ):
-    coordinator, current, sources, cached = quote_pages(
+    coordinator, current, sources, cached = prepare_page_estimate(
         service,
         project_id,
         directory,
@@ -187,7 +187,9 @@ def approve_pages(
         request_context=request_context,
     )
     saved = header.get("page_ocr_quote")
-    holder = PdfPacketOcrQuote.restore(saved, directory) if saved is not None else None
+    holder = (
+        PdfPacketOcrEstimate.restore(saved, directory) if saved is not None else None
+    )
     remote = not service._is_rapidocr(
         service._ocr_action_params(header["choices"]["ocr_selection"])
     )

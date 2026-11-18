@@ -159,10 +159,10 @@ export function PaletteSearchSection({
   alertBusy,
   alertStatus,
   onCreateAlert,
-  canSaveLens,
+  canSaveView,
   saveBusy,
   saveStatus,
-  onSaveLens,
+  onSaveView,
   searchError,
   groups,
   coverage,
@@ -200,10 +200,10 @@ export function PaletteSearchSection({
   alertBusy: boolean;
   alertStatus: string | null;
   onCreateAlert(): void;
-  canSaveLens: boolean;
+  canSaveView: boolean;
   saveBusy: boolean;
   saveStatus: string | null;
-  onSaveLens(): void;
+  onSaveView(): void;
   searchError: string | null;
   groups: ProjectSearchGroupWire[] | null;
   coverage: ProjectSearchResponseWire['coverage'] | null;
@@ -341,8 +341,8 @@ export function PaletteSearchSection({
             data-testid="save-search-lens-button"
             aria-label={saveBusy ? 'Saving…' : 'Save view'}
             aria-busy={saveBusy}
-            disabled={!canSaveLens}
-            onClick={onSaveLens}
+            disabled={!canSaveView}
+            onClick={onSaveView}
             title="Save this named-index search as a view"
           >
             {saveBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bookmark size={12} aria-hidden />}

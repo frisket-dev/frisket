@@ -871,7 +871,7 @@ def test_remote_transcription_records_only_response_proven_provider_calls(
 def test_media_transcribe_rerun_replaces_prior_outputs_and_undo_restores_them(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A second visible run onto the same output columns replaces the values;
+    """A second visible run onto the same generated columns replaces the values;
     undoing it restores the FIRST run's values, segments, and language — the
     temporal layer, not just column visibility."""
     from executor_harness import operation_action

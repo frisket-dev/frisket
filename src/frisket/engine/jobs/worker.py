@@ -62,14 +62,14 @@ from frisket.execution.provider import (
 from .project_opener import (
     ProjectOpener,
     open_claimed_project,
-    require_opener_storage_org_id,
+    require_opener_storage_organization_id,
 )
 from .queue import (
     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY,
     Job,
     JobQueue,
     claimed_project_location,
-    normalize_queue_org_id as _normalize_queue_org_id,
+    normalize_queue_organization_id as _normalize_queue_organization_id,
 )
 
 Handler = Callable[[dict, JobHandlerContext], object]
@@ -89,7 +89,7 @@ class HandlerRegistration:
 __all__ = [
     "ProjectOpener",
     "open_claimed_project",
-    "require_opener_storage_org_id",
+    "require_opener_storage_organization_id",
 ]
 
 ECHO_KIND = "echo"
@@ -342,7 +342,7 @@ def register_production_handlers(
     notification_delivery_runtime_factory: Any | None = None,
     worker_ports: WorkerPorts | None = None,
     require_storage_identity: bool = False,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
     install_queue_terminalization: bool = True,
     pricing_policy: PricingPolicy | None = None,
@@ -364,12 +364,12 @@ def register_production_handlers(
     policy is injected as explicit ports (``worker_ports`` — credential /
     admission / settlement, see ``frisket.jobs.ports``), never imported. With no
     ports the worker is exactly the trusted local/team worker: it admits every
-    action, settles nothing, and resolves org BYOK keys from the open identity
+    action, settles nothing, and resolves organization BYOK keys from the open identity
     control plane. An external edition composes this same function with its
     own ports.
 
-    ``workspace_root_storage_org_id`` declares that ``workspace_root`` is the
-    org-scoped storage directory of exactly that org (the hosted per-org
+    ``workspace_root_storage_organization_id`` declares that ``workspace_root`` is the
+    organization-scoped storage directory of exactly that organization (the hosted per-organization
     ``Workspace``); see ``frisket.jobs.queue.claimed_project_location``. Leave
     it ``None`` for global/local roots.
 
@@ -460,14 +460,14 @@ def register_production_handlers(
         register_queue_terminalization(
             queue,
             workspace_root=root,
-            workspace_root_storage_org_id=workspace_root_storage_org_id,
+            workspace_root_storage_organization_id=workspace_root_storage_organization_id,
             project_opener=project_opener,
         )
     # queue-hosted-posture-explicit-v1: strict storage-identity enforcement
     # follows the queue's DECLARED posture, never the engine dialect. A queue
     # opened with hosted posture enforces the full identity contract even on a
     # SQLite engine; a local queue never does.
-    strict_hosted_storage = require_storage_identity and bool(
+    strict_cloud_storage = require_storage_identity and bool(
         getattr(queue, "_hosted_storage", False)
     )
     project_run_registration = register_project_run_handler(
@@ -477,8 +477,8 @@ def register_production_handlers(
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         executor_deps_factory=executor_deps_factory,
         project_opener=project_opener,
         execution_router_factory=execution_router_factory,
@@ -493,8 +493,8 @@ def register_production_handlers(
         router=router,
         control_database_url=control_database_url,
         worker_ports=ports,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     register_action_job_binding_handlers(
@@ -504,7 +504,7 @@ def register_production_handlers(
     enclosure_download_registration = register_enclosure_download_handler(
         registry,
         workspace_root=root,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         on_downloaded=on_enclosure_downloaded,
     )
@@ -512,15 +512,15 @@ def register_production_handlers(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     import_files_registration = register_import_files_handler(
         registry,
         workspace_root=root,
         queue=queue,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         on_terminal_import=on_terminal_file_import,
     )
@@ -528,16 +528,16 @@ def register_production_handlers(
         registry,
         workspace_root=root,
         queue=queue,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     pdf_split_registration = register_pdf_split_handler(
         registry,
         workspace_root=root,
         queue=queue,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         on_terminal_import=on_terminal_file_import,
     )
@@ -545,15 +545,15 @@ def register_production_handlers(
         registry,
         run_analysis=run_table_analysis or _default_table_analysis_runner,
         workspace_root=root,
-        require_storage_identity=strict_hosted_storage,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        require_storage_identity=strict_cloud_storage,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     search_index_registration = register_search_index_handler(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         embedding_encoder=embedding_runtime,
     )
@@ -561,7 +561,7 @@ def register_production_handlers(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         prepare_enclosures_for_search=prepare_enclosures_for_search,
     )
@@ -569,7 +569,7 @@ def register_production_handlers(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     register_embedding_refresh_handler(
@@ -577,14 +577,14 @@ def register_production_handlers(
         workspace_root=root,
         router=router,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     alert_evaluate_registration = register_alert_evaluate_handler(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
         embedding_encoder=embedding_runtime,
     )
@@ -601,17 +601,17 @@ def register_production_handlers(
         ),
         delivery_runtime_factory=notification_delivery_runtime_factory,
         queue=queue,
-        storage_org_id=workspace_root_storage_org_id,
+        storage_org_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
     notification_digest_registration = register_notification_digest_handlers(
         registry,
         workspace_root=root,
         queue=queue,
-        workspace_root_storage_org_id=workspace_root_storage_org_id,
+        workspace_root_storage_organization_id=workspace_root_storage_organization_id,
         project_opener=project_opener,
     )
-    if strict_hosted_storage:
+    if strict_cloud_storage:
         # Every hosted product handler consumes the same claimed physical
         # identity.  The guard overrides caller-controlled path diagnostics
         # before legacy handler bodies see them and fails closed if the worker
@@ -644,7 +644,7 @@ def register_production_handlers(
                     payload,
                     workspace_root=root,
                     require_storage_identity=True,
-                    workspace_root_storage_org_id=workspace_root_storage_org_id,
+                    workspace_root_storage_organization_id=workspace_root_storage_organization_id,
                 )
                 trusted_payload = dict(payload)
                 # Identity comes from the claimed row, never a parsed directory name.
@@ -665,7 +665,7 @@ def register_production_handlers(
     return project_opener
 
 
-def register_hosted_handlers(
+def register_cloud_handlers(
     registry: HandlerRegistry,
     *,
     workspace_root: str | Path,
@@ -926,31 +926,31 @@ class Worker:
                     exc_info=False,
                 )
                 return
-            # The credential-owning org is the first-class queue column org_id,
+            # The credential-owning organization is the first-class queue column org_id,
             # written at enqueue and immutable in the row — the SAME trust
             # boundary the storage columns select the physical project from.
             # The mutable JSON payload["org_id"] a forged/stale/mis-migrated
             # body carries must never resolve another tenant's BYOK keys against
-            # this org's project. Reconcile the two here (the seam that already
+            # this organization's project. Reconcile the two here (the seam that already
             # overrides project_id/storage_org_id from claimed columns): a
             # divergence or a malformed identity fails closed rather than run
-            # org A's data with org B's credentials/billing.
+            # organization A's data with organization B's credentials/billing.
             #
             # TRUST INVARIANT: job.org_id is itself only as
             # trusted as the ENQUEUE producer — server/action_enqueue.py spreads
             # the authenticated, server-controlled ``ctx.queue_payload_extra``
             # (which carries {org_id, storage_org_id}) LAST into the payload, so
-            # both the column and the payload copy reflect the authenticated org
+            # both the column and the payload copy reflect the authenticated organization
             # at enqueue. This reconciliation therefore closes the DURABLE-
             # PAYLOAD-TAMPER vector (a stored payload forged/mutated/mis-migrated
             # after enqueue while the column stays valid). It does NOT substitute
             # for enqueue-time authz: a caller who bypasses action_enqueue and
-            # calls queue.enqueue directly with a forged org in BOTH is an
+            # calls queue.enqueue directly with a forged organization in BOTH is an
             # enqueue-boundary concern, not the worker's — queue.enqueue is an
             # internal API, no production path reaches it caller-controlled.
             try:
-                trusted_org_id = _normalize_queue_org_id(job.org_id)
-                payload_org_id = _normalize_queue_org_id(
+                trusted_organization_id = _normalize_queue_organization_id(job.org_id)
+                payload_organization_id = _normalize_queue_organization_id(
                     (job.payload or {}).get("org_id")
                 )
             except (TypeError, ValueError) as exc:
@@ -972,12 +972,12 @@ class Worker:
                     exc_info=False,
                 )
                 return
-            if payload_org_id != trusted_org_id:
+            if payload_organization_id != trusted_organization_id:
                 safe = safe_error(
                     "org_identity_mismatch",
                     f"refusing job {job.id}; the durable "
-                    f"payload names org_id={payload_org_id!r} but the trusted "
-                    f"queue column names org_id={trusted_org_id!r}. Credentials "
+                    f"payload names org_id={payload_organization_id!r} but the trusted "
+                    f"queue column names org_id={trusted_organization_id!r}. Credentials "
                     "resolve from the trusted column, never the payload — failing "
                     "closed rather than run one tenant's project with another "
                     "tenant's keys (worker-credential-org-trust-divergence-v1).",
@@ -996,7 +996,7 @@ class Worker:
                 )
                 return
             handler_context = JobHandlerContext.from_claimed_job(
-                trusted_org_id=trusted_org_id,
+                trusted_organization_id=trusted_organization_id,
                 job_id=job.id,
                 job_attempt=job.attempts,
                 handler_authority_id=job.handler_authority_id,
@@ -1021,10 +1021,10 @@ class Worker:
                 # above; normalize the
                 # handler's org_id to the trusted column value so the credential
                 # seam (jobs/runs.resolve_run_keys) can never read a forged one.
-                if trusted_org_id is None:
+                if trusted_organization_id is None:
                     handler_payload.pop("org_id", None)
                 else:
-                    handler_payload["org_id"] = trusted_org_id
+                    handler_payload["org_id"] = trusted_organization_id
                 storage_key = job.project_storage_key
                 if storage_key is None:
                     handler_payload.pop(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY, None)

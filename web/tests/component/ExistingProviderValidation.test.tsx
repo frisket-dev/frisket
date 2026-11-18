@@ -15,8 +15,8 @@ vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => 
 vi.mock('../../src/engine-selector/ModelsGatewaySettings', () => ({ ModelsGatewaySettings: () => null }));
 vi.mock('../../src/api/open', async (original) => ({
   ...await original<typeof import('../../src/api/open')>(),
-  listProviders: vi.fn(), providerCatalog: vi.fn(), listOrgKeys: vi.fn(),
-  listOrgLocalEndpoints: vi.fn(), listModelPulls: vi.fn(), validateProviderKey: vi.fn(), validateOrgKey: vi.fn(),
+  listProviders: vi.fn(), providerCatalog: vi.fn(), listOrganizationKeys: vi.fn(),
+  listOrganizationLocalEndpoints: vi.fn(), listModelPulls: vi.fn(), validateProviderKey: vi.fn(), validateOrganizationKey: vi.fn(),
 }));
 
 function deferred<T>() {
@@ -37,8 +37,8 @@ beforeEach(() => {
   }], schemaVersion: 'frisket.local_providers.v1', tier: 'local' });
   vi.mocked(api.listModelPulls).mockResolvedValue({ pulls: [] });
   vi.mocked(api.providerCatalog).mockResolvedValue({ providers: [] } as Awaited<ReturnType<typeof api.providerCatalog>>);
-  vi.mocked(api.listOrgKeys).mockResolvedValue([{ provider: 'openai', hint: '…1234' }] as Awaited<ReturnType<typeof api.listOrgKeys>>);
-  vi.mocked(api.listOrgLocalEndpoints).mockResolvedValue({ endpoints: [] } as Awaited<ReturnType<typeof api.listOrgLocalEndpoints>>);
+  vi.mocked(api.listOrganizationKeys).mockResolvedValue([{ provider: 'openai', hint: '…1234' }] as Awaited<ReturnType<typeof api.listOrganizationKeys>>);
+  vi.mocked(api.listOrganizationLocalEndpoints).mockResolvedValue({ endpoints: [] } as Awaited<ReturnType<typeof api.listOrganizationLocalEndpoints>>);
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
@@ -48,7 +48,7 @@ it.each([
   { scope: 'workspace', render: () => render(<WorkspaceAiProvidersSettings />),
     label: 'Test OpenAI provider key', validate: vi.mocked(api.validateProviderKey) },
   { scope: 'organization', render: () => render(<OrganizationAiProvidersSettings />),
-    label: 'Test openai provider key', validate: vi.mocked(api.validateOrgKey) },
+    label: 'Test openai provider key', validate: vi.mocked(api.validateOrganizationKey) },
 ])('$scope checks a stored key through its own endpoint with cancellation', async (test) => {
   test.validate.mockResolvedValue(accepted);
   test.render();

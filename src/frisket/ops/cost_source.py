@@ -3,7 +3,7 @@
 
 Scope: the ESTIMATE surface only — the dicts ``Recipe.estimate()`` returns,
 which ``engine/runner/confirmation_context.py`` projects through
-``ConsentQuote`` into the hash a user's approval is compared by. The per-row FACT surface (the
+``ConsentEstimate`` into the hash a user's approval is compared by. The per-row FACT surface (the
 ``(data, meta)`` cost annotation and ``model_calls`` rows) shares the
 ``cost_source`` KEY but is a different vocabulary — ``provider_reported``
 and ``cache_hit`` are facts about a call that already happened and can never

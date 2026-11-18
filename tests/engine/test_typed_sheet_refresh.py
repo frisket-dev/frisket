@@ -240,7 +240,7 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
         )
 
         saved["params"]["max_output_rows"] = 1
-        original_quote = _run(
+        original_estimate = _run(
             project,
             {
                 **second,
@@ -248,8 +248,10 @@ def test_join_confirmation_is_current_refresh_target_and_input_bound(
                 "idempotency_key": "original-quote",
             },
         )
-        assert original_quote.status == "needs_confirmation", original_quote.errors
-        original_token = original_quote.errors[0].details["promise_set_hash"]
+        assert original_estimate.status == "needs_confirmation", (
+            original_estimate.errors
+        )
+        original_token = original_estimate.errors[0].details["promise_set_hash"]
         saved["confirmation"] = original_token
         project.db.execute(
             "UPDATE ops SET spec=? WHERE id=?", (json.dumps(saved), parent_op_id)

@@ -1,7 +1,7 @@
 """hosted-job-attribution-v1: on the hosted store, every job names an owner.
 
-The incident: a user of org B POSTed ``/api/diagnostic-bundle`` and got back
-org A's queue jobs, project slugs included. A downstream composition's
+The incident: a user of organization B POSTed ``/api/diagnostic-bundle`` and got back
+organization A's queue jobs, project slugs included. A downstream composition's
 per-tenant filter read ``org_id`` alone and treated its absence as "matches
 everyone" (fail open). That is fixed downstream. The base-side root cause is
 why unattributable jobs existed at all: attribution was something each
@@ -12,7 +12,7 @@ The two identities are deliberately NOT merged, because on a hosted tenant
 sub-app they diverge (a downstream composition's tenant-app builder passes
 ``{"org_id": funding_account_id, "storage_org_id": storage_org_id}``):
 
-* ``storage_org_id`` -- the DATA OWNER, the org whose directory the bundle
+* ``storage_org_id`` -- the DATA OWNER, the organization whose directory the bundle
   lives in. This is what makes a ``project_id`` sensitive, so it is the
   tenancy label, and it is REQUIRED.
 * ``org_id`` -- the FUNDING account, who pays and whose BYOK keys resolve.
@@ -20,7 +20,7 @@ sub-app they diverge (a downstream composition's tenant-app builder passes
   OPTIONAL -- but a claimed value must be well formed.
 
 Local single-user and the self-hosted team server enqueue these same kinds
-with no org at all; both declare ``hosted=False``, so none of this applies to
+with no organization at all; both declare ``hosted=False``, so none of this applies to
 them. That posture gate is what makes the requirement safe to impose.
 """
 
@@ -37,7 +37,7 @@ from frisket.engine.jobs.queue import (
     SERVER_SCOPED_JOB_PAYLOAD_KEY,
     SqliteJobQueue,
     jobs_table,
-    normalize_queue_org_id,
+    normalize_queue_organization_id,
 )
 
 SOURCE_POLL_KIND = "source.poll"
@@ -170,7 +170,7 @@ def test_engine_site_shape_storage_label_without_funding_account_is_accepted(tmp
     assert row.org_id is None
 
 
-def test_tenant_scoped_non_project_job_is_accepted_without_the_marker(tmp_path):
+def test_organization_scoped_non_project_job_is_accepted_without_the_marker(tmp_path):
     """A job that names a tenant but no bundle is already attributable; it does
     not need to declare itself server-scoped."""
     queue = _hosted(tmp_path)
@@ -182,7 +182,7 @@ def test_tenant_scoped_non_project_job_is_accepted_without_the_marker(tmp_path):
 
 def test_funding_account_may_differ_from_the_data_owner(tmp_path):
     """The hosted tenant sub-app's real shape: org_id is the funding account,
-    storage_org_id is the data owner, and they are NOT the same org. A fence
+    storage_org_id is the data owner, and they are NOT the same organization. A fence
     that required them to agree would break hosted dispatch outright."""
     queue = _hosted(tmp_path)
     job_id = queue.enqueue(
@@ -209,9 +209,11 @@ def test_funding_account_may_differ_from_the_data_owner(tmp_path):
     ],
     ids=["project-run", "source-poll", "model-pull", "bare"],
 )
-def test_local_and_team_enqueue_the_same_jobs_with_no_org_at_all(tmp_path, payload):
-    """Local single-user has no org concept; the self-hosted team server is
-    single-org and passes only ``{"org_id": org_id}`` as an audit field, with
+def test_local_and_team_enqueue_the_same_jobs_with_no_organization_at_all(
+    tmp_path, payload
+):
+    """Local single-user has no organization concept; the self-hosted team server is
+    single-organization and passes only ``{"org_id": org_id}`` as an audit field, with
     no storage identity and no claimed ProjectStorageKey. BOTH declare
     hosted=False (team/app.py is explicit about it), so the attribution
     requirement is structurally out of reach for them."""
@@ -219,7 +221,7 @@ def test_local_and_team_enqueue_the_same_jobs_with_no_org_at_all(tmp_path, paylo
     assert queue.enqueue(PROJECT_RUN_KIND, dict(payload)) > 0
 
 
-def test_team_audit_org_id_still_enqueues_without_a_storage_identity(tmp_path):
+def test_team_audit_organization_id_still_enqueues_without_a_storage_identity(tmp_path):
     """team/app.py spreads queue_payload_extra={"org_id": org_id} and nothing
     else. On its hosted=False queue that stays a pure audit field."""
     queue = _local(tmp_path, "team.db")
@@ -229,14 +231,14 @@ def test_team_audit_org_id_still_enqueues_without_a_storage_identity(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# One definition of a queue org identity, applied at both ends.
+# One definition of a queue organization identity, applied at both ends.
 # --------------------------------------------------------------------------
 
 
-def test_normalize_queue_org_id_is_the_one_definition_the_worker_also_uses():
+def test_normalize_queue_organization_id_is_the_one_definition_the_worker_also_uses():
     """The worker re-validates the persisted column before resolving
     credentials against it. Enqueue and claim must not be able to disagree
     about what a well-formed funding identity is."""
     from frisket.engine.jobs import worker
 
-    assert worker._normalize_queue_org_id is normalize_queue_org_id
+    assert worker._normalize_queue_organization_id is normalize_queue_organization_id

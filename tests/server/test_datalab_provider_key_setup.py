@@ -14,7 +14,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.credentials import resolve_credential_with_source
 from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.ops.base import OpContext
-from frisket.ops.ocr_engines_hosted import ocr_datalab
+from frisket.ops.ocr_engines_remote import ocr_datalab
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.server import provider_config
 from frisket.server.app import create_app

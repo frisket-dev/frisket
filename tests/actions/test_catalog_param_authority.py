@@ -73,7 +73,7 @@ def test_rich_source_kinds_follow_direct_column_types_not_template_types(
         ("anthropic/claude-haiku-4-5", "unknown_estimate", True),
     ],
 )
-def test_group_confirmation_reports_actual_quote_reason_before_effects(
+def test_group_confirmation_reports_actual_estimate_reason_before_effects(
     make_project, monkeypatch, model, reason, decline_price
 ):
     if decline_price:

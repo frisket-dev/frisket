@@ -52,7 +52,7 @@ def test_queued_row_media_recovers_durable_occurrences_without_extraction(
         job = workspace.queue.get(queued["job_id"])
         payload = {**deepcopy(job.payload), "job_id": job.id}
         handler = workspace.registry.get("project.run")
-        context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
         original = runs.queued_v1_finalize_action_result
         if crash:
 

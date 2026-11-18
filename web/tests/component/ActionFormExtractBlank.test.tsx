@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // A fresh typed Extract form starts with a blank, unplaceholdered instruction
-// and exactly ONE seeded output column (`value`, text, no description) so the
+// and exactly ONE seeded generated column (`value`, text, no description) so the
 // request is valid without inventing example prose; further columns appear
 // only when the user asks, and a saved instruction + schema reopen intact.
 
@@ -39,7 +39,7 @@ function mountExtract(options: Partial<Parameters<typeof mountTypedForm>[0]> = {
 }
 
 describe('fresh Extract form', () => {
-  it('starts with a blank instruction and one unnamed-by-example output column', async () => {
+  it('starts with a blank instruction and one unnamed-by-example generated column', async () => {
     const { onExecute } = mountExtract();
     expect(screen.getByTestId('generated-action-run')).toBeDisabled();
     await userEvent.click(screen.getByTestId('text-source-columns'));

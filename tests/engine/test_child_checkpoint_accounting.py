@@ -12,7 +12,7 @@ from frisket.engine.store.effect_checkpoints import (
     InvalidCheckpointState,
 )
 from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
-from frisket.cloud_execution import CloudQuoteAuthority
+from frisket.cloud_execution import CloudEstimateAuthority
 from tests.test_cloud_llm_checkpoint import (
     _claimless_run,
     _payer,
@@ -71,7 +71,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         project,
         _Transport([_response(execution_id="child-call")]),
         payer=_payer(),
-        quote_authority=CloudQuoteAuthority(100),
+        estimate_authority=CloudEstimateAuthority(100),
         group_key="same-logical-row",
         action_kind="map.extract",
         run_id=first_run,
@@ -130,7 +130,7 @@ def test_returned_child_keeps_original_owner_when_parent_recovers(
         project,
         replay_transport,
         payer=_payer(),
-        quote_authority=CloudQuoteAuthority(100),
+        estimate_authority=CloudEstimateAuthority(100),
         group_key="same-logical-row",
         action_kind="map.extract",
         run_id=current_run,
@@ -256,7 +256,7 @@ def test_unaccounted_cloud_child_cannot_be_retired(make_project):
         project,
         _Transport([_response(execution_id="child-call")]),
         payer=_payer(),
-        quote_authority=CloudQuoteAuthority(100),
+        estimate_authority=CloudEstimateAuthority(100),
         group_key="row",
         action_kind="map.extract",
         run_id=run,

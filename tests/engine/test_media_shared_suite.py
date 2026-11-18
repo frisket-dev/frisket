@@ -36,7 +36,7 @@ class _FakeValuesProject:
         return {row_id: self._values.get(row_id) for row_id in row_ids}
 
 
-def test_media_output_column_value_hash_deterministic_and_value_sensitive() -> None:
+def test_media_generated_column_value_hash_deterministic_and_value_sensitive() -> None:
     base = _FakeValuesProject({1: "a", 2: {"blob": "sha256:x"}})
     first = media_output_column_value_hash(
         base, sheet_id=1, column_id=2, row_ids=[1, 2]

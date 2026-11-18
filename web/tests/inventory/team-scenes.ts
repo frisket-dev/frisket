@@ -32,7 +32,7 @@ export async function captureTeamSettingsScenes(page: Page, shot: Shot) {
   await page.goto(`${baseURL}${sections[0].routePattern}`);
   const onboarding = page.getByTestId('cost-preapproval-setup');
   await expect(onboarding).toBeVisible();
-  await shot(page, 'Team settings', 'cost-preapproval-setup', 'src/components/CostPreapprovalSetupModal.tsx; first-login setup');
+  await shot(page, 'Team settings', 'cost-preapproval-setup', 'src/components/AllowanceSetupModal.tsx; first-login setup');
   await page.getByTestId('cost-preapproval-setup-save').click();
   await expect(onboarding).toHaveCount(0);
   // The contribution imports UI/CSS. Read its canonical metadata in Vite's

@@ -33,8 +33,8 @@ from frisket.execution.commercial import (
     CommercialOffering,
     CommercialOfferingMatch,
     CommercialPresentation,
-    CommercialQuoteRounding,
-    CommercialQuoteTerms,
+    CommercialEstimateRounding,
+    CommercialEstimateTerms,
     CommercialSettlementTerms,
 )
 from frisket.execution.provider import (
@@ -539,7 +539,7 @@ def _offering(
                 capability=capability,
                 engine=route.engine,
             ),
-            quote=CommercialQuoteTerms(
+            estimate=CommercialEstimateTerms(
                 pricing_key=(
                     f"frisket-cloud:{account.id}:{route.lane}:"
                     f"{route.provider}:{capability}:{route.engine}"
@@ -547,7 +547,7 @@ def _offering(
                 terms_version=route.route_revision,
                 unit_rate="1",
                 quantity_unit="usd",
-                rounding=CommercialQuoteRounding(mode="exact", decimal_places=None),
+                rounding=CommercialEstimateRounding(mode="exact", decimal_places=None),
             ),
             settlement=CommercialSettlementTerms(
                 meter_key="cloud_effective_cost_micro",
@@ -573,7 +573,7 @@ def _offering(
             capability=capability,
             engine=route.engine,
         ),
-        quote=CommercialQuoteTerms(
+        estimate=CommercialEstimateTerms(
             pricing_key=(
                 f"frisket-cloud:{account.id}:{route.lane}:"
                 f"{route.provider}:{capability}:{route.engine}"
@@ -581,7 +581,7 @@ def _offering(
             terms_version=route.route_revision,
             unit_rate=format(rate, "f"),
             quantity_unit=expected_unit,
-            rounding=CommercialQuoteRounding(),
+            rounding=CommercialEstimateRounding(),
         ),
         settlement=CommercialSettlementTerms(
             meter_key="audio_seconds" if expected_unit == "audio_second" else "pages",

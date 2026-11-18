@@ -159,14 +159,14 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
     cancelRuns,
   } = session;
   useEffect(() => { if (!active) cancelRuns(); }, [active, cancelRuns]);
-  const quoteInputKey = useMemo(() => JSON.stringify({
+  const estimateInputKey = useMemo(() => JSON.stringify({
     docs: docs.map((doc) => doc.id),
     columns: columns.map(({ id, engineId, options }) => ({ id, engineId, options })),
     timeLimit,
   }), [columns, docs, timeLimit]);
 
-  const { clearQuote } = paid;
-  useEffect(() => { clearQuote(); }, [clearQuote, quoteInputKey]);
+  const { clearEstimate } = paid;
+  useEffect(() => { clearEstimate(); }, [clearEstimate, estimateInputKey]);
 
   const variantEditor = useTranscribeVariantConfigure(session);
 
@@ -254,7 +254,7 @@ export function TranscribeCompareTab({ active = true, onSessionChange }: Transcr
         frontDoorHint="Drop files, choose engines, then run. Each engine receives the same initial interval (600 seconds by default). Shorter clips run in full. Files and transcripts are temporary; paid usage is recorded."
         pendingLabel="transcribing…"
       />
-      {paid.quote}
+      {paid.estimateLine}
       {paid.gate}
     </section>
   );

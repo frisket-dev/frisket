@@ -1,6 +1,6 @@
-import type { SavedView } from '../api/open';
-interface SavedViewSummary { filterSummary: string; sortSummary: string | null; columnCount: number | null; hasNoEffectiveFilter: boolean; summary: string; }
-export function summarizeSavedView(view: SavedView): SavedViewSummary {
+import type { View } from '../api/open';
+interface ViewSummary { filterSummary: string; sortSummary: string | null; columnCount: number | null; hasNoEffectiveFilter: boolean; summary: string; }
+export function summarizeView(view: View): ViewSummary {
   if (!view.spec) return { filterSummary: 'Unavailable', sortSummary: null, columnCount: null, hasNoEffectiveFilter: false, summary: view.unavailable_reason ?? 'Unavailable view' };
   const { selection, presentation } = view.spec;
   const criteria = [selection.search ? `Search “${selection.search.text}”` : null, selection.similarity ? 'Similarity' : null,

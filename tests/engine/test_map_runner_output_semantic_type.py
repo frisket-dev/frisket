@@ -1,6 +1,6 @@
 """``preparation.prepare_validated`` threads a recipe's declared
 ``semantic_type`` output-field key into ``project.add_column`` for a
-freshly-created output column, while a reused published output keeps its
+freshly-created generated column, while a reused published output keeps its
 declared contract immutable. Exercised directly against
 ``prepare_validated`` (the writing half of ``MapRunner._prepare``) with a
 minimal fake recipe, bypassing the LLM/registry machinery entirely: no spec
@@ -76,7 +76,7 @@ def _validated(
     )
 
 
-class TestFreshOutputColumnSemanticType:
+class TestFreshGeneratedColumnSemanticType:
     def test_declared_semantic_type_lands_on_the_new_column(self, tmp_path):
         p = Project.create(tmp_path / "t.frisket", name="t")
         sheet_id, row_ids = _seed(p)
@@ -122,7 +122,7 @@ class TestFreshOutputColumnSemanticType:
 
 
 class TestReuseConvergesSemanticType:
-    """~L152-157: a re-run onto an EXISTING ai_generated output column must
+    """~L152-157: a re-run onto an EXISTING ai_generated column must
     converge the stored semantic_type onto whatever the recipe declares NOW
     -- not keep a stale marker, in either direction (adding one, changing
     one, or clearing one)."""

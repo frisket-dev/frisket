@@ -57,7 +57,7 @@ interface ActionCompareTabProps {
   className?: string;
   evaluationApi?: EvaluationApi;
   onJoinExpected?(): void;
-  initialLens?: 'each_other' | 'expected';
+  initialView?: 'each_other' | 'expected';
   onExpectedAnswersChanged?(): void;
   onShelved?(): void;
   modelField?: string | null;
@@ -66,7 +66,7 @@ interface ActionCompareTabProps {
   rowScopePending?: boolean;
   rowScopeTotal?: number | null;
   dataRevision?: number;
-  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', lens?: 'each_other' | 'expected'): void;
+  onChangeRowScope?(scope: 'sample' | 'all' | 'expected', view?: 'each_other' | 'expected'): void;
 }
 
 
@@ -82,7 +82,7 @@ function statusTone(status: ActionCompareVariant['status']): StatusTone {
 export function ActionCompareTab({ projectId, session, rowHeight, wrapText, frozenColumnCount,
   onUseSettings, renderVariantEditor,
   labelForDraft, describeVariantChanges, onOpenBoundedValue, onOpenStructuredValue,
-  className, evaluationApi, onJoinExpected, initialLens, onExpectedAnswersChanged, onShelved,
+  className, evaluationApi, onJoinExpected, initialView, onExpectedAnswersChanged, onShelved,
   modelField, instructionsField, rowScope, rowScopePending, rowScopeTotal, dataRevision, onChangeRowScope }: ActionCompareTabProps) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
   const [variantMenuHost, setVariantMenuHost] = useState<HTMLDivElement | null>(null);
@@ -214,8 +214,8 @@ export function ActionCompareTab({ projectId, session, rowHeight, wrapText, froz
         onValueChange={(value) => onChangeRowScope(value as 'sample' | 'all')} />}
     </div>}
 
-    {evaluationApi ? <ComparisonEvaluationWorkspace key={initialLens ?? 'each_other'} api={evaluationApi} state={state} session={session}
-      variantMenuHost={variantMenuHost} initialLens={initialLens} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
+    {evaluationApi ? <ComparisonEvaluationWorkspace key={initialView ?? 'each_other'} api={evaluationApi} state={state} session={session}
+      variantMenuHost={variantMenuHost} initialView={initialView} onJoinExpected={onJoinExpected} onExpectedAnswersChanged={onExpectedAnswersChanged}
       onShelved={onShelved} modelField={modelField} instructionsField={instructionsField}
       rowScope={rowScope} rowScopePending={rowScopePending} rowScopeTotal={rowScopeTotal} dataRevision={dataRevision} onChangeRowScope={onChangeRowScope}
       renderVariantEditor={renderVariantEditor} onOpenVariant={setEditingId} onUseSettings={onUseSettings}

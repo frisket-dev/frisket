@@ -126,7 +126,7 @@ def retirement_owns_column(
     return this_output in _declared_field_names(prior_params)
 
 
-def retire_dropped_output_columns(
+def retire_dropped_generated_columns(
     project: Project,
     *,
     op_id: int,

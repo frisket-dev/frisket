@@ -170,7 +170,7 @@ def _assert_selected_key(router: Any, expected: str) -> None:
     )
 
 
-def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
+def test_sync_workspace_keeps_project_organization_and_local_provenance_distinct(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Workspace must preserve the source after synchronous key composition."""
@@ -179,17 +179,17 @@ def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
     from frisket.server.workspace import Workspace
 
     platform = "test-platform-credential"
-    org = "test-org-byok-credential"
+    organization = "test-org-byok-credential"
     project_key = "test-project-credential"
     local = "test-local-operator-credential"
 
     # The injected hosted router declares its ownership explicitly; router
-    # injection alone cannot distinguish org BYOK from platform or local keys.
+    # injection alone cannot distinguish organization BYOK from platform or local keys.
     # A project key must still win it.
     project, sheet_id = _project(tmp_path, "sync-project")
     hosted_router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"openai": org},
+        keys={"openai": organization},
         key_sources={"openai": "org_byok"},
     )
     hosted_adapter = _StubAdapter()
@@ -203,24 +203,24 @@ def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
         _assert_durable_fact_contract(
             rows,
             expected_source="project_key",
-            forbidden_values={platform, org, project_key, local},
+            forbidden_values={platform, organization, project_key, local},
         )
     finally:
         project.close()
 
-    # With no project key, the same hosted composition uses the org BYOK key.
+    # With no project key, the same hosted composition uses the organization BYOK key.
     project, sheet_id = _project(tmp_path, "sync-org")
     monkeypatch.setattr(project, "provider_model_keys", lambda: {})
     try:
         router = hosted.router_for(project)
         assert router is hosted_router
         assert router._adapters["openai"] is hosted_adapter  # noqa: SLF001
-        _assert_selected_key(router, org)
+        _assert_selected_key(router, organization)
         rows = _persisted_remote_fact(project, sheet_id, router, key="sync-org")
         _assert_durable_fact_contract(
             rows,
             expected_source="org_byok",
-            forbidden_values={platform, org, project_key, local},
+            forbidden_values={platform, organization, project_key, local},
         )
     finally:
         project.close()
@@ -239,7 +239,7 @@ def test_sync_workspace_keeps_project_org_and_local_provenance_distinct(
         _assert_durable_fact_contract(
             rows,
             expected_source="local",
-            forbidden_values={platform, org, project_key, local},
+            forbidden_values={platform, organization, project_key, local},
         )
     finally:
         project.close()
@@ -277,7 +277,7 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
     from frisket.ai.llm import ModelRouter
 
     platform = "test-platform-credential"
-    org = "test-org-byok-credential"
+    organization = "test-org-byok-credential"
     project_key = "test-project-credential"
     project, sheet_id = _project(tmp_path, f"queued-{expected_source}")
     monkeypatch.setattr(project, "provider_model_keys", lambda: project_keys)
@@ -313,7 +313,7 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
         _assert_durable_fact_contract(
             rows,
             expected_source=expected_source,
-            forbidden_values={platform, org, project_key},
+            forbidden_values={platform, organization, project_key},
         )
     finally:
         project.close()

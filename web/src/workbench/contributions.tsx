@@ -32,12 +32,12 @@ import {
   IMAGE_GALLERY_VIEW_DESCRIPTOR,
   MENTIONS_DESCRIPTOR,
   NOTIFICATIONS_DESCRIPTOR,
-  OUTPUT_COLUMN_COLLISION_VIEW_DESCRIPTOR,
+  GENERATED_COLUMN_COLLISION_VIEW_DESCRIPTOR,
   PROVENANCE_PANEL_DESCRIPTOR,
   REVIEW_QUEUE_VIEW_DESCRIPTOR,
   ROW_DELETE_CONFIRM_VIEW_DESCRIPTOR,
   ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR,
-  SAVED_VIEWS_DESCRIPTOR,
+  VIEWS_DESCRIPTOR,
   SOURCES_DESCRIPTOR,
   SOURCE_HEALTH_VIEW_DESCRIPTOR,
   SOURCE_KIND_FORM_DESCRIPTORS,
@@ -123,7 +123,7 @@ interface NotificationsWorkbenchPanelProps {
   projectId: string;
 }
 
-interface SavedViewsWorkbenchPanelProps extends ViewsPanelProps {
+interface ViewsWorkbenchPanelProps extends ViewsPanelProps {
   host?: WorkbenchRegionId;
 }
 
@@ -436,14 +436,14 @@ export function CostGateWorkbenchViewFrame({ children }: { children: ReactNode }
   );
 }
 
-export function OutputColumnCollisionWorkbenchViewFrame({
+export function GeneratedColumnCollisionWorkbenchViewFrame({
   children,
 }: {
   children: ReactNode;
 }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={OUTPUT_COLUMN_COLLISION_VIEW_DESCRIPTOR}
+      descriptor={GENERATED_COLUMN_COLLISION_VIEW_DESCRIPTOR}
       host="modalOrPeek"
       className=""
     >
@@ -717,11 +717,11 @@ export function NotificationsWorkbenchPanel({
   );
 }
 
-export function SavedViewsWorkbenchPanel({
+export function ViewsWorkbenchPanel({
   host = 'leftSidebar',
   ...props
-}: SavedViewsWorkbenchPanelProps) {
-  const descriptor = SAVED_VIEWS_DESCRIPTOR;
+}: ViewsWorkbenchPanelProps) {
+  const descriptor = VIEWS_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
 
   return (
@@ -761,7 +761,7 @@ export function EmbeddingsWorkbenchPanel({
   host = 'leftSidebar',
   sheet,
   onSelectSheet,
-  onOpenLens,
+  onOpenView,
   selectedRowIds,
   onFindSimilar,
 }: EmbeddingsWorkbenchPanelProps) {
@@ -775,7 +775,7 @@ export function EmbeddingsWorkbenchPanel({
         projectId={projectId}
         sheet={sheet}
         onSelectSheet={onSelectSheet}
-        onOpenLens={onOpenLens}
+        onOpenView={onOpenView}
         selectedRowIds={selectedRowIds}
         onFindSimilar={onFindSimilar}
       />

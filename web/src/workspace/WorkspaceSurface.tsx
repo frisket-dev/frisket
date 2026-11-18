@@ -184,14 +184,14 @@ export function WorkspacePrimarySurface() {
   // Replay the stored action through the ordinary launcher.
 
   const replayAnnotationLayer = useCallback(
-    (outputColumnId: string) => {
+    (generatedColumnId: string) => {
       if (!sheet) return;
       void projectApi
-        .getColumnRuns(outputColumnId, 0, 1)
+        .getColumnRuns(generatedColumnId, 0, 1)
         .then((info) => {
           const plan = nerReplayPlan(info.latestRun, {
             sheetId: sheet.id,
-            columnId: outputColumnId,
+            columnId: generatedColumnId,
             columnName: info.columnName,
           }, nerCatalogEntry);
 

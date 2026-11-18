@@ -319,7 +319,7 @@ _HOSTED_ROUTE = RouteRowFacts(
 
 @pytest.mark.parametrize(
     "quantity",
-    ["0", 0],  # a truncated header (0 audio-minutes) and quote_ocr(pages=0)
+    ["0", 0],  # a truncated header (0 audio-minutes) and estimate_ocr(pages=0)
 )
 def test_a_zero_quantity_priced_basis_is_still_a_user_claim(quantity):
     """A zero quantity must not delete the run's cost claim. Before the fix

@@ -23,7 +23,7 @@ type ReceiptWire = HttpContractSuccessResponse<'tenant.v1_receipt_lookup.get'>;
 function mapPublicRunProgress(
   status: ActionRunPublicStatusWire,
   sheetId: number,
-  outputColumns: readonly { id: number }[] = [],
+  generatedColumns: readonly { id: number }[] = [],
 ): RunProgress {
   return {
     runId: String(status.run_id),
@@ -31,7 +31,7 @@ function mapPublicRunProgress(
     actionName: status.action_name,
     retrySupported: status.retry_supported,
     sheetId: String(sheetId),
-    targetColumnId: outputColumns[0] ? String(outputColumns[0].id) : '',
+    targetColumnId: generatedColumns[0] ? String(generatedColumns[0].id) : '',
     targetRowIds: null,
     status: toRunProgressStatus(status),
     completedRows: status.completed,
@@ -164,7 +164,7 @@ function mapActionJob(wire: ActionJobWire): ActionJob {
     context: wire.context ? {
       sheetId: String(wire.context.sheet_id),
       sheetName: wire.context.sheet_name ?? null,
-      outputColumns: (wire.context.output_columns ?? []).map((column) => ({
+      generatedColumns: (wire.context.output_columns ?? []).map((column) => ({
         id: String(column.id), name: column.name,
       })),
     } : null,

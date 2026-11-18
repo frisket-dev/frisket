@@ -68,7 +68,9 @@ def _sqlite_file_lock(engine: sa.Engine) -> Iterator[None]:
         yield
 
 
-def initialize_team_schema_and_org(engine: sa.Engine, *, organization_name: str) -> int:
+def initialize_team_schema_and_organization(
+    engine: sa.Engine, *, organization_name: str
+) -> int:
     """Initialize/validate under a process+database single-writer lock."""
     with _sqlite_file_lock(engine), engine.begin() as cx:
         if cx.dialect.name == "postgresql":
@@ -118,4 +120,4 @@ def preflight_team_schema(engine: sa.Engine) -> None:
         _validate_existing_tables(cx, set(sa.inspect(cx).get_table_names()))
 
 
-__all__ = ["initialize_team_schema_and_org", "preflight_team_schema"]
+__all__ = ["initialize_team_schema_and_organization", "preflight_team_schema"]

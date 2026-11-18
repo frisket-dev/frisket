@@ -205,7 +205,7 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
         assert tuple(project.db.iterdump()) == before
 
 
-def test_paid_ocr_borrowed_image_preserves_inline_scope_and_quote(
+def test_paid_ocr_borrowed_image_preserves_inline_scope_and_estimate(
     tmp_path: Path,
 ) -> None:
     source_bytes = _png()

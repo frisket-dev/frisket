@@ -426,7 +426,7 @@ def test_pdf_worker_recovery_uses_committed_read_evidence(tmp_path, monkeypatch,
         job = workspace.queue.get(queued["job_id"])
         payload = {**deepcopy(job.payload), "job_id": job.id}
         handler = workspace.registry.get("project.run")
-        context = JobHandlerContext.from_claimed_job(trusted_org_id=None)
+        context = JobHandlerContext.from_claimed_job(trusted_organization_id=None)
         original = runs.queued_v1_finalize_action_result
         if crash:
 

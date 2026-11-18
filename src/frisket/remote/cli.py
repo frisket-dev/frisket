@@ -377,16 +377,16 @@ def _users_list(argv: list[str]) -> int:
             **user,
             "status": "active",
         }
-        for org in listed.get("orgs", [])
-        for user in org.get("users", [])
+        for organization in listed.get("orgs", [])
+        for user in organization.get("users", [])
     ] + [
         {
             **invite,
             "status": "invited",
             "created_at": None,
         }
-        for org in listed.get("orgs", [])
-        for invite in org.get("pending_invites", [])
+        for organization in listed.get("orgs", [])
+        for invite in organization.get("pending_invites", [])
     ]
     if not rows_payload:
         _say("No users or pending invites.")

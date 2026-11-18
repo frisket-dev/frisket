@@ -449,7 +449,7 @@ def test_organization_key_request_dto_compatibility_matrix(
             validation.model_validate(invalid)
 
 
-def test_org_key_save_wire_keeps_its_public_hint_shape_not_a_cross_edition_union(
+def test_organization_key_save_wire_keeps_its_public_hint_shape_not_a_cross_edition_union(
     routes_by_name: dict[str, tuple[str, APIRoute]],
 ) -> None:
     """The public route's audited hint response is not a generic save result."""

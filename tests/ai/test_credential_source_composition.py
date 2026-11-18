@@ -67,7 +67,7 @@ def test_durable_fact_store_rejects_unknown_credential_source(make_project) -> N
         )
 
 
-def test_workspace_preserves_mixed_org_and_platform_sources(
+def test_workspace_preserves_mixed_organization_and_platform_sources(
     tmp_path, make_project
 ) -> None:
     project = make_project("project")
@@ -161,7 +161,7 @@ def test_router_for_composed_branch_carries_local_endpoints(
             use_env_keys=False,
         )
         # provider_keys_resolver forces the composed-router reconstruction
-        # branch (resolved_org_keys is not None) rather than the fast path
+        # branch (resolved_organization_keys is not None) rather than the fast path
         # that just returns self._router unchanged.
         ws = Workspace(
             tmp_path / "org",
@@ -179,11 +179,11 @@ def test_router_for_composed_branch_carries_local_endpoints(
         project.close()
 
 
-def test_diagnostic_router_org_resolver_branch_carries_local_endpoints(
+def test_diagnostic_router_organization_resolver_branch_carries_local_endpoints(
     tmp_path,
 ) -> None:
     """Same gap, ``Workspace.diagnostic_router``'s org-resolver branch: it
-    reconstructs a fresh router from the org keys resolver without checking
+    reconstructs a fresh router from the organization keys resolver without checking
     (let alone threading) the injected base router's ``local_endpoints`` at
     all."""
     endpoint = LocalModelEndpointConfig(

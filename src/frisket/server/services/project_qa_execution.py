@@ -25,7 +25,7 @@ from frisket.server.services.project_qa_actions import (
     ProjectAskActionUnpriced,
     ProjectAskActionService,
     OutputGrantsProvider,
-    QuoteProvider,
+    EstimateProvider,
     save_prepared_project_ask_action,
 )
 from frisket.server.services.project_qa_child_runs import (
@@ -169,8 +169,12 @@ def _request_action_id(authority: Mapping[str, Any]) -> str:
 
 
 def _promise_set_hash(authority: Mapping[str, Any]) -> str | None:
-    quote = authority.get("quote")
-    estimate = quote.get("estimate") if isinstance(quote, Mapping) else None
+    estimate_response = authority.get("quote")
+    estimate = (
+        estimate_response.get("estimate")
+        if isinstance(estimate_response, Mapping)
+        else None
+    )
     if not isinstance(estimate, Mapping):
         raise ProjectQAExecutionRefused("prepared action has no current quote")
     if not estimate.get("requires_confirmation"):
@@ -254,7 +258,7 @@ class ProjectQAExecutionService:
         research_session: ResearchSessionLike,
         *,
         catalog_payload_provider: CatalogPayloadProvider,
-        quote_provider: QuoteProvider,
+        estimate_provider: EstimateProvider,
         run_action: ActionRunner,
         wait_child: WaitChild,
         output_grants_provider: OutputGrantsProvider | None = None,
@@ -267,7 +271,7 @@ class ProjectQAExecutionService:
         self.store = store
         self.research = research_session
         self._catalog_payload_provider = catalog_payload_provider
-        self._quote_provider = quote_provider
+        self._estimate_provider = estimate_provider
         self._run_action = run_action
         self._wait_child = wait_child
         self._output_grants_provider = output_grants_provider
@@ -304,7 +308,7 @@ class ProjectQAExecutionService:
                 title=title,
                 draft=draft,
                 catalog_payload=self._catalog_payload_provider(),
-                quote_provider=self._quote_provider,
+                estimate_provider=self._estimate_provider,
                 output_grants=output_grants,
                 output_grant_allows=self._output_grant_allows,
             )
@@ -380,7 +384,7 @@ class ProjectQAExecutionService:
             await self.research.check_authority()
             action_service = ProjectAskActionService(
                 catalog_payload_provider=self._catalog_payload_provider,
-                quote_provider=self._quote_provider,
+                estimate_provider=self._estimate_provider,
                 research_for_turn=lambda turn_id: self.research.store.get(
                     self.research.id
                 ),

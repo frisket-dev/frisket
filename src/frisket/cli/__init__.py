@@ -36,28 +36,28 @@ def _load(target: str) -> Any:
     return getattr(importlib.import_module(module_name), attr)
 
 
-# A scheduler root paired with its DECLARED storage-org identity (None for
+# A scheduler root paired with its DECLARED storage-organization identity (None for
 # every non-hosted/flat root). Identity travels WITH the root from the
 # moment it is discovered -- never re-derived from `root.name` at the
-# call site -- so a flat single-org data dir that happens to have a numeric
+# call site -- so a flat single-organization data dir that happens to have a numeric
 # basename (e.g. FRISKET_DATA_DIR=/mnt/7) can never be mistaken for hosted
-# per-org storage.
+# per-organization storage.
 SchedulerRoot = tuple[Path, int | None]
 DEFAULT_LOCAL_PORT = 7331
 
 
-def _hosted_project_roots() -> list[SchedulerRoot]:
-    """Per-org roots under the multi-tenant hosted layout,
+def _cloud_project_roots() -> list[SchedulerRoot]:
+    """Per-organization roots under the multi-tenant hosted layout,
     ``FRISKET_DATA_DIR/projects/<org_id>/*.frisket``.
 
-    Only directories whose name is a valid positive storage-org id are
+    Only directories whose name is a valid positive storage-organization id are
     accepted. This is not just cosmetic: ``_source_scheduler_roots`` treats
-    a non-empty result here as proof the hosted per-org layout is in use and
-    lets it suppress the flat single-org fallback (the ``or`` below); a
+    a non-empty result here as proof the hosted per-organization layout is in use and
+    lets it suppress the flat single-organization fallback (the ``or`` below); a
     stray non-numeric directory under ``projects/`` (a cache dir, a
-    leftover, anything that is not really an org root) must never count as
+    leftover, anything that is not really an organization root) must never count as
     that proof, or a flat team-app data dir with an unrelated ``projects/``
-    subdirectory would wrongly select hosted per-org routing instead of its
+    subdirectory would wrongly select hosted per-organization routing instead of its
     real flat layout.
     """
     data_dir = os.environ.get("FRISKET_DATA_DIR")
@@ -70,7 +70,7 @@ def _hosted_project_roots() -> list[SchedulerRoot]:
     for p in sorted(projects.iterdir()):
         if not p.is_dir():
             continue
-        org_id = _storage_org_id_for_scheduler_root(p)
+        org_id = _storage_organization_id_for_scheduler_root(p)
         if org_id is not None:
             roots.append((p, org_id))
     return roots
@@ -79,27 +79,27 @@ def _hosted_project_roots() -> list[SchedulerRoot]:
 def _flat_data_dir_scheduler_root() -> list[SchedulerRoot]:
     """Fallback scheduler root for the open team-server composition.
 
-    ``_hosted_project_roots`` assumes the multi-tenant layout,
+    ``_cloud_project_roots`` assumes the multi-tenant layout,
     ``FRISKET_DATA_DIR/projects/<org_id>/*.frisket`` (one subdirectory per
-    org). The open team server (``frisket.team.app.create_team_app``) is
-    single-org and passes ``config.data_dir`` straight through as its
+    organization). The open team server (``frisket.team.app.create_team_app``) is
+    single-organization and passes ``config.data_dir`` straight through as its
     Workspace root, so bundles land directly at
     ``FRISKET_DATA_DIR/<slug>.frisket`` -- no ``projects/`` nesting at all.
     Scanning ``FRISKET_DATA_DIR`` itself as ONE flat root
-    when no per-org ``projects/`` subdirectories exist lets scheduled source
+    when no per-organization ``projects/`` subdirectories exist lets scheduled source
     polls, embedding refreshes, and notification digests start for that
-    layout, without disturbing the per-org discovery
+    layout, without disturbing the per-organization discovery
     ``test_worker_cli_drains_real_source_poll`` /
     ``test_scheduler_keeps_workspace_roots_distinct_for_hosted_slugs`` (etc.)
     already cover.
 
-    Storage org id is ALWAYS ``None`` here, regardless of the data dir's
-    basename (a flat ``FRISKET_DATA_DIR=/mnt/7`` is not org 7 -- it is a
-    non-hosted single-org layout with no claimed storage identity at all,
+    Storage organization id is ALWAYS ``None`` here, regardless of the data dir's
+    basename (a flat ``FRISKET_DATA_DIR=/mnt/7`` is not organization 7 -- it is a
+    non-hosted single-organization layout with no claimed storage identity at all,
     same as the local single-node tier). The important boundary is:
-    inferring an org id from a flat root's name previously misrouted the
+    inferring an organization id from a flat root's name previously misrouted the
     scheduled job through ``claimed_project_location``'s hosted-claim path
-    (``<data_dir>/projects/<bogus_org_id>/<slug>.frisket``, which does not
+    (``<data_dir>/projects/<bogus_organization_id>/<slug>.frisket``, which does not
     exist) instead of the real ``<data_dir>/<slug>.frisket``.
     """
     data_dir = os.environ.get("FRISKET_DATA_DIR")
@@ -113,23 +113,23 @@ def _source_scheduler_roots(workspace: Path | None) -> list[SchedulerRoot]:
     raw = os.environ.get("FRISKET_SOURCE_WORKSPACE_ROOTS")
     if raw:
         return [
-            (path, _storage_org_id_for_scheduler_root(path))
+            (path, _storage_organization_id_for_scheduler_root(path))
             for path in (Path(p) for p in raw.split(os.pathsep) if p)
         ]
     if workspace is None:
-        return _hosted_project_roots() or _flat_data_dir_scheduler_root()
+        return _cloud_project_roots() or _flat_data_dir_scheduler_root()
     data_dir = os.environ.get("FRISKET_DATA_DIR")
     if data_dir:
         queue_root = Path(data_dir) / "queue"
         try:
-            is_hosted_queue = workspace.resolve() == queue_root.resolve()
+            is_cloud_queue = workspace.resolve() == queue_root.resolve()
         except OSError:
-            is_hosted_queue = workspace == queue_root
-        if is_hosted_queue:
-            roots = _hosted_project_roots()
+            is_cloud_queue = workspace == queue_root
+        if is_cloud_queue:
+            roots = _cloud_project_roots()
             if roots:
                 return roots
-    return [(workspace, _storage_org_id_for_scheduler_root(workspace))]
+    return [(workspace, _storage_organization_id_for_scheduler_root(workspace))]
 
 
 def _handler_workspace_root(workspace: Path | None) -> Path:
@@ -144,7 +144,7 @@ def _handler_workspace_root(workspace: Path | None) -> Path:
     return Path.cwd() / "frisket-projects"
 
 
-def _storage_org_id_for_scheduler_root(root: Path) -> int | None:
+def _storage_organization_id_for_scheduler_root(root: Path) -> int | None:
     try:
         value = int(root.name)
     except ValueError:
@@ -297,9 +297,9 @@ def _write_model_pull_finished_audit(
     detail = f"{row.id}:{row.model_ref}:{row.status}"
     if row.correlation_id:
         detail = f"{detail}:{row.correlation_id}"
-    org_id_raw = payload.get("org_id")
+    organization_id_raw = payload.get("org_id")
     try:
-        org_id = int(org_id_raw) if org_id_raw is not None else None
+        org_id = int(organization_id_raw) if organization_id_raw is not None else None
     except (TypeError, ValueError):
         org_id = None
     try:
@@ -471,7 +471,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         Worker,
         default_registry,
         open_queue,
-        register_hosted_handlers,
+        register_cloud_handlers,
         register_production_handlers,
     )
 
@@ -483,11 +483,11 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         # the real Postgres run queue. A named workspace always wins
         # over the env var above, so the local one-command path can
         # never acquire hosted posture.
-        hosted_run_queue = hosted and database_url.startswith("postgresql")
+        cloud_run_queue = hosted and database_url.startswith("postgresql")
         queue = open_queue(
             database_url=database_url,
-            schema_mode="strict" if hosted_run_queue else None,
-            hosted=hosted_run_queue,
+            schema_mode="strict" if cloud_run_queue else None,
+            hosted=cloud_run_queue,
         )
         where = "run queue (database)"
         workspace = None
@@ -501,7 +501,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     registry = default_registry()
     handler_root = _handler_workspace_root(workspace)
     register_handlers = (
-        register_hosted_handlers if hosted else register_production_handlers
+        register_cloud_handlers if hosted else register_production_handlers
     )
     control_database_url = os.environ.get("FRISKET_DATABASE_URL")
     registration_options = {}
@@ -550,7 +550,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         if database_url:
             # This branch is the TEAM worker (a run-queue-backed deployment,
             # never an external managed composition -- that is `hosted=True`
-            # and never reaches this call at all). Team org surfaces have no per-
+            # and never reaches this call at all). Team organization surfaces have no per-
             # workspace opt-in file. The handler is unconditional because
             # non-local artifacts do not depend on a local endpoint; local
             # downloads are gated per endpoint at enqueue and claim.
@@ -629,7 +629,7 @@ def worker(argv: list[str]) -> int:
     return _run_worker(argv, hosted=False)
 
 
-def hosted_worker(argv: list[str]) -> int:
+def cloud_worker(argv: list[str]) -> int:
     """Run the public-hosted worker with arbitrary code hard-disabled."""
 
     return _run_worker(argv, hosted=True)
@@ -676,7 +676,7 @@ def _subcommands() -> dict[str, tuple[str, str]]:
         ),
         "worker": ("frisket.cli:worker", "run the background worker by itself"),
         "hosted-worker": (
-            "frisket.cli:hosted_worker",
+            "frisket.cli:cloud_worker",
             "run the Cloud worker with code execution disabled",
         ),
         "doctor": (

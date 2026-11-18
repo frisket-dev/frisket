@@ -221,7 +221,9 @@ def test_users_verbs_round_trip(linked, capsys) -> None:
     listed = json.loads(capsys.readouterr().out)
     assert listed["schema_version"] == "frisket.admin_users.v1"
     invites = {
-        row["email"]: row for org in listed["orgs"] for row in org["pending_invites"]
+        row["email"]: row
+        for organization in listed["orgs"]
+        for row in organization["pending_invites"]
     }
     assert invites["cli-a@example.com"]["role"] == "member"
     assert users_command(["role", "cli-a@example.com", "owner"]) == 0

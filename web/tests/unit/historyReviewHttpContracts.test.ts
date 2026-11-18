@@ -532,7 +532,7 @@ describe('history and review generated HTTP reads', () => {
       ops: [{
         id: '12', kind: 'map', rowsAffected: 3, cost: 0.12,
         run: {
-          outputColumns: [{ id: '5', name: 'Label' }],
+          generatedColumns: [{ id: '5', name: 'Label' }],
           rowErrors: {
             totalFailedRows: 1,
             groups: [{ rowIds: ['7'], outcome: null, terminal: false }],
@@ -777,7 +777,7 @@ describe('history and review generated HTTP reads', () => {
       revision: { total: 1, maxOpId: '12', opCursor: '12' },
       ops: [{
         id: '12', kind: 'map', rowsAffected: 3, cost: 0.12,
-        run: { outputColumns: [{ id: '5', name: 'Label' }], rowErrors: {
+        run: { generatedColumns: [{ id: '5', name: 'Label' }], rowErrors: {
           totalFailedRows: 1, groups: [{ rowIds: ['7'] }],
         } },
       }],

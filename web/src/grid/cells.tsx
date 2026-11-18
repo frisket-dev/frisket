@@ -506,7 +506,7 @@ export const customRenderers = [
 ];
 
 // ---------------------------------------------------------------------------
-// Header icon for AI columns (Glide sprite map: name -> svg string)
+// Header icon for generated columns (Glide sprite map: name -> svg string)
 
 const tag = (glyph: string): SpriteMap[string] =>
   ({ fgColor, bgColor }) => `
@@ -582,7 +582,7 @@ export function typeHeaderIcon(type: string): string | undefined {
 }
 
 // AI-column tint is derived from the CSS token palette at runtime — see
-// readAiColumnTheme in ./gridTheme (kept in sync with :root so canvas and CSS
+// readGeneratedColumnTheme in ./gridTheme (kept in sync with :root so canvas and CSS
 // cannot drift).
 
 // ---------------------------------------------------------------------------

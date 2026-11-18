@@ -550,9 +550,9 @@ def test_pdf_markdown_limit_stops_datalab_before_dispatch(
         "idempotency_key": "pdf-limit",
     }
     try:
-        quote = run_action_spec(project, request, project_id="limits", deps=deps)
-        assert quote.status == "needs_confirmation", quote.errors
-        request["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        estimate = run_action_spec(project, request, project_id="limits", deps=deps)
+        assert estimate.status == "needs_confirmation", estimate.errors
+        request["confirmation"] = estimate.errors[0].details["promise_set_hash"]
         result = run_action_spec(project, request, project_id="limits", deps=deps)
         assert result.status == "failed", result.errors
         error = project.db.execute(

@@ -8,7 +8,7 @@ import { usePaidMediaComparison } from '../../src/workbench/usePaidMediaComparis
 const doc: ScratchDoc<string> = { id: 'upload', file: new File(['audio'], 'clip.wav'),
   filename: 'clip.wav', objectUrl: 'blob:test', mediaKind: 'audio', pages: [], pageCount: null, runs: {}, votes: {} };
 const columns: CompareColumn[] = ['one', 'two'].map((id) => ({ id, engineId: id, options: {} }));
-const quote = (engine: string, price: number | null = 1250): RunEstimate => ({
+const paidEstimate = (engine: string, price: number | null = 1250): RunEstimate => ({
   cost: 0.001, rows: 1, billed_cost: price, policy_id: 'hosted', requires_confirmation: true,
   promise_set_hash: engine.repeat(64).slice(0, 64),
 });
@@ -19,7 +19,7 @@ afterEach(() => {
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
 });
 
-function setup(estimate = vi.fn(async (_file: File, input: { engine: string }) => quote(input.engine))) {
+function setup(estimate = vi.fn(async (_file: File, input: { engine: string }) => paidEstimate(input.engine))) {
   const start = vi.fn(async () => ({ previewId: 'preview', total: 1 }));
   const api = { getPreview: vi.fn().mockResolvedValue(done), cancelPreview: vi.fn().mockResolvedValue(undefined) };
   const result = renderHook(() => usePaidMediaComparison({
@@ -43,7 +43,7 @@ describe('paid upload comparisons', () => {
     expect(await preparing).toBe(true);
     for (const column of columns) await result.current.runColumn(doc, column, undefined, signal);
     expect(start.mock.calls).toEqual(columns.map((column) => [doc.file, {
-      engine: column.engineId, time_limit_seconds: 600, confirmation: quote(column.engineId!).promise_set_hash,
+      engine: column.engineId, time_limit_seconds: 600, confirmation: paidEstimate(column.engineId!).promise_set_hash,
     }]));
   });
 
@@ -61,7 +61,7 @@ describe('paid upload comparisons', () => {
   });
 
   it('keeps an unknown quote unknown and shows provider claims', async () => {
-    const { result } = setup(vi.fn(async () => ({ ...quote('one', null), claims: [{ field: 'egress', display: 'Audio leaves this server.' }] })));
+    const { result } = setup(vi.fn(async () => ({ ...paidEstimate('one', null), claims: [{ field: 'egress', display: 'Audio leaves this server.' }] })));
     const controller = new AbortController();
     let preparing!: Promise<boolean>;
     act(() => { preparing = result.current.prepareRun([{ doc, column: columns[0] }], controller.signal); });
@@ -75,7 +75,7 @@ describe('paid upload comparisons', () => {
   it('keeps quote failures per candidate while allowing another candidate to finish', async () => {
     const { result, start } = setup(vi.fn(async (_file, input) => {
       if (input.engine === 'one') throw new Error('Engine unavailable');
-      return { ...quote('two'), requires_confirmation: false };
+      return { ...paidEstimate('two'), requires_confirmation: false };
     }));
     const signal = new AbortController().signal;
     expect(await result.current.prepareRun(columns.map((column) => ({ doc, column })), signal)).toBe(true);
@@ -85,16 +85,16 @@ describe('paid upload comparisons', () => {
   });
 
   it('clears the displayed quote when comparison inputs change', async () => {
-    const { result } = setup(vi.fn(async () => ({ ...quote('one'), requires_confirmation: false })));
+    const { result } = setup(vi.fn(async () => ({ ...paidEstimate('one'), requires_confirmation: false })));
     const signal = new AbortController().signal;
     await result.current.prepareRun([{ doc, column: columns[0] }], signal);
-    await waitFor(() => expect(result.current.quote).toBeTruthy());
-    act(() => result.current.clearQuote());
-    expect(result.current.quote).toBeNull();
+    await waitFor(() => expect(result.current.estimateLine).toBeTruthy());
+    act(() => result.current.clearEstimate());
+    expect(result.current.estimateLine).toBeNull();
   });
 
   it('cancels a job whose start response arrives after cancellation', async () => {
-    const { result, start, api } = setup(vi.fn(async () => ({ ...quote('one'), requires_confirmation: false })));
+    const { result, start, api } = setup(vi.fn(async () => ({ ...paidEstimate('one'), requires_confirmation: false })));
     const controller = new AbortController();
     await result.current.prepareRun([{ doc, column: columns[0] }], controller.signal);
     let release!: (value: { previewId: string; total: number }) => void;
@@ -108,7 +108,7 @@ describe('paid upload comparisons', () => {
   });
 
   it('keeps simultaneous quoted jobs independent and continues polling while hidden', async () => {
-    const { result, start, api } = setup(vi.fn(async () => ({ ...quote('one'), requires_confirmation: false })));
+    const { result, start, api } = setup(vi.fn(async () => ({ ...paidEstimate('one'), requires_confirmation: false })));
     const first = new AbortController();
     const second = new AbortController();
     await act(async () => {

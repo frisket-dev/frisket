@@ -354,7 +354,7 @@ def restore_plugin_registry():
     process. Every later test that walks ``runtime_binding_specs`` then sees a
     plugin no test asked for -- which is how
     ``tests/ops/test_datalab_hosted_engines.py::
-    test_project_action_catalog_payload_threads_org_provider_keys`` started
+    test_project_action_catalog_payload_threads_organization_provider_keys`` started
     dereferencing ``project.db`` on a stub project in the combined run while
     passing in isolation.
 
@@ -382,8 +382,8 @@ def _global_registry_census() -> dict[str, tuple[str, ...]]:
     holds -- ``default_registry()`` registers its builtins on construction and
     ``column_types`` registers its core set at import -- so taking the census
     is enough to make the baseline complete. The sibling tables
-    (``server.sources.runtime._POLLERS``, ``url_classification._MATCHERS``) are
-    filled LAZILY by product composition (``ensure_rss_poller``), so a census
+    (``server.sources.runtime._FEED_CHECKERS``, ``url_classification._MATCHERS``) are
+    filled LAZILY by product composition (``ensure_rss_feed_checker``), so a census
     of those would report first-party registration as drift.
     """
     from frisket.authoring import column_types as _column_types

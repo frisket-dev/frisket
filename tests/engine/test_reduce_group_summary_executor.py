@@ -600,7 +600,7 @@ def test_model_cost_gate_binds_full_estimate_and_scope_to_confirmation(
         ("anthropic/unpriced", False, "unknown", None),
     ],
 )
-def test_reduce_quote_preserves_model_rate_provenance(
+def test_reduce_estimate_preserves_model_rate_provenance(
     model: str,
     has_cost: bool,
     source: str,
@@ -648,11 +648,11 @@ def test_model_child_sheet_stale_scope_hash_repauses_before_provider_call(
         first_scope["params"]["model"] = "unknown/frontier"
         first_scope["scope"]["row_ids"] = [env.seeded["source_row_ids"][0]]
         before = env.counts()
-        quote = env.run_once(first_scope)
+        estimate = env.run_once(first_scope)
 
-        assert quote.status == "needs_confirmation"
-        quoted_hash = quote.errors[0].details["promise_set_hash"]
-        assert len(quoted_hash) == 64
+        assert estimate.status == "needs_confirmation"
+        gate_hash = estimate.errors[0].details["promise_set_hash"]
+        assert len(gate_hash) == 64
 
         stale_retry = _reduce_action(
             env.seeded["sheet_id"],
@@ -660,13 +660,13 @@ def test_model_child_sheet_stale_scope_hash_repauses_before_provider_call(
         )
         stale_retry["params"]["model"] = "unknown/frontier"
         stale_retry["scope"]["row_ids"] = env.seeded["source_row_ids"]
-        stale_retry["confirmation"] = quoted_hash
+        stale_retry["confirmation"] = gate_hash
 
         stale = env.run_once(stale_retry)
 
         assert stale.status == "needs_confirmation"
         assert stale.errors[0].code == "model_cost_requires_confirmation"
-        assert stale.errors[0].details["promise_set_hash"] != quoted_hash
+        assert stale.errors[0].details["promise_set_hash"] != gate_hash
         assert env.counts() == before
         assert _ADAPTERS[0].requests == []
 
@@ -683,11 +683,11 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
             idempotency_key="reduce_summary@sha256:stale-resolved-rows",
         )
 
-        quote = env.run_once(action)
+        estimate = env.run_once(action)
 
-        assert quote.status == "needs_confirmation"
-        quoted_details = quote.errors[0].details
-        quoted_hash = quoted_details["promise_set_hash"]
+        assert estimate.status == "needs_confirmation"
+        gate_details = estimate.errors[0].details
+        gate_hash = gate_details["promise_set_hash"]
         assert _ADAPTERS[0].requests == []
 
         # Replace one visible row with a different row whose prompt payload is
@@ -724,22 +724,22 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
             env.seeded["sheet_id"],
             idempotency_key="reduce_summary@sha256:stale-resolved-rows",
         )
-        stale_retry["confirmation"] = quoted_hash
+        stale_retry["confirmation"] = gate_hash
         stale = env.run_once(stale_retry)
 
         assert stale.status == "needs_confirmation"
         assert stale.errors[0].code == "model_cost_requires_confirmation"
         fresh_details = stale.errors[0].details
         fresh_hash = fresh_details["promise_set_hash"]
-        assert fresh_hash != quoted_hash
+        assert fresh_hash != gate_hash
         # This is specifically an ownership/scope failure, not a price change.
-        quoted_estimate = quoted_details["estimate"]
+        gate_estimate = gate_details["estimate"]
         fresh_estimate = fresh_details["estimate"]
-        assert quoted_estimate["resolved_prompt_hash"].startswith("sha256:")
+        assert gate_estimate["resolved_prompt_hash"].startswith("sha256:")
         assert fresh_estimate["resolved_prompt_hash"].startswith("sha256:")
         assert (
             fresh_estimate["resolved_prompt_hash"]
-            != quoted_estimate["resolved_prompt_hash"]
+            != gate_estimate["resolved_prompt_hash"]
         )
         assert {
             key: value
@@ -747,7 +747,7 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
             if key != "resolved_prompt_hash"
         } == {
             key: value
-            for key, value in quoted_estimate.items()
+            for key, value in gate_estimate.items()
             if key != "resolved_prompt_hash"
         }
         assert _ADAPTERS[0].requests == []

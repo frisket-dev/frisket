@@ -58,8 +58,8 @@ def test_action_402_preserves_full_estimate_including_row_count(
         json={"action": action},
     )
     assert estimated.status_code == 200, estimated.text
-    authoritative_quote = estimated.json()["estimate"]
-    assert authoritative_quote["rows"] == 2
+    authoritative_estimate = estimated.json()["estimate"]
+    assert authoritative_estimate["rows"] == 2
 
     gated = client.post(
         f"/api/projects/{project_id}/actions/v1/run",
@@ -69,9 +69,9 @@ def test_action_402_preserves_full_estimate_including_row_count(
     gate = gated.json()["errors"][0]
     assert gate["needs_confirmation"] is True
     assert gate["field"] == "confirmation"
-    returned_quote = gate["details"]["estimate"]
+    returned_estimate = gate["details"]["estimate"]
 
     # A retry confirmation should authorize this exact server quote, including
     # its scope and token assumptions, not a detached scalar dollar amount.
-    assert returned_quote == authoritative_quote
+    assert returned_estimate == authoritative_estimate
     assert isinstance(gate["details"].get("promise_set_hash"), str)

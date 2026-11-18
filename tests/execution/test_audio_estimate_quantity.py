@@ -104,7 +104,7 @@ def test_exact_selected_durations_preserve_row_allocation(audio, monkeypatch):
 
 @pytest.mark.parametrize("other", ["audio", "path"])
 @pytest.mark.parametrize("reverse", [False, True])
-def test_multiple_sources_make_quote_unknown(audio, monkeypatch, other, reverse):
+def test_multiple_sources_make_estimate_unknown(audio, monkeypatch, other, reverse):
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-audio-quote-key")
     project = audio[0]
     second = _media(project, 8) if other == "audio" else "/tmp/unmeasured.wav"
@@ -129,7 +129,7 @@ def test_unmeasured_values_are_unknown_not_zero(audio, value):
 @pytest.mark.parametrize(
     "duration", [None, True, -1, "NaN", "Infinity", "not-a-duration"]
 )
-def test_invalid_metadata_cannot_form_a_quote(audio, duration):
+def test_invalid_metadata_cannot_form_an_estimate(audio, duration):
     media = _media(audio[0], duration)
     assert total_audio_seconds([{"a": media}], audio[0]) is None
 

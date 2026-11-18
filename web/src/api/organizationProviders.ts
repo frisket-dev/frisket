@@ -1,18 +1,18 @@
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from "./httpContract";
 import type {
-  OrgKeyInfo,
+  OrganizationKeyInfo,
   ProviderCatalog,
   ProviderValidateResult,
 } from "./types";
 
-type OrgKeySaveWire = HttpContractSuccessResponse<"outer.set_org_key.post">;
-type OrgKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_org_key.delete">;
+type OrganizationKeySaveWire = HttpContractSuccessResponse<"outer.set_org_key.post">;
+type OrganizationKeyDeleteWire = HttpContractSuccessResponse<"outer.delete_org_key.delete">;
 
-function discardSavedKey(wire: OrgKeySaveWire): void {
+function discardSavedKey(wire: OrganizationKeySaveWire): void {
   void wire;
 }
 
-function discardDeletedKey(wire: OrgKeyDeleteWire): void {
+function discardDeletedKey(wire: OrganizationKeyDeleteWire): void {
   void wire;
 }
 
@@ -27,7 +27,7 @@ export function createOrganizationProvidersApi() {
       );
     },
 
-    listOrgKeys(options: RequestOptions = {}): Promise<OrgKeyInfo[]> {
+    listOrganizationKeys(options: RequestOptions = {}): Promise<OrganizationKeyInfo[]> {
       return httpContract(
         "outer.list_org_keys.get",
         {
@@ -36,7 +36,7 @@ export function createOrganizationProvidersApi() {
       );
     },
 
-    setOrgKey(
+    setOrganizationKey(
       provider: string,
       key: string,
       validationToken?: string | null,
@@ -52,7 +52,7 @@ export function createOrganizationProvidersApi() {
       );
     },
 
-    validateOrgKey(
+    validateOrganizationKey(
       provider: string,
       key?: string,
       options: RequestOptions = {},
@@ -66,7 +66,7 @@ export function createOrganizationProvidersApi() {
       );
     },
 
-    deleteOrgKey(provider: string, options: RequestOptions = {}): Promise<void> {
+    deleteOrganizationKey(provider: string, options: RequestOptions = {}): Promise<void> {
       return httpContract(
         "outer.delete_org_key.delete",
         {

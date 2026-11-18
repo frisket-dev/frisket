@@ -49,7 +49,7 @@ class ProjectAskActionHost:
             project,
             sidecar_capabilities=self._sidecar_capabilities_provider(),
             execution_composition=composition,
-            org_provider_keys=self._workspace.org_provider_keys(),
+            organization_provider_keys=self._workspace.organization_provider_keys(),
             has_local_model_endpoint=bool(router.local_endpoints),
             effective_router=router,
             connected_account_resolver_configured=(
@@ -57,7 +57,7 @@ class ProjectAskActionHost:
             ),
         )
 
-    def quote(self, action: dict[str, Any]) -> dict[str, Any]:
+    def estimate(self, action: dict[str, Any]) -> dict[str, Any]:
         """Quote with the normal preview service under current trusted context."""
 
         return self._preview.estimate(

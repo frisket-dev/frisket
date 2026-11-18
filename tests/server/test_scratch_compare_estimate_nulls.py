@@ -26,14 +26,16 @@ def test_scratch_compare_estimate_preserves_nullable_costs(
     # Control the provider quote, not the rating, consent or HTTP serializers.
     original = scratch_action_preview.estimate_from_cost_basis
 
-    def quote(*args, **kwargs):
+    def fake_estimate(*args, **kwargs):
         return {
             **original(*args, **kwargs),
             "cost": cost,
             "cost_source": "unknown" if cost is None else "pricing_data",
         }
 
-    monkeypatch.setattr(scratch_action_preview, "estimate_from_cost_basis", quote)
+    monkeypatch.setattr(
+        scratch_action_preview, "estimate_from_cost_basis", fake_estimate
+    )
     monkeypatch.setattr(
         "frisket.server.services.scratch_transcribe.probe_for_ingest",
         lambda *args, **kwargs: {"kind": "audio", "duration_seconds": 15.0},
@@ -80,7 +82,7 @@ def test_scratch_compare_estimate_preserves_nullable_costs(
 
 
 @pytest.mark.parametrize("limit", ["2", "0"])
-def test_ocr_scratch_uses_real_estimate_for_preapproval(tmp_path, monkeypatch, limit):
+def test_ocr_scratch_uses_real_estimate_for_allowance(tmp_path, monkeypatch, limit):
     engine = "gemini/gemini-3.5-flash-lite"
 
     async def recognize(self, engine, pages, ctx, *, usage, **kwargs):
@@ -126,9 +128,9 @@ def test_ocr_scratch_uses_real_estimate_for_preapproval(tmp_path, monkeypatch, l
             "files": {"file": ("scan.png", _png(), "image/png")},
             "data": {"payload": json.dumps({"engine": engine})},
         }
-        quote = client.post(f"{endpoint}/estimate", **multipart)
-        assert quote.status_code == 200, quote.text
-        estimate = quote.json()["estimate"]
+        estimate_response = client.post(f"{endpoint}/estimate", **multipart)
+        assert estimate_response.status_code == 200, estimate_response.text
+        estimate = estimate_response.json()["estimate"]
         assert estimate["cost"] == pytest.approx(0.0114688)
         assert estimate["requires_confirmation"] is (limit == "0")
         started = client.post(endpoint, **multipart)

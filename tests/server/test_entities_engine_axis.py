@@ -21,12 +21,12 @@ def _ner_engines(
     sidecar_capabilities=_UNCONFIGURED_SIDECAR,
     *,
     project=None,
-    org_provider_keys=None,
+    organization_provider_keys=None,
 ):
     hints = project_action_catalog_launcher_hints(
         sidecar_capabilities,
         project=project,
-        org_provider_keys=org_provider_keys,
+        organization_provider_keys=organization_provider_keys,
     )
     return hints["map.ner"]["engines"]
 
@@ -226,7 +226,7 @@ def test_llm_catalog_entry_reflects_all_effective_provider_keys(monkeypatch, tmp
 
     for engines in (
         _ner_engines(project=_ProjectWithProviderKey()),
-        _ner_engines(org_provider_keys={"openai": "org-key"}),
+        _ner_engines(organization_provider_keys={"openai": "org-key"}),
     ):
         llm_entry = _by_id(engines, "llm")
         assert llm_entry["available"] is True

@@ -31,7 +31,7 @@ describe('createSelectionStore', () => {
     setSelectedColumnId('col-1');
     clearRowSelection('s1');
     expect(store.get().selectedRows).toEqual(emptySelectedRows('s1'));
-    // applyGridFilter/applyGridSort/applySavedViewGrid/clearGridFilter/
+    // applyGridFilter/applyGridSort/applyViewGrid/clearGridFilter/
     // clearGridSort/selectSheet never touched selectedColumnId — only
     // selectedRows.
     expect(store.get().selectedColumnId).toBe('col-1');

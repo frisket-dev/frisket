@@ -88,12 +88,12 @@ def _seed_sheet(p: Project, texts: list[str]) -> tuple[int, dict[str, int]]:
 
 def _confirmed_remote_spec(runner: MapRunner, spec: dict[str, Any]) -> dict[str, Any]:
     """Quote once, then echo the exact scope-and-cost token under test."""
-    with pytest.raises(CostGate) as quote:
+    with pytest.raises(CostGate) as estimate:
         prepare_model_run(runner, spec)
-    assert quote.value.promise_set_hash
+    assert estimate.value.promise_set_hash
     return {
         **spec,
-        "consented_promise_set_hash": quote.value.promise_set_hash,
+        "consented_promise_set_hash": estimate.value.promise_set_hash,
     }
 
 

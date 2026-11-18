@@ -7,7 +7,7 @@ import styles from './ReviewResultsPanel.module.css';
 
 interface ReviewRunSummaryProps {
   run: ReviewRun;
-  /** Limits the shown facts to one selected output column. */
+  /** Limits the shown facts to one selected generated column. */
   fieldId?: string | null;
 }
 

@@ -48,8 +48,8 @@ from .project_scan import bundle_opener, scan_projects
 from .worker import HandlerRegistry
 
 
-def _claimed_storage_org_id(project: Project) -> int | None:
-    """Read the storage org from the claimed project location, typed and fail-closed."""
+def _claimed_storage_organization_id(project: Project) -> int | None:
+    """Read the storage organization from the claimed project location, typed and fail-closed."""
     parent = project.path.parent.name
     if not parent.isdigit():
         return None
@@ -397,7 +397,7 @@ def register_embedding_refresh_handler(
     router: Any | None = None,
     gateway: Any | None = None,
     queue: Any | None = None,
-    workspace_root_storage_org_id: int | None = None,
+    workspace_root_storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> None:
     """Register embedding refresh execution for generic ``action.run`` jobs.
@@ -461,9 +461,9 @@ def register_embedding_refresh_handler(
                     project_id=env.project_id,
                     project_root=root,
                     # The worker routed this job to its claimed physical project,
-                    # so read the storage org from that claimed location as a
+                    # so read the storage organization from that claimed location as a
                     # typed identity rather than parsing a raw directory name.
-                    storage_org_id=_claimed_storage_org_id(project),
+                    storage_org_id=_claimed_storage_organization_id(project),
                     index_id=index_id,
                     trigger_ref=output_ref.get("trigger_ref"),
                 )

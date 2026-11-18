@@ -27,7 +27,7 @@ class _GatewayPort:
         )
 
 
-def test_queued_gateway_uses_trusted_org_port_with_env_unset(
+def test_queued_gateway_uses_trusted_organization_port_with_env_unset(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
@@ -38,7 +38,7 @@ def test_queued_gateway_uses_trusted_org_port_with_env_unset(
 
     connection = resolve_run_models_gateway(
         tmp_path,
-        handler_context=JobHandlerContext.from_claimed_job(trusted_org_id=47),
+        handler_context=JobHandlerContext.from_claimed_job(trusted_organization_id=47),
         ports=ports,
         control_database_url="postgresql://control.invalid/db",
     )

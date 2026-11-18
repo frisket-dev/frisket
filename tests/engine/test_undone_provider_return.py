@@ -144,7 +144,7 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
         _declare,
     )
     from test_cloud_llm_checkpoint import _payer, _request, _response
-    from frisket.cloud_execution import CloudQuoteAuthority
+    from frisket.cloud_execution import CloudEstimateAuthority
     from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
     from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
     from frisket.engine.store.result_generations import ResultGenerationStore
@@ -169,7 +169,7 @@ def test_cloud_child_return_survives_undo_and_can_retire_after_accounting(tmp_pa
             project,
             Transport(),
             payer=_payer(),
-            quote_authority=CloudQuoteAuthority(100),
+            estimate_authority=CloudEstimateAuthority(100),
             group_key="map:cloud-purchase",
             action_kind="map.extract",
             run_id=run.run_id,

@@ -39,7 +39,7 @@ def resolve_team_models_gateway(
     decrypt: Callable[[str], str],
     env: Mapping[str, str] | None = None,
 ) -> ModelsGatewayConnection | None:
-    """Resolve environment over the existing encrypted org environment rows."""
+    """Resolve environment over the existing encrypted organization environment rows."""
 
     environment = resolve_models_gateway_env(os.environ if env is None else env)
     if environment is not None:
@@ -70,7 +70,7 @@ def resolve_team_models_gateway(
 
 
 class TeamModelsGatewayStore:
-    """Atomic pair access over the existing encrypted org environment table."""
+    """Atomic pair access over the existing encrypted organization environment table."""
 
     def __init__(
         self,
@@ -128,8 +128,8 @@ class TeamModelsGatewayStore:
         return connection
 
 
-class TeamOrgModelsGatewayPort:
-    """Worker resolver for encrypted org gateway settings."""
+class TeamOrganizationModelsGatewayPort:
+    """Worker resolver for encrypted organization gateway settings."""
 
     def __init__(self, decrypt: Callable[[str], str]) -> None:
         self._decrypt = decrypt
@@ -228,7 +228,7 @@ def register_team_models_gateway_routes(
 
 __all__ = [
     "TeamModelsGatewayStore",
-    "TeamOrgModelsGatewayPort",
+    "TeamOrganizationModelsGatewayPort",
     "register_team_models_gateway_routes",
     "resolve_team_models_gateway",
     "team_models_gateway_service",

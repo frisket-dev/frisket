@@ -45,7 +45,7 @@ def pg_invite_engine() -> Any:
         engine.dispose()
 
 
-def _seed_org(
+def _seed_organization(
     engine: sa.Engine, *, pending_email: str | None = None
 ) -> tuple[int, int, int]:
     with engine.begin() as cx:
@@ -88,7 +88,7 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
     import frisket.team.admin_browser_service as admin_module
     import frisket.team.invite_service as invite_module
 
-    org_id, owner_id, co_owner_id = _seed_org(pg_invite_engine)
+    org_id, owner_id, co_owner_id = _seed_organization(pg_invite_engine)
     membership = AdminMembershipService(pg_invite_engine, org_id=org_id)
     invites = InviteService(
         pg_invite_engine,
@@ -138,7 +138,7 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
 
     def create() -> None:
         try:
-            invites.create_org_invite(
+            invites.create_organization_invite(
                 actor_user_id=owner_id, email="queued@example.com", role="member"
             )
             result["create"] = "ok"
@@ -196,7 +196,7 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
     import frisket.team.invite_service as invite_module
 
     email = "claim-race@example.com"
-    org_id, owner_id, _ = _seed_org(pg_invite_engine, pending_email=email)
+    org_id, owner_id, _ = _seed_organization(pg_invite_engine, pending_email=email)
     invites = InviteService(
         pg_invite_engine,
         org_id=org_id,
@@ -215,7 +215,7 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
 
     def create() -> None:
         try:
-            invites.create_org_invite(
+            invites.create_organization_invite(
                 actor_user_id=owner_id, email=email, role="member"
             )
             result["create"] = "ok"

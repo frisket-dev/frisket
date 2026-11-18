@@ -55,7 +55,7 @@ from frisket.project_identity import ProjectStorageKey
 
 if TYPE_CHECKING:
     from frisket.ai.models.gateway_config import ModelsGatewayConnection
-    from frisket.engine.jobs.ports import TrustedJobOrg
+    from frisket.engine.jobs.ports import TrustedJobOrganization
     from frisket.execution.resolver import ModelRoute, ResolutionRequest
 
 # Composition edition vocabulary. ``CompositionFacts`` makes operator and
@@ -179,7 +179,7 @@ class CompositionFacts:
     """
 
     edition: Edition = "open"
-    org_id: str | None = None  # hosted org context; None in the open edition
+    org_id: str | None = None  # hosted organization context; None in the open edition
     funding: Funding = field(default_factory=OperatorBorne)
 
     def __post_init__(self) -> None:
@@ -747,7 +747,7 @@ class ExecutionCompositionContext:
 
     storage_key: ProjectStorageKey | None
     run_id: int | None
-    trusted_job_org_id: TrustedJobOrg
+    trusted_job_organization_id: TrustedJobOrganization
     edition_snapshot: Mapping[str, Any] | None
 
     def __post_init__(self) -> None:
@@ -766,7 +766,7 @@ class ExecutionCompositionContext:
         # provider module import the jobs package during module initialization.
         from frisket.engine.jobs.ports import JobHandlerContext
 
-        JobHandlerContext(self.trusted_job_org_id)
+        JobHandlerContext(self.trusted_job_organization_id)
         if self.edition_snapshot is not None:
             if not isinstance(self.edition_snapshot, Mapping):
                 raise TypeError("edition_snapshot must be a mapping or None")
@@ -785,7 +785,7 @@ class ExecutionCompositionContext:
         return cls(
             storage_key=None,
             run_id=None,
-            trusted_job_org_id=JobHandlerContext.without_job_row().trusted_job_org_id,
+            trusted_job_organization_id=JobHandlerContext.without_job_row().trusted_job_organization_id,
             edition_snapshot=None,
         )
 

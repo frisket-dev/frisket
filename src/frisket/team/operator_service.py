@@ -5,16 +5,16 @@ paired with a local CLI (`frisket remote link`), and presented as
 ``Authorization: Bearer frisket_operator_<rand>`` on the admin API. It is a
 deployment credential, not a person: authentication is a constant-time digest
 comparison against the stored sha256 hashes, entirely separate from the
-session/PAT channels, and it carries org-owner power over admin routes only.
+session/PAT channels, and it carries organization-owner power over admin routes only.
 
 Audit rows need an ``actor`` user id, so operator actions are attributed to a
 synthetic reserved identity (`operator@frisket.invalid`). That identity
-deliberately has NO membership row: giving it one would count it as an org
+deliberately has NO membership row: giving it one would count it as an organization
 owner everywhere (`owner_count`, the setup gate, last-owner guards, sole-owner
 password recovery), which would close /setup on a fresh install the moment the
 installer mints the initial token. Callers that require owner membership must
 therefore accept the operator channel explicitly (see
-``InviteService.create_org_invite``'s ``operator_actor``).
+``InviteService.create_organization_invite``'s ``operator_actor``).
 """
 
 from __future__ import annotations
@@ -120,7 +120,7 @@ class OperatorTokenService:
 
     def __init__(self, engine: sa.Engine, *, org_id: int):
         self._engine = engine
-        self._org_id = org_id
+        self._organization_id = org_id
 
     def authenticate(self, authorization: str) -> dict[str, Any] | None:
         """Resolve ``Authorization: Bearer <raw>`` to an operator actor.
@@ -141,7 +141,7 @@ class OperatorTokenService:
                     operator_tokens.c.label,
                     operator_tokens.c.token_hash,
                 ).where(
-                    operator_tokens.c.org_id == self._org_id,
+                    operator_tokens.c.org_id == self._organization_id,
                     operator_tokens.c.revoked_at.is_(None),
                 )
             ).all()
@@ -152,7 +152,7 @@ class OperatorTokenService:
         if match is None:
             return None
         with locked_transaction(
-            self._engine, lock_scope=("operator-token", self._org_id)
+            self._engine, lock_scope=("operator-token", self._organization_id)
         ) as cx:
             actor_id = _ensure_operator_actor(cx)
             cx.execute(
@@ -164,7 +164,7 @@ class OperatorTokenService:
             "id": actor_id,
             "email": OPERATOR_ACTOR_EMAIL,
             "name": OPERATOR_ACTOR_NAME,
-            "org_id": self._org_id,
+            "org_id": self._organization_id,
             "auth": "operator",
             "operator_token_id": int(match.id),
             "operator_label": match.label,
@@ -174,18 +174,20 @@ class OperatorTokenService:
         """Replace the authenticated token: mint a successor carrying the same
         label, tombstone the old one, return ``(raw, label)`` once."""
         with locked_transaction(
-            self._engine, lock_scope=("operator-token", self._org_id)
+            self._engine, lock_scope=("operator-token", self._organization_id)
         ) as cx:
             row = cx.execute(
                 sa.select(operator_tokens.c.id, operator_tokens.c.label).where(
                     operator_tokens.c.id == token_id,
-                    operator_tokens.c.org_id == self._org_id,
+                    operator_tokens.c.org_id == self._organization_id,
                     operator_tokens.c.revoked_at.is_(None),
                 )
             ).first()
             if row is None:
                 raise OperatorTokenError("operator token is no longer active")
-            raw, new_id = _mint_in_transaction(cx, org_id=self._org_id, label=row.label)
+            raw, new_id = _mint_in_transaction(
+                cx, org_id=self._organization_id, label=row.label
+            )
             cx.execute(
                 operator_tokens.update()
                 .where(operator_tokens.c.id == token_id)
@@ -195,7 +197,7 @@ class OperatorTokenService:
             record_audit(
                 cx,
                 user_id=actor_id,
-                org_id=self._org_id,
+                org_id=self._organization_id,
                 action="operator_token_rotated",
                 detail=f"{token_id}->{new_id}",
             )

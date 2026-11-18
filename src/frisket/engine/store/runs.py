@@ -1625,7 +1625,7 @@ class RunResultStore:
         incurred cost, for in-memory progress display only.
 
         Receipt-owned previews use the same writer and spend accrual, with
-        no run or output columns. Their reservation and dispatching attempt
+        no run or generated columns. Their reservation and dispatching attempt
         are the writer authority; returned preview values remain ephemeral.
 
         The batch is atomic because ``write_model_calls`` owns a savepoint:
@@ -2791,7 +2791,7 @@ class RunResultStore:
                 and incoming is not None
             ):
                 # Acceptance happens before the recipe has projected a result
-                # onto its first output column.  The terminal row may add that
+                # onto its first generated column.  The terminal row may add that
                 # reference, but may never replace one already known.
                 continue
             if existing[field] != incoming:

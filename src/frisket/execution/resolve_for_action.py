@@ -69,13 +69,13 @@ from frisket.execution.price_book import (
     Funding,
     PlatformMetered,
     funding_for_cost_posture,
-    quote_census,
-    quote_geocode,
-    quote_ocr,
-    quote_to_markdown,
-    quote_transcription,
-    quote_translate,
-    quote_classify,
+    estimate_census,
+    estimate_geocode,
+    estimate_ocr,
+    estimate_to_markdown,
+    estimate_transcription,
+    estimate_translate,
+    estimate_classify,
     sku_for,
 )
 from frisket.execution.targets import (
@@ -388,7 +388,7 @@ def _ocr_cost_basis(
         capability=CAPABILITY_OCR,
         engine=engine,
     )
-    if offering is not None and offering.quote.quantity_unit == "usd":
+    if offering is not None and offering.estimate.quantity_unit == "usd":
         return _cloud_model_cost_basis(resolution, CAPABILITY_OCR), None
     if offering is None and (
         isinstance(funding, PlatformMetered)
@@ -402,7 +402,7 @@ def _ocr_cost_basis(
         return OperatorBorneZeroCost(), None
     row_pages = _document_row_quantities_pages(project, spec, recipe)
     pages = None if row_pages is None else sum(row_pages.values())
-    basis = quote_ocr(
+    basis = estimate_ocr(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -453,7 +453,7 @@ def _transcribe_cost_basis(
         return OperatorBorneZeroCost(), None
     row_seconds = _transcribe_row_quantities_seconds(project, spec, recipe)
     seconds = None if row_seconds is None else sum(row_seconds.values())
-    basis = quote_transcription(
+    basis = estimate_transcription(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -591,7 +591,7 @@ def _classify_cost_basis(
         text = classification_text(values)
         if text.strip():
             input_tokens += estimate_tokens(text, questions)
-    return quote_classify(
+    return estimate_classify(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -613,7 +613,7 @@ def _translate_cost_basis(
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
     characters = _translate_quantity_characters(project, spec, recipe)
-    basis = quote_translate(
+    basis = estimate_translate(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -642,7 +642,7 @@ def _to_markdown_cost_basis(
     funding, target_id, engine, offering = resolved
     row_pages = _document_row_quantities_pages(project, spec, recipe)
     pages = None if row_pages is None else sum(row_pages.values())
-    basis = quote_to_markdown(
+    basis = estimate_to_markdown(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -667,7 +667,7 @@ def _geocode_cost_basis(
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
     rows = _selected_row_count(project, spec)
-    basis = quote_geocode(
+    basis = estimate_geocode(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -691,7 +691,7 @@ def _census_cost_basis(
         return OperatorBorneZeroCost(), None
     funding, target_id, engine, offering = resolved
     rows = _selected_row_count(project, spec)
-    basis = quote_census(
+    basis = estimate_census(
         target_id=target_id,
         engine=engine,
         funding=funding,
@@ -931,7 +931,7 @@ def resolve_for_action(
             f"execution_capability={capability!r}, which no execution-seam "
             "capability serves"
         )
-    quote = _CAPABILITY_COST_BASIS.get(capability)
+    estimator = _CAPABILITY_COST_BASIS.get(capability)
     raw_engine = (
         str(spec["model"])
         if capability == CAPABILITY_LLM
@@ -983,7 +983,7 @@ def resolve_for_action(
                 # commercial composition intentionally removed it.  That is
                 # absence, not an unpriceable route: downstream estimate
                 # surfaces must not mint a legacy/provider quote for it.
-                outcome = replace(outcome, quote_absent=True)
+                outcome = replace(outcome, estimate_absent=True)
             elif (
                 isinstance(composition.facts.funding, PlatformMetered)
                 and canonical_engine is not None
@@ -992,7 +992,7 @@ def resolve_for_action(
                 # known platform-world engine into the recipe's unrouted local
                 # or provider-direct quote.  Unknown authored symbols retain
                 # their ordinary invalid-engine refusal semantics.
-                outcome = replace(outcome, quote_absent=True)
+                outcome = replace(outcome, estimate_absent=True)
         return outcome
 
     if (
@@ -1059,7 +1059,7 @@ def resolve_for_action(
             ),
             engine=outcome.facts.engine,
             target_id=outcome.target.id,
-            quote_absent=True,
+            estimate_absent=True,
         )
 
     if capability == CAPABILITY_LLM:
@@ -1068,8 +1068,8 @@ def resolve_for_action(
             composition, outcome, rendered_llm, recipe=recipe
         )
     elif bounded_scratch_input is None:
-        assert quote is not None
-        cost_basis, quantity = quote(project, spec, recipe, outcome, composition)
+        assert estimator is not None
+        cost_basis, quantity = estimator(project, spec, recipe, outcome, composition)
     else:
         quantity = bounded_scratch_input.quantity
         funding = funding_for_cost_posture(outcome.facts.cost_posture)
@@ -1087,7 +1087,7 @@ def resolve_for_action(
                 if bounded_scratch_input.row_quantities is not None
                 else {SCRATCH_PREVIEW_UNIT_ID: float(quantity)}
             )
-            cost_basis = quote_transcription(
+            cost_basis = estimate_transcription(
                 target_id=outcome.target.id,
                 engine=outcome.facts.engine,
                 funding=funding,
@@ -1097,7 +1097,7 @@ def resolve_for_action(
                 row_audio_seconds=row_audio_seconds,
             )
         elif capability == CAPABILITY_OCR:
-            if offering is not None and offering.quote.quantity_unit == "usd":
+            if offering is not None and offering.estimate.quantity_unit == "usd":
                 cost_basis = _cloud_model_cost_basis(outcome, CAPABILITY_OCR)
             elif int(quantity) != quantity or quantity <= 0:
                 raise ValueError("bounded OCR scratch quantity must be positive pages")
@@ -1114,7 +1114,7 @@ def resolve_for_action(
                     if scratch_rows is not None
                     else {SCRATCH_PREVIEW_UNIT_ID: int(quantity)}
                 )
-                cost_basis = quote_ocr(
+                cost_basis = estimate_ocr(
                     target_id=outcome.target.id,
                     engine=outcome.facts.engine,
                     funding=funding,
@@ -1487,13 +1487,13 @@ def project_uncovered_user_claims(
         None,
     )
     if quote_json is not None:
-        from frisket.engine.runner.confirmation_context import quoted_usd
+        from frisket.engine.runner.confirmation_context import estimated_usd
 
         # The rated retail quote is what the user will pay. It governs
-        # preapproval; neutral provider cost bounds retain their own rates.
-        quoted = quoted_usd(json.loads(quote_json))
+        # allowance; neutral provider cost bounds retain their own rates.
+        estimated = estimated_usd(json.loads(quote_json))
         preapproved = (
-            quoted is not None and Decimal(str(quoted)) <= effective.threshold_usd
+            estimated is not None and Decimal(str(estimated)) <= effective.threshold_usd
         )
     else:
         # Before a quote is attached, only known bounded costs can be covered.
@@ -1561,14 +1561,14 @@ def gate_claims_payload(
     inventing billing copy while retaining the billing label when a cost row
     was merely covered by a standing consent.
     """
-    from frisket.engine.runner.confirmation_context import quoted_usd
+    from frisket.engine.runner.confirmation_context import estimated_usd
 
     # Display the same rated purchase as the estimate/footer and the gate's
     # scalar amount. Provider settlement terms remain on the cost promise;
     # reconstructing a second price from them loses tariffs and explicit
     # unpriceable verdicts. A rated zero remains a known zero.
     rated_display = (
-        rated_cost_display(quoted_usd(rated_estimate), facts, presentation)
+        rated_cost_display(estimated_usd(rated_estimate), facts, presentation)
         if rated_estimate is not None
         else None
     )

@@ -23,7 +23,7 @@ import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useRowCacheHandle } from '../bind/useRowCacheHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
-import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
+import { useViewsHandle } from '../bind/useViewsHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
@@ -60,7 +60,7 @@ import { JoinExpectedAnswersDialog } from '../components/expectedAnswers/JoinExp
 import { useWorkspaceActionCompareController } from './useWorkspaceActionCompareController';
 import { useWorkspaceActionController } from './useWorkspaceActionController';
 import { useWorkspaceGridController } from './useWorkspaceGridController';
-import { useWorkspaceSavedViewsController } from './useWorkspaceSavedViewsController';
+import { useWorkspaceViewsController } from './useWorkspaceViewsController';
 import { useWorkspaceViewController } from './useWorkspaceViewController';
 import { useWorkspaceContributionController } from './useWorkspaceContributionController';
 import { useWorkspaceNavigationController } from './useWorkspaceNavigationController';
@@ -106,7 +106,7 @@ export function useWorkspaceModel({
   const rowCache = useRowCacheHandle();
   const selection = useSelectionHandle();
   const detail = useDetailHandle();
-  const savedViews = useSavedViewsHandle();
+  const viewsStore = useViewsHandle();
   const chrome = useChromeHandle();
   // Navigation controller owns route projection and the sole history writer.
   const route = useRouteHandle();
@@ -454,12 +454,12 @@ export function useWorkspaceModel({
       .catch((e: Error) => showError(e.message));
   }, [clearDeleteRowsConfirm, deleteRowsConfirm, detail, projectApi, projectData, refreshHistory, refreshSheets, selection, showError]);
 
-  const savedViewController = useWorkspaceSavedViewsController({
+  const viewController = useWorkspaceViewsController({
     project, sheet, currentViewColumns, chromeState, visibility, showError,
   });
   const {
-    openNewSavedView,
-  } = savedViewController;
+    openNewView,
+  } = viewController;
 
   // Block on a stale or incomplete runtime index.
 
@@ -478,9 +478,9 @@ export function useWorkspaceModel({
   const openHeaderMenuSaveView = useCallback(() => {
     if (!headerMenu) return;
 
-    openNewSavedView(`${headerMenu.column.name} view`);
+    openNewView(`${headerMenu.column.name} view`);
     closeHeaderMenu();
-  }, [closeHeaderMenu, headerMenu, openNewSavedView]);
+  }, [closeHeaderMenu, headerMenu, openNewView]);
 
   const afterColumnUpdated = useCallback(
     (updated: ColumnDef) => {
@@ -645,7 +645,7 @@ export function useWorkspaceModel({
     gridState: {
       filter: activeGridFilter,
       sort: activeGridSort,
-      lensId: null,
+      viewId: null,
       columnOrder: activeColumnOrder,
       frozenColumns: activeFrozenColumnCount,
       dataVersion,
@@ -765,13 +765,13 @@ export function useWorkspaceModel({
 
   const rowPreview = activePreviewView?.status === 'done' && activePreviewView.result?.kind === 'row_overlay'
     ? activePreviewView.result : null;
-  const activeGridLensRowIds =
+  const activeGridViewRowIds =
     rowPreview
       ? rowPreview.rowIds
       : null;
   const activeRowCacheBaseCount =
-    activeGridLensRowIds !== null
-      ? activeGridLensRowIds.length
+    activeGridViewRowIds !== null
+      ? activeGridViewRowIds.length
       : activeChildFilter
         ? activeChildFilter.count
         : sheet?.rowCount ?? 0;
@@ -781,14 +781,14 @@ export function useWorkspaceModel({
         parentRowId: activeChildFilter?.parentRowId,
         filter: activeGridFilter,
         sort: activeGridSort,
-        lensRowIds: activeGridLensRowIds,
-        selection: savedViewController.currentDefinition?.selection,
+        viewRowIds: activeGridViewRowIds,
+        selection: viewController.currentDefinition?.selection,
         scopeRowIds,
       }),
       columnIds: sheet ? gridReadColumnIds(sheet.columns, hiddenColumnNames) : [],
       valueMode: 'bounded' as const,
     }),
-    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridLensRowIds, scopeRowIds, savedViewController.currentDefinition, sheet, hiddenColumnNames],
+    [activeChildFilter?.parentRowId, activeGridFilter, activeGridSort, activeGridViewRowIds, scopeRowIds, viewController.currentDefinition, sheet, hiddenColumnNames],
   );
   const activeRowCacheKey = sheet
     ? computeRowCacheKey(sheet.id, dataVersion, activeRowCacheOptions)
@@ -889,8 +889,8 @@ export function useWorkspaceModel({
   const { replayColumnAnnotations, replayReviewPopover } = useReplayReviewController({
     sheet, refreshHistory, refreshSheets, showError,
   });
-  const comparisonSampleOptions = useMemo(() => activeGridLensRowIds ? { rowIds: activeGridLensRowIds } : savedViewController.currentDefinition
-    ? { selection: savedViewController.currentDefinition.selection } : {}, [activeGridLensRowIds, savedViewController.currentDefinition]);
+  const comparisonSampleOptions = useMemo(() => activeGridViewRowIds ? { rowIds: activeGridViewRowIds } : viewController.currentDefinition
+    ? { selection: viewController.currentDefinition.selection } : {}, [activeGridViewRowIds, viewController.currentDefinition]);
   const actionCompare = useWorkspaceActionCompareController({
     projectId: project.id, sheetId: sheet?.id, selectedRowIds: selectedRowIdsForSheet,
     selectedRowCount: selectedRows.sheetId === sheet?.id
@@ -898,9 +898,9 @@ export function useWorkspaceModel({
     sampleOptions: comparisonSampleOptions, runActionFromSurface, closeActionRoute, setOpenSplit, showError,
   });
 
-  const pdfSplitView = useMemo(() => activeGridLensRowIds ? { ranked_row_ids: activeGridLensRowIds.map(Number) }
-    : savedViewController.currentDefinition ? { selection: savedViewController.currentDefinition.selection } : {},
-  [activeGridLensRowIds, savedViewController.currentDefinition]);
+  const pdfSplitView = useMemo(() => activeGridViewRowIds ? { ranked_row_ids: activeGridViewRowIds.map(Number) }
+    : viewController.currentDefinition ? { selection: viewController.currentDefinition.selection } : {},
+  [activeGridViewRowIds, viewController.currentDefinition]);
   const applyExistingPdfSplit = useCallback(async (input: PdfSplitApply) => {
     const sources = (input.snapshot as typeof input.snapshot & { sources: ReviewSource[] }).sources;
     const result = await applyPdfPacketSheetSplit(project.id, input.snapshot.split_id, {
@@ -992,12 +992,12 @@ export function useWorkspaceModel({
           rowDrawerOpen={rowDrawerOpen}
           frozenColumnCount={activeFrozenColumnCount}
           scopeRowIds={scopeRowIds}
-          viewSelection={savedViewController.currentDefinition?.selection ?? null}
+          viewSelection={viewController.currentDefinition?.selection ?? null}
           activeFilter={activeGridFilter}
           activeSort={activeGridSort}
           columnOrder={activeColumnOrder}
-          lensRowIds={activeGridLensRowIds}
-          lensScores={null}
+          viewRowIds={activeGridViewRowIds}
+          viewScores={null}
           previewColumns={
             rowPreview?.columns ?? null
           }
@@ -1050,7 +1050,7 @@ export function useWorkspaceModel({
     actionCompare,
     expectedAnswers, expectedHeader, showError, loadRunWithExpected,
     scopeRowIds,
-    savedViewController.currentDefinition,
+    viewController.currentDefinition,
     sheet,
     dataVersion,
     run,
@@ -1074,7 +1074,7 @@ export function useWorkspaceModel({
     activeGridFilter,
     activeGridSort,
     activeColumnOrder,
-    activeGridLensRowIds,
+    activeGridViewRowIds,
     activePreviewView,
     rowPreview,
     openRowPanel,
@@ -1108,7 +1108,7 @@ export function useWorkspaceModel({
       ...actionCompare,
       expectedAnswers,
       comparisonDataVersion: dataVersion,
-      ...savedViewController,
+      ...viewController,
       ...view,
       ...actions,
       ...navigation.mainView,
@@ -1129,11 +1129,11 @@ export function useWorkspaceModel({
       setOverflowMenuOpen: chrome.setOverflowMenuOpen,
       provenanceOpen,
       toggleProvenanceWithDrawers,
-      consumeSavedViewsPublication: savedViews.consumePublication,
-      cancelSavedViewsConfirmation: savedViews.cancelConfirmation,
-      cancelSavedViewEditor: savedViews.cancelEditor,
-      setViewName: savedViews.setViewName,
-      startEditingView: savedViews.startEditingView,
+      consumeViewsPublication: viewsStore.consumePublication,
+      cancelViewsConfirmation: viewsStore.cancelConfirmation,
+      cancelViewEditor: viewsStore.cancelEditor,
+      setViewName: viewsStore.setViewName,
+      startEditingView: viewsStore.startEditingView,
       clearChildFilter,
       closeEvidenceViewer,
       documentView,
@@ -1155,7 +1155,7 @@ export function useWorkspaceModel({
     }),
     [
       grid,
-      savedViewController,
+      viewController,
       actionCompare,
       expectedAnswers,
       dataVersion,
@@ -1181,7 +1181,7 @@ export function useWorkspaceModel({
       chrome,
       provenanceOpen,
       toggleProvenanceWithDrawers,
-      savedViews,
+      viewsStore,
       clearChildFilter,
       closeEvidenceViewer,
       documentView,
@@ -1270,7 +1270,7 @@ export function useWorkspaceModel({
   );
 
   return {
-    openSavedView: savedViewController.openSavedView,
+    openView: viewController.openView,
     askNavigation,
     project,
     projectApi,

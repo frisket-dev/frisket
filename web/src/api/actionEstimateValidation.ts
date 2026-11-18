@@ -63,7 +63,7 @@ export function runEstimateFromV1Wire(
     claims: estimate.claims ?? undefined,
     promise_set_hash: estimate.promise_set_hash ?? undefined,
     // Carried, not dropped: the panel renders through the same three-state
-    // selector the cost gate does (actions/quotedCost), and BOTH fields are
+    // selector the cost gate does (actions/estimatedCost), and BOTH fields are
     // load-bearing there — together they distinguish an explicit
     // Unpriceable verdict from an incomplete/unrated envelope.
     billed_cost: estimate.billed_cost,

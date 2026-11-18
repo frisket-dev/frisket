@@ -88,7 +88,7 @@ interface AnnotatedTextReaderProps {
    *  starting point of the stored-action replay. A host that cannot
    *  launch runs passes nothing, and the `[!]` explains without offering a
    *  button it cannot honor. */
-  onReplayLayer?: ((outputColumnId: string) => void) | null;
+  onReplayLayer?: ((generatedColumnId: string) => void) | null;
 }
 
 export function AnnotatedTextReader({
@@ -283,7 +283,7 @@ export function AnnotatedTextReader({
               onToggleStatus={() =>
                 setOpenStatusKey((open) => (open === toggle.toggleKey ? null : toggle.toggleKey))
               }
-              onReplay={onReplayLayer ? () => onReplayLayer(toggle.outputColumnId) : null}
+              onReplay={onReplayLayer ? () => onReplayLayer(toggle.generatedColumnId) : null}
             />
           ))}
         </fieldset>
@@ -379,8 +379,8 @@ function LayerToggleChip({
   onToggleStatus(): void;
   onReplay: (() => void) | null;
 }) {
-  const label = showColumn && toggle.outputColumnName
-    ? `${toggle.label} · ${toggle.outputColumnName}`
+  const label = showColumn && toggle.generatedColumnName
+    ? `${toggle.label} · ${toggle.generatedColumnName}`
     : toggle.label;
   return (
     <span className="annotation-toggle" data-testid={`annotation-toggle-${toggle.toggleKey}`}>

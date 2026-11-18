@@ -330,7 +330,7 @@ def test_cloud_fact_preserves_receipt_validated_provider_and_cost_source():
     assert _observation(bound)["observed"]["target_id"].startswith("frisket-cloud:")
 
 
-def test_org_key_posture_maps_to_provider_billed():
+def test_organization_key_posture_maps_to_provider_billed():
     route = _route(
         engine="openai/whisper-1",
         target_snapshot=_snapshot("remote-api:openai", "remote"),

@@ -397,7 +397,7 @@ class SearchPreparationService:
                 "this sheet has no current media that needs search preparation",
             )
         batch = self.store.create(
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             project_id=project_id,
             trigger_receipt_id=None,
             sheet_id=sheet_id,
@@ -412,7 +412,7 @@ class SearchPreparationService:
             or (batch.plan is not None and self._project(batch).status == "failed")
         ):
             batch = self.store.create(
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 project_id=project_id,
                 trigger_receipt_id=None,
                 sheet_id=sheet_id,
@@ -446,7 +446,7 @@ class SearchPreparationService:
         self, project_id: str, receipt_id: str
     ) -> SearchPreparationBatchRow | None:
         return self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             project_id=project_id,
             receipt_id=receipt_id,
             include_pending=True,
@@ -460,7 +460,7 @@ class SearchPreparationService:
             row = self.store.get(
                 batch_id,
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
             )
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
@@ -671,7 +671,7 @@ class SearchPreparationService:
         if pending is None or pending.captured_sources is None:
             sources = capture_sources(project, sheet_id=sheet_id, row_ids=row_ids)
             pending = self.store.reserve_automatic_plan(
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 project_id=project_id,
                 pending=pending,
                 receipt_id=receipt_id,
@@ -765,7 +765,7 @@ class SearchPreparationService:
         if not self.automatic_enabled(project_id):
             return
         self.store.create_pending_import(
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             project_id=project_id,
             receipt_id=receipt_id,
             import_ref=import_ref,
@@ -773,7 +773,7 @@ class SearchPreparationService:
 
     def batch_for_receipt(self, project_id: str, receipt_id: str) -> str | None:
         row = self.store.for_receipt(
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             project_id=project_id,
             receipt_id=receipt_id,
         )
@@ -811,7 +811,7 @@ class SearchPreparationService:
             if materialization_job_id is None
             else self.store.pending_materialization(
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 job_id=materialization_job_id,
                 sheet_id=sheet_id,
                 row_ids=row_ids,
@@ -850,7 +850,7 @@ class SearchPreparationService:
                 )
                 for row in self.store.list_recent(
                     project_id=project_id,
-                    storage_org_id=self.workspace.queue_storage_org_id,
+                    storage_org_id=self.workspace.queue_storage_organization_id,
                 )
             ],
             indexing=indexing,
@@ -871,7 +871,7 @@ class SearchPreparationService:
             SEARCH_INDEX_KIND,
             statuses=("running",),
             project_id=project_id,
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             workspace_root=str(self.workspace.root),
         )
         if index_job is None:
@@ -879,7 +879,7 @@ class SearchPreparationService:
                 SEARCH_INDEX_KIND,
                 statuses=("queued",),
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 workspace_root=str(self.workspace.root),
             )
         failed_job = None
@@ -888,7 +888,7 @@ class SearchPreparationService:
                 SEARCH_INDEX_KIND,
                 statuses=("failed",),
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 workspace_root=str(self.workspace.root),
                 dedupe_key=f"search-index:{marker}",
             )
@@ -1002,7 +1002,7 @@ class SearchPreparationService:
             replacement = self.store.replace_undecided(
                 row.id,
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 plan_hash=plan_hash,
                 plan=plan,
             )
@@ -1097,7 +1097,7 @@ class SearchPreparationService:
             row = self.store.decide(
                 batch_id,
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 plan_hash=plan_hash,
                 decision=decision,
                 selected_setup_refs=selected_setup_refs,
@@ -1146,7 +1146,7 @@ class SearchPreparationService:
         refreshed = self.store.replan(
             row.id,
             project_id=row.project_id,
-            storage_org_id=self.workspace.queue_storage_org_id,
+            storage_org_id=self.workspace.queue_storage_organization_id,
             plan=current,
         )
         raise RouteError(
@@ -1191,7 +1191,7 @@ class SearchPreparationService:
             row = self.store.request_stop(
                 batch_id,
                 project_id=project_id,
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
             )
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
@@ -1264,7 +1264,7 @@ class SearchPreparationService:
         after_id = None
         while True:
             rows = self.store.list_active_page(
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 limit=100,
                 after_created_at=after_created_at,
                 after_id=after_id,
@@ -1300,7 +1300,7 @@ class SearchPreparationService:
         after_id = None
         while True:
             rows = self.store.list_active_page(
-                storage_org_id=self.workspace.queue_storage_org_id,
+                storage_org_id=self.workspace.queue_storage_organization_id,
                 limit=100,
                 after_created_at=after_created_at,
                 after_id=after_id,

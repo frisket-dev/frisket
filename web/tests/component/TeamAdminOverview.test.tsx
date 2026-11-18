@@ -11,7 +11,7 @@ import { TeamAdminOverview } from '../../src/components/AdminPage';
 afterEach(cleanup);
 
 describe('TeamAdminOverview', () => {
-  it('renders the team endpoint totals without commercial or multi-org copy', () => {
+  it('renders the team endpoint totals without commercial or multi-organization copy', () => {
     render(
       <TeamAdminOverview
         overview={{

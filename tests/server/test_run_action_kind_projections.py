@@ -69,7 +69,7 @@ def test_provenance_manifest_reports_the_stored_action_kind_column(
     assert [run["action_kind"] for run in payload["runs"]] == ["map.translate"]
 
 
-def test_lineage_dag_ai_column_reports_the_stored_action_kind_column(
+def test_lineage_dag_generated_column_reports_the_stored_action_kind_column(
     make_project,
 ) -> None:
     from frisket.engine.store.lineage import build_lineage_dag

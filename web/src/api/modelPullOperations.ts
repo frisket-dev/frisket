@@ -7,10 +7,10 @@ const organization = createTeamLocalModelsApi(modelSetupErrorFactory);
 
 export function readModelPull(scope: ModelSetupScope, id: number, options: { signal?: AbortSignal } = {}) {
   return scope === 'organization'
-    ? organization.orgGetModelPull(id, options) : workspace.getModelPull(id, options);
+    ? organization.organizationGetModelPull(id, options) : workspace.getModelPull(id, options);
 }
 
 export function cancelScopedModelPull(scope: ModelSetupScope, id: number, options: { signal?: AbortSignal } = {}) {
   return scope === 'organization'
-    ? organization.orgCancelModelPull(id, options) : workspace.cancelModelPull(id, options);
+    ? organization.organizationCancelModelPull(id, options) : workspace.cancelModelPull(id, options);
 }

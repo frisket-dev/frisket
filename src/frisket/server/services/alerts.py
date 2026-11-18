@@ -111,7 +111,7 @@ class AlertService:
             self._workspace.queue,
             workspace_root=self._workspace.root,
             project_id=project_id,
-            storage_org_id=self._workspace.queue_storage_org_id,
+            storage_org_id=self._workspace.queue_storage_organization_id,
             result=evaluation.get("notification"),
             project_opener=self._workspace.project_opener,
         )

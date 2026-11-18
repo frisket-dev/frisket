@@ -44,7 +44,7 @@ def test_local_preferences_change_persists_and_updates_new_routers(
     assert restarted.get("/api/config").json()["cache_mode"] == "replay_strict"
 
 
-def test_local_cost_preapproval_persists_without_auth(tmp_path, monkeypatch) -> None:
+def test_local_allowance_persists_without_auth(tmp_path, monkeypatch) -> None:
     root = tmp_path / "workspace"
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "1.50")
     client = TestClient(create_app(root))

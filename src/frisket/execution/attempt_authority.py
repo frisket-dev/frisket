@@ -393,8 +393,8 @@ class AttemptAuthority:
         from frisket.engine.runner.confirmation_context import (
             BILLED_COST_KEY,
             POLICY_ID_KEY,
-            ConsentQuote,
-            ConsentQuoteRefused,
+            ConsentEstimate,
+            ConsentEstimateRefused,
             persisted_rating,
         )
         from frisket.engine.runner.validation import (
@@ -415,7 +415,9 @@ class AttemptAuthority:
                 # from. Fails closed by proving nothing.
                 continue
             try:
-                persisted = ConsentQuote.model_validate(json.loads(consent.quote_json))
+                persisted = ConsentEstimate.model_validate(
+                    json.loads(consent.quote_json)
+                )
                 if persisted.policy_id != installed_policy_id:
                     # The price list moved under an approved run. Skipped
                     # PER CANDIDATE, like every other unusable record here, so
@@ -428,8 +430,8 @@ class AttemptAuthority:
                 # The hash is minted INSIDE the guard, not after it. A record
                 # can decode as JSON, validate as a quote, and still refuse at
                 # the money projection — ``billed_cost: -1`` is accepted by
-                # pydantic and refused by ``_quote_micros``. Minted outside,
-                # that ``ConsentQuoteRefused`` escapes the loop and one
+                # pydantic and refused by ``_estimate_micros``. Minted outside,
+                # that ``ConsentEstimateRefused`` escapes the loop and one
                 # poisoned row denies a run whose valid sibling consent would
                 # have authorized it.
                 candidate_hash = confirmation_context_hash(
@@ -451,7 +453,7 @@ class AttemptAuthority:
                 # re-raises anything outside the value/lookup family) rather
                 # than being reported to the operator as absent consent.
                 continue
-            except ConsentQuoteRefused as exc:
+            except ConsentEstimateRefused as exc:
                 # The projection refused — but WHICH half? The merged envelope
                 # carries live neutral facts and this record's rated fields,
                 # and the two failures are not the same event:
@@ -519,7 +521,7 @@ class AttemptAuthority:
             ).principal
             echoed_hash = spec.get("consented_promise_set_hash")
             from frisket.engine.runner.confirmation_context import (
-                ConsentQuoteRefused,
+                ConsentEstimateRefused,
             )
             from frisket.engine.runner.validation import (
                 estimate_run,
@@ -549,7 +551,7 @@ class AttemptAuthority:
             # valid exact-echo backfill impossible: validation persisted the
             # one-row quote, while admission reconstructed an N-row quote and
             # rejected its own consent as ``consent_missing``.
-            quoted_scope = (
+            estimated_scope = (
                 target_rows(self.project, spec)
                 if spec.get("row_ids") is not None
                 else authorized_scope
@@ -574,7 +576,7 @@ class AttemptAuthority:
                     self.project,
                     spec,
                     program=recipe,
-                    scope_row_ids=quoted_scope,
+                    scope_row_ids=estimated_scope,
                 )
                 # ONE live recomputation of the neutral facts, then ONE
                 # candidate hash per consent — because the rated half is read
@@ -592,7 +594,7 @@ class AttemptAuthority:
                 )
             except (ExecutionRouteVerificationFailed, RecipeInvocationHalt):
                 raise
-            except ConsentQuoteRefused as exc:
+            except ConsentEstimateRefused as exc:
                 # The one case that can name the offending fact.
                 raise ExecutionRouteVerificationFailed(
                     "consent_missing",
@@ -618,12 +620,12 @@ class AttemptAuthority:
                     # this dispatch. Same shape as the paid-plugin lane's
                     # ``plugin_action_pricing_policy_skew`` — both ids, nothing
                     # spent, and the remedy is a fresh quote.
-                    quoted = ", ".join(
+                    skewed_policies = ", ".join(
                         repr(policy_id) for policy_id in survey.skewed_policy_ids
                     )
                     raise ExecutionRouteVerificationFailed(
                         "consent_missing",
-                        f"this run was estimated under pricing policy {quoted}, but "
+                        f"this run was estimated under pricing policy {skewed_policies}, but "
                         "the deployment dispatching it prices with "
                         f"{survey.installed_policy_id!r}; nothing was spent. A "
                         "confirmation binds the figure it estimated, so re-run the "

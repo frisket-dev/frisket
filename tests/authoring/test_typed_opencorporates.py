@@ -254,23 +254,23 @@ def request(sheet, action="lookup_company"):
 
 
 def confirm(project, project_id, body):
-    quote = run_action_spec(project, body, project_id=project_id)
-    assert quote.status == "needs_confirmation", quote.model_dump()
-    error = quote.errors[0]
+    estimate = run_action_spec(project, body, project_id=project_id)
+    assert estimate.status == "needs_confirmation", estimate.model_dump()
+    error = estimate.errors[0]
     body = {**body, "confirmation": error.details["promise_set_hash"]}
-    return body, quote
+    return body, estimate
 
 
 @pytest.mark.parametrize(
     "action,expected_calls", [("lookup_company", 1), ("match_company", 2)]
 )
-def test_actual_typed_child_requires_exact_quote_and_records_host_responses(
+def test_actual_typed_child_requires_exact_estimate_and_records_host_responses(
     installed, action, expected_calls
 ):
     _, project, project_id, sheet, _, calls, _ = installed
-    body, quote = confirm(project, project_id, request(sheet, action))
+    body, estimate = confirm(project, project_id, request(sheet, action))
     assert not calls
-    assert quote.errors[0].details["estimate"]["cost"] is None
+    assert estimate.errors[0].details["estimate"]["cost"] is None
     result = run_action_spec(project, body, project_id=project_id)
     assert result.status == "completed", result.model_dump()
     assert len(calls) == expected_calls
@@ -528,10 +528,10 @@ def test_queue_reconstructs_the_same_paid_confirmation(installed):
     client, project, project_id, sheet, _, calls, _ = installed
     url = f"/api/projects/{project_id}/actions/v1/run"
     body = request(sheet)
-    quote = client.post(url, json=body)
-    assert quote.json()["status"] == "needs_confirmation", quote.text
+    estimate = client.post(url, json=body)
+    assert estimate.json()["status"] == "needs_confirmation", estimate.text
     assert not calls
-    body["confirmation"] = quote.json()["errors"][0]["details"]["promise_set_hash"]
+    body["confirmation"] = estimate.json()["errors"][0]["details"]["promise_set_hash"]
     workspace = client.app.state.workspace
     response = client.post(url, json=body)
     assert response.status_code == 200, response.text
@@ -565,7 +565,7 @@ def test_new_row_backfill_retains_successor_provider_facts_and_replay(installed)
         [{"jurisdiction": "gb", "number": "00123", "name": "Example Ltd"}],
         {key: columns[key] for key in ("jurisdiction", "number", "name")},
     )
-    backfill, quote = confirm(
+    backfill, estimate = confirm(
         project,
         project_id,
         {

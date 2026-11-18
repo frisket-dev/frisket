@@ -83,7 +83,7 @@ function denseLayer(text: string): TextAnnotationLayer {
     layerFamily: 'entities',
     producerKind: 'map.ner',
     producerEngine: 'gliner',
-    outputColumn: { id: '12', name: 'entities' },
+    generatedColumn: { id: '12', name: 'entities' },
     positioned: true,
     spans,
     counts: { shown: spans.length, total: spans.length, invalid: 0 },

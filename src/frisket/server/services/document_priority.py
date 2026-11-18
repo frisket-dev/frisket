@@ -37,7 +37,7 @@ class DocumentPriorityService:
         # Opening the project through the workspace applies its normal project
         # and storage authority before shared queue metadata is inspected.
         project = self.workspace.get(project_id)
-        storage_org_id = self.workspace.queue_storage_org_id
+        storage_org_id = self.workspace.queue_storage_organization_id
         c = jobs_table.c
         statement = (
             sa.select(c.id, c.run_id, c.payload)

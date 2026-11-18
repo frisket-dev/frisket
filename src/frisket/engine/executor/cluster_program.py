@@ -216,7 +216,7 @@ class _ClusterProgram(_TypedMapBatchProgram):
     auto_verify = True
     allow_all_empty_input = True
     defer_generation_seal = True
-    keep_zero_success_output_columns = True
+    keep_zero_success_generated_columns = True
 
     def estimate(self, project, spec, rows, *, resolution=None):
         model = spec["cluster_values"]["embedding_model"]

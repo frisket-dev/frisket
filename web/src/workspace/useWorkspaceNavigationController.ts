@@ -84,7 +84,7 @@ export function useWorkspaceNavigationController({
   const { activeChildFilter, activeGridFilter, activeGridSort, scopeRowIds, visibleHeaderMenu } = grid;
   const reviewOpen = routeReview === true;
   // A run-scoped queue reuses the same review route and overlay. The scope is
-  // deliberately transient: it is an inspection affordance, not a saved view.
+  // deliberately transient: it is an inspection affordance, not a view.
   const [reviewRunId, setReviewRunId] = useState<string | null>(null);
 
 

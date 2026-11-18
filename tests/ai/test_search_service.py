@@ -53,7 +53,7 @@ async def test_auto_prefers_exa_and_preserves_reported_dollars() -> None:
 
 
 @pytest.mark.asyncio
-async def test_exa_missing_reported_cost_settles_against_captured_quote() -> None:
+async def test_exa_missing_reported_cost_settles_against_captured_estimate() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"results": []})
 
@@ -61,13 +61,13 @@ async def test_exa_missing_reported_cost_settles_against_captured_quote() -> Non
         service = SearchService(
             preference="exa", effective_keys={"exa": "exa-secret"}, http=client
         )
-        quote = service.quote(max_results=6)
-        result = await service.search("records", max_results=6, quote=quote)
+        estimate = service.estimate(max_results=6)
+        result = await service.search("records", max_results=6, estimate=estimate)
 
     assert result.usage.provider_reported_cost_usd is None
     assert result.usage.provider_cost_usd == 0.007
     assert result.usage.cost_source == "configured_catalog"
-    assert result.usage.quote is quote
+    assert result.usage.quote is estimate
 
 
 @pytest.mark.asyncio
@@ -181,15 +181,15 @@ async def test_auto_without_paid_keys_uses_ddgs_and_normalizes_results() -> None
     assert result.usage.cost_source == "free"
 
 
-def test_paid_quote_is_bounded_and_uses_canonical_pricing() -> None:
+def test_paid_estimate_is_bounded_and_uses_canonical_pricing() -> None:
     exa = SearchService(preference="exa", effective_keys={"exa": "key"})
-    quote = exa.quote(max_results=10)
-    assert quote.pricing_key == "exa.search.request"
-    assert quote.unit == "request"
-    assert quote.unit_price_usd == "0.007"
-    assert quote.estimated_cost_usd == 0.007
+    estimate = exa.estimate(max_results=10)
+    assert estimate.pricing_key == "exa.search.request"
+    assert estimate.unit == "request"
+    assert estimate.unit_price_usd == "0.007"
+    assert estimate.estimated_cost_usd == 0.007
     with pytest.raises(ValueError, match="between 1 and 10"):
-        exa.quote(max_results=11)
+        exa.estimate(max_results=11)
 
     ddgs = SearchService(preference="ddgs", effective_keys={})
-    assert ddgs.quote(max_results=20).estimated_cost_usd == 0.0
+    assert ddgs.estimate(max_results=20).estimated_cost_usd == 0.0

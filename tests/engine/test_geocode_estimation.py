@@ -91,10 +91,10 @@ def _resolution(cost_basis, *, engine: str, rows: int | None):
 
 def test_geocode_routed_estimate_priced_arm_opencage():
     """The priced arm carries one cost and one provider-price identity."""
-    from frisket.execution.price_book import OperatorBorne, quote_geocode
+    from frisket.execution.price_book import OperatorBorne, estimate_geocode
     from frisket.execution.promise_compiler import PricedCostBasis
 
-    basis = quote_geocode(
+    basis = estimate_geocode(
         target_id="opencage",
         engine="opencage",
         funding=OperatorBorne(),
@@ -118,10 +118,10 @@ def test_geocode_routed_estimate_priced_arm_opencage():
 
 def test_geocode_routed_estimate_nominatim_has_no_price():
     """Nominatim is structurally known-zero without a made-up tariff."""
-    from frisket.execution.price_book import OperatorBorne, quote_geocode
+    from frisket.execution.price_book import OperatorBorne, estimate_geocode
     from frisket.execution.promise_compiler import OperatorBorneZeroCost
 
-    basis = quote_geocode(
+    basis = estimate_geocode(
         target_id="nominatim",
         engine="nominatim",
         funding=OperatorBorne(),

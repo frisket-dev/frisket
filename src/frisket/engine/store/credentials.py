@@ -28,7 +28,7 @@ class ProviderKeyDecryptError(RuntimeError):
     Loud on purpose. The silent ``continue`` this replaces degraded an
     undecryptable row to "no project keys", and "no project keys" is not an
     absence of consequence: the router's key layers fall THROUGH to the
-    workspace file / org BYOK / process env (``jobs/runs.py:_router_for``,
+    workspace file / organization BYOK / process env (``jobs/runs.py:_router_for``,
     ``server/workspace.py:router_for``), so a rotated or corrupt AEAD key
     silently re-routed the run onto a different credential — spending money
     on a key with no per-key cap and stamping a different
@@ -171,7 +171,7 @@ def accrue_provider_spend(
     rolled-back batch accrues nothing.
 
     A provider with no configured project key matches no row and accrues
-    nothing; that spend belongs to some other credential (org BYOK, platform,
+    nothing; that spend belongs to some other credential (organization BYOK, platform,
     env) whose cap, if any, is not ours to enforce. ``updated_at`` is NOT
     stamped — it means "key last set", not "key last used".
     """

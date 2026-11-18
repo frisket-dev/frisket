@@ -9,7 +9,7 @@ import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useGridViewHandle } from '../bind/useGridViewHandle';
 import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
-import { useSavedViewsHandle } from '../bind/useSavedViewsHandle';
+import { useViewsHandle } from '../bind/useViewsHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkViewHandle } from '../bind/useWorkViewHandle';
@@ -48,9 +48,9 @@ export function useWorkspaceGridController({
   const selection = useSelectionHandle();
   const actSurface = useActSurfaceHandle();
   const workView = useWorkViewHandle();
-  const savedViews = useSavedViewsHandle();
-  const views = useSelector(savedViews.store, (state) => state.views);
-  const activeSavedViewId = useSelector(gridView.store, (state) => state.activeSavedViewId);
+  const viewsStore = useViewsHandle();
+  const views = useSelector(viewsStore.store, (state) => state.views);
+  const activeViewId = useSelector(gridView.store, (state) => state.activeViewId);
   const childFilter = useSelector(detail.store, (state) => state.childFilter);
   const headerMenu = useSelector(detail.store, (state) => state.headerMenu);
   const addColumnPrompt = useSelector(actSurface.store, (state) => state.addColumnPrompt);
@@ -108,18 +108,18 @@ export function useWorkspaceGridController({
     [columnGroupSpecs],
   );
   const presentationEdited = useSelector(gridView.store, (state) => state.presentationEdited);
-  const activeSavedView = useMemo(
-    () => activeSavedViewId === null || !sheet
+  const activeView = useMemo(
+    () => activeViewId === null || !sheet
       ? null
       : views.find(
-          (view) => view.id === activeSavedViewId && String(view.sheet_id) === sheet.id,
+          (view) => view.id === activeViewId && String(view.sheet_id) === sheet.id,
         ) ?? null,
-    [activeSavedViewId, sheet, views],
+    [activeViewId, sheet, views],
   );
   const activeExactViewColumns = useMemo(() => {
-    if (!sheet || presentationEdited || !activeSavedView?.spec) return null;
-    return gridFromPresentation(sheet, activeSavedView.spec.presentation).columns;
-  }, [activeSavedView, presentationEdited, sheet]);
+    if (!sheet || presentationEdited || !activeView?.spec) return null;
+    return gridFromPresentation(sheet, activeView.spec.presentation).columns;
+  }, [activeView, presentationEdited, sheet]);
   const activeExactHiddenColumns = useMemo(() => {
     if (!sheet || activeExactViewColumns === null) return [];
     return exactViewHiddenColumns(sheet, activeExactViewColumns, groupManagedHiddenColumns);
@@ -130,15 +130,15 @@ export function useWorkspaceGridController({
   );
 
   useEffect(() => {
-    if (!sheet || !activeSavedView || activeExactViewColumns === null) return;
+    if (!sheet || !activeView || activeExactViewColumns === null) return;
     if (JSON.stringify(storedActiveHiddenColumns) === JSON.stringify(activeExactHiddenColumns)) return;
-    if (gridView.store.get().activeSavedViewId !== activeSavedView.id) return;
-    gridView.reconcileSavedViewHiddenColumns(
-      activeSavedView.id,
+    if (gridView.store.get().activeViewId !== activeView.id) return;
+    gridView.reconcileViewHiddenColumns(
+      activeView.id,
       sheet.id,
       activeExactHiddenColumns,
     );
-    if (gridView.store.get().activeSavedViewId === activeSavedView.id) {
+    if (gridView.store.get().activeViewId === activeView.id) {
       localStorage.setItem(
         hiddenColumnsKey(project.id, sheet.id),
         JSON.stringify(activeExactHiddenColumns),
@@ -147,7 +147,7 @@ export function useWorkspaceGridController({
   }, [
     activeExactHiddenColumns,
     activeExactViewColumns,
-    activeSavedView,
+    activeView,
     gridView,
     project.id,
     sheet,

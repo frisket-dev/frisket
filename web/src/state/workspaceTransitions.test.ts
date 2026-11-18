@@ -29,7 +29,7 @@ import {
   actionLaunchForRoute,
   applyGridFilterTransition,
   applyGridSortTransition,
-  applySavedViewTransition,
+  applyViewTransition,
   clearGridFilterTransition,
   openCompareTabTransition,
   focusCompareTabTransition,
@@ -168,7 +168,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
   // actions must reproduce exactly the composed cross-store transition —
   // the composition lives in ONE place, state/workspaceTransitions.ts
   // (applyGridFilterTransition/applyGridSortTransition/
-  // applySavedViewTransition/clearGridFilterTransition/
+  // applyViewTransition/clearGridFilterTransition/
   // selectSheetTransition); useWorkspaceModel.tsx's handlers call those
   // functions, and every test below calls the SAME functions instead of
   // re-composing the store calls, so a dropped call in a handler (e.g. a
@@ -213,7 +213,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     expect(selection.store.get().selectedRows).toEqual(emptySelectedRows('s1'));
     expect(detail.store.get().rowDrawer).toBeNull();
     // applyGridFilter's half never touched columnDrawer — pin the asymmetry
-    // (only applySavedViewGrid/clearForSavedView clears columnDrawer too).
+    // (only applyViewGrid/clearForView clears columnDrawer too).
     expect(detail.store.get().columnDrawer).not.toBeNull();
   });
 
@@ -339,7 +339,7 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     expect(gridView.store.get().applied.filter).toBeNull();
     expect(selection.store.get().selectedRows).toEqual(emptySelectedRows('s1'));
     // clearGridFilter's half does NOT touch childFilter/rowDrawer — only
-    // applyGridFilter/applyGridSort/applySavedViewGrid do.
+    // applyGridFilter/applyGridSort/applyViewGrid do.
     expect(detail.store.get().childFilter).not.toBeNull();
     expect(detail.store.get().rowDrawer).not.toBeNull();
   });
@@ -367,12 +367,12 @@ describe('gridViewStore + selection/detail stores — cross-domain transaction p
     expect(selection.store.get().selectedRows).toEqual(emptySelectedRows('s1'));
   });
 
-  it('applySavedViewGrid: saved scope replaces prior child filter and clears selection/drawers', () => {
+  it('applyViewGrid: saved scope replaces prior child filter and clears selection/drawers', () => {
     const gridView = createGridViewStore();
     const { selection, detail } = seedSelectionAndDetail();
 
-    // = production's applySavedView, via applySavedViewTransition.
-    applySavedViewTransition({ gridView, detail, selection }, 's1', {
+    // = production's applyView, via applyViewTransition.
+    applyViewTransition({ gridView, detail, selection }, 's1', {
       viewId: 1,
       sheetId: 's1',
       filter: { status: { eq: 'open' } },
@@ -510,7 +510,7 @@ describe('workspaceTransitions.ts — invariant 10b closure sweep (workspace-sub
   // enumerated but not extracted earlier: openRowPanel,
   // openColumnPanel, closeRoutePanel, openRowRef (route-panel handlers,
   // useWorkspaceModel.tsx), confirmDeleteRows's delete-succeeded .then()
-  // composition, and applyLens's post-resolve composition. Same discipline:
+  // composition, and applyView's post-resolve composition. Same discipline:
   // every test below calls the SAME exported function production now calls.
 
   const baseRoute: RouteState = {
@@ -530,7 +530,7 @@ describe('workspaceTransitions.ts — invariant 10b closure sweep (workspace-sub
 
     // = production's openRowPanel (useWorkspaceModel.tsx).
     const preview = {
-      column: { name: 'sample', columnType: 'text', format: null, hidden: false, overwritesColumnId: 'c1' },
+      column: { name: 'sample', columnType: 'text', format: null, hidden: false, replacesColumnId: 'c1' },
       cell: { value: null, error: 'preview failed' },
     };
     openRowPanelTransition({ detail, selection }, writeRoute, baseRoute, row, col, preview);
@@ -695,7 +695,7 @@ describe('invariant 10b closure — no multi-store handler sequence survives out
   //
   // Store handle names scanned: every WorkspaceStores member with a plain
   // (non-`stores.`) local binding in these two files — gridView, selection,
-  // detail, savedViews, workView, chrome, route, pluginLayout, actSurface.
+  // detail, viewsStore, workView, chrome, route, pluginLayout, actSurface.
   // `route.*` is intentionally included even though the real route write
   // path is the separate `writeRoute(...)` wrapper (core/route/
   // writeCutover.test.ts already pins that path) — this scan only concerns
@@ -709,7 +709,7 @@ describe('invariant 10b closure — no multi-store handler sequence survives out
     'gridView',
     'selection',
     'detail',
-    'savedViews',
+    'viewsStore',
     'workView',
     'compareView',
     'chrome',

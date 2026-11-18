@@ -1,4 +1,4 @@
-"""YouTube playlist and channel source pollers.
+"""YouTube playlist and channel feed checkers.
 
 These sources list YouTube metadata only. They never download video, audio, or
 thumbnail bytes; downstream media actions remain explicit user work.
@@ -28,13 +28,13 @@ from frisket.server.sources.runtime import (
     free_listing_result,
     hash_json,
     provider_error_text,
-    register_source_poller,
+    register_feed_checker,
     text_hash,
 )
 from frisket.features.url_classification.matchers import host_matches_domain
 
 # The registered-domain suffix match (music/m/www.youtube.com all resolve to
-# youtube.com) shared with the URL classification registry, so the poller host
+# youtube.com) shared with the URL classification registry, so the feed checker host
 # check and the firstparty.youtube.* matchers cannot drift.
 _YOUTUBE_DOMAIN = "youtube.com"
 _YOUTU_BE_DOMAIN = "youtu.be"
@@ -119,7 +119,7 @@ class YouTubeCollectionConfig:
     item_cap: int | None
 
 
-class YouTubeCollectionPoller:
+class YouTubeCollectionFeedChecker:
     def __init__(
         self,
         spec: YouTubeCollectionKind,
@@ -399,7 +399,7 @@ class CollectionEnumeration:
     """One-shot enumeration of a YouTube collection (channel/playlist).
 
     The read-only sibling of a recurring source poll: the same config
-    resolution, provider and row shaping as ``YouTubeCollectionPoller``.
+    resolution, provider and row shaping as ``YouTubeCollectionFeedChecker``.
 
     ``preview_count`` is the extract_flat TOTAL (the cost-gate input, from
     ``playlist_count``); ``rows`` is the shaped, provider-capped list of item rows.
@@ -420,15 +420,15 @@ def enumerate_youtube_collection(
     item_cap: int | None,
     provider: Callable[..., Any] | None = None,
 ) -> CollectionEnumeration:
-    """One-shot enumerate a channel/playlist URL, sharing the poller machinery.
+    """One-shot enumerate a channel/playlist URL, sharing the feed checker machinery.
 
     ``enumerator`` is an ExpansionHint enumerator key (``youtube_channel`` /
     ``youtube_playlist``). When present, ``item_cap`` bounds the materialized entry
     list; the returned
     ``preview_count`` is the true collection total for the cost-gate. ``provider``
-    injects a fake at the SAME seam the poller tests use (no network).
+    injects a fake at the SAME seam the feed checker tests use (no network).
 
-    Raises ``ValueError`` for an unknown enumerator or a URL the poller config
+    Raises ``ValueError`` for an unknown enumerator or a URL the feed checker config
     resolution rejects (not a channel/playlist URL for the given kind).
     """
     if enumerator not in YOUTUBE_COLLECTION_ENUMERATORS:
@@ -769,8 +769,8 @@ YOUTUBE_CHANNEL = YouTubeCollectionKind(
 )
 _COLLECTION_KINDS = {spec.kind: spec for spec in (YOUTUBE_PLAYLIST, YOUTUBE_CHANNEL)}
 # The collection enumerators the one-shot ``derive.collection_expand`` shares
-# with the recurring pollers (ExpansionHint.enumerator names one of these).
+# with the recurring feed checkers (ExpansionHint.enumerator names one of these).
 YOUTUBE_COLLECTION_ENUMERATORS = frozenset(_COLLECTION_KINDS)
 
 for _spec in _COLLECTION_KINDS.values():
-    register_source_poller(YouTubeCollectionPoller(_spec))
+    register_feed_checker(YouTubeCollectionFeedChecker(_spec))

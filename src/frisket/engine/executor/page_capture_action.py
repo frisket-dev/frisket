@@ -79,7 +79,7 @@ class _PageCapturer:
             output_name=names.get("page", "page"),
             links_sheet_name=sheet_name or "",
             full_page=True,
-            output_column_type="file",
+            generated_column_type="file",
             primary_role="html",
             output_names=names,
             request=self.bound.request.model_dump(mode="json"),

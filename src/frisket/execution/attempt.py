@@ -269,13 +269,13 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
     if "kind" in basis and basis.get("kind") != "priced":
         return UnpriceableCost()
     try:
-        raw_row_quotes = basis.get("row_quote_quantities")
+        raw_row_estimates = basis.get("row_quote_quantities")
         row_quote_quantities = None
-        if raw_row_quotes is not None:
-            if not isinstance(raw_row_quotes, list):
+        if raw_row_estimates is not None:
+            if not isinstance(raw_row_estimates, list):
                 raise ValueError("row_quote_quantities must be a list")
-            parsed_row_quotes: list[tuple[int, str]] = []
-            for item in raw_row_quotes:
+            parsed_row_estimates: list[tuple[int, str]] = []
+            for item in raw_row_estimates:
                 if not isinstance(item, dict):
                     raise ValueError("row_quote_quantities contains a malformed row")
                 row_id = item.get("row_id")
@@ -286,8 +286,8 @@ def cost_basis_from_promises(promises: Any) -> CostBasis:
                     or not isinstance(quantity, str)
                 ):
                     raise ValueError("row_quote_quantities contains a malformed row")
-                parsed_row_quotes.append((row_id, quantity))
-            row_quote_quantities = tuple(parsed_row_quotes)
+                parsed_row_estimates.append((row_id, quantity))
+            row_quote_quantities = tuple(parsed_row_estimates)
         return PricedCostBasis(
             pricing_key=basis["pricing_key"],
             unit_rate=basis["unit_rate"],
@@ -446,15 +446,15 @@ def admit_attempt(
     evaluation, the consent id, the cost basis and its terms version freeze."""
     routed = commitment.routed
     admitted_by_consent_id = commitment.admission.admitted_by_consent_id
-    row_quotes = (
+    row_estimates = (
         commitment.cost_basis.row_quote_quantities
         if isinstance(commitment.cost_basis, PricedCostBasis)
         else None
     )
-    if row_quotes is not None:
-        quoted_scope = tuple(row_id for row_id, _quantity in row_quotes)
+    if row_estimates is not None:
+        estimated_scope = tuple(row_id for row_id, _quantity in row_estimates)
         if len(set(commitment.scope)) != len(commitment.scope) or set(
-            quoted_scope
+            estimated_scope
         ) != set(commitment.scope):
             raise RuntimeError(
                 "row quote allocation must cover the attempt scope exactly"
@@ -473,13 +473,13 @@ def admit_attempt(
             commitment.attempt_id,
         ),
     )
-    if row_quotes is not None:
+    if row_estimates is not None:
         project.db.executemany(
             "INSERT INTO attempt_row_authorizations "
             "(attempt_id, row_id, quoted_quantity) VALUES (?,?,?)",
             [
                 (commitment.attempt_id, row_id, quantity)
-                for row_id, quantity in row_quotes
+                for row_id, quantity in row_estimates
             ],
         )
     if commit:
@@ -1115,7 +1115,7 @@ def attempt_settlement(
     settlement_calls = calls
     all_rows_cancelled = False
     if row_mode == "quoted_successful_rows":
-        allocation, outcomes, inspection_refusal = _inspect_quoted_row_settlement(
+        allocation, outcomes, inspection_refusal = _inspect_estimated_row_settlement(
             project,
             attempt_id=attempt_id,
             cost_basis=cost_basis,
@@ -1162,9 +1162,9 @@ def attempt_settlement(
     if receipt.get("charge_usd") is None:
         return receipt
     if inspection_refusal is not None:
-        return _refuse_quoted_rows(receipt, inspection_refusal)
+        return _refuse_estimated_rows(receipt, inspection_refusal)
     assert allocation is not None and outcomes is not None
-    return _apply_quoted_row_settlement(
+    return _apply_estimated_row_settlement(
         allocation=allocation,
         outcomes=outcomes,
         receipt=receipt,
@@ -1178,7 +1178,7 @@ def _decimal_text(value: Decimal) -> str:
     return text or "0"
 
 
-def _refuse_quoted_rows(receipt: dict[str, Any], reason: str) -> dict[str, Any]:
+def _refuse_estimated_rows(receipt: dict[str, Any], reason: str) -> dict[str, Any]:
     receipt["charge_usd"] = None
     receipt["charged_quantity"] = None
     receipt["absorbed_overage_usd"] = None
@@ -1186,7 +1186,7 @@ def _refuse_quoted_rows(receipt: dict[str, Any], reason: str) -> dict[str, Any]:
     return receipt
 
 
-def _inspect_quoted_row_settlement(
+def _inspect_estimated_row_settlement(
     project: Any,
     *,
     attempt_id: str,
@@ -1293,7 +1293,7 @@ def _inspect_quoted_row_settlement(
     return allocation, outcomes, None
 
 
-def _apply_quoted_row_settlement(
+def _apply_estimated_row_settlement(
     *,
     allocation: dict[int, tuple[str, Decimal]],
     outcomes: dict[int, str],
@@ -1308,7 +1308,7 @@ def _apply_quoted_row_settlement(
         rate = Decimal(str(receipt["unit_rate"]))
         rated_charge = Decimal(str(receipt["rated_charge_usd"]))
     except (InvalidOperation, KeyError, TypeError, ValueError):
-        return _refuse_quoted_rows(receipt, "row_rating_invalid")
+        return _refuse_estimated_rows(receipt, "row_rating_invalid")
     charge = rate * charged_quantity
     receipt["charged_quantity"] = _decimal_text(charged_quantity)
     receipt["charge_usd"] = _decimal_text(charge)

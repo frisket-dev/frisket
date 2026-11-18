@@ -82,7 +82,7 @@ def test_entity_list_contains_any_matches_exact_type_and_text(project):
         type="json",
         semantic_type="entity_mentions",
     )
-    org, agency, person, differently_cased = project.add_rows(
+    organization, agency, person, differently_cased = project.add_rows(
         sheet,
         [
             {"entities": [{"type": "organization", "text": "NYPD"}]},
@@ -96,7 +96,9 @@ def test_entity_list_contains_any_matches_exact_type_and_text(project):
     def entity(type_, text):
         return {"kind": "entity", "type": type_, "text": text}
 
-    assert _rows(project, sheet, "entities", entity("organization", "NYPD")) == {org}
+    assert _rows(project, sheet, "entities", entity("organization", "NYPD")) == {
+        organization
+    }
     assert _rows(project, sheet, "entities", entity("agency", "NYPD")) == {agency}
     assert _rows(
         project,
@@ -104,7 +106,7 @@ def test_entity_list_contains_any_matches_exact_type_and_text(project):
         "entities",
         entity("organization", "NYPD"),
         entity("person", "Jane Doe"),
-    ) == {org, person}
+    ) == {organization, person}
     assert differently_cased not in _rows(
         project, sheet, "entities", entity("organization", "NYPD")
     )

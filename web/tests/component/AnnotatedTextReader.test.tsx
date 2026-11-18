@@ -53,7 +53,7 @@ const ENTITIES_LAYER: TextAnnotationLayer = {
   layerFamily: 'entities',
   producerKind: 'map.ner',
   producerEngine: 'gliner',
-  outputColumn: { id: '12', name: 'entities' },
+  generatedColumn: { id: '12', name: 'entities' },
   positioned: true,
   spans: [
     { occurrenceId: '1:1', start: 0, end: 12, quote: 'Ada Lovelace', entityType: 'person' },
@@ -77,7 +77,7 @@ const DIRTY_LAYER: TextAnnotationLayer = {
   layerFamily: 'entities',
   producerKind: 'map.ner',
   producerEngine: 'spacy',
-  outputColumn: { id: '12', name: 'entities' },
+  generatedColumn: { id: '12', name: 'entities' },
   positioned: false,
   unpositioned: { reason: 'content_hash_mismatch', total: 4 },
 };
@@ -289,7 +289,7 @@ describe('AnnotatedTextReader — the [!] replay affordance', () => {
     );
 
     fireEvent.click(screen.getByTestId('annotation-replay-7:12:entities'));
-    // The output column, not the toggle key: that is where the stored action
+    // The generated column, not the toggle key: that is where the stored action
     // is found; replay starts at output_column.id.
     expect(replayed).toEqual(['12']);
   });

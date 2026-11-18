@@ -13,18 +13,18 @@ import { SplitSetupHeader, type SplitSource } from './PdfSplitSetupSections';
 
 export function PdfSplitCheckText({
   projectId, stages, sources, totalSourceCount, sample, samplePage, thumbnailUrl, textSource, selection, policy,
-  busy, sampleJob, sampleConsent, quote, primaryLabel, error, onSource, onTextSource,
+  busy, sampleJob, sampleConsent, ocrEstimate, primaryLabel, error, onSource, onTextSource,
   onPreview, onRescan, onSelection, onPolicy, onCancelSampleConsent, onConfirmSampleConsent,
-  onCancelQuote, onConfirmQuote, onBack, onClose, onContinue,
+  onCancelEstimate, onConfirmEstimate, onBack, onClose, onContinue,
 }: {
   projectId: string; stages: Array<{ id: string; label: string; testId: string }>; sources: SplitSource[]; totalSourceCount: number; sample: SplitSource;
   samplePage: { preview_text?: string | null; preview_truncated?: boolean; thumbnail_url?: string; ocr_text?: string | null; ocr_engine?: string | null } | null;
   thumbnailUrl: string; textSource: 'native' | 'ocr'; selection: PdfImportOcrSelection; policy: PdfImportOcrPolicy;
-  busy: boolean; sampleJob: string | null; sampleConsent: RunEstimate | null; quote: { estimate: RunEstimate; pages: number } | null;
+  busy: boolean; sampleJob: string | null; sampleConsent: RunEstimate | null; ocrEstimate: { estimate: RunEstimate; pages: number } | null;
   primaryLabel: string; error: string | null;
   onSource(key: string): void; onTextSource(value: 'native' | 'ocr'): void; onPreview(): void; onRescan(): void;
   onSelection(value: PdfImportOcrSelection): void; onPolicy(value: PdfImportOcrPolicy): void;
-  onCancelSampleConsent(): void; onConfirmSampleConsent(): void; onCancelQuote(): void; onConfirmQuote(): void;
+  onCancelSampleConsent(): void; onConfirmSampleConsent(): void; onCancelEstimate(): void; onConfirmEstimate(): void;
   onBack(): void; onClose(): void; onContinue(): void;
 }) {
   const working = busy || Boolean(sampleJob);
@@ -56,7 +56,7 @@ export function PdfSplitCheckText({
         allowChoice={(choice) => choice.authored_selection.kind === 'engine' || choice.authored_selection.kind === 'engine_model'} />
       {error && <p role="alert">{error}</p>}
       {sampleConsent && <CostGateModal estimate={sampleConsent} message="Apply OCR to this sample page?" onCancel={onCancelSampleConsent} onConfirm={onConfirmSampleConsent} />}
-      {quote && <CostGateModal estimate={quote.estimate} message={`Run OCR on ${quote.pages} pages after applying?`} onCancel={onCancelQuote} onConfirm={onConfirmQuote} />}
+      {ocrEstimate && <CostGateModal estimate={ocrEstimate.estimate} message={`Run OCR on ${ocrEstimate.pages} pages after applying?`} onCancel={onCancelEstimate} onConfirm={onConfirmEstimate} />}
     </div>
     <PanelFooter><Button type="button" disabled={working} onClick={onBack}>Back</Button><span />
       <Button type="button" className="btn-primary" disabled={working} onClick={onContinue}>{primaryLabel}</Button>

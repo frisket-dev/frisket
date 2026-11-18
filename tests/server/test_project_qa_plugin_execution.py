@@ -104,7 +104,7 @@ async def test_research_executes_installed_plugin_and_grants_its_receipt(
         ask_store,
         session,
         catalog_payload_provider=host.catalog,
-        quote_provider=host.quote,
+        estimate_provider=host.estimate,
         run_action=host.run,
         wait_child=child_runs.wait,
         rate_actual_cost=usd_to_micros,

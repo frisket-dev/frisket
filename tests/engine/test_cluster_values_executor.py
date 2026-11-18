@@ -334,18 +334,18 @@ def _run_remote_cluster_with_exact_confirmation(
 ) -> tuple[Any, Any]:
     from frisket.engine.executor.actions import run_action_spec
 
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id=project_id,
         router=router,
     )
-    assert quote.status == "needs_confirmation", quote.errors
-    assert v1_action_result_http_status(quote) == 402
-    promise_set_hash = quote.errors[0].details["promise_set_hash"]
+    assert estimate.status == "needs_confirmation", estimate.errors
+    assert v1_action_result_http_status(estimate) == 402
+    promise_set_hash = estimate.errors[0].details["promise_set_hash"]
     retry = copy.deepcopy(action)
     retry["confirmation"] = promise_set_hash
-    return quote, run_action_spec(
+    return estimate, run_action_spec(
         project,
         retry,
         project_id=project_id,
@@ -501,13 +501,13 @@ def test_semantic_cluster_source_change_invalidates_old_confirmation_hash(
         idempotency_key="cluster_values@sha256:stale-confirmation",
         method="semantic",
     )
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id="cluster-values-stale-confirmation",
         router=router,
     )
-    old_hash = quote.errors[0].details["promise_set_hash"]
+    old_hash = estimate.errors[0].details["promise_set_hash"]
     _tamper_source_values(project, seeded)
     before = counts(project)
     retry = copy.deepcopy(action)
@@ -800,14 +800,14 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
             idempotency_key="cluster_values@sha256:sidecar-failure-reconcile",
             method="semantic",
         )
-        quote = run_action_spec(
+        estimate = run_action_spec(
             project,
             action,
             project_id="cluster-values-sidecar-failure",
             router=router,
         )
         confirmed = copy.deepcopy(action)
-        confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+        confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
 
         real_put = RetrievalStore.put_representations
         fail_next = True
@@ -951,14 +951,14 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
         idempotency_key="cluster_values@sha256:stable-batch-retry",
         method="semantic",
     )
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id="cluster-values-stable-batches",
         router=router,
     )
     confirmed = copy.deepcopy(action)
-    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
 
     real_put = RetrievalStore.put_representations
     fail_next = True
@@ -1061,14 +1061,14 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
         idempotency_key="cluster_values@sha256:receipt-context-atomic",
         method="semantic",
     )
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id="cluster-values-receipt-atomic",
         router=router,
     )
     confirmed = copy.deepcopy(action)
-    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     original_context = {
         "funding_account_id": 17,
         "reservation_id": "atomic-transfer",
@@ -1228,14 +1228,14 @@ def test_semantic_cluster_ambiguous_provider_outcome_refuses_exact_retry(
         idempotency_key="cluster_values@sha256:ambiguous-provider",
         method="semantic",
     )
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id="cluster-values-ambiguous-provider",
         router=router,
     )
     confirmed = copy.deepcopy(action)
-    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
 
     first = run_action_spec(
         project,
@@ -1290,14 +1290,14 @@ def test_semantic_cluster_operator_attestation_closes_without_repeating_call(
         idempotency_key="cluster_values@sha256:operator-decided",
         method="semantic",
     )
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project,
         action,
         project_id="cluster-values-operator-decided",
         router=router,
     )
     confirmed = copy.deepcopy(action)
-    confirmed["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    confirmed["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     first = run_action_spec(
         project,
         confirmed,
@@ -1347,8 +1347,8 @@ def test_recovery_binds_returned_vectors_to_actual_admitted_operation(
     seeded = _seed(project, tmp_path)
     router, adapter = _remote_embedding_router()
     action = _cluster_action(seeded["sheet_id"], method="semantic")
-    quote = run_action_spec(project, action, project_id="binding", router=router)
-    action["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    estimate = run_action_spec(project, action, project_id="binding", router=router)
+    action["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     original_put = RetrievalStore.put_representations
 
     def fail_put(self, representations):

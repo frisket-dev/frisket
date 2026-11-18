@@ -305,7 +305,7 @@ def test_search_without_selected_model_refuses_without_provider_calls(
         project.close()
 
 
-def test_above_preapproval_requires_exact_confirmation_before_egress(
+def test_above_allowance_requires_exact_confirmation_before_egress(
     tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_provider(monkeypatch)

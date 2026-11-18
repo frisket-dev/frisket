@@ -21,7 +21,7 @@ from frisket.contracts.decisions import (
 from frisket.engine.executor.decision_read import AdmittedDecisionClassifier
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.definitions import StaticExecutionTargetProvider
-from frisket.execution.price_book import OperatorBorne, quote_classify
+from frisket.execution.price_book import OperatorBorne, estimate_classify
 from frisket.execution.provider import CompositionFacts
 from frisket.execution.resolver import ResolutionRequest, resolve
 from frisket.ops.base import RecipeInvocationHalt
@@ -244,17 +244,17 @@ async def test_mismatched_route_refuses_before_network(monkeypatch):
         )
 
 
-def test_quote_uses_provider_usage_not_flat_token_settlement():
-    quote = quote_classify(
+def test_estimate_uses_provider_usage_not_flat_token_settlement():
+    estimate = estimate_classify(
         target_id="remote-api:openai",
         engine="openai-decisions",
         funding=OperatorBorne(),
         offering=None,
         input_tokens=1250,
     )
-    assert quote.pricing_key == "classify.openai.decisions.input_token"
-    assert quote.unit_rate == "0.0000001"
-    assert quote.charge_authority == "provider_usage"
+    assert estimate.pricing_key == "classify.openai.decisions.input_token"
+    assert estimate.unit_rate == "0.0000001"
+    assert estimate.charge_authority == "provider_usage"
 
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])

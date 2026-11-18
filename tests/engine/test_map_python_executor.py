@@ -27,7 +27,7 @@ from frisket.execution.attempt import (
     abandon_stale_dispatching_attempts,
 )
 
-_OUTPUT_COLUMNS = ("__result_entities", "python_result", "word_count")
+_GENERATED_COLUMNS = ("__result_entities", "python_result", "word_count")
 
 # Reset by _patch_sandbox_spy at the start of every harness test for this
 # case; asserts on it are only meaningful behind that patch.
@@ -323,19 +323,19 @@ def _go_stale(project: Project, seeded: dict[str, Any]) -> None:
     project.db.commit()
 
 
-def _output_column_rows(project: Project, sheet_id: int) -> list[Any]:
-    placeholders = ", ".join("?" for _ in _OUTPUT_COLUMNS)
+def _generated_column_rows(project: Project, sheet_id: int) -> list[Any]:
+    placeholders = ", ".join("?" for _ in _GENERATED_COLUMNS)
     return project.db.execute(
         "SELECT id, name, hidden, active, current_run_id FROM columns "
         f"WHERE sheet_id=? AND name IN ({placeholders}) ORDER BY id",
-        (sheet_id, *_OUTPUT_COLUMNS),
+        (sheet_id, *_GENERATED_COLUMNS),
     ).fetchall()
 
 
 def _check_undone(project: Project, seeded: dict[str, Any], first: Any) -> None:
     del first
-    rows = _output_column_rows(project, seeded["sheet_id"])
-    assert {row["name"] for row in rows} == set(_OUTPUT_COLUMNS)
+    rows = _generated_column_rows(project, seeded["sheet_id"])
+    assert {row["name"] for row in rows} == set(_GENERATED_COLUMNS)
     assert {int(row["hidden"]) for row in rows} == {1}
     assert {row["current_run_id"] for row in rows} == {None}
     seeded["output_ids"] = {row["name"]: int(row["id"]) for row in rows}
@@ -351,14 +351,14 @@ def _check_rerun(
     project: Project, seeded: dict[str, Any], first: Any, second: Any
 ) -> None:
     del first
-    rows = _output_column_rows(project, seeded["sheet_id"])
+    rows = _generated_column_rows(project, seeded["sheet_id"])
     current = {row["name"]: row for row in rows if row["active"]}
     historical = {row["name"]: row for row in rows if not row["active"]}
     assert len(rows) == 6
     assert {name: int(row["id"]) for name, row in historical.items()} == seeded[
         "output_ids"
     ]
-    assert set(current) == set(historical) == set(_OUTPUT_COLUMNS)
+    assert set(current) == set(historical) == set(_GENERATED_COLUMNS)
     assert all(current[name]["id"] != row["id"] for name, row in historical.items())
     assert {row["hidden"] for row in historical.values()} == {1}
     assert {row["current_run_id"] for row in historical.values()} == {None}
@@ -573,7 +573,7 @@ def test_direct_maprunner_stale_writer_refusal_is_non_destructive(
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
-            == len(_OUTPUT_COLUMNS) + 1
+            == len(_GENERATED_COLUMNS) + 1
         )
         receipt = env.project.db.execute(
             "SELECT status, body FROM receipts WHERE run_id=?",
@@ -632,7 +632,7 @@ def test_direct_maprunner_renewal_failure_leaves_run_alive(
                 "WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
-            == len(_OUTPUT_COLUMNS) + 1
+            == len(_GENERATED_COLUMNS) + 1
         )
         receipt = env.project.db.execute(
             "SELECT status, body FROM receipts WHERE run_id=?",

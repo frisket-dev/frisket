@@ -33,7 +33,7 @@ test('grounded extract posts citation policy on map.extract and opens evidence l
   const seeded = seedGeneratedCellEvidence({
     pid,
     sheetId,
-    outputColumnName: 'award_value',
+    generatedColumnName: 'award_value',
     outputValue: '$1,250,000',
     producerKind: 'map.extract',
   });

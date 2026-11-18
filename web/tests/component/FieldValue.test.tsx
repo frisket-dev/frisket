@@ -162,7 +162,7 @@ describe('FieldValue renderer', () => {
     expect(screen.getByTestId('markdown-value')).toHaveTextContent('supports this finding.');
   });
 
-  it('preserves explicit plain_text rendering for AI columns', () => {
+  it('preserves explicit plain_text rendering for generated columns', () => {
     const col = columnDef({ id: 'summary', name: 'summary', type: 'text', format: 'plain_text', ai: aiMeta() });
     const value = '**Literal** <script>alert(1)</script>';
     const { container } = render(<FieldValue col={col} columns={[col]} row={row({ summary: value })} value={value} />);
@@ -196,7 +196,7 @@ describe('FieldValue renderer', () => {
     expect(screen.queryByTestId('row-field-clamp-toggle')).toBeNull();
   });
 
-  it('leaves a non-AI column\'s literal backslash path untouched', () => {
+  it('leaves a non-generated column\'s literal backslash path untouched', () => {
     const col = columnDef({ id: 'path', name: 'path', type: 'text' });
     const value = 'C:\\new_folder\\notes.txt';
     render(<FieldValue col={col} columns={[col]} row={row({ path: value })} value={value} />);

@@ -72,7 +72,7 @@ interface DocumentViewProps {
   onSetDisabledToggleKeys(next: string[]): void;
   /** Replay the stored `map.ner` action behind a stale layer, from its output
    *  column. Absent when the host cannot launch runs. */
-  onReplayAnnotationLayer?: ((outputColumnId: string) => void) | null;
+  onReplayAnnotationLayer?: ((generatedColumnId: string) => void) | null;
   /** Transient state set only after the explicit-open priority endpoint accepts the row. */
   priorityReadingRowId?: string | null;
   onRequestDocumentPriority?(rowId: string, columnId: string): void;

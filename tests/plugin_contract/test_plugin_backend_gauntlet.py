@@ -327,7 +327,7 @@ def test_loaded_plugin_code_is_immutable_until_reload(tmp_path: Path) -> None:
     )
 
     # replace_existing is granted so the ONLY thing that can refuse this run is
-    # the drifted package, not the output column it already owns.
+    # the drifted package, not the generated column it already owns.
     drifted = _run_action(
         client,
         project_id,
@@ -532,7 +532,7 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     data. Running in process on the native host does not soften that: the
     plugin gets exactly the builtin refusal. Post-cutover there is no plugin
     escape hatch either -- ``replace_existing`` covers generation-managed
-    output columns only, so the source column stays refused -- while the same
+    generated columns only, so the source column stays refused -- while the same
     Action publishes normally into a name it does not already own.
     """
     client = _client(tmp_path)

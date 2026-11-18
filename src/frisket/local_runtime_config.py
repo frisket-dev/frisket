@@ -1,7 +1,7 @@
 """Dependency-light local installation configuration shared with execution.
 
 This module deliberately has no server imports: CLI, MCP, and library run
-paths need the same local cost-preapproval default as the HTTP server.
+paths need the same local allowance default as the HTTP server.
 """
 
 from __future__ import annotations
@@ -14,16 +14,16 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_COST_PREAPPROVAL_USD = "2"
-COST_PREAPPROVAL_ENV = "FRISKET_COST_CONSENT_USD"
-_MAX_COST_PREAPPROVAL_USD = Decimal("1000000000000")
+DEFAULT_ALLOWANCE_USD = "2"
+ALLOWANCE_ENV = "FRISKET_COST_CONSENT_USD"
+_MAX_ALLOWANCE_USD = Decimal("1000000000000")
 
 
 class InvalidLocalRuntimeConfigError(ValueError):
     """The local runtime configuration cannot safely describe a threshold."""
 
 
-def normalize_cost_preapproval_usd(value: object) -> str:
+def normalize_allowance_usd(value: object) -> str:
     """Return a canonical, finite non-negative USD decimal string."""
 
     if not isinstance(value, str):
@@ -40,7 +40,7 @@ def normalize_cost_preapproval_usd(value: object) -> str:
         raise InvalidLocalRuntimeConfigError(
             "cost_preapproval_usd must be non-negative"
         )
-    if amount.as_tuple().exponent < -6 or amount >= _MAX_COST_PREAPPROVAL_USD:
+    if amount.as_tuple().exponent < -6 or amount >= _MAX_ALLOWANCE_USD:
         raise InvalidLocalRuntimeConfigError(
             "cost_preapproval_usd must fit in 12 whole and 6 decimal digits"
         )
@@ -50,7 +50,7 @@ def normalize_cost_preapproval_usd(value: object) -> str:
     return normalized or "0"
 
 
-def resolve_local_cost_preapproval_usd(
+def resolve_local_allowance_usd(
     root: str | Path,
     env: Mapping[str, str] | None = None,
 ) -> str:
@@ -78,12 +78,12 @@ def resolve_local_cost_preapproval_usd(
             )
     value = settings.get("cost_preapproval_usd")
     if value is not None:
-        return normalize_cost_preapproval_usd(value)
-    raw_env = (os.environ if env is None else env).get(COST_PREAPPROVAL_ENV)
+        return normalize_allowance_usd(value)
+    raw_env = (os.environ if env is None else env).get(ALLOWANCE_ENV)
     if raw_env is None:
-        return DEFAULT_COST_PREAPPROVAL_USD
+        return DEFAULT_ALLOWANCE_USD
     try:
-        return normalize_cost_preapproval_usd(raw_env)
+        return normalize_allowance_usd(raw_env)
     except InvalidLocalRuntimeConfigError:
         # An explicitly malformed startup knob must never silently grant
         # standing coverage; preserve the old fail-closed posture.
@@ -91,9 +91,9 @@ def resolve_local_cost_preapproval_usd(
 
 
 __all__ = [
-    "DEFAULT_COST_PREAPPROVAL_USD",
-    "COST_PREAPPROVAL_ENV",
+    "DEFAULT_ALLOWANCE_USD",
+    "ALLOWANCE_ENV",
     "InvalidLocalRuntimeConfigError",
-    "normalize_cost_preapproval_usd",
-    "resolve_local_cost_preapproval_usd",
+    "normalize_allowance_usd",
+    "resolve_local_allowance_usd",
 ]

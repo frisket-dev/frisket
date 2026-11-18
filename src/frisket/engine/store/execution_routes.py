@@ -70,8 +70,8 @@ from frisket.execution.promises import (
 from frisket.execution.targets import validated_target_snapshot
 
 
-def _quote_json(quote: Mapping[str, Any]) -> str:
-    """Encode a persisted ``ConsentQuote`` record.
+def _estimate_json(estimate: Mapping[str, Any]) -> str:
+    """Encode a persisted ``ConsentEstimate`` record.
 
     NOT ``canonical_json``, which refuses floats because the material it
     encodes is HASHED and a float there would make two quantities that print
@@ -79,7 +79,7 @@ def _quote_json(quote: Mapping[str, Any]) -> str:
     digest was minted from the pydantic dump at 402 time and is stored
     separately in ``promise_set_hash``. What this column must do is preserve
     the quote as it was shown — and the estimate's ``cost`` is a float USD by
-    contract (``ConsentQuote.cost``), so refusing floats here would refuse to
+    contract (``ConsentEstimate.cost``), so refusing floats here would refuse to
     record the very number the user approved.
 
     ``allow_nan=False`` still holds: a non-finite cost has already been
@@ -87,7 +87,7 @@ def _quote_json(quote: Mapping[str, Any]) -> str:
     record would be unreadable by anything else.
     """
     return json.dumps(
-        dict(quote), sort_keys=True, separators=(",", ":"), allow_nan=False
+        dict(estimate), sort_keys=True, separators=(",", ":"), allow_nan=False
     )
 
 
@@ -202,7 +202,7 @@ class ConsentRow:
     # :data:`CONSENT_BASIS_EXACT_MATCH`. None for standing consents (and for
     # rows written before the column existed).
     grant_basis: str | None = None
-    # The dumped ``ConsentQuote`` this consent approved — what the user was
+    # The dumped ``ConsentEstimate`` this consent approved — what the user was
     # SHOWN — as the RAW column text. None for standing consents and for
     # routed consents (whose authority is the promise-set chain, not a quote
     # hash). Dispatch reads only its RATED half; see ``schema.py``'s column
@@ -584,7 +584,7 @@ class RouteStore:
         actor: str,
         grant_basis: str = CONSENT_BASIS_CONFIRMED,
         granted_at: str | None = None,
-        quote: Mapping[str, Any] | None = None,
+        estimate: Mapping[str, Any] | None = None,
         txn: sqlite3.Connection | None = None,
     ) -> ConsentRow:
         """Persist a per-action consent artifact for this subject.
@@ -596,7 +596,7 @@ class RouteStore:
         row, so the subject-scoped worker fence never has to reach across
         subjects to find one.
 
-        ``quote`` is the dumped ``ConsentQuote`` the 402 hashed — what the
+        ``estimate`` is the dumped ``ConsentEstimate`` the 402 hashed — what the
         user actually saw. The unrouted confirmation path supplies it and
         dispatch reads its rated half back; the routed/claims path passes
         ``None`` because its authority is the promise-set chain, which
@@ -614,7 +614,7 @@ class RouteStore:
                 actor=actor,
                 granted_at=granted_at or _now(),
                 grant_basis=grant_basis,
-                quote_json=None if quote is None else _quote_json(quote),
+                quote_json=None if estimate is None else _estimate_json(estimate),
             )
             db.execute(
                 "INSERT INTO consents (id, subject_kind, subject_id, "

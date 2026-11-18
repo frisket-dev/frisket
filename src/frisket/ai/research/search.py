@@ -42,11 +42,11 @@ class SearchUsage:
     provider_cost_usd: float | None
     cost_source: Literal["provider_reported", "configured_catalog", "free", "unknown"]
     units: tuple[SearchUsageUnit, ...] = ()
-    quote: SearchQuote | None = None
+    quote: SearchEstimate | None = None
 
 
 @dataclass(frozen=True)
-class SearchQuote:
+class SearchEstimate:
     provider: SearchProvider
     max_results: int
     pricing_key: str | None
@@ -191,11 +191,11 @@ class SearchService:
         value = self._keys.get(self._provider)
         return (value,) if value else ()
 
-    def quote(self, *, max_results: int = 6) -> SearchQuote:
+    def estimate(self, *, max_results: int = 6) -> SearchEstimate:
         """Capture the rate identity used for admission and later settlement."""
         self._validate_result_limit(max_results)
         if self._provider == "ddgs":
-            return SearchQuote(
+            return SearchEstimate(
                 provider="ddgs",
                 max_results=max_results,
                 pricing_key=None,
@@ -217,7 +217,7 @@ class SearchService:
         )
         entry = external_pricing_entry(pricing_key)
         estimate = estimate_external_cost(pricing_key, 1)
-        return SearchQuote(
+        return SearchEstimate(
             provider=self._provider,
             max_results=max_results,
             pricing_key=pricing_key,
@@ -242,11 +242,11 @@ class SearchService:
         *,
         max_results: int = 6,
         timeout: float = 20.0,
-        quote: SearchQuote | None = None,
+        estimate: SearchEstimate | None = None,
     ) -> SearchResponse:
-        if quote is None:
-            quote = self.quote(max_results=max_results)
-        elif quote.provider != self._provider or quote.max_results != max_results:
+        if estimate is None:
+            estimate = self.estimate(max_results=max_results)
+        elif estimate.provider != self._provider or estimate.max_results != max_results:
             raise ValueError("search quote does not match provider and result limit")
         else:
             self._validate_result_limit(max_results)
@@ -262,14 +262,14 @@ class SearchService:
                     provider_reported_cost_usd=None,
                     provider_cost_usd=0.0,
                     cost_source="free",
-                    quote=quote,
+                    quote=estimate,
                 ),
             )
         if self._provider == "exa":
-            return await self._search_exa(query, max_results, timeout, quote)
+            return await self._search_exa(query, max_results, timeout, estimate)
         if self._provider == "tavily":
-            return await self._search_tavily(query, max_results, timeout, quote)
-        return await self._search_ddgs(query, max_results, timeout, quote)
+            return await self._search_tavily(query, max_results, timeout, estimate)
+        return await self._search_ddgs(query, max_results, timeout, estimate)
 
     async def _post(
         self,
@@ -323,7 +323,7 @@ class SearchService:
         query: str,
         max_results: int,
         timeout: float,
-        quote: SearchQuote,
+        estimate: SearchEstimate,
     ) -> SearchResponse:
         body = await self._post(
             "exa",
@@ -359,7 +359,7 @@ class SearchService:
         cost_dollars = body.get("costDollars")
         if isinstance(cost_dollars, dict):
             cost = _number(cost_dollars.get("total"))
-        provider_cost = cost if cost is not None else quote.estimated_cost_usd
+        provider_cost = cost if cost is not None else estimate.estimated_cost_usd
         return SearchResponse(
             provider="exa",
             results=hits,
@@ -376,7 +376,7 @@ class SearchService:
                     if provider_cost is not None
                     else "unknown"
                 ),
-                quote=quote,
+                quote=estimate,
             ),
         )
 
@@ -385,7 +385,7 @@ class SearchService:
         query: str,
         max_results: int,
         timeout: float,
-        quote: SearchQuote,
+        estimate: SearchEstimate,
     ) -> SearchResponse:
         body = await self._post(
             "tavily",
@@ -431,7 +431,7 @@ class SearchService:
             credits = _number(usage.get("credits"))
             if credits is not None:
                 units = (SearchUsageUnit(name="credits", quantity=credits),)
-        provider_cost = _rated_cost(quote, units[0].quantity) if units else None
+        provider_cost = _rated_cost(estimate, units[0].quantity) if units else None
         return SearchResponse(
             provider="tavily",
             results=hits,
@@ -445,7 +445,7 @@ class SearchService:
                 if provider_cost is not None
                 else "unknown",
                 units=units,
-                quote=quote,
+                quote=estimate,
             ),
         )
 
@@ -454,7 +454,7 @@ class SearchService:
         query: str,
         max_results: int,
         timeout: float,
-        quote: SearchQuote,
+        estimate: SearchEstimate,
     ) -> SearchResponse:
         if self._ddgs_factory is None:
             from ddgs import DDGS
@@ -502,13 +502,13 @@ class SearchService:
                 provider_reported_cost_usd=None,
                 provider_cost_usd=0.0,
                 cost_source="free",
-                quote=quote,
+                quote=estimate,
             ),
         )
 
 
-def _rated_cost(quote: SearchQuote, quantity: int | float) -> float | None:
+def _rated_cost(estimate: SearchEstimate, quantity: int | float) -> float | None:
     """Rate actual provider units against the pre-call captured quote."""
-    if quote.unit_price_usd is None:
+    if estimate.unit_price_usd is None:
         return None
-    return float(Decimal(quote.unit_price_usd) * Decimal(str(quantity)))
+    return float(Decimal(estimate.unit_price_usd) * Decimal(str(quantity)))

@@ -1,6 +1,6 @@
 """The ONE output-retirement mechanism: recipes declare their
 dropped-role output names (`Recipe.retired_output_names`) and the generic
-`retire_dropped_output_columns` hides any that still exist as ai_generated
+`retire_dropped_generated_columns` hides any that still exist as ai_generated
 columns outside the current output set — hide-by-default + provenance on
 the op. Typed actions only touch their explicitly declared output names."""
 
@@ -17,7 +17,7 @@ from frisket.actions.types import ActionRequest
 from frisket.engine.executor.map_rows_action import typed_queued_map_spec
 from frisket.engine.runner.column_retirement import (
     retirement_owns_column,
-    retire_dropped_output_columns,
+    retire_dropped_generated_columns,
 )
 from frisket.engine.store import Project
 
@@ -62,7 +62,7 @@ class _DerivedDetectedRecipe(Recipe):
         return [f"{out}_detected_language"] if out else []
 
 
-def _ai_column(p: Project, sheet_id: int, name: str) -> int:
+def _generated_column(p: Project, sheet_id: int, name: str) -> int:
     return p.add_column(sheet_id, name, type="text", ai_generated=True)
 
 
@@ -77,11 +77,11 @@ def _column(p: Project, cid: int):
 def test_declared_dropped_roles_are_retired(project: Project):
     sheet = project.add_sheet("data")
     op_id = project.append_op("map", {"recipe": "fake"})
-    live = _ai_column(project, sheet, "out")  # the current output (reused)
-    conf = _ai_column(project, sheet, "out_confidence")  # dropped
-    just = _ai_column(project, sheet, "out_justification")  # dropped
+    live = _generated_column(project, sheet, "out")  # the current output (reused)
+    conf = _generated_column(project, sheet, "out_confidence")  # dropped
+    just = _generated_column(project, sheet, "out_justification")  # dropped
 
-    retired = retire_dropped_output_columns(
+    retired = retire_dropped_generated_columns(
         project,
         op_id=op_id,
         recipe=_FakeRecipe(),
@@ -109,11 +109,11 @@ def test_declared_dropped_roles_are_retired(project: Project):
 def test_a_role_still_in_the_current_output_is_not_retired(project: Project):
     sheet = project.add_sheet("data")
     op_id = project.append_op("map", {"recipe": "fake"})
-    _ai_column(project, sheet, "out")
-    conf = _ai_column(project, sheet, "out_confidence")
+    _generated_column(project, sheet, "out")
+    conf = _generated_column(project, sheet, "out_confidence")
 
     # out_confidence is STILL emitted this run -> not an orphan
-    retired = retire_dropped_output_columns(
+    retired = retire_dropped_generated_columns(
         project,
         op_id=op_id,
         recipe=_FakeRecipe(),
@@ -204,16 +204,16 @@ def test_output_instance_guard_across_two_generic_outputs(project: Project):
     # B's rerun must NOT hide A's detected_language.
     sheet = project.add_sheet("data")
     run_a = _run(project, sheet, "map.translate", "transcript")
-    _point(project, _ai_column(project, sheet, "transcript"), run_a)
-    a_detected = _ai_column(project, sheet, "detected_language")
+    _point(project, _generated_column(project, sheet, "transcript"), run_a)
+    a_detected = _generated_column(project, sheet, "detected_language")
     _point(project, a_detected, run_a)
 
     run_b = _run(project, sheet, "map.translate", "interview")
-    _point(project, _ai_column(project, sheet, "interview"), run_b)
+    _point(project, _generated_column(project, sheet, "interview"), run_b)
 
     # B (Parakeet) reruns onto its own output "interview"
     b_op = project.append_op("map", {"recipe": "transcribe"})
-    retired = retire_dropped_output_columns(
+    retired = retire_dropped_generated_columns(
         project,
         op_id=b_op,
         recipe=_AbsoluteDetectedRecipe(),
@@ -233,12 +233,12 @@ def test_output_instance_guard_retires_own_detected_language(project: Project):
     # A's OWN rerun onto a non-detecting engine still retires A's detected_language.
     sheet = project.add_sheet("data")
     run_a = _run(project, sheet, "map.translate", "transcript")
-    _point(project, _ai_column(project, sheet, "transcript"), run_a)
-    a_detected = _ai_column(project, sheet, "detected_language")
+    _point(project, _generated_column(project, sheet, "transcript"), run_a)
+    a_detected = _generated_column(project, sheet, "detected_language")
     _point(project, a_detected, run_a)
 
     a_rerun_op = project.append_op("map", {"recipe": "transcribe"})
-    retired = retire_dropped_output_columns(
+    retired = retire_dropped_generated_columns(
         project,
         op_id=a_rerun_op,
         recipe=_AbsoluteDetectedRecipe(),
@@ -259,9 +259,11 @@ def test_unattributed_absolute_name_survives_a_cross_action_rerun(project: Proje
     # be hidden by a translate rerun declaring the same ABSOLUTE legacy name —
     # it is not provably anyone's, so it stays visible.
     sheet = project.add_sheet("data")
-    _ai_column(project, sheet, "es")  # translate's live output
-    detected = _ai_column(project, sheet, "detected_language")  # NULL pointer, absolute
-    retired = retire_dropped_output_columns(
+    _generated_column(project, sheet, "es")  # translate's live output
+    detected = _generated_column(
+        project, sheet, "detected_language"
+    )  # NULL pointer, absolute
+    retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "translate"}),
         recipe=_AbsoluteDetectedRecipe(),
@@ -277,9 +279,9 @@ def test_unattributed_absolute_name_survives_same_action_other_output(project: P
     # A regression: even a transcribe rerun of a DIFFERENT output must not hide an
     # unattributed detected_language (absolute name, no run pointer).
     sheet = project.add_sheet("data")
-    _ai_column(project, sheet, "other")
-    detected = _ai_column(project, sheet, "detected_language")  # NULL, absolute
-    retired = retire_dropped_output_columns(
+    _generated_column(project, sheet, "other")
+    detected = _generated_column(project, sheet, "detected_language")  # NULL, absolute
+    retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "transcribe"}),
         recipe=_AbsoluteDetectedRecipe(),
@@ -301,11 +303,11 @@ def test_output_name_comparison_is_case_folded(project: Project):
     # column IS retired despite the case mismatch.
     sheet = project.add_sheet("data")
     prior = _run(project, sheet, "map.translate", "ES")
-    _point(project, _ai_column(project, sheet, "es"), prior)
-    detected = _ai_column(project, sheet, "es_detected_language")
+    _point(project, _generated_column(project, sheet, "es"), prior)
+    detected = _generated_column(project, sheet, "es_detected_language")
     _point(project, detected, prior)
 
-    retired = retire_dropped_output_columns(
+    retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "translate"}),
         recipe=_DerivedDetectedRecipe(),
@@ -320,9 +322,9 @@ def test_output_name_comparison_is_case_folded(project: Project):
 def test_recipe_with_nothing_to_retire_is_a_noop(project: Project):
     sheet = project.add_sheet("data")
     op_id = project.append_op("map", {"recipe": "plain"})
-    _ai_column(project, sheet, "out")
+    _generated_column(project, sheet, "out")
     assert (
-        retire_dropped_output_columns(
+        retire_dropped_generated_columns(
             project,
             op_id=op_id,
             recipe=Recipe(),  # base: retired_output_names == []
@@ -341,7 +343,7 @@ def test_recipe_with_nothing_to_retire_is_a_noop(project: Project):
 def test_typed_transcribe_only_touches_declared_outputs(project: Project):
     sheet = project.add_sheet("audio")
     project.add_column(sheet, "media", type="audio")
-    detected = _ai_column(project, sheet, "detected_language")
+    detected = _generated_column(project, sheet, "detected_language")
     action = ACTION_REGISTRY.get("media.transcribe")
     for engine, detects in (
         ("parakeet-tdt", False),
@@ -366,7 +368,7 @@ def test_typed_transcribe_only_touches_declared_outputs(project: Project):
     spec = queued.runner_spec_fn(bound.params)
     assert program.retired_output_names(spec) == []
     assert (
-        retire_dropped_output_columns(
+        retire_dropped_generated_columns(
             project,
             op_id=project.append_op("map", spec),
             recipe=program,

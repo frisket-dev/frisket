@@ -22,7 +22,7 @@ import { countLabel } from '../format';
 
 export type SheetColumn = SheetMeta['columns'][number];
 
-/** The explicit marker map.ner stamps on its output column. */
+/** The explicit marker map.ner stamps on its generated column. */
 const ENTITY_MENTIONS_SEMANTIC_TYPE = 'entity_mentions';
 
 /** The action whose drawer both empty-state CTAs open. */

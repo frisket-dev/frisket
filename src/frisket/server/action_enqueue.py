@@ -876,7 +876,7 @@ def queue_v1_action_run(
                 project,
                 bound,
                 _allow_existing_outputs=recovering_prepared,
-                _enforce_expected_output_columns=not recovering_prepared,
+                _enforce_expected_generated_columns=not recovering_prepared,
             )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         return _failed_result(

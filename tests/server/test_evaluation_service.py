@@ -837,7 +837,7 @@ def test_unavailable_links_remain_manageable_and_preserve_healthy_projection(
         ],
     }
     healthy = e.service.save_link("p", healthy_body)
-    # Undo hides the imported source sheet or deactivates produced output columns.
+    # Undo hides the imported source sheet or deactivates produced generated columns.
     if unavailable == "sheet":
         e.project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (e.expected,))
     else:

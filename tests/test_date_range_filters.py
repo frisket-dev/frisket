@@ -378,7 +378,7 @@ def test_date_range_filters_validate_bounds_and_column_type(client):
         assert response.status_code == 400, spec
 
 
-def test_saved_views_preserve_date_range_filter_json(client):
+def test_views_preserve_date_range_filter_json(client):
     pid, sheet_id, columns, _rows = _date_sheet(client)
     date_filter = {
         "published": {"between": {"start": "2026-01-01", "end": "2026-03-31"}}

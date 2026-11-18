@@ -127,7 +127,7 @@ def test_empty_workspace_name_defaults_to_workspace_instead_of_blocking(
     with app.state.control_engine.connect() as connection:
         name = connection.execute(
             sa.text("select name from orgs where id = :org_id"),
-            {"org_id": app.state.team_org_id},
+            {"org_id": app.state.team_organization_id},
         ).scalar_one()
     assert name == "workspace"
 
@@ -228,7 +228,7 @@ def test_competing_claims_create_exactly_one_owner_and_close_every_process(
         try:
             claim_first_owner(
                 app.state.control_engine,
-                org_id=app.state.team_org_id,
+                org_id=app.state.team_organization_id,
                 claim_token=token,
                 expected_claim_token=token,
                 workspace_name="Investigations",

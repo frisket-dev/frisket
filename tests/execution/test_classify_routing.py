@@ -13,7 +13,7 @@ from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.price_book import (
     OperatorBorne,
     live_cost_fact,
-    quote_classify,
+    estimate_classify,
     settle,
 )
 from frisket.execution.promise_compiler import OperatorBorneZeroCost, PricedCostBasis
@@ -41,7 +41,7 @@ def test_existing_classifiers_stay_local_and_free(engine):
     assert outcome.target.id == "local"
     assert outcome.facts.egress_class == "none"
     assert isinstance(
-        quote_classify(
+        estimate_classify(
             target_id="local",
             engine=engine,
             funding=OperatorBorne(),
@@ -107,14 +107,14 @@ def test_cloudflare_account_cannot_change_endpoint(account):
         provider.connection(CLOUDFLARE_CLEF_TARGET_ID)
 
 
-def test_cloudflare_quote_live_fence_and_settlement_use_same_token_tariff():
+def test_cloudflare_estimate_live_fence_and_settlement_use_same_token_tariff():
     args = dict(
         target_id=CLOUDFLARE_CLEF_TARGET_ID,
         engine="clef",
         funding=OperatorBorne(),
         offering=None,
     )
-    basis = quote_classify(**args, input_tokens=1_000_000)
+    basis = estimate_classify(**args, input_tokens=1_000_000)
     assert isinstance(basis, PricedCostBasis)
     assert basis.pricing_key == CLOUDFLARE_CLEF_INPUT_TOKEN
     assert basis.quantity_unit == "input_token"
@@ -190,7 +190,7 @@ def test_classify_model_call_receipt_binds_to_route(
 
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
-def test_classify_quote_measures_selected_text_and_questions(
+def test_classify_estimate_measures_selected_text_and_questions(
     make_project, monkeypatch, action_id
 ):
     from frisket.actions.registry import ACTION_REGISTRY

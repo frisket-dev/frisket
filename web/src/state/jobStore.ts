@@ -60,8 +60,8 @@ export interface CostGateState {
  *  replacement-confirm affordance ActionPanel already renders for the
  *  client-detected case is what re-launches `onConfirm` (resubmit with
  *  `replace_existing: true`) — never automatic; the user must click it. */
-export interface OutputColumnCollisionState {
-  /** The colliding output column name(s), from the server's own
+export interface GeneratedColumnCollisionState {
+  /** The colliding generated column name(s), from the server's own
    *  ActionError.details.columns — server truth, not the client's
    *  (possibly stale) column list. */
   columns: string[];
@@ -88,7 +88,7 @@ export interface JobState {
   launchPending: boolean;
   actionJobs: ActionJobsState;
   costGate: CostGateState | null;
-  outputColumnCollision: OutputColumnCollisionState | null;
+  generatedColumnCollision: GeneratedColumnCollisionState | null;
 }
 
 /** Call-time collaborators the pre-migration hook received as its
@@ -135,7 +135,7 @@ function initialJobState(): JobState {
     launchPending: false,
     actionJobs: initialActionJobsState,
     costGate: null,
-    outputColumnCollision: null,
+    generatedColumnCollision: null,
   };
 }
 
@@ -162,8 +162,8 @@ export interface JobStoreHandle {
    *  confirmCostGate's pattern exactly (look up the current state, clear it,
    *  THEN invoke the closure — never invoke a stale one baked into rendered
    *  JSX). */
-  cancelOutputColumnCollision(): void;
-  confirmOutputColumnCollision(): void;
+  cancelGeneratedColumnCollision(): void;
+  confirmGeneratedColumnCollision(): void;
 
   dispose(): void;
 }
@@ -457,16 +457,16 @@ export function createJobStore(
     }));
   }
 
-  function setOutputColumnCollision(
+  function setGeneratedColumnCollision(
     next:
-      | OutputColumnCollisionState
+      | GeneratedColumnCollisionState
       | null
-      | ((prev: OutputColumnCollisionState | null) => OutputColumnCollisionState | null),
+      | ((prev: GeneratedColumnCollisionState | null) => GeneratedColumnCollisionState | null),
   ): void {
     store.set((s) => ({
       ...s,
-      outputColumnCollision:
-        typeof next === 'function' ? next(s.outputColumnCollision) : next,
+      generatedColumnCollision:
+        typeof next === 'function' ? next(s.generatedColumnCollision) : next,
     }));
   }
 
@@ -869,7 +869,7 @@ export function createJobStore(
           if (!isCurrentActionLaunch(launch)) return;
           if (!performForCurrentActionLaunch(
             launch,
-            () => setOutputColumnCollision(null),
+            () => setGeneratedColumnCollision(null),
           )) return;
           performForCurrentActionLaunch(launch, () => {
             deps.showError(
@@ -893,18 +893,18 @@ export function createJobStore(
           const columns = Array.isArray(e.details?.columns)
             ? (e.details!.columns as string[]).filter((c): c is string => typeof c === 'string')
             : [];
-          const priorCollision = store.get().outputColumnCollision;
+          const priorCollision = store.get().generatedColumnCollision;
           if (priorCollision !== null) {
             if (!performForCurrentActionLaunch(launch, () => {
-              if (store.get().outputColumnCollision === priorCollision) {
-                setOutputColumnCollision(null);
+              if (store.get().generatedColumnCollision === priorCollision) {
+                setGeneratedColumnCollision(null);
               }
             })) return;
             if (!performForCurrentActionLaunch(launch, () => priorCollision.onCancel())) return;
           }
-          if (store.get().outputColumnCollision !== null) return;
+          if (store.get().generatedColumnCollision !== null) return;
           const collisionEpoch = actionLaunchEpoch;
-          setOutputColumnCollision({
+          setGeneratedColumnCollision({
             columns,
             message: e.message,
             onConfirm: () => {
@@ -1170,25 +1170,25 @@ export function createJobStore(
     confirm?.();
   }
 
-  function cancelOutputColumnCollision(): void {
-    const current = store.get().outputColumnCollision;
+  function cancelGeneratedColumnCollision(): void {
+    const current = store.get().generatedColumnCollision;
     const cancel = current?.onCancel;
-    if (store.get().outputColumnCollision === current) setOutputColumnCollision(null);
+    if (store.get().generatedColumnCollision === current) setGeneratedColumnCollision(null);
     cancel?.();
   }
 
-  function confirmOutputColumnCollision(): void {
+  function confirmGeneratedColumnCollision(): void {
     if (disposingResource) return;
-    const current = store.get().outputColumnCollision;
+    const current = store.get().generatedColumnCollision;
     if (current === null) return;
     const confirm = current?.onConfirm;
     const epoch = actionLaunchEpoch;
     const launch = currentActionLaunch;
-    if (store.get().outputColumnCollision === current) setOutputColumnCollision(null);
+    if (store.get().generatedColumnCollision === current) setGeneratedColumnCollision(null);
     if (
       actionLaunchEpoch !== epoch
       || currentActionLaunch !== launch
-      || store.get().outputColumnCollision !== null
+      || store.get().generatedColumnCollision !== null
     ) return;
     confirm?.();
   }
@@ -1439,7 +1439,7 @@ export function createJobStore(
         launchPending: false,
         actionJobs: initialActionJobsState,
         costGate: null,
-        outputColumnCollision: null,
+        generatedColumnCollision: null,
       }));
     } finally {
       disposingActionLaunch = wasDisposingActionLaunch;
@@ -1465,8 +1465,8 @@ export function createJobStore(
     cancelCostGate,
     confirmCostGate,
     requestCostConfirmation,
-    cancelOutputColumnCollision,
-    confirmOutputColumnCollision,
+    cancelGeneratedColumnCollision,
+    confirmGeneratedColumnCollision,
     dispose,
   };
 }

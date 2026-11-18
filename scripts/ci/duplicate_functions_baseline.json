@@ -171,7 +171,7 @@
   ],
   [
    "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_execution",
-   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_quote"
+   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_estimate"
   ],
   [
    "src/frisket/contracts/actions/schemas/temporal.py::_is_embedded_duration_bounds_error",
@@ -503,8 +503,8 @@
    "src/frisket/server/sources/api_list_dicts.py::_record_source_item_id"
   ],
   [
-   "src/frisket/server/sources/youtube.py::register_youtube_channel_poller",
-   "src/frisket/server/sources/youtube.py::register_youtube_playlist_poller"
+   "src/frisket/server/sources/youtube.py::register_youtube_channel_feed_checker",
+   "src/frisket/server/sources/youtube.py::register_youtube_playlist_feed_checker"
   ],
   [
    "src/frisket/upgrades/project/domain_migration.py::capture_current_baseline",

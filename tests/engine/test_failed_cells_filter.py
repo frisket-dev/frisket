@@ -2,7 +2,7 @@
 
 `{ai_col: {"failed": "any" | <failure outcome>}}` filters to rows whose
 CURRENT-run result for that column failed, through the shared sheet-filter
-evaluator (`frisket.querysets`) — so /data, saved views, CSV export, and the
+evaluator (`frisket.querysets`) — so /data, views, CSV export, and the
 map all honor it. The value names a bucket from the result-outcome taxonomy
 (`frisket.store.runs`: model_error / invalid_output / empty_output) or "any"
 for every failure bucket; it is validated against those module constants,

@@ -124,7 +124,7 @@ describe('exact Saved View columns', () => {
 // two-scalar range. The normalizer's catch-all (`String(raw)`) and the chip
 // label's interpolation (`${column} ${operator} ${value}`) both stringify
 // whatever they are handed, so an object payload became the literal
-// "[object Object]" — persisted into a saved view in the first case, printed
+// "[object Object]" — persisted into a view in the first case, printed
 // on screen in the second. These are the first tests for either function.
 // ---------------------------------------------------------------------------
 
@@ -252,7 +252,7 @@ describe('gridFilterLabel — the entity_eq chip', () => {
     // uses; the token itself is still never printed.
     expect(label({ type: 'organization', fingerprint: 'acme corp' }, 'Acme Corp.'))
       .toBe('entities · “Acme Corp.” (Organization, grouped forms)');
-    // Without one — a saved view restored, a filter applied from anywhere with
+    // Without one — a view restored, a filter applied from anywhere with
     // no group in hand — it falls back to the TYPE rather than inventing a
     // spelling. Same for an empty carried label.
     expect(label({ type: 'organization', fingerprint: 'acme corp' }))

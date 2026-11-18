@@ -238,7 +238,7 @@ STRICT_POLICY = MediaEgressPolicy(allow_private_hosts=False)
 
 # Server-level default for whether media fetches may reach private/loopback
 # hosts; a project may override it unless the value is deny-locked. Local
-# no-org installs that leave this unset keep the project-level default (on).
+# no-organization installs that leave this unset keep the project-level default (on).
 MEDIA_PRIVATE_HOSTS_ENV = "FRISKET_MEDIA_PRIVATE_HOSTS"
 _SERVER_MODES = ("allow", "deny", "deny-locked")
 

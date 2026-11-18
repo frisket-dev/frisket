@@ -453,12 +453,12 @@ def test_datalab_to_markdown_action_persists_page_fact_and_receipt_agrees(
         "idempotency_key": "datalab-facts@sha256:stable",
     }
     router = _router(lambda _request: httpx.Response(500))
-    quote = run_action_spec(
+    estimate = run_action_spec(
         project, action, project_id="project-datalab-facts", router=router
     )
-    assert quote.status == "needs_confirmation", quote.errors
+    assert estimate.status == "needs_confirmation", estimate.errors
     assert calls == 0
-    action["confirmation"] = quote.errors[0].details["promise_set_hash"]
+    action["confirmation"] = estimate.errors[0].details["promise_set_hash"]
     result = run_action_spec(
         project, action, project_id="project-datalab-facts", router=router
     )

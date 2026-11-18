@@ -132,7 +132,7 @@ def test_typed_regex_queues_canonical_request_and_worker_finishes(
     assert receipt.run_id == first.run_id
 
 
-def test_queued_worker_preserves_expected_output_columns(tmp_path: Path) -> None:
+def test_queued_worker_preserves_expected_generated_columns(tmp_path: Path) -> None:
     client = _client(tmp_path)
     project_id, sheet_id, row_ids = _seed_regex(client)
     body = {

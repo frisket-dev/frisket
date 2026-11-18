@@ -97,7 +97,7 @@ export function useAskNavigation(
           filterValueLabel: null,
           scopeRowIds: target.row_ids ?? null,
         },
-        activeSavedViewId: null,
+        activeViewId: null,
       }));
       detail.clearForGridTransition();
       selection.clearRowSelection(sheet.id);

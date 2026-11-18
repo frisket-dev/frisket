@@ -85,7 +85,7 @@ export function looksLikeSupportedMediaUrl(value: string): boolean {
   }
 }
 
-/** Column list → PanelSelect options with the ⚡ marker on AI columns
+/** Column list → PanelSelect options with the ⚡ marker on generated columns
  *  (`ai` is ColumnAiMeta on real columns; any truthy value counts). */
 export function columnSelectOptions(
   columns: { name: string; type: string; ai?: unknown }[],

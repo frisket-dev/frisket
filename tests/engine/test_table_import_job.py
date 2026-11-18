@@ -257,7 +257,7 @@ def test_commit_table_binds_bootstraps_and_enqueues_exact_frozen_plan(
             )
             projected_workspace = SimpleNamespace(
                 queue=queue,
-                queue_storage_org_id=None,
+                queue_storage_organization_id=None,
                 get=lambda _project_id: project,
             )
             projected_service = ImportSessionService(projected_workspace)
@@ -481,7 +481,7 @@ def test_table_worker_streams_real_source_and_publishes_durable_errors(
         with closing(Project(project_path)) as listed_project:
             workspace = SimpleNamespace(
                 queue=queue,
-                queue_storage_org_id=None,
+                queue_storage_organization_id=None,
                 get=lambda _project_id: listed_project,
             )
             [listed] = ActionRunService(workspace).list_jobs(PROJECT_ID)["jobs"]
@@ -980,7 +980,7 @@ def test_stop_keeps_committed_table_rows_and_finishes_intake(tmp_path: Path) -> 
         workspace = SimpleNamespace(
             get=lambda _project_id: project,
             queue=None,
-            queue_storage_org_id=None,
+            queue_storage_organization_id=None,
             root=tmp_path,
         )
         status = ImportSessionService(workspace).cancel(PROJECT_ID, IMPORT_REF)
