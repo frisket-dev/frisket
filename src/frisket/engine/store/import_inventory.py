@@ -15,7 +15,7 @@ import sqlite3
 from collections.abc import Iterable, Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 class ImportInventory:
@@ -130,7 +130,7 @@ class ImportInventory:
                     """,
                     values,
                 )
-                ordinal = int(cursor.lastrowid)
+                ordinal = inserted_rowid(cursor)
                 if not first:
                     first = ordinal
                 last = ordinal

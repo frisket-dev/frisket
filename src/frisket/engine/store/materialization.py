@@ -8,6 +8,7 @@ validators decide whether an empty result is semantically valid.
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 from .derived_updates import MaterializedIdentity, establish_identity
 
 import json
@@ -196,7 +197,7 @@ def _append_new_materialization_op(
             "{}",
         ),
     )
-    op_id = int(cur.lastrowid)
+    op_id = inserted_rowid(cur)
     from .changes import start_change
 
     start_change(cur.connection, op_id, writing=True)
@@ -213,7 +214,7 @@ def _insert_sheet_schema(
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), ?, ?)",
         (plan.target_sheet_name, plan.parent_sheet_id, op_id),
     )
-    sheet_id = int(cur.lastrowid)
+    sheet_id = inserted_rowid(cur)
     column_ids: dict[str, int] = {}
     for idx, column in enumerate(plan.columns, start=1):
         cur.execute(
@@ -229,7 +230,7 @@ def _insert_sheet_schema(
                 column.format,
             ),
         )
-        column_ids[column.name] = int(cur.lastrowid)
+        column_ids[column.name] = inserted_rowid(cur)
     return sheet_id, column_ids
 
 
@@ -347,7 +348,7 @@ def write_contributor_table(
             "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
             (sheet_id, idx, row.parent_row_id),
         )
-        row_id = int(cur.lastrowid)
+        row_id = inserted_rowid(cur)
         row_ids.append(row_id)
         cell_writes.extend(
             _materialized_cell_writes(row_id, column_ids, values=row.values)
@@ -473,7 +474,7 @@ def write_aggregate_sheet(
             "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, NULL)",
             (sheet_id, idx),
         )
-        row_id = int(cur.lastrowid)
+        row_id = inserted_rowid(cur)
         row_ids.append(row_id)
         source_row_ids = sorted(
             int(source_row_id) for source_row_id in row.source_row_ids
@@ -573,7 +574,7 @@ def write_edge_table(
             "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, ?)",
             (sheet_id, idx, int(edge.source_row_id)),
         )
-        row_id = int(cur.lastrowid)
+        row_id = inserted_rowid(cur)
         row_ids.append(row_id)
         source_row_ids.append(int(edge.source_row_id))
         target_row_ids.append(

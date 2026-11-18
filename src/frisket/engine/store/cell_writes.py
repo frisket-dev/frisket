@@ -27,7 +27,7 @@ from .import_sessions import (
     require_import_sheet_write,
 )
 from .value_codec import SQLiteValue, encode_stored_value
-from .transactions import require_transaction
+from .transactions import inserted_rowid, require_transaction
 
 
 @dataclass(frozen=True)
@@ -116,7 +116,7 @@ def create_base_cell_producer(
         "INSERT INTO base_cell_producers (stage_id,op_id) VALUES (?,?)",
         (stage_id, op_id),
     )
-    return int(cursor.lastrowid)
+    return inserted_rowid(cursor)
 
 
 def _replacement_producer(db: sqlite3.Connection, producing_op_id: int) -> int:

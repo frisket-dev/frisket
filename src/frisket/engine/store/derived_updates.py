@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
 from .keyed_updates import canonical, observe, reconcile_fields, require_relationship
-from .transactions import require_transaction
+from .transactions import inserted_rowid, require_transaction
 
 
 @dataclass(frozen=True)
@@ -238,7 +238,7 @@ def reconcile_rows_into_open_change(
                 "INSERT INTO rows(sheet_id,position,parent_row_id) VALUES(?,?,?)",
                 (sheet_id, max_position, row.parent_row_id),
             )
-            row_id = int(cursor.lastrowid)
+            row_id = inserted_rowid(cursor)
             info["created_rows"].append(row_id)
             created_cells.extend(
                 BaseCellWrite(row_id, int(column), value)

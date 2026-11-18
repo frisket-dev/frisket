@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import copy
 import hashlib
 import json
@@ -781,7 +782,7 @@ def _source_poll_sheet_id_in_txn(
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), NULL, NULL)",
         (name,),
     )
-    created = int(cur.lastrowid)
+    created = inserted_rowid(cur)
     # Raw SQL against `sources` stays in the store layer; commit=False so this
     # joins the core's open transaction on the same connection (cur =
     # project.db.cursor(), SourceStore.db = project.db) — the core commits once
@@ -847,7 +848,7 @@ def _insert_source_poll_column_in_txn(
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
         (sheet_id, name, type, int(default_hidden), sheet_id),
     )
-    return int(cur.lastrowid)
+    return inserted_rowid(cur)
 
 
 _MEDIA_VISIBLE_SOURCE_COLUMNS = frozenset(

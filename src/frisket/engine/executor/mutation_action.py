@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 import logging
 from typing import Any, Mapping
@@ -314,7 +315,7 @@ class _ColumnCreator(_CallOnce):
             "VALUES (?,?,?,?,0,0,NULL)",
             (sheet_id, name, column_type, new_position),
         )
-        column_id = int(self._cur.lastrowid)
+        column_id = inserted_rowid(self._cur)
         op_id = _write_op(
             self._cur,
             kind="add_column",
@@ -389,7 +390,7 @@ class _RowCreator(_CallOnce):
             "INSERT INTO rows (sheet_id,position,parent_row_id) VALUES (?,?,NULL)",
             (sheet_id, base + 1),
         )
-        row_id = int(self._cur.lastrowid)
+        row_id = inserted_rowid(self._cur)
         op_id = _write_op(
             self._cur,
             kind="add_row",
@@ -599,7 +600,7 @@ class _RowsAppender(_CallOnce):
                 "INSERT INTO rows (sheet_id,position,parent_row_id) VALUES (?,?,NULL)",
                 (sheet_id, base + offset),
             )
-            row_id = int(self._cur.lastrowid)
+            row_id = inserted_rowid(self._cur)
             row_ids.append(row_id)
             written_columns.update(
                 column_ids[name] for name, value in record.items() if value is not None

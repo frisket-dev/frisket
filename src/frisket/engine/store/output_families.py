@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frisket.authoring import column_types
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 class OutputFamilyStore:
@@ -114,7 +114,7 @@ class OutputFamilyStore:
                         position,
                     ),
                 )
-                column_id = int(inserted.lastrowid)
+                column_id = inserted_rowid(inserted)
                 output_ids[name] = column_id
                 created.append(column_id)
 

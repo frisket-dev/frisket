@@ -27,7 +27,11 @@ from frisket.engine.store.effect_checkpoints import (
 )
 from frisket.engine.store.import_sessions import require_import_sheet_write
 from frisket.engine.store.prepared_content import decode_logical_value
-from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 from frisket.engine.store.value_codec import PreparedContentRef, encode_stored_value
 from frisket.engine.store.prepared_ocr import (
     prepare_ocr_results,
@@ -331,7 +335,7 @@ class RunResultStore:
                     execution_root_run_id,
                 ),
             )
-            run_id = int(cur.lastrowid)
+            run_id = inserted_rowid(cur)
             if row_ids is not None:
                 self.record_run_row_scope(run_id, row_ids)
             return run_id

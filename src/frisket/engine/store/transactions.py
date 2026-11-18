@@ -2,7 +2,15 @@
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from sqlite3 import Connection
+from sqlite3 import Connection, Cursor
+
+
+def inserted_rowid(cursor: Cursor) -> int:
+    """The rowid of the one row the INSERT just executed on ``cursor`` added."""
+    rowid = cursor.lastrowid
+    if rowid is None:
+        raise RuntimeError("the INSERT reported no inserted rowid")
+    return rowid
 
 
 @contextmanager

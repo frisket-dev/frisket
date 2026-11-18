@@ -32,7 +32,7 @@ from frisket.engine.store.import_sessions import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sheet_names import available_sheet_name
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ def _insert_column(
             column.get("semantic_type"),
         ),
     )
-    return int(cursor.lastrowid)
+    return inserted_rowid(cursor)
 
 
 class StreamingSheetWriter:
@@ -167,7 +167,7 @@ class StreamingSheetWriter:
                 "(?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), 1)",
                 (staging_name,),
             )
-            sheet_id = int(cursor.lastrowid)
+            sheet_id = inserted_rowid(cursor)
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
                 column_ids[name] = _insert_column(db, sheet_id, name, column, position)
@@ -257,7 +257,7 @@ class StreamingSheetWriter:
                 "(?,(SELECT COALESCE(MAX(position),0)+1 FROM sheets),0)",
                 (requested_name,),
             )
-            sheet_id = int(cursor.lastrowid)
+            sheet_id = inserted_rowid(cursor)
             column_ids: dict[str, int] = {}
             for position, (name, column) in enumerate(zip(names, column_specs), 1):
                 column_ids[name] = _insert_column(db, sheet_id, name, column, position)

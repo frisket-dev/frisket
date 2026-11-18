@@ -6,6 +6,7 @@ leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import json
 import sqlite3
 from typing import Any, Collection
@@ -186,7 +187,7 @@ def insert_notification_item(
         ),
     )
     project.db.commit()
-    return int(cur.lastrowid)
+    return inserted_rowid(cur)
 
 
 def update_notification_item(
@@ -516,7 +517,7 @@ def create_notification_channel(
         ),
     )
     project.db.commit()
-    return project.public_notification_channel(int(cur.lastrowid))
+    return project.public_notification_channel(inserted_rowid(cur))
 
 
 def ensure_default_in_app_notification_channel(project: Any) -> dict[str, Any]:
@@ -644,7 +645,7 @@ def create_notification_route(
         ),
     )
     project.db.commit()
-    return project.public_notification_route(int(cur.lastrowid))
+    return project.public_notification_route(inserted_rowid(cur))
 
 
 def update_notification_route(
@@ -1113,7 +1114,7 @@ def record_notification_delivery_attempt(
     )
     if commit:
         project.db.commit()
-    return project.notification_delivery_attempt(int(cur.lastrowid))
+    return project.notification_delivery_attempt(inserted_rowid(cur))
 
 
 def notification_delivery_attempt(project: Any, attempt_id: int) -> dict[str, Any]:

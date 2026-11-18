@@ -15,7 +15,7 @@ from typing import Any, Literal, Mapping
 from filelock import BaseFileLock, FileLock
 
 from frisket.engine.store.import_inventory import ImportInventory
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 _REF = re.compile(r"import-[0-9a-f]{32}\Z")
@@ -217,7 +217,7 @@ def append_inventory_batch(
                 "VALUES (?,?,?,?,?,?)",
                 values,
             )
-            through = int(cursor.lastrowid)
+            through = inserted_rowid(cursor)
             count += 1
             total_bytes += values[3]
         if not count:

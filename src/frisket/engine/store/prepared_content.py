@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .transactions import require_transaction
+from .transactions import inserted_rowid, require_transaction
 
 from .value_codec import (
     PreparedContentRef,
@@ -137,7 +137,7 @@ class PreparedContentStore:
             "VALUES (?,?)",
             (source_artifact_id, producing_op_id),
         )
-        set_id = int(cursor.lastrowid)
+        set_id = inserted_rowid(cursor)
         versions = dict(reused or {})
         for number, text, digest, positions in pages:
             cursor = self.db.execute(
@@ -153,7 +153,7 @@ class PreparedContentStore:
                     producing_op_id,
                 ),
             )
-            versions[number] = int(cursor.lastrowid)
+            versions[number] = inserted_rowid(cursor)
         self.db.executemany(
             "INSERT INTO prepared_content_set_pages(set_id,page_number,version_id) "
             "VALUES (?,?,?)",
@@ -171,7 +171,7 @@ class PreparedContentStore:
             "INSERT INTO prepared_content_refs(set_id,page_number) VALUES (?,?)",
             (set_id, page_number),
         )
-        return PreparedContentRef(int(cursor.lastrowid))
+        return PreparedContentRef(inserted_rowid(cursor))
 
     def stage_reference(
         self,

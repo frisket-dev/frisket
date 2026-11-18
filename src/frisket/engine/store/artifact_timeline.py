@@ -16,7 +16,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance for annotations
     from frisket.engine.store.project import Project
@@ -757,7 +757,7 @@ def write_rate1_timeline_segment(
         segment = _segment(
             project.db.execute(
                 "SELECT * FROM artifact_timeline_segments WHERE id=?",
-                (int(cursor.lastrowid),),
+                (inserted_rowid(cursor),),
             ).fetchone()
         )
         _validate_v1_segment(project, segment)

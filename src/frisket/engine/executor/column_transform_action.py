@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import inspect
 import json
 import threading
@@ -399,7 +400,7 @@ def _write_column(
             "{}",
         ),
     )
-    op_id = int(cur.lastrowid)
+    op_id = inserted_rowid(cur)
     ChangeStore(project).start(op_id)
     position = int(
         cur.execute(
@@ -412,7 +413,7 @@ def _write_column(
         "VALUES (?, ?, ?, ?, 1, 0, NULL)",
         (sheet_id, output_name, output_type, position),
     )
-    column_id = int(cur.lastrowid)
+    column_id = inserted_rowid(cur)
     project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
     return op_id, column_id
 

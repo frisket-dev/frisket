@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 from typing import Any
@@ -145,7 +146,7 @@ def _perform_import_rows_in_txn(
             json.dumps(op_spec, sort_keys=True),
         ),
     )
-    op_id = int(cur.lastrowid)
+    op_id = inserted_rowid(cur)
     changes = ChangeStore(project)
     changes.start(op_id)
     cur.execute(
@@ -153,7 +154,7 @@ def _perform_import_rows_in_txn(
         "VALUES (?, (SELECT COALESCE(MAX(position),0)+1 FROM sheets), NULL, NULL)",
         (materialization.sheet_name,),
     )
-    sheet_id = int(cur.lastrowid)
+    sheet_id = inserted_rowid(cur)
     producer_id = create_base_cell_producer(
         project.db, stage_id=f"op:{op_id}", op_id=op_id
     )
@@ -174,7 +175,7 @@ def _perform_import_rows_in_txn(
                 column.format,
             ),
         )
-        column_ids[column.name] = int(cur.lastrowid)
+        column_ids[column.name] = inserted_rowid(cur)
 
     row_ids: list[int] = []
     cell_writes: list[BaseCellWrite] = []
@@ -183,7 +184,7 @@ def _perform_import_rows_in_txn(
             "INSERT INTO rows (sheet_id, position, parent_row_id) VALUES (?, ?, NULL)",
             (sheet_id, idx),
         )
-        row_id = int(cur.lastrowid)
+        row_id = inserted_rowid(cur)
         row_ids.append(row_id)
         cell_writes.extend(
             BaseCellWrite(row_id, column_ids[name], value)

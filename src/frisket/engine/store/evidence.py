@@ -29,7 +29,11 @@ from frisket.engine.store.retrieval_lifecycle import (
     RETRIEVAL_CITATION_ROLES,
     touch_binding_revisions,
 )
-from frisket.engine.store.transactions import require_transaction, write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 
 
 CELL_EVIDENCE_SCHEMA_VERSION = "frisket.cell_evidence.v1"
@@ -117,7 +121,7 @@ def record_source_artifact(
         if owns_transaction:
             project.db.rollback()
         raise
-    return _artifact_row(project, int(cur.lastrowid))
+    return _artifact_row(project, inserted_rowid(cur))
 
 
 def get_source_artifact(project: Project, artifact_id: int) -> dict[str, Any] | None:
@@ -218,7 +222,7 @@ def record_source_span(
     )
     if owns_transaction:
         project.db.commit()
-    return _span_row(project, int(cur.lastrowid))
+    return _span_row(project, inserted_rowid(cur))
 
 
 def record_text_surface(
@@ -333,7 +337,7 @@ def record_text_surface(
         return _surface_row(project, int(row["id"]))
     if owns_transaction:
         project.db.commit()
-    return _surface_row(project, int(cur.lastrowid))
+    return _surface_row(project, inserted_rowid(cur))
 
 
 def get_source_span(project: Project, span_id: int) -> dict[str, Any]:
@@ -444,7 +448,7 @@ def record_citation(
                 _json_dumps(metadata or {}),
             ),
         )
-        link_id = int(cur.lastrowid)
+        link_id = inserted_rowid(cur)
         for index, span in enumerate(spans):
             span_id = _span_id_for_ref(project, span)
             cur.execute(
