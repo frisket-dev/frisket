@@ -69,13 +69,12 @@ class _OpenRouterRouter:
 
 
 @pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "emb.frisket", name="emb")
+def project(tmp_path, make_project):
+    p = make_project("emb")
     sheet = p.add_sheet("data")
     cols = {"headline": p.add_column(sheet, "headline")}
     p.add_rows(sheet, [{"headline": f"story {i}"} for i in range(4)], cols)
     yield p, sheet, cols, tmp_path
-    p.close()
 
 
 def _run(project: Project, action: dict[str, Any], *, gateway=None):

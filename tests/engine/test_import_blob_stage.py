@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -11,7 +10,7 @@ import pytest
 from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor import import_blob_stage
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
-from frisket.engine.store import Project, op_log
+from frisket.engine.store import op_log
 from frisket.engine.store.blob_backend import BlobIntegrityError
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
 from frisket.engine.store.media_blobs import MediaBlobStore
@@ -55,43 +54,43 @@ def _prepare(project, plan):
     return prepare_import_blobs(project, plan)
 
 
-def test_acquired_url_stage_preserves_host_provenance_and_probe(tmp_path):
-    with closing(Project.create(tmp_path / "url-stage.frisket")) as project:
-        sheet, columns, row_ids = _sheet(project, rows=1)
-        with AdmittedImportBlobStager() as stager:
-            handle = stager.stage_acquired_url(
-                io.BytesIO(b"downloaded bytes"),
-                filename="episode.mp3",
-                mime="audio/mpeg",
-                source_url="https://example.com/episode",
-                provider="youtube",
-                acquisition={"title": "Example episode", "duration_seconds": 42.5},
-            )
-            digest = stager.lower(handle)["blob"]
-            plan = _prepare(
-                project,
-                stager.publication_plan([(row_ids[0], "Renamed", handle)]),
-            )
-            project.db.execute("BEGIN IMMEDIATE")
-            refs = _publish(
-                project,
-                plan,
-                sheet,
-                columns,
-            )
-            project.db.commit()
-        assert refs[0]["source_url"] == "https://example.com/episode"
-        assert refs[0]["provider"] == "youtube"
-        assert (
-            project.db.execute("SELECT source_url FROM blobs").fetchone()[0]
-            == refs[0]["source_url"]
+def test_acquired_url_stage_preserves_host_provenance_and_probe(make_project):
+    project = make_project("url-stage")
+    sheet, columns, row_ids = _sheet(project, rows=1)
+    with AdmittedImportBlobStager() as stager:
+        handle = stager.stage_acquired_url(
+            io.BytesIO(b"downloaded bytes"),
+            filename="episode.mp3",
+            mime="audio/mpeg",
+            source_url="https://example.com/episode",
+            provider="youtube",
+            acquisition={"title": "Example episode", "duration_seconds": 42.5},
         )
-        blobs = MediaBlobStore(project)
-        assert blobs.acquisition_metadata(digest) == {
-            "title": "Example episode",
-            "duration_seconds": 42.5,
-        }
-        assert blobs.probe_metadata(digest)["size_bytes"] == len(b"downloaded bytes")
+        digest = stager.lower(handle)["blob"]
+        plan = _prepare(
+            project,
+            stager.publication_plan([(row_ids[0], "Renamed", handle)]),
+        )
+        project.db.execute("BEGIN IMMEDIATE")
+        refs = _publish(
+            project,
+            plan,
+            sheet,
+            columns,
+        )
+        project.db.commit()
+    assert refs[0]["source_url"] == "https://example.com/episode"
+    assert refs[0]["provider"] == "youtube"
+    assert (
+        project.db.execute("SELECT source_url FROM blobs").fetchone()[0]
+        == refs[0]["source_url"]
+    )
+    blobs = MediaBlobStore(project)
+    assert blobs.acquisition_metadata(digest) == {
+        "title": "Example episode",
+        "duration_seconds": 42.5,
+    }
+    assert blobs.probe_metadata(digest)["size_bytes"] == len(b"downloaded bytes")
 
 
 def test_stage_bounds_reads_and_keeps_borrowed_source_open():
@@ -183,255 +182,255 @@ def test_partial_read_failure_cleans_stage_without_closing_source():
     assert not stream.closed
 
 
-def test_duplicate_bytes_keep_distinct_occurrences_and_actual_renamed_cells(tmp_path):
-    with closing(Project.create(tmp_path / "occurrences.frisket")) as project:
-        sheet, columns, row_ids = _sheet(project)
-        with AdmittedImportBlobStager() as stager:
-            first, second = _stage(stager), _stage(stager)
-            assert first is not second
-            assert stager.lower(first) == stager.lower(second)
-            plan = stager.publication_plan(
-                [
-                    (1, "Renamed", second),
-                    (0, "Renamed", first),
-                    (1, "Renamed", first),
-                ]
-            ).bind_row_ordinals(row_ids)
-            prepared = _prepare(project, plan)
-            project.db.execute("BEGIN IMMEDIATE")
-            published = _publish(project, prepared, sheet, columns)
-            project.db.commit()
-            assert [ref["row_id"] for ref in published] == [
-                row_ids[1],
-                row_ids[0],
-                row_ids[1],
+def test_duplicate_bytes_keep_distinct_occurrences_and_actual_renamed_cells(
+    make_project,
+):
+    project = make_project("occurrences")
+    sheet, columns, row_ids = _sheet(project)
+    with AdmittedImportBlobStager() as stager:
+        first, second = _stage(stager), _stage(stager)
+        assert first is not second
+        assert stager.lower(first) == stager.lower(second)
+        plan = stager.publication_plan(
+            [
+                (1, "Renamed", second),
+                (0, "Renamed", first),
+                (1, "Renamed", first),
             ]
-            assert all(ref["column_id"] == columns["Renamed"] for ref in published)
-            assert [ref["row_index"] for ref in published] == [2, 1, 2]
-            assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+        ).bind_row_ordinals(row_ids)
+        prepared = _prepare(project, plan)
+        project.db.execute("BEGIN IMMEDIATE")
+        published = _publish(project, prepared, sheet, columns)
+        project.db.commit()
+        assert [ref["row_id"] for ref in published] == [
+            row_ids[1],
+            row_ids[0],
+            row_ids[1],
+        ]
+        assert all(ref["column_id"] == columns["Renamed"] for ref in published)
+        assert [ref["row_index"] for ref in published] == [2, 1, 2]
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
 
 
-def test_original_pdf_root_survives_without_images_or_receipt(tmp_path):
-    with closing(Project.create(tmp_path / "document.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            document = _stage(stager, role=PdfDocument())
-            digest = stager.lower(document)["blob"]
-            prepared = _prepare(project, stager.publication_plan([]))
-            project.db.execute("BEGIN IMMEDIATE")
-            published = _publish(project, prepared, sheet, columns)
-            project.db.commit()
-            assert published[0]["kind"] == "imported_pdf_document"
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-        assert (
-            project.db.execute("SELECT blob_hash FROM source_artifacts").fetchone()[0]
-            == digest
+def test_original_pdf_root_survives_without_images_or_receipt(make_project):
+    project = make_project("document")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        document = _stage(stager, role=PdfDocument())
+        digest = stager.lower(document)["blob"]
+        prepared = _prepare(project, stager.publication_plan([]))
+        project.db.execute("BEGIN IMMEDIATE")
+        published = _publish(project, prepared, sheet, columns)
+        project.db.commit()
+        assert published[0]["kind"] == "imported_pdf_document"
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    assert (
+        project.db.execute("SELECT blob_hash FROM source_artifacts").fetchone()[0]
+        == digest
+    )
+    assert digest not in project.gc_blobs()["hashes"]
+
+
+def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(make_project):
+    project = make_project("pages")
+    sheet, columns, row_ids = _sheet(project)
+    with AdmittedImportBlobStager() as stager:
+        documents = [_stage(stager, role=PdfDocument()) for _ in range(2)]
+        pages = [
+            _stage(stager, b"same PNG", role=PdfPage(document=doc, page=index + 1))
+            for index, doc in enumerate(documents)
+        ]
+        plan = stager.publication_plan(
+            [(row_ids[1], "Renamed", pages[0]), (row_ids[0], "Renamed", pages[1])]
         )
-        assert digest not in project.gc_blobs()["hashes"]
+        prepared = _prepare(project, plan)
+        # The real importer materializes source cells before binding their
+        # evidence. Empty placeholder rows alone have no value identity.
+        from frisket.engine.store.cell_writes import (
+            BaseCellWrite,
+            create_base_cell_producer,
+            initialize_base_cells,
+        )
+
+        project.db.execute("BEGIN IMMEDIATE")
+        op_id = op_log.append_change(project, "import.pdf", spec={}, commit=False)
+        producer_id = create_base_cell_producer(
+            project.db, stage_id=f"op:{op_id}", op_id=op_id
+        )
+        initialize_base_cells(
+            project.db,
+            producer_id=producer_id,
+            cells=[
+                BaseCellWrite(row_id, columns["Renamed"], stager.lower(page))
+                for row_id, page in zip(reversed(row_ids), pages, strict=True)
+            ],
+        )
+        published = publish_import_blobs(
+            project,
+            prepared,
+            sheet_id=sheet,
+            column_ids=columns,
+            op_id=op_id,
+            receipt_id="receipt-import",
+        )
+        project.db.commit()
+        docs = [ref for ref in published if ref["kind"] == "imported_pdf_document"]
+        images = [ref for ref in published if ref["kind"] == "imported_pdf_page_image"]
+        assert docs[0]["artifact_id"] != docs[1]["artifact_id"]
+        assert [ref["artifact_id"] for ref in images] == [
+            ref["artifact_id"] for ref in docs
+        ]
+        assert [ref["row_id"] for ref in images] == [row_ids[1], row_ids[0]]
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 2
+        )
 
 
-def test_pdf_pages_bind_distinct_document_handles_with_identical_bytes(tmp_path):
-    with closing(Project.create(tmp_path / "pages.frisket")) as project:
-        sheet, columns, row_ids = _sheet(project)
-        with AdmittedImportBlobStager() as stager:
-            documents = [_stage(stager, role=PdfDocument()) for _ in range(2)]
-            pages = [
-                _stage(stager, b"same PNG", role=PdfPage(document=doc, page=index + 1))
-                for index, doc in enumerate(documents)
-            ]
-            plan = stager.publication_plan(
-                [(row_ids[1], "Renamed", pages[0]), (row_ids[0], "Renamed", pages[1])]
-            )
-            prepared = _prepare(project, plan)
-            # The real importer materializes source cells before binding their
-            # evidence. Empty placeholder rows alone have no value identity.
-            from frisket.engine.store.cell_writes import (
-                BaseCellWrite,
-                create_base_cell_producer,
-                initialize_base_cells,
-            )
+def test_native_pdf_page_reference_refuses_duplicate_staged_bytes(make_project):
+    project = make_project("native-page-reference")
+    sheet, columns, row_ids = _sheet(project, rows=1)
+    with AdmittedImportBlobStager() as stager:
+        document = _stage(stager, role=PdfDocument())
+        page = stager.reference_pdf_page(document, page=1, text="Page one")
+        plan = stager.publication_plan([(row_ids[0], "Renamed", page)])
+        document_path = next(
+            blob.path for blob in plan.blobs if blob.role == "document"
+        )
+        malformed = replace(
+            plan,
+            blobs=tuple(
+                replace(blob, path=document_path)
+                if blob.role == "document_page"
+                else blob
+                for blob in plan.blobs
+            ),
+        )
 
-            project.db.execute("BEGIN IMMEDIATE")
-            op_id = op_log.append_change(project, "import.pdf", spec={}, commit=False)
-            producer_id = create_base_cell_producer(
-                project.db, stage_id=f"op:{op_id}", op_id=op_id
-            )
-            initialize_base_cells(
-                project.db,
-                producer_id=producer_id,
-                cells=[
-                    BaseCellWrite(row_id, columns["Renamed"], stager.lower(page))
-                    for row_id, page in zip(reversed(row_ids), pages, strict=True)
-                ],
-            )
-            published = publish_import_blobs(
+        with pytest.raises(
+            ValueError, match="native PDF page reference must not duplicate bytes"
+        ):
+            _prepare(project, malformed)
+
+
+def test_stage_mutation_refuses_promotion_and_caller_rolls_back(make_project):
+    project = make_project("mutation")
+    sheet, columns, row_ids = _sheet(project)
+    before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    with AdmittedImportBlobStager() as stager:
+        handle = _stage(stager)
+        plan = stager.publication_plan([(row_ids[0], "Renamed", handle)])
+        plan.blobs[0].path.write_bytes(b"changed bytes")
+        with pytest.raises(BlobIntegrityError, match="changed"):
+            _prepare(project, plan)
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before_ops
+        )
+
+
+def test_publication_rollback_keeps_canonical_bytes_but_no_evidence_metadata(
+    make_project,
+):
+    project = make_project("rollback")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        handle = _stage(stager, role=PdfDocument())
+        digest = stager.lower(handle)["blob"]
+        prepared = _prepare(project, stager.publication_plan([]))
+        project.db.execute("BEGIN IMMEDIATE")
+        _publish(project, prepared, sheet, columns)
+        project.db.rollback()  # A later receipt/write failure belongs to caller.
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
+        assert (
+            project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[0]
+            == 0
+        )
+        with project.blob_store.materialize(digest) as path:
+            assert path.read_bytes() == b"file bytes"
+
+
+def test_publication_requires_transaction_and_wrapper_pins_digest(make_project):
+    project = make_project("pin")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        handle = _stage(stager, role=PdfDocument())
+        plan = stager.publication_plan([])
+        with pytest.raises(ValueError, match="transaction"):
+            publish_import_blobs(
                 project,
-                prepared,
+                _prepare(project, plan),
                 sheet_id=sheet,
                 column_ids=columns,
-                op_id=op_id,
-                receipt_id="receipt-import",
+                op_id=1,
+                receipt_id="none",
             )
-            project.db.commit()
-            docs = [ref for ref in published if ref["kind"] == "imported_pdf_document"]
-            images = [
-                ref for ref in published if ref["kind"] == "imported_pdf_page_image"
-            ]
-            assert docs[0]["artifact_id"] != docs[1]["artifact_id"]
-            assert [ref["artifact_id"] for ref in images] == [
-                ref["artifact_id"] for ref in docs
-            ]
-            assert [ref["row_id"] for ref in images] == [row_ids[1], row_ids[0]]
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0]
-                == 2
+        with pytest.raises(BlobIntegrityError):
+            project.add_blob_from_path(plan.blobs[0].path, expected_digest="0" * 64)
+        assert (
+            project.add_blob_from_path(
+                plan.blobs[0].path, expected_digest=stager.lower(handle)["blob"]
             )
+            == stager.lower(handle)["blob"]
+        )
 
 
-def test_native_pdf_page_reference_refuses_duplicate_staged_bytes(tmp_path):
-    with closing(Project.create(tmp_path / "native-page-reference.frisket")) as project:
-        sheet, columns, row_ids = _sheet(project, rows=1)
-        with AdmittedImportBlobStager() as stager:
-            document = _stage(stager, role=PdfDocument())
-            page = stager.reference_pdf_page(document, page=1, text="Page one")
-            plan = stager.publication_plan([(row_ids[0], "Renamed", page)])
-            document_path = next(
-                blob.path for blob in plan.blobs if blob.role == "document"
-            )
-            malformed = replace(
-                plan,
-                blobs=tuple(
-                    replace(blob, path=document_path)
-                    if blob.role == "document_page"
-                    else blob
-                    for blob in plan.blobs
-                ),
-            )
+def test_backend_rechecks_stage_bytes_after_project_prehash(make_project, monkeypatch):
+    project = make_project("race")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        _stage(stager, role=PdfDocument())
+        plan = stager.publication_plan([])
+        put_path = project.blob_store.put_path
 
-            with pytest.raises(
-                ValueError, match="native PDF page reference must not duplicate bytes"
-            ):
-                _prepare(project, malformed)
+        def changed(path, *, expected_digest):
+            Path(path).write_bytes(b"changed during promotion")
+            return put_path(path, expected_digest=expected_digest)
+
+        monkeypatch.setattr(project.blob_store, "put_path", changed)
+        with pytest.raises(BlobIntegrityError):
+            _prepare(project, plan)
+        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
 
 
-def test_stage_mutation_refuses_promotion_and_caller_rolls_back(tmp_path):
-    with closing(Project.create(tmp_path / "mutation.frisket")) as project:
-        sheet, columns, row_ids = _sheet(project)
-        before_ops = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        with AdmittedImportBlobStager() as stager:
-            handle = _stage(stager)
-            plan = stager.publication_plan([(row_ids[0], "Renamed", handle)])
-            plan.blobs[0].path.write_bytes(b"changed bytes")
-            with pytest.raises(BlobIntegrityError, match="changed"):
-                _prepare(project, plan)
-            assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-                == before_ops
-            )
+def test_backend_copy_finishes_before_publication_transaction(
+    make_project, monkeypatch
+):
+    project = make_project("outside-lock")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        _stage(stager, role=PdfDocument())
+        put_path = project.blob_store.put_path
+        calls = []
 
+        def observe(path, *, expected_digest):
+            calls.append(project.db.in_transaction)
+            return put_path(path, expected_digest=expected_digest)
 
-def test_publication_rollback_keeps_canonical_bytes_but_no_evidence_metadata(tmp_path):
-    with closing(Project.create(tmp_path / "rollback.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            handle = _stage(stager, role=PdfDocument())
-            digest = stager.lower(handle)["blob"]
-            prepared = _prepare(project, stager.publication_plan([]))
-            project.db.execute("BEGIN IMMEDIATE")
-            _publish(project, prepared, sheet, columns)
-            project.db.rollback()  # A later receipt/write failure belongs to caller.
-            assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM source_artifacts").fetchone()[
-                    0
-                ]
-                == 0
-            )
-            with project.blob_store.materialize(digest) as path:
-                assert path.read_bytes() == b"file bytes"
+        monkeypatch.setattr(project.blob_store, "put_path", observe)
+        prepared = _prepare(project, stager.publication_plan([]))
+        assert calls == [False]
 
-
-def test_publication_requires_transaction_and_wrapper_pins_digest(tmp_path):
-    with closing(Project.create(tmp_path / "pin.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            handle = _stage(stager, role=PdfDocument())
-            plan = stager.publication_plan([])
-            with pytest.raises(ValueError, match="transaction"):
-                publish_import_blobs(
-                    project,
-                    _prepare(project, plan),
-                    sheet_id=sheet,
-                    column_ids=columns,
-                    op_id=1,
-                    receipt_id="none",
-                )
-            with pytest.raises(BlobIntegrityError):
-                project.add_blob_from_path(plan.blobs[0].path, expected_digest="0" * 64)
-            assert (
-                project.add_blob_from_path(
-                    plan.blobs[0].path, expected_digest=stager.lower(handle)["blob"]
-                )
-                == stager.lower(handle)["blob"]
-            )
-
-
-def test_backend_rechecks_stage_bytes_after_project_prehash(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "race.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            _stage(stager, role=PdfDocument())
-            plan = stager.publication_plan([])
-            put_path = project.blob_store.put_path
-
-            def changed(path, *, expected_digest):
-                Path(path).write_bytes(b"changed during promotion")
-                return put_path(path, expected_digest=expected_digest)
-
-            monkeypatch.setattr(project.blob_store, "put_path", changed)
-            with pytest.raises(BlobIntegrityError):
-                _prepare(project, plan)
-            assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-
-
-def test_backend_copy_finishes_before_publication_transaction(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "outside-lock.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            _stage(stager, role=PdfDocument())
-            put_path = project.blob_store.put_path
-            calls = []
-
-            def observe(path, *, expected_digest):
-                calls.append(project.db.in_transaction)
-                return put_path(path, expected_digest=expected_digest)
-
-            monkeypatch.setattr(project.blob_store, "put_path", observe)
-            prepared = _prepare(project, stager.publication_plan([]))
-            assert calls == [False]
-
-            project.db.execute("BEGIN IMMEDIATE")
-            _publish(project, prepared, sheet, columns)
-            project.db.commit()
-            assert calls == [False]
+        project.db.execute("BEGIN IMMEDIATE")
+        _publish(project, prepared, sheet, columns)
+        project.db.commit()
+        assert calls == [False]
 
 
 def test_final_reader_cleanup_error_does_not_mask_committed_publication(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    with closing(Project.create(tmp_path / "cleanup.frisket")) as project:
-        sheet, columns, _ = _sheet(project, rows=0)
-        with AdmittedImportBlobStager() as stager:
-            document = _stage(stager, role=PdfDocument())
-            digest = stager.lower(document)["blob"]
-            prepared = _prepare(project, stager.publication_plan([]))
-            project.db.execute("BEGIN IMMEDIATE")
-            _publish(project, prepared, sheet, columns)
-            project.db.commit()
+    project = make_project("cleanup")
+    sheet, columns, _ = _sheet(project, rows=0)
+    with AdmittedImportBlobStager() as stager:
+        document = _stage(stager, role=PdfDocument())
+        digest = stager.lower(document)["blob"]
+        prepared = _prepare(project, stager.publication_plan([]))
+        project.db.execute("BEGIN IMMEDIATE")
+        _publish(project, prepared, sheet, columns)
+        project.db.commit()
 
-            def failed_close():
-                raise OSError("reader cleanup failed")
+        def failed_close():
+            raise OSError("reader cleanup failed")
 
-            monkeypatch.setattr(stager._readers, "close", failed_close)
-        assert project.db.execute("SELECT hash FROM blobs").fetchone()[0] == digest
+        monkeypatch.setattr(stager._readers, "close", failed_close)
+    assert project.db.execute("SELECT hash FROM blobs").fetchone()[0] == digest

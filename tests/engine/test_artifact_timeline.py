@@ -129,28 +129,24 @@ def test_timeline_interruption_preserves_transaction_ownership(
     assert tuple(project.db.iterdump()) == before
 
 
-def test_timeline_schema_is_created_on_a_fresh_bundle(tmp_path: Path) -> None:
+def test_timeline_schema_is_created_on_a_fresh_bundle(make_project) -> None:
     """``Project.create`` is the only thing that puts this schema on a bundle:
     there is no open-time replay to repair a missing table any more, and a
     bundle that does not match ``schema.py`` is refused rather than fixed."""
-    bundle = tmp_path / "timeline-schema.frisket"
-    project = Project.create(bundle)
-    try:
-        table_sql = project.db.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' "
-            "AND name='artifact_timeline_segments'"
-        ).fetchone()["sql"]
-        assert "UNIQUE (derived_artifact_id, ordinal)" in table_sql
-        assert "CHECK (derived_artifact_id <> source_artifact_id)" in table_sql
-        indexes = {
-            row["name"]
-            for row in project.db.execute(
-                "SELECT name FROM sqlite_master WHERE type='index'"
-            )
-        }
-        assert "idx_artifact_timeline_source_time" in indexes
-    finally:
-        project.close()
+    project = make_project("timeline-schema")
+    table_sql = project.db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' "
+        "AND name='artifact_timeline_segments'"
+    ).fetchone()["sql"]
+    assert "UNIQUE (derived_artifact_id, ordinal)" in table_sql
+    assert "CHECK (derived_artifact_id <> source_artifact_id)" in table_sql
+    indexes = {
+        row["name"]
+        for row in project.db.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )
+    }
+    assert "idx_artifact_timeline_source_time" in indexes
 
 
 def test_media_fingerprint_is_canonical_and_excludes_mutable_metadata(

@@ -12,12 +12,11 @@ from frisket.engine.executor.cluster_receipt_read import (
     AdmittedClusterReceiptReader,
     validate_cluster_receipt_fence,
 )
-from frisket.engine.store import Project
 
 
 @pytest.fixture
-def seeded(tmp_path):
-    project = Project.create(tmp_path / "entities.frisket")
+def seeded(make_project):
+    project = make_project("entities")
     sheet = project.add_sheet("People")
     column = project.add_column(sheet, "name")
     rows = project.add_rows(

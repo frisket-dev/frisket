@@ -16,7 +16,6 @@ from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import Receipt
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.executor.map_rows_action import typed_request_hash
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.provider import (
     ExecutionCompositionContext,
@@ -37,9 +36,9 @@ def _request(sheet_id, **kwargs):
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(make_project, monkeypatch):
     monkeypatch.setenv("CENSUS_API_KEY", "test-census-key")
-    project = Project.create(tmp_path / "census.frisket")
+    project = make_project("census")
     sheet_id = project.add_sheet("Places")
     column = project.add_column(sheet_id, "point", type="geo_point")
     row_ids = project.add_rows(
@@ -83,7 +82,6 @@ def env(tmp_path, monkeypatch):
         )
 
     yield project, sheet_id, row_ids, calls, run
-    project.close()
 
 
 def _confirmed(run, body):

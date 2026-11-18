@@ -108,44 +108,44 @@ def test_incomplete_drafts_and_selected_layout_survive_reload(tmp_path):
         )
 
 
-def test_successful_document_assignments_transfer_without_losing_other_rows(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet, column, rows, template = seed(project, count=3)
-        first = save(project, sheet, template)
-        second = save(project, sheet, template)
-        layouts.remember_success(project, first["id"], rows, commit=True)
-        layouts.remember_success(project, second["id"], [rows[1]], commit=True)
-        assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
-            rows[0],
-            rows[2],
-        ]
-        assert resolve(project, sheet, kind="layout", layout_id=second["id"]) == [
-            rows[1]
-        ]
-        layouts.remember_success(project, first["id"], [rows[0]], commit=True)
-        assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
-            rows[0],
-            rows[2],
-        ]
-        layouts.remember_success(project, second["id"], rows, commit=True)
-        assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
-        assert layouts.get_layout(project, first["id"])["has_applied"] is True
-        # Successful zero-record inputs are remembered by source identity;
-        # no output sheet/record is required to express their assignment.
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+def test_successful_document_assignments_transfer_without_losing_other_rows(
+    make_project,
+):
+    project = make_project("project")
+    sheet, column, rows, template = seed(project, count=3)
+    first = save(project, sheet, template)
+    second = save(project, sheet, template)
+    layouts.remember_success(project, first["id"], rows, commit=True)
+    layouts.remember_success(project, second["id"], [rows[1]], commit=True)
+    assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
+        rows[0],
+        rows[2],
+    ]
+    assert resolve(project, sheet, kind="layout", layout_id=second["id"]) == [rows[1]]
+    layouts.remember_success(project, first["id"], [rows[0]], commit=True)
+    assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
+        rows[0],
+        rows[2],
+    ]
+    layouts.remember_success(project, second["id"], rows, commit=True)
+    assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
+    assert layouts.get_layout(project, first["id"])["has_applied"] is True
+    # Successful zero-record inputs are remembered by source identity;
+    # no output sheet/record is required to express their assignment.
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
 
 
-def test_membership_is_part_of_callers_publication_transaction(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet, column, rows, template = seed(project)
-        first = save(project, sheet, template)
-        project.db.execute("BEGIN IMMEDIATE")
-        layouts.remember_success(project, first["id"], [rows[0]])
-        project.db.rollback()
-        assert layouts.get_layout(project, first["id"])["has_applied"] is False
-        assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
-        with pytest.raises(ValueError):
-            layouts.remember_success(project, first["id"], [99999])
+def test_membership_is_part_of_callers_publication_transaction(make_project):
+    project = make_project("project")
+    sheet, column, rows, template = seed(project)
+    first = save(project, sheet, template)
+    project.db.execute("BEGIN IMMEDIATE")
+    layouts.remember_success(project, first["id"], [rows[0]])
+    project.db.rollback()
+    assert layouts.get_layout(project, first["id"])["has_applied"] is False
+    assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
+    with pytest.raises(ValueError):
+        layouts.remember_success(project, first["id"], [99999])
 
 
 def test_scopes_count_live_documents_and_obey_sheet_filter(tmp_path):
@@ -185,20 +185,20 @@ def test_scopes_count_live_documents_and_obey_sheet_filter(tmp_path):
     assert resolve(project, sheet, kind="filter", filter=filter_) == [rows[2]]
 
 
-def test_layouts_are_scoped_by_column_identity(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet, column, rows, template = seed(project)
-        other = project.add_column(sheet, "other", "file")
-        first = save(project, sheet, template)
-        with pytest.raises(ValueError):
-            layouts.validate_layout_scope(project, first["id"], sheet, "other")
-        project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (column,))
-        project.db.commit()
-        assert (
-            layouts.validate_layout_scope(project, first["id"], sheet, "renamed")["id"]
-            == first["id"]
-        )
-        assert layouts.list_layouts(project, sheet, other) == []
+def test_layouts_are_scoped_by_column_identity(make_project):
+    project = make_project("project")
+    sheet, column, rows, template = seed(project)
+    other = project.add_column(sheet, "other", "file")
+    first = save(project, sheet, template)
+    with pytest.raises(ValueError):
+        layouts.validate_layout_scope(project, first["id"], sheet, "other")
+    project.db.execute("UPDATE columns SET name='renamed' WHERE id=?", (column,))
+    project.db.commit()
+    assert (
+        layouts.validate_layout_scope(project, first["id"], sheet, "renamed")["id"]
+        == first["id"]
+    )
+    assert layouts.list_layouts(project, sheet, other) == []
 
 
 def test_saved_workspace_templates_are_copied_once_without_deleting_originals(
@@ -437,17 +437,17 @@ def test_layout_migration_rejects_unfinished_statement_atomically(
         )
 
 
-def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet, column, rows, template = seed(project)
-        path = project.path
-        values = project.get_values(sheet, column)
-        history = [
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
-            )
-        ]
+def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(make_project):
+    project = make_project("project")
+    sheet, column, rows, template = seed(project)
+    path = project.path
+    values = project.get_values(sheet, column)
+    history = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT id,kind,label,spec,undo_info,status,created_at FROM ops ORDER BY id"
+        )
+    ]
     with sqlite3.connect(path / "project.db") as db:
         _restore_layout_predecessor(db)
         db.execute(
@@ -467,29 +467,29 @@ def test_prior_bundle_upgrade_preserves_source_cells_and_op_history(tmp_path):
         assert save(upgraded, sheet, template)["name"] == "Layout 1"
 
 
-def test_current_view_extraction_scope_preserves_limit_and_order(tmp_path):
-    with closing(Project.create(tmp_path / "view.frisket", name="Views")) as project:
-        sheet, column, rows, _template = seed(project, count=4)
-        selection = {
-            "scope": {"kind": "sheet", "sheet_id": sheet, "row_ids": rows[1:]},
-            "filters": [],
-            "order": [],
-            "limit": 2,
-        }
-        scope = ExtractionScope(kind="filter", selection=selection)
-        assert (
-            layouts.resolve_document_scope(
-                project, sheet_id=sheet, source="document", scope=scope
-            )
-            == rows[1:3]
+def test_current_view_extraction_scope_preserves_limit_and_order(make_project):
+    project = make_project("Views")
+    sheet, column, rows, _template = seed(project, count=4)
+    selection = {
+        "scope": {"kind": "sheet", "sheet_id": sheet, "row_ids": rows[1:]},
+        "filters": [],
+        "order": [],
+        "limit": 2,
+    }
+    scope = ExtractionScope(kind="filter", selection=selection)
+    assert (
+        layouts.resolve_document_scope(
+            project, sheet_id=sheet, source="document", scope=scope
         )
-        with project.read_snapshot() as snapshot:
-            assert (
-                layouts.count_document_scope(
-                    snapshot, sheet_id=sheet, source="document", scope=scope
-                )
-                == 2
+        == rows[1:3]
+    )
+    with project.read_snapshot() as snapshot:
+        assert (
+            layouts.count_document_scope(
+                snapshot, sheet_id=sheet, source="document", scope=scope
             )
-            assert snapshot.db.execute("SELECT 1").fetchone()[0] == 1
-        with pytest.raises(ValueError, match="replaces"):
-            ExtractionScope(kind="filter", selection=selection, scope_row_ids=rows)
+            == 2
+        )
+        assert snapshot.db.execute("SELECT 1").fetchone()[0] == 1
+    with pytest.raises(ValueError, match="replaces"):
+        ExtractionScope(kind="filter", selection=selection, scope_row_ids=rows)

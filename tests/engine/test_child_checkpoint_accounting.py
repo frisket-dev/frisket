@@ -5,7 +5,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointStore,
@@ -283,46 +282,43 @@ def test_unaccounted_cloud_child_cannot_be_retired(make_project):
 
 @pytest.mark.parametrize("reason", ["pending", "invalid", "failed"])
 def test_equal_decoded_input_with_new_unavailability_cannot_adopt_reserved_effect(
-    tmp_path, reason
+    make_project, reason
 ):
     from types import SimpleNamespace
     from frisket.engine.runner.map_runner import _row_effect_identity
     from frisket.engine.runner.row_inputs import RowInputValues
     from frisket.engine.store.effect_checkpoints import IdentityMismatch
 
-    project = Project.create(tmp_path / "availability")
-    try:
-        args = dict(
-            project_storage_identity=project.storage_identity,
-            run_id=1,
-            row_id=1,
-            program=SimpleNamespace(version="1"),
-            spec={"action_kind": "map.extract"},
-            out_cols={"answer": 2},
-            cloud_payer=_payer().to_snapshot(),
-        )
-        valid = RowInputValues({"source": None}, source_cells_empty=True)
-        unavailable = RowInputValues(
-            {"source": None},
-            source_cells_empty=True,
-            unavailable_inputs=(
-                {"column": "source", "code": "input_" + reason, "message": reason},
-            ),
-        )
-        checkpoint, identity = _row_effect_identity(**args, values=valid)
-        changed_checkpoint, changed_identity = _row_effect_identity(
-            **args, values=unavailable
-        )
-        assert checkpoint == changed_checkpoint
-        assert identity != changed_identity
-        store = EffectCheckpointStore(project.db)
-        unit = dict(
-            family="row_effect", group_key="1", unit_key="1", action_kind="map.extract"
-        )
-        store.reserve(checkpoint, identity=identity, **unit)
-        with pytest.raises(IdentityMismatch):
-            store.returned_for_replay(identity=changed_identity, **unit)
-        assert store.get(checkpoint)["state"] == "reserved"
-        assert store.get(checkpoint)["accounting_persisted"] is False
-    finally:
-        project.close()
+    project = make_project("availability")
+    args = dict(
+        project_storage_identity=project.storage_identity,
+        run_id=1,
+        row_id=1,
+        program=SimpleNamespace(version="1"),
+        spec={"action_kind": "map.extract"},
+        out_cols={"answer": 2},
+        cloud_payer=_payer().to_snapshot(),
+    )
+    valid = RowInputValues({"source": None}, source_cells_empty=True)
+    unavailable = RowInputValues(
+        {"source": None},
+        source_cells_empty=True,
+        unavailable_inputs=(
+            {"column": "source", "code": "input_" + reason, "message": reason},
+        ),
+    )
+    checkpoint, identity = _row_effect_identity(**args, values=valid)
+    changed_checkpoint, changed_identity = _row_effect_identity(
+        **args, values=unavailable
+    )
+    assert checkpoint == changed_checkpoint
+    assert identity != changed_identity
+    store = EffectCheckpointStore(project.db)
+    unit = dict(
+        family="row_effect", group_key="1", unit_key="1", action_kind="map.extract"
+    )
+    store.reserve(checkpoint, identity=identity, **unit)
+    with pytest.raises(IdentityMismatch):
+        store.returned_for_replay(identity=changed_identity, **unit)
+    assert store.get(checkpoint)["state"] == "reserved"
+    assert store.get(checkpoint)["accounting_persisted"] is False

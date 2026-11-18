@@ -797,19 +797,16 @@ class TestStaleObserverCannotDisplaceAdvancedHead:
 class TestStandingConsentPolicyParams:
     """F2: standing authority is reproducible from persisted artifacts."""
 
-    def test_mint_records_threshold_and_content_identity(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
-        try:
-            standing = ConsentRegistry(p).standing_consents()
-            assert len(standing) == 1
-            params = standing[0].policy_params
-            assert params["currency"] == "USD"
-            assert params["threshold_usd"] == "2"  # the documented default
-            assert len(params["policy_content_id"]) == 64
-            principal = instance_principal(p)
-            assert standing_cost_threshold(standing, principal=principal) is not None
-        finally:
-            p.close()
+    def test_mint_records_threshold_and_content_identity(self, make_project):
+        p = make_project("t")
+        standing = ConsentRegistry(p).standing_consents()
+        assert len(standing) == 1
+        params = standing[0].policy_params
+        assert params["currency"] == "USD"
+        assert params["threshold_usd"] == "2"  # the documented default
+        assert len(params["policy_content_id"]) == 64
+        principal = instance_principal(p)
+        assert standing_cost_threshold(standing, principal=principal) is not None
 
     def test_knob_change_mints_successor_and_keeps_history(self, tmp_path, monkeypatch):
         monkeypatch.delenv("FRISKET_COST_CONSENT_USD", raising=False)
@@ -928,13 +925,10 @@ class TestInstallationPrincipal:
         finally:
             restored.close()
 
-    def test_foreign_standing_consent_never_covers(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
-        try:
-            standing = ConsentRegistry(p).standing_consents()
-            assert (
-                standing_cost_threshold(standing, principal="deployment:someone-else")
-                is None
-            )
-        finally:
-            p.close()
+    def test_foreign_standing_consent_never_covers(self, make_project):
+        p = make_project("t")
+        standing = ConsentRegistry(p).standing_consents()
+        assert (
+            standing_cost_threshold(standing, principal="deployment:someone-else")
+            is None
+        )

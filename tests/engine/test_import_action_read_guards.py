@@ -61,37 +61,35 @@ def test_sheet_scoped_action_refuses_unfinished_import(tmp_path, state):
         }
 
 
-def test_secondary_and_dynamic_sheet_readers_refuse_importing_sheet(tmp_path):
-    with closing(Project.create(tmp_path / "secondary.frisket")) as project:
-        importing = _importing_sheet(project)
-        left = project.add_sheet("Left")
-        left_column = project.add_column(left, "k")
-        project.add_rows(left, [{"k": "one"}], {"k": left_column})
+def test_secondary_and_dynamic_sheet_readers_refuse_importing_sheet(make_project):
+    project = make_project("secondary")
+    importing = _importing_sheet(project)
+    left = project.add_sheet("Left")
+    left_column = project.add_column(left, "k")
+    project.add_rows(left, [{"k": "one"}], {"k": left_column})
 
-        joined = AdmittedJoinedTablesReader(
-            project,
-            scope=SheetRows(sheet_id=left),
-            action_kind="derive.join",
-            request_identity={"action_id": "derive.join", "output_names": {}},
-            confirmation=None,
+    joined = AdmittedJoinedTablesReader(
+        project,
+        scope=SheetRows(sheet_id=left),
+        action_kind="derive.join",
+        request_identity={"action_id": "derive.join", "output_names": {}},
+        confirmation=None,
+    )
+    with pytest.raises(TableError) as join_error:
+        joined.read(
+            SheetRef(sheet_id=importing),
+            join_keys=[JoinKeyPair(left_column="k", right_column="k")],
         )
-        with pytest.raises(TableError) as join_error:
-            joined.read(
-                SheetRef(sheet_id=importing),
-                join_keys=[JoinKeyPair(left_column="k", right_column="k")],
-            )
-        assert join_error.value.code == "import_in_progress"
+    assert join_error.value.code == "import_in_progress"
 
-        importing_column = next(
-            column["id"]
-            for column in project.columns(importing)
-            if column["name"] == "k"
-        )
-        lists = AdmittedListTableReader(project)
-        with pytest.raises(TableError) as list_error:
-            lists.read(
-                ListColumnSource(
-                    kind="column", sheet_id=importing, column_id=importing_column
-                )
+    importing_column = next(
+        column["id"] for column in project.columns(importing) if column["name"] == "k"
+    )
+    lists = AdmittedListTableReader(project)
+    with pytest.raises(TableError) as list_error:
+        lists.read(
+            ListColumnSource(
+                kind="column", sheet_id=importing, column_id=importing_column
             )
-        assert list_error.value.code == "import_in_progress"
+        )
+    assert list_error.value.code == "import_in_progress"

@@ -108,84 +108,84 @@ def test_external_task_cancel_in_retry_backoff_retains_usage_and_stops_next_grou
 
 
 def test_refresh_renews_expiring_sheet_and_output_leases_while_provider_waits(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
     monkeypatch.setattr(
         group_summary_publication, "_PROVIDER_LEASE_RENEW_SECONDS", 0.001, raising=False
     )
-    with closing(Project.create(tmp_path / "slow-refresh.frisket")) as project:
-        seeded = _seed(project, tmp_path)
-        initial_router, _ = _summary_router()
-        initial = group_summary_action.run_typed_group_summary_action(
-            project,
-            "p",
-            _bound_request(_reduce_action(seeded["sheet_id"])),
-            initial_router,
-        )
-        assert initial.status == "completed", initial.errors
-        sheet = initial.outputs[0].sheet_id
-        router, adapter = _summary_router()
-        competing_router, competing_adapter = _summary_router()
-        complete = adapter.complete
-        competing = []
-        first = True
+    project = make_project("slow-refresh")
+    seeded = _seed(project, tmp_path)
+    initial_router, _ = _summary_router()
+    initial = group_summary_action.run_typed_group_summary_action(
+        project,
+        "p",
+        _bound_request(_reduce_action(seeded["sheet_id"])),
+        initial_router,
+    )
+    assert initial.status == "completed", initial.errors
+    sheet = initial.outputs[0].sheet_id
+    router, adapter = _summary_router()
+    competing_router, competing_adapter = _summary_router()
+    complete = adapter.complete
+    competing = []
+    first = True
 
-        async def slow_provider(request, client):
-            nonlocal first
-            if first:
-                first = False
-                run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
-                # Advance the existing lease timestamps past expiry, then give
-                # the owning renewal one tick while this actual request waits.
-                with project.transaction_scope():
-                    project.db.execute(
-                        "UPDATE sheets SET refresh_lease_expires_at='2000-01-01T00:00:00+00:00' WHERE id=?",
-                        (sheet,),
+    async def slow_provider(request, client):
+        nonlocal first
+        if first:
+            first = False
+            run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
+            # Advance the existing lease timestamps past expiry, then give
+            # the owning renewal one tick while this actual request waits.
+            with project.transaction_scope():
+                project.db.execute(
+                    "UPDATE sheets SET refresh_lease_expires_at='2000-01-01T00:00:00+00:00' WHERE id=?",
+                    (sheet,),
+                )
+                project.db.execute(
+                    "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00+00:00' WHERE run_id=? AND status='active'",
+                    (run_id,),
+                )
+            await asyncio.sleep(0.02)
+
+            def other_writer():
+                with closing(Project(project.path)) as other:
+                    action = {
+                        "action_id": "sheet.refresh",
+                        "scope": {"kind": "project"},
+                        "params": {"sheet_id": sheet},
+                        "idempotency_key": "competing-slow-refresh",
+                    }
+                    return run_action_with_confirmation(
+                        other, action, project_id="p", router=competing_router
                     )
-                    project.db.execute(
-                        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00+00:00' WHERE run_id=? AND status='active'",
-                        (run_id,),
-                    )
-                await asyncio.sleep(0.02)
 
-                def other_writer():
-                    with closing(Project(project.path)) as other:
-                        action = {
-                            "action_id": "sheet.refresh",
-                            "scope": {"kind": "project"},
-                            "params": {"sheet_id": sheet},
-                            "idempotency_key": "competing-slow-refresh",
-                        }
-                        return run_action_with_confirmation(
-                            other, action, project_id="p", router=competing_router
-                        )
+            competing.append(await asyncio.to_thread(other_writer))
+        return await complete(request, client)
 
-                competing.append(await asyncio.to_thread(other_writer))
-            return await complete(request, client)
-
-        adapter.complete = slow_provider
-        request = typed_action_for_request(
-            {
-                "action_id": "sheet.refresh",
-                "scope": {"kind": "project"},
-                "params": {"sheet_id": sheet},
-                "idempotency_key": "owning-slow-refresh",
-            }
-        )
-        result = run_typed_sheet_refresh_action(project, "p", request, router)
-        assert competing[0].status == "failed", competing[0].model_dump()
-        assert competing[0].errors[0].code == "sheet_refresh_busy", competing[
-            0
-        ].model_dump()
-        assert competing_adapter.requests == []
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 2
-        assert (
-            project.db.execute(
-                "SELECT refresh_claim_token FROM sheets WHERE id=?", (sheet,)
-            ).fetchone()[0]
-            is None
-        )
+    adapter.complete = slow_provider
+    request = typed_action_for_request(
+        {
+            "action_id": "sheet.refresh",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet},
+            "idempotency_key": "owning-slow-refresh",
+        }
+    )
+    result = run_typed_sheet_refresh_action(project, "p", request, router)
+    assert competing[0].status == "failed", competing[0].model_dump()
+    assert competing[0].errors[0].code == "sheet_refresh_busy", competing[
+        0
+    ].model_dump()
+    assert competing_adapter.requests == []
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 2
+    assert (
+        project.db.execute(
+            "SELECT refresh_claim_token FROM sheets WHERE id=?", (sheet,)
+        ).fetchone()[0]
+        is None
+    )
 
 
 def test_renewal_failure_keeps_returned_purchase_for_exact_recovery(

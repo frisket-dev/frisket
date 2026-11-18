@@ -17,7 +17,6 @@ import pytest
 from frisket.actions.system import root_action_catalog, validate_root_action
 from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.team.security.secrets import encrypt_secret
 from helpers import replace_test_source_cell, write_claimless_test_model_calls
@@ -56,8 +55,8 @@ class FakeGateway:
 
 
 @pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "emb.frisket", name="emb")
+def project(make_project):
+    p = make_project("emb")
     sheet = p.add_sheet("data")
     cols = {"headline": p.add_column(sheet, "headline")}
     p.add_rows(
@@ -68,7 +67,6 @@ def project(tmp_path):
     p._sheet_id = sheet  # type: ignore[attr-defined]
     p._cols = cols  # type: ignore[attr-defined]
     yield p
-    p.close()
 
 
 def _create_action(sheet_id, *, provider="fastembed", key="emb_create@1", policy=None):

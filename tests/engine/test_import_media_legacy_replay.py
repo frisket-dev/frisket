@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from contextlib import closing
 
 import pytest
 
 from frisket.contracts.action import ActionSpec, Receipt, ReceiptEvidence, ReceiptIO
 from frisket.engine.executor import run_action_spec
 from action_test_helpers import legacy_params_hash
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
 @pytest.mark.parametrize("kind", ["import.files", "import.pdf"])
-def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(tmp_path, kind):
+def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(
+    tmp_path, make_project, kind
+):
     source = {"kind": "file", "path": str(tmp_path / "removed-source.pdf")}
     request = {
         "schema_version": "frisket.action.v2",
@@ -41,19 +41,17 @@ def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(tmp_path, 
             )
         ],
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        store = ReceiptStore(project)
-        store.insert_completed(receipt)
-        original_body = store.body_by_id(receipt.receipt_id)
+    project = make_project("project")
+    store = ReceiptStore(project)
+    store.insert_completed(receipt)
+    original_body = store.body_by_id(receipt.receipt_id)
 
-        result = run_action_spec(project, request, project_id="p")
+    result = run_action_spec(project, request, project_id="p")
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert result.receipt_id is None
-        assert store.body_by_id(receipt.receipt_id) == original_body
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-        for table in ("sheets", "rows", "columns", "blobs", "ops"):
-            assert (
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-            )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert result.receipt_id is None
+    assert store.body_by_id(receipt.receipt_id) == original_body
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    for table in ("sheets", "rows", "columns", "blobs", "ops"):
+        assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
