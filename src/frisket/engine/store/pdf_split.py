@@ -132,17 +132,17 @@ class PdfSplitWriter(StreamingSheetWriter):
 
     @property
     def session(self) -> ImportSession:
-        self._require_session()
-        session = ImportSessionStore(self.project).get(self._session_id)
+        resumable = self._require_session()
+        session = ImportSessionStore(self.project).get(resumable.session_id)
         if session is None:
             raise ImportSessionConflict("split session is unavailable")
         return session
 
     def _require_split_writer(self, expected_cursor: int) -> ImportSession:
-        self._require_session()
+        resumable = self._require_session()
         session = ImportSessionStore(self.project).require_writer(
-            self._session_id,
-            self._writer_authority,
+            resumable.session_id,
+            resumable.writer_authority,
             expected_cursor,
         )
         operation = self.project.db.execute(
@@ -408,10 +408,10 @@ class PdfSplitWriter(StreamingSheetWriter):
         """Release the protected writer; Redo only restores saved publications."""
         db = self.project.db
         with write_transaction(db):
-            self._require_session()
+            resumable = self._require_session()
             session = ImportSessionStore(self.project).require_writer(
-                self._session_id,
-                self._writer_authority,
+                resumable.session_id,
+                resumable.writer_authority,
                 expected_cursor,
                 states=("active", "paused", "cancelled"),
             )
@@ -419,7 +419,7 @@ class PdfSplitWriter(StreamingSheetWriter):
                 str(row[0]): int(row[1])
                 for row in db.execute(
                     "SELECT state,COUNT(*) FROM import_session_pdf_sources WHERE session_id=? GROUP BY state",
-                    (self._session_id,),
+                    (resumable.session_id,),
                 )
             }
             if counts.get("pending", 0) and not stopped:
@@ -428,7 +428,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             published_errors = int(
                 db.execute(
                     "SELECT COUNT(*) FROM import_session_pdf_sources WHERE session_id=? AND state='published' AND error IS NOT NULL",
-                    (self._session_id,),
+                    (resumable.session_id,),
                 ).fetchone()[0]
             )
             counts["failed"] = counts.get("failed", 0) + published_errors
@@ -473,8 +473,8 @@ class PdfSplitWriter(StreamingSheetWriter):
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("split receipt finalization lost its CAS")
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
-            ChangeStore(self.project).close(self._op_id)
+            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (resumable.change_id,))
+            ChangeStore(self.project).close(resumable.change_id)
             ImportSessionStore(self.project).finish(
                 session,
                 keep=status in ("partial", "cancelled", "failed"),
@@ -485,7 +485,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             sheet_id=self.sheet_id,
             sheet_name=self._requested_sheet_name,
             row_count=session.committed_rows,
-            op_id=self._op_id,
+            op_id=resumable.change_id,
             receipt_id=self._receipt_id,
             receipt=receipt,
         )

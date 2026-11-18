@@ -36,6 +36,16 @@ from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 @dataclass(frozen=True)
+class _ResumableSession:
+    """The import session a resumable writer appends to, its writer, and the
+    Change (``ops`` row) that records the import."""
+
+    session_id: str
+    writer_authority: str
+    change_id: int
+
+
+@dataclass(frozen=True)
 class StreamingSheetPublication:
     sheet_id: int
     sheet_name: str
@@ -640,15 +650,15 @@ class StreamingSheetWriter:
     ) -> list[int]:
         """Atomically publish one page and advance its durable checkpoint."""
 
-        self._require_session()
+        resumable = self._require_session()
         batch = [dict(record) for record in records]
         if not batch or next_cursor <= expected_cursor or committed_bytes < 0:
             raise ValueError("import page must advance a non-empty bounded batch")
         db = self.project.db
         with write_transaction(db):
             session = ImportSessionStore(self.project).require_writer(
-                self._session_id,
-                self._writer_authority,
+                resumable.session_id,
+                resumable.writer_authority,
                 expected_cursor,
             )
             ImportSessionStore(self.project).upgrade_append_undo(session)
@@ -663,7 +673,7 @@ class StreamingSheetWriter:
                 "INSERT INTO import_session_rows(session_id,ordinal,row_id) "
                 "VALUES(?,?,?)",
                 (
-                    (self._session_id, session.committed_rows + offset, row_id)
+                    (resumable.session_id, session.committed_rows + offset, row_id)
                     for offset, row_id in enumerate(row_ids, start=1)
                 ),
             )
@@ -671,16 +681,18 @@ class StreamingSheetWriter:
             # Register only this page, rather than rereading the whole session.
             from .structural_changes import record_structural_changes
 
-            record_structural_changes(db, self._op_id, {"created_rows": row_ids})
+            record_structural_changes(
+                db, resumable.change_id, {"created_rows": row_ids}
+            )
             if blob_plan is not None:
                 publish_import_blobs(
                     self.project,
                     blob_plan.bind_row_ordinals(row_ids),
                     sheet_id=self.sheet_id,
                     column_ids=self._column_ids,
-                    op_id=self._op_id,
+                    op_id=resumable.change_id,
                     receipt_id=self._receipt_id,
-                    import_writer_authority=self._writer_authority,
+                    import_writer_authority=resumable.writer_authority,
                 )
             updated = db.execute(
                 "UPDATE import_sessions SET cursor=?,committed_rows=committed_rows+?,"
@@ -690,8 +702,8 @@ class StreamingSheetWriter:
                     int(next_cursor),
                     len(row_ids),
                     int(committed_bytes),
-                    self._session_id,
-                    self._writer_authority,
+                    resumable.session_id,
+                    resumable.writer_authority,
                     int(expected_cursor),
                 ),
             )
@@ -703,20 +715,20 @@ class StreamingSheetWriter:
         return row_ids
 
     def pause(self, *, expected_cursor: int) -> ImportSession:
-        self._require_session()
+        resumable = self._require_session()
         return ImportSessionStore(self.project).pause(
-            self._session_id,
-            self._writer_authority,
+            resumable.session_id,
+            resumable.writer_authority,
             expected_cursor,
         )
 
     def cancel(self, *, expected_cursor: int) -> ImportSession:
         """Stop acquisition while retaining every committed visible page."""
 
-        self._require_session()
+        resumable = self._require_session()
         return ImportSessionStore(self.project).cancel(
-            self._session_id,
-            self._writer_authority,
+            resumable.session_id,
+            resumable.writer_authority,
             expected_cursor,
         )
 
@@ -730,13 +742,13 @@ class StreamingSheetWriter:
     ) -> StreamingSheetPublication:
         """Finalize the one reserved receipt; cancelled sessions require Keep."""
 
-        self._require_session()
+        resumable = self._require_session()
         db = self.project.db
         with write_transaction(db):
             allowed = ("cancelled",) if keep_cancelled else ("active", "paused")
             session = ImportSessionStore(self.project).require_writer(
-                self._session_id,
-                self._writer_authority,
+                resumable.session_id,
+                resumable.writer_authority,
                 expected_cursor,
                 states=allowed,
             )
@@ -763,8 +775,8 @@ class StreamingSheetWriter:
                 receipt, require_status="running", commit=False
             ):
                 raise ImportSessionConflict("import receipt finalization lost its CAS")
-            ChangeStore(self.project).close(self._op_id)
-            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (self._op_id,))
+            ChangeStore(self.project).close(resumable.change_id)
+            db.execute("UPDATE ops SET barrier=0 WHERE id=?", (resumable.change_id,))
             ImportSessionStore(self.project).finish(
                 session,
                 keep=keep_cancelled or failure is not None,
@@ -775,7 +787,7 @@ class StreamingSheetWriter:
             sheet_id=self.sheet_id,
             sheet_name=self._requested_sheet_name,
             row_count=session.committed_rows,
-            op_id=self._op_id,
+            op_id=resumable.change_id,
             receipt_id=self._receipt_id,
             receipt=receipt,
         )
@@ -784,23 +796,23 @@ class StreamingSheetWriter:
 
     def remove_session(self, *, expected_cursor: int) -> None:
         """Revert only this import's contribution using ordinary Change history."""
-        self._require_session()
+        resumable = self._require_session()
         db = self.project.db
         with write_transaction(db):
             session = ImportSessionStore(self.project).require_writer(
-                self._session_id,
-                self._writer_authority,
+                resumable.session_id,
+                resumable.writer_authority,
                 expected_cursor,
                 states=("cancelled",),
             )
             self.prepare_removal(session)
             if (
                 db.execute(
-                    "SELECT change_order FROM ops WHERE id=?", (self._op_id,)
+                    "SELECT change_order FROM ops WHERE id=?", (resumable.change_id,)
                 ).fetchone()[0]
                 is not None
             ):
-                op_log.step_operation(self.project, "revert", op_id=self._op_id)
+                op_log.step_operation(self.project, "revert", op_id=resumable.change_id)
         self._closed = True
 
     def prepare_removal(self, session: ImportSession) -> None:
@@ -950,7 +962,7 @@ class StreamingSheetWriter:
             }
         )
 
-    def _require_session(self) -> None:
+    def _require_session(self) -> _ResumableSession:
         self._require_open()
         if (
             self._session_id is None
@@ -958,6 +970,7 @@ class StreamingSheetWriter:
             or self._op_id is None
         ):
             raise RuntimeError("streaming writer is not resumable")
+        return _ResumableSession(self._session_id, self._writer_authority, self._op_id)
 
     def set_warnings(self, warnings: Iterable[str]) -> None:
         """Set the bounded diagnostics written with the final receipt."""
