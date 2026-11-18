@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
-    ActionSpec,
     Receipt,
     ReceiptEvidence,
     ReceiptIO,
@@ -45,7 +44,6 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_support import (
     ActionCtx,
     _new_id,
-    _params_hash_without_confirmed,
     _row_value,
 )
 
@@ -657,7 +655,7 @@ def _queued_action_result_from_existing(
         *,
         params_hash: str,
         project_id: str,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         params: BaseModel,
     ) -> ActionResult:
         ctx = ActionCtx(project_id, action.kind)
@@ -1025,8 +1023,7 @@ def _reserve_queued_action(
     program: Recipe | None = None,
     commit: bool = True,
 ) -> dict[str, Any] | ActionResult:
-    params_hash_fn = spec.params_hash_fn or _params_hash_without_confirmed
-    params_hash = params_hash_fn(action)
+    params_hash = spec.params_hash_fn(action)
     result_from_existing = _queued_action_result_from_existing(spec)
     existing = _receipt_for_idempotency(project, action.idempotency_key)
     if existing is not None and recover_unobservable:
@@ -1607,7 +1604,11 @@ def _reserved_maprunner_result_from_existing(
     spec: _ReservedMaprunnerActionSpec,
 ) -> Callable[..., ActionResult | None]:
     def resumable_direct_run(
-        project: Any, existing: Any, *, params_hash: str, action: ActionSpec
+        project: Any,
+        existing: Any,
+        *,
+        params_hash: str,
+        action: _ActionExecutionEnvelope,
     ) -> bool:
         """Whether this resume-capable action left an exact owned run idle.
 
@@ -1686,7 +1687,7 @@ def _reserved_maprunner_result_from_existing(
         *,
         params_hash: str,
         project_id: str,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         params: Any | None = None,
     ) -> ActionResult | None:
         if resumable_direct_run(
@@ -1729,7 +1730,7 @@ def _reserved_maprunner_reserve_fn(
 
     def reserve(
         project: Any,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         *,
         params_hash: str,
         project_id: str,

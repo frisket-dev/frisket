@@ -6,7 +6,7 @@ import pytest
 
 from frisket.contracts.action import ActionSpec, Receipt, ReceiptEvidence, ReceiptIO
 from frisket.engine.executor import run_action_spec
-from frisket.engine.executor.action_support import _params_hash
+from action_test_helpers import legacy_params_hash
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
@@ -25,7 +25,7 @@ def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(tmp_path, 
         },
         "idempotency_key": "historical-import",
     }
-    request_hash = _params_hash(ActionSpec.model_validate(request))
+    request_hash = legacy_params_hash(ActionSpec.model_validate(request))
     receipt = Receipt(
         receipt_id="historical-receipt",
         project_id="p",

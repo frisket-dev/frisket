@@ -12,7 +12,6 @@ from frisket.contracts.action import (
     ActionError,
     ActionIdentity,
     ActionResult,
-    ActionSpec,
     Receipt,
     ReceiptEvidence,
     ReceiptIO,
@@ -30,8 +29,11 @@ from frisket.engine.store.receipts import (
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.execution.dispatch_control import DispatchControl
 from frisket.engine.executor.action_specs import declared_queued_action_job_kinds
-from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
-from frisket.engine.executor.action_support import ActionCtx, _new_id, _params_hash
+from frisket.engine.executor.action_inventory import (
+    _ActionExecutionEnvelope,
+    _TypedProjectEnvelope,
+)
+from frisket.engine.executor.action_support import ActionCtx, _new_id
 
 
 ACTION_JOB_SCHEMA_VERSION = "frisket.action_job.v1"
@@ -544,7 +546,7 @@ def _result_from_existing_action_job_receipt(
 def _existing_action_job_reservation_or_result(
     existing: Any,
     *,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     project_id: str,
     params_hash: str,
 ) -> dict[str, str] | ActionResult:
@@ -572,10 +574,10 @@ def _existing_action_job_reservation_or_result(
 
 def reserve_queued_action_job_receipt(
     project: Any,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     *,
     project_id: str,
-    params_hash: str | None = None,
+    params_hash: str,
     edition_run_context: Mapping[str, Any] | None = None,
     prepared_input: ReceiptIO | None = None,
 ) -> dict[str, str] | ActionResult:
@@ -587,7 +589,6 @@ def reserve_queued_action_job_receipt(
     """
 
     ctx = ActionCtx(project_id, action.kind)
-    params_hash = params_hash or _params_hash(action)
     encoded_edition_context = (
         None
         if edition_run_context is None
@@ -844,7 +845,7 @@ def _supports_typed_action_job(bound: Any) -> bool:
 
 def probe_queued_action_job_receipt(
     project: Any,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     *,
     project_id: str,
     params_hash: str,

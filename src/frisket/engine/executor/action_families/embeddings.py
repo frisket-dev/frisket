@@ -52,7 +52,6 @@ from frisket.contracts.action import (
     ActionIdentity,
     ActionOutput,
     ActionResult,
-    ActionSpec,
     Receipt,
     ReceiptEvidence,
     ReceiptIO,
@@ -153,7 +152,7 @@ _MEDIA_MODALITIES = frozenset({"image", "audio", "video", "file"})
 # --------------------------------------------------------------------------
 
 
-def _error(action: ActionSpec, project_id: str, code, message, **kw):
+def _error(action: _TypedProjectEnvelope, project_id: str, code, message, **kw):
     return ActionCtx(project_id, action.kind).failed(
         ActionError(code=code, message=message, action_kind=action.kind, **kw)
     )
@@ -161,7 +160,7 @@ def _error(action: ActionSpec, project_id: str, code, message, **kw):
 
 def _replay(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     *,
     params_hash: str,
     project_id: str,
@@ -726,7 +725,7 @@ def _narrow_set(project: Project, sheet_id: int, row_scope: dict[str, Any]) -> s
 
 def _validate_create_scope(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: IndexCreateParams,
     project_id: str,
 ) -> ActionResult | None:
@@ -765,7 +764,7 @@ def _validate_create_scope(
 
 def _embedding_create_existing_state(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     existing: Any,
     *,
     params_hash: str,
@@ -879,7 +878,7 @@ def _embedding_create_existing_state(
 
 def _reserve_embedding_create_probe(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     *,
     params_hash: str,
     project_id: str,
@@ -961,7 +960,7 @@ def _mark_embedding_probe_egress_reserved(
 
 def _run_paid_embedding_dimension_probe(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: IndexCreateParams,
     *,
     cap: dict[str, Any],
@@ -1357,7 +1356,7 @@ def _run_paid_embedding_dimension_probe(
 
 def _create_index(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: IndexCreateParams,
     *,
     project_id: str,
@@ -1828,7 +1827,7 @@ def _create_index(
 
 def _refresh_index(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: IndexRefreshParams,
     *,
     project_id: str,

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import uuid
 from collections.abc import Callable
@@ -217,30 +216,6 @@ class ActionCtx:
         return _failed_result(
             project_id=self.project_id, action_kind=self.kind, error=error
         )
-
-
-def _params_hash(action: ActionSpec) -> str:
-    payload = action.model_dump(mode="json", exclude_none=True)
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-def _params_hash_without_confirmed(action: ActionSpec) -> str:
-    # ``consented_promise_set_hash`` is the claims-gate echo — retry-flow
-    # plumbing exactly like ``confirmed``, so the confirmed retry hashes to
-    # the SAME action identity the user first submitted (additive: actions
-    # without the field hash identically to before).
-    payload = action.model_dump(mode="json", exclude_none=True)
-    params = dict(payload.get("params") or {})
-    for field in {"confirmed", "consented_promise_set_hash"}:
-        params.pop(field, None)
-    payload["params"] = params
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
-    )
-    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def _estimate_confirmation_reason(estimate: float | None) -> str:

@@ -23,6 +23,7 @@ case's ``patch`` hook may stub transports/routers and return extra
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -33,7 +34,7 @@ from typing import Any, Literal
 
 import pytest
 
-from frisket.contracts.action import ActionResult
+from frisket.contracts.action import ActionResult, ActionSpec
 from frisket.engine.store import Project
 from action_test_helpers import counts as table_counts
 
@@ -523,6 +524,21 @@ def test_replay(
         assert env.counts() == before
 
 
+def _legacy_params_hash_without_confirmed(action: ActionSpec) -> str:
+    # ``confirmed`` and ``consented_promise_set_hash`` are retry-flow
+    # plumbing, so a confirmed retry hashes to the action identity first
+    # submitted.
+    payload = action.model_dump(mode="json", exclude_none=True)
+    params = dict(payload.get("params") or {})
+    for name in ("confirmed", "consented_promise_set_hash"):
+        params.pop(name, None)
+    payload["params"] = params
+    encoded = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
+    return "sha256:" + hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _insert_running_reservation(env: CaseEnv, action: dict[str, Any]) -> str:
     """Simulate a concurrent in-flight run holding this action's idempotency
     reservation (a ``status='running'`` receipt with the same key and params
@@ -532,7 +548,6 @@ def _insert_running_reservation(env: CaseEnv, action: dict[str, Any]) -> str:
         ReceiptIO,
     )
     from frisket.contracts.action_validation import validate_action_spec
-    from frisket.engine.executor import action_support as action_runtime_support
 
     if env.case.request_style == "typed":
         from frisket.actions.system import typed_action_for_request
@@ -544,9 +559,7 @@ def _insert_running_reservation(env: CaseEnv, action: dict[str, Any]) -> str:
     else:
         validation = validate_action_spec(action)
         assert validation.ok and validation.action is not None
-        params_hash = action_runtime_support._params_hash_without_confirmed(
-            validation.action
-        )
+        params_hash = _legacy_params_hash_without_confirmed(validation.action)
         kind = validation.action.kind
     kind_us = kind.replace(".", "_")
     receipt = Receipt(

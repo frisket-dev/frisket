@@ -20,7 +20,6 @@ from frisket.actions.core import ModelRowsEvaluationContext
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
-    ActionSpec,
     Receipt,
 )
 from frisket.engine.executor.action_inventory import (
@@ -83,7 +82,9 @@ class QueuedV1ActionEntry:
     finalize_action: Callable[..., ActionResult]
     payload_codecs: tuple[_QueuedPayloadCodec, ...]
     pre_run_guard: QueuedPreRunGuard | None = None
-    cost_gate_error_fn: Callable[[ActionSpec, CostGate], ActionError] | None = None
+    cost_gate_error_fn: (
+        Callable[[_ActionExecutionEnvelope, CostGate], ActionError] | None
+    ) = None
     map_error_code: str = "map_run_failed"
     output_claim_error_field: str = "params.output_name"
 
@@ -93,7 +94,7 @@ class QueuedV1ActionEntry:
 
     def prepare_cost_gate_error(
         self,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         exc: CostGate,
     ) -> ActionError:
         if self.cost_gate_error_fn is not None:
@@ -102,7 +103,7 @@ class QueuedV1ActionEntry:
 
     def prepare_run_error(
         self,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         exc: Exception,
     ) -> ActionError:
         return ActionError(
@@ -389,7 +390,6 @@ def queued_v1_action_request(
                     else {}
                 ),
             )
-            assert spec.params_hash_fn is not None
             entry = _queued_v1_action_entry(_QueuedActionInventoryEntry(spec=spec))
         except (KeyError, TypeError, ValueError):
             return None

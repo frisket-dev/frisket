@@ -8,11 +8,11 @@ from typing import Any
 from frisket.contracts.action import (
     ActionError,
     ActionResultStatus,
-    ActionSpec,
     Receipt,
     ReceiptEvidence,
     ReceiptIO,
 )
+from frisket.engine.executor.action_inventory import _ActionExecutionEnvelope
 from frisket.ops.base import persisted_recipe_invocation_halt
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -59,7 +59,7 @@ def typed_run_has_matching_producer_receipt(
 
 def _run_backfill_terminal_projection(
     project: Project,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     run_id: int,
     *,
     requested_row_ids: list[int],
@@ -477,7 +477,7 @@ def _run_backfill_output_ref(
 
 def _run_backfill_receipt(
     *,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     action_id: str,
     project_id: str,
     receipt_id: str,

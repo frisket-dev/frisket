@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
-    ActionSpec,
     Receipt,
 )
 from frisket.engine.executor.action_specs import ResolvedAction
@@ -90,7 +89,6 @@ from frisket.engine.executor.action_support import (
     ActionCtx,
     RefusalSite,
     _new_id,
-    _params_hash,
     refusal_error,
 )
 
@@ -156,10 +154,7 @@ def _run_action_core_spec(
     and the `needs_confirmation` gate, then dispatches on `spec.body_kind` to the
     plain or reserved-maprunner body.
     """
-    params_hash_fn = spec.params_hash_fn
-    params_hash = (
-        params_hash_fn(action) if params_hash_fn is not None else _params_hash(action)
-    )
+    params_hash = spec.params_hash_fn(action)
     if spec.result_from_existing_fn is not None:
         existing = _receipt_for_idempotency(project, action.idempotency_key)
         if existing is not None:
@@ -219,7 +214,7 @@ def _child_sheet_deterministic_result_from_existing(
         *,
         params_hash: str,
         project_id: str,
-        action: ActionSpec,
+        action: _ActionExecutionEnvelope,
         params: Any | None = None,
     ) -> ActionResult:
         return _reserved_receipt_result_from_existing(
@@ -495,7 +490,7 @@ def _run_typed_plain_action(
 
 def _run_reserved_maprunner_action_spec(
     project: Any,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     params: BaseModel,
     *,
     spec: _ReservedMaprunnerActionSpec,
@@ -563,7 +558,7 @@ def preview_map_runner_factory(project: Any, router: Any | None) -> Any:
 
 def resolve_maprunner_runner_spec(
     project: Any,
-    action: ActionSpec,
+    action: _ActionExecutionEnvelope,
     params: BaseModel,
     *,
     runner_spec_fn: Callable[[Any], dict[str, Any]],
@@ -838,13 +833,14 @@ def _run_reserved_maprunner_action(
 ) -> ActionResult:
     ctx = ActionCtx(project_id, action.kind)
     prepared_execution = resolved_execution
-    params_hash = (
-        prepared_execution.params_hash
-        if prepared_execution is not None
-        else params_hash_fn(action)
-        if params_hash_fn is not None
-        else _params_hash(action)
-    )
+    if prepared_execution is not None:
+        params_hash = prepared_execution.params_hash
+    elif params_hash_fn is not None:
+        params_hash = params_hash_fn(action)
+    else:
+        raise TypeError(
+            "a reserved-maprunner run needs a prepared execution or a params_hash_fn"
+        )
     reused_reservation_ids: set[str] = set()
 
     def delete_reservation_fn(current_project: Any, receipt_id: str) -> None:

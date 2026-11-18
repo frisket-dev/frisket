@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from frisket.execution.provider import ExecutionCompositionContext
+from action_test_helpers import legacy_params_hash
 
 
 def _find_action() -> dict[str, Any]:
@@ -218,6 +219,7 @@ def _runless_handler_case(
         project,
         action,
         project_id=trusted_project_id,
+        params_hash=legacy_params_hash(action),
         edition_run_context=context,
     )
     assert isinstance(reservation, dict)

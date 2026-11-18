@@ -34,6 +34,7 @@ from frisket.contracts.action import (
 from frisket.engine.executor.action_inventory import (
     ExecutorContext,
     ExecutorDeps,
+    _ActionExecutionEnvelope,
     _TypedProjectEnvelope,
 )
 from frisket.engine.executor.action_reservations import (
@@ -374,7 +375,7 @@ def _bounded_google_sheets_provider_result(
 
 
 def _google_sheets_reconciliation_error(
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     *,
     checkpoint_id: str,
     checkpoint_code: str,
@@ -442,7 +443,7 @@ def _google_sheets_effect_dispatch(
     store: EffectCheckpointStore,
     unit: _GoogleSheetsEffectUnit,
     *,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: GoogleSheetsExportRequest,
     tabs: list[dict[str, Any]],
     secret_values: tuple[str, ...],
@@ -566,7 +567,7 @@ def _google_sheets_effect_dispatch(
     return _GoogleSheetsEffectDispatch("refuse_ambiguous", checkpoint_id, error=error)
 
 
-def _export_project_write_failed_error(action: ActionSpec) -> ActionError:
+def _export_project_write_failed_error(action: _ActionExecutionEnvelope) -> ActionError:
     return ActionError(
         code="project_write_failed",
         message="project write failed",
@@ -1292,7 +1293,7 @@ def run_typed_export_action(
 
 def _run_export_google_sheets(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: GoogleSheetsExportRequest,
     *,
     project_id: str,
@@ -1627,7 +1628,7 @@ def _google_sheets_connection_metadata(
 
 def _google_sheets_tabs_for_source(
     project: Project,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     params: GoogleSheetsExportRequest,
 ) -> list[dict[str, Any]] | ActionError:
     if params.source.kind == "all_sheets":
@@ -2123,7 +2124,7 @@ def _export_sheet_csv_receipt(
 
 def _export_google_sheets_receipt(
     *,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     action_id: str,
     project_id: str,
     receipt_id: str,
@@ -2203,7 +2204,7 @@ def _export_google_sheets_receipt(
 
 def _export_google_sheets_failed_receipt(
     *,
-    action: ActionSpec,
+    action: _TypedProjectEnvelope,
     action_id: str,
     project_id: str,
     receipt_id: str,
