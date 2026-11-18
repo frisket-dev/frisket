@@ -78,11 +78,9 @@ export interface ImportActivity {
 export interface ImportRetryConsent {
   importRef: string;
   planToken: string;
-  /** Null when the estimate is under the allowance and needs no consent. */
-  confirmation: string | null;
+  confirmation: string;
   estimate: RunEstimate;
   pages: number;
-  interruptedPages: number;
 }
 
 export function pendingImportRowCount(activity: ImportActivity | null): number {
@@ -432,25 +430,17 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       const { importRef } = activity;
       void command(importRef, async () => {
         const estimated = await estimateImportPreparationRetry(projectId, importRef);
-        // Reading an interrupted page again may bill it twice, so the person
-        // is told even when the allowance covers the retry.
-        const mayBillAgain = estimated.interruptedPages > 0 && estimated.pages > 0;
-        if (!estimated.estimate.requires_confirmation && !mayBillAgain) {
+        if (!estimated.estimate.requires_confirmation) {
           return retryImportPreparation(projectId, importRef, estimated.planToken, null);
         }
-        const confirmation = estimated.estimate.requires_confirmation
-          ? estimated.estimate.promise_set_hash
-          : null;
-        if (estimated.estimate.requires_confirmation && !confirmation) {
-          throw new Error('The retry estimate is missing its consent token.');
-        }
+        const confirmation = estimated.estimate.promise_set_hash;
+        if (!confirmation) throw new Error('The retry estimate is missing its consent token.');
         setRetryConsent({
           importRef,
           planToken: estimated.planToken,
-          confirmation: confirmation ?? null,
+          confirmation,
           estimate: estimated.estimate,
           pages: estimated.pages,
-          interruptedPages: estimated.interruptedPages,
         });
         return null;
       });

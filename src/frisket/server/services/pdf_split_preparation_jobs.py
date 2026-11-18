@@ -565,25 +565,16 @@ class PdfSplitPreparationJobs:
     def estimate_retry(
         self, project_id: str, import_ref: str, *, request_context: Any = None
     ) -> ImportPreparationRetryEstimate:
-        directory, generation, unread, plan_token = self._retry_scope(
+        directory, _generation, unread, plan_token = self._retry_scope(
             project_id, import_ref
         )
         estimated = self._estimate_unread(
             directory, project_id, unread, plan_token, request_context
         )
-        with PdfSplitPreparationStore(directory / "inventory.db") as store:
-            interrupted = int(
-                store.db.execute(
-                    "SELECT COUNT(*) FROM pdf_split_page_work WHERE generation=? "
-                    f"AND interrupted=1 AND {_NOT_READ_WORK}",
-                    (generation,),
-                ).fetchone()[0]
-            )
         return ImportPreparationRetryEstimate.model_validate(
             {
                 "plan_token": plan_token,
                 "failed_pages": len(unread),
-                "interrupted_pages": interrupted,
                 "pages": int(estimated["pages"]),
                 "estimate": dict(estimated["estimate"]),
             }

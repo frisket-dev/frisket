@@ -7543,7 +7543,6 @@ type HttpImportPreparationRetryEstimate_ActionEstimateClaim = ({
 export type HttpImportPreparationRetryEstimate = ({
   "estimate": (HttpImportPreparationRetryEstimate_ActionEstimate);
   "failed_pages": (number);
-  "interrupted_pages": (number);
   "pages": (number);
   "plan_token": (string);
 });

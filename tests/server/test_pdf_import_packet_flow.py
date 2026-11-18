@@ -1119,7 +1119,6 @@ def test_a_retried_page_is_a_new_purchase_unless_its_attempt_can_be_replayed(
             db.execute("DELETE FROM receipts WHERE id=?", (admitted[0][1],))
     estimate, retried = _retry(client, pid, ref)
     assert retried.status_code == 200, retried.text
-    assert estimate["interrupted_pages"] == (0 if ended == "failed" else 1)
     _settle(client, pid, ref, read=1)
     (first, second) = admitted
     assert (first == second) is same_identity
