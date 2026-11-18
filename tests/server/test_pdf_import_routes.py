@@ -353,8 +353,6 @@ class _Service:
             commit_id="commit-1",
             manifest_hash="b" * 64,
             committed_total=2,
-            available_through=1,
-            uploads_complete=False,
         )
 
     def discard(self, pid, draft_id):
