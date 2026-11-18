@@ -164,9 +164,7 @@ def _coerce_geo_point(value: Any) -> tuple[float, float] | None:
         return None
     if not column_types.validate_value("geo_point", parsed):
         return None
-    lon = parsed.get("lon")
-    lat = parsed.get("lat")
-    return (float(lon), float(lat))
+    return (float(parsed["lon"]), float(parsed["lat"]))
 
 
 @dataclass(frozen=True)

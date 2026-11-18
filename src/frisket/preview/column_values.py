@@ -177,7 +177,7 @@ def _column_distribution(
             # Match the SQL range predicate exactly: JSON integer/real cells
             # only. Strings that merely look numeric and booleans are not
             # number cells and must not appear in the histogram.
-            if type(raw) not in {int, float}:
+            if type(raw) is not int and type(raw) is not float:
                 continue
             value = float(raw)
             if math.isfinite(value):

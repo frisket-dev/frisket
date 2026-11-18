@@ -445,6 +445,8 @@ def _webhook_signature_header(config: dict[str, Any]) -> str:
 
 def _webhook_max_response_bytes(config: dict[str, Any]) -> int:
     raw = config.get("max_response_bytes")
+    if raw is None:
+        return DEFAULT_WEBHOOK_MAX_RESPONSE_BYTES
     try:
         value = int(raw)
     except (TypeError, ValueError):
@@ -454,6 +456,8 @@ def _webhook_max_response_bytes(config: dict[str, Any]) -> int:
 
 def _webhook_max_request_bytes(config: dict[str, Any]) -> int:
     raw = config.get("max_request_bytes")
+    if raw is None:
+        return DEFAULT_WEBHOOK_MAX_REQUEST_BYTES
     try:
         value = int(raw)
     except (TypeError, ValueError):
@@ -463,6 +467,8 @@ def _webhook_max_request_bytes(config: dict[str, Any]) -> int:
 
 def _webhook_max_redirects(config: dict[str, Any]) -> int:
     raw = config.get("max_redirects")
+    if raw is None:
+        return DEFAULT_WEBHOOK_MAX_REDIRECTS
     try:
         value = int(raw)
     except (TypeError, ValueError):

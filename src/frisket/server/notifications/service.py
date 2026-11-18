@@ -136,6 +136,8 @@ def normalize_route_input(
     if not name:
         raise ValueError("notification route name is required")
     channel_id = data.get("channel_id", existing_values.get("channel_id"))
+    if channel_id is None:
+        raise ValueError("channel_id is required")
     try:
         normalized_channel_id = int(channel_id)
     except (TypeError, ValueError) as exc:

@@ -49,7 +49,7 @@ def group_summary_identity(
     """Typed key and display label shared by memory and disk input traversal."""
     name = "null" if raw_group is None else str(raw_group)
     key_value = raw_group
-    if group_type == "number" and type(key_value) in (int, float):
+    if group_type == "number" and (type(key_value) is int or type(key_value) is float):
         key_value = float(key_value)
     identity_key = json.dumps(
         [group_type or type(key_value).__name__, key_value],

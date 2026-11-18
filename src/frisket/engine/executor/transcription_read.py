@@ -211,7 +211,7 @@ class _BoundTranscriber:
         segments = transcribe_engines.segments_with_index(out["segments"])
         duration_ms = (
             round(duration * 1000)
-            if type(duration) in (int, float)
+            if (type(duration) is int or type(duration) is float)
             and math.isfinite(duration)
             and duration >= 0
             else None

@@ -49,7 +49,11 @@ def _text(value: object) -> str:
 
 
 def _rate(value: object) -> float:
-    if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+    if (
+        (type(value) is not int and type(value) is not float)
+        or not math.isfinite(value)
+        or value < 0
+    ):
         raise ValueError("invalid OpenDocRouter rate")
     return float(value)
 

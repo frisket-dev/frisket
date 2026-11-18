@@ -146,10 +146,10 @@ class _PlainText(HTMLParser):
         if self.hidden:
             return
         if tag == "ol":
-            values = dict(attrs)
+            raw_start = dict(attrs).get("start", "1")
             try:
-                start = int(values.get("start", "1"))
-            except (TypeError, ValueError):
+                start = int(raw_start) if raw_start is not None else 1
+            except ValueError:
                 start = 1
             self.lists.append(["ol", start - 1])
         elif tag == "ul":

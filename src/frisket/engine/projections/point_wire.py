@@ -37,13 +37,14 @@ def _attribute_array(values: list[object]):
     Booleans are treated as categorical strings, not numbers."""
     import pyarrow as pa
 
-    numeric = all(
-        v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+    numbers = [
+        v
         for v in values
-    )
-    if numeric:
+        if v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+    ]
+    if len(numbers) == len(values):
         return pa.array(
-            [None if v is None else float(v) for v in values], type=pa.float64()
+            [None if v is None else float(v) for v in numbers], type=pa.float64()
         )
     return pa.array([None if v is None else str(v) for v in values], type=pa.string())
 
