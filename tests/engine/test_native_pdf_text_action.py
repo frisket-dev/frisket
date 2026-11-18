@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -142,24 +141,26 @@ def _bound_reader(project, tmp_path, **options):
     return row, owner, reader
 
 
-def test_native_page_limit_is_checked_before_positioned_batch(tmp_path, monkeypatch):
+def test_native_page_limit_is_checked_before_positioned_batch(
+    tmp_path, make_project, monkeypatch
+):
     from frisket.engine import pdf_text
 
     async def forbidden_batch(*_args, **_kwargs):
         pytest.fail("full batch started before enforcing the true PDF page count")
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", forbidden_batch)
-    with closing(Project.create(tmp_path / "limited.frisket")) as project:
-        row, owner, reader = _bound_reader(
-            project, tmp_path, execution_limits=ExecutionLimits(max_pdf_pages=1)
-        )
-        with pytest.raises(ExecutionLimitExceeded, match="max_pdf_pages"):
-            asyncio.run(reader.read(row, ColumnRef("source")))
-        assert owner.calls_by_row == {}
+    project = make_project("limited")
+    row, owner, reader = _bound_reader(
+        project, tmp_path, execution_limits=ExecutionLimits(max_pdf_pages=1)
+    )
+    with pytest.raises(ExecutionLimitExceeded, match="max_pdf_pages"):
+        asyncio.run(reader.read(row, ColumnRef("source")))
+    assert owner.calls_by_row == {}
 
 
 def test_cancellation_between_real_batches_retains_no_prepared_output(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
     from frisket.engine import pdf_text
 
@@ -175,20 +176,16 @@ def test_cancellation_between_real_batches_retains_no_prepared_output(
         return batch
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", one_page_batch)
-    with closing(Project.create(tmp_path / "cancelled.frisket")) as project:
-        row, owner, reader = _bound_reader(
-            project, tmp_path, cancelled=lambda: cancelled
-        )
-        with pytest.raises(RowError, match="cancelled"):
-            asyncio.run(reader.read(row, ColumnRef("source")))
-        assert completed == [1]
-        assert owner.calls_by_row == {}
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM prepared_content_refs").fetchone()[
-                0
-            ]
-            == 0
-        )
+    project = make_project("cancelled")
+    row, owner, reader = _bound_reader(project, tmp_path, cancelled=lambda: cancelled)
+    with pytest.raises(RowError, match="cancelled"):
+        asyncio.run(reader.read(row, ColumnRef("source")))
+    assert completed == [1]
+    assert owner.calls_by_row == {}
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM prepared_content_refs").fetchone()[0]
+        == 0
+    )
 
 
 def test_native_pdf_action_has_typed_public_contract() -> None:
@@ -215,7 +212,7 @@ def test_native_pdf_action_has_typed_public_contract() -> None:
 
 
 def test_native_pdf_text_publishes_prepared_pages_evidence_and_search(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
 
@@ -230,112 +227,114 @@ def test_native_pdf_text_publishes_prepared_pages_evidence_and_search(
         )
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", extract)
-    with closing(Project.create(tmp_path / "native.frisket")) as project:
-        sheet_id, _source_id, row_id, digest = _source(project, tmp_path)
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="native-success"),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("native")
+    sheet_id, _source_id, row_id, digest = _source(project, tmp_path)
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="native-success"),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert len(observed) == 1
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == (
-            "ALPHA native words\n\nOMEGA searchable words"
+    assert result.status == "completed", result.errors
+    assert len(observed) == 1
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == (
+        "ALPHA native words\n\nOMEGA searchable words"
+    )
+    raw = project.db.execute(
+        "SELECT value_kind,value FROM results WHERE run_id=? AND row_id=? "
+        "AND column_id=?",
+        (result.run_id, row_id, output.column_id),
+    ).fetchone()
+    assert raw["value_kind"] == "prepared_content_ref"
+    prepared = PreparedContentStore(project).resolve(int(raw["value"]))
+    assert [pin.page_number for pin in prepared.pins] == [1, 2]
+    artifact = project.db.execute(
+        "SELECT blob_hash,page_count FROM source_artifacts WHERE id=?",
+        (prepared.source_artifact_id,),
+    ).fetchone()
+    assert (artifact["blob_hash"], artifact["page_count"]) == (digest, 2)
+    assert {
+        row["page_start"]
+        for row in project.db.execute(
+            "SELECT span.page_start FROM source_spans AS span "
+            "JOIN evidence_link_spans AS member ON member.span_id=span.id "
+            "JOIN evidence_links AS link ON link.id=member.link_id "
+            "WHERE link.run_id=? AND link.column_id=?",
+            (result.run_id, output.column_id),
         )
-        raw = project.db.execute(
-            "SELECT value_kind,value FROM results WHERE run_id=? AND row_id=? "
-            "AND column_id=?",
-            (result.run_id, row_id, output.column_id),
-        ).fetchone()
-        assert raw["value_kind"] == "prepared_content_ref"
-        prepared = PreparedContentStore(project).resolve(int(raw["value"]))
-        assert [pin.page_number for pin in prepared.pins] == [1, 2]
-        artifact = project.db.execute(
-            "SELECT blob_hash,page_count FROM source_artifacts WHERE id=?",
-            (prepared.source_artifact_id,),
-        ).fetchone()
-        assert (artifact["blob_hash"], artifact["page_count"]) == (digest, 2)
-        assert {
-            row["page_start"]
-            for row in project.db.execute(
-                "SELECT span.page_start FROM source_spans AS span "
-                "JOIN evidence_link_spans AS member ON member.span_id=span.id "
-                "JOIN evidence_links AS link ON link.id=member.link_id "
-                "WHERE link.run_id=? AND link.column_id=?",
-                (result.run_id, output.column_id),
-            )
-        } == {1, 2}
+    } == {1, 2}
 
-        drain_index(project)
-        hits = search_project(project, "OMEGA", rerank="off")
-        assert any(
-            hit["row_id"] == row_id and hit["column_id"] == output.column_id
-            for hit in hits
-        )
+    drain_index(project)
+    hits = search_project(project, "OMEGA", rerank="off")
+    assert any(
+        hit["row_id"] == row_id and hit["column_id"] == output.column_id for hit in hits
+    )
 
 
-def test_native_pdf_action_uses_real_fenced_extractor(tmp_path: Path) -> None:
-    with closing(Project.create(tmp_path / "real-native.frisket")) as project:
-        sheet_id, _source_id, row_id, _digest = _source(
-            project,
-            tmp_path,
-            pdf=_pdf_bytes("REALNATIVEONE", "REALNATIVETWO"),
-        )
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="real-native-extractor"),
-            project_id=PROJECT_ID,
-        )
+def test_native_pdf_action_uses_real_fenced_extractor(
+    tmp_path: Path, make_project
+) -> None:
+    project = make_project("real-native")
+    sheet_id, _source_id, row_id, _digest = _source(
+        project,
+        tmp_path,
+        pdf=_pdf_bytes("REALNATIVEONE", "REALNATIVETWO"),
+    )
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="real-native-extractor"),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert not result.warnings
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == (
-            "REALNATIVEONE\n\nREALNATIVETWO"
-        )
+    assert result.status == "completed", result.errors
+    assert not result.warnings
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == (
+        "REALNATIVEONE\n\nREALNATIVETWO"
+    )
 
 
 def test_mixed_native_pdf_retains_blank_pages_and_warns_in_result_and_receipt(
     tmp_path: Path,
+    make_project,
 ) -> None:
     warning = (
         "1 of 3 pages have no embedded text. "
         "If they contain scanned text, re-scan with OCR to include it."
     )
-    with closing(Project.create(tmp_path / "mixed-warning.frisket")) as project:
-        sheet_id, _source_id, row_id, _digest = _source(
-            project, tmp_path, pdf=_pdf_bytes("NATIVEFIRST", "", "NATIVELAST")
-        )
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="mixed-warning"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        raw = project.db.execute(
-            "SELECT value_kind,value,warnings,error FROM results WHERE run_id=? AND row_id=? AND column_id=?",
-            (result.run_id, row_id, output.column_id),
-        ).fetchone()
-        assert raw["value_kind"] == "prepared_content_ref" and raw["error"] is None
-        prepared = PreparedContentStore(project).resolve(int(raw["value"]))
-        assert prepared.text == "NATIVEFIRST\n\n\n\nNATIVELAST"
-        assert [pin.page_number for pin in prepared.pins] == [1, 2, 3]
-        assert json.loads(raw["warnings"]) == [warning]
-        assert sum(warning in item for item in result.warnings) == 1
-        receipt = json.loads(
-            project.db.execute(
-                "SELECT body FROM receipts WHERE id=?",
-                (result.receipt_id,),
-            ).fetchone()["body"]
-        )
-        assert sum(warning in item for item in receipt["warnings"]) == 1
+    project = make_project("mixed-warning")
+    sheet_id, _source_id, row_id, _digest = _source(
+        project, tmp_path, pdf=_pdf_bytes("NATIVEFIRST", "", "NATIVELAST")
+    )
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="mixed-warning"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    raw = project.db.execute(
+        "SELECT value_kind,value,warnings,error FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+        (result.run_id, row_id, output.column_id),
+    ).fetchone()
+    assert raw["value_kind"] == "prepared_content_ref" and raw["error"] is None
+    prepared = PreparedContentStore(project).resolve(int(raw["value"]))
+    assert prepared.text == "NATIVEFIRST\n\n\n\nNATIVELAST"
+    assert [pin.page_number for pin in prepared.pins] == [1, 2, 3]
+    assert json.loads(raw["warnings"]) == [warning]
+    assert sum(warning in item for item in result.warnings) == 1
+    receipt = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE id=?",
+            (result.receipt_id,),
+        ).fetchone()["body"]
+    )
+    assert sum(warning in item for item in receipt["warnings"]) == 1
 
 
 def test_wholly_textless_document_completes_with_ocr_suggestion(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
 
@@ -343,28 +342,26 @@ def test_wholly_textless_document_completes_with_ocr_suggestion(
         return pdf_text.PdfTextBatch([_page(1, ""), _page(2, "")], 2, None)
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", extract)
-    with closing(Project.create(tmp_path / "mixed.frisket")) as project:
-        sheet_id, _source_id, row_id, _digest = _source(project, tmp_path)
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="native-needs-ocr"),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("mixed")
+    sheet_id, _source_id, row_id, _digest = _source(project, tmp_path)
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="native-needs-ocr"),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert "No searchable text. Try OCR." in result.warnings
-        assert RunResultStore(project).row_error_summary(result.run_id) is None
-        ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[
-            0
-        ]
-        prepared = PreparedContentStore(project).resolve(ref_id)
-        assert prepared.text == "\n\n"
-        assert prepared.covered_pages == (1, 2)
-        assert prepared.complete is True
+    assert result.status == "completed", result.errors
+    assert "No searchable text. Try OCR." in result.warnings
+    assert RunResultStore(project).row_error_summary(result.run_id) is None
+    ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
+    prepared = PreparedContentStore(project).resolve(ref_id)
+    assert prepared.text == "\n\n"
+    assert prepared.covered_pages == (1, 2)
+    assert prepared.complete is True
 
 
 def test_page_scoped_cell_keeps_original_page_identity(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
 
@@ -375,44 +372,44 @@ def test_page_scoped_cell_keeps_original_page_identity(
         return pdf_text.PdfTextBatch([_page(2, "SECOND PAGE NATIVE")], 2, None)
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", extract)
-    with closing(Project.create(tmp_path / "selected.frisket")) as project:
-        sheet_id, _source_id, row_id, digest = _source(project, tmp_path, page=2)
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="native-selected-page"),
-            project_id=PROJECT_ID,
-        )
+    project = make_project("selected")
+    sheet_id, _source_id, row_id, digest = _source(project, tmp_path, page=2)
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="native-selected-page"),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        assert len(observed) == 1 and observed[0][1] == 2
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        raw = project.db.execute(
-            "SELECT value FROM results WHERE run_id=? AND row_id=? AND column_id=?",
-            (result.run_id, row_id, output.column_id),
-        ).fetchone()
-        prepared = PreparedContentStore(project).resolve(int(raw["value"]))
-        assert prepared.page_number == 2
-        assert [pin.page_number for pin in prepared.pins] == [2]
-        artifact = project.db.execute(
-            "SELECT blob_hash,page_count FROM source_artifacts WHERE id=?",
-            (prepared.source_artifact_id,),
-        ).fetchone()
-        assert (artifact["blob_hash"], artifact["page_count"]) == (digest, 2)
-        assert (
-            project.db.execute(
-                "SELECT span.page_start FROM source_spans AS span "
-                "JOIN evidence_link_spans AS member ON member.span_id=span.id "
-                "JOIN evidence_links AS link ON link.id=member.link_id "
-                "WHERE link.run_id=? AND link.column_id=? "
-                "ORDER BY span.id LIMIT 1",
-                (result.run_id, output.column_id),
-            ).fetchone()[0]
-            == 2
-        )
+    assert result.status == "completed", result.errors
+    assert len(observed) == 1 and observed[0][1] == 2
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    raw = project.db.execute(
+        "SELECT value FROM results WHERE run_id=? AND row_id=? AND column_id=?",
+        (result.run_id, row_id, output.column_id),
+    ).fetchone()
+    prepared = PreparedContentStore(project).resolve(int(raw["value"]))
+    assert prepared.page_number == 2
+    assert [pin.page_number for pin in prepared.pins] == [2]
+    artifact = project.db.execute(
+        "SELECT blob_hash,page_count FROM source_artifacts WHERE id=?",
+        (prepared.source_artifact_id,),
+    ).fetchone()
+    assert (artifact["blob_hash"], artifact["page_count"]) == (digest, 2)
+    assert (
+        project.db.execute(
+            "SELECT span.page_start FROM source_spans AS span "
+            "JOIN evidence_link_spans AS member ON member.span_id=span.id "
+            "JOIN evidence_links AS link ON link.id=member.link_id "
+            "WHERE link.run_id=? AND link.column_id=? "
+            "ORDER BY span.id LIMIT 1",
+            (result.run_id, output.column_id),
+        ).fetchone()[0]
+        == 2
+    )
 
 
 def test_real_2001_page_native_pdf_preserves_blanks_and_tail(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
 
@@ -425,47 +422,47 @@ def test_real_2001_page_native_pdf_preserves_blanks_and_tail(
         return batch
 
     monkeypatch.setattr(pdf_text, "extract_pdf_text_batch", read_batch)
-    with closing(Project.create(tmp_path / "2001-pages.frisket")) as project:
-        sheet_id, _source_id, row_id, _digest = _source(
-            project,
-            tmp_path,
-            pdf=_pdf_bytes("NATIVEHEAD", *([""] * 1999), "NATIVETAILBEACON"),
-        )
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="native-2001"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        raw = project.db.execute(
-            "SELECT value_kind,value FROM results WHERE run_id=? AND column_id=?",
-            (result.run_id, output.column_id),
-        ).fetchone()
-        assert raw["value_kind"] == "prepared_content_ref"
-        prepared = PreparedContentStore(project).resolve(int(raw["value"]))
-        assert len(prepared.pins) == 2001
-        assert prepared.text == "NATIVEHEAD" + "\n\n" * 2000 + "NATIVETAILBEACON"
-        assert prepared.pins[-1].page_number == 2001
-        assert (
-            project.db.execute(
-                "SELECT page_count FROM source_artifacts WHERE id=?",
-                (prepared.source_artifact_id,),
-            ).fetchone()[0]
-            == 2001
-        )
-        assert batches[0] == (1, 64) and batches[-1] == (1985, 17)
-        assert sum(count for _, count in batches) == 2001
-        assert all(count <= 64 for _, count in batches)
-        drain_index(project)
-        assert any(
-            hit["row_id"] == row_id and hit["column_id"] == output.column_id
-            for hit in search_project(project, "NATIVETAILBEACON", rerank="off")
-        )
+    project = make_project("2001-pages")
+    sheet_id, _source_id, row_id, _digest = _source(
+        project,
+        tmp_path,
+        pdf=_pdf_bytes("NATIVEHEAD", *([""] * 1999), "NATIVETAILBEACON"),
+    )
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="native-2001"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    raw = project.db.execute(
+        "SELECT value_kind,value FROM results WHERE run_id=? AND column_id=?",
+        (result.run_id, output.column_id),
+    ).fetchone()
+    assert raw["value_kind"] == "prepared_content_ref"
+    prepared = PreparedContentStore(project).resolve(int(raw["value"]))
+    assert len(prepared.pins) == 2001
+    assert prepared.text == "NATIVEHEAD" + "\n\n" * 2000 + "NATIVETAILBEACON"
+    assert prepared.pins[-1].page_number == 2001
+    assert (
+        project.db.execute(
+            "SELECT page_count FROM source_artifacts WHERE id=?",
+            (prepared.source_artifact_id,),
+        ).fetchone()[0]
+        == 2001
+    )
+    assert batches[0] == (1, 64) and batches[-1] == (1985, 17)
+    assert sum(count for _, count in batches) == 2001
+    assert all(count <= 64 for _, count in batches)
+    drain_index(project)
+    assert any(
+        hit["row_id"] == row_id and hit["column_id"] == output.column_id
+        for hit in search_project(project, "NATIVETAILBEACON", rerank="off")
+    )
 
 
 def test_real_multimegabyte_native_pdf_keeps_complete_prepared_text(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, make_project, monkeypatch
 ) -> None:
     from frisket.engine import pdf_text
 
@@ -486,21 +483,19 @@ def test_real_multimegabyte_native_pdf_keeps_complete_prepared_text(
     line, tail = "NATIVE" + "A" * 74, "MULTIMEGATAIL" + "B" * 68
     expected = "\n\n".join(["\n".join([line] * 64)] * 399 + ["\n".join([tail] * 64)])
     assert len(expected) > 2_000_000
-    with closing(Project.create(tmp_path / "multimegabyte.frisket")) as project:
-        sheet_id, _source_id, row_id, _digest = _source(
-            project, tmp_path, pdf=_pdf_bytes(*([line] * 399), tail, repeat_lines=64)
-        )
-        result = run_action_spec(
-            project,
-            _request(sheet_id, row_id, key="native-multimegabyte"),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        output = next(item for item in result.outputs if item.name == "prepared text")
-        assert (
-            project.get_values(sheet_id, output.column_id, [row_id])[row_id] == expected
-        )
-        assert sum(count for count, _ in sizes) == 400
-        assert len(sizes) > 1 and all(
-            count <= 64 and chars <= 1_000_000 for count, chars in sizes
-        )
+    project = make_project("multimegabyte")
+    sheet_id, _source_id, row_id, _digest = _source(
+        project, tmp_path, pdf=_pdf_bytes(*([line] * 399), tail, repeat_lines=64)
+    )
+    result = run_action_spec(
+        project,
+        _request(sheet_id, row_id, key="native-multimegabyte"),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    output = next(item for item in result.outputs if item.name == "prepared text")
+    assert project.get_values(sheet_id, output.column_id, [row_id])[row_id] == expected
+    assert sum(count for count, _ in sizes) == 400
+    assert len(sizes) > 1 and all(
+        count <= 64 and chars <= 1_000_000 for count, chars in sizes
+    )

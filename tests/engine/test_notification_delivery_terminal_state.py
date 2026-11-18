@@ -2,24 +2,20 @@
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.notifications import TERMINAL_REQUEST_STATUSES
 
 
 @pytest.fixture
-def delivery_request(tmp_path):
-    project = Project.create(tmp_path / "deliveries.frisket")
-    try:
-        channel = project.create_notification_channel(kind="in_app", name="In app")
-        delivery = project.create_notification_delivery_request(
-            route_id=None,
-            channel_id=channel["id"],
-            delivery_kind="immediate",
-            dedupe_key="one-delivery",
-        )
-        yield project, delivery["id"]
-    finally:
-        project.close()
+def delivery_request(make_project):
+    project = make_project("deliveries")
+    channel = project.create_notification_channel(kind="in_app", name="In app")
+    delivery = project.create_notification_delivery_request(
+        route_id=None,
+        channel_id=channel["id"],
+        delivery_kind="immediate",
+        dedupe_key="one-delivery",
+    )
+    yield project, delivery["id"]
 
 
 @pytest.mark.parametrize("terminal", sorted(TERMINAL_REQUEST_STATUSES))

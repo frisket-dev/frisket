@@ -20,14 +20,11 @@ from frisket.engine.store.media_blobs import MediaBlobStore
 
 
 @pytest.fixture
-def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Project]:
+def project(make_project, monkeypatch: pytest.MonkeyPatch) -> Iterator[Project]:
     monkeypatch.setattr(metadata, "_resolve_exiftool_path", lambda: None)
     monkeypatch.setattr(metadata, "_resolve_ffprobe_path", lambda: None)
-    instance = Project.create(tmp_path / "reader.frisket")
-    try:
-        yield instance
-    finally:
-        instance.close()
+    instance = make_project("reader")
+    yield instance
 
 
 def _blob(project: Project, width: int = 13) -> str:

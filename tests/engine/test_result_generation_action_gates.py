@@ -107,51 +107,48 @@ def _seed_prepared_base_text(project, *, sheet, source, row, target):
 
 def test_generation_free_designated_text_publishes_ordinary_first_generation(
     tmp_path,
+    make_project,
 ):
-    from contextlib import closing
 
-    from frisket.engine.store import Project
     from frisket.engine.store.prepared_content import PreparedContentStore
 
-    with closing(Project.create(tmp_path / "first-text.frisket")) as project:
-        sheet, _source, row, text, request = _document_text_admission(project, tmp_path)
-        result = run_action_spec(project, request, project_id="first-text")
+    project = make_project("first-text")
+    sheet, _source, row, text, request = _document_text_admission(project, tmp_path)
+    result = run_action_spec(project, request, project_id="first-text")
 
-        assert result.status == "completed", result.errors
-        assert project.get_values(sheet, text, [row]) == {row: "first designated text"}
-        binding = ResultGenerationStore(project).get_binding(result.run_id, text)
-        assert binding is not None and binding.state == "sealed"
-        head = ResultGenerationStore(project).read_cell_heads(text, row_ids=[row])[row]
-        assert head.prepared_ref_id is not None
-        assert PreparedContentStore(project).resolve(head.prepared_ref_id).text == (
-            "first designated text"
-        )
+    assert result.status == "completed", result.errors
+    assert project.get_values(sheet, text, [row]) == {row: "first designated text"}
+    binding = ResultGenerationStore(project).get_binding(result.run_id, text)
+    assert binding is not None and binding.state == "sealed"
+    head = ResultGenerationStore(project).read_cell_heads(text, row_ids=[row])[row]
+    assert head.prepared_ref_id is not None
+    assert PreparedContentStore(project).resolve(head.prepared_ref_id).text == (
+        "first designated text"
+    )
 
 
-def test_generation_free_designated_text_admits_ocr_without_adopting_blocks(tmp_path):
-    from contextlib import closing
+def test_generation_free_designated_text_admits_ocr_without_adopting_blocks(
+    tmp_path, make_project
+):
 
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-    from frisket.engine.store import Project
 
-    with closing(Project.create(tmp_path / "first-ocr.frisket")) as project:
-        _sheet, _source, _row, text, request = _document_text_admission(
-            project, tmp_path
-        )
-        request.update(
-            action_id="media.ocr",
-            params={"source": "source", "engine": "rapidocr"},
-            output_names={"text": "Text", "blocks": "Positions"},
-            expected_output_columns={"Text": text, "Positions": None},
-        )
-        before = _mutation_snapshot(project)
-        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
-        assert dict(plan.output_target_preconditions) == {
-            "Text": text,
-            "Positions": None,
-        }
-        assert _mutation_snapshot(project) == before
+    project = make_project("first-ocr")
+    _sheet, _source, _row, text, request = _document_text_admission(project, tmp_path)
+    request.update(
+        action_id="media.ocr",
+        params={"source": "source", "engine": "rapidocr"},
+        output_names={"text": "Text", "blocks": "Positions"},
+        expected_output_columns={"Text": text, "Positions": None},
+    )
+    before = _mutation_snapshot(project)
+    plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+    assert dict(plan.output_target_preconditions) == {
+        "Text": text,
+        "Positions": None,
+    }
+    assert _mutation_snapshot(project) == before
 
 
 @pytest.mark.parametrize(
@@ -166,138 +163,127 @@ def test_generation_free_designated_text_admits_ocr_without_adopting_blocks(tmp_
     ],
 )
 def test_first_document_text_admission_requires_exact_generation_free_role(
-    tmp_path, mismatch
+    tmp_path, make_project, mismatch
 ):
-    from contextlib import closing
 
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import (
         TypedMapRowsPlanError,
         build_typed_map_rows_plan,
     )
-    from frisket.engine.store import Project
 
-    with closing(Project.create(tmp_path / "refused-text.frisket")) as project:
-        sheet, source, row, text, request = _document_text_admission(project, tmp_path)
-        if mismatch == "unbound":
-            project.db.execute(
-                "DELETE FROM document_text_column_roles WHERE source_column_id=?",
-                (source,),
-            )
-            project.db.commit()
-        elif mismatch == "other-source":
-            project.add_column(sheet, "another source", type="file")
-            request["params"] = {"source": "another source"}
-        elif mismatch == "unfenced":
-            request.pop("expected_output_columns")
-        elif mismatch == "different-target":
-            request["expected_output_columns"] = {"Text": source}
-        elif mismatch == "existing-value":
-            project.apply_edits(
-                [{"row_id": row, "column_id": text, "value": "keep me"}]
-            )
-        else:
-            _seed_prepared_base_text(
-                project, sheet=sheet, source=source, row=row, target=text
-            )
-            project.apply_edits(
-                [
-                    {
-                        "row_id": row,
-                        "column_id": source,
-                        "value": {
-                            "blob": "sha256:" + "9" * 64,
-                            "mime": "application/pdf",
-                        },
-                    }
-                ]
-            )
-        before = _mutation_snapshot(project)
-        with pytest.raises(TypedMapRowsPlanError):
-            build_typed_map_rows_plan(project, typed_action_for_request(request))
-        assert _mutation_snapshot(project) == before
-
-
-def test_seeded_exact_prepared_text_is_admitted_without_copying_body(tmp_path):
-    from contextlib import closing
-
-    from frisket.engine.store import Project
-    from frisket.engine.store.prepared_content import PreparedContentStore
-
-    with closing(Project.create(tmp_path / "seeded-text.frisket")) as project:
-        sheet, source, row, text, request = _document_text_admission(project, tmp_path)
-        seeded = _seed_prepared_base_text(
+    project = make_project("refused-text")
+    sheet, source, row, text, request = _document_text_admission(project, tmp_path)
+    if mismatch == "unbound":
+        project.db.execute(
+            "DELETE FROM document_text_column_roles WHERE source_column_id=?",
+            (source,),
+        )
+        project.db.commit()
+    elif mismatch == "other-source":
+        project.add_column(sheet, "another source", type="file")
+        request["params"] = {"source": "another source"}
+    elif mismatch == "unfenced":
+        request.pop("expected_output_columns")
+    elif mismatch == "different-target":
+        request["expected_output_columns"] = {"Text": source}
+    elif mismatch == "existing-value":
+        project.apply_edits([{"row_id": row, "column_id": text, "value": "keep me"}])
+    else:
+        _seed_prepared_base_text(
             project, sheet=sheet, source=source, row=row, target=text
         )
+        project.apply_edits(
+            [
+                {
+                    "row_id": row,
+                    "column_id": source,
+                    "value": {
+                        "blob": "sha256:" + "9" * 64,
+                        "mime": "application/pdf",
+                    },
+                }
+            ]
+        )
+    before = _mutation_snapshot(project)
+    with pytest.raises(TypedMapRowsPlanError):
+        build_typed_map_rows_plan(project, typed_action_for_request(request))
+    assert _mutation_snapshot(project) == before
 
-        result = run_action_spec(project, request, project_id="seeded-text")
 
-        assert result.status == "completed", result.errors
-        assert PreparedContentStore(project).resolve(seeded).text == "seeded exact text"
-        assert project.get_values(sheet, text, [row]) == {row: "first designated text"}
+def test_seeded_exact_prepared_text_is_admitted_without_copying_body(
+    tmp_path, make_project
+):
+
+    from frisket.engine.store.prepared_content import PreparedContentStore
+
+    project = make_project("seeded-text")
+    sheet, source, row, text, request = _document_text_admission(project, tmp_path)
+    seeded = _seed_prepared_base_text(
+        project, sheet=sheet, source=source, row=row, target=text
+    )
+
+    result = run_action_spec(project, request, project_id="seeded-text")
+
+    assert result.status == "completed", result.errors
+    assert PreparedContentStore(project).resolve(seeded).text == "seeded exact text"
+    assert project.get_values(sheet, text, [row]) == {row: "first designated text"}
 
 
-def test_seeded_unrelated_ai_target_is_not_adopted(tmp_path):
-    from contextlib import closing
+def test_seeded_unrelated_ai_target_is_not_adopted(tmp_path, make_project):
 
     from frisket.actions.system import typed_action_for_request
     from frisket.engine.executor.map_rows_action import (
         TypedMapRowsPlanError,
         build_typed_map_rows_plan,
     )
-    from frisket.engine.store import Project
 
-    with closing(Project.create(tmp_path / "unrelated-seeded.frisket")) as project:
-        sheet, source, row, _text, request = _document_text_admission(project, tmp_path)
-        unrelated = project.add_column(
-            sheet, "Unrelated Text", type="text", ai_generated=True
-        )
-        _seed_prepared_base_text(
-            project, sheet=sheet, source=source, row=row, target=unrelated
-        )
-        request["output_names"] = {"text": "Unrelated Text"}
-        request["expected_output_columns"] = {"Unrelated Text": unrelated}
+    project = make_project("unrelated-seeded")
+    sheet, source, row, _text, request = _document_text_admission(project, tmp_path)
+    unrelated = project.add_column(
+        sheet, "Unrelated Text", type="text", ai_generated=True
+    )
+    _seed_prepared_base_text(
+        project, sheet=sheet, source=source, row=row, target=unrelated
+    )
+    request["output_names"] = {"text": "Unrelated Text"}
+    request["expected_output_columns"] = {"Unrelated Text": unrelated}
 
-        before = _mutation_snapshot(project)
-        with pytest.raises(TypedMapRowsPlanError):
-            build_typed_map_rows_plan(project, typed_action_for_request(request))
-        assert _mutation_snapshot(project) == before
+    before = _mutation_snapshot(project)
+    with pytest.raises(TypedMapRowsPlanError):
+        build_typed_map_rows_plan(project, typed_action_for_request(request))
+    assert _mutation_snapshot(project) == before
 
 
 def test_runner_rechecks_document_text_role_before_adopting_generation_free_target(
     tmp_path,
+    make_project,
 ):
-    from contextlib import closing
 
     from frisket.actions.system import typed_action_for_request
     from frisket.ai.llm import ModelRouter
     from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
     from frisket.engine.runner import MapRunner
-    from frisket.engine.store import Project
     from frisket.engine.store.result_generations import GenerationDeclarationConflict
     from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
-    with closing(Project.create(tmp_path / "changed-role.frisket")) as project:
-        _sheet, source, _row, _text, request = _document_text_admission(
-            project, tmp_path
-        )
-        plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
-        project.db.execute(
-            "DELETE FROM document_text_column_roles WHERE source_column_id=?", (source,)
-        )
-        project.db.commit()
-        runner = MapRunner(
-            project,
-            ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
-            authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_programs=True,
-        )
-        before = _mutation_snapshot(project)
-        with pytest.raises(
-            GenerationDeclarationConflict, match="no generation history"
-        ):
-            runner.prepare_run(plan.spec_dict(), program=plan.program)
-        assert _mutation_snapshot(project) == before
+    project = make_project("changed-role")
+    _sheet, source, _row, _text, request = _document_text_admission(project, tmp_path)
+    plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
+    project.db.execute(
+        "DELETE FROM document_text_column_roles WHERE source_column_id=?", (source,)
+    )
+    project.db.commit()
+    runner = MapRunner(
+        project,
+        ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
+        authority=UnroutedOnlyAuthority(project),
+        allow_action_lifecycle_only_programs=True,
+    )
+    before = _mutation_snapshot(project)
+    with pytest.raises(GenerationDeclarationConflict, match="no generation history"):
+        runner.prepare_run(plan.spec_dict(), program=plan.program)
+    assert _mutation_snapshot(project) == before
 
 
 @pytest.mark.parametrize("default_hidden", [False, True])

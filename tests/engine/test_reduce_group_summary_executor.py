@@ -1276,9 +1276,8 @@ def test_stale_running_reservation_returns_recovery_without_model_work(
 
 
 def test_grouped_action_preserves_injected_composition_through_model_rows(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
-    from contextlib import closing
     from dataclasses import replace
 
     from executor_harness import run_action_with_confirmation
@@ -1305,43 +1304,43 @@ def test_grouped_action_preserves_injected_composition_through_model_rows(
 
     monkeypatch.setattr(map_runner, "ActionContext", observe_context)
     router, adapter = _summary_router()
-    with closing(Project.create(tmp_path / "funded-groups.frisket")) as project:
-        seeded = _seed(project, tmp_path)
-        owner = CredentialOwner.organization("funding-org")
-        credentials = CredentialUseContext(
-            cost_posture="org_key", consented_owner=owner, selected_owner=owner
-        )
-        limits = ExecutionLimits(max_media_seconds=17)
-        composition = replace(
-            open_execution_composition(
-                project, router, ExecutionCompositionContext.direct()
-            ),
-            facts=CompositionFacts(
-                edition="hosted", org_id="funding-org", funding=ByokZero()
-            ),
-            credential_use_context=credentials,
-            limits=limits,
-        )
-        run = MapRunner.run
+    project = make_project("funded-groups")
+    seeded = _seed(project, tmp_path)
+    owner = CredentialOwner.organization("funding-org")
+    credentials = CredentialUseContext(
+        cost_posture="org_key", consented_owner=owner, selected_owner=owner
+    )
+    limits = ExecutionLimits(max_media_seconds=17)
+    composition = replace(
+        open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
+        ),
+        facts=CompositionFacts(
+            edition="hosted", org_id="funding-org", funding=ByokZero()
+        ),
+        credential_use_context=credentials,
+        limits=limits,
+    )
+    run = MapRunner.run
 
-        async def observe(runner, *args, **kwargs):
-            runners.append((runner.execution_composition, runner.authority.composition))
-            return await run(runner, *args, **kwargs)
+    async def observe(runner, *args, **kwargs):
+        runners.append((runner.execution_composition, runner.authority.composition))
+        return await run(runner, *args, **kwargs)
 
-        monkeypatch.setattr(MapRunner, "run", observe)
-        result = run_action_with_confirmation(
-            project,
-            _reduce_action(seeded["sheet_id"]),
-            project_id="funded-groups",
-            router=router,
-            deps=ExecutorDeps(execution_composition=composition),
-        )
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 2
-        assert runners and all(
-            runner is composition and authority is composition
-            for runner, authority in runners
-        )
-        assert contexts
-        assert all(ctx.credential_use_context is credentials for ctx in contexts)
-        assert all(ctx.execution_limits is limits for ctx in contexts)
+    monkeypatch.setattr(MapRunner, "run", observe)
+    result = run_action_with_confirmation(
+        project,
+        _reduce_action(seeded["sheet_id"]),
+        project_id="funded-groups",
+        router=router,
+        deps=ExecutorDeps(execution_composition=composition),
+    )
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 2
+    assert runners and all(
+        runner is composition and authority is composition
+        for runner, authority in runners
+    )
+    assert contexts
+    assert all(ctx.credential_use_context is credentials for ctx in contexts)
+    assert all(ctx.execution_limits is limits for ctx in contexts)

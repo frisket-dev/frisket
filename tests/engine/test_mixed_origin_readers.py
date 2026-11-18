@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -238,8 +237,8 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None
 
 
 @pytest.fixture
-def mixed_reader(tmp_path: Path) -> _MixedReaderFixture:
-    project = Project.create(tmp_path / "mixed-readers.frisket", name="Mixed readers")
+def mixed_reader(make_project) -> _MixedReaderFixture:
+    project = make_project("Mixed readers")
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
     output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
@@ -382,7 +381,6 @@ def mixed_reader(tmp_path: Path) -> _MixedReaderFixture:
         edit_op_id=edit_op_id,
     )
     yield fixture
-    project.close()
 
 
 def test_exact_heads_resolve_value_null_error_and_manual_overlay(

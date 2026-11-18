@@ -1,13 +1,11 @@
 """Visual extraction compares the positioned artifact actually consumed."""
 
-from contextlib import closing
 import json
 
 import pytest
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.document_extraction_read import load_positioned_document
-from frisket.engine.store import Project
 from frisket.engine.store.consumed_sources import positioned_source_revision
 from frisket.engine.store.evidence import (
     record_source_artifact,
@@ -19,20 +17,16 @@ from test_visual_document_extraction_action import seed, request
 
 
 @pytest.fixture
-def positioned(tmp_path):
-    with closing(Project.create(tmp_path / "positioned.frisket")) as project:
-        source, column, rows, template = seed(project, count=1)
-        result = run_action_spec(
-            project, request(source, template), project_id="capture"
-        )
-        assert result.status == "completed", result.errors
-        sheet = next(
-            output.sheet_id for output in result.outputs if output.kind == "sheet"
-        )
-        blob = project.get_values(source, column)[rows[0]]["blob"]
-        artifact = load_positioned_document(project, blob).artifact_id
-        assert sheet_freshness(project, sheet) == "synced"
-        yield project, sheet, blob, artifact
+def positioned(make_project):
+    project = make_project("positioned")
+    source, column, rows, template = seed(project, count=1)
+    result = run_action_spec(project, request(source, template), project_id="capture")
+    assert result.status == "completed", result.errors
+    sheet = next(output.sheet_id for output in result.outputs if output.kind == "sheet")
+    blob = project.get_values(source, column)[rows[0]]["blob"]
+    artifact = load_positioned_document(project, blob).artifact_id
+    assert sheet_freshness(project, sheet) == "synced"
+    yield project, sheet, blob, artifact
 
 
 def _artifact(project, blob):

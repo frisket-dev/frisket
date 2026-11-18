@@ -29,8 +29,8 @@ from tests.engine.test_bundle_schema_fence import _remove_execution_metadata
 
 
 @pytest.fixture
-def warning_run(tmp_path, request):
-    project = Project.create(tmp_path / "warnings.frisket", name="Warnings")
+def warning_run(make_project, request):
+    project = make_project("Warnings")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source")
     output_id = project.add_column(sheet_id, "generated", ai_generated=True)

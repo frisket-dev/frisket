@@ -6,7 +6,6 @@ from frisket.actions.file_types import UrlColumn
 from frisket.actions.page_capture_types import CaptureOptions, PreparedPageCapture
 from frisket.actions.types import ActionRequest, SheetRows
 from frisket.engine.executor.page_capture_action import prepare_page_capture_action
-from frisket.engine.store import Project
 
 
 def test_capture_authoring_types_are_public_sdk_exports():
@@ -40,8 +39,8 @@ def test_cluster_authoring_types_are_public_sdk_exports():
 
 
 @pytest.fixture
-def capture_case(tmp_path):
-    project = Project.create(tmp_path / "capture.frisket", name="Capture")
+def capture_case(make_project):
+    project = make_project("Capture")
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "actual_url", type="link")
     rows = project.add_rows(
@@ -71,7 +70,6 @@ def capture_case(tmp_path):
         return prepare_page_capture_action(project, bound)
 
     yield project, column, rows, prepare
-    project.close()
 
 
 def test_preparation_uses_actual_arguments_without_project_effects(capture_case):

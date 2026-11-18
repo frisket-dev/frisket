@@ -1,9 +1,7 @@
-from contextlib import closing
 import json
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.project_qa_research import ProjectQAResearchStore
 from frisket.engine.store.project_qa_retention import (
@@ -162,166 +160,154 @@ def _drain(project, purge):
 
 
 def test_source_read_removes_tool_payload_but_keeps_questions_answers_and_cost(
-    tmp_path,
+    make_project,
 ):
-    with closing(Project.create(tmp_path / "qa")) as project:
-        target = _sheet(project, "target")
-        other = _sheet(project, "other")
-        thread, turn, research = _conversation(project, target)
-        other_thread, _, _ = _conversation(project, other)
-        store = ProjectQAStore(project)
-        later = store.submit_turn(
-            thread["id"],
-            request_id="followup",
-            question="repeat sensitive prior answer",
-        )
-        store.append_event(
-            later["id"], kind="answer", payload={"text": "sensitive follow-up"}
-        )
-        store.finish_turn(later["id"], status="completed")
-        purge = _begin(project, target)
-        # A rolled-back cleanup batch neither loses the durable target nor advances it.
-        project.db.execute("BEGIN IMMEDIATE")
-        assert purge_qa_content(project.db, purge, limit=1) == 1
-        project.db.rollback()
-        assert len(_drain(project, purge)) == 3
-        assert _drain(project, purge) == []
-        assert store.get_thread(thread["id"])["title"] == "sensitive title"
-        assert (
-            store.get_turn(later["id"])["question"] == "repeat sensitive prior answer"
-        )
-        events = project.db.execute(
-            "SELECT kind,payload_json FROM project_qa_events WHERE thread_id=?",
-            (thread["id"],),
-        ).fetchall()
-        assert [
-            json.loads(r["payload_json"])
-            for r in events
-            if r["kind"] == "tool_completed"
-        ] == [{"tool": "execute_action", "value": "independent action output"}]
-        assert [
-            (r["kind"], json.loads(r["payload_json"]))
-            for r in events
-            if r["kind"] in {"answer", "usage"}
-        ] == [
-            ("answer", {"text": "sensitive answer without any citation"}),
-            ("usage", {"cost_actual": 0.23}),
-            ("answer", {"text": "sensitive follow-up"}),
-        ]
-        kept = ProjectQAResearchStore(project).get(research["id"])
-        serialized = json.dumps(kept["saved_messages"])
-        assert "sensitive tool response" not in serialized
-        assert (
-            "sensitive question" in serialized and "sensitive AI answer" in serialized
-        )
-        assert "[Source unavailable]" in serialized
-        assert "independent action output" in serialized
-        from pydantic_ai.messages import ModelMessagesTypeAdapter
+    project = make_project("qa")
+    target = _sheet(project, "target")
+    other = _sheet(project, "other")
+    thread, turn, research = _conversation(project, target)
+    other_thread, _, _ = _conversation(project, other)
+    store = ProjectQAStore(project)
+    later = store.submit_turn(
+        thread["id"],
+        request_id="followup",
+        question="repeat sensitive prior answer",
+    )
+    store.append_event(
+        later["id"], kind="answer", payload={"text": "sensitive follow-up"}
+    )
+    store.finish_turn(later["id"], status="completed")
+    purge = _begin(project, target)
+    # A rolled-back cleanup batch neither loses the durable target nor advances it.
+    project.db.execute("BEGIN IMMEDIATE")
+    assert purge_qa_content(project.db, purge, limit=1) == 1
+    project.db.rollback()
+    assert len(_drain(project, purge)) == 3
+    assert _drain(project, purge) == []
+    assert store.get_thread(thread["id"])["title"] == "sensitive title"
+    assert store.get_turn(later["id"])["question"] == "repeat sensitive prior answer"
+    events = project.db.execute(
+        "SELECT kind,payload_json FROM project_qa_events WHERE thread_id=?",
+        (thread["id"],),
+    ).fetchall()
+    assert [
+        json.loads(r["payload_json"]) for r in events if r["kind"] == "tool_completed"
+    ] == [{"tool": "execute_action", "value": "independent action output"}]
+    assert [
+        (r["kind"], json.loads(r["payload_json"]))
+        for r in events
+        if r["kind"] in {"answer", "usage"}
+    ] == [
+        ("answer", {"text": "sensitive answer without any citation"}),
+        ("usage", {"cost_actual": 0.23}),
+        ("answer", {"text": "sensitive follow-up"}),
+    ]
+    kept = ProjectQAResearchStore(project).get(research["id"])
+    serialized = json.dumps(kept["saved_messages"])
+    assert "sensitive tool response" not in serialized
+    assert "sensitive question" in serialized and "sensitive AI answer" in serialized
+    assert "[Source unavailable]" in serialized
+    assert "independent action output" in serialized
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
 
-        ModelMessagesTypeAdapter.validate_python(kept["saved_messages"])
-        assert kept["pending_approval"] is None
-        assert store.get_turn(turn["id"])["cost_actual"] == 0.23
-        assert (
-            project.db.execute(
-                "SELECT call_id FROM project_qa_usage_calls WHERE turn_id=?",
-                (turn["id"],),
-            ).fetchone()[0]
-            == "call-1"
-        )
-        operation = project.db.execute(
-            "SELECT actual_micros,metadata_json FROM project_qa_research_operations WHERE research_id=?",
-            (research["id"],),
-        ).fetchone()
-        assert tuple(operation) == (
-            230000,
-            json.dumps({"response": "sensitive output"}),
-        )
-        assert store.get_thread(other_thread["id"])["title"] == "sensitive title"
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[
-                0
-            ]
-            == 1
-        )
-
-
-def test_interrupted_read_without_source_handle_still_scrubs(tmp_path):
-    with closing(Project.create(tmp_path / "qa")) as project:
-        target = _sheet(project, "target")
-        thread, _, research = _conversation(project, target, handle=False, tool=True)
-        purge = _begin(project, target)
-        _drain(project, purge)
-        assert (
-            ProjectQAStore(project).get_thread(thread["id"])["title"]
-            == "sensitive title"
-        )
-        assert "sensitive tool response" not in json.dumps(
-            ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
-        )
-
-
-def test_active_conversation_and_unsettled_usage_refuse_discovery_atomically(tmp_path):
-    with closing(Project.create(tmp_path / "qa")) as project:
-        target = _sheet(project, "target")
-        _, turn, research = _conversation(project, target, terminal=False)
-        with pytest.raises(ValueError, match="Stop affected Ask"):
-            _begin(project, target)
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
-        )
-        ProjectQAStore(project).finish_turn(turn["id"], status="interrupted")
+    ModelMessagesTypeAdapter.validate_python(kept["saved_messages"])
+    assert kept["pending_approval"] is None
+    assert store.get_turn(turn["id"])["cost_actual"] == 0.23
+    assert (
         project.db.execute(
-            "UPDATE project_qa_research_operations SET actual_micros=NULL WHERE research_id=?",
-            (research["id"],),
-        )
-        project.db.commit()
-        with pytest.raises(ValueError, match="provider usage"):
-            _begin(project, target)
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
-        )
+            "SELECT call_id FROM project_qa_usage_calls WHERE turn_id=?",
+            (turn["id"],),
+        ).fetchone()[0]
+        == "call-1"
+    )
+    operation = project.db.execute(
+        "SELECT actual_micros,metadata_json FROM project_qa_research_operations WHERE research_id=?",
+        (research["id"],),
+    ).fetchone()
+    assert tuple(operation) == (
+        230000,
+        json.dumps({"response": "sensitive output"}),
+    )
+    assert store.get_thread(other_thread["id"])["title"] == "sensitive title"
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM project_qa_citations").fetchone()[0]
+        == 1
+    )
+
+
+def test_interrupted_read_without_source_handle_still_scrubs(make_project):
+    project = make_project("qa")
+    target = _sheet(project, "target")
+    thread, _, research = _conversation(project, target, handle=False, tool=True)
+    purge = _begin(project, target)
+    _drain(project, purge)
+    assert (
+        ProjectQAStore(project).get_thread(thread["id"])["title"] == "sensitive title"
+    )
+    assert "sensitive tool response" not in json.dumps(
+        ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
+    )
+
+
+def test_active_conversation_and_unsettled_usage_refuse_discovery_atomically(
+    make_project,
+):
+    project = make_project("qa")
+    target = _sheet(project, "target")
+    _, turn, research = _conversation(project, target, terminal=False)
+    with pytest.raises(ValueError, match="Stop affected Ask"):
+        _begin(project, target)
+    assert project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
+    ProjectQAStore(project).finish_turn(turn["id"], status="interrupted")
+    project.db.execute(
+        "UPDATE project_qa_research_operations SET actual_micros=NULL WHERE research_id=?",
+        (research["id"],),
+    )
+    project.db.commit()
+    with pytest.raises(ValueError, match="provider usage"):
+        _begin(project, target)
+    assert project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("kind", ["query", "project_search", "web"])
-def test_sheet_query_and_project_search_scope_without_cell_citations(tmp_path, kind):
-    with closing(Project.create(tmp_path / "qa")) as project:
-        target = _sheet(project, "target")
-        thread, turn, research = _conversation(project, target, handle=False)
-        # These are persisted tool facts; neither a final answer citation nor
-        # a literal occurrence of the removed value is necessary to find them.
-        if kind == "query":
-            project.db.execute(
-                "INSERT INTO project_qa_citations(id,turn_id,label,source_kind,locator_json,created_at) VALUES ('query',?,'Aggregate','query',?,datetime('now'))",
-                (turn["id"], json.dumps({"sheet_id": target[0]})),
-            )
-        else:
-            project.db.execute(
-                "UPDATE project_qa_turns SET scope_json=? WHERE id=?",
-                (json.dumps({"kind": "project"}), turn["id"]),
-            )
-            seq = project.db.execute(
-                "SELECT MAX(seq)+1 FROM project_qa_events WHERE thread_id=?",
-                (thread["id"],),
-            ).fetchone()[0]
-            project.db.execute(
-                "INSERT INTO project_qa_events(thread_id,turn_id,seq,kind,payload_json,created_at) VALUES (?,?,?,'tool_started',?,datetime('now'))",
-                (
-                    thread["id"],
-                    turn["id"],
-                    seq,
-                    json.dumps(
-                        {"tool": "search_web" if kind == "web" else "search_cells"}
-                    ),
-                ),
-            )
-        project.db.commit()
-        purge = _begin(project, target)
-        _drain(project, purge)
-        assert (
-            ProjectQAStore(project).get_thread(thread["id"])["title"]
-            == "sensitive title"
+def test_sheet_query_and_project_search_scope_without_cell_citations(
+    make_project, kind
+):
+    project = make_project("qa")
+    target = _sheet(project, "target")
+    thread, turn, research = _conversation(project, target, handle=False)
+    # These are persisted tool facts; neither a final answer citation nor
+    # a literal occurrence of the removed value is necessary to find them.
+    if kind == "query":
+        project.db.execute(
+            "INSERT INTO project_qa_citations(id,turn_id,label,source_kind,locator_json,created_at) VALUES ('query',?,'Aggregate','query',?,datetime('now'))",
+            (turn["id"], json.dumps({"sheet_id": target[0]})),
         )
-        messages = json.dumps(
-            ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
+    else:
+        project.db.execute(
+            "UPDATE project_qa_turns SET scope_json=? WHERE id=?",
+            (json.dumps({"kind": "project"}), turn["id"]),
         )
-        assert ("sensitive tool response" in messages) == (kind == "web")
+        seq = project.db.execute(
+            "SELECT MAX(seq)+1 FROM project_qa_events WHERE thread_id=?",
+            (thread["id"],),
+        ).fetchone()[0]
+        project.db.execute(
+            "INSERT INTO project_qa_events(thread_id,turn_id,seq,kind,payload_json,created_at) VALUES (?,?,?,'tool_started',?,datetime('now'))",
+            (
+                thread["id"],
+                turn["id"],
+                seq,
+                json.dumps({"tool": "search_web" if kind == "web" else "search_cells"}),
+            ),
+        )
+    project.db.commit()
+    purge = _begin(project, target)
+    _drain(project, purge)
+    assert (
+        ProjectQAStore(project).get_thread(thread["id"])["title"] == "sensitive title"
+    )
+    messages = json.dumps(
+        ProjectQAResearchStore(project).get(research["id"])["saved_messages"]
+    )
+    assert ("sensitive tool response" in messages) == (kind == "web")

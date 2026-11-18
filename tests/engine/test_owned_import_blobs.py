@@ -8,60 +8,60 @@ from frisket.engine.store.import_blobs import prepare_import_blobs, publish_impo
 
 
 def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     data = b"shared original"
-    with closing(Project.create(tmp_path / "owned.frisket")) as project:
-        digest = project.blob_store.put(data)
-        sheet = project.add_sheet("Documents")
-        columns = {"file": project.add_column(sheet, "file", type="file")}
-        rows = project.add_rows(sheet, [{"file": None}, {"file": None}], columns)
+    project = make_project("owned")
+    digest = project.blob_store.put(data)
+    sheet = project.add_sheet("Documents")
+    columns = {"file": project.add_column(sheet, "file", type="file")}
+    rows = project.add_rows(sheet, [{"file": None}, {"file": None}], columns)
 
-        def unexpected_copy(*args, **kwargs):
-            pytest.fail("owned original must not be copied or downloaded to publish")
+    def unexpected_copy(*args, **kwargs):
+        pytest.fail("owned original must not be copied or downloaded to publish")
 
-        with monkeypatch.context() as patch:
-            patch.setattr(project.blob_store, "put_path", unexpected_copy)
-            patch.setattr(project.blob_store, "materialize", unexpected_copy)
-            with AdmittedImportBlobStager() as stager:
-                handles = [
-                    stager.admit_owned(
-                        project.blob_store,
-                        digest=digest,
-                        size=len(data),
-                        filename=name,
-                        mime="application/pdf",
-                    )
-                    for name in ("a.pdf", "b.pdf")
-                ]
-                plan = stager.publication_plan(
-                    [
-                        (row, "file", handle)
-                        for row, handle in zip(rows, handles, strict=True)
-                    ]
+    with monkeypatch.context() as patch:
+        patch.setattr(project.blob_store, "put_path", unexpected_copy)
+        patch.setattr(project.blob_store, "materialize", unexpected_copy)
+        with AdmittedImportBlobStager() as stager:
+            handles = [
+                stager.admit_owned(
+                    project.blob_store,
+                    digest=digest,
+                    size=len(data),
+                    filename=name,
+                    mime="application/pdf",
                 )
-                assert len(plan.blobs) == 2
-                assert all(blob.path is None for blob in plan.blobs)
-                assert [stager.lower(handle)["filename"] for handle in handles] == [
-                    "a.pdf",
-                    "b.pdf",
+                for name in ("a.pdf", "b.pdf")
+            ]
+            plan = stager.publication_plan(
+                [
+                    (row, "file", handle)
+                    for row, handle in zip(rows, handles, strict=True)
                 ]
-                prepared = prepare_import_blobs(project, plan)
-                with project.db:
-                    op = op_log.append_change(
-                        project, "import.files", spec={}, commit=False
-                    )
-                    refs = publish_import_blobs(
-                        project,
-                        prepared,
-                        sheet_id=sheet,
-                        column_ids=columns,
-                        op_id=op,
-                        receipt_id="owned-import",
-                    )
-                assert [ref["filename"] for ref in refs] == ["a.pdf", "b.pdf"]
-        # Closing the invocation only removes its scratch, never canonical bytes.
-        assert project.read_blob(digest) == data
+            )
+            assert len(plan.blobs) == 2
+            assert all(blob.path is None for blob in plan.blobs)
+            assert [stager.lower(handle)["filename"] for handle in handles] == [
+                "a.pdf",
+                "b.pdf",
+            ]
+            prepared = prepare_import_blobs(project, plan)
+            with project.db:
+                op = op_log.append_change(
+                    project, "import.files", spec={}, commit=False
+                )
+                refs = publish_import_blobs(
+                    project,
+                    prepared,
+                    sheet_id=sheet,
+                    column_ids=columns,
+                    op_id=op,
+                    receipt_id="owned-import",
+                )
+            assert [ref["filename"] for ref in refs] == ["a.pdf", "b.pdf"]
+    # Closing the invocation only removes its scratch, never canonical bytes.
+    assert project.read_blob(digest) == data
 
 
 def test_owned_blob_reader_is_read_only_and_other_project_is_refused(tmp_path):

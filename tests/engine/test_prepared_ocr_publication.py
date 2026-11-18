@@ -99,35 +99,33 @@ def test_compact_checkpoint_reopens_without_repeating_ocr(tmp_path):
         assert replay["text"]["prepared_ref_id"] == ref
 
 
-def test_failed_checkpoint_rolls_back_prepared_pages(tmp_path):
-    with closing(Project.create(tmp_path / "rollback.frisket")) as project:
-        run, result = _setup(project)
-        project.db.execute("BEGIN IMMEDIATE")
-        result["value"] = "rewritten but incorrectly marked"
-        with pytest.raises(ValueError, match="does not match"):
-            prepare_ocr_results(project, run, [result])
-        project.db.rollback()
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM prepared_page_versions"
-            ).fetchone()[0]
-            == 0
-        )
-
-
-def test_ocr_uses_the_ordinary_unicode_repair_boundary(tmp_path):
-    with closing(Project.create(tmp_path / "unicode.frisket")) as project:
-        run, result = _setup(project)
-        result["value"] = "Broken \ud800 text"
-        call = result["row_file_calls"][0]
-        call["source"]["page_count"] = 1
-        call["text"] = result["value"]
-        call["pages"] = [{"text": result["value"], "blocks": []}]
-        project.db.execute("BEGIN IMMEDIATE")
+def test_failed_checkpoint_rolls_back_prepared_pages(make_project):
+    project = make_project("rollback")
+    run, result = _setup(project)
+    project.db.execute("BEGIN IMMEDIATE")
+    result["value"] = "rewritten but incorrectly marked"
+    with pytest.raises(ValueError, match="does not match"):
         prepare_ocr_results(project, run, [result])
-        hydrate_prepared_results(project, [result])
-        project.db.commit()
-        assert result["value"] == "Broken \ufffd text"
+    project.db.rollback()
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM prepared_page_versions").fetchone()[0]
+        == 0
+    )
+
+
+def test_ocr_uses_the_ordinary_unicode_repair_boundary(make_project):
+    project = make_project("unicode")
+    run, result = _setup(project)
+    result["value"] = "Broken \ud800 text"
+    call = result["row_file_calls"][0]
+    call["source"]["page_count"] = 1
+    call["text"] = result["value"]
+    call["pages"] = [{"text": result["value"], "blocks": []}]
+    project.db.execute("BEGIN IMMEDIATE")
+    prepare_ocr_results(project, run, [result])
+    hydrate_prepared_results(project, [result])
+    project.db.commit()
+    assert result["value"] == "Broken \ufffd text"
 
 
 @pytest.mark.parametrize("error_code", ["ocr_page_failed", "ocr_page_skipped"])
@@ -155,21 +153,19 @@ def test_failed_pages_remain_missing_coverage_after_reopen(tmp_path, error_code)
         assert prepared.pins[1].start == prepared.pins[1].end
 
 
-def test_all_failed_pages_cannot_publish_successful_empty_text(tmp_path):
-    with closing(Project.create(tmp_path / "failed.frisket")) as project:
-        run, result = _setup(project)
-        call = result["row_file_calls"][0]
-        for page in call["pages"]:
-            page["text"] = ""
-            page["error"] = {"code": "ocr_page_failed"}
-        result["value"] = call["text"] = ""
-        project.db.execute("BEGIN IMMEDIATE")
-        with pytest.raises(ValueError, match="successfully read page"):
-            prepare_ocr_results(project, run, [result])
-        project.db.rollback()
-        assert (
-            project.db.execute("SELECT count(*) FROM prepared_content_refs").fetchone()[
-                0
-            ]
-            == 0
-        )
+def test_all_failed_pages_cannot_publish_successful_empty_text(make_project):
+    project = make_project("failed")
+    run, result = _setup(project)
+    call = result["row_file_calls"][0]
+    for page in call["pages"]:
+        page["text"] = ""
+        page["error"] = {"code": "ocr_page_failed"}
+    result["value"] = call["text"] = ""
+    project.db.execute("BEGIN IMMEDIATE")
+    with pytest.raises(ValueError, match="successfully read page"):
+        prepare_ocr_results(project, run, [result])
+    project.db.rollback()
+    assert (
+        project.db.execute("SELECT count(*) FROM prepared_content_refs").fetchone()[0]
+        == 0
+    )

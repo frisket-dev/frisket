@@ -740,7 +740,7 @@ def test_providerless_classifier_downloads_pinned_snapshot_once(
 
 @pytest.mark.asyncio
 async def test_providerless_classifier_reports_first_use_download_failure(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import frisket.engine.executor.classify_read as classify_read
@@ -753,24 +753,21 @@ async def test_providerless_classifier_reports_first_use_download_failure(
         )
 
     monkeypatch.setattr(classify_read, "ensure_providerless_classifier_installed", fail)
-    project = Project.create(tmp_path / "classifier-provision.frisket")
-    try:
-        classifier = AdmittedClassifier(project=project)
-        with pytest.raises(RowError) as raised:
-            await classifier.classify(
-                Row({}),
-                "A story requiring classification",
-                (ClassifyField(name="topic", labels=["news", "other"]),),
-            )
-        assert raised.value.code == "model_unavailable"
-        assert "could not be downloaded" in raised.value.message
-    finally:
-        project.close()
+    project = make_project("classifier-provision")
+    classifier = AdmittedClassifier(project=project)
+    with pytest.raises(RowError) as raised:
+        await classifier.classify(
+            Row({}),
+            "A story requiring classification",
+            (ClassifyField(name="topic", labels=["news", "other"]),),
+        )
+    assert raised.value.code == "model_unavailable"
+    assert "could not be downloaded" in raised.value.message
 
 
 @pytest.mark.asyncio
 async def test_map_classify_global_fence_refuses_before_fastembed_without_opt_in(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.ai.embeddings import EmbeddingBackendUnavailable
@@ -790,16 +787,13 @@ async def test_map_classify_global_fence_refuses_before_fastembed_without_opt_in
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", no_fastembed_import)
-    project = Project.create(tmp_path / "classifier-fence.frisket")
-    try:
-        with pytest.raises(EmbeddingBackendUnavailable):
-            await AdmittedClassifier(project=project).classify(
-                Row({}),
-                "A story requiring classification",
-                (ClassifyField(name="topic", labels=["news", "other"]),),
-            )
-    finally:
-        project.close()
+    project = make_project("classifier-fence")
+    with pytest.raises(EmbeddingBackendUnavailable):
+        await AdmittedClassifier(project=project).classify(
+            Row({}),
+            "A story requiring classification",
+            (ClassifyField(name="topic", labels=["news", "other"]),),
+        )
 
 
 def test_map_classify_replay_and_refusals_never_reenter_the_router(

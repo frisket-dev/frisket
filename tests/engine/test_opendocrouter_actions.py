@@ -30,7 +30,7 @@ class HttpRouter(SimpleNamespace):
 
 @pytest.mark.parametrize("pages", [1, 51])
 def test_paid_remote_job_result_failure_halts_and_keeps_charge(
-    tmp_path, monkeypatch, pages
+    make_project, monkeypatch, pages
 ):
     from frisket.ops.integrations import opendocrouter as api
 
@@ -52,46 +52,44 @@ def test_paid_remote_job_result_failure_halts_and_keeps_charge(
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     router = HttpRouter(client=client)
-    with closing(Project.create(tmp_path / "async.frisket", name="Async")) as project:
-        sheet = project.add_sheet("Sources")
-        column = project.add_column(sheet, "doc", type="file")
-        data = io.BytesIO()
-        writer = PdfWriter()
-        for _ in range(pages):
-            writer.add_blank_page(width=100, height=200)
-        writer.write(data)
-        blob = project.add_blob(
-            data.getvalue(),
-            filename="long.pdf",
-            mime="application/pdf",
-            metadata=owned_media_metadata_document(
-                probe={"kind": "document", "pages": 51}
-            ),
-        )
-        project.add_rows(
-            sheet,
-            [{"doc": media_cell(blob, mime="application/pdf", filename="long.pdf")}],
-            {"doc": column},
-        )
-        spec = {
-            "action_id": "media.to_markdown",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": {"source": "doc", "engine": ENGINE},
-            "idempotency_key": "async-results",
-            "output_names": {"markdown": "markdown"},
-        }
-        gate = run_action_spec(project, spec, router=router, project_id="odr")
-        assert gate.status == "needs_confirmation", gate.errors
-        result = run_action_spec(
-            project,
-            {**spec, "confirmation": gate.errors[0].details["promise_set_hash"]},
-            router=router,
-            project_id="odr",
-        )
-        assert result.errors[0].code == "external_effect_reconciliation_required"
-        assert calls == ["POST", "GET", "GET", "GET", "GET"]
-        [fact] = RunResultStore(project).model_calls(result.run_id)
-        assert fact["provider_cost_usd"] == 0.00397
+    project = make_project("Async")
+    sheet = project.add_sheet("Sources")
+    column = project.add_column(sheet, "doc", type="file")
+    data = io.BytesIO()
+    writer = PdfWriter()
+    for _ in range(pages):
+        writer.add_blank_page(width=100, height=200)
+    writer.write(data)
+    blob = project.add_blob(
+        data.getvalue(),
+        filename="long.pdf",
+        mime="application/pdf",
+        metadata=owned_media_metadata_document(probe={"kind": "document", "pages": 51}),
+    )
+    project.add_rows(
+        sheet,
+        [{"doc": media_cell(blob, mime="application/pdf", filename="long.pdf")}],
+        {"doc": column},
+    )
+    spec = {
+        "action_id": "media.to_markdown",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": {"source": "doc", "engine": ENGINE},
+        "idempotency_key": "async-results",
+        "output_names": {"markdown": "markdown"},
+    }
+    gate = run_action_spec(project, spec, router=router, project_id="odr")
+    assert gate.status == "needs_confirmation", gate.errors
+    result = run_action_spec(
+        project,
+        {**spec, "confirmation": gate.errors[0].details["promise_set_hash"]},
+        router=router,
+        project_id="odr",
+    )
+    assert result.errors[0].code == "external_effect_reconciliation_required"
+    assert calls == ["POST", "GET", "GET", "GET", "GET"]
+    [fact] = RunResultStore(project).model_calls(result.run_id)
+    assert fact["provider_cost_usd"] == 0.00397
     asyncio.run(client.aclose())
 
 
