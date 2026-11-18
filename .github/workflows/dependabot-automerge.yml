@@ -24,7 +24,7 @@ jobs:
       github.event.pull_request.user.login == 'dependabot[bot]' &&
       github.event.pull_request.base.ref == 'main' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       # Reuse the repository's existing PR automation App so a merge triggers
       # normal main CI (merges using GITHUB_TOKEN suppress push workflows).

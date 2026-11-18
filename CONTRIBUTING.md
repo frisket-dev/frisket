@@ -395,7 +395,7 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   with `PLAYWRIGHT_JSON_OUTPUT_NAME=<file>` to judge it as below.
 
 `nightly-e2e.yml` runs the suite on `main` at 08:41 UTC in four shards on
-`ubuntu-24.04`, keyless (`replay_strict`, no secrets), and skips a night on
+`ubuntu-26.04`, keyless (`replay_strict`, no secrets), and skips a night on
 which `main` has not moved since its last green run. Its `verdict` job merges
 the shard reports and runs `scripts/ci/e2e_known_failures.py`, which writes
 the job summary (totals, new failures, listed tests now passing, counts by

@@ -52,7 +52,7 @@ jobs:
     needs: queue-tested
     # A failed queue lookup still decides, and the push then runs the smoke.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
       managed_python: ${{ steps.paths.outputs.managed_python }}
@@ -212,7 +212,7 @@ jobs:
     name: macos-portability
     if: ${{ always() }}
     needs: [changes, smoke]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}

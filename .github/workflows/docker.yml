@@ -51,7 +51,7 @@ jobs:
 
   changes:
     needs: queue-tested
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
     steps:
@@ -109,7 +109,7 @@ jobs:
         include:
           - platform: linux/amd64
             tag_suffix: amd64
-            runs_on: ubuntu-24.04
+            runs_on: ubuntu-26.04
           - platform: linux/arm64
             tag_suffix: arm64
             runs_on: ubuntu-24.04-arm
@@ -236,7 +236,7 @@ jobs:
     name: docker-ci
     if: ${{ always() }}
     needs: [changes, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}

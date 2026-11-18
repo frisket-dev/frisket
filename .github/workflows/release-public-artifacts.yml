@@ -63,7 +63,7 @@ env:
 jobs:
   build:
     name: build (no write token)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: read
@@ -317,7 +317,7 @@ jobs:
   assemble:
     name: assemble and probe public Python artifacts
     needs: [build, wheels]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -415,7 +415,7 @@ jobs:
         include:
           - platform: linux/amd64
             tag_suffix: amd64
-            runs_on: ubuntu-24.04
+            runs_on: ubuntu-26.04
           - platform: linux/arm64
             tag_suffix: arm64
             runs_on: ubuntu-24.04-arm
@@ -483,7 +483,7 @@ jobs:
   container:
     name: publish immutable two-platform server image
     needs: [build, container-arch]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write
@@ -566,7 +566,7 @@ jobs:
   server-smoke:
     name: render and smoke server bundle (no write token)
     needs: [build, assemble, container]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: read
@@ -677,7 +677,7 @@ jobs:
   publish:
     name: publish (repository-scoped App token, no source execution)
     needs: [build, container, server-smoke]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment: release-publishing
     permissions:
       contents: read
