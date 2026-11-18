@@ -356,7 +356,8 @@ class PdfSplitPreparationJobs:
         with PdfSplitPreparationStore(directory / "inventory.db") as store:
             rows = store.db.execute(
                 "SELECT work_key,target_json,status FROM pdf_split_page_work "
-                "WHERE generation=? AND job_id IS NOT NULL AND receipt_id IS NULL "
+                "WHERE generation=? AND read_locally=1 AND job_id IS NOT NULL "
+                "AND receipt_id IS NULL "
                 "AND status IN ('completed','failed','cancelled') ORDER BY rowid",
                 (generation,),
             ).fetchall()
@@ -665,7 +666,7 @@ class PdfSplitPreparationJobs:
                             attempt = int(attempt) + 1
                         store.db.execute(
                             "UPDATE pdf_split_page_work SET status='pending',error=NULL,job_id=NULL,"
-                            "receipt_id=NULL,plan_token=?,attempt=? WHERE work_key=? "
+                            "receipt_id=NULL,read_locally=0,plan_token=?,attempt=? WHERE work_key=? "
                             f"AND generation=? AND {_NOT_READ_WORK}",
                             (token, attempt, work.work_key, generation),
                         )

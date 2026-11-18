@@ -1481,3 +1481,100 @@ def test_workspace_diagnostics_count_drafts_no_project_can_list(flow):
     assert report["unreadable"] == 1
     project = client.get(f"/api/projects/{pid}/diagnose").json()["info"]
     assert "import_drafts" not in project
+
+
+def test_a_paid_page_never_gets_a_local_receipt_and_keeps_its_own(flow, monkeypatch):
+    client, pid, provider = flow
+    provider.failures = 1
+    record = PdfSplitPreparationStore.record_started
+
+    def recorded_after_the_page_failed(store, work, **facts):
+        # The attempt's facts land only once the page has already failed.
+        if facts.get("receipt_id") is not None:
+            with controlled_time() as clock:
+                clock.wait_until(
+                    lambda: (
+                        store.db.execute(
+                            "SELECT status FROM pdf_split_page_work WHERE work_key=? "
+                            "AND generation=?",
+                            (work.work_key, work.generation),
+                        ).fetchone()[0]
+                        == "failed"
+                    ),
+                    message="the paid page did not fail",
+                )
+        return record(store, work, **facts)
+
+    monkeypatch.setattr(
+        PdfSplitPreparationStore, "record_started", recorded_after_the_page_failed
+    )
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    project = client.app.state.workspace.get(pid)
+    with _page_work(client, pid, ref) as db:
+        (receipt_id,) = db.execute(
+            "SELECT receipt_id FROM pdf_split_page_work"
+        ).fetchone()
+    assert tuple(
+        project.db.execute(
+            "SELECT action_kind,status FROM receipts WHERE id=?", (receipt_id,)
+        ).fetchone()
+    ) == ("media.ocr", "failed")
+    # Even a paid page that lost its receipt link is never called local.
+    with _page_work(client, pid, ref) as db:
+        db.execute("UPDATE pdf_split_page_work SET receipt_id=NULL")
+    _session(client, pid, ref)
+    bodies = [
+        json.loads(row[0])
+        for row in project.db.execute(
+            "SELECT body FROM receipts WHERE action_kind='media.ocr'"
+        )
+    ]
+    assert not [
+        use
+        for body in bodies
+        for use in body["provider_use"]
+        if use.get("external_api") is False
+    ]
+
+
+def test_discarding_an_unsettled_draft_seals_what_its_import_published(
+    flow, tmp_path, monkeypatch
+):
+    client, pid, provider = flow
+    sessions = f"/api/projects/{pid}/import/files/sessions"
+    ref = client.post(sessions, json={"sheet_name": "Legacy"}).json()["import_ref"]
+    client.post(
+        f"{sessions}/{ref}/files",
+        files=[
+            ("files", ("first.pdf", _blank_pdf(300), "application/pdf")),
+            ("logical_paths", (None, "first.pdf")),
+            ("batch_id", (None, "first")),
+        ],
+    )
+    _publish(client)
+    draft = _draft(client, pid, [("a.pdf", _blank_pdf(301))])
+    root = client.app.state.workspace.root / ".pdf_import_drafts"
+    _legacy_commit(
+        root / draft.rsplit("/", 1)[1],
+        result={"import_ref": ref, "sheet_id": 1, "receipt_id": "legacy"},
+        promotion_target={"inventory_path": "x", "source_files_root": "y"},
+        promoted=True,
+    )
+
+    def seal_unavailable(_inventory):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(ImportInventory, "seal", seal_unavailable)
+    started = TestClient(create_app(tmp_path / "workspace", router=provider.router))
+    assert started.get(draft).json()["state"] == "error"
+    monkeypatch.undo()
+    # Discarding the draft settles what it already published, then cancels.
+    discarded = started.delete(draft)
+    assert discarded.status_code == 202, discarded.text
+    assert discarded.json()["state"] == "cancelled"
+    _publish(started)
+    session = started.get(f"{sessions}/{ref}").json()
+    assert session["sealed"] is True and session["state"] == "completed"
+    deleted = started.delete(f"/api/projects/{pid}/sheets/{session['sheet_id']}")
+    assert deleted.status_code == 200, deleted.text

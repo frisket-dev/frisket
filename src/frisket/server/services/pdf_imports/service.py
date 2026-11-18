@@ -68,6 +68,7 @@ from .storage import (
     PdfImportDraftError,
     SCHEMA_VERSION,
     draft_owner,
+    keeps_commit_inventory,
     now,
 )
 
@@ -172,6 +173,7 @@ class PdfImportService:
         self._workspace = workspace
         self._store = PdfDraftStore(workspace)
         self._unreadable_logged: set[str] = set()
+        self._enqueue_import_page: Callable[[str, str, int, bool], Any] | None = None
         self._root = self._store.root
         self._preview_runs = preview_runs
         self._destination_matcher = destination_matcher
@@ -187,22 +189,12 @@ class PdfImportService:
         Each draft settles on its own; one that cannot is logged and shown as
         needing attention, and never stops the others or the server.
         """
-
-        def seal_import(project_id: str, import_ref: str) -> None:
-            project = self._workspace.get(project_id)
-            directory = import_intake_dir(project.path, import_ref)
-            with (
-                import_admit_lock(directory),
-                ImportInventory(directory / "inventory.db") as inventory,
-            ):
-                if not inventory.sealed:
-                    inventory.seal()
-                through = inventory.through
-            enqueue_page(project_id, import_ref, through, True)
-
+        self._enqueue_import_page = enqueue_page
         for directory in self._store.drafts_with_commit_inventory():
             try:
-                self._store.settle_commit_inventory(directory, seal_import)
+                self._store.settle_commit_inventory(
+                    directory, self._seal_published_import
+                )
             except Exception as exc:
                 LOG.warning(
                     "pdf_draft_settlement_failed",
@@ -1520,6 +1512,23 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
+    def _seal_published_import(self, project_id: str, import_ref: str) -> None:
+        """Seal an import with the rows it already published."""
+        if self._enqueue_import_page is None:
+            raise PdfImportDraftError(
+                409, "This import is still being settled; try again in a moment"
+            )
+        project = self._workspace.get(project_id)
+        directory = import_intake_dir(project.path, import_ref)
+        with (
+            import_admit_lock(directory),
+            ImportInventory(directory / "inventory.db") as inventory,
+        ):
+            if not inventory.sealed:
+                inventory.seal()
+            through = inventory.through
+        self._enqueue_import_page(project_id, import_ref, through, True)
+
     def discard(self, project_id: str, draft_id: str) -> PdfImportStatus:
         directory, _ = self._open(project_id, draft_id)
         with self._files_lock(directory), self._lock(directory):
@@ -1534,6 +1543,18 @@ class PdfImportService:
                 )
             if header["state"] == "cancelled":
                 return self._snapshot(header, self._stats(directory))
+            if keeps_commit_inventory(header):
+                # Its import is sealed with the rows it already published
+                # before the draft goes, so no import is left unsealed.
+                commit = header["commit"]
+                if commit.get("result") is not None:
+                    self._seal_published_import(
+                        project_id, str(commit["result"]["import_ref"])
+                    )
+                for suffix in ("", "-wal", "-shm"):
+                    Path(f"{commit['commit_inventory_path']}{suffix}").unlink(
+                        missing_ok=True
+                    )
             stats = self._stats(directory)
             header["state"] = "cancelling"
             header["cleanup"] = {"bytes_done": 0, "bytes_total": stats["staged_bytes"]}

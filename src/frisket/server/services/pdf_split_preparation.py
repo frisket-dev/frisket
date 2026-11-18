@@ -148,6 +148,7 @@ class PdfSplitPreparationStore:
                 priority INTEGER NOT NULL DEFAULT 0, plan_token TEXT,
                 attempt INTEGER NOT NULL DEFAULT 0,
                 interrupted INTEGER NOT NULL DEFAULT 0,
+                read_locally INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(work_key,generation));
             CREATE TABLE IF NOT EXISTS pdf_split_page_occurrences (
                 work_key TEXT NOT NULL, generation TEXT NOT NULL,
@@ -188,6 +189,10 @@ class PdfSplitPreparationStore:
             if "interrupted" not in columns:
                 self.db.execute(
                     "ALTER TABLE pdf_split_page_work ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
+                )
+            if "read_locally" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN read_locally INTEGER NOT NULL DEFAULT 0"
                 )
 
     def close(self) -> None:
@@ -541,12 +546,23 @@ class PdfSplitPreparationStore:
             )
 
     def record_started(
-        self, work: PdfSplitPageWork, *, job_id: str, receipt_id: str | None
+        self,
+        work: PdfSplitPageWork,
+        *,
+        job_id: str,
+        receipt_id: str | None,
+        read_locally: bool,
     ) -> None:
+        """Record what an accepted attempt is, in one write.
+
+        It applies whatever the attempt has reached since, so a page that
+        finished or failed first still names its job, receipt and route.
+        """
         with self.db:
             self.db.execute(
-                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=? WHERE work_key=? AND generation=? AND status IN ('running','completed')",
-                (job_id, receipt_id, work.work_key, work.generation),
+                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=?,read_locally=? "
+                "WHERE work_key=? AND generation=? AND status<>'pending'",
+                (job_id, receipt_id, int(read_locally), work.work_key, work.generation),
             )
 
     def release(self, work: PdfSplitPageWork, *, error: str | None = None) -> None:
@@ -1369,8 +1385,25 @@ class PdfSplitPreparationAdapter:
 
                 admission = nullcontext(None)
                 receipt_id = None
+                from frisket.engine.runner.confirmation_context import (
+                    ConsentEstimate,
+                )
+                from frisket.server.services.action_preview_runs import (
+                    _scratch_claims,
+                )
+
+                resolved, estimate, _uncovered = _scratch_claims(
+                    self.workspace.get(self.project_id), plan
+                )
+                # The facts a page's estimate calls free and local: its route
+                # sends nothing off the machine and its reading costs nothing.
+                priced = ConsentEstimate.from_estimate(estimate)
+                read_locally = (
+                    resolved.resolution.facts.egress_class == "none"
+                    and priced.cost_source == "free_local"
+                    and priced.billed_cost == 0
+                )
                 if parent_receipt_id is not None and import_child_port(self.workspace):
-                    estimate = self.preview_runs.scratch_estimate(self.project_id, plan)
                     child_key, receipt_id = page_attempt_identity(
                         parent_receipt_id, generation, work.work_key, attempt
                     )
@@ -1419,8 +1452,6 @@ class PdfSplitPreparationAdapter:
                     responses.append(dict(started.payload))
                     continue
                 job_id = str(started.payload["preview_id"])
-                with PdfSplitPreparationStore(self.inventory_path) as store:
-                    store.record_started(work, job_id=job_id, receipt_id=None)
                 job = self.preview_runs._registry.get(self.project_id, job_id)
                 with PdfSplitPreparationStore(self.inventory_path) as store:
                     store.record_started(
@@ -1429,6 +1460,7 @@ class PdfSplitPreparationAdapter:
                         receipt_id=job.receipt.receipt_id
                         if job and job.receipt
                         else None,
+                        read_locally=read_locally,
                     )
                 responses.append(dict(started.payload))
             except BaseException as exc:
