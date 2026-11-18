@@ -103,11 +103,10 @@ def test_sensitive_is_canonical_create_metadata_and_bundle_round_trips(
 
 
 def test_only_catalog_declared_sensitivity_route_can_mutate_the_flag(
-    tmp_path: Path,
+    client,
 ) -> None:
     from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post(
         "/api/projects", json={"name": "Ordinary", "sensitive": False}
     )

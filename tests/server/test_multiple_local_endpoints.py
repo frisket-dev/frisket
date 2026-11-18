@@ -5,7 +5,6 @@ import json
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
@@ -16,7 +15,6 @@ from frisket.engine.executor.action_reservations import (
     _local_endpoint_bindings_for_runner_spec,
 )
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
 
 
@@ -328,11 +326,8 @@ async def test_router_sends_qualified_completion_and_embedding_to_selected_endpo
         router._resolve_local_model("ollama/qwen3:8b")
 
 
-def test_local_endpoint_routes_are_strict_patch_resources(
-    tmp_path, monkeypatch
-) -> None:
+def test_local_endpoint_routes_are_strict_patch_resources(client, monkeypatch) -> None:
     monkeypatch.setattr(provider_config, "ollama_reachable", _probe)
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     rejected_aliases = client.post(
         "/api/providers/local-endpoints",
@@ -372,10 +367,9 @@ def test_local_endpoint_routes_are_strict_patch_resources(
 
 
 def test_local_endpoint_discovery_route_returns_typed_fixed_candidates(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(provider_config, "ollama_reachable", _probe)
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     response = client.post("/api/providers/local-endpoints/discover")
 

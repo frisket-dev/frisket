@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 import pytest
 
 from frisket.team.security.secrets import decrypt_secret
@@ -15,7 +14,7 @@ from frisket.server.services.projects import ProjectLifecycleService
 
 
 def test_project_provider_keys_are_redacted_and_used_by_project_router(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setattr(
         provider_config,
@@ -28,7 +27,6 @@ def test_project_provider_keys_are_redacted_and_used_by_project_router(
             "detail": None,
         },
     )
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Provider Keys"}).json()["id"]
 
     initial = client.get(f"/api/projects/{pid}/provider-keys")

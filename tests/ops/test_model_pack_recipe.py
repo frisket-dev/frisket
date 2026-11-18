@@ -2,13 +2,11 @@ from __future__ import annotations
 
 from frisket.execution.dispatch_control import STANDALONE
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.ops.base import ActionContext
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.ner import NerOutput
 from frisket.ops.ner_local import LocalNerExtractor
-from frisket.server.app import create_app
 
 
 class _Resp:
@@ -115,10 +113,9 @@ async def test_gliner_raw_label_survives_double_canonicalization(monkeypatch):
     assert stored[0]["metadata"] == {"raw_label": "email address"}
 
 
-def test_ner_action_catalog_reports_sidecar_availability(monkeypatch, tmp_path):
+def test_ner_action_catalog_reports_sidecar_availability(monkeypatch, client):
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
-    client = TestClient(create_app(tmp_path / "workspace"))
     entries = {
         entry["kind"]: entry
         for entry in client.get("/api/actions/v1/catalog").json()["actions"]

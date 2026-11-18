@@ -5,11 +5,9 @@ from __future__ import annotations
 import io
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.actions.types import PdfPage
 from frisket.engine.executor.pdf_page_read import AdmittedPdfPageRenderer
-from frisket.server.app import create_app
 from frisket.server.route_errors import RouteError
 from frisket.server.services.search_preparation import SearchPreparationService
 
@@ -52,7 +50,7 @@ def _pdf_bytes(text: str = "Audit Findings 2026") -> bytes:
 
 @pytest.mark.parametrize("transient_failure", [False, True])
 def test_pdf_import_bridge_publishes_search_preparation(
-    tmp_path, monkeypatch, transient_failure
+    client, monkeypatch, transient_failure
 ):
     raw_pdf = _pdf_bytes("")
 
@@ -76,7 +74,6 @@ def test_pdf_import_bridge_publishes_search_preparation(
         return original_plan(self, *args, **kwargs)
 
     monkeypatch.setattr(SearchPreparationService, "_plan", plan)
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Preparation bridge"}).json()["id"]
     response = client.post(
         f"/api/projects/{pid}/import/files",

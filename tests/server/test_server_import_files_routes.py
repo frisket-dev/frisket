@@ -5,7 +5,6 @@ import io
 import struct
 import zlib
 import hashlib
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 from starlette.datastructures import UploadFile
@@ -65,7 +64,7 @@ def test_upload_admission_stops_on_the_first_chunk_that_exceeds_its_limit() -> N
 
 
 def test_import_files_route_preserves_transport_response_and_uses_typed_request(
-    tmp_path: Path,
+    client,
     monkeypatch,
 ) -> None:
     requests = []
@@ -94,7 +93,6 @@ def test_import_files_route_preserves_transport_response_and_uses_typed_request(
         return execute(project, request, **kwargs)
 
     monkeypatch.setattr(files_service, "run_action_spec", record_request)
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Files Upload"}).json()["id"]
 
     operation = client.get("/openapi.json").json()["paths"][

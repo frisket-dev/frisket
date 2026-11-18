@@ -1,12 +1,9 @@
-from fastapi.testclient import TestClient
-
 from frisket.engine.runner.preview import PREVIEW_MAX_ROWS
-from frisket.server.app import create_app
 from tests.preview.test_preview_inmemory import _poll
 
 
 def test_public_semantic_preview_samples_source_but_searches_whole_target(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ):
     embedded = []
 
@@ -33,7 +30,6 @@ def test_public_semantic_preview_samples_source_but_searches_whole_target(
         "frisket.engine.store.receipts.ReceiptStore.record_semantic_match",
         forbid_durable_match_evidence,
     )
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Semantic preview"}).json()[
         "id"
     ]

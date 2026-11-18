@@ -5,13 +5,11 @@ import io
 import shutil
 
 import pytest
-from fastapi.testclient import TestClient
 from pypdf import PdfReader, PdfWriter
 
 from frisket.engine.jobs import HandlerRegistry, Worker
 from frisket.engine.jobs.pdf_split import register_pdf_split_handler
 from frisket.engine.store.pdf_split_intake import pdf_split_status, read_pdf_split_plan
-from frisket.server.app import create_app
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.pdf_imports.service import PdfImportService
 from frisket.server.workspace import Workspace
@@ -596,10 +594,10 @@ def test_organized_publication_stages_known_page_text_before_draft_cleanup(
 
 def test_final_http_commit_publishes_reviewed_pages_on_the_ordinary_import_status(
     tmp_path,
+    client,
 ):
     from frisket.server.services.pdf_import_commit import PdfImportCommitResult
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     pid = client.post("/api/projects", json={"name": "Uploads"}).json()["id"]
     workspace = client.app.state.workspace
     service, status = _admit(
@@ -651,8 +649,9 @@ def test_final_http_commit_publishes_reviewed_pages_on_the_ordinary_import_statu
     assert len(project.visible_row_ids(result.sheet_id)) == 8
 
 
-def test_append_to_an_ordinary_file_import_sheet_continues_its_columns(tmp_path):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_append_to_an_ordinary_file_import_sheet_continues_its_columns(
+    tmp_path, client
+):
     pid = client.post("/api/projects", json={"name": "Uploads"}).json()["id"]
     workspace = client.app.state.workspace
     sessions = f"/api/projects/{pid}/import/files/sessions"

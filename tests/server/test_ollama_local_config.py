@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.server import provider_config
-from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
 
 
@@ -138,13 +136,12 @@ def test_create_rejects_env_origin_collision_without_mutating_file(
 
 
 def test_env_endpoint_patch_and_delete_are_explicitly_refused(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     monkeypatch.setenv("OLLAMA_URL", LOOPBACK)
     monkeypatch.setattr(provider_config, "ollama_reachable", _offline)
     endpoint, _notes = provider_config.resolve_env_local_endpoint()
     assert endpoint is not None
-    client = TestClient(create_app(tmp_path / "ws"))
 
     patched = client.patch(
         f"/api/providers/local-endpoints/{endpoint.endpoint_id}",

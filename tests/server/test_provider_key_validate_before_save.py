@@ -65,10 +65,9 @@ def test_local_provider_key_save_requires_successful_validation(
 
 
 def test_project_provider_key_save_requires_validation_and_existing_key_can_be_tested(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ) -> None:
     seen = _probe_stub(monkeypatch)
-    client = TestClient(create_app(tmp_path / "ws"))
     pid = client.post("/api/projects", json={"name": "Provider Keys"}).json()["id"]
 
     direct = client.post(

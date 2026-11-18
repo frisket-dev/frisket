@@ -24,7 +24,6 @@ import asyncio
 from types import MappingProxyType
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from frisket.actions.core import (
@@ -557,11 +556,10 @@ async def derived_python(
 
 @pytest.mark.parametrize("custom_params", [False, True])
 def test_http_python_capability_refuses_before_execution_when_disabled(
-    tmp_path, monkeypatch, custom_params
+    client, monkeypatch, custom_params
 ):
     """Capability admission covers alternate Params and derived evaluator args."""
     from frisket.engine.executor import python_transform
-    from frisket.server.app import create_app
 
     if custom_params:
         custom_action_id = register_typed_action(
@@ -576,7 +574,6 @@ def test_http_python_capability_refuses_before_execution_when_disabled(
             ),
         )
 
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Guard"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("data")

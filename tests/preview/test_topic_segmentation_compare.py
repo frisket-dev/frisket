@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import JsonValue
 
 import frisket.preview.topic_segmentation as topic_compare
@@ -448,7 +447,7 @@ def test_compare_does_not_reselect_a_chunk_touching_only_the_widened_edge(
 
 
 def test_scratch_route_is_read_only_and_keeps_engine_failures_in_their_lane(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _FakeSegmenter("texttiling", ())
@@ -459,7 +458,6 @@ def test_scratch_route_is_read_only_and_keeps_engine_failures_in_their_lane(
         return fake
 
     monkeypatch.setattr(topic_compare, "get_segmenter", resolve)
-    client = TestClient(create_app(tmp_path / "ws"))
     pid = client.post("/api/projects", json={"name": "Topic Compare"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     before = _counts(project)
