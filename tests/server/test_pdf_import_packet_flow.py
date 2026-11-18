@@ -23,6 +23,7 @@ from frisket.engine.store.import_inventory import ImportInventory
 from frisket.execution import pricing_policy
 from frisket.execution.pricing_policy import RatedEstimate
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.ops import ocr_engines
 from frisket.server.app import create_app
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.services import pdf_split_preparation_jobs
@@ -30,8 +31,10 @@ from frisket.server.services.pdf_split_preparation import (
     PdfSplitPreparationAdapter,
     PdfSplitPreparationStore,
 )
+from frisket.server.services import scratch_ocr
 from frisket.server.services.search_preparation import SearchPreparationService
 from tests.deterministic_time import controlled_time
+from tests.helpers import stub_rapidocr_run_scope
 
 PAID = "anthropic/claude-haiku-4-5"
 
@@ -1436,8 +1439,37 @@ def test_a_retry_whose_price_changed_after_its_estimate_is_refused(flow, monkeyp
     assert provider.calls == 1
 
 
-def test_pages_read_on_this_machine_leave_one_receipt_for_their_pass(flow):
+async def _deterministic_local_ocr(_self, _engine, page_paths, _ctx, **_kwargs):
+    return [
+        {
+            "text": "Read on this machine",
+            "blocks": [
+                {
+                    "text": "Read on this machine",
+                    "bbox": [[10, 10], [200, 10], [200, 60], [10, 60]],
+                    "score": 0.99,
+                }
+            ],
+        }
+        for _page in page_paths
+    ]
+
+
+def _fake_local_engine(monkeypatch):
+    """Local OCR answers at its engine call; no engine pool or model is used."""
+    monkeypatch.setattr(
+        ocr_engines.OcrEngines, "run_engine_on_pages", _deterministic_local_ocr
+    )
+    stub_rapidocr_run_scope(monkeypatch)
+    # Scratch OCR binds the engine scope at import, so it is replaced there too.
+    monkeypatch.setattr(
+        scratch_ocr, "rapidocr_execution_scope", ocr_engines.rapidocr_execution_scope
+    )
+
+
+def test_pages_read_on_this_machine_leave_one_receipt_for_their_pass(flow, monkeypatch):
     pytest.importorskip("rapidocr")
+    _fake_local_engine(monkeypatch)
     client, pid, _provider = flow
     files = [("first.pdf", _blank_pdf(300)), ("second.pdf", _blank_pdf(301))]
     draft = _draft(client, pid, files)
@@ -1643,6 +1675,7 @@ def test_a_local_reading_receipt_that_cannot_be_named_waits_for_a_later_pass(
     flow, monkeypatch
 ):
     pytest.importorskip("rapidocr")
+    _fake_local_engine(monkeypatch)
     client, pid, _provider = flow
 
     def unavailable(*_args):
