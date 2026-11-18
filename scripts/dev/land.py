@@ -8,7 +8,9 @@ otherwise:
 
 1. every required check on the PR's current head commit is green (the
    checks are read from that exact commit, so a run for an older head
-   never counts);
+   never counts). Pending checks stop the script, except with ``--wait``
+   under a merge queue, which requests auto-merge so the queue takes the PR
+   once they pass;
 2. GitHub reports the PR mergeable; without a merge queue, a branch behind
    its base is updated and the script exits: re-run it once CI is green on
    the new head. With a merge queue a behind branch is left alone (the queue
@@ -16,8 +18,10 @@ otherwise:
 3. squash-merge, pinned to the verified head commit (never ``--admin``); with
    a merge queue the command enqueues the PR (``--auto``) instead of merging;
 4. the PR state is confirmed MERGED. A queued PR exits with status 4 and its
-   queue position; ``--wait`` polls until it is MERGED or leaves the queue
-   (an ejection names the failing check);
+   queue position; ``--wait`` polls until it is MERGED, a required check
+   fails, the PR conflicts with its base, or it leaves the queue (an ejection
+   names the failing check, and says so when its log shows a dependency
+   download or network timeout);
 5. the main checkout fast-forwards its base branch to include the merge;
 6. only then is the lane's worktree removed and its local branch deleted,
    and the remote branch is deleted (never for a PR that is not MERGED).
@@ -55,6 +59,13 @@ POLL_SECONDS = 30
 WAIT_TIMEOUT_SECONDS = 7200
 PASSING_CONCLUSIONS = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 MERGEABLE_STATES = {"CLEAN", "HAS_HOOKS", "UNSTABLE"}
+# Log lines that mark a failed job as an infrastructure failure rather than
+# the PR's fault. Keep this list short and literal.
+INFRASTRUCTURE_LOG_PATTERNS = (
+    "Failed to download distribution due to network timeout",
+    "ETIMEDOUT",
+    "ECONNRESET",
+)
 PR_QUERY = """
 query($owner: String!, $repo: String!, $n: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -62,6 +73,7 @@ query($owner: String!, $repo: String!, $n: Int!) {
     pullRequest(number: $n) {
       number state isDraft isCrossRepository
       mergeQueueEntry { state position }
+      autoMergeRequest { enabledAt }
       headRefName headRefOid baseRefName mergeable mergeStateStatus
       mergeCommit { oid }
       commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) {
@@ -83,14 +95,14 @@ class LandStop(RuntimeError):
         self.code = code
 
 
-def check_problems(pr: dict) -> list[str]:
-    """Why the required checks on the PR's current head are not all green."""
+def check_problems(pr: dict) -> tuple[list[str], list[str]]:
+    """The failed and the still-pending required checks on the PR's head."""
     commits = pr["commits"]["nodes"]
     if not commits:
-        return ["the PR has no commits"]
+        return ["the PR has no commits"], []
     commit = commits[-1]["commit"]
     if commit["oid"] != pr["headRefOid"]:
-        return [
+        return [], [
             f"checks were reported for {commit['oid']}, but the head is "
             f"{pr['headRefOid']}; wait for CI on the current head"
         ]
@@ -98,18 +110,25 @@ def check_problems(pr: dict) -> list[str]:
     contexts = (rollup.get("contexts") or {}).get("nodes") or []
     required = [context for context in contexts if context.get("isRequired")]
     if not required:
-        return [f"no required checks have reported on {commit['oid']} yet"]
-    problems = []
+        return [], [f"no required checks have reported on {commit['oid']} yet"]
+    failed: list[str] = []
+    pending: list[str] = []
     for context in required:
         if context["__typename"] == "CheckRun":
             name, status = context["name"], context["status"]
             if status != "COMPLETED":
-                problems.append(f"{name}: {status.lower()}")
+                pending.append(f"{name}: {status.lower()}")
             elif context["conclusion"] not in PASSING_CONCLUSIONS:
-                problems.append(f"{name}: {str(context['conclusion']).lower()}")
+                failed.append(f"{name}: {str(context['conclusion']).lower()}")
+        elif context["state"] in ("PENDING", "EXPECTED"):
+            pending.append(f"{context['context']}: {context['state'].lower()}")
         elif context["state"] != "SUCCESS":
-            problems.append(f"{context['context']}: {context['state'].lower()}")
-    return problems
+            failed.append(f"{context['context']}: {context['state'].lower()}")
+    return failed, pending
+
+
+def bullets(lines: list[str]) -> str:
+    return "\n  - " + "\n  - ".join(lines)
 
 
 def merge_gate(pr: dict) -> str:
@@ -208,25 +227,42 @@ class Lander:
         return {**pr, "hasMergeQueue": repository.get("mergeQueue") is not None}
 
     def merge(self, pr: dict) -> None:
-        problems = check_problems(pr)
-        if problems:
+        failed, pending = check_problems(pr)
+        if failed:
             raise LandStop(
-                "required checks are not green on the current head:\n  - "
-                + "\n  - ".join(problems)
+                "required checks failed on the current head:" + bullets(failed)
             )
-        print(f"checks: required checks green on {pr['headRefOid']}")
         queued = pr["hasMergeQueue"]
-        if merge_gate(pr) == "behind" and not queued:
-            self.mutate(
-                ["gh", "pr", "update-branch", str(self.number), "--repo", self.repo]
+        if pending:
+            if not (queued and self.wait):
+                raise LandStop(
+                    "required checks are still pending on the current head:"
+                    + bullets(pending)
+                    + f"\nRe-run land.py {self.number} once they are green"
+                    + (" or with --wait to queue it now." if queued else ".")
+                )
+            if pr["mergeable"] == "CONFLICTING":
+                raise LandStop("the PR conflicts with its base; resolve conflicts")
+            print(
+                "checks: still pending; requesting auto-merge so the merge queue "
+                "takes the PR once they pass"
             )
-            raise LandStop(
-                f"{pr['headRefName']} was behind {pr['baseRefName']} and has been "
-                f"updated; CI now runs on the new head. Re-run land.py {self.number} "
-                "once its required checks are green.",
-                UPDATED,
-            )
-        print("mergeable: yes")
+        else:
+            print(f"checks: required checks green on {pr['headRefOid']}")
+            if merge_gate(pr) == "behind" and not queued:
+                self.mutate(
+                    ["gh", "pr", "update-branch", str(self.number), "--repo", self.repo]
+                )
+                raise LandStop(
+                    f"{pr['headRefName']} was behind {pr['baseRefName']} and has "
+                    f"been updated; CI now runs on the new head. Re-run land.py "
+                    f"{self.number} once its required checks are green.",
+                    UPDATED,
+                )
+            print("mergeable: yes")
+        if queued and pr.get("autoMergeRequest") is not None:
+            print("auto-merge: already requested")
+            return
         command = [
             "gh",
             "pr",
@@ -256,7 +292,7 @@ class Lander:
                         "--limit",
                         "50",
                         "--json",
-                        "name,conclusion,headBranch,url",
+                        "databaseId,name,conclusion,headBranch,url",
                     ]
                 )
             )
@@ -271,9 +307,35 @@ class Lander:
         ]
         if not failed:
             return "no failing queue check could be found; open the PR for details"
-        return "failing check: " + ", ".join(
+        reason = "failing check: " + ", ".join(
             f"{run['name']} ({run.get('url', 'no url')})" for run in failed
         )
+        if any(self.infrastructure_failure(run) for run in failed):
+            reason += (
+                ". Its log shows a dependency download or network timeout: an "
+                "infrastructure failure, not the PR. Re-run land.py "
+                f"{self.number} --wait to queue it again"
+            )
+        return reason
+
+    def infrastructure_failure(self, run: dict) -> bool:
+        if run.get("databaseId") is None:
+            return False
+        try:
+            log = self.read(
+                [
+                    "gh",
+                    "run",
+                    "view",
+                    str(run["databaseId"]),
+                    "--repo",
+                    self.repo,
+                    "--log-failed",
+                ]
+            )
+        except LandStop:
+            return False
+        return any(pattern in log for pattern in INFRASTRUCTURE_LOG_PATTERNS)
 
     def settle(self, pr: dict) -> dict:
         """The PR once MERGED; LandStop if it is queued, ejected or closed."""
@@ -291,7 +353,10 @@ class Lander:
                 f"Re-run land.py {self.number} --wait, or once it has merged.",
                 QUEUED,
             )
-        seen = pr.get("mergeQueueEntry") is not None
+        requested = (
+            pr.get("mergeQueueEntry") is not None
+            or pr.get("autoMergeRequest") is not None
+        )
         waited = 0.0
         while True:
             if waited >= self.timeout_seconds:
@@ -307,12 +372,24 @@ class Lander:
                 return latest
             if latest["state"] == "CLOSED":
                 raise LandStop("the PR was closed without merging")
+            if latest["mergeable"] == "CONFLICTING":
+                raise LandStop(
+                    f"PR #{self.number} now conflicts with its base; resolve "
+                    "conflicts and re-run land.py"
+                )
+            failed, _pending = check_problems(latest)
+            if failed:
+                raise LandStop(
+                    "required checks failed on the current head:" + bullets(failed)
+                )
             entry = latest.get("mergeQueueEntry")
             if entry is not None:
-                seen = True
+                requested = True
                 if entry != (pr.get("mergeQueueEntry") or {}):
                     print(f"queue: {queue_summary(latest)}")
-            elif seen:
+            elif latest.get("autoMergeRequest") is not None:
+                requested = True
+            elif requested:
                 raise LandStop(
                     f"PR #{self.number} left the merge queue without merging; "
                     f"{self.ejection_reason(latest)}"
@@ -415,7 +492,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument(
         "--wait",
         action="store_true",
-        help="with a merge queue, poll until the PR is merged or leaves the queue",
+        help=(
+            "with a merge queue, queue the PR even while its checks are pending "
+            "and poll until it is merged, fails, conflicts or leaves the queue"
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="print the plan only")
     parser.add_argument("--repo", help="OWNER/NAME (default: the main checkout's repo)")
