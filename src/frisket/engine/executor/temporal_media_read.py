@@ -369,7 +369,7 @@ class AdmittedTemporalMediaReader:
         }
         return {name: value for name, value in row.items() if name not in deferred}
 
-    def publication_evidence(self, write, rows, *, receipt_id):
+    def publication_supporting_records(self, write, rows, *, receipt_id):
         evidence = []
         producer_id = create_base_cell_producer(
             self.project.db, stage_id=f"op:{write.op_id}", op_id=write.op_id

@@ -30,10 +30,10 @@ NETWORK_POLICY_META_KEY = "network_policy"
 STORAGE_ID_META_KEY = "storage_id"
 
 
-SUPPORTED_EVIDENCE_RETENTION_VALUES = ("compactable", "pinned", "materialized")
+SUPPORTED_RETENTION_VALUES = ("compactable", "pinned", "materialized")
 
 
-EVIDENCE_RETENTION_VALUES = set(SUPPORTED_EVIDENCE_RETENTION_VALUES)
+RETENTION_VALUES = set(SUPPORTED_RETENTION_VALUES)
 
 
 DEFAULT_RETENTION_POLICY: dict[str, Any] = {
@@ -51,7 +51,7 @@ def _normalize_retention_policy(data: object | None = None) -> dict[str, Any]:
         raise ValueError("retention policy must be an object")
     if "default_evidence" in data:
         default_evidence = str(data["default_evidence"])
-        if default_evidence not in EVIDENCE_RETENTION_VALUES:
+        if default_evidence not in RETENTION_VALUES:
             raise ValueError(f"unsupported default_evidence: {default_evidence}")
         policy["default_evidence"] = default_evidence
     for key in ("pin_evidence_by_default", "no_compact"):

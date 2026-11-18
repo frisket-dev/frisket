@@ -133,7 +133,7 @@ class AdmittedOpenCorporates:
         from frisket.execution.attempt import attempt_in_scope
 
         writer = attempt_in_scope(ctx.extras)
-        ReceiptStore(ctx.project)._record_writer_evidence(
+        ReceiptStore(ctx.project)._record_writer_supporting_record(
             {
                 "kind": "opencorporates_request",
                 "call_id": uuid.uuid4().hex,

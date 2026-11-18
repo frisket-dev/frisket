@@ -152,7 +152,7 @@ def cell_source_binding_id(
     )
 
 
-def _evidence_source_revision(
+def _cited_source_revision(
     *,
     prefix: str,
     source_kind: str,
@@ -183,7 +183,7 @@ def transcript_source_revision(
 ) -> SourceRevision:
     """Construct an immutable source identity for one exact transcript link."""
 
-    return _evidence_source_revision(
+    return _cited_source_revision(
         prefix="transcript-link",
         source_kind="transcript",
         version_kind="transcript_snapshot",
@@ -198,7 +198,7 @@ def ocr_source_revision(
 ) -> SourceRevision:
     """Construct an immutable source identity for one exact current OCR link."""
 
-    return _evidence_source_revision(
+    return _cited_source_revision(
         prefix="ocr-link",
         source_kind="ocr_text",
         version_kind="ocr_snapshot",

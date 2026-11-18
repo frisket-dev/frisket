@@ -15,7 +15,7 @@ from frisket.engine.store.document_text import (
     resolve_document_text_selection,
 )
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -345,7 +345,7 @@ def publish_pdf_ocr_sample(
                     snippet=text or None,
                 )
                 spans.append({"span_id": int(region["id"]), "rank": len(spans)})
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell",
             subject_ref={

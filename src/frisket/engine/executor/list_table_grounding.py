@@ -7,10 +7,10 @@ from typing import Any
 
 from frisket.actions.types import RowSource
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_evidence_link
+from frisket.engine.store.evidence import record_citation
 
 
-def propagate_list_item_evidence(
+def propagate_list_item_citations(
     project: Project,
     *,
     sheet_id: int,
@@ -42,7 +42,7 @@ def propagate_list_item_evidence(
         source_link = association["evidence_link"]
         if source_link is None or not source_link["spans"]:
             continue
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="row",
             subject_ref={

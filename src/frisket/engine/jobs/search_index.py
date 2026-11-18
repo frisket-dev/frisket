@@ -20,7 +20,7 @@ from frisket.retrieval.preparation import (
     PreparationEncoder,
     preparation_work_marker,
     process_blob_image_preparation_batch,
-    process_evidence_preparation_batch,
+    process_cited_text_preparation_batch,
     process_text_preparation_batch,
     process_timed_media_preparation_batch,
     read_preparation_policy,
@@ -99,14 +99,14 @@ def process_index_batches(
                     ),
                     cancelled=stopped,
                 ),
-                lambda: process_evidence_preparation_batch(
+                lambda: process_cited_text_preparation_batch(
                     project,
                     channel=TRANSCRIPT_CHANNEL,
                     encoder=embedding_encoder,
                     cancelled=stopped,
                     policy=policy,
                 ),
-                lambda: process_evidence_preparation_batch(
+                lambda: process_cited_text_preparation_batch(
                     project,
                     channel=OCR_TEXT_CHANNEL,
                     encoder=embedding_encoder,

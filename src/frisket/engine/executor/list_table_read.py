@@ -26,7 +26,7 @@ from frisket.engine.executor.recordsets import (
     is_feedable_named_result_ref,
     json_schema_equal,
 )
-from frisket.engine.store.evidence import find_item_evidence_link
+from frisket.engine.store.evidence import find_item_citation
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 
@@ -244,7 +244,7 @@ class AdmittedListTableReader:
                                     "source_column_id": source.column_id,
                                     "source_row_id": row_id,
                                     "item_index": index,
-                                    "evidence_link": find_item_evidence_link(
+                                    "evidence_link": find_item_citation(
                                         project,
                                         row_id=row_id,
                                         column_id=source.column_id,

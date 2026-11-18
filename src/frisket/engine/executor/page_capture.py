@@ -30,8 +30,8 @@ from frisket.engine.executor.action_families._errors import (
     receipt_stale_replay_error,
 )
 from frisket.engine.store.evidence import (
-    evidence_link_by_stable_id,
-    record_evidence_link,
+    citation_by_stable_id,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -691,7 +691,7 @@ def _finalize_web_capture_page(
             params_hash=params_hash,
             row_results=row_results,
         )
-        evidence_refs = _write_web_capture_page_evidence(
+        evidence_refs = _write_web_capture_page_citations(
             project,
             action_kind=action.kind,
             row_results=row_results,
@@ -1008,7 +1008,7 @@ def _web_capture_page_output_ref(
     }
 
 
-def _write_web_capture_page_evidence(
+def _write_web_capture_page_citations(
     project: Project,
     *,
     action_kind: str,
@@ -1073,7 +1073,7 @@ def _write_web_capture_page_evidence(
                     "artifact_stable_id": artifact["stable_id"],
                 }
             )
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell",
             subject_ref=row.get("value_ref") or {},
@@ -1535,7 +1535,7 @@ def _web_capture_page_replay_error(
             stable_id = ref.get("stable_id")
             if not isinstance(stable_id, str) or not stable_id:
                 return stale(replay + "evidence ref is incomplete", ref=ref)
-            link = evidence_link_by_stable_id(project, stable_id)
+            link = citation_by_stable_id(project, stable_id)
             if link is None:
                 return stale(replay + "evidence link is missing", stable_id=stable_id)
     if receipt.status in {"completed", "partial"} and not seen_output:

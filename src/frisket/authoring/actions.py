@@ -28,7 +28,7 @@ ACTION_NAMES = (
     "export_project",
 )
 
-TRACE_ROW_EVIDENCE_STATUSES = (
+TRACE_ROW_STATUSES = (
     "recorded",
     "not_recorded",
     "row_not_in_run",
@@ -292,7 +292,7 @@ def _trace_row_absence_payload(
     absence: dict[str, Any] | None = None,
     cell: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if status not in TRACE_ROW_EVIDENCE_STATUSES:
+    if status not in TRACE_ROW_STATUSES:
         raise ValueError(f"unknown trace row status {status!r}")
     metadata = action_metadata_for_action_kind(run_row_action_kind(run))
     return {

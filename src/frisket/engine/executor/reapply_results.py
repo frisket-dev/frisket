@@ -26,9 +26,9 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 
 
-def _copy_evidence(project, op_id: int, sheet_id: int) -> None:
+def _copy_citations(project, op_id: int, sheet_id: int) -> None:
     """Copy link ownership, not source spans or per-cell receipt payloads."""
-    from frisket.engine.store.evidence import copy_evidence_links
+    from frisket.engine.store.evidence import copy_citations
 
     links = project.db.execute(
         "SELECT link.id,copy.row_id AS target_row_id,copy.column_id AS target_column_id "
@@ -51,7 +51,7 @@ def _copy_evidence(project, op_id: int, sheet_id: int) -> None:
             )[1]
             for column, rows in rows_by_column.items()
         }
-        copy_evidence_links(
+        copy_citations(
             project,
             op_id=op_id,
             sheet_id=sheet_id,
@@ -246,7 +246,7 @@ def reapply_results(project, project_id, bound):
                     (json.dumps(output_bindings), op_id),
                 )
                 copy_staged_outcomes(project.db, op_id=op_id, targets=targets)
-                _copy_evidence(project, op_id, scope.sheet_id)
+                _copy_citations(project, op_id, scope.sheet_id)
                 changes.close(op_id)
                 summary = {
                     **_outcome_counts(project, op_id),

@@ -278,9 +278,9 @@ def _captured_text_spans(
         return []
 
     from frisket.engine.store.evidence import record_source_span, record_text_surface
-    from frisket.engine.store.text_quote_match import quote_ranges
+    from frisket.engine.store.text_passage_match import passage_ranges
 
-    ranges = quote_ranges(text, quote)
+    ranges = passage_ranges(text, quote)
     if not ranges:
         return []
     content_hash = _text_hash(text)
@@ -425,7 +425,7 @@ def _region_spans_from_matches(
     return spans
 
 
-def _prepared_aligned_quote_spans(
+def _prepared_aligned_passage_spans(
     project: Any,
     *,
     artifact: dict[str, Any],
@@ -453,7 +453,7 @@ def _prepared_aligned_quote_spans(
         return None
 
     from frisket.engine.store.grounding_contract import TextTarget, WordStream, ground
-    from frisket.engine.store.quote_align import exact_matches
+    from frisket.engine.store.passage_align import exact_matches
 
     target = TextTarget(text=quote)
     scoped_stream = WordStream(tokens=tokens)
@@ -570,10 +570,10 @@ def _model_bbox_spans(
 # Two occurrences whose top scores agree within this epsilon are treated as
 # indistinguishable (a fuzzy-score tie): with nothing to disambiguate them we must
 # NOT write both (highlights scattered across the doc) — we degrade (BLOCKER 2).
-_REPEATED_QUOTE_EPSILON = 1e-6
+_REPEATED_PASSAGE_EPSILON = 1e-6
 
 
-def _aligned_quote_spans(
+def _aligned_passage_spans(
     project: Any,
     *,
     artifact: dict[str, Any],
@@ -591,7 +591,7 @@ def _aligned_quote_spans(
     OCR/text stream for this blob — the legible degraded state that drives the
     viewer copy), ``"below_threshold"`` (a stream exists but nothing cleared the
     bar), or ``"repeated_quote_ambiguous"`` (>=2 occurrences tie within
-    :data:`_REPEATED_QUOTE_EPSILON` and nothing disambiguates them -> we refuse to
+    :data:`_REPEATED_PASSAGE_EPSILON` and nothing disambiguates them -> we refuse to
     scatter boxes across every occurrence). Any reason -> Degradation Law at the
     caller; never a guessed box.
 
@@ -626,7 +626,7 @@ def _aligned_quote_spans(
     if not matches:
         return None, "below_threshold"
     if len(matches) > 1 and (
-        abs(matches[0].score - matches[1].score) <= _REPEATED_QUOTE_EPSILON
+        abs(matches[0].score - matches[1].score) <= _REPEATED_PASSAGE_EPSILON
     ):
         # Indistinguishable repeats with no disambiguator -> degrade, keep the
         # coarse text/page anchor (never all candidates).
@@ -751,7 +751,7 @@ def _transcript_segment_indices_spans(
     return spans
 
 
-def _transcript_quote_spans(
+def _transcript_passage_spans(
     project: Any,
     *,
     artifact: dict[str, Any],
@@ -768,7 +768,7 @@ def _transcript_quote_spans(
     transcript stream resolves for this row (caller falls through to the
     OCR/text path) or when the entry has no quote at all.
 
-    The aligner (``store.quote_align.align``) reports which segment(s) its
+    The aligner (``store.passage_align.align``) reports which segment(s) its
     matched range covers via ``span_spec.metadata["segment_indices"]``. A
     single-segment match REUSES that segment's already-recorded span (same
     lookup-not-record preference as strategy B, above) so the citation lands
@@ -839,7 +839,7 @@ _CONFIDENT_ALIGNMENTS = {
 }
 
 
-def _resolve_evidence_entry_spans(
+def _resolve_citation_entry_spans(
     project: Any,
     *,
     artifact: dict[str, Any],
@@ -878,7 +878,7 @@ def _resolve_evidence_entry_spans(
         transcript_stream=transcript_stream,
     )
     if entry_spans is None:
-        entry_spans = _transcript_quote_spans(
+        entry_spans = _transcript_passage_spans(
             project,
             artifact=artifact,
             sheet_id=sheet_id,
@@ -924,7 +924,7 @@ def _resolve_evidence_entry_spans(
                         project, artifact=pdf_artifact, item=entry, rank=rank
                     )
                 entry_spans.extend(
-                    _prepared_aligned_quote_spans(
+                    _prepared_aligned_passage_spans(
                         project,
                         artifact=pdf_artifact,
                         source=prepared_source,
@@ -1005,7 +1005,7 @@ def _source_spans(
             )
         ]
     if quote is not None:
-        spans, reason = _aligned_quote_spans(
+        spans, reason = _aligned_passage_spans(
             project,
             artifact=artifact,
             quote=quote,

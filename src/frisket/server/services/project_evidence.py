@@ -17,11 +17,11 @@ from frisket.engine.store import Project
 from frisket.engine.store.current_value_windows import CurrentValueChanged
 from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    list_column_evidence,
-    resolve_evidence_viewer,
+    list_cell_citations,
+    list_column_citations,
+    resolve_citation_viewer,
 )
-from frisket.engine.store.evidence_recovery import locate_current_evidence_text
+from frisket.engine.store.citation_recovery import locate_current_cited_text
 from frisket.engine.store.text_annotations import resolve_text_annotations
 from frisket.engine.store.media_clip import (
     ClipError,
@@ -48,11 +48,11 @@ from frisket.server.services.row_source_documents import (
 MAX_EXPLICIT_ROW_IDS = 1000
 
 
-class ProjectEvidenceRouteError(RouteError):
+class ProjectCitationsRouteError(RouteError):
     pass
 
 
-class ProjectEvidenceService:
+class ProjectCitationsService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
@@ -71,7 +71,7 @@ class ProjectEvidenceService:
             column_id=column_id,
         )
         if sheet_id is None:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="cell_not_found",
@@ -81,7 +81,7 @@ class ProjectEvidenceService:
                 ),
                 bare_json=True,
             )
-        return list_cell_evidence(
+        return list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -102,7 +102,7 @@ class ProjectEvidenceService:
                     requested_freshness=requested_freshness,
                 )
         except RowSourceNotFound as exc:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="row_not_found",
@@ -138,7 +138,7 @@ class ProjectEvidenceService:
             column_id=column_id,
         )
         if sheet_id is None:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="cell_not_found",
@@ -160,9 +160,9 @@ class ProjectEvidenceService:
                 occurrence_id=occurrence_id,
             )
         except CurrentValueChanged as exc:
-            raise ProjectEvidenceRouteError(409, str(exc)) from exc
+            raise ProjectCitationsRouteError(409, str(exc)) from exc
         except ValueError as exc:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 400,
                 _v1_action_error(
                     code="invalid_text_window", message=str(exc), field="text_window"
@@ -184,7 +184,7 @@ class ProjectEvidenceService:
         if not _column_belongs_to_sheet(
             project, sheet_id=sheet_id, column_id=column_id
         ):
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="column_not_found",
@@ -195,7 +195,7 @@ class ProjectEvidenceService:
                 bare_json=True,
             )
         parsed_row_ids = _parse_row_ids_param(row_ids)
-        return list_column_evidence(
+        return list_column_citations(
             project,
             sheet_id=sheet_id,
             column_id=column_id,
@@ -218,7 +218,7 @@ class ProjectEvidenceService:
         project = self._project_or_404(project_id)
         with project.read_snapshot() as snapshot:
             try:
-                viewer = resolve_evidence_viewer(
+                viewer = resolve_citation_viewer(
                     snapshot,
                     evidence_link_id,
                     project_id=project_id,
@@ -229,9 +229,9 @@ class ProjectEvidenceService:
                     text_span_id=text_span_id,
                 )
             except CurrentValueChanged as exc:
-                raise ProjectEvidenceRouteError(409, str(exc)) from exc
+                raise ProjectCitationsRouteError(409, str(exc)) from exc
             except ValueError as exc:
-                raise ProjectEvidenceRouteError(
+                raise ProjectCitationsRouteError(
                     400,
                     _v1_action_error(
                         code="invalid_text_window",
@@ -241,7 +241,7 @@ class ProjectEvidenceService:
                     bare_json=True,
                 ) from exc
             except KeyError as exc:
-                raise ProjectEvidenceRouteError(
+                raise ProjectCitationsRouteError(
                     404,
                     _v1_action_error(
                         code="evidence_link_not_found",
@@ -252,7 +252,7 @@ class ProjectEvidenceService:
                     bare_json=True,
                 ) from exc
             return (
-                locate_current_evidence_text(
+                locate_current_cited_text(
                     snapshot.db,
                     viewer,
                     text_artifact_id=text_artifact_id,
@@ -274,14 +274,14 @@ class ProjectEvidenceService:
     ) -> FileResponse:
         """provenance-download-clip-v1: ffmpeg-cut a temporal span's own
         blob (no lineage traversal -- W3.2) and stream it back as a
-        download. Raises ProjectEvidenceRouteError, mapped from
+        download. Raises ProjectCitationsRouteError, mapped from
         ClipError's guard/cap failures, on every rejection path."""
         project = self._project_or_404(project_id)
         try:
             source = resolve_clip_source(project, span_stable_id)
             start_ms, end_ms = padded_range(source, pad_ms=pad_ms)
         except ClipError as exc:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 clip_error_status(exc),
                 _v1_action_error(
                     code=exc.code,
@@ -305,7 +305,7 @@ class ProjectEvidenceService:
                 )
         except BlobNotFoundError as exc:
             shutil.rmtree(scratch, ignore_errors=True)
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="blob_missing",
@@ -317,7 +317,7 @@ class ProjectEvidenceService:
             ) from exc
         except ClipError as exc:
             shutil.rmtree(scratch, ignore_errors=True)
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 clip_error_status(exc),
                 _v1_action_error(
                     code=exc.code,
@@ -355,7 +355,7 @@ class ProjectEvidenceService:
             source = resolve_link_run_clip_source(project, evidence_link_id, run_index)
             start_ms, end_ms = padded_range(source, pad_ms=pad_ms)
         except ClipError as exc:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 clip_error_status(exc),
                 _v1_action_error(
                     code=exc.code,
@@ -382,7 +382,7 @@ class ProjectEvidenceService:
                 )
         except BlobNotFoundError as exc:
             shutil.rmtree(scratch, ignore_errors=True)
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="blob_missing",
@@ -397,7 +397,7 @@ class ProjectEvidenceService:
             ) from exc
         except ClipError as exc:
             shutil.rmtree(scratch, ignore_errors=True)
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 clip_error_status(exc),
                 _v1_action_error(
                     code=exc.code,
@@ -424,7 +424,7 @@ class ProjectEvidenceService:
         except HTTPException as exc:
             if exc.status_code != 404:
                 raise
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 404,
                 _v1_action_error(
                     code="project_not_found",
@@ -467,7 +467,7 @@ def _parse_row_ids_param(raw: str | None) -> list[int] | None:
     """Comma-separated `row_ids` query param, mirroring sheet_grid.py's
     `_parse_row_ids_param` convention (sheet_grid.py:207-229): `None` means
     "no filter" (every row); an explicit empty/all-blank value parses to `[]`
-    (list_column_evidence's own empty-list short-circuit, not "no filter")."""
+    (list_column_citations's own empty-list short-circuit, not "no filter")."""
     if raw is None:
         return None
     out: list[int] = []
@@ -479,7 +479,7 @@ def _parse_row_ids_param(raw: str | None) -> list[int] | None:
         try:
             rid = int(token)
         except ValueError as exc:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 400,
                 _v1_action_error(
                     code="invalid_row_ids",
@@ -494,7 +494,7 @@ def _parse_row_ids_param(raw: str | None) -> list[int] | None:
         seen.add(rid)
         out.append(rid)
         if len(out) > MAX_EXPLICIT_ROW_IDS:
-            raise ProjectEvidenceRouteError(
+            raise ProjectCitationsRouteError(
                 400,
                 _v1_action_error(
                     code="too_many_row_ids",

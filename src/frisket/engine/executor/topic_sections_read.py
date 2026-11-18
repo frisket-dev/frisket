@@ -351,7 +351,7 @@ class _BoundTopicSectionsReader:
         return cells
 
 
-def topic_receipt_evidence(project, facts, output_refs, hidden_refs):
+def topic_supporting_records(project, facts, output_refs, hidden_refs):
     """Read back committed values: Params and author returns supply no facts."""
     from frisket.engine.store.runs import RunResultStore
 

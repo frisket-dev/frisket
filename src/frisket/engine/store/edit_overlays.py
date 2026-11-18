@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
-from frisket.engine.store.evidence import mark_evidence_stale_for_cell_refs
+from frisket.engine.store.evidence import mark_citations_stale_for_cell_refs
 from frisket.engine.store.op_log import append_op, set_undo_info
 from frisket.engine.store.prepared_edits import prepared_edit_values
 
@@ -47,7 +47,7 @@ def write_edit_overlay(
         ],
         close_change=False,
     )
-    stale_ids = mark_evidence_stale_for_cell_refs(
+    stale_ids = mark_citations_stale_for_cell_refs(
         project,
         targets,
         reason=stale_reason,

@@ -19,7 +19,7 @@ def _claim_integer(value):
         return None
 
 
-def _evidence_claim(raw, *, item_index=None):
+def _citation_claim(raw, *, item_index=None):
     """Drop unknown/invalid hints independently, never accept caller source IDs."""
     if not isinstance(raw, dict):
         return None
@@ -101,8 +101,8 @@ def complete_extraction(
                 for item in (raw_warnings if isinstance(raw_warnings, list) else [])
                 if item is not None
             ]
-            raw_evidence = raw.get("evidence")
-            evidence = raw_evidence if isinstance(raw_evidence, list) else []
+            raw_citations = raw.get("evidence")
+            evidence = raw_citations if isinstance(raw_citations, list) else []
             entries = (
                 (
                     (index, entry)
@@ -114,7 +114,7 @@ def complete_extraction(
                 else ((None, entry) for entry in evidence)
             )
             for index, entry in entries:
-                claim = _evidence_claim(entry, item_index=index)
+                claim = _citation_claim(entry, item_index=index)
                 if claim is not None:
                     claims.append(claim)
         output[name] = Outcome.ok(

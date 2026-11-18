@@ -466,7 +466,7 @@ def write_row_file_evidence(
                 publish_download_channel_facts(project, data, **kwargs)
             elif kind not in {"fetch", "video_frame", "face_crop", "searchable_pdf"}:
                 raise ValueError("unrecognized row file acquisition")
-            ReceiptStore(project)._record_writer_evidence(
+            ReceiptStore(project)._record_writer_supporting_record(
                 {
                     "kind": "row_file_output",
                     "action_kind": action_kind,

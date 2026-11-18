@@ -49,9 +49,9 @@ _FAMILY_KEY_LABELS = {
 # exactly as ambiguous as a 'reserved' effect_checkpoint, but invisible to
 # `store.list_all()`, so reconcile must enumerate and resolve it separately.
 _PROBE_EGRESS_FAMILY = "embedding_dimension_probe_egress"
-_PROBE_EGRESS_EVIDENCE_KIND = "embedding_dimension_probe_egress_reservation"
-_PROBE_CHECKPOINT_EVIDENCE_KIND = "embedding_dimension_probe_checkpoint"
-_PROBE_OPERATOR_EVIDENCE_KIND = "embedding_dimension_probe_operator_decision"
+_PROBE_EGRESS_RECORD_KIND = "embedding_dimension_probe_egress_reservation"
+_PROBE_CHECKPOINT_RECORD_KIND = "embedding_dimension_probe_checkpoint"
+_PROBE_OPERATOR_RECORD_KIND = "embedding_dimension_probe_operator_decision"
 
 
 def _probe_receipt_rows(project) -> list[dict[str, Any]]:
@@ -83,13 +83,13 @@ def _probe_receipt_rows(project) -> list[dict[str, Any]]:
             if isinstance(item, dict) and isinstance(item.get("ref"), dict)
         ]
         egress = next(
-            (ref for ref in refs if ref.get("kind") == _PROBE_EGRESS_EVIDENCE_KIND),
+            (ref for ref in refs if ref.get("kind") == _PROBE_EGRESS_RECORD_KIND),
             None,
         )
         if egress is None:
             continue
         checkpoint = next(
-            (ref for ref in refs if ref.get("kind") == _PROBE_CHECKPOINT_EVIDENCE_KIND),
+            (ref for ref in refs if ref.get("kind") == _PROBE_CHECKPOINT_RECORD_KIND),
             None,
         )
         if checkpoint is not None:
@@ -376,12 +376,12 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
     evidence = [
         item
         for item in receipt.evidence
-        if item.ref.get("kind") != _PROBE_OPERATOR_EVIDENCE_KIND
+        if item.ref.get("kind") != _PROBE_OPERATOR_RECORD_KIND
     ]
     evidence.append(
         ReceiptEvidence(
             ref={
-                "kind": _PROBE_OPERATOR_EVIDENCE_KIND,
+                "kind": _PROBE_OPERATOR_RECORD_KIND,
                 "decided_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             },
             retention="pinned",

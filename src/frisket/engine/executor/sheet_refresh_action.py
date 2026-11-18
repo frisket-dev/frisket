@@ -40,7 +40,7 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import _receipt_for_idempotency
 from frisket.engine.executor.action_support import ActionCtx, _new_id
 from frisket.engine.executor.embedding_read import TableReadRefused
-from frisket.engine.executor.list_table_grounding import propagate_list_item_evidence
+from frisket.engine.executor.list_table_grounding import propagate_list_item_citations
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store import Project
 from frisket.engine.store.leases import lease_held
@@ -1014,7 +1014,7 @@ def _publish_staged_refresh(project, prepared, receipt, *, deps):
             source = RowSource(
                 sheet_id=metadata["source_sheet_id"], row_id=metadata["source_row_id"]
             )
-            propagate_list_item_evidence(
+            propagate_list_item_citations(
                 project,
                 sheet_id=prepared.sheet_id,
                 op_id=op_id,

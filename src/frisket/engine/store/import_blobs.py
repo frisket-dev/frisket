@@ -9,7 +9,7 @@ from typing import Any, Literal
 from urllib.parse import quote
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -458,7 +458,7 @@ def publish_import_blobs(
                 },
                 snippet=f"Pages {page_start}\u2013{page_end}",
             )
-            link = record_evidence_link(
+            link = record_citation(
                 project,
                 subject_kind="cell_value",
                 subject_ref=_imported_cell_ref(project, cell.row_id, column_id),
@@ -502,7 +502,7 @@ def publish_import_blobs(
                 )
             prepared_ref = prepared_refs.get(blob.occurrence_id)
             if prepared_ref is not None:
-                _publish_packet_ocr_evidence(
+                _publish_packet_ocr_citations(
                     project,
                     blob=blob,
                     artifact=packet_artifacts[blob.occurrence_id],
@@ -542,7 +542,7 @@ def publish_import_blobs(
                     else None
                 ),
             )
-            link = record_evidence_link(
+            link = record_citation(
                 project,
                 subject_kind="cell_value",
                 subject_ref=_imported_cell_ref(project, cell.row_id, column_id),
@@ -573,7 +573,7 @@ def _imported_cell_ref(project: Any, row_id: int, column_id: int) -> dict[str, A
     return current_value_ref(row, row_id=row_id, column_id=column_id)
 
 
-def _publish_packet_ocr_evidence(
+def _publish_packet_ocr_citations(
     project: Any,
     *,
     blob: ImportBlob,
@@ -645,7 +645,7 @@ def _publish_packet_ocr_evidence(
                 continue
             span = record_source_span(project, **descriptor)
             spans.append({"span_id": int(span["id"]), "rank": len(spans)})
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=value_ref,

@@ -18,7 +18,7 @@ from frisket.engine.store.search_index_work import (
 from frisket.retrieval.preparation import (
     PreparationPolicy,
     dispatch_resolved_blob_source,
-    dispatch_resolved_evidence_source,
+    dispatch_resolved_cited_source,
     dispatch_resolved_text_source,
     retire_cell_binding,
 )
@@ -259,7 +259,7 @@ def _replace_cell(
             elif isinstance(
                 source, ResolvedCellTranscriptSource | ResolvedCellOcrTextSource
             ):
-                dispatch_resolved_evidence_source(
+                dispatch_resolved_cited_source(
                     retrieval,
                     source,
                     policy=policy,

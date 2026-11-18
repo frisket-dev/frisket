@@ -707,7 +707,7 @@ class AdmittedSemanticMatchReader:
                 "Link rows must retain their admitted source and matching target",
             )
 
-    def publication_evidence(self, write, lineages) -> list[ReceiptEvidence]:
+    def publication_supporting_records(self, write, lineages) -> list[ReceiptEvidence]:
         edges = [
             {
                 "child_row_id": row_id,

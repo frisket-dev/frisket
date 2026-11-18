@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from frisket.engine.store.cell_reference import evidence_subject_ref
+from frisket.engine.store.cell_reference import citation_subject_ref
 
 import json
 import hashlib
@@ -25,7 +25,7 @@ class ResolvedWordStream:
 
 
 @dataclass(frozen=True)
-class ResolvedOcrEvidence:
+class ResolvedOcrCitation:
     """One exact, current OCR grounding link and its addressable spans."""
 
     artifact_id: int
@@ -106,14 +106,14 @@ def iter_ocr_word_streams(project: Any, blob_hash: str | None):
         )
 
 
-def resolve_current_ocr_evidence(
+def resolve_current_ocr_citation(
     project: Any,
     *,
     sheet_id: int,
     row_id: int,
     column_id: int | None = None,
     blob_hash: str | None = None,
-) -> tuple[ResolvedOcrEvidence, ...]:
+) -> tuple[ResolvedOcrCitation, ...]:
     """Resolve exact current OCR derivatives for a selected cell or source blob.
 
     Unlike :func:`resolve_ocr_word_stream`, this never chooses the newest
@@ -141,7 +141,7 @@ def resolve_current_ocr_evidence(
         + " ORDER BY c.position, el.id",
         params,
     ).fetchall()
-    resolved: list[ResolvedOcrEvidence] = []
+    resolved: list[ResolvedOcrCitation] = []
     for row in rows:
         if blob_hash is not None and str(row["blob_hash"] or "") != str(blob_hash):
             continue
@@ -155,7 +155,7 @@ def resolve_current_ocr_evidence(
             not isinstance(value, str)
             or not value.strip()
             or not isinstance(value_ref, dict)
-            or _loads(row["subject_ref_json"], {}) != evidence_subject_ref(value_ref)
+            or _loads(row["subject_ref_json"], {}) != citation_subject_ref(value_ref)
         ):
             continue
         span_rows = project.db.execute(
@@ -229,7 +229,7 @@ def resolve_current_ocr_evidence(
             }
         )
         resolved.append(
-            ResolvedOcrEvidence(
+            ResolvedOcrCitation(
                 artifact_id=int(row["artifact_id"]),
                 artifact_stable_id=artifact_stable_id,
                 evidence_link_id=int(row["id"]),

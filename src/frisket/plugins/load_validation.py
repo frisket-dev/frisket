@@ -30,7 +30,7 @@ from frisket.authoring.workbench.contracts import (
 )
 
 
-class PluginLoadEvidenceError(Exception):
+class PluginLoadValidationError(Exception):
     """A validation failure while building ``plugin.load`` manifest evidence.
 
     Carries the exact ``ActionError`` fields the receipt path reports, so the
@@ -54,7 +54,7 @@ class PluginLoadEvidenceError(Exception):
 
 
 @dataclass(frozen=True)
-class PluginLoadEvidence:
+class PluginLoadValidation:
     """Everything the ``plugin.load`` validation produces from a manifest path.
 
     ``manifest_ref`` is the durable evidence blob stored in the
@@ -69,12 +69,12 @@ class PluginLoadEvidence:
     manifest_ref: dict[str, Any]
 
 
-def build_plugin_load_evidence(
+def build_plugin_load_validation(
     action: Any,
     manifest_path: Path,
     *,
     request_hash: str,
-) -> PluginLoadEvidence:
+) -> PluginLoadValidation:
     """Validate a plugin manifest and build its ``plugin.load`` evidence.
 
     Pure (no project writes): the same validation the ``plugin.load`` action
@@ -85,7 +85,7 @@ def build_plugin_load_evidence(
     try:
         loaded = load_plugin_manifest_file(manifest_path)
     except PluginManifestLoadError as exc:
-        raise PluginLoadEvidenceError(
+        raise PluginLoadValidationError(
             exc.code, exc.message, field="params.manifest.path"
         ) from exc
     descriptor_path = manifest_path.parent / "workbench-descriptors.json"
@@ -93,7 +93,7 @@ def build_plugin_load_evidence(
     if descriptor_path.is_symlink() or (
         descriptor_path.exists() and not descriptor_path.is_file()
     ):
-        raise PluginLoadEvidenceError(
+        raise PluginLoadValidationError(
             "invalid_workbench_descriptor_package_source",
             "workbench descriptor package path must point to a regular file",
             field="params.manifest.workbench_descriptors_path",
@@ -106,7 +106,7 @@ def build_plugin_load_evidence(
                 loaded, descriptor_package
             )
         except WorkbenchDescriptorPackageLoadError as exc:
-            raise PluginLoadEvidenceError(
+            raise PluginLoadValidationError(
                 exc.code,
                 exc.message,
                 field="params.manifest.workbench_descriptors_path",
@@ -115,7 +115,7 @@ def build_plugin_load_evidence(
     contribution_error = validate_plugin_manifest_contributions(action, loaded)
     if contribution_error is not None and contribution_error.error is not None:
         err = contribution_error.error
-        raise PluginLoadEvidenceError(
+        raise PluginLoadValidationError(
             err.code,
             err.message,
             field=err.field or "params.manifest.contributes",
@@ -127,7 +127,7 @@ def build_plugin_load_evidence(
             manifest_path.parent,
         )
     except PluginFrontendModuleError as exc:
-        raise PluginLoadEvidenceError(
+        raise PluginLoadValidationError(
             exc.code,
             exc.message,
             field="params.manifest.path",
@@ -140,7 +140,7 @@ def build_plugin_load_evidence(
             descriptor_path=descriptor_path,
         )
     except PluginPackageIdentityError as exc:
-        raise PluginLoadEvidenceError(
+        raise PluginLoadValidationError(
             exc.code,
             exc.message,
             field="params.manifest.path",
@@ -155,7 +155,7 @@ def build_plugin_load_evidence(
         package_identity=package_identity,
         frontend_component_bindings=frontend_component_bindings,
     )
-    return PluginLoadEvidence(
+    return PluginLoadValidation(
         loaded=loaded,
         descriptor_package=descriptor_package,
         package_identity=package_identity,
@@ -164,7 +164,7 @@ def build_plugin_load_evidence(
     )
 
 
-def build_bundled_plugin_load_evidence(manifest_path: Path) -> PluginLoadEvidence:
+def build_bundled_plugin_load_validation(manifest_path: Path) -> PluginLoadValidation:
     """Project-free evidence build for workspace-catalog seeding.
 
     Uses a synthetic, deterministic ``request_hash`` derived from the manifest
@@ -174,7 +174,7 @@ def build_bundled_plugin_load_evidence(manifest_path: Path) -> PluginLoadEvidenc
         "sha256:"
         + hashlib.sha256(str(manifest_path.resolve()).encode("utf-8")).hexdigest()
     )
-    return build_plugin_load_evidence(
+    return build_plugin_load_validation(
         SimpleNamespace(kind="plugin.load"),
         manifest_path,
         request_hash=request_hash,

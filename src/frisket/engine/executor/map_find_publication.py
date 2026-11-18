@@ -29,7 +29,9 @@ from frisket.engine.executor.map_find_source import (
 )
 
 
-def _find_admission_evidence(project: Any, receipt_id: str) -> list[ReceiptEvidence]:
+def _find_admission_supporting_records(
+    project: Any, receipt_id: str
+) -> list[ReceiptEvidence]:
     from frisket.engine.store.receipts import ReceiptStore
 
     receipt = ReceiptStore(project).parsed_by_id(receipt_id)
@@ -83,7 +85,7 @@ def _failure_after_egress(
                 }
             ],
             evidence=[
-                *_find_admission_evidence(project, receipt_id),
+                *_find_admission_supporting_records(project, receipt_id),
                 ReceiptEvidence(
                     ref={
                         "kind": "map_find_coverage",
@@ -362,7 +364,7 @@ def write_find_result(
     params_hash: str,
     admitted: dict[str, Any],
 ) -> ActionResult:
-    from frisket.engine.store.evidence import record_evidence_link
+    from frisket.engine.store.evidence import record_citation
     from frisket.engine.store.materialization import (
         AggregateColumnSpec,
         AggregateMaterializedRow,
@@ -570,7 +572,7 @@ def write_find_result(
             spans = _match_span_refs(project, match, artifact_cache=artifact_cache)
             if not spans:
                 raise ValueError("map.find match lost all evidence spans")
-            link = record_evidence_link(
+            link = record_citation(
                 project,
                 subject_kind="row",
                 subject_ref={
@@ -609,7 +611,7 @@ def write_find_result(
             )
             link_ids.append(str(link["stable_id"]))
             for column_id in write.column_ids.values():
-                result_link = record_evidence_link(
+                result_link = record_citation(
                     project,
                     subject_kind="cell",
                     subject_ref={
@@ -680,7 +682,7 @@ def write_find_result(
                 }
             ],
             evidence=[
-                *_find_admission_evidence(project, receipt_id),
+                *_find_admission_supporting_records(project, receipt_id),
                 ReceiptEvidence(
                     ref={
                         "kind": "map_find_coverage",

@@ -113,7 +113,7 @@ def _blend_score(q: str, c: str, *, ocr_shape: bool) -> float:
     if q == c:
         return 1.0
     # SHORT-QUOTE floor: a <=3-char normalized quote is never a confident fuzzy
-    # match ("us" must not match "is"). align_quote_to_tokens rejects such quotes
+    # match ("us" must not match "is"). align_passage_to_tokens rejects such quotes
     # outright with [] BEFORE any scoring (the authoritative, stricter behavior),
     # so this branch is only a defensive floor for a hypothetical direct caller —
     # it degrades to 0.0.
@@ -182,7 +182,7 @@ class AlignResult:
 # --------------------------------------------------------------------------- #
 
 
-def _normalize_quote(quote: str) -> str:
+def _normalize_passage(quote: str) -> str:
     """Common-layer normalize a standalone quote: NFKC, lowercase, de-hyphenate
     line-break hyphens (``infor-\\nmation`` -> ``information``), collapse
     whitespace, strip edges."""
@@ -425,7 +425,7 @@ def _is_temporal(tokens: Sequence[Token]) -> bool:
     return any(t.start_ms is not None or t.end_ms is not None for t in tokens)
 
 
-def align_quote_to_tokens(
+def align_passage_to_tokens(
     quote: str,
     tokens: Sequence[Token],
     *,
@@ -440,7 +440,7 @@ def align_quote_to_tokens(
     ``line_boxes``; temporal streams carry ``start_ms``/``end_ms`` and yield
     ``segment_indices``."""
 
-    q_norm = _normalize_quote(quote)
+    q_norm = _normalize_passage(quote)
     if not q_norm or not tokens:
         return []
 
@@ -529,7 +529,7 @@ def align_quote_to_tokens(
 def _all_exact_results(quote: str, tokens: Sequence[Token]) -> list[AlignResult]:
     """Return every trustworthy exact occurrence, without expanding fuzzy work."""
 
-    q_norm = _normalize_quote(quote)
+    q_norm = _normalize_passage(quote)
     if len(q_norm) <= 3 or not tokens:
         return []
     effective = _effective_tokens(tokens)
@@ -598,12 +598,12 @@ def _context_bonus(
     window = 60
     if context_before:
         before = concat[max(0, res.char_start - window) : res.char_start]
-        cb = _normalize_quote(context_before)
+        cb = _normalize_passage(context_before)
         if cb and cb[-min(len(cb), window) :] in before:
             bonus += 0.05
     if context_after and res.char_end is not None:
         after = concat[res.char_end : res.char_end + window]
-        ca = _normalize_quote(context_after)
+        ca = _normalize_passage(context_after)
         if ca and ca[: min(len(ca), window)] in after:
             bonus += 0.05
     return bonus
@@ -710,14 +710,14 @@ def align(
     *,
     threshold: float = DEFAULT_THRESHOLD,
 ) -> list[Match]:
-    """Strategy A: adapt :func:`align_quote_to_tokens` to the grounding
+    """Strategy A: adapt :func:`align_passage_to_tokens` to the grounding
     contract. Spatial sources -> per-line ``region`` spans; temporal sources ->
     a ``temporal`` span. ``[]`` means no confident match (Degradation Law)."""
 
     if not isinstance(target, TextTarget):
         raise TypeError("align requires a TextTarget")
     tokens = _tokens_from_source(source)
-    results = align_quote_to_tokens(
+    results = align_passage_to_tokens(
         target.text,
         tokens,
         threshold=threshold,

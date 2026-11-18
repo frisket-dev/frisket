@@ -56,7 +56,7 @@ logger = logging.getLogger("frisket.executor")
 RUNNING_RECEIPT_STALE_AFTER_SECONDS = 60 * 60
 QUEUED_ACTION_RUN_MARKER_PARAM = "_frisket_queued_action_run"
 QUEUED_ACTION_RUN_MARKER_SCHEMA = "frisket.internal.queued_action_run.v1"
-QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND = "queued_action_run_prepared"
+QUEUED_ACTION_RUN_PREPARED_RECORD_KIND = "queued_action_run_prepared"
 
 
 def _output_claim_token(receipt_id: str) -> str:
@@ -881,7 +881,7 @@ def _queued_receipt_prepared_link(receipt: Receipt) -> Mapping[str, Any] | None:
     matches = [
         item.ref
         for item in receipt.evidence
-        if item.ref.get("kind") == QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND
+        if item.ref.get("kind") == QUEUED_ACTION_RUN_PREPARED_RECORD_KIND
         and item.ref.get("queue_kind") == "project.run"
         and item.ref.get("run_id") == receipt.run_id
     ]
@@ -1190,7 +1190,7 @@ def _mark_queued_action_run_prepared(
     commit: bool = True,
 ) -> None:
     prepared_ref: dict[str, Any] = {
-        "kind": QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
+        "kind": QUEUED_ACTION_RUN_PREPARED_RECORD_KIND,
         "queue_kind": "project.run",
         "run_id": run_id,
         "action_queue_kind": spec.queue_job_kind,
@@ -1249,7 +1249,7 @@ def _mark_running_action_run_prepared(
         prepared_ref=None
         if attempt_id is None
         else {
-            "kind": QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND,
+            "kind": QUEUED_ACTION_RUN_PREPARED_RECORD_KIND,
             "queue_kind": "direct",
             "run_id": run_id,
             "attempt_id": attempt_id,
@@ -1284,7 +1284,7 @@ def _bind_receipt_to_prepared_run(
     evidence = [
         item
         for item in receipt.evidence
-        if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_EVIDENCE_KIND
+        if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_RECORD_KIND
     ]
     if prepared_ref is not None:
         evidence.append(ReceiptEvidence(ref=prepared_ref))

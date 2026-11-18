@@ -353,7 +353,7 @@ def _write_extract_in_transaction(
     project.set_undo_info(op_id, {"created_columns": created_column_ids}, commit=False)
 
     from frisket.engine.executor.temporal_transcripts import (
-        persist_projected_transcript_evidence,
+        persist_projected_transcript_citations,
     )
 
     transcript_row_ids: dict[int, list[int]] = {
@@ -431,7 +431,7 @@ def _write_extract_in_transaction(
                 continue
             source_column_id = transcript.transcript_column_id
             transcript_column_id = transcript_column_ids[source_column_id]
-            transcript_evidence = persist_projected_transcript_evidence(
+            transcript_citations = persist_projected_transcript_citations(
                 project,
                 transcript=transcript,
                 projection=projection,
@@ -442,10 +442,10 @@ def _write_extract_in_transaction(
                 receipt_id=receipt_id,
                 op_id=op_id,
             )
-            if transcript_evidence is not None:
+            if transcript_citations is not None:
                 receipt_evidence.append(
                     ReceiptEvidence(
-                        ref=transcript_evidence,
+                        ref=transcript_citations,
                         retention="materialized",
                     )
                 )

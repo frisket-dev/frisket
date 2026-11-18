@@ -64,7 +64,7 @@ def record_row_file_calls(project, batch, *, run_id, writer_attempt_id, claim_to
             if call.get("kind") == "document_convert_read":
                 # Conversion owns this read's evidence; it is not a file acquisition.
                 continue
-            ReceiptStore(project)._record_writer_evidence(
+            ReceiptStore(project)._record_writer_supporting_record(
                 {
                     **copy.deepcopy(call),
                     "observation_kind": call.get("kind"),
