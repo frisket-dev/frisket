@@ -66,199 +66,182 @@ def _artifact_path(project, ref):
     ],
 )
 def test_published_project_export_receipts_root_blobs_across_handler_outcomes(
-    tmp_path, status, placement, kind, retained
+    make_project, status, placement, kind, retained
 ):
-    project = Project.create(tmp_path / "project")
-    try:
-        digest = project.add_blob(b"export bytes", filename="package.zip")
-        ref = {"kind": kind, "blob_hash": digest}
-        receipt = Receipt(
-            receipt_id="receipt-export",
-            project_id="p",
-            action_id="export-test",
-            action_kind="export.column_tables",
-            status=status,
-            exports=[ref] if placement == "exports" else [],
-            inputs=[ReceiptIO(name="source", ref=ref)] if placement == "inputs" else [],
-        )
-        ReceiptStore(project).insert_finished(receipt)
-        project.gc_blobs()
-        assert bool(project.db.execute("SELECT 1 FROM blobs").fetchone()) is retained
-        project.db.execute("DELETE FROM receipts WHERE id=?", (receipt.receipt_id,))
-        project.db.commit()
-        project.gc_blobs()
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
-    finally:
-        project.close()
+    project = make_project("project")
+    digest = project.add_blob(b"export bytes", filename="package.zip")
+    ref = {"kind": kind, "blob_hash": digest}
+    receipt = Receipt(
+        receipt_id="receipt-export",
+        project_id="p",
+        action_id="export-test",
+        action_kind="export.column_tables",
+        status=status,
+        exports=[ref] if placement == "exports" else [],
+        inputs=[ReceiptIO(name="source", ref=ref)] if placement == "inputs" else [],
+    )
+    ReceiptStore(project).insert_finished(receipt)
+    project.gc_blobs()
+    assert bool(project.db.execute("SELECT 1 FROM blobs").fetchone()) is retained
+    project.db.execute("DELETE FROM receipts WHERE id=?", (receipt.receipt_id,))
+    project.db.commit()
+    project.gc_blobs()
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("destination_kind", ["local_dir", "project_file"])
 def test_preview_refuses_before_source_read_or_artifact_write(
-    tmp_path, monkeypatch, destination_kind
+    tmp_path, make_project, monkeypatch, destination_kind
 ):
     from frisket.engine.executor.action_families import exports_column_tables as exports
 
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _request(project, tmp_path, destination_kind)
-        before = _counts(project)
+    project = make_project("project")
+    request = _request(project, tmp_path, destination_kind)
+    before = _counts(project)
 
-        def refuse_read(*args, **kwargs):
-            raise AssertionError("preview must refuse before invoking the exporter")
+    def refuse_read(*args, **kwargs):
+        raise AssertionError("preview must refuse before invoking the exporter")
 
-        monkeypatch.setattr(exports, "_resolve_export_column_tables", refuse_read)
-        preview = resolve_map_preview(project, request)
-        assert preview.code == "unsupported_action_kind"
-        assert _counts(project) == before
-        assert list((tmp_path / "exports").iterdir()) == []
-    finally:
-        project.close()
+    monkeypatch.setattr(exports, "_resolve_export_column_tables", refuse_read)
+    preview = resolve_map_preview(project, request)
+    assert preview.code == "unsupported_action_kind"
+    assert _counts(project) == before
+    assert list((tmp_path / "exports").iterdir()) == []
 
 
 @pytest.mark.parametrize("destination_kind", ["local_dir", "project_file"])
 def test_replay_survives_deleted_source_and_refuses_retired_envelope(
-    tmp_path, monkeypatch, destination_kind
+    tmp_path, make_project, monkeypatch, destination_kind
 ):
     from frisket.engine.executor.action_families import exports_column_tables as exports
 
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _request(project, tmp_path, destination_kind)
-        first = run_action_spec(project, request, project_id="p")
-        assert first.status == "completed", first.errors
-        artifact = _artifact_path(project, first.outputs[0].ref)
-        original_bytes = artifact.read_bytes()
-        project.delete_sheet(request["params"]["sheet_id"])
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=0").fetchone()[
-                0
-            ]
-            == 0
-        )
-        before = _counts(project)
+    project = make_project("project")
+    request = _request(project, tmp_path, destination_kind)
+    first = run_action_spec(project, request, project_id="p")
+    assert first.status == "completed", first.errors
+    artifact = _artifact_path(project, first.outputs[0].ref)
+    original_bytes = artifact.read_bytes()
+    project.delete_sheet(request["params"]["sheet_id"])
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=0").fetchone()[0]
+        == 0
+    )
+    before = _counts(project)
 
-        def refuse_read(*args, **kwargs):
-            raise AssertionError("replay must not consult the deleted source")
+    def refuse_read(*args, **kwargs):
+        raise AssertionError("replay must not consult the deleted source")
 
-        monkeypatch.setattr(exports, "_resolve_export_column_tables", refuse_read)
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == first.receipt_id
-        assert artifact.read_bytes() == original_bytes
-        retired = {
-            "schema_version": "frisket.action.v2",
-            "kind": "export.column_tables",
-            "capabilities": ["project:read", "project:write"],
-            "params": request["params"],
-            "idempotency_key": request["idempotency_key"],
-        }
-        refused = run_action_spec(project, retired, project_id="p")
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "invalid_action_request"
-        changed = {
-            **request,
-            "params": {**request["params"], "name_template": "changed.csv"},
-        }
-        conflict = run_action_spec(project, changed, project_id="p")
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-        assert _counts(project) == before
-    finally:
-        project.close()
+    monkeypatch.setattr(exports, "_resolve_export_column_tables", refuse_read)
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == first.receipt_id
+    assert artifact.read_bytes() == original_bytes
+    retired = {
+        "schema_version": "frisket.action.v2",
+        "kind": "export.column_tables",
+        "capabilities": ["project:read", "project:write"],
+        "params": request["params"],
+        "idempotency_key": request["idempotency_key"],
+    }
+    refused = run_action_spec(project, retired, project_id="p")
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "invalid_action_request"
+    changed = {
+        **request,
+        "params": {**request["params"], "name_template": "changed.csv"},
+    }
+    conflict = run_action_spec(project, changed, project_id="p")
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
+    assert _counts(project) == before
 
 
 @pytest.mark.parametrize("defect", ["metadata", "missing", "tampered"])
-def test_project_blob_replay_checks_metadata_and_actual_bytes(tmp_path, defect):
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _request(project, tmp_path, "project_file")
-        first = run_action_spec(project, request, project_id="p")
-        assert first.status == "completed", first.errors
-        ref = first.outputs[0].ref
-        path = _artifact_path(project, ref)
-        if defect == "metadata":
-            project.db.execute("DELETE FROM blobs WHERE hash=?", (ref["blob_hash"],))
-            project.db.commit()
-        elif defect == "missing":
-            path.unlink()
-        else:
-            raw = path.read_bytes()
-            path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
-        before = _counts(project)
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.status == "failed"
-        assert replay.errors[0].code == (
-            "export_artifact_mismatch"
-            if defect == "tampered"
-            else "export_artifact_missing"
-        )
-        assert _counts(project) == before
-    finally:
-        project.close()
+def test_project_blob_replay_checks_metadata_and_actual_bytes(
+    tmp_path, make_project, defect
+):
+    project = make_project("project")
+    request = _request(project, tmp_path, "project_file")
+    first = run_action_spec(project, request, project_id="p")
+    assert first.status == "completed", first.errors
+    ref = first.outputs[0].ref
+    path = _artifact_path(project, ref)
+    if defect == "metadata":
+        project.db.execute("DELETE FROM blobs WHERE hash=?", (ref["blob_hash"],))
+        project.db.commit()
+    elif defect == "missing":
+        path.unlink()
+    else:
+        raw = path.read_bytes()
+        path.write_bytes(bytes([raw[0] ^ 1]) + raw[1:])
+    before = _counts(project)
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.status == "failed"
+    assert replay.errors[0].code == (
+        "export_artifact_mismatch"
+        if defect == "tampered"
+        else "export_artifact_missing"
+    )
+    assert _counts(project) == before
 
 
 @pytest.mark.parametrize("destination_kind", ["local_dir", "project_file"])
 @pytest.mark.parametrize("winner_artifact", ["valid", "missing", "tampered"])
 def test_inner_idempotency_race_validates_winner_and_cleans_losing_staging(
-    tmp_path, monkeypatch, destination_kind, winner_artifact
+    tmp_path, make_project, monkeypatch, destination_kind, winner_artifact
 ):
     from frisket.engine.executor import action_lifecycle
     from frisket.engine.executor.action_families import exports_column_tables as exports
 
-    project = Project.create(tmp_path / "project")
-    try:
-        request = _request(project, tmp_path, destination_kind)
-        winner = run_action_spec(project, request, project_id="p")
-        assert winner.status == "completed", winner.errors
-        artifact = _artifact_path(project, winner.outputs[0].ref)
-        if winner_artifact == "missing":
-            artifact.unlink()
-        elif winner_artifact == "tampered":
-            original_bytes = artifact.read_bytes()
-            artifact.write_bytes(bytes([original_bytes[0] ^ 1]) + original_bytes[1:])
-        before = _counts(project)
-        directory = tmp_path / "exports"
-        before_files = {path.name: path.read_bytes() for path in directory.iterdir()}
-        lookup = action_lifecycle._receipt_for_idempotency
-        build_zip = exports._build_zip
-        lookups = []
-        renders = []
+    project = make_project("project")
+    request = _request(project, tmp_path, destination_kind)
+    winner = run_action_spec(project, request, project_id="p")
+    assert winner.status == "completed", winner.errors
+    artifact = _artifact_path(project, winner.outputs[0].ref)
+    if winner_artifact == "missing":
+        artifact.unlink()
+    elif winner_artifact == "tampered":
+        original_bytes = artifact.read_bytes()
+        artifact.write_bytes(bytes([original_bytes[0] ^ 1]) + original_bytes[1:])
+    before = _counts(project)
+    directory = tmp_path / "exports"
+    before_files = {path.name: path.read_bytes() for path in directory.iterdir()}
+    lookup = action_lifecycle._receipt_for_idempotency
+    build_zip = exports._build_zip
+    lookups = []
+    renders = []
 
-        def concurrent_lookup(target, key):
-            lookups.append(target.db.in_transaction)
-            if len(lookups) == 1:
-                return None
-            if destination_kind == "local_dir":
-                assert len(list(directory.glob(".tags.zip.*.tmp"))) == 1
-            return lookup(target, key)
+    def concurrent_lookup(target, key):
+        lookups.append(target.db.in_transaction)
+        if len(lookups) == 1:
+            return None
+        if destination_kind == "local_dir":
+            assert len(list(directory.glob(".tags.zip.*.tmp"))) == 1
+        return lookup(target, key)
 
-        def observe_render(*args, **kwargs):
-            renders.append(True)
-            return build_zip(*args, **kwargs)
+    def observe_render(*args, **kwargs):
+        renders.append(True)
+        return build_zip(*args, **kwargs)
 
-        monkeypatch.setattr(
-            action_lifecycle, "_receipt_for_idempotency", concurrent_lookup
+    monkeypatch.setattr(action_lifecycle, "_receipt_for_idempotency", concurrent_lookup)
+    monkeypatch.setattr(exports, "_build_zip", observe_render)
+    result = run_action_spec(project, request, project_id="p")
+    assert lookups == [False, True]
+    assert renders == [True]
+    if winner_artifact == "valid":
+        assert result.status == "completed", result.errors
+        assert result.receipt_id == winner.receipt_id
+    else:
+        assert result.status == "failed"
+        assert result.errors[0].code == (
+            "export_artifact_missing"
+            if winner_artifact == "missing"
+            else "export_artifact_mismatch"
         )
-        monkeypatch.setattr(exports, "_build_zip", observe_render)
-        result = run_action_spec(project, request, project_id="p")
-        assert lookups == [False, True]
-        assert renders == [True]
-        if winner_artifact == "valid":
-            assert result.status == "completed", result.errors
-            assert result.receipt_id == winner.receipt_id
-        else:
-            assert result.status == "failed"
-            assert result.errors[0].code == (
-                "export_artifact_missing"
-                if winner_artifact == "missing"
-                else "export_artifact_mismatch"
-            )
-        assert _counts(project) == before
-        assert {
-            path.name: path.read_bytes() for path in directory.iterdir()
-        } == before_files
-    finally:
-        project.close()
+    assert _counts(project) == before
+    assert {
+        path.name: path.read_bytes() for path in directory.iterdir()
+    } == before_files
 
 
 class PackageParams(ActionParams):

@@ -18,7 +18,6 @@ from frisket.engine.executor.map_rows_action import (
 )
 from frisket.engine.runner.pdf_inputs import pdf_part
 from frisket.engine.runner.row_inputs import row_values
-from frisket.engine.store import Project
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -33,8 +32,8 @@ def pdf_bytes():
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "pdf.frisket")
+def source(make_project):
+    project = make_project("pdf")
     sheet = project.add_sheet("Documents")
     ids = {
         "document": project.add_column(sheet, "document", type="file"),
@@ -52,7 +51,6 @@ def source(tmp_path):
         ids,
     )
     yield project, sheet, ids, rows, value, data
-    project.close()
 
 
 def plan(seeded, action="map.ask", **extra):

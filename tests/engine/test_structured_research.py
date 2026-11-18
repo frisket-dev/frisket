@@ -14,7 +14,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.row_research import EXTRACT, StructuredResearchParams
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.executor import research_read
-from frisket.engine.store import Project
 
 
 FIELDS = [
@@ -116,7 +115,7 @@ class ResearchAdapter:
 @pytest.mark.parametrize("invalid", [False, True])
 @pytest.mark.parametrize("include_sources", [False, True])
 def test_structured_research_runs_once_then_validates_and_accounts(
-    tmp_path,
+    make_project,
     monkeypatch,
     invalid,
     include_sources,
@@ -137,59 +136,56 @@ def test_structured_research_runs_once_then_validates_and_accounts(
         cache_mode="off",
     )
     router._adapters["anthropic"] = adapter
-    project = Project.create(tmp_path / "structured-research")
-    try:
-        sheet = project.add_sheet("Companies")
-        column = project.add_column(sheet, "company", type="text")
-        project.add_rows(sheet, [{"company": "Acme"}], {"company": column})
-        request = {
-            "action_id": "research.extract",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-            "params": params(
-                include_sources=include_sources, include_confidence=True
-            ).model_dump(mode="json"),
-            "idempotency_key": "structured-research-test",
-        }
-        result = run_action_with_confirmation(
-            project, request, project_id="research", router=router
+    project = make_project("structured-research")
+    sheet = project.add_sheet("Companies")
+    column = project.add_column(sheet, "company", type="text")
+    project.add_rows(sheet, [{"company": "Acme"}], {"company": column})
+    request = {
+        "action_id": "research.extract",
+        "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+        "params": params(
+            include_sources=include_sources, include_confidence=True
+        ).model_dump(mode="json"),
+        "idempotency_key": "structured-research-test",
+    }
+    result = run_action_with_confirmation(
+        project, request, project_id="research", router=router
+    )
+    assert result.status == ("failed" if invalid else "completed"), result.errors
+    assert len(searches) == 1
+    assert len(adapter.requests) == 4
+    assert "employee_count" in json.dumps(adapter.requests[0].messages)
+    assert "Research findings" in json.dumps(adapter.requests[2].messages)
+    assert "https://example.test/filing" in json.dumps(adapter.requests[2].messages)
+    assert all(request.tools is None for request in adapter.requests[2:])
+    columns = {column["name"]: column for column in project.columns(sheet)}
+    if not invalid:
+        assert ("sources" in columns) is include_sources
+        assert list(
+            project.get_values(sheet, columns["headquarters"]["id"]).values()
+        ) == ["Paris"]
+        assert list(
+            project.get_values(sheet, columns["employee_count"]["id"]).values()
+        ) == [12]
+        assert list(
+            project.get_values(sheet, columns["public_company"]["id"]).values()
+        ) == [None]
+        if include_sources:
+            assert list(
+                project.get_values(sheet, columns["sources"]["id"]).values()
+            ) == [["https://example.test/filing"]]
+    else:
+        assert list(columns) == ["company"]
+        assert (
+            project.db.execute(
+                "SELECT count(*) FROM results WHERE error IS NOT NULL"
+            ).fetchone()[0]
+            >= 1
         )
-        assert result.status == ("failed" if invalid else "completed"), result.errors
-        assert len(searches) == 1
-        assert len(adapter.requests) == 4
-        assert "employee_count" in json.dumps(adapter.requests[0].messages)
-        assert "Research findings" in json.dumps(adapter.requests[2].messages)
-        assert "https://example.test/filing" in json.dumps(adapter.requests[2].messages)
-        assert all(request.tools is None for request in adapter.requests[2:])
-        columns = {column["name"]: column for column in project.columns(sheet)}
-        if not invalid:
-            assert ("sources" in columns) is include_sources
-            assert list(
-                project.get_values(sheet, columns["headquarters"]["id"]).values()
-            ) == ["Paris"]
-            assert list(
-                project.get_values(sheet, columns["employee_count"]["id"]).values()
-            ) == [12]
-            assert list(
-                project.get_values(sheet, columns["public_company"]["id"]).values()
-            ) == [None]
-            if include_sources:
-                assert list(
-                    project.get_values(sheet, columns["sources"]["id"]).values()
-                ) == [["https://example.test/filing"]]
-        else:
-            assert list(columns) == ["company"]
-            assert (
-                project.db.execute(
-                    "SELECT count(*) FROM results WHERE error IS NOT NULL"
-                ).fetchone()[0]
-                >= 1
-            )
-        calls = project.db.execute(
-            "SELECT provider_cost_usd FROM model_calls WHERE run_id=?", (result.run_id,)
-        ).fetchall()
-        assert len(calls) == 4
-        assert sum(float(call["provider_cost_usd"]) for call in calls) == pytest.approx(
-            0.004
-        )
-    finally:
-        project.close()
+    calls = project.db.execute(
+        "SELECT provider_cost_usd FROM model_calls WHERE run_id=?", (result.run_id,)
+    ).fetchall()
+    assert len(calls) == 4
+    assert sum(float(call["provider_cost_usd"]) for call in calls) == pytest.approx(
+        0.004
+    )

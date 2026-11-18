@@ -58,41 +58,41 @@ def test_upgrade_preserves_cells_and_is_idempotent(tmp_path):
         assert project.db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
-def test_failed_stamp_rolls_back_tables_and_preserves_old_stamp(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        prior(project)
+def test_failed_stamp_rolls_back_tables_and_preserves_old_stamp(make_project):
+    project = make_project("project")
+    prior(project)
+    project.db.execute(
+        "CREATE TRIGGER refuse_evaluation_stamp BEFORE UPDATE ON meta WHEN NEW.key='schema_digest' BEGIN SELECT RAISE(ABORT,'stamp refused'); END"
+    )
+    project.db.commit()
+    with pytest.raises(Exception, match="stamp refused"):
+        run_step(project.db, *EVALUATION_STEP)
+    assert (
         project.db.execute(
-            "CREATE TRIGGER refuse_evaluation_stamp BEFORE UPDATE ON meta WHEN NEW.key='schema_digest' BEGIN SELECT RAISE(ABORT,'stamp refused'); END"
-        )
-        project.db.commit()
-        with pytest.raises(Exception, match="stamp refused"):
-            run_step(project.db, *EVALUATION_STEP)
-        assert (
-            project.db.execute(
-                "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
-            ).fetchone()[0]
-            == EVALUATION_FROM_DIGEST
-        )
-        assert not project.db.execute(
-            "SELECT 1 FROM sqlite_master WHERE name='expected_answer_links'"
-        ).fetchone()
+            "SELECT value FROM meta WHERE key=?", (SCHEMA_DIGEST_META_KEY,)
+        ).fetchone()[0]
+        == EVALUATION_FROM_DIGEST
+    )
+    assert not project.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='expected_answer_links'"
+    ).fetchone()
 
 
-def test_undoable_row_preserves_caller_owned_transaction(tmp_path):
+def test_undoable_row_preserves_caller_owned_transaction(make_project):
     from frisket.engine.store.evaluation import write_transaction
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet = project.add_sheet("Expected")
-        column = project.add_column(sheet, "answer")
-        first = project.add_row_with_undo(sheet, {"answer": "kept"}, {"answer": column})
-        assert not project.db.in_transaction
-        before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
-        with pytest.raises(RuntimeError, match="abort"):
-            with write_transaction(project):
-                project.add_row_with_undo(
-                    sheet, {"answer": "rolled back"}, {"answer": column}
-                )
-                assert project.db.in_transaction
-                raise RuntimeError("abort")
-        assert project.get_values(sheet, column) == {first: "kept"}
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before
+    project = make_project("project")
+    sheet = project.add_sheet("Expected")
+    column = project.add_column(sheet, "answer")
+    first = project.add_row_with_undo(sheet, {"answer": "kept"}, {"answer": column})
+    assert not project.db.in_transaction
+    before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+    with pytest.raises(RuntimeError, match="abort"):
+        with write_transaction(project):
+            project.add_row_with_undo(
+                sheet, {"answer": "rolled back"}, {"answer": column}
+            )
+            assert project.db.in_transaction
+            raise RuntimeError("abort")
+    assert project.get_values(sheet, column) == {first: "kept"}
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == before

@@ -9,19 +9,18 @@ from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
 from frisket.engine.executor.actions import _default_map_runner_factory
 from frisket.engine.executor.cluster_action import run_typed_cluster_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
 @pytest.fixture
-def cluster_project(tmp_path, monkeypatch):
+def cluster_project(make_project, monkeypatch):
     registered = RegisteredAction("custom.cluster", CLUSTER_VALUES)
     monkeypatch.setattr(
         ACTION_REGISTRY,
         "_actions",
         {**ACTION_REGISTRY._actions, "custom.cluster": registered},
     )
-    project = Project.create(tmp_path / "fixture.frisket")
+    project = make_project("fixture")
     sheet = project.add_sheet("Names")
     column = project.add_column(sheet, "name")
     project.add_rows(
@@ -53,7 +52,6 @@ def cluster_project(tmp_path, monkeypatch):
         )
 
     yield project, sheet, column, execute
-    project.close()
 
 
 def test_remote_cluster_exact_consent_accounting_and_cache(

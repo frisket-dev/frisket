@@ -5,7 +5,6 @@ import hashlib
 import json
 import sqlite3
 import zipfile
-from contextlib import closing
 
 import pytest
 from pydantic import BaseModel
@@ -144,68 +143,68 @@ def entities(tmp_path):
 
 
 def test_real_callable_import_preserves_schema_relationships_raw_and_undo(
-    tmp_path, entities, monkeypatch
+    make_project, entities, monkeypatch
 ):
     from frisket.actions import system
 
     path, raw = entities
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, registry = _bound(import_entities, {"document": str(path)})
-        monkeypatch.setattr(system, "ACTION_REGISTRY", registry)
-        result = run_action_spec(
-            project, bound.request.model_dump(mode="json"), project_id="p"
+    project = make_project("project")
+    bound, registry = _bound(import_entities, {"document": str(path)})
+    monkeypatch.setattr(system, "ACTION_REGISTRY", registry)
+    result = run_action_spec(
+        project, bound.request.model_dump(mode="json"), project_id="p"
+    )
+    assert result.status == "completed", result.errors
+    dataset = ImportedEntityDataset.model_validate(result.value)
+    assert [sheet.schema_name for sheet in dataset.sheets] == [
+        "Company",
+        "Person",
+        "Address",
+        "Membership",
+    ]
+    assert {sheet.kind for sheet in dataset.sheets} == {
+        "entity",
+        "relationship",
+        "unsupported",
+    }
+    assert len([output for output in result.outputs if output.kind == "sheet"]) == 4
+    restored = []
+    for sheet in dataset.sheets:
+        restored.extend(
+            project.get_values(
+                sheet.sheet_id,
+                sheet.column_ids["_ftm_raw_json"],
+                row_ids=list(sheet.row_ids),
+            ).values()
         )
-        assert result.status == "completed", result.errors
-        dataset = ImportedEntityDataset.model_validate(result.value)
-        assert [sheet.schema_name for sheet in dataset.sheets] == [
-            "Company",
-            "Person",
-            "Address",
-            "Membership",
-        ]
-        assert {sheet.kind for sheet in dataset.sheets} == {
-            "entity",
-            "relationship",
-            "unsupported",
-        }
-        assert len([output for output in result.outputs if output.kind == "sheet"]) == 4
-        restored = []
-        for sheet in dataset.sheets:
-            restored.extend(
-                project.get_values(
-                    sheet.sheet_id,
-                    sheet.column_ids["_ftm_raw_json"],
-                    row_ids=list(sheet.row_ids),
-                ).values()
+        assert all(
+            row[0] == 1
+            for row in project.db.execute(
+                "SELECT hidden FROM columns WHERE sheet_id=? AND name LIKE '_ftm_%'",
+                (sheet.sheet_id,),
             )
-            assert all(
-                row[0] == 1
-                for row in project.db.execute(
-                    "SELECT hidden FROM columns WHERE sheet_id=? AND name LIKE '_ftm_%'",
-                    (sheet.sheet_id,),
-                )
-            )
-        assert sorted(restored, key=lambda value: value["id"]) == sorted(
-            raw, key=lambda value: value["id"]
         )
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt.op_ids == [dataset.op_id]
-        assert (
-            project.db.execute(
-                "SELECT publication_closed FROM ops WHERE id=?", (dataset.op_id,)
-            ).fetchone()[0]
-            == 1
-        )
-        assert next(
-            item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
-        )["sha256"]
-        path.unlink()
-        assert run_typed_callable_action(project, "p", bound) == result
-        assert project.undo() == dataset.op_id
-        replay = run_typed_callable_action(project, "p", bound)
-        assert replay.status == "failed" and replay.errors[0].code == "stale_replay"
-        assert project.redo() == dataset.op_id
-        assert run_typed_callable_action(project, "p", bound) == result
+    assert sorted(restored, key=lambda value: value["id"]) == sorted(
+        raw, key=lambda value: value["id"]
+    )
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.op_ids == [dataset.op_id]
+    assert (
+        project.db.execute(
+            "SELECT publication_closed FROM ops WHERE id=?", (dataset.op_id,)
+        ).fetchone()[0]
+        == 1
+    )
+    assert next(
+        item.ref for item in receipt.inputs if item.ref["kind"] == "local_file_read"
+    )["sha256"]
+    path.unlink()
+    assert run_typed_callable_action(project, "p", bound) == result
+    assert project.undo() == dataset.op_id
+    replay = run_typed_callable_action(project, "p", bound)
+    assert replay.status == "failed" and replay.errors[0].code == "stale_replay"
+    assert project.redo() == dataset.op_id
+    assert run_typed_callable_action(project, "p", bound) == result
 
 
 def test_package_download_uses_existing_project_blob_route(client, entities):
@@ -240,43 +239,43 @@ def test_package_download_uses_existing_project_blob_route(client, entities):
 
 @pytest.mark.parametrize("fail", [False, True])
 def test_committed_packages_survive_gc_and_later_handler_failure(
-    tmp_path, entities, fail
+    make_project, entities, fail
 ):
     path, _ = entities
-    with closing(Project.create(tmp_path / "project")) as project:
-        observed = []
+    project = make_project("project")
+    observed = []
 
-        def run(
-            params: Params,
-            importer: FollowTheMoneyImporter,
-            exporter: FollowTheMoneyExporter,
-        ) -> Report:
-            dataset = importer.import_entities(
-                source_path=params.document, dataset_name=params.label
-            )
-            rowsets, mappings = _selection(dataset)
-            first = exporter.export_entities(rowsets=rowsets[:1], mappings=mappings[:1])
-            second = exporter.export_entities(rowsets=rowsets, mappings=mappings)
-            assert first.blob_hash != second.blob_hash
-            observed.extend((first.blob_hash, second.blob_hash))
-            project.gc_blobs()  # The receipt is still running, but both calls committed.
-            assert all(project.read_blob(digest) for digest in observed)
-            if params.fail:
-                raise RuntimeError("after delivery")
-            return Report(dataset=dataset, package=second)
-
-        bound, _ = _bound(run, {"document": str(path), "fail": fail})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == ("failed" if fail else "completed"), result.errors
-        assert len(ReceiptStore(project).parsed_by_id(result.receipt_id).exports) == 2
-        project.gc_blobs()
+    def run(
+        params: Params,
+        importer: FollowTheMoneyImporter,
+        exporter: FollowTheMoneyExporter,
+    ) -> Report:
+        dataset = importer.import_entities(
+            source_path=params.document, dataset_name=params.label
+        )
+        rowsets, mappings = _selection(dataset)
+        first = exporter.export_entities(rowsets=rowsets[:1], mappings=mappings[:1])
+        second = exporter.export_entities(rowsets=rowsets, mappings=mappings)
+        assert first.blob_hash != second.blob_hash
+        observed.extend((first.blob_hash, second.blob_hash))
+        project.gc_blobs()  # The receipt is still running, but both calls committed.
         assert all(project.read_blob(digest) for digest in observed)
-        assert run_typed_callable_action(project, "p", bound) == result
+        if params.fail:
+            raise RuntimeError("after delivery")
+        return Report(dataset=dataset, package=second)
+
+    bound, _ = _bound(run, {"document": str(path), "fail": fail})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == ("failed" if fail else "completed"), result.errors
+    assert len(ReceiptStore(project).parsed_by_id(result.receipt_id).exports) == 2
+    project.gc_blobs()
+    assert all(project.read_blob(digest) for digest in observed)
+    assert run_typed_callable_action(project, "p", bound) == result
 
 
 @pytest.mark.parametrize("failure", ["apply", "receipt", "commit"])
 def test_late_import_failure_preserves_previous_effect_and_receipt(
-    tmp_path, entities, monkeypatch, failure
+    tmp_path, make_project, entities, monkeypatch, failure
 ):
     from frisket.engine.store import cell_writes
 
@@ -287,70 +286,68 @@ def test_late_import_failure_preserves_previous_effect_and_receipt(
             {"id": "prior", "schema": "LegalEntity", "properties": {"name": ["Prior"]}}
         )
     )
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        def run(
-            params: Params, importer: FollowTheMoneyImporter
-        ) -> ImportedEntityDataset:
-            prior = importer.import_entities(
-                source_path=str(prior_path), dataset_name="Prior"
-            )
-            before = tuple(project.db.iterdump())
-            refused_commits = []
-            with monkeypatch.context() as patch:
-                if failure == "apply":
-                    original = cell_writes.encode_stored_value
+    def run(params: Params, importer: FollowTheMoneyImporter) -> ImportedEntityDataset:
+        prior = importer.import_entities(
+            source_path=str(prior_path), dataset_name="Prior"
+        )
+        before = tuple(project.db.iterdump())
+        refused_commits = []
+        with monkeypatch.context() as patch:
+            if failure == "apply":
+                original = cell_writes.encode_stored_value
 
-                    def reject(value):
-                        if value == "Director":
-                            raise RuntimeError("late relationship cell")
-                        return original(value)
+                def reject(value):
+                    if value == "Director":
+                        raise RuntimeError("late relationship cell")
+                    return original(value)
 
-                    patch.setattr(cell_writes, "encode_stored_value", reject)
-                elif failure == "receipt":
-                    update = ReceiptStore.update_if_status_in
-                    patch.setattr(
-                        ReceiptStore,
-                        "update_if_status_in",
-                        lambda self, receipt, statuses, **kwargs: (
-                            False
-                            if len(receipt.op_ids) == 2
-                            else update(self, receipt, statuses, **kwargs)
-                        ),
+                patch.setattr(cell_writes, "encode_stored_value", reject)
+            elif failure == "receipt":
+                update = ReceiptStore.update_if_status_in
+                patch.setattr(
+                    ReceiptStore,
+                    "update_if_status_in",
+                    lambda self, receipt, statuses, **kwargs: (
+                        False
+                        if len(receipt.op_ids) == 2
+                        else update(self, receipt, statuses, **kwargs)
+                    ),
+                )
+            else:
+
+                def refuse_commit(operation, name, *_args):
+                    if operation == sqlite3.SQLITE_TRANSACTION and name == "COMMIT":
+                        refused_commits.append(name)
+                        return sqlite3.SQLITE_DENY
+                    return sqlite3.SQLITE_OK
+
+                project.db.set_authorizer(refuse_commit)
+            try:
+                with pytest.raises(Exception) as refused:
+                    importer.import_entities(
+                        source_path=params.document, dataset_name="Next"
                     )
-                else:
-
-                    def refuse_commit(operation, name, *_args):
-                        if operation == sqlite3.SQLITE_TRANSACTION and name == "COMMIT":
-                            refused_commits.append(name)
-                            return sqlite3.SQLITE_DENY
-                        return sqlite3.SQLITE_OK
-
-                    project.db.set_authorizer(refuse_commit)
-                try:
-                    with pytest.raises(Exception) as refused:
-                        importer.import_entities(
-                            source_path=params.document, dataset_name="Next"
-                        )
-                finally:
-                    if failure == "commit":
-                        project.db.set_authorizer(None)
+            finally:
                 if failure == "commit":
-                    assert isinstance(refused.value, sqlite3.DatabaseError)
-                    assert refused_commits == ["COMMIT"]
-            assert tuple(project.db.iterdump()) == before
-            return prior
+                    project.db.set_authorizer(None)
+            if failure == "commit":
+                assert isinstance(refused.value, sqlite3.DatabaseError)
+                assert refused_commits == ["COMMIT"]
+        assert tuple(project.db.iterdump()) == before
+        return prior
 
-        bound, _ = _bound(run, {"document": str(path)})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        assert len(result.op_ids) == 1
-        assert len([output for output in result.outputs if output.kind == "sheet"]) == 1
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt.status == "completed" and receipt.op_ids == result.op_ids
+    bound, _ = _bound(run, {"document": str(path)})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    assert len(result.op_ids) == 1
+    assert len([output for output in result.outputs if output.kind == "sheet"]) == 1
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.status == "completed" and receipt.op_ids == result.op_ids
 
 
-def test_unavailable_extra_refuses_before_source_read(tmp_path, monkeypatch):
+def test_unavailable_extra_refuses_before_source_read(make_project, monkeypatch):
     from frisket.engine.executor import entity_package
 
     monkeypatch.setattr(
@@ -358,44 +355,46 @@ def test_unavailable_extra_refuses_before_source_read(tmp_path, monkeypatch):
         "entities_available",
         lambda: (False, "Install frisket-data[entities]."),
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": "not-readable"})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == "followthemoney_unavailable"
-        assert not result.outputs
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": "not-readable"})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == "followthemoney_unavailable"
+    assert not result.outputs
 
 
 @pytest.mark.parametrize("content", [b"", b"{not-json\n[]\n", b"\xff"])
-def test_empty_or_all_invalid_import_refuses_before_write(tmp_path, entities, content):
+def test_empty_or_all_invalid_import_refuses_before_write(
+    tmp_path, make_project, entities, content
+):
     path = tmp_path / "invalid.jsonl"
     path.write_bytes(content)
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": str(path)})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_ftm_import"
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": str(path)})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_ftm_import"
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
 
 
-def test_import_row_budget_counts_every_sheet_kind_before_write(tmp_path, entities):
+def test_import_row_budget_counts_every_sheet_kind_before_write(make_project, entities):
     path, _ = entities
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": str(path)})
-        result = run_typed_callable_action(
-            project,
-            "p",
-            bound,
-            deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=3)),
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "import_workload_limit_exceeded"
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": str(path)})
+    result = run_typed_callable_action(
+        project,
+        "p",
+        bound,
+        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=3)),
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "import_workload_limit_exceeded"
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 0
 
 
-def test_import_row_budget_stops_incremental_source_read(tmp_path, entities):
+def test_import_row_budget_stops_incremental_source_read(make_project, entities):
     del entities
     content = b"".join(
         json.dumps(
@@ -418,17 +417,17 @@ def test_import_row_budget_stops_incremental_source_read(tmp_path, entities):
         },
         import_workload_limits=ImportWorkloadLimits(max_rows=1),
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": source_path})
-        result = run_typed_callable_action(project, "p", bound, deps=deps)
-        assert result.status == "failed"
-        assert result.errors[0].code == "import_workload_limit_exceeded"
-        assert borrowed.tell() < len(content)
-        assert not borrowed.closed
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": source_path})
+    result = run_typed_callable_action(project, "p", bound, deps=deps)
+    assert result.status == "failed"
+    assert result.errors[0].code == "import_workload_limit_exceeded"
+    assert borrowed.tell() < len(content)
+    assert not borrowed.closed
 
 
 def test_import_retains_bounded_diagnostics_with_explicit_summary(
-    tmp_path, entities, monkeypatch
+    tmp_path, make_project, entities, monkeypatch
 ):
     from frisket.engine.executor import entity_package
 
@@ -446,24 +445,24 @@ def test_import_retains_bounded_diagnostics_with_explicit_summary(
     oversized_schema = "Unknown" + "x" * 100
     invalid = json.dumps({"id": "invalid", "schema": oversized_schema})
     path.write_text("\n".join([valid, invalid, *(["{bad"] * 5)]))
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": str(path)})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        dataset = ImportedEntityDataset.model_validate(result.value)
-        assert len(dataset.diagnostics) == 3
-        assert [item["code"] for item in dataset.diagnostics] == [
-            "unsupported_schema",
-            "invalid_json",
-            "diagnostics_truncated",
-        ]
-        assert dataset.diagnostics[-1]["omitted_count"] == 4
-        assert len(dataset.diagnostics[0]["message"]) == 40
-        assert len(dataset.diagnostics[0]["schema"]) == 40
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": str(path)})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    dataset = ImportedEntityDataset.model_validate(result.value)
+    assert len(dataset.diagnostics) == 3
+    assert [item["code"] for item in dataset.diagnostics] == [
+        "unsupported_schema",
+        "invalid_json",
+        "diagnostics_truncated",
+    ]
+    assert dataset.diagnostics[-1]["omitted_count"] == 4
+    assert len(dataset.diagnostics[0]["message"]) == 40
+    assert len(dataset.diagnostics[0]["schema"]) == 40
 
 
 def test_apply_failure_is_not_classified_as_invalid_input(
-    tmp_path, entities, monkeypatch
+    make_project, entities, monkeypatch
 ):
     from frisket.engine.executor import entity_package
     from frisket.engine.executor.plugin_write_apply import WritePlanApplyError
@@ -475,16 +474,16 @@ def test_apply_failure_is_not_classified_as_invalid_input(
         raise WritePlanApplyError("internal database detail")
 
     monkeypatch.setattr(entity_package, "apply_additive_tables", fail_apply)
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": str(path)})
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == "action_failed"
-        assert "internal database detail" not in result.errors[0].message
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": str(path)})
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == "action_failed"
+    assert "internal database detail" not in result.errors[0].message
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
-def test_import_plan_chunks_existing_append_bound_without_losing_order(tmp_path):
+def test_import_plan_chunks_existing_append_bound_without_losing_order(make_project):
     from frisket.contracts.plugin_write_plan import MAX_ROWS_PER_APPEND
     from frisket.engine.executor.plugin_write_apply import apply_additive_tables
     from frisket.features.followthemoney.write_plan import import_plan_to_write_plan
@@ -505,23 +504,23 @@ def test_import_plan_chunks_existing_append_bound_without_losing_order(tmp_path)
         MAX_ROWS_PER_APPEND,
         1,
     ]
-    with closing(Project.create(tmp_path / "project")) as project:
-        applied = apply_additive_tables(
-            project, plan, operation_kind="test.import", label="Import", provenance={}
-        )
-        rows = project.db.execute(
-            "SELECT value_kind,value FROM cells "
-            "JOIN rows ON rows.id=cells.row_id ORDER BY position"
-        ).fetchall()
-        assert [decode_stored_value(row[0], row[1]) for row in rows] == [
-            str(index) for index in range(count)
-        ]
-        assert len(applied.row_ids["s0"]) == count
+    project = make_project("project")
+    applied = apply_additive_tables(
+        project, plan, operation_kind="test.import", label="Import", provenance={}
+    )
+    rows = project.db.execute(
+        "SELECT value_kind,value FROM cells "
+        "JOIN rows ON rows.id=cells.row_id ORDER BY position"
+    ).fetchall()
+    assert [decode_stored_value(row[0], row[1]) for row in rows] == [
+        str(index) for index in range(count)
+    ]
+    assert len(applied.row_ids["s0"]) == count
 
 
 @pytest.mark.parametrize("changed", [False, True])
 def test_import_uses_actual_admitted_method_path_and_retains_borrowed_handle(
-    tmp_path, entities, changed
+    make_project, entities, changed
 ):
     from frisket.engine.executor.action_inventory import BoundLocalFile, ExecutorDeps
 
@@ -536,85 +535,85 @@ def test_import_uses_actual_admitted_method_path_and_retains_borrowed_handle(
             )
         }
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(import_entities, {"document": admitted_path})
-        result = run_typed_callable_action(project, "p", bound, deps=deps)
-        assert result.status == ("failed" if changed else "completed"), result.errors
-        if changed:
-            assert result.errors[0].code == "invalid_file_source"
-            assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        assert not borrowed.closed
+    project = make_project("project")
+    bound, _ = _bound(import_entities, {"document": admitted_path})
+    result = run_typed_callable_action(project, "p", bound, deps=deps)
+    assert result.status == ("failed" if changed else "completed"), result.errors
+    if changed:
+        assert result.errors[0].code == "invalid_file_source"
+        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    assert not borrowed.closed
 
 
 @pytest.mark.parametrize("failure", ["receipt", "commit"])
 def test_failed_package_publication_preserves_shared_blob_and_prior_receipt(
-    tmp_path, entities, monkeypatch, failure
+    make_project, entities, monkeypatch, failure
 ):
     from tests.engine.test_export_delivery_failure import _wrap_project_db_commit
 
     path, _ = entities
-    with closing(Project.create(tmp_path / "project")) as project:
-        original_bound, _ = _bound(roundtrip, {"document": str(path)})
-        original = run_typed_callable_action(project, "p", original_bound)
-        assert original.status == "completed", original.errors
-        report = Report.model_validate(original.value)
-        content = project.read_blob(report.package.blob_hash)
-        wrapper = _wrap_project_db_commit(monkeypatch, project)
+    project = make_project("project")
+    original_bound, _ = _bound(roundtrip, {"document": str(path)})
+    original = run_typed_callable_action(project, "p", original_bound)
+    assert original.status == "completed", original.errors
+    report = Report.model_validate(original.value)
+    content = project.read_blob(report.package.blob_hash)
+    wrapper = _wrap_project_db_commit(monkeypatch, project)
 
-        def run(params: Params, exporter: FollowTheMoneyExporter) -> dict[str, bool]:
-            before = tuple(project.db.iterdump())
-            rowsets, mappings = _selection(report.dataset)
-            with monkeypatch.context() as patch:
-                if failure == "receipt":
-                    update = ReceiptStore.update_if_status_in
-                    patch.setattr(
-                        ReceiptStore,
-                        "update_if_status_in",
-                        lambda self, receipt, statuses, **kwargs: (
-                            False
-                            if receipt.exports
-                            else update(self, receipt, statuses, **kwargs)
-                        ),
-                    )
-                else:
-                    wrapper.fail_commit_at = wrapper.commit_count + 1
-                with pytest.raises(Exception):
-                    exporter.export_entities(rowsets=rowsets, mappings=mappings)
-            assert tuple(project.db.iterdump()) == before
-            assert project.read_blob(report.package.blob_hash) == content
-            return {"retained": True}
-
-        bound, _ = _bound(run, {"document": "unused"}, key="second")
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        assert not ReceiptStore(project).parsed_by_id(result.receipt_id).exports
-        project.gc_blobs()
+    def run(params: Params, exporter: FollowTheMoneyExporter) -> dict[str, bool]:
+        before = tuple(project.db.iterdump())
+        rowsets, mappings = _selection(report.dataset)
+        with monkeypatch.context() as patch:
+            if failure == "receipt":
+                update = ReceiptStore.update_if_status_in
+                patch.setattr(
+                    ReceiptStore,
+                    "update_if_status_in",
+                    lambda self, receipt, statuses, **kwargs: (
+                        False
+                        if receipt.exports
+                        else update(self, receipt, statuses, **kwargs)
+                    ),
+                )
+            else:
+                wrapper.fail_commit_at = wrapper.commit_count + 1
+            with pytest.raises(Exception):
+                exporter.export_entities(rowsets=rowsets, mappings=mappings)
+        assert tuple(project.db.iterdump()) == before
         assert project.read_blob(report.package.blob_hash) == content
-        assert run_typed_callable_action(project, "p", original_bound) == original
+        return {"retained": True}
+
+    bound, _ = _bound(run, {"document": "unused"}, key="second")
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    assert not ReceiptStore(project).parsed_by_id(result.receipt_id).exports
+    project.gc_blobs()
+    assert project.read_blob(report.package.blob_hash) == content
+    assert run_typed_callable_action(project, "p", original_bound) == original
 
 
 @pytest.mark.parametrize("missing", [False, True])
 def test_export_replay_validates_retained_bytes_without_rerunning_handler(
-    tmp_path, entities, monkeypatch, missing
+    make_project, entities, monkeypatch, missing
 ):
     from frisket.engine.store.blob_backend import BlobNotFoundError
 
     path, _ = entities
-    with closing(Project.create(tmp_path / "project")) as project:
-        bound, _ = _bound(roundtrip, {"document": str(path)})
-        original = run_typed_callable_action(project, "p", bound)
-        assert original.status == "completed", original.errors
-        before = tuple(project.db.iterdump())
+    project = make_project("project")
+    bound, _ = _bound(roundtrip, {"document": str(path)})
+    original = run_typed_callable_action(project, "p", bound)
+    assert original.status == "completed", original.errors
+    before = tuple(project.db.iterdump())
 
-        def read_blob(*args):
-            if missing:
-                raise BlobNotFoundError("missing")
-            return b"corrupt"
+    def read_blob(*args):
+        if missing:
+            raise BlobNotFoundError("missing")
+        return b"corrupt"
 
-        monkeypatch.setattr(Project, "read_blob", read_blob)
-        result = run_typed_callable_action(project, "p", bound)
-        assert result.status == "failed"
-        assert result.errors[0].code == (
-            "export_artifact_missing" if missing else "export_artifact_mismatch"
-        )
-        assert tuple(project.db.iterdump()) == before
+    monkeypatch.setattr(Project, "read_blob", read_blob)
+    result = run_typed_callable_action(project, "p", bound)
+    assert result.status == "failed"
+    assert result.errors[0].code == (
+        "export_artifact_missing" if missing else "export_artifact_mismatch"
+    )
+    assert tuple(project.db.iterdump()) == before

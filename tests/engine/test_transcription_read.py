@@ -1,30 +1,27 @@
 import asyncio
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 
 import pytest
 
 from frisket.actions.media_options import TranscriptionOptions
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.engine.executor.transcription_read import AdmittedTranscriber
-from frisket.engine.store import Project
 from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.sdk.ops import transcribe_engines
 
 
 @pytest.fixture
-def audio(tmp_path):
-    with closing(Project.create(tmp_path / "audio.frisket", name="audio")) as project:
-        sheet = project.add_sheet("recordings")
-        column = project.add_column(sheet, "recording", type="audio")
-        digest = project.add_blob(
-            b"audio fixture", filename="interview.wav", mime="audio/wav"
-        )
-        value = {"blob": digest, "mime": "audio/wav"}
-        row_id = project.add_rows(sheet, [{"recording": value}], {"recording": column})[
-            0
-        ]
-        ctx = ActionContext(project=project, extras={"row_id": row_id})
-        yield ctx, sheet, row_id, column, value
+def audio(make_project):
+    project = make_project("audio")
+    sheet = project.add_sheet("recordings")
+    column = project.add_column(sheet, "recording", type="audio")
+    digest = project.add_blob(
+        b"audio fixture", filename="interview.wav", mime="audio/wav"
+    )
+    value = {"blob": digest, "mime": "audio/wav"}
+    row_id = project.add_rows(sheet, [{"recording": value}], {"recording": column})[0]
+    ctx = ActionContext(project=project, extras={"row_id": row_id})
+    yield ctx, sheet, row_id, column, value
 
 
 def bind(reader, audio, *, row=None, sources=None):

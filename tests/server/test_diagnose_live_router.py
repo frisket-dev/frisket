@@ -13,9 +13,7 @@ from frisket.server.app import create_app
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_rapidocr_capacity_is_diagnose_info_not_application_health(
-    tmp_path, monkeypatch
-):
+def test_rapidocr_capacity_is_diagnose_info_not_application_health(client, monkeypatch):
     """Optional-engine tuning belongs to operator diagnostics, not liveness."""
 
     pytest.importorskip("rapidocr")
@@ -35,7 +33,6 @@ def test_rapidocr_capacity_is_diagnose_info_not_application_health(
         "memory_limit_mb": 3584,
     }
     monkeypatch.setattr(diagnostics, "_rapidocr_runtime_report", lambda: runtime)
-    client = TestClient(create_app(tmp_path / "ws"))
 
     diagnosed = client.get("/api/diagnose")
     assert diagnosed.status_code == 200

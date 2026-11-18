@@ -10,19 +10,18 @@ from frisket.actions.core import RegisteredAction
 from frisket.actions.extract import EXTRACT
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from test_model_rows_actions import _DataAdapter
 
 
 @pytest.fixture
-def extracted(tmp_path, monkeypatch):
+def extracted(make_project, monkeypatch):
     registered = RegisteredAction("custom.extract", EXTRACT)
     monkeypatch.setattr(
         ACTION_REGISTRY,
         "_actions",
         {**ACTION_REGISTRY._actions, registered.action_id: registered},
     )
-    project = Project.create(tmp_path / "dynamic-list.frisket")
+    project = make_project("dynamic-list")
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "body", type="text")
     project.add_rows(sheet, [{"body": "Ada launched a rocket."}], {"body": column})

@@ -3,11 +3,10 @@ from __future__ import annotations
 import pytest
 
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 
 
 @pytest.fixture
-def ner_project(tmp_path, monkeypatch):
+def ner_project(make_project, monkeypatch):
     from frisket.ops import spacy_ner
 
     monkeypatch.setattr(
@@ -22,12 +21,11 @@ def ner_project(tmp_path, monkeypatch):
             [{"text": "Alice", "type": "person", "start": 0, "end": 5, "score": None}]
         ],
     )
-    project = Project.create(tmp_path / "typed-output-compatibility.frisket")
+    project = make_project("typed-output-compatibility")
     sheet = project.add_sheet("People")
     source = project.add_column(sheet, "text", type="text")
     rows = project.add_rows(sheet, [{"text": "Alice"}], {"text": source})
     yield project, sheet, rows
-    project.close()
 
 
 def _request(

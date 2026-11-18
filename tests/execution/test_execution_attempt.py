@@ -146,12 +146,9 @@ class _PricedProvider:
 
 
 @pytest.fixture()
-def project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    try:
-        yield p
-    finally:
-        p.close()
+def project(make_project):
+    p = make_project("t")
+    yield p
 
 
 @pytest.fixture()

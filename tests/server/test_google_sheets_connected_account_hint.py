@@ -24,7 +24,6 @@ from frisket.engine.executor import (
     ImportWorkloadLimits,
     UrlImportLimits,
 )
-from frisket.engine.store import Project
 from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
@@ -45,60 +44,46 @@ def _google_sheets_entry(payload):
 class TestCatalogHintFunction:
     """Fast, no-HTTP proof of the hint-computation function itself."""
 
-    def test_unavailable_when_no_resolver_configured(self, tmp_path) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            entry = _google_sheets_entry(
-                _hints_payload(project, connected_account_resolver_configured=False)
-            )
-            reason = entry["ui_hints"].get("unavailable_reason")
-            assert reason, entry["ui_hints"]
-            assert "team edition" in reason.lower() or "team" in reason.lower()
-        finally:
-            project.close()
+    def test_unavailable_when_no_resolver_configured(self, make_project) -> None:
+        project = make_project("p")
+        entry = _google_sheets_entry(
+            _hints_payload(project, connected_account_resolver_configured=False)
+        )
+        reason = entry["ui_hints"].get("unavailable_reason")
+        assert reason, entry["ui_hints"]
+        assert "team edition" in reason.lower() or "team" in reason.lower()
 
-    def test_available_when_resolver_configured(self, tmp_path) -> None:
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            entry = _google_sheets_entry(
-                _hints_payload(project, connected_account_resolver_configured=True)
-            )
-            assert "unavailable_reason" not in entry["ui_hints"]
-        finally:
-            project.close()
+    def test_available_when_resolver_configured(self, make_project) -> None:
+        project = make_project("p")
+        entry = _google_sheets_entry(
+            _hints_payload(project, connected_account_resolver_configured=True)
+        )
+        assert "unavailable_reason" not in entry["ui_hints"]
 
     def test_default_is_available_unchanged_behavior_for_untouched_callers(
-        self, tmp_path
+        self, make_project
     ) -> None:
         """A caller that doesn't know about this new kwarg yet (there is
         exactly one production caller, server/routes/actions.py, and it DOES
         pass it — but the permissive default matters for any other/future
         caller and for direct unit-test use like `_hints_payload` above)
         must see unchanged (available) behavior, not a surprise regression."""
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            entry = _google_sheets_entry(_hints_payload(project))
-            assert "unavailable_reason" not in entry["ui_hints"]
-        finally:
-            project.close()
+        project = make_project("p")
+        entry = _google_sheets_entry(_hints_payload(project))
+        assert "unavailable_reason" not in entry["ui_hints"]
 
-    def test_only_export_google_sheets_is_gated(self, tmp_path) -> None:
+    def test_only_export_google_sheets_is_gated(self, make_project) -> None:
         """The gate must not spill onto unrelated actions merely because no
         resolver is configured -- only kinds actually declared in
         _CONNECTED_ACCOUNT_UNAVAILABLE_REASONS."""
-        project = Project.create(tmp_path / "p.frisket")
-        try:
-            payload = _hints_payload(
-                project, connected_account_resolver_configured=False
-            )
-            gated = [
-                a["kind"]
-                for a in payload["actions"]
-                if "unavailable_reason" in (a.get("ui_hints") or {})
-            ]
-            assert gated == ["export.google_sheets"]
-        finally:
-            project.close()
+        project = make_project("p")
+        payload = _hints_payload(project, connected_account_resolver_configured=False)
+        gated = [
+            a["kind"]
+            for a in payload["actions"]
+            if "unavailable_reason" in (a.get("ui_hints") or {})
+        ]
+        assert gated == ["export.google_sheets"]
 
 
 class TestLiveRoute:

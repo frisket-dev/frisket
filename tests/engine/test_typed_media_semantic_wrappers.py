@@ -1,7 +1,6 @@
 """Semantic wrapper grounding through the real row host and admitted readers."""
 
 import json
-from contextlib import closing
 from io import BytesIO
 
 import pytest
@@ -20,7 +19,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import Outcome, Row, RowResult
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 from frisket.ops.ocr_engines import OcrEngines
@@ -33,7 +31,7 @@ TEXT = "Hello world"
 @pytest.mark.parametrize("kind", ["ocr", "transcribe"])
 @pytest.mark.parametrize("wrapper", ["bare", "outcome", "nullable", "outcome_nullable"])
 def test_only_original_semantic_output_gets_grounding(
-    tmp_path, monkeypatch, kind, wrapper
+    make_project, monkeypatch, kind, wrapper
 ):
     semantic = OcrText if kind == "ocr" else TranscriptText
     annotation = semantic | None if "nullable" in wrapper else semantic
@@ -119,66 +117,66 @@ def test_only_original_semantic_output_gets_grounding(
     mime = "image/png" if kind == "ocr" else "audio/wav"
     filename = "page.png" if kind == "ocr" else "recording.wav"
 
-    with closing(Project.create(tmp_path / "semantic.frisket")) as project:
-        sheet = project.add_sheet("Media")
-        source = project.add_column(sheet, "source", type=column_type)
-        digest = project.add_blob(
-            image.getvalue() if kind == "ocr" else b"audio fixture",
-            filename=filename,
-            mime=mime,
-            metadata=owned_media_metadata_document(probe={"duration_seconds": 1}),
-        )
-        [row_id] = project.add_rows(
-            sheet,
-            [{"source": {"blob": digest, "mime": mime, "filename": filename}}],
-            {"source": source},
-        )
-        result = run_action_spec(
-            project,
-            {
-                "action_id": action_id,
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {"source": "source", "engine": engine},
-                "output_names": {
-                    "original": "renamed_original",
-                    "rewritten": "edited",
-                    "incidental": "same_plain_string",
-                },
-                "idempotency_key": "semantic-wrapper",
+    project = make_project("semantic")
+    sheet = project.add_sheet("Media")
+    source = project.add_column(sheet, "source", type=column_type)
+    digest = project.add_blob(
+        image.getvalue() if kind == "ocr" else b"audio fixture",
+        filename=filename,
+        mime=mime,
+        metadata=owned_media_metadata_document(probe={"duration_seconds": 1}),
+    )
+    [row_id] = project.add_rows(
+        sheet,
+        [{"source": {"blob": digest, "mime": mime, "filename": filename}}],
+        {"source": source},
+    )
+    result = run_action_spec(
+        project,
+        {
+            "action_id": action_id,
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": "source", "engine": engine},
+            "output_names": {
+                "original": "renamed_original",
+                "rewritten": "edited",
+                "incidental": "same_plain_string",
             },
-            project_id="semantic",
-        )
-        assert result.status == "completed", result.errors
-        assert dispatched == [engine]
-        columns = {item["name"]: item["id"] for item in project.columns(sheet)}
-        assert project.get_values(sheet, columns["renamed_original"])[row_id] == TEXT
-        assert project.get_values(sheet, columns["same_plain_string"])[row_id] == TEXT
-        assert project.get_values(sheet, columns["edited"])[row_id] == TEXT + "!"
-        links = project.db.execute("SELECT column_id FROM evidence_links").fetchall()
-        assert {link["column_id"] for link in links} == {columns["renamed_original"]}
-        assert links
-        spans = project.db.execute("SELECT * FROM source_spans").fetchall()
+            "idempotency_key": "semantic-wrapper",
+        },
+        project_id="semantic",
+    )
+    assert result.status == "completed", result.errors
+    assert dispatched == [engine]
+    columns = {item["name"]: item["id"] for item in project.columns(sheet)}
+    assert project.get_values(sheet, columns["renamed_original"])[row_id] == TEXT
+    assert project.get_values(sheet, columns["same_plain_string"])[row_id] == TEXT
+    assert project.get_values(sheet, columns["edited"])[row_id] == TEXT + "!"
+    links = project.db.execute("SELECT column_id FROM evidence_links").fetchall()
+    assert {link["column_id"] for link in links} == {columns["renamed_original"]}
+    assert links
+    spans = project.db.execute("SELECT * FROM source_spans").fetchall()
+    if kind == "ocr":
+        [region] = [span for span in spans if span["span_kind"] == "region"]
+        assert region["quote"] == TEXT
+        assert json.loads(region["selector_json"])["polygon"] == [
+            [1, 2],
+            [10, 2],
+            [10, 6],
+            [1, 6],
+        ]
+    else:
+        [span] = spans
+        assert span["quote"] == TEXT
+        assert (span["start_ms"], span["end_ms"]) == (100, 900)
+    for name in ("renamed_original", "edited", "same_plain_string"):
+        column_id = columns[name]
         if kind == "ocr":
-            [region] = [span for span in spans if span["span_kind"] == "region"]
-            assert region["quote"] == TEXT
-            assert json.loads(region["selector_json"])["polygon"] == [
-                [1, 2],
-                [10, 2],
-                [10, 6],
-                [1, 6],
-            ]
+            grounding = resolve_current_ocr_citation(
+                project, sheet_id=sheet, row_id=row_id, column_id=column_id
+            )
         else:
-            [span] = spans
-            assert span["quote"] == TEXT
-            assert (span["start_ms"], span["end_ms"]) == (100, 900)
-        for name in ("renamed_original", "edited", "same_plain_string"):
-            column_id = columns[name]
-            if kind == "ocr":
-                grounding = resolve_current_ocr_citation(
-                    project, sheet_id=sheet, row_id=row_id, column_id=column_id
-                )
-            else:
-                grounding = resolve_timestamped_transcript(
-                    project, sheet_id=sheet, row_id=row_id, column_id=column_id
-                )
-            assert bool(grounding) is (name == "renamed_original")
+            grounding = resolve_timestamped_transcript(
+                project, sheet_id=sheet, row_id=row_id, column_id=column_id
+            )
+        assert bool(grounding) is (name == "renamed_original")

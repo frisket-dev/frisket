@@ -10,7 +10,6 @@ import pytest
 from frisket.ai.llm import ModelRouter, LLMResponse
 from frisket.engine.executor import run_action_spec
 from frisket.engine.runner.review import review_queue, review_bundle_page
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
@@ -20,9 +19,9 @@ from frisket.engine.store.evidence import (
 
 
 @pytest.fixture
-def work(tmp_path, monkeypatch):
+def work(make_project, monkeypatch):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "100")
-    project = Project.create(tmp_path / "recovery.frisket")
+    project = make_project("recovery")
     sheet = project.add_sheet("Rows")
     source = project.add_column(sheet, "source")
     rows = project.add_rows(
@@ -81,7 +80,6 @@ def work(tmp_path, monkeypatch):
 
     yield project, sheet, source, rows, calls, adapter, run
     asyncio.run(router.aclose())
-    project.close()
 
 
 def start(run):

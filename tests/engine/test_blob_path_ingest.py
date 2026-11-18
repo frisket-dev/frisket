@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from frisket.project_identity import ProjectStorageKey
-from frisket.engine.store import Project
 from frisket.engine.store import blob_backend
 from frisket.engine.store.blob_backend import (
     BlobIntegrityError,
@@ -147,7 +146,9 @@ def test_fileobj_rejects_digest_mismatch_before_publication(
     assert not list(tmp_path.rglob(".blob-path.*"))
 
 
-def test_failed_s3_path_upload_does_not_publish_blob_reference(tmp_path: Path) -> None:
+def test_failed_s3_path_upload_does_not_publish_blob_reference(
+    tmp_path: Path, make_project
+) -> None:
     client = _StreamingS3Client()
     client.fail_upload = True
     store = S3ProjectBlobStore(
@@ -158,16 +159,11 @@ def test_failed_s3_path_upload_does_not_publish_blob_reference(tmp_path: Path) -
     )
     source = tmp_path / "source.bin"
     source.write_bytes(b"unpublished bytes")
-    project = Project.create(
-        tmp_path / "failure.frisket", name="failure", blob_store=store
-    )
-    try:
-        with pytest.raises(BlobStoreError):
-            project.add_blob_from_path(source)
-        assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
-        assert not client.objects
-    finally:
-        project.close()
+    project = make_project("failure", blob_store=store)
+    with pytest.raises(BlobStoreError):
+        project.add_blob_from_path(source)
+    assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
+    assert not client.objects
 
 
 def test_directory_fsync_is_optional_on_unsupported_platforms(
@@ -330,6 +326,7 @@ def test_s3_path_ingest_streams_verifies_and_does_not_reupload_duplicate(
 
 def test_project_rejects_a_path_store_that_returns_the_wrong_digest(
     tmp_path: Path,
+    make_project,
 ) -> None:
     class WrongDigestStore(FilesystemProjectBlobStore):
         def put_path(
@@ -343,14 +340,9 @@ def test_project_rejects_a_path_store_that_returns_the_wrong_digest(
 
     source = tmp_path / "source.bin"
     source.write_bytes(b"submitted bytes")
-    project = Project.create(
-        tmp_path / "wrong.frisket",
-        name="wrong",
-        blob_store=WrongDigestStore(root=tmp_path / "wrong-blobs"),
+    project = make_project(
+        "wrong", blob_store=WrongDigestStore(root=tmp_path / "wrong-blobs")
     )
-    try:
-        with pytest.raises(BlobIntegrityError, match="does not match"):
-            project.add_blob_from_path(source)
-        assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0
-    finally:
-        project.close()
+    with pytest.raises(BlobIntegrityError, match="does not match"):
+        project.add_blob_from_path(source)
+    assert project.db.execute("SELECT count(*) FROM blobs").fetchone()[0] == 0

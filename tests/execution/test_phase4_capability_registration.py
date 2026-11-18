@@ -428,13 +428,12 @@ def test_the_geocode_ability_checker_refuses_a_scoped_lookup_on_nominatim():
 
 
 @pytest.fixture()
-def phase4_project(tmp_path):
+def phase4_project(make_project):
     """One sheet carrying what the four quantity functions actually read: source
     text, a two-page document, an address, and a geo point."""
-    from frisket.engine.store import Project
     from frisket.engine.store.media_blobs import media_cell
 
-    project = Project.create(tmp_path / "phase4.frisket", name="phase4")
+    project = make_project("phase4")
     sheet_id = project.add_sheet("Rows")
     text_col = project.add_column(sheet_id, "body", type="text")
     doc_col = project.add_column(sheet_id, "doc", type="file")

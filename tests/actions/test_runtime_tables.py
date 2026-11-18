@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import closing
 from dataclasses import replace
 
 import pytest
@@ -36,7 +35,6 @@ from frisket.engine.executor.map_rows_action import (
     typed_request_hash,
 )
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 
 
 class Params(ActionParams):
@@ -223,7 +221,7 @@ class TrackedRows:
 
 
 @pytest.mark.parametrize("failure", ["empty", "duplicate", "unknown", "collision"])
-def test_runtime_schema_errors_close_source_before_row_iteration(tmp_path, failure):
+def test_runtime_schema_errors_close_source_before_row_iteration(make_project, failure):
     rows = TrackedRows()
     columns = [TableColumn("value", "text"), TableColumn("other", "text")]
     if failure == "empty":
@@ -243,16 +241,18 @@ def test_runtime_schema_errors_close_source_before_row_iteration(tmp_path, failu
 
     registered = _registered(produce)
     bound = BoundTypedActionRequest.bind(registered, _request(output_names=names))
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "failed"
-        assert rows.iterations == 0
-        assert rows.closed
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "failed"
+    assert rows.iterations == 0
+    assert rows.closed
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("declared", [False, True])
-def test_hybrid_refuses_wrong_result_variant_without_consuming_rows(tmp_path, declared):
+def test_hybrid_refuses_wrong_result_variant_without_consuming_rows(
+    make_project, declared
+):
     rows = TrackedRows()
 
     def produce(p: Params) -> TableResult[DynamicOutput] | DynamicTableResult:
@@ -267,12 +267,12 @@ def test_hybrid_refuses_wrong_result_variant_without_consuming_rows(tmp_path, de
     bound = BoundTypedActionRequest.bind(
         registered, _request(params={"declared": declared})
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "failed"
-        assert rows.iterations == 0
-        assert rows.closed
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "failed"
+    assert rows.iterations == 0
+    assert rows.closed
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
 
 
 def test_known_schema_name_error_precedes_producer():
@@ -289,7 +289,7 @@ def test_known_schema_name_error_precedes_producer():
 
 
 def test_runtime_table_publishes_renamed_columns_and_replays_without_discovery(
-    tmp_path,
+    make_project,
 ):
     calls = []
 
@@ -308,33 +308,33 @@ def test_runtime_table_publishes_renamed_columns_and_replays_without_discovery(
     request = _request(output_names={"value": "Display"})
     bound = BoundTypedActionRequest.bind(registered, request)
     original_hash = typed_request_hash(bound)
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        assert sheet["row_count"] == 1
-        assert set(sheet["columns"]) == {"Display", "count"}
-        descriptor = project.db.execute(
-            "SELECT name, hidden, format FROM columns WHERE id=?",
-            (sheet["columns"]["Display"],),
-        ).fetchone()
-        assert tuple(descriptor) == ("Display", 1, "markdown")
-        assert list(
-            project.get_values(sheet["sheet_id"], sheet["columns"]["Display"]).values()
-        ) == ["**Ada**"]
-        assert bound.output_fields is None
-        assert typed_request_hash(bound) == original_hash
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        changed = BoundTypedActionRequest.bind(
-            registered,
-            request.model_copy(update={"output_names": {"value": "Changed"}}),
-        )
-        conflict = run_typed_create_sheet_action(project, "p", changed)
-        assert conflict.status == "failed"
-        assert conflict.errors[0].code == "idempotency_conflict"
-        assert calls == [True]
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    assert sheet["row_count"] == 1
+    assert set(sheet["columns"]) == {"Display", "count"}
+    descriptor = project.db.execute(
+        "SELECT name, hidden, format FROM columns WHERE id=?",
+        (sheet["columns"]["Display"],),
+    ).fetchone()
+    assert tuple(descriptor) == ("Display", 1, "markdown")
+    assert list(
+        project.get_values(sheet["sheet_id"], sheet["columns"]["Display"]).values()
+    ) == ["**Ada**"]
+    assert bound.output_fields is None
+    assert typed_request_hash(bound) == original_hash
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    changed = BoundTypedActionRequest.bind(
+        registered,
+        request.model_copy(update={"output_names": {"value": "Changed"}}),
+    )
+    conflict = run_typed_create_sheet_action(project, "p", changed)
+    assert conflict.status == "failed"
+    assert conflict.errors[0].code == "idempotency_conflict"
+    assert calls == [True]
 
 
 def test_dynamic_table_freezes_schema_without_consuming_rows():
@@ -404,7 +404,7 @@ def test_ordinary_row_catalog_does_not_claim_sheet_creation():
 
 
 @pytest.mark.parametrize("forge", [False, True])
-def test_list_reader_tokens_not_parent_ids_authorize_publication(tmp_path, forge):
+def test_list_reader_tokens_not_parent_ids_authorize_publication(make_project, forge):
     def produce(p: SourceParams, tables: ListTableReader) -> DynamicTableResult:
         items = tables.read(p.source)
         return DynamicTableResult(
@@ -422,34 +422,34 @@ def test_list_reader_tokens_not_parent_ids_authorize_publication(tmp_path, forge
             ],
         )
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet = project.add_sheet("Parent")
-        column = project.add_column(sheet, "items", "json")
-        project.add_rows(sheet, [{"items": ["a", "b"]}], {"items": column})
-        bound = BoundTypedActionRequest.bind(
-            _registered(produce),
-            _request(
-                params={
-                    "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
-                }
-            ),
-        )
-        result = run_typed_create_sheet_action(project, "p", bound)
-        if forge:
-            assert result.status == "failed"
-            assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
-        else:
-            assert result.status == "completed", result.errors
-            output = result.outputs[0].ref
-            assert output["row_count"] == 2
-            assert list(
-                project.get_values(
-                    output["sheet_id"], output["columns"]["value"]
-                ).values()
-            ) == ["a", "b"]
+    project = make_project("project")
+    sheet = project.add_sheet("Parent")
+    column = project.add_column(sheet, "items", "json")
+    project.add_rows(sheet, [{"items": ["a", "b"]}], {"items": column})
+    bound = BoundTypedActionRequest.bind(
+        _registered(produce),
+        _request(
+            params={
+                "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
+            }
+        ),
+    )
+    result = run_typed_create_sheet_action(project, "p", bound)
+    if forge:
+        assert result.status == "failed"
+        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+    else:
+        assert result.status == "completed", result.errors
+        output = result.outputs[0].ref
+        assert output["row_count"] == 2
+        assert list(
+            project.get_values(output["sheet_id"], output["columns"]["value"]).values()
+        ) == ["a", "b"]
 
 
-def test_empty_table_parent_comes_from_admitted_reader_not_producer_metadata(tmp_path):
+def test_empty_table_parent_comes_from_admitted_reader_not_producer_metadata(
+    make_project,
+):
     def produce(p: SourceParams, tables: ListTableReader) -> DynamicTableResult:
         tables.read(p.source)
         return DynamicTableResult(
@@ -458,28 +458,28 @@ def test_empty_table_parent_comes_from_admitted_reader_not_producer_metadata(tmp
             source={"parent_sheet_id": 987654},
         )
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet = project.add_sheet("Parent")
-        column = project.add_column(sheet, "items", "json")
-        project.add_rows(sheet, [{"items": ["filtered out"]}], {"items": column})
-        bound = BoundTypedActionRequest.bind(
-            _registered(produce),
-            _request(
-                params={
-                    "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
-                }
-            ),
-        )
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        output = result.outputs[0].ref
-        assert output["row_count"] == 0
-        assert (
-            project.db.execute(
-                "SELECT parent_sheet_id FROM sheets WHERE id=?", (output["sheet_id"],)
-            ).fetchone()[0]
-            == sheet
-        )
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
+    project = make_project("project")
+    sheet = project.add_sheet("Parent")
+    column = project.add_column(sheet, "items", "json")
+    project.add_rows(sheet, [{"items": ["filtered out"]}], {"items": column})
+    bound = BoundTypedActionRequest.bind(
+        _registered(produce),
+        _request(
+            params={
+                "source": {"kind": "column", "sheet_id": sheet, "column_id": column}
+            }
+        ),
+    )
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    output = result.outputs[0].ref
+    assert output["row_count"] == 0
+    assert (
+        project.db.execute(
+            "SELECT parent_sheet_id FROM sheets WHERE id=?", (output["sheet_id"],)
+        ).fetchone()[0]
+        == sheet
+    )
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id

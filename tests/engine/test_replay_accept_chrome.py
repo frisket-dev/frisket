@@ -75,12 +75,9 @@ class _Fixture:
 
 
 @pytest.fixture
-def fx(tmp_path):
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        yield _Fixture(project)
-    finally:
-        project.close()
+def fx(make_project):
+    project = make_project("p")
+    yield _Fixture(project)
 
 
 def _accept_spec(fx: _Fixture, row_id: int, *, key: str) -> dict[str, Any]:

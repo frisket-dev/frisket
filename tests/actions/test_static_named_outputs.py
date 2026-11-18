@@ -1,5 +1,3 @@
-from contextlib import closing
-
 import pytest
 from pydantic import BaseModel, Field, create_model
 
@@ -8,7 +6,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import ActionParams, ColumnRef, Outcome, Row, RowResult
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.recordsets import is_feedable_named_result_ref
-from frisket.engine.store import Project
 from frisket.sdk.ops import transcribe_engines
 
 
@@ -43,7 +40,7 @@ def collect(params: Params, row: Row) -> RowResult[Output]:
 
 
 @pytest.fixture
-def project(tmp_path, monkeypatch):
+def project(make_project, monkeypatch):
     registered = RegisteredAction(
         "custom.collect",
         action(
@@ -62,8 +59,8 @@ def project(tmp_path, monkeypatch):
             registered.action_id: registered,
         },
     )
-    with closing(Project.create(tmp_path / "named.frisket")) as project:
-        yield project
+    project = make_project("named")
+    yield project
 
 
 def run(project, body):

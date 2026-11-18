@@ -38,7 +38,6 @@ from frisket.engine.executor.map_rows_action import (
     run_typed_map_rows_action,
 )
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionContext
 from frisket.plugins.sdk import Plugin
@@ -76,15 +75,12 @@ def _bound(sheet, handler, *, batch=False):
 
 
 @pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "context.frisket")
-    try:
-        sheet = project.add_sheet("Input")
-        column = project.add_column(sheet, "source")
-        project.add_rows(sheet, [{"source": "one"}], {"source": column})
-        yield project, sheet
-    finally:
-        project.close()
+def project(make_project):
+    project = make_project("context")
+    sheet = project.add_sheet("Input")
+    column = project.add_column(sheet, "source")
+    project.add_rows(sheet, [{"source": "one"}], {"source": column})
+    yield project, sheet
 
 
 def test_context_is_exported_and_has_no_invocation_data_or_effects():

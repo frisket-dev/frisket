@@ -8,8 +8,6 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
 
 def _message(
     subject: str,
@@ -97,7 +95,7 @@ def _execute_rows(client: TestClient, project_id: str, plan: dict) -> list[dict]
 
 
 def test_direct_and_zip_email_leaves_produce_identical_rows_and_attachments(
-    tmp_path: Path,
+    client,
 ) -> None:
     attachment = b"\x00exact evidence bytes\xff"
     members = {
@@ -109,7 +107,6 @@ def test_direct_and_zip_email_leaves_produce_identical_rows_and_attachments(
             attachment=attachment,
         ),
     }
-    client = TestClient(create_app(tmp_path / "workspace"))
     direct_project = _project(client, "Direct email")
     zip_project = _project(client, "ZIP email")
 

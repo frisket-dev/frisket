@@ -28,12 +28,10 @@ would find.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
 from frisket.ai.models.metadata import ModelCallMeta
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
@@ -62,12 +60,9 @@ def _route_rows(project, run_id: int):
 
 
 @pytest.fixture()
-def project(tmp_path: Path):
-    p = Project.create(tmp_path / "anchor.frisket")
-    try:
-        yield p
-    finally:
-        p.close()
+def project(make_project):
+    p = make_project("anchor")
+    yield p
 
 
 def _make_run(project) -> int:

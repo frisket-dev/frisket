@@ -20,7 +20,6 @@ from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import root_action_catalog, validate_root_action
 from frisket.engine.executor.action_specs import PlacementPolicy, execution_spec_for
 from frisket.engine.jobs import RUN_PROJECT_KIND
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
 from frisket.engine.store.evidence import (
@@ -394,14 +393,13 @@ def test_visual_finder_has_one_strict_typed_request_contract() -> None:
 
 
 def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
-    tmp_path: Path,
+    client,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from frisket.engine.executor.temporal_transcripts import (
         resolve_timestamped_transcript,
     )
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id, project = _project(client, "Overrun transcript")
     sheet_id = project.add_sheet("Audio")
     audio_column_id = project.add_column(sheet_id, "audio", "audio")

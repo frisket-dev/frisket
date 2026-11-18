@@ -831,56 +831,50 @@ def test_cancel_requires_explicit_resolution_and_fences_old_writer(make_project)
 
 
 def test_cancelled_append_remove_preserves_other_changes_and_restores_saved_rows(
-    tmp_path,
+    make_project,
 ):
     from frisket.engine.store.op_log import step_operation
 
-    from contextlib import closing
-
-    with closing(Project.create(tmp_path / "append-remove.frisket")) as project:
-        sheet = project.add_sheet("Existing")
-        column = project.add_column(sheet, "value", "text")
-        original = project.add_rows(sheet, [{"value": "original"}], {"value": column})
-        writer = StreamingSheetWriter.start_append_session(
-            project,
-            session_id="append:one",
-            writer_authority="worker:one",
-            sheet_id=sheet,
-            columns=[{"name": "value", "type": "text"}],
-            project_id="project",
-            action_kind="import.append_rows",
-            idempotency_key="append:one",
-            params_hash="hash:one",
-            action_id="action:one",
-            receipt_id="receipt:one",
-            source_ref={"kind": "file", "label": "rows.csv"},
-        )
-        added = writer.append_page(
-            [{"value": "imported"}], expected_cursor=0, next_cursor=1
-        )
-        stale_writer = StreamingSheetWriter._from_session(
-            project, ImportSessionStore(project).get("append:one")
-        )
-        unrelated = project.add_rows(
-            sheet, [{"value": "independent"}], {"value": column}
-        )
-        writer.cancel(expected_cursor=1)
-        writer.remove_session(expected_cursor=1)
-        assert project.visible_row_ids(sheet) == original + unrelated
-        assert project.get_values(sheet, column, original + unrelated) == {
-            original[0]: "original",
-            unrelated[0]: "independent",
-        }
-        project.db.execute("BEGIN IMMEDIATE")
-        step_operation(project, "restore", change_id=writer._op_id)
-        project.db.commit()
-        assert project.visible_row_ids(sheet) == original + added + unrelated
-        assert project.get_values(sheet, column, added) == {added[0]: "imported"}
-        assert ImportSessionStore(project).get("append:one").state == "removed"
-        with pytest.raises(ImportSessionConflict):
-            stale_writer.append_page(
-                [{"value": "late"}], expected_cursor=1, next_cursor=2
-            )
+    project = make_project("append-remove")
+    sheet = project.add_sheet("Existing")
+    column = project.add_column(sheet, "value", "text")
+    original = project.add_rows(sheet, [{"value": "original"}], {"value": column})
+    writer = StreamingSheetWriter.start_append_session(
+        project,
+        session_id="append:one",
+        writer_authority="worker:one",
+        sheet_id=sheet,
+        columns=[{"name": "value", "type": "text"}],
+        project_id="project",
+        action_kind="import.append_rows",
+        idempotency_key="append:one",
+        params_hash="hash:one",
+        action_id="action:one",
+        receipt_id="receipt:one",
+        source_ref={"kind": "file", "label": "rows.csv"},
+    )
+    added = writer.append_page(
+        [{"value": "imported"}], expected_cursor=0, next_cursor=1
+    )
+    stale_writer = StreamingSheetWriter._from_session(
+        project, ImportSessionStore(project).get("append:one")
+    )
+    unrelated = project.add_rows(sheet, [{"value": "independent"}], {"value": column})
+    writer.cancel(expected_cursor=1)
+    writer.remove_session(expected_cursor=1)
+    assert project.visible_row_ids(sheet) == original + unrelated
+    assert project.get_values(sheet, column, original + unrelated) == {
+        original[0]: "original",
+        unrelated[0]: "independent",
+    }
+    project.db.execute("BEGIN IMMEDIATE")
+    step_operation(project, "restore", change_id=writer._op_id)
+    project.db.commit()
+    assert project.visible_row_ids(sheet) == original + added + unrelated
+    assert project.get_values(sheet, column, added) == {added[0]: "imported"}
+    assert ImportSessionStore(project).get("append:one").state == "removed"
+    with pytest.raises(ImportSessionConflict):
+        stale_writer.append_page([{"value": "late"}], expected_cursor=1, next_cursor=2)
 
 
 @pytest.mark.parametrize("append", [False, True])

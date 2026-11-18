@@ -137,14 +137,13 @@ def test_policy_on_never_produces_network_disabled(tmp_path) -> None:
 
 
 @pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "p.frisket")
+def project(make_project):
+    p = make_project("p")
     sheet = p.add_sheet("data")
     cols = {"statement": p.add_column(sheet, "statement")}
     p.add_rows(sheet, [{"statement": "Hello"}], cols)
     p._egress_test_sheet = sheet  # stash for specs
     yield p
-    p.close()
 
 
 def _translate_plan(project: Project, engine: str):

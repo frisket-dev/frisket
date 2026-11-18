@@ -12,13 +12,11 @@ from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
 import frisket.execution.provider as execution_provider
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
@@ -81,8 +79,8 @@ class _PlainProgram(ActionProgram):
 
 
 @pytest.fixture()
-def audio_project(tmp_path: Path):
-    project = Project.create(tmp_path / "p.frisket")
+def audio_project(make_project):
+    project = make_project("p")
     sheet_id = project.add_sheet("S")
     col = project.add_column(sheet_id, "media", type="audio")
     blob = project.add_blob(

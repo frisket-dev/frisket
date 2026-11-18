@@ -77,14 +77,13 @@ class FakeProbeGateway:
 
 
 @pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "cr.frisket", name="cr")
+def project(make_project):
+    p = make_project("cr")
     sheet = p.add_sheet("data")
     col = p.add_column(sheet, "headline")
     p.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], {"headline": col})
     p._sheet_id = sheet  # type: ignore[attr-defined]
     yield p
-    p.close()
 
 
 class _OpenRouterRouter:

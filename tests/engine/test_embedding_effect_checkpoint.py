@@ -18,7 +18,6 @@ import pytest
 from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.retrieval.store import RetrievalStore
 from frisket.team.security.secrets import encrypt_secret
 
@@ -82,8 +81,8 @@ class LocalGateway:
 
 
 @pytest.fixture()
-def project(tmp_path):
-    p = Project.create(tmp_path / "emb-effects.frisket", name="emb-effects")
+def project(make_project):
+    p = make_project("emb-effects")
     sheet = p.add_sheet("data")
     cols = {"headline": p.add_column(sheet, "headline")}
     p.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)

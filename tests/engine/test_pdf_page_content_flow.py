@@ -4,7 +4,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import io
 import hashlib
 import json
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -320,37 +319,38 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
 
 def test_existing_parent_page_selector_still_reads_only_selected_page(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source = tmp_path / "legacy.pdf"
     raw = _text_pdf()
     source.write_bytes(raw)
-    with closing(Project.create(tmp_path / "legacy.frisket")) as project:
-        imported = _import_pdf(project, source, key="legacy-original")
-        assert imported.status == "completed", imported.errors
-        sheet_id = project.add_sheet("Saved page selectors")
-        source_column = project.add_column(sheet_id, "source", type="file")
-        legacy = {
-            "blob": hashlib.sha256(raw).hexdigest(),
-            "filename": "legacy.pdf",
-            "mime": "application/pdf",
-            "page": 2,
-        }
-        [row_id] = project.add_rows(
-            sheet_id, [{"source": legacy}], {"source": source_column}
-        )
-        converted = _convert(
-            project,
-            sheet_id,
-            source="source",
-            output="markdown",
-            key="legacy-page-read",
-        )
-        assert converted.status == "completed", converted.errors
-        text = project.get_values(sheet_id, _column_id(project, sheet_id, "markdown"))[
-            row_id
-        ]
-        assert "OMEGATWO" in text and "ALPHAONE" not in text
-        assert project.get_values(sheet_id, source_column)[row_id] == legacy
+    project = make_project("legacy")
+    imported = _import_pdf(project, source, key="legacy-original")
+    assert imported.status == "completed", imported.errors
+    sheet_id = project.add_sheet("Saved page selectors")
+    source_column = project.add_column(sheet_id, "source", type="file")
+    legacy = {
+        "blob": hashlib.sha256(raw).hexdigest(),
+        "filename": "legacy.pdf",
+        "mime": "application/pdf",
+        "page": 2,
+    }
+    [row_id] = project.add_rows(
+        sheet_id, [{"source": legacy}], {"source": source_column}
+    )
+    converted = _convert(
+        project,
+        sheet_id,
+        source="source",
+        output="markdown",
+        key="legacy-page-read",
+    )
+    assert converted.status == "completed", converted.errors
+    text = project.get_values(sheet_id, _column_id(project, sheet_id, "markdown"))[
+        row_id
+    ]
+    assert "OMEGATWO" in text and "ALPHAONE" not in text
+    assert project.get_values(sheet_id, source_column)[row_id] == legacy
 
 
 def test_ocr_checkpoint_crash_replays_compact_prepared_page(
@@ -483,7 +483,7 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
         project.close()
 
 
-def test_real_local_ocr_when_installed(tmp_path: Path) -> None:
+def test_real_local_ocr_when_installed(tmp_path: Path, make_project) -> None:
     tesseract_ok, tesseract_reason = ocr_engines.tesseract_available()
     rapid_ok, rapid_reason = ocr_engines.rapidocr_models_present()
     if tesseract_ok:
@@ -495,26 +495,26 @@ def test_real_local_ocr_when_installed(tmp_path: Path) -> None:
 
     source = tmp_path / "actual-ocr.pdf"
     source.write_bytes(_scan_pdf("EVIDENCE 7429"))
-    with closing(Project.create(tmp_path / "actual-ocr.frisket")) as project:
-        imported = _import_pdf(project, source, key="actual-ocr-import")
-        assert imported.status == "completed", imported.errors
-        sheet_id = imported.outputs[0].sheet_id
-        [row_id] = project.visible_row_ids(sheet_id)
-        result = run_action_spec(
-            project,
-            {
-                "action_id": "media.ocr",
-                "scope": {
-                    "kind": "sheet_rows",
-                    "sheet_id": sheet_id,
-                    "row_ids": [row_id],
-                },
-                "params": {"source": "source", "engine": engine, "dpi": 200},
-                "output_names": {"text": "ocr_text", "blocks": "ocr_blocks"},
-                "idempotency_key": "actual-local-ocr",
+    project = make_project("actual-ocr")
+    imported = _import_pdf(project, source, key="actual-ocr-import")
+    assert imported.status == "completed", imported.errors
+    sheet_id = imported.outputs[0].sheet_id
+    [row_id] = project.visible_row_ids(sheet_id)
+    result = run_action_spec(
+        project,
+        {
+            "action_id": "media.ocr",
+            "scope": {
+                "kind": "sheet_rows",
+                "sheet_id": sheet_id,
+                "row_ids": [row_id],
             },
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        text_id = _column_id(project, sheet_id, "ocr_text")
-        assert "7429" in project.get_values(sheet_id, text_id)[row_id]
+            "params": {"source": "source", "engine": engine, "dpi": 200},
+            "output_names": {"text": "ocr_text", "blocks": "ocr_blocks"},
+            "idempotency_key": "actual-local-ocr",
+        },
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    text_id = _column_id(project, sheet_id, "ocr_text")
+    assert "7429" in project.get_values(sheet_id, text_id)[row_id]

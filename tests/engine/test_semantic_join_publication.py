@@ -7,7 +7,6 @@ from frisket.actions.semantic_match_types import SemanticJoinSource
 from frisket.actions.types import ProjectScope
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.executor.semantic_match_read import AdmittedSemanticMatchReader
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.actions.core import RegisteredAction, semantic_join
 from frisket.actions.types import (
@@ -78,7 +77,7 @@ def test_custom_semantic_action_uses_declared_refs_not_builtin_names(case, monke
 
 
 @pytest.fixture
-def case(tmp_path, monkeypatch):
+def case(make_project, monkeypatch):
     calls = []
 
     def embed(texts):
@@ -91,7 +90,7 @@ def case(tmp_path, monkeypatch):
         "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *a, **kw: (embed, "fastembed/test"),
     )
-    project = Project.create(tmp_path / "review.frisket")
+    project = make_project("review")
     left = project.add_sheet("Donors")
     donor = project.add_column(left, "donor")
     [left_row] = project.add_rows(left, [{"donor": "ACME"}], {"donor": donor})

@@ -1,14 +1,13 @@
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.views.evaluate import open_selection
 from frisket.engine.views.specs import membership_hash, normalize_selection
 from frisket.search_index import drain_index
 
 
 @pytest.fixture
-def data(tmp_path):
-    project = Project.create(tmp_path / "views.frisket")
+def data(make_project):
+    project = make_project("views")
     sheet = project.add_sheet("records")
     text = project.add_column(sheet, "text")
     amount = project.add_column(sheet, "amount", type="number")

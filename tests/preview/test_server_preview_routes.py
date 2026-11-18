@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 from fastapi.routing import APIRoute
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from frisket.contracts.http.preview_comparisons import (
@@ -377,7 +376,7 @@ def test_scratch_compare_upload_checks_size_before_parsing_payload() -> None:
     ),
 )
 def test_scratch_compare_input_errors_keep_exact_bare_action_error(
-    tmp_path,
+    client,
     monkeypatch,
     route: str,
     context: str,
@@ -389,7 +388,6 @@ def test_scratch_compare_input_errors_keep_exact_bare_action_error(
     field: str,
 ) -> None:
     monkeypatch.setattr(preview_routes, "_SCRATCH_MAX_UPLOAD_BYTES", limit)
-    client = TestClient(create_app(tmp_path / "workspace"))
 
     response = client.post(
         f"/api/projects/missing/{route}/compare-scratch",

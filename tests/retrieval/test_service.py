@@ -7,7 +7,6 @@ from threading import Event
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.retrieval import native
 from frisket.retrieval.contracts import (
     RankingPolicy,
@@ -58,12 +57,12 @@ def _pdf_cursor(source, **changes):
 
 
 @pytest.fixture
-def pdf_indexing_sources(tmp_path):
+def pdf_indexing_sources(make_project):
     from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE, PDF_PAGE_RECIPE_ID
     from frisket.retrieval.sources import blob_source_revision
     from frisket.search import drain_index
 
-    project = Project.create(tmp_path / "pdf-progress.frisket")
+    project = make_project("pdf-progress")
     sheet = project.add_sheet("PDFs")
     column = project.add_column(sheet, "file", type="file")
     sources = []
@@ -92,7 +91,6 @@ def pdf_indexing_sources(tmp_path):
                 cursor_json=_pdf_cursor(source),
             )
     yield project, sheet, column, sources
-    project.close()
 
 
 def test_pdf_indexing_progress_is_bounded_current_metadata_only(
@@ -238,9 +236,9 @@ class Encoder:
 
 
 @pytest.fixture
-def indexed_project(tmp_path, monkeypatch, built_native_root):
+def indexed_project(make_project, monkeypatch, built_native_root):
     monkeypatch.setattr(native, "_NATIVE_ROOT", built_native_root)
-    project = Project.create(tmp_path / "search.frisket", name="Search")
+    project = make_project("Search")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     text = "The council approved funding."
@@ -287,7 +285,6 @@ def indexed_project(tmp_path, monkeypatch, built_native_root):
             )
         )
     yield project, row
-    project.close()
 
 
 def request():

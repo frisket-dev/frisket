@@ -10,7 +10,6 @@ import pytest
 
 from frisket.contracts.action import ActionError, Receipt, ReceiptIO
 from frisket.engine.executor.action_receipts import _result_from_receipt
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.mcp import RemoteBackend, LocalBackend
 from frisket.server.mcp import backends
@@ -38,9 +37,8 @@ def _receipt(value, *, status="completed"):
 
 
 @pytest.mark.parametrize("value", [None, False, 0, "", [1, {"count": 2}]])
-def test_domain_value_round_trips_receipt_storage_and_result(tmp_path, value):
-    path = tmp_path / "values.frisket"
-    project = Project.create(path, name="Values")
+def test_domain_value_round_trips_receipt_storage_and_result(make_project, value):
+    project = make_project("Values")
     receipt = _receipt(value)
     try:
         ReceiptStore(project).insert_completed(receipt)

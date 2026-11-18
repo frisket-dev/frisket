@@ -27,7 +27,7 @@ def _action(path: Path, *, type_name: str = "text") -> dict:
 
 @pytest.mark.parametrize("encoding", ["utf-8", "utf-16"])
 def test_ndjson_uses_physical_lines_and_declared_encoding(
-    tmp_path: Path, encoding: str
+    tmp_path: Path, make_project, encoding: str
 ) -> None:
     path = tmp_path / "lines.ndjson"
     values = ["Café\u2028Town\u0085Hall", "Library"]
@@ -40,14 +40,14 @@ def test_ndjson_uses_physical_lines_and_declared_encoding(
             + "\n\n"
         ).encode(encoding)
     )
-    with closing(Project.create(tmp_path / "lines.frisket", name="Lines")) as project:
-        action = _action(path)
-        action["params"]["encoding"] = encoding
-        result = run_action_spec(project, action, project_id="p")
-        assert result.status == "completed", result.errors
-        sheet_id = result.outputs[0].sheet_id
-        (column,) = project.columns(sheet_id)
-        assert list(project.get_values(sheet_id, column["id"]).values()) == values
+    project = make_project("Lines")
+    action = _action(path)
+    action["params"]["encoding"] = encoding
+    result = run_action_spec(project, action, project_id="p")
+    assert result.status == "completed", result.errors
+    sheet_id = result.outputs[0].sheet_id
+    (column,) = project.columns(sheet_id)
+    assert list(project.get_values(sheet_id, column["id"]).values()) == values
 
 
 @pytest.mark.parametrize(
@@ -85,74 +85,79 @@ def test_ndjson_refusal_keeps_physical_line_and_column_without_partial_writes(
         assert _counts(project) == before
 
 
-def test_ndjson_empty_file_publishes_declared_empty_schema(tmp_path: Path) -> None:
+def test_ndjson_empty_file_publishes_declared_empty_schema(
+    tmp_path: Path, make_project
+) -> None:
     path = tmp_path / "empty.ndjson"
     path.write_bytes(b"\n  \r\n")
-    with closing(Project.create(tmp_path / "empty.frisket", name="Empty")) as project:
-        result = run_action_spec(project, _action(path), project_id="p")
-        assert result.status == "completed", result.errors
-        assert project.row_count(result.outputs[0].sheet_id) == 0
-        assert len(project.columns(result.outputs[0].sheet_id)) == 1
+    project = make_project("Empty")
+    result = run_action_spec(project, _action(path), project_id="p")
+    assert result.status == "completed", result.errors
+    assert project.row_count(result.outputs[0].sheet_id) == 0
+    assert len(project.columns(result.outputs[0].sheet_id)) == 1
 
 
 @pytest.mark.parametrize("encoding", ["utf-8", "not-a-real-codec"])
-def test_ndjson_decode_failure_never_publishes(tmp_path: Path, encoding: str) -> None:
+def test_ndjson_decode_failure_never_publishes(
+    tmp_path: Path, make_project, encoding: str
+) -> None:
     path = tmp_path / "bad-encoding.ndjson"
     path.write_bytes(b'{"value": "\xff"}\n')
-    with closing(Project.create(tmp_path / "decode.frisket", name="Decode")) as project:
-        action = _action(path)
-        action["params"]["encoding"] = encoding
-        before = _counts(project)
-        result = run_action_spec(project, action, project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "ndjson_parse_failed"
-        assert _counts(project) == before
+    project = make_project("Decode")
+    action = _action(path)
+    action["params"]["encoding"] = encoding
+    before = _counts(project)
+    result = run_action_spec(project, action, project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "ndjson_parse_failed"
+    assert _counts(project) == before
 
 
 def test_ndjson_preserves_file_values_descriptor_attributes_and_output_names(
     tmp_path: Path,
+    make_project,
 ) -> None:
     path = tmp_path / "file.ndjson"
     path.write_text(json.dumps({"value": "https://example.com/report.pdf"}) + "\n")
-    with closing(Project.create(tmp_path / "file.frisket", name="Files")) as project:
-        action = _action(path, type_name="file")
-        action["params"]["columns"][0].update(format="plain_text", hidden=True)
-        action["output_names"] = {"value": "Document"}
-        result = run_action_spec(project, action, project_id="p")
-        assert result.status == "completed", result.errors
-        (column,) = project.columns(result.outputs[0].sheet_id, include_hidden=True)
-        assert column["name"] == "Document"
-        assert column["type"] == "file"
-        assert column["format"] == "plain_text"
-        assert column["hidden"] == 1
-        assert list(
-            project.get_values(result.outputs[0].sheet_id, column["id"]).values()
-        ) == ["https://example.com/report.pdf"]
+    project = make_project("Files")
+    action = _action(path, type_name="file")
+    action["params"]["columns"][0].update(format="plain_text", hidden=True)
+    action["output_names"] = {"value": "Document"}
+    result = run_action_spec(project, action, project_id="p")
+    assert result.status == "completed", result.errors
+    (column,) = project.columns(result.outputs[0].sheet_id, include_hidden=True)
+    assert column["name"] == "Document"
+    assert column["type"] == "file"
+    assert column["format"] == "plain_text"
+    assert column["hidden"] == 1
+    assert list(
+        project.get_values(result.outputs[0].sheet_id, column["id"]).values()
+    ) == ["https://example.com/report.pdf"]
 
 
 @pytest.mark.parametrize(("max_rows", "row_count"), [(None, 10_001), (2, 2), (1, 2)])
 def test_ndjson_row_budget_is_host_policy_and_never_partially_publishes(
-    tmp_path: Path, max_rows: int | None, row_count: int
+    tmp_path: Path, make_project, max_rows: int | None, row_count: int
 ) -> None:
     path = tmp_path / "budget.ndjson"
     path.write_text("".join(json.dumps({"value": n}) + "\n" for n in range(row_count)))
-    with closing(Project.create(tmp_path / "budget.frisket", name="Budget")) as project:
-        before = _counts(project)
-        result = run_action_spec(
-            project,
-            _action(path, type_name="integer"),
-            project_id="p",
-            deps=ExecutorDeps(
-                import_workload_limits=ImportWorkloadLimits(max_rows=max_rows)
-            ),
-        )
-        if max_rows is not None and row_count > max_rows:
-            assert result.status == "failed"
-            assert result.errors[0].code == "import_workload_limit_exceeded"
-            assert _counts(project) == before
-        else:
-            assert result.status == "completed", result.errors
-            assert project.row_count(result.outputs[0].sheet_id) == row_count
+    project = make_project("Budget")
+    before = _counts(project)
+    result = run_action_spec(
+        project,
+        _action(path, type_name="integer"),
+        project_id="p",
+        deps=ExecutorDeps(
+            import_workload_limits=ImportWorkloadLimits(max_rows=max_rows)
+        ),
+    )
+    if max_rows is not None and row_count > max_rows:
+        assert result.status == "failed"
+        assert result.errors[0].code == "import_workload_limit_exceeded"
+        assert _counts(project) == before
+    else:
+        assert result.status == "completed", result.errors
+        assert project.row_count(result.outputs[0].sheet_id) == row_count
 
 
 def test_ndjson_receipt_failure_rolls_back_sheet_rows_and_operation(

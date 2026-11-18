@@ -400,7 +400,7 @@ def test_export_renders_once_before_transaction_and_not_on_replay(
 @pytest.mark.parametrize("destination_kind", ["local_dir", "project_file"])
 @pytest.mark.parametrize("existing", [False, True])
 def test_column_tables_commit_failure_rolls_back_delivered_artifact_metadata(
-    tmp_path, monkeypatch, destination_kind, existing
+    tmp_path, make_project, monkeypatch, destination_kind, existing
 ):
     from frisket.engine.executor import run_action_spec
     from frisket.engine.executor.action_families import exports_column_tables as exports
@@ -409,183 +409,172 @@ def test_column_tables_commit_failure_rolls_back_delivered_artifact_metadata(
         _seed_scalar_list_sheet,
     )
 
-    project = Project.create(tmp_path / "project")
-    try:
-        sheet_id, column_id = _seed_scalar_list_sheet(project)
-        directory = tmp_path / "exports"
-        directory.mkdir()
-        destination = directory / "tags.zip"
-        target = (
-            {"kind": "local_dir", "path": str(directory)}
-            if destination_kind == "local_dir"
-            else {"kind": "project_file", "prefix": "exports/tables"}
-        )
-        previous_blob = None
-        if existing:
-            if destination_kind == "local_dir":
-                destination.write_bytes(b"previous package")
-            else:
-                first = run_action_spec(
-                    project,
-                    _export_action(
-                        sheet_id=sheet_id,
-                        column_id=column_id,
-                        destination=target,
-                        key="previous-package",
-                    ),
-                    project_id="p",
-                )
-                assert first.status == "completed", first.errors
-                previous_blob = first.outputs[0].ref["blob_hash"]
-        before_receipts = _receipt_count(project)
-        before_blobs = [tuple(row) for row in project.db.execute("SELECT * FROM blobs")]
-        wrapper = _wrap_project_db_commit(monkeypatch, project)
-        delivered = []
+    project = make_project("project")
+    sheet_id, column_id = _seed_scalar_list_sheet(project)
+    directory = tmp_path / "exports"
+    directory.mkdir()
+    destination = directory / "tags.zip"
+    target = (
+        {"kind": "local_dir", "path": str(directory)}
+        if destination_kind == "local_dir"
+        else {"kind": "project_file", "prefix": "exports/tables"}
+    )
+    previous_blob = None
+    if existing:
         if destination_kind == "local_dir":
-            original = exports._deliver_export_artifact
-
-            def deliver(*args, **kwargs):
-                value = original(*args, **kwargs)
-                assert destination.read_bytes().startswith(b"PK")
-                delivered.append(True)
-                wrapper.fail_commit = True
-                return value
-
-            monkeypatch.setattr(exports, "_deliver_export_artifact", deliver)
+            destination.write_bytes(b"previous package")
         else:
-            original = exports._store_export_column_tables_project_blob
-
-            def store(*args, **kwargs):
-                value = original(*args, **kwargs)
-                assert (
-                    project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
-                    == len(before_blobs) + 1
-                )
-                delivered.append(True)
-                wrapper.fail_commit = True
-                return value
-
-            monkeypatch.setattr(
-                exports, "_store_export_column_tables_project_blob", store
+            first = run_action_spec(
+                project,
+                _export_action(
+                    sheet_id=sheet_id,
+                    column_id=column_id,
+                    destination=target,
+                    key="previous-package",
+                ),
+                project_id="p",
             )
-        result = run_action_spec(
-            project,
-            _export_action(
-                sheet_id=sheet_id,
-                column_id=column_id,
-                destination=target,
-                key="failed-package",
-                name_template="new.csv",
-            ),
-            project_id="p",
-        )
-        assert delivered == [True]
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert _receipt_count(project) == before_receipts
-        assert [
-            tuple(row) for row in project.db.execute("SELECT * FROM blobs")
-        ] == before_blobs
-        if destination_kind == "local_dir":
-            assert destination.exists() is existing
-            if existing:
-                assert destination.read_bytes() == b"previous package"
-            assert not list(directory.glob(".tags.zip.*"))
-        elif previous_blob is not None:
-            assert project.read_blob(previous_blob).startswith(b"PK")
-        # Content-addressed bytes may survive rollback; shared blobs are not deleted.
-    finally:
-        project.close()
+            assert first.status == "completed", first.errors
+            previous_blob = first.outputs[0].ref["blob_hash"]
+    before_receipts = _receipt_count(project)
+    before_blobs = [tuple(row) for row in project.db.execute("SELECT * FROM blobs")]
+    wrapper = _wrap_project_db_commit(monkeypatch, project)
+    delivered = []
+    if destination_kind == "local_dir":
+        original = exports._deliver_export_artifact
 
+        def deliver(*args, **kwargs):
+            value = original(*args, **kwargs)
+            assert destination.read_bytes().startswith(b"PK")
+            delivered.append(True)
+            wrapper.fail_commit = True
+            return value
 
-def test_column_tables_partial_zip_staging_is_removed(tmp_path, monkeypatch):
-    from frisket.engine.executor import run_action_spec
-    from tests.engine.test_export_column_tables_executor import (
-        _export_action,
-        _seed_scalar_list_sheet,
+        monkeypatch.setattr(exports, "_deliver_export_artifact", deliver)
+    else:
+        original = exports._store_export_column_tables_project_blob
+
+        def store(*args, **kwargs):
+            value = original(*args, **kwargs)
+            assert (
+                project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0]
+                == len(before_blobs) + 1
+            )
+            delivered.append(True)
+            wrapper.fail_commit = True
+            return value
+
+        monkeypatch.setattr(exports, "_store_export_column_tables_project_blob", store)
+    result = run_action_spec(
+        project,
+        _export_action(
+            sheet_id=sheet_id,
+            column_id=column_id,
+            destination=target,
+            key="failed-package",
+            name_template="new.csv",
+        ),
+        project_id="p",
     )
-
-    project = Project.create(tmp_path / "project")
-    try:
-        sheet_id, column_id = _seed_scalar_list_sheet(project)
-        directory = tmp_path / "exports"
-        directory.mkdir()
-        destination = directory / "tags.zip"
-        destination.write_bytes(b"previous package")
-        write_bytes = Path.write_bytes
-        staged = []
-
-        def partial_write(path, data):
-            if path.name.startswith(".tags.zip.") and path.suffix == ".tmp":
-                write_bytes(path, data[: max(1, len(data) // 2)])
-                staged.append(path)
-                raise OSError("partial ZIP staging failure")
-            return write_bytes(path, data)
-
-        monkeypatch.setattr(Path, "write_bytes", partial_write)
-        before = _receipt_count(project)
-        result = run_action_spec(
-            project,
-            _export_action(
-                sheet_id=sheet_id,
-                column_id=column_id,
-                destination={"kind": "local_dir", "path": str(directory)},
-                key="partial-package",
-            ),
-            project_id="p",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_export_destination"
-        assert len(staged) == 1
-        assert not staged[0].exists()
-        assert destination.read_bytes() == b"previous package"
-        assert _receipt_count(project) == before
-    finally:
-        project.close()
+    assert delivered == [True]
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert _receipt_count(project) == before_receipts
+    assert [
+        tuple(row) for row in project.db.execute("SELECT * FROM blobs")
+    ] == before_blobs
+    if destination_kind == "local_dir":
+        assert destination.exists() is existing
+        if existing:
+            assert destination.read_bytes() == b"previous package"
+        assert not list(directory.glob(".tags.zip.*"))
+    elif previous_blob is not None:
+        assert project.read_blob(previous_blob).startswith(b"PK")
+    # Content-addressed bytes may survive rollback; shared blobs are not deleted.
 
 
-def test_column_tables_finalize_failure_preserves_committed_success(
-    tmp_path, monkeypatch
+def test_column_tables_partial_zip_staging_is_removed(
+    tmp_path, make_project, monkeypatch
 ):
     from frisket.engine.executor import run_action_spec
-    from frisket.engine.executor.action_families import exports_column_tables as exports
     from tests.engine.test_export_column_tables_executor import (
         _export_action,
         _seed_scalar_list_sheet,
     )
 
-    project = Project.create(tmp_path / "project")
-    try:
-        sheet_id, column_id = _seed_scalar_list_sheet(project)
-        directory = tmp_path / "exports"
-        directory.mkdir()
-        destination = directory / "tags.zip"
-        destination.write_bytes(b"previous package")
-        original = exports._finalize_export_column_tables
-        finalized = []
+    project = make_project("project")
+    sheet_id, column_id = _seed_scalar_list_sheet(project)
+    directory = tmp_path / "exports"
+    directory.mkdir()
+    destination = directory / "tags.zip"
+    destination.write_bytes(b"previous package")
+    write_bytes = Path.write_bytes
+    staged = []
 
-        def fail_finalization(resolved):
-            original(resolved)
-            finalized.append(True)
-            raise OSError("post-commit finalization failure")
+    def partial_write(path, data):
+        if path.name.startswith(".tags.zip.") and path.suffix == ".tmp":
+            write_bytes(path, data[: max(1, len(data) // 2)])
+            staged.append(path)
+            raise OSError("partial ZIP staging failure")
+        return write_bytes(path, data)
 
-        monkeypatch.setattr(
-            exports, "_finalize_export_column_tables", fail_finalization
-        )
-        request = _export_action(
+    monkeypatch.setattr(Path, "write_bytes", partial_write)
+    before = _receipt_count(project)
+    result = run_action_spec(
+        project,
+        _export_action(
             sheet_id=sheet_id,
             column_id=column_id,
             destination={"kind": "local_dir", "path": str(directory)},
-            key="committed-package",
-        )
-        result = run_action_spec(project, request, project_id="p")
-        assert result.status == "completed", result.errors
-        assert finalized == [True]
-        assert destination.read_bytes().startswith(b"PK")
-        assert _receipt_count(project) == 1
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert finalized == [True]
-    finally:
-        project.close()
+            key="partial-package",
+        ),
+        project_id="p",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_export_destination"
+    assert len(staged) == 1
+    assert not staged[0].exists()
+    assert destination.read_bytes() == b"previous package"
+    assert _receipt_count(project) == before
+
+
+def test_column_tables_finalize_failure_preserves_committed_success(
+    tmp_path, make_project, monkeypatch
+):
+    from frisket.engine.executor import run_action_spec
+    from frisket.engine.executor.action_families import exports_column_tables as exports
+    from tests.engine.test_export_column_tables_executor import (
+        _export_action,
+        _seed_scalar_list_sheet,
+    )
+
+    project = make_project("project")
+    sheet_id, column_id = _seed_scalar_list_sheet(project)
+    directory = tmp_path / "exports"
+    directory.mkdir()
+    destination = directory / "tags.zip"
+    destination.write_bytes(b"previous package")
+    original = exports._finalize_export_column_tables
+    finalized = []
+
+    def fail_finalization(resolved):
+        original(resolved)
+        finalized.append(True)
+        raise OSError("post-commit finalization failure")
+
+    monkeypatch.setattr(exports, "_finalize_export_column_tables", fail_finalization)
+    request = _export_action(
+        sheet_id=sheet_id,
+        column_id=column_id,
+        destination={"kind": "local_dir", "path": str(directory)},
+        key="committed-package",
+    )
+    result = run_action_spec(project, request, project_id="p")
+    assert result.status == "completed", result.errors
+    assert finalized == [True]
+    assert destination.read_bytes().startswith(b"PK")
+    assert _receipt_count(project) == 1
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert finalized == [True]

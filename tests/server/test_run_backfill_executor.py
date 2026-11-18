@@ -113,10 +113,9 @@ def _web_search_spec(sheet_id: int) -> dict:
 
 
 def test_web_search_backfill_reuses_configured_search_provider(
-    tmp_path: Path, monkeypatch
+    client, monkeypatch
 ) -> None:
     patch_quick_search_model(monkeypatch)
-    client = TestClient(create_app(tmp_path / "workspace"))
     provider_config.save_local_provider_key(
         client.app.state.workspace.root, "exa", "exa-local-test-key"
     )

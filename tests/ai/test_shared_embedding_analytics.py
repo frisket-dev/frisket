@@ -13,7 +13,6 @@ from frisket.ai.embeddings.analytics import (
 )
 from frisket.ai.embeddings.backends import LOCAL_MODEL, REMOTE_EMBED_MODEL
 from frisket.ai.embeddings.spaces import LOCAL_FASTEMBED_ENCODER_REVISION
-from frisket.engine.store import Project
 from frisket.retrieval.store import CachedRepresentation, RetrievalStore
 
 
@@ -106,8 +105,8 @@ async def test_async_paid_order_is_admission_provider_receipt_then_cache_hit():
 
 
 @pytest.mark.asyncio
-async def test_project_encoder_persists_same_space_used_by_shared_cache(tmp_path):
-    project = Project.create(tmp_path / "analytics.frisket", name="analytics")
+async def test_project_encoder_persists_same_space_used_by_shared_cache(make_project):
+    project = make_project("analytics")
     model = "custom/model"
     try:
         vectors = await encode_project_legacy_texts_async(

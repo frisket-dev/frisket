@@ -217,16 +217,13 @@ def test_ollama_reachability_probe() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_providers_catalog_groups_by_provider_with_models(
-    tmp_path, monkeypatch
-) -> None:
+def test_providers_catalog_groups_by_provider_with_models(client, monkeypatch) -> None:
     # deterministic ollama badge regardless of a real local daemon
     monkeypatch.setattr(
         provider_config,
         "ollama_reachable",
         lambda *a, **k: {"reachable": False, "detail": "not running"},
     )
-    client = TestClient(create_app(tmp_path / "ws"))
     resp = client.get("/api/providers")
     assert resp.status_code == 200, resp.text
     payload = resp.json()
@@ -405,13 +402,12 @@ def test_set_key_rejects_unknown_provider(client) -> None:
     assert "sk-nope" not in resp.text
 
 
-def test_validate_route_never_echoes_key(tmp_path, monkeypatch) -> None:
+def test_validate_route_never_echoes_key(client, monkeypatch) -> None:
     monkeypatch.setattr(
         provider_config,
         "probe_provider",
         lambda provider, key, **k: {"ok": True, "reachable": True, "status": 200},
     )
-    client = TestClient(create_app(tmp_path / "ws"))
     resp = client.post(
         "/api/providers/openai/validate", json={"key": "sk-should-not-echo"}
     )

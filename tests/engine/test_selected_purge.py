@@ -568,15 +568,12 @@ def test_invalid_scope_rolls_back_purge(project):
     assert project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
 
 
-def test_purge_requires_explicit_maintenance_project(tmp_path):
-    path = tmp_path / "online.frisket"
-    with closing(Project.create(path)) as project:
-        _sheet, _column, row = add(project, "first", "hello")
-        with pytest.raises(ValueError, match="maintenance Project"):
-            begin_purge(project, row_ids=[row])
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
-        )
+def test_purge_requires_explicit_maintenance_project(make_project):
+    project = make_project("online")
+    _sheet, _column, row = add(project, "first", "hello")
+    with pytest.raises(ValueError, match="maintenance Project"):
+        begin_purge(project, row_ids=[row])
+    assert project.db.execute("SELECT COUNT(*) FROM project_purges").fetchone()[0] == 0
 
 
 def test_interrupted_content_cleanup_resumes(project, monkeypatch):

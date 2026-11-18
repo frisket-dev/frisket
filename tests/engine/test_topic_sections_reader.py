@@ -37,7 +37,6 @@ from frisket.engine.executor.temporal_finder_provenance import (
     resolve_topic_section_unit_ids,
 )
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.contracts.temporal_values import TimelineRangesValue
@@ -117,13 +116,12 @@ async def dynamic_topic(
 
 
 @pytest.fixture
-def source(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "topics.frisket")
+def source(make_project, monkeypatch):
+    project = make_project("topics")
     sheet, rows, column, _ = _seed_timestamped_transcripts(project)
     engine = _ExactTopicSegmenter()
     monkeypatch.setattr(engines, "get_segmenter", lambda _engine: engine)
     yield project, sheet, rows, column, engine
-    project.close()
 
 
 def _reader(source, **kwargs):

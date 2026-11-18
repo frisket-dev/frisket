@@ -45,7 +45,6 @@ from frisket.engine.executor.table_action import (
 )
 from frisket.engine.executor.transcript_read import AdmittedTranscriptReader
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
-from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_artifact_timeline
 from frisket.engine.store.receipts import ReceiptStore
 from tests.engine.test_transcript_segments_action import (
@@ -55,8 +54,8 @@ from tests.engine.test_transcript_segments_action import (
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "typed-transcripts.frisket")
+def source(make_project):
+    project = make_project("typed-transcripts")
     seeded = _seed_timestamped_transcript(project)
     try:
         yield project, seeded

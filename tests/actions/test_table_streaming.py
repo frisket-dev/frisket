@@ -51,7 +51,7 @@ def _bound(handler, *, count=1001):
 
 
 def test_table_result_is_lazy_and_host_consumes_original_iterator_once(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     events = []
 
@@ -93,28 +93,28 @@ def test_table_result_is_lazy_and_host_consumes_original_iterator_once(
         return original(self, rows)
 
     monkeypatch.setattr(StreamingSheetWriter, "append_rows", observe)
-    with closing(Project.create(tmp_path / "project")) as project:
-        statements = []
-        project.db.set_trace_callback(statements.append)
-        # The import deployment ceiling is not inferred from source-free lineage.
-        result = run_typed_create_sheet_action(
-            project,
-            "p",
-            _bound(numbers),
-            deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=2)),
-        )
-        assert result.status == "completed", result.errors
-        project.db.set_trace_callback(None)
-        assert statements.count("BEGIN IMMEDIATE") == 5
-        assert statements.count("COMMIT") == 5
-        assert events == ["closed"]
-        assert sizes == [500, 500, 1]
-        ref = result.outputs[0].ref
-        assert ref["row_count"] == 1001
-        assert set(ref["columns"]) == {"Value"}
-        replay = run_typed_create_sheet_action(project, "p", _bound(numbers))
-        assert replay.receipt_id == result.receipt_id
-        assert events == ["closed"]
+    project = make_project("project")
+    statements = []
+    project.db.set_trace_callback(statements.append)
+    # The import deployment ceiling is not inferred from source-free lineage.
+    result = run_typed_create_sheet_action(
+        project,
+        "p",
+        _bound(numbers),
+        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=2)),
+    )
+    assert result.status == "completed", result.errors
+    project.db.set_trace_callback(None)
+    assert statements.count("BEGIN IMMEDIATE") == 5
+    assert statements.count("COMMIT") == 5
+    assert events == ["closed"]
+    assert sizes == [500, 500, 1]
+    ref = result.outputs[0].ref
+    assert ref["row_count"] == 1001
+    assert set(ref["columns"]) == {"Value"}
+    replay = run_typed_create_sheet_action(project, "p", _bound(numbers))
+    assert replay.receipt_id == result.receipt_id
+    assert events == ["closed"]
 
 
 def _materialized_result(project, tmp_path, kind):
@@ -147,54 +147,50 @@ def _materialized_result(project, tmp_path, kind):
 @pytest.mark.parametrize(
     "kind", ["import.rows", "import.ndjson", "custom.list", "custom.tuple"]
 )
-def test_materialized_rows_publish_in_one_transaction(tmp_path, kind):
-    with closing(Project.create(tmp_path / "project")) as project:
-        statements = []
-        project.db.set_trace_callback(statements.append)
-        result = _materialized_result(project, tmp_path, kind)
-        project.db.set_trace_callback(None)
-        assert result.status == "completed", result.errors
-        assert statements.count("BEGIN IMMEDIATE") == 1
-        assert statements.count("COMMIT") == 1
-        assert not project.db.in_transaction
-        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1001
-        assert project.db.execute("SELECT hidden FROM sheets").fetchone()[0] == 0
-        assert not any(".__streaming_import_" in statement for statement in statements)
+def test_materialized_rows_publish_in_one_transaction(tmp_path, make_project, kind):
+    project = make_project("project")
+    statements = []
+    project.db.set_trace_callback(statements.append)
+    result = _materialized_result(project, tmp_path, kind)
+    project.db.set_trace_callback(None)
+    assert result.status == "completed", result.errors
+    assert statements.count("BEGIN IMMEDIATE") == 1
+    assert statements.count("COMMIT") == 1
+    assert not project.db.in_transaction
+    assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1001
+    assert project.db.execute("SELECT hidden FROM sheets").fetchone()[0] == 0
+    assert not any(".__streaming_import_" in statement for statement in statements)
 
 
 @pytest.mark.parametrize("kind", ["import.rows", "import.ndjson", "custom.list"])
 def test_materialized_publication_failure_rolls_back_all_writes(
-    tmp_path, monkeypatch, kind
+    tmp_path, make_project, monkeypatch, kind
 ):
-    with closing(Project.create(tmp_path / "project")) as project:
-        attempted = []
+    project = make_project("project")
+    attempted = []
 
-        def fail_receipt(*_args, **_kwargs):
-            assert project.db.in_transaction
-            assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1001
-            assert (
-                project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 1001
-            )
-            assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
-            attempted.append(True)
-            raise RuntimeError("receipt insertion failed after table writes")
+    def fail_receipt(*_args, **_kwargs):
+        assert project.db.in_transaction
+        assert project.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 1001
+        assert project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == 1001
+        assert project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0] == 1
+        attempted.append(True)
+        raise RuntimeError("receipt insertion failed after table writes")
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
-        statements = []
-        project.db.set_trace_callback(statements.append)
-        result = _materialized_result(project, tmp_path, kind)
-        project.db.set_trace_callback(None)
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert attempted == [True]
-        assert statements.count("BEGIN IMMEDIATE") == 1
-        assert statements.count("ROLLBACK") == 1
-        assert "COMMIT" not in statements
-        assert not project.db.in_transaction
-        for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
-            assert (
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-            )
+    monkeypatch.setattr(ReceiptStore, "insert_completed", fail_receipt)
+    statements = []
+    project.db.set_trace_callback(statements.append)
+    result = _materialized_result(project, tmp_path, kind)
+    project.db.set_trace_callback(None)
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert attempted == [True]
+    assert statements.count("BEGIN IMMEDIATE") == 1
+    assert statements.count("ROLLBACK") == 1
+    assert "COMMIT" not in statements
+    assert not project.db.in_transaction
+    for table in ("sheets", "columns", "rows", "cells", "ops", "receipts"):
+        assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("kind", ["import.rows", "import.ndjson", "import.csv"])
@@ -280,7 +276,7 @@ def test_whole_sheet_undo_redo_preserves_hidden_columns_with_output_claims(
 
 @pytest.mark.parametrize("failure", [RuntimeError, KeyboardInterrupt])
 def test_late_producer_failure_removes_committed_hidden_batches(
-    tmp_path, monkeypatch, failure
+    make_project, monkeypatch, failure
 ):
     closed = []
 
@@ -311,17 +307,15 @@ def test_late_producer_failure_removes_committed_hidden_batches(
         return result
 
     monkeypatch.setattr(StreamingSheetWriter, "append_rows", observe)
-    with closing(Project.create(tmp_path / "project")) as project:
-        if failure is KeyboardInterrupt:
-            with pytest.raises(KeyboardInterrupt):
-                run_typed_create_sheet_action(project, "p", _bound(numbers))
-        else:
-            result = run_typed_create_sheet_action(project, "p", _bound(numbers))
-            assert result.status == "failed"
-            assert result.errors[0].code == "project_write_failed"
-        assert closed == [True]
-        assert appended == [500, 500]
-        for table in ("sheets", "rows", "cells", "ops", "receipts"):
-            assert (
-                project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-            )
+    project = make_project("project")
+    if failure is KeyboardInterrupt:
+        with pytest.raises(KeyboardInterrupt):
+            run_typed_create_sheet_action(project, "p", _bound(numbers))
+    else:
+        result = run_typed_create_sheet_action(project, "p", _bound(numbers))
+        assert result.status == "failed"
+        assert result.errors[0].code == "project_write_failed"
+    assert closed == [True]
+    assert appended == [500, 500]
+    for table in ("sheets", "rows", "cells", "ops", "receipts"):
+        assert project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0

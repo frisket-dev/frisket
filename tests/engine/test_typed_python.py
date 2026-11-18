@@ -22,14 +22,13 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.actions import _default_map_runner_factory, run_action_spec
 from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from helpers import replace_test_source_cell
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "python.frisket")
+def source(make_project):
+    project = make_project("python")
     sheet = project.add_sheet("Inputs")
     col = project.add_column(sheet, "payload", type="json")
     secret = project.add_column(sheet, "unselected", type="text")
@@ -42,7 +41,6 @@ def source(tmp_path):
         {"payload": col, "unselected": secret},
     )
     yield project, sheet, rows, col
-    project.close()
 
 
 def request(sheet, *, key="python", target="named_result"):

@@ -1,6 +1,6 @@
 """Host rendering bounds precede clip work, without changing full-run batching."""
 
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from dataclasses import replace
 
 import pytest
@@ -10,54 +10,53 @@ from frisket.engine.executor.temporal_materialization import (
     NormalizedRange,
 )
 from frisket.engine.executor.temporal_split import stage_temporal_split_plan
-from frisket.engine.store import Project
 from frisket.engine.store.media_splice import MediaSpliceError
 from tests.engine.test_temporal_split import _fake_stage, _plan, _request, _seed_media
 
 
 @pytest.fixture
-def rendering(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "bounded.frisket")) as project:
-        seeded = _seed_media(project)
-        plan = _plan(
-            project,
-            _request(
-                seeded,
-                {
-                    "kind": "draft_ranges",
-                    "items": [
-                        {"start_ms": index * 1000, "end_ms": (index + 1) * 1000}
-                        for index in range(5)
-                    ],
-                },
-            ),
+def rendering(tmp_path, make_project, monkeypatch):
+    project = make_project("bounded")
+    seeded = _seed_media(project)
+    plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "draft_ranges",
+                "items": [
+                    {"start_ms": index * 1000, "end_ms": (index + 1) * 1000}
+                    for index in range(5)
+                ],
+            },
+        ),
+    )
+    scratch = tmp_path / "clips"
+    scratch.mkdir()
+    observed = {"renders": [], "leases": 0, "released": 0, "callbacks": []}
+    original_materialize = project.materialize_blob
+
+    @contextmanager
+    def lease(blob):
+        observed["leases"] += 1
+        try:
+            with original_materialize(blob) as path:
+                yield path
+        finally:
+            observed["released"] += 1
+
+    async def render(_source_path, output_path, *, start_ms, end_ms, **kwargs):
+        observed["renders"].append((start_ms, end_ms))
+        observed["callbacks"].append(kwargs.get("should_cancel"))
+        return _fake_stage(
+            project, None, NormalizedRange(start_ms, end_ms, "test"), output_path
         )
-        scratch = tmp_path / "clips"
-        scratch.mkdir()
-        observed = {"renders": [], "leases": 0, "released": 0, "callbacks": []}
-        original_materialize = project.materialize_blob
 
-        @contextmanager
-        def lease(blob):
-            observed["leases"] += 1
-            try:
-                with original_materialize(blob) as path:
-                    yield path
-            finally:
-                observed["released"] += 1
-
-        async def render(_source_path, output_path, *, start_ms, end_ms, **kwargs):
-            observed["renders"].append((start_ms, end_ms))
-            observed["callbacks"].append(kwargs.get("should_cancel"))
-            return _fake_stage(
-                project, None, NormalizedRange(start_ms, end_ms, "test"), output_path
-            )
-
-        monkeypatch.setattr(project, "materialize_blob", lease)
-        monkeypatch.setattr(
-            "frisket.engine.executor.temporal_split.stage_media_splice", render
-        )
-        yield project, plan, scratch, observed
+    monkeypatch.setattr(project, "materialize_blob", lease)
+    monkeypatch.setattr(
+        "frisket.engine.executor.temporal_split.stage_media_splice", render
+    )
+    yield project, plan, scratch, observed
 
 
 @pytest.mark.parametrize("limit, expected", [(None, 5), (0, 0), (1, 1), (3, 3), (8, 5)])

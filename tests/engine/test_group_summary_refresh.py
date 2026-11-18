@@ -859,122 +859,119 @@ def test_group_final_receipt_failure_recovers_saved_groups_without_rebuying(
     )
 
 
-def test_group_refresh_claim_conflict_cannot_publish_structural_work(tmp_path):
+def test_group_refresh_claim_conflict_cannot_publish_structural_work(
+    tmp_path, make_project
+):
     from helpers import run_writer_authority_fixture
     from frisket.engine.store.runs import RunResultStore
-    from contextlib import closing
 
-    with closing(Project.create(tmp_path / "claim-conflict.frisket")) as project:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _summary_router()
-        original = run_typed_group_summary_action(
-            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+    project = make_project("claim-conflict")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _summary_router()
+    original = run_typed_group_summary_action(
+        project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+    )
+    assert original.status == "completed", original.errors
+    target = original.outputs[0].sheet_id
+    summary = next(c["id"] for c in project.columns(target) if c["name"] == "summary")
+    source_columns = {c["name"]: c["id"] for c in project.columns(seeded["sheet_id"])}
+    # A changed group count would publish a real metadata write if the
+    # output claim were checked after reconciliation instead of before it.
+    first = project.visible_row_ids(seeded["sheet_id"])[0]
+    incoming = {
+        name: project.get_values(seeded["sheet_id"], column)[first]
+        for name, column in source_columns.items()
+    }
+    project.add_rows(seeded["sheet_id"], [incoming], source_columns)
+    owner = project.append_change("competing-summary")
+    run = RunResultStore(project).start_run(
+        owner, target, "map.ask", row_ids=project.visible_row_ids(target)
+    )
+    run_writer_authority_fixture(project, run, output_column_ids={summary})
+    before_cells = project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
+    before_observations = [
+        tuple(r)
+        for r in project.db.execute(
+            "SELECT * FROM keyed_observations ORDER BY relationship_id,row_id"
         )
-        assert original.status == "completed", original.errors
-        target = original.outputs[0].sheet_id
-        summary = next(
-            c["id"] for c in project.columns(target) if c["name"] == "summary"
-        )
-        source_columns = {
-            c["name"]: c["id"] for c in project.columns(seeded["sheet_id"])
+    ]
+    request = typed_action_for_request(
+        {
+            "action_id": "sheet.refresh",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": target, "update_policy": "incoming_wins"},
+            "idempotency_key": "blocked-refresh",
         }
-        # A changed group count would publish a real metadata write if the
-        # output claim were checked after reconciliation instead of before it.
-        first = project.visible_row_ids(seeded["sheet_id"])[0]
-        incoming = {
-            name: project.get_values(seeded["sheet_id"], column)[first]
-            for name, column in source_columns.items()
-        }
-        project.add_rows(seeded["sheet_id"], [incoming], source_columns)
-        owner = project.append_change("competing-summary")
-        run = RunResultStore(project).start_run(
-            owner, target, "map.ask", row_ids=project.visible_row_ids(target)
+    )
+    refused = run_typed_sheet_refresh_action(project, "p", request, router)
+    assert refused.status == "failed", refused
+    assert "claimed" in refused.errors[0].message
+    assert len(adapter.requests) == 2
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0] == before_cells
+    )
+    assert [
+        tuple(r)
+        for r in project.db.execute(
+            "SELECT * FROM keyed_observations ORDER BY relationship_id,row_id"
         )
-        run_writer_authority_fixture(project, run, output_column_ids={summary})
-        before_cells = project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
-        before_observations = [
-            tuple(r)
-            for r in project.db.execute(
-                "SELECT * FROM keyed_observations ORDER BY relationship_id,row_id"
-            )
-        ]
-        request = typed_action_for_request(
-            {
-                "action_id": "sheet.refresh",
-                "scope": {"kind": "project"},
-                "params": {"sheet_id": target, "update_policy": "incoming_wins"},
-                "idempotency_key": "blocked-refresh",
-            }
-        )
-        refused = run_typed_sheet_refresh_action(project, "p", request, router)
-        assert refused.status == "failed", refused
-        assert "claimed" in refused.errors[0].message
-        assert len(adapter.requests) == 2
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM cells").fetchone()[0]
-            == before_cells
-        )
-        assert [
-            tuple(r)
-            for r in project.db.execute(
-                "SELECT * FROM keyed_observations ORDER BY relationship_id,row_id"
-            )
-        ] == before_observations
-        assert (
-            project.db.execute(
-                "SELECT refresh_claim_token FROM sheets WHERE id=?", (target,)
-            ).fetchone()[0]
-            is None
-        )
+    ] == before_observations
+    assert (
+        project.db.execute(
+            "SELECT refresh_claim_token FROM sheets WHERE id=?", (target,)
+        ).fetchone()[0]
+        is None
+    )
 
 
-def test_group_refresh_holds_shared_target_lease_during_provider_work(tmp_path):
-    from contextlib import closing
+def test_group_refresh_holds_shared_target_lease_during_provider_work(
+    tmp_path, make_project
+):
 
-    with closing(Project.create(tmp_path / "refresh-lease.frisket")) as project:
-        seeded = _seed(project, tmp_path)
-        router, adapter = _summary_router()
-        original = run_typed_group_summary_action(
-            project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
-        )
-        assert original.status == "completed", original.errors
-        sheet = original.outputs[0].sheet_id
-        complete = adapter.complete
-        seen = []
+    project = make_project("refresh-lease")
+    seeded = _seed(project, tmp_path)
+    router, adapter = _summary_router()
+    original = run_typed_group_summary_action(
+        project, "p", _bound_request(_reduce_action(seeded["sheet_id"])), router
+    )
+    assert original.status == "completed", original.errors
+    sheet = original.outputs[0].sheet_id
+    complete = adapter.complete
+    seen = []
 
-        async def while_owned(req, client):
-            request = typed_action_for_request(
-                {
-                    "action_id": "sheet.refresh",
-                    "scope": {"kind": "project"},
-                    "params": {"sheet_id": sheet},
-                    "idempotency_key": "concurrent-refresh",
-                }
-            )
-            competing = run_typed_sheet_refresh_action(project, "p", request, router)
-            assert competing.status == "failed"
-            assert competing.errors[0].code == "sheet_refresh_busy"
-            seen.append(True)
-            return await complete(req, client)
-
-        adapter.complete = while_owned
+    async def while_owned(req, client):
         request = typed_action_for_request(
             {
                 "action_id": "sheet.refresh",
                 "scope": {"kind": "project"},
                 "params": {"sheet_id": sheet},
-                "idempotency_key": "owning-refresh",
+                "idempotency_key": "concurrent-refresh",
             }
         )
-        result = run_typed_sheet_refresh_action(project, "p", request, router)
-        assert result.status == "completed", result.errors
-        assert len(seen) == 2
-        assert (
-            project.db.execute(
-                "SELECT refresh_claim_token FROM sheets WHERE id=?", (sheet,)
-            ).fetchone()[0]
-            is None
-        )
+        competing = run_typed_sheet_refresh_action(project, "p", request, router)
+        assert competing.status == "failed"
+        assert competing.errors[0].code == "sheet_refresh_busy"
+        seen.append(True)
+        return await complete(req, client)
+
+    adapter.complete = while_owned
+    request = typed_action_for_request(
+        {
+            "action_id": "sheet.refresh",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet},
+            "idempotency_key": "owning-refresh",
+        }
+    )
+    result = run_typed_sheet_refresh_action(project, "p", request, router)
+    assert result.status == "completed", result.errors
+    assert len(seen) == 2
+    assert (
+        project.db.execute(
+            "SELECT refresh_claim_token FROM sheets WHERE id=?", (sheet,)
+        ).fetchone()[0]
+        is None
+    )
 
 
 def test_group_runner_declaration_failure_recovers_same_sheet_before_dispatch(

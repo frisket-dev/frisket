@@ -103,11 +103,10 @@ def test_sensitive_is_canonical_create_metadata_and_bundle_round_trips(
 
 
 def test_only_catalog_declared_sensitivity_route_can_mutate_the_flag(
-    tmp_path: Path,
+    client,
 ) -> None:
     from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post(
         "/api/projects", json={"name": "Ordinary", "sensitive": False}
     )
@@ -343,9 +342,10 @@ def test_raw_content_is_unexpressible_at_the_project_route(
 
 def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     tmp_path: Path,
+    make_project,
 ) -> None:
     Contributor, TrainingExporter = _correction_api()
-    project = Project.create(tmp_path / "toggle.frisket", name="Toggle")
+    project = make_project("Toggle")
     destination, sender = _Destination(), _CorrectionSender()
     try:
         project.set_project_sensitivity(True)

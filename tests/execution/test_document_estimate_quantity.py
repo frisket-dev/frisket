@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     media_cell,
@@ -40,8 +39,8 @@ class _DocumentProgram(ActionProgram):
 
 
 @pytest.fixture
-def documents(tmp_path):
-    project = Project.create(tmp_path / "documents.frisket")
+def documents(make_project):
+    project = make_project("documents")
     sheet_id = project.add_sheet("Documents")
     columns = {
         name: project.add_column(sheet_id, name, type="json")

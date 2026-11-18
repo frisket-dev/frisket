@@ -25,13 +25,11 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.jobs.runs import verify_execution_route
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.resolve_for_action import resolve_for_action
@@ -49,8 +47,8 @@ from tests.execution.typed_transcription_helpers import (
 
 
 @pytest.fixture()
-def audio_project(tmp_path: Path):
-    project = Project.create(tmp_path / "p.frisket")
+def audio_project(make_project):
+    project = make_project("p")
     sheet_id = project.add_sheet("S")
     col = project.add_column(sheet_id, "media", type="audio")
     blob = project.add_blob(

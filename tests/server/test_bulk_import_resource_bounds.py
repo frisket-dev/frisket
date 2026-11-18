@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from email.message import EmailMessage
-from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.server.services import import_bulk_sources
 
 
 @pytest.mark.parametrize("count", [16, 160])
 @pytest.mark.parametrize("kind", ["files", "eml", "mbox", "csv"])
 def test_bulk_source_handles_stay_bounded_as_inventory_grows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, count: int
+    client, monkeypatch: pytest.MonkeyPatch, kind: str, count: int
 ) -> None:
     original_open = import_bulk_sources.open_verified_source
     live = peak = opened = 0
@@ -71,7 +68,6 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
             )
             mime = "application/mbox"
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post("/api/projects", json={"name": "Handle bounds"})
     assert created.status_code == 200, created.text
     project_id = created.json()["id"]
@@ -114,7 +110,7 @@ def test_bulk_source_handles_stay_bounded_as_inventory_grows(
         assert len(set(paths)) == len(paths)
 
 
-def test_combined_csv_rechecks_source_after_scan(tmp_path, monkeypatch):
+def test_combined_csv_rechecks_source_after_scan(client, monkeypatch):
     from frisket.server.services.import_bulk_execute import BulkExecutor
 
     original_scan = BulkExecutor._scan
@@ -129,7 +125,6 @@ def test_combined_csv_rechecks_source_after_scan(tmp_path, monkeypatch):
         return result
 
     monkeypatch.setattr(BulkExecutor, "_scan", scan_then_change)
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post("/api/projects", json={"name": "Changed source"}).json()[
         "id"
     ]

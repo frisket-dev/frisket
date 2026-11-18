@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.blob_backend import FilesystemProjectBlobStore
 
 
@@ -101,11 +100,11 @@ def test_project_close_closes_live_connections_and_allows_reopen(
 
 def test_closed_project_refuses_blob_writes_before_backend_effect(
     tmp_path: Path,
+    make_project,
 ) -> None:
     blob_root = tmp_path / "canonical-blobs"
-    project = Project.create(
-        tmp_path / "closed-blob-writes.frisket",
-        blob_store=FilesystemProjectBlobStore(root=blob_root),
+    project = make_project(
+        "closed-blob-writes", blob_store=FilesystemProjectBlobStore(root=blob_root)
     )
     source = tmp_path / "late-result.bin"
     source.write_bytes(b"late provider result")

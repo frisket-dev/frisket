@@ -149,12 +149,12 @@ def test_bounded_scan_preserves_acquisition_and_skips_completed_probes(
         assert store.metadata(digests[0])["_acquisition"] == {"title": "original"}
 
 
-def test_failure_retries_only_remaining_blobs(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "files.frisket")) as project:
-        digests = sorted(
-            project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
-            for i in range(3)
-        )
+def test_failure_retries_only_remaining_blobs(tmp_path, make_project, monkeypatch):
+    project = make_project("files")
+    digests = sorted(
+        project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
+        for i in range(3)
+    )
     original = blob_metadata.update_blob_metadata
     attempted = []
 
@@ -260,10 +260,12 @@ def test_continuation_preserves_claimed_organization_not_payload_identity(
     assert CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY not in payload
 
 
-def test_failed_continuation_enqueue_can_retry_without_reprobing(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "files.frisket")) as project:
-        for i in range(3):
-            project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
+def test_failed_continuation_enqueue_can_retry_without_reprobing(
+    tmp_path, make_project, monkeypatch
+):
+    project = make_project("files")
+    for i in range(3):
+        project.add_blob(str(i).encode(), filename=f"{i}.txt", mime="text/plain")
     monkeypatch.setattr(blob_metadata, "PROBE_BATCH_SIZE", 2)
     queue = Mock()
     queue.enqueue.side_effect = OSError("queue temporarily unavailable")

@@ -4,7 +4,7 @@ import asyncio
 import copy
 import errno
 import json
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -21,7 +21,6 @@ from frisket.ops import ocr_engines as engines
 from frisket.ops import ocr_engines_local as local_engines
 from frisket.ops import ocr_engines_sidecar as sidecar_engines
 from frisket.engine.executor.row_file_stage import RowFileStager
-from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.runs import RunResultStore
 from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
@@ -70,14 +69,14 @@ def _pdf_bytes(*sizes: tuple[int, int]) -> bytes:
 
 
 @pytest.fixture
-def source(tmp_path):
-    with closing(Project.create(tmp_path / "ocr.frisket")) as project:
-        sheet = project.add_sheet("Documents")
-        column = project.add_column(sheet, "scan", type="image")
-        digest = project.add_blob(_png(), filename="scan.png", mime="image/png")
-        value = {"blob": digest, "filename": "scan.png", "mime": "image/png"}
-        row_id = project.add_rows(sheet, [{"scan": value}], {"scan": column})[0]
-        yield project, sheet, column, row_id, value
+def source(make_project):
+    project = make_project("ocr")
+    sheet = project.add_sheet("Documents")
+    column = project.add_column(sheet, "scan", type="image")
+    digest = project.add_blob(_png(), filename="scan.png", mime="image/png")
+    value = {"blob": digest, "filename": "scan.png", "mime": "image/png"}
+    row_id = project.add_rows(sheet, [{"scan": value}], {"scan": column})[0]
+    yield project, sheet, column, row_id, value
 
 
 @asynccontextmanager

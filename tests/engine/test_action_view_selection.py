@@ -1,7 +1,6 @@
 """Authored selection identity and frozen full cohorts across both job transports."""
 
 from copy import deepcopy
-from contextlib import closing
 
 import pytest
 
@@ -15,7 +14,6 @@ from frisket.engine.executor.action_jobs import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.queued_actions import queued_v1_payload_envelope
-from frisket.engine.store import Project
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
 
@@ -49,36 +47,36 @@ def forbid_selection(*args, **kwargs):
     raise AssertionError("A frozen or replayed request must not reevaluate selection")
 
 
-def test_direct_selection_full_cohort_and_authored_replay(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "selected.frisket")) as project:
-        sheet, cols, rows, body = seed(project)
-        first = run_action_spec(project, body, project_id="p")
-        assert first.status == "completed", first
-        cohort = [
-            r[0]
-            for r in project.db.execute(
-                "SELECT row_id FROM run_rows WHERE run_id=? ORDER BY row_id",
-                (first.run_id,),
-            )
-        ]
-        assert cohort == rows[101:]
-        project.add_rows(sheet, [{"note": "new 900", "rank": 900}], cols)
-        monkeypatch.setattr(
-            "frisket.engine.views.evaluate.open_selection", forbid_selection
+def test_direct_selection_full_cohort_and_authored_replay(make_project, monkeypatch):
+    project = make_project("selected")
+    sheet, cols, rows, body = seed(project)
+    first = run_action_spec(project, body, project_id="p")
+    assert first.status == "completed", first
+    cohort = [
+        r[0]
+        for r in project.db.execute(
+            "SELECT row_id FROM run_rows WHERE run_id=? ORDER BY row_id",
+            (first.run_id,),
         )
-        replay = run_action_spec(project, body, project_id="p")
-        assert replay.receipt_id == first.receipt_id
-        changed = deepcopy(body)
-        changed["scope"]["selection"]["limit"] = 599
-        conflict = run_action_spec(project, changed, project_id="p")
-        assert any(error.code == "idempotency_conflict" for error in conflict.errors)
-        # Planning a changed draft must not inherit an unrelated old cohort.
-        monkeypatch.undo()
-        from frisket.engine.executor.selection_scope import resolve_action_selection
+    ]
+    assert cohort == rows[101:]
+    project.add_rows(sheet, [{"note": "new 900", "rank": 900}], cols)
+    monkeypatch.setattr(
+        "frisket.engine.views.evaluate.open_selection", forbid_selection
+    )
+    replay = run_action_spec(project, body, project_id="p")
+    assert replay.receipt_id == first.receipt_id
+    changed = deepcopy(body)
+    changed["scope"]["selection"]["limit"] = 599
+    conflict = run_action_spec(project, changed, project_id="p")
+    assert any(error.code == "idempotency_conflict" for error in conflict.errors)
+    # Planning a changed draft must not inherit an unrelated old cohort.
+    monkeypatch.undo()
+    from frisket.engine.executor.selection_scope import resolve_action_selection
 
-        planned = resolve_action_selection(project, typed_action_for_request(changed))
-        assert len(planned.request.scope.row_ids) == 599
-        assert max(planned.request.scope.row_ids) > rows[-1]
+    planned = resolve_action_selection(project, typed_action_for_request(changed))
+    assert len(planned.request.scope.row_ids) == 599
+    assert max(planned.request.scope.row_ids) > rows[-1]
 
 
 def test_project_run_queue_freezes_selection_without_worker_query(
@@ -117,30 +115,30 @@ def test_project_run_queue_freezes_selection_without_worker_query(
 
 
 def test_generic_action_job_freezes_selection_and_keeps_authored_hash(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
-    with closing(Project.create(tmp_path / "formula.frisket")) as project:
-        sheet, cols, rows, body = seed(project)
-        body.update(
-            action_id="map.formula",
-            params={"formula": {"text": "{{rank}} * 2"}},
-            output_names={"result": "doubled"},
-        )
-        authored = typed_action_for_request(body)
-        envelope = reserve_typed_action_job(project, "p", authored)
-        assert isinstance(envelope, ActionJobEnvelope), envelope
-        assert envelope.params_hash == typed_request_hash(authored)
-        project.add_rows(sheet, [{"note": "new", "rank": 999}], cols)
-        monkeypatch.setattr(
-            "frisket.engine.views.evaluate.open_selection", forbid_selection
-        )
-        restored = bind_typed_action_job(
-            ActionJobEnvelope.from_json(envelope.to_json()), project=project
-        )
-        assert list(restored.request.scope.row_ids) == rows[101:]
-        assert restored.request.scope.selection is None
-        assert restored.authored_scope.selection is not None
-        assert typed_request_hash(restored) == envelope.params_hash
+    project = make_project("formula")
+    sheet, cols, rows, body = seed(project)
+    body.update(
+        action_id="map.formula",
+        params={"formula": {"text": "{{rank}} * 2"}},
+        output_names={"result": "doubled"},
+    )
+    authored = typed_action_for_request(body)
+    envelope = reserve_typed_action_job(project, "p", authored)
+    assert isinstance(envelope, ActionJobEnvelope), envelope
+    assert envelope.params_hash == typed_request_hash(authored)
+    project.add_rows(sheet, [{"note": "new", "rank": 999}], cols)
+    monkeypatch.setattr(
+        "frisket.engine.views.evaluate.open_selection", forbid_selection
+    )
+    restored = bind_typed_action_job(
+        ActionJobEnvelope.from_json(envelope.to_json()), project=project
+    )
+    assert list(restored.request.scope.row_ids) == rows[101:]
+    assert restored.request.scope.selection is None
+    assert restored.authored_scope.selection is not None
+    assert typed_request_hash(restored) == envelope.params_hash
 
 
 def test_selection_cannot_silently_widen_to_all_rows():

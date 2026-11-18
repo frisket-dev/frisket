@@ -37,12 +37,9 @@ UNIT = {
 
 
 @pytest.fixture()
-def project(tmp_path):
-    p = Project.create(tmp_path / "checkpoints.frisket", name="cp")
-    try:
-        yield p
-    finally:
-        p.close()
+def project(make_project):
+    p = make_project("cp")
+    yield p
 
 
 @pytest.fixture()

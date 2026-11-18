@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -102,8 +101,8 @@ class _PublishedRun:
 
 
 @pytest.fixture
-def sheet(tmp_path: Path):
-    project = Project.create(tmp_path / "sdk-generations.frisket", name="SDK")
+def sheet(make_project):
+    project = make_project("SDK")
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
     project.add_rows(

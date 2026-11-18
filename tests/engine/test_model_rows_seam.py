@@ -30,7 +30,6 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner.row_inputs import row_values
-from frisket.engine.store import Project
 from frisket.ops.base import ActionContext
 
 
@@ -83,8 +82,8 @@ def declaration(renderer=prompt, **kwargs):
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "source.frisket")
+def source(make_project):
+    project = make_project("source")
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "body", type="text")
     rows = project.add_rows(sheet, [{"body": "Ada"}], {"body": column})

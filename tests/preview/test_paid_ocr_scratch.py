@@ -8,7 +8,7 @@ import hashlib
 import io
 import json
 import threading
-from contextlib import closing, contextmanager
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,7 +17,6 @@ from PIL import Image, PngImagePlugin
 
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.types import LLMResponse, SchemaViolation
-from frisket.engine.store import Project
 from frisket.execution.attempt_authority import attempt_identity
 from frisket.execution.provider import (
     ExecutionCompositionContext,
@@ -117,96 +116,97 @@ class _InvalidStructuredAdapter:
 
 
 def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with closing(Project.create(tmp_path / "ocr.frisket")) as project:
-        router, composition = _composition(project)
-        source = _png()
-        before = tuple(project.db.iterdump())
-        plan, summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source,
-            payload={"engine": "openai/gpt-4.1-mini", "filename": "scan.png"},
-            composition=composition,
-        )
-        assert summary == {
-            "filename": "scan.png",
-            "mime": None,
-            "size": len(source),
-            "kind": "image",
-            "pages": [1],
-        }
-        assert plan.spec["params"]["dpi"] == 200
-        assert plan.spec["params"]["source"] == "scratch"
-        assert plan.work_scope["selection"] == {"pages": [1]}
-        assert plan.source_identity["sha256"] == plan.work_scope["identity"]
-        assert "pages" not in plan.estimate
-        assert attempt_identity(plan.program, plan.spec)
-        assert tuple(project.db.iterdump()) == before
+    project = make_project("ocr")
+    router, composition = _composition(project)
+    source = _png()
+    before = tuple(project.db.iterdump())
+    plan, summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source,
+        payload={"engine": "openai/gpt-4.1-mini", "filename": "scan.png"},
+        composition=composition,
+    )
+    assert summary == {
+        "filename": "scan.png",
+        "mime": None,
+        "size": len(source),
+        "kind": "image",
+        "pages": [1],
+    }
+    assert plan.spec["params"]["dpi"] == 200
+    assert plan.spec["params"]["source"] == "scratch"
+    assert plan.work_scope["selection"] == {"pages": [1]}
+    assert plan.source_identity["sha256"] == plan.work_scope["identity"]
+    assert "pages" not in plan.estimate
+    assert attempt_identity(plan.program, plan.spec)
+    assert tuple(project.db.iterdump()) == before
 
-        async def pages(self, path, media, options, scratch, *, engine=None):
-            assert path.read_bytes() == source
-            assert engine == "openai/gpt-4.1-mini"
-            assert media["mime"] == "image/png"
-            assert options["dpi"] == 200
-            rendered = scratch / "page-1.png"
-            rendered.write_bytes(source)
-            return [rendered]
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        assert path.read_bytes() == source
+        assert engine == "openai/gpt-4.1-mini"
+        assert media["mime"] == "image/png"
+        assert options["dpi"] == 200
+        rendered = scratch / "page-1.png"
+        rendered.write_bytes(source)
+        return [rendered]
 
-        async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
-            assert engine == "openai/gpt-4.1-mini"
-            assert len(page_paths) == 1
-            assert ctx.extras["cancelled"]() is False
-            usage["calls"] = 1
-            usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
-            return [
-                {
-                    "text": "Invoice total 42",
-                    "width": 20,
-                    "height": 10,
-                    "warnings": ["Page was rotated before recognition."],
-                    "blocks": [
-                        {
-                            "text": "Invoice total 42",
-                            "bbox": [[1, 2], [9, 2], [9, 10], [1, 10]],
-                        }
-                    ],
-                }
-            ]
-
-        monkeypatch.setattr(OcrEngines, "_page_images", pages)
-        monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
-        context = _RunContext(project, router)
-        result = asyncio.run(plan.run(context))
-        assert [column.name for column in result.columns] == [
-            "page",
-            "text",
-            "blocks",
-            "warnings",
-            "errors",
-            "runtime_ms",
+    async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
+        assert engine == "openai/gpt-4.1-mini"
+        assert len(page_paths) == 1
+        assert ctx.extras["cancelled"]() is False
+        usage["calls"] = 1
+        usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
+        return [
+            {
+                "text": "Invoice total 42",
+                "width": 20,
+                "height": 10,
+                "warnings": ["Page was rotated before recognition."],
+                "blocks": [
+                    {
+                        "text": "Invoice total 42",
+                        "bbox": [[1, 2], [9, 2], [9, 10], [1, 10]],
+                    }
+                ],
+            }
         ]
-        assert result.rows[0]["page"]["value"] == 1
-        assert result.rows[0]["text"]["value"] == "Invoice total 42"
-        assert result.rows[0]["blocks"]["value"][0]["bbox"] == {
-            "space": "page_normalized",
-            "x0": 0.05,
-            "y0": 0.2,
-            "x1": 0.45,
-            "y1": 1.0,
-        }
-        assert result.rows[0]["warnings"]["value"] == [
-            "Page was rotated before recognition."
-        ]
-        assert result.rows[0]["errors"]["value"] == []
-        assert result.warnings == ("Page 1: Page was rotated before recognition.",)
-        assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
-        assert context.progress_values == [(1, 1)]
-        assert tuple(project.db.iterdump()) == before
+
+    monkeypatch.setattr(OcrEngines, "_page_images", pages)
+    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
+    context = _RunContext(project, router)
+    result = asyncio.run(plan.run(context))
+    assert [column.name for column in result.columns] == [
+        "page",
+        "text",
+        "blocks",
+        "warnings",
+        "errors",
+        "runtime_ms",
+    ]
+    assert result.rows[0]["page"]["value"] == 1
+    assert result.rows[0]["text"]["value"] == "Invoice total 42"
+    assert result.rows[0]["blocks"]["value"][0]["bbox"] == {
+        "space": "page_normalized",
+        "x0": 0.05,
+        "y0": 0.2,
+        "x1": 0.45,
+        "y1": 1.0,
+    }
+    assert result.rows[0]["warnings"]["value"] == [
+        "Page was rotated before recognition."
+    ]
+    assert result.rows[0]["errors"]["value"] == []
+    assert result.warnings == ("Page 1: Page was rotated before recognition.",)
+    assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
+    assert context.progress_values == [(1, 1)]
+    assert tuple(project.db.iterdump()) == before
 
 
 def test_paid_ocr_borrowed_image_preserves_inline_scope_and_estimate(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source_bytes = _png()
     source = tmp_path / "letter.png"
@@ -217,262 +217,261 @@ def test_paid_ocr_borrowed_image_preserves_inline_scope_and_estimate(
         "mime": "image/png",
         "pages": [1],
     }
-    with closing(Project.create(tmp_path / "ocr-borrowed-image.frisket")) as project:
-        _router, composition = _composition(project)
-        inline, _inline_summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source_bytes,
-            payload=payload,
-            composition=composition,
-        )
-        borrowed, summary = paid_ocr_scratch_plan(
-            project,
-            media_path=source,
-            media_digest=hashlib.sha256(source_bytes).hexdigest(),
-            media_size=len(source_bytes),
-            payload=payload,
-            composition=composition,
-        )
+    project = make_project("ocr-borrowed-image")
+    _router, composition = _composition(project)
+    inline, _inline_summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source_bytes,
+        payload=payload,
+        composition=composition,
+    )
+    borrowed, summary = paid_ocr_scratch_plan(
+        project,
+        media_path=source,
+        media_digest=hashlib.sha256(source_bytes).hexdigest(),
+        media_size=len(source_bytes),
+        payload=payload,
+        composition=composition,
+    )
 
-        assert summary == {
-            "filename": "letter.png",
-            "mime": "image/png",
-            "size": len(source_bytes),
-            "kind": "image",
-            "pages": [1],
-        }
-        assert borrowed.work_scope == inline.work_scope
-        assert borrowed.source_identity == inline.source_identity
-        assert borrowed.estimate == inline.estimate
-        assert consented_set_hash(
-            borrowed.resolved_execution.promise_set
-        ) == consented_set_hash(inline.resolved_execution.promise_set)
+    assert summary == {
+        "filename": "letter.png",
+        "mime": "image/png",
+        "size": len(source_bytes),
+        "kind": "image",
+        "pages": [1],
+    }
+    assert borrowed.work_scope == inline.work_scope
+    assert borrowed.source_identity == inline.source_identity
+    assert borrowed.estimate == inline.estimate
+    assert consented_set_hash(
+        borrowed.resolved_execution.promise_set
+    ) == consented_set_hash(inline.resolved_execution.promise_set)
 
 
 def test_paid_ocr_pdf_searchable_output_is_an_ephemeral_artifact(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = b"%PDF-1.4\n% paid OCR fixture\n"
-    with closing(Project.create(tmp_path / "ocr-pdf.frisket")) as project:
-        router, composition = _composition(project)
-        plan, _summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source,
-            payload={
-                "engine": "tesseract",
-                "filename": "docket.pdf",
-                "pages": [1, 3],
-                "dpi": 180,
-                "searchable_pdf": True,
-            },
-            composition=composition,
-        )
+    project = make_project("ocr-pdf")
+    router, composition = _composition(project)
+    plan, _summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source,
+        payload={
+            "engine": "tesseract",
+            "filename": "docket.pdf",
+            "pages": [1, 3],
+            "dpi": 180,
+            "searchable_pdf": True,
+        },
+        composition=composition,
+    )
 
-        def page_count(path, digest):
-            assert path.read_bytes() == source
-            assert len(digest) == 64
-            return 3
+    def page_count(path, digest):
+        assert path.read_bytes() == source
+        assert len(digest) == 64
+        return 3
 
-        async def pages(self, path, media, options, scratch, *, engine=None):
-            assert options["_selected_pages"] == [1, 3]
-            assert engine == "tesseract"
-            rendered = []
-            for page in (1, 3):
-                target = scratch / f"page-{page}.png"
-                target.write_bytes(_png())
-                rendered.append(target)
-            return rendered
+    async def pages(self, path, media, options, scratch, *, engine=None):
+        assert options["_selected_pages"] == [1, 3]
+        assert engine == "tesseract"
+        rendered = []
+        for page in (1, 3):
+            target = scratch / f"page-{page}.png"
+            target.write_bytes(_png())
+            rendered.append(target)
+        return rendered
 
-        async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
-            usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
-            return [
-                {
-                    "text": f"page {page}",
-                    "blocks": [
-                        {
-                            "text": f"page {page}",
-                            "bbox": [[1, 1], [5, 1], [5, 5], [1, 5]],
-                        }
-                    ],
-                }
-                for page in (1, 3)
-            ]
+    async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
+        usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
+        return [
+            {
+                "text": f"page {page}",
+                "blocks": [
+                    {
+                        "text": f"page {page}",
+                        "bbox": [[1, 1], [5, 1], [5, 5], [1, 5]],
+                    }
+                ],
+            }
+            for page in (1, 3)
+        ]
 
-        def compose(pdf, overlays, *, dpi):
-            assert pdf == source and dpi == 180
-            assert not overlays[1]
-            return b"%PDF-searchable", [
-                SimpleNamespace(index=0, degraded=False),
-                SimpleNamespace(index=1, degraded=False),
-                SimpleNamespace(index=2, degraded=True),
-            ]
+    def compose(pdf, overlays, *, dpi):
+        assert pdf == source and dpi == 180
+        assert not overlays[1]
+        return b"%PDF-searchable", [
+            SimpleNamespace(index=0, degraded=False),
+            SimpleNamespace(index=1, degraded=False),
+            SimpleNamespace(index=2, degraded=True),
+        ]
 
-        monkeypatch.setattr(OcrEngines, "_page_images", pages)
-        monkeypatch.setattr(OcrEngines, "_pdf_page_count", staticmethod(page_count))
-        monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
-        monkeypatch.setattr(
-            "frisket.ops.searchable_pdf.compose_searchable_pdf", compose
-        )
-        context = _RunContext(project, router)
-        result = asyncio.run(plan.run(context))
-        assert [row["page"]["value"] for row in result.rows] == [1, 3]
-        assert result.rows[0]["pdf"]["value"].id in result.artifacts
-        assert result.rows[1]["pdf"]["value"] is None
-        artifact = next(iter(result.artifacts.values()))
-        assert artifact.path.read_bytes() == b"%PDF-searchable"
-        assert artifact.filename == "docket.searchable.pdf"
-        assert result.warnings == ("Searchable PDF text was degraded on pages 3.",)
-        result.close()
-        assert not artifact.path.exists()
+    monkeypatch.setattr(OcrEngines, "_page_images", pages)
+    monkeypatch.setattr(OcrEngines, "_pdf_page_count", staticmethod(page_count))
+    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
+    monkeypatch.setattr("frisket.ops.searchable_pdf.compose_searchable_pdf", compose)
+    context = _RunContext(project, router)
+    result = asyncio.run(plan.run(context))
+    assert [row["page"]["value"] for row in result.rows] == [1, 3]
+    assert result.rows[0]["pdf"]["value"].id in result.artifacts
+    assert result.rows[1]["pdf"]["value"] is None
+    artifact = next(iter(result.artifacts.values()))
+    assert artifact.path.read_bytes() == b"%PDF-searchable"
+    assert artifact.filename == "docket.searchable.pdf"
+    assert result.warnings == ("Searchable PDF text was degraded on pages 3.",)
+    result.close()
+    assert not artifact.path.exists()
 
 
 def test_paid_ocr_image_rejects_nonexistent_pages_before_resolution(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    with closing(Project.create(tmp_path / "ocr-invalid.frisket")) as project:
-        _router, composition = _composition(project)
-        with pytest.raises(OcrComparePreviewError) as error:
-            paid_ocr_scratch_plan(
-                project,
-                media_bytes=_png(),
-                payload={"engine": "tesseract", "pages": [2]},
-                composition=composition,
-            )
-        assert error.value.code == "invalid_page_ref"
-        assert error.value.field == "pages"
-        assert project.sheets(include_hidden=True) == []
+    project = make_project("ocr-invalid")
+    _router, composition = _composition(project)
+    with pytest.raises(OcrComparePreviewError) as error:
+        paid_ocr_scratch_plan(
+            project,
+            media_bytes=_png(),
+            payload={"engine": "tesseract", "pages": [2]},
+            composition=composition,
+        )
+    assert error.value.code == "invalid_page_ref"
+    assert error.value.field == "pages"
+    assert project.sheets(include_hidden=True) == []
 
 
 def test_paid_ocr_png_metadata_pdf_marker_remains_an_image_at_runtime(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = _png_with_pdf_marker_metadata()
     assert b"%PDF-" in source[:1024]
-    with closing(Project.create(tmp_path / "ocr-png-metadata.frisket")) as project:
-        router, composition = _composition(project)
-        plan, summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source,
-            payload={"engine": "tesseract", "filename": "annotated.png"},
-            composition=composition,
-        )
+    project = make_project("ocr-png-metadata")
+    router, composition = _composition(project)
+    plan, summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source,
+        payload={"engine": "tesseract", "filename": "annotated.png"},
+        composition=composition,
+    )
 
-        async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
-            assert engine == "tesseract"
-            assert [path.read_bytes() for path in page_paths] == [source]
-            return [{"text": "image text", "blocks": []}]
+    async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
+        assert engine == "tesseract"
+        assert [path.read_bytes() for path in page_paths] == [source]
+        return [{"text": "image text", "blocks": []}]
 
-        monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
-        result = asyncio.run(plan.run(_RunContext(project, router)))
+    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
+    result = asyncio.run(plan.run(_RunContext(project, router)))
 
-        assert summary["kind"] == "image"
-        assert result.rows[0]["text"]["value"] == "image text"
+    assert summary["kind"] == "image"
+    assert result.rows[0]["text"]["value"] == "image text"
 
 
 def test_paid_ocr_confirmation_hash_is_bound_to_page_selection(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     source = b"%PDF-1.4\n"
-    with closing(Project.create(tmp_path / "ocr-selection.frisket")) as project:
-        _router, composition = _composition(project)
-        first, _summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source,
-            payload={"engine": "openai/gpt-4.1-mini", "pages": [1]},
-            composition=composition,
-        )
-        second, _summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=source,
-            payload={"engine": "openai/gpt-4.1-mini", "pages": [2]},
-            composition=composition,
-        )
+    project = make_project("ocr-selection")
+    _router, composition = _composition(project)
+    first, _summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source,
+        payload={"engine": "openai/gpt-4.1-mini", "pages": [1]},
+        composition=composition,
+    )
+    second, _summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=source,
+        payload={"engine": "openai/gpt-4.1-mini", "pages": [2]},
+        composition=composition,
+    )
 
-        assert consented_set_hash(
-            first.resolved_execution.promise_set
-        ) != consented_set_hash(second.resolved_execution.promise_set)
+    assert consented_set_hash(
+        first.resolved_execution.promise_set
+    ) != consented_set_hash(second.resolved_execution.promise_set)
 
 
 def test_paid_ocr_borrowed_pdf_accepts_packet_scale_page_selection(
     tmp_path: Path,
+    make_project,
 ) -> None:
     source = tmp_path / "packet.pdf"
     source.write_bytes(b"%PDF-1.4\n")
     pages = list(range(1, 12))
-    with closing(Project.create(tmp_path / "ocr-packet.frisket")) as project:
-        _router, composition = _composition(project)
-        plan, summary = paid_ocr_scratch_plan(
-            project,
-            media_path=source,
-            media_digest=hashlib.sha256(source.read_bytes()).hexdigest(),
-            media_size=source.stat().st_size,
-            payload={"engine": "tesseract", "pages": pages},
-            composition=composition,
-            max_pages=2000,
-        )
+    project = make_project("ocr-packet")
+    _router, composition = _composition(project)
+    plan, summary = paid_ocr_scratch_plan(
+        project,
+        media_path=source,
+        media_digest=hashlib.sha256(source.read_bytes()).hexdigest(),
+        media_size=source.stat().st_size,
+        payload={"engine": "tesseract", "pages": pages},
+        composition=composition,
+        max_pages=2000,
+    )
 
-        assert summary["pages"] == pages
-        assert plan.work_scope["selection"] == {"pages": pages}
+    assert summary["pages"] == pages
+    assert plan.work_scope["selection"] == {"pages": pages}
 
 
 def test_paid_ocr_all_page_failures_raise_after_usage_is_retained(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with closing(Project.create(tmp_path / "ocr-failed.frisket")) as project:
-        router, composition = _composition(project)
-        cached = []
-        plan, _summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=_png(),
-            payload={"engine": "openai/gpt-4.1-mini", "filename": "blank.png"},
-            composition=composition,
-            on_page=cached.append,
-        )
+    project = make_project("ocr-failed")
+    router, composition = _composition(project)
+    cached = []
+    plan, _summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=_png(),
+        payload={"engine": "openai/gpt-4.1-mini", "filename": "blank.png"},
+        composition=composition,
+        on_page=cached.append,
+    )
 
-        async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
-            usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
-            return [{"text": "", "blocks": [], "errors": ["provider refused page"]}]
+    async def recognize(self, engine, page_paths, ctx, *, usage, **kwargs):
+        usage["model_calls"] = [{"capability": "ocr", "engine": engine}]
+        return [{"text": "", "blocks": [], "errors": ["provider refused page"]}]
 
-        monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
-        context = _RunContext(project, router)
-        with pytest.raises(OcrComparePreviewError) as error:
-            asyncio.run(plan.run(context))
-        assert error.value.code == "ocr_preview_engine_failed"
-        assert error.value.details == {"failed_pages": [1]}
-        assert cached == []
-        assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
+    monkeypatch.setattr(OcrEngines, "run_engine_on_pages", recognize)
+    context = _RunContext(project, router)
+    with pytest.raises(OcrComparePreviewError) as error:
+        asyncio.run(plan.run(context))
+    assert error.value.code == "ocr_preview_engine_failed"
+    assert error.value.details == {"failed_pages": [1]}
+    assert cached == []
+    assert context.calls == [{"capability": "ocr", "engine": "openai/gpt-4.1-mini"}]
 
 
 def test_paid_ocr_structured_failure_retains_billed_wire_usage(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    with closing(Project.create(tmp_path / "ocr-schema-failed.frisket")) as project:
-        router, composition = _composition(project)
-        adapter = _InvalidStructuredAdapter()
-        router._adapters["openai"] = adapter  # noqa: SLF001
-        plan, _summary = paid_ocr_scratch_plan(
-            project,
-            media_bytes=_png(),
-            payload={"engine": "openai/gpt-4.1-mini", "filename": "invalid.png"},
-            composition=composition,
-        )
-        context = _RunContext(project, router)
+    project = make_project("ocr-schema-failed")
+    router, composition = _composition(project)
+    adapter = _InvalidStructuredAdapter()
+    router._adapters["openai"] = adapter  # noqa: SLF001
+    plan, _summary = paid_ocr_scratch_plan(
+        project,
+        media_bytes=_png(),
+        payload={"engine": "openai/gpt-4.1-mini", "filename": "invalid.png"},
+        composition=composition,
+    )
+    context = _RunContext(project, router)
 
-        with pytest.raises(SchemaViolation):
-            asyncio.run(plan.run(context))
+    with pytest.raises(SchemaViolation):
+        asyncio.run(plan.run(context))
 
-        assert adapter.calls == 2
-        assert len(context.calls) == 1
-        [fact] = context.calls
-        assert fact["capability"] == "ocr"
-        assert fact["provider_cost_usd"] == pytest.approx(0.04)
-        assert fact["units"]["pages"] == 1
-        assert fact["units"]["requests"] == 1
-        assert fact["units"]["tokens_in"] == 22
-        assert fact["units"]["tokens_out"] == 6
-        assert fact["units"]["input_bytes"] == len(_png())
-        assert isinstance(fact["duration_ms"], int)
-        assert fact["duration_ms"] >= 0
+    assert adapter.calls == 2
+    assert len(context.calls) == 1
+    [fact] = context.calls
+    assert fact["capability"] == "ocr"
+    assert fact["provider_cost_usd"] == pytest.approx(0.04)
+    assert fact["units"]["pages"] == 1
+    assert fact["units"]["requests"] == 1
+    assert fact["units"]["tokens_in"] == 22
+    assert fact["units"]["tokens_out"] == 6
+    assert fact["units"]["input_bytes"] == len(_png())
+    assert isinstance(fact["duration_ms"], int)
+    assert fact["duration_ms"] >= 0
 
 
 def test_pdf_renderer_rasterizes_only_selected_pages_in_original_order(

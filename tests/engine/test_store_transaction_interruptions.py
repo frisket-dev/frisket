@@ -42,8 +42,8 @@ class _InterruptAfter:
 
 
 @pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "interruptions.frisket")
+def project(make_project):
+    project = make_project("interruptions")
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "value")
     project.add_rows(sheet, [{"value": "original"}], {"value": column})

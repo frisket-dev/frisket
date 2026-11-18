@@ -5,7 +5,6 @@ import json
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store import project_blobs
 from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
@@ -20,13 +19,12 @@ from frisket.engine.store.prepared_content import (
 
 
 @pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "roots.frisket")
+def project(make_project):
+    project = make_project("roots")
     with project.db:
         project.db.execute("BEGIN")
         migrate_blob_derivation_ownership(project.db)
     yield project
-    project.close()
 
 
 def root_cell(project, value):

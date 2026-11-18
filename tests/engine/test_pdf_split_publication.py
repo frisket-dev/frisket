@@ -338,32 +338,28 @@ def test_upload_append_keeps_existing_rows_and_has_no_nested_row_parent(make_pro
     assert project.visible_row_ids(sheet) == [*rows, *children]
 
 
-def test_source_checkpoint_resumes_with_new_writer_authority(tmp_path: Path):
-    path = tmp_path / "resume.frisket"
-    project = Project.create(path, name="resume")
-    try:
-        sheet, column, rows, values = _seed(project)
-        stale = _start(project, sheet, column, rows, values)
-        first = stale.publish_source(_children(2), expected_cursor=0)
-        resumed = PdfSplitWriter.resume_session(
-            project,
-            session_id="split:one",
-            writer_authority="claim:two",
-            expected_cursor=1,
-        )
-        with pytest.raises(ImportSessionConflict):
-            stale.publish_source(_children(3), expected_cursor=1)
-        second = resumed.publish_source(_children(3), expected_cursor=1)
-        resumed.finalize(expected_cursor=2)
-        assert project.visible_row_ids(sheet) == [*first, *second, *rows[2:]]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
-            ).fetchone()[0]
-            == 1
-        )
-    finally:
-        project.close()
+def test_source_checkpoint_resumes_with_new_writer_authority(make_project):
+    project = make_project("resume")
+    sheet, column, rows, values = _seed(project)
+    stale = _start(project, sheet, column, rows, values)
+    first = stale.publish_source(_children(2), expected_cursor=0)
+    resumed = PdfSplitWriter.resume_session(
+        project,
+        session_id="split:one",
+        writer_authority="claim:two",
+        expected_cursor=1,
+    )
+    with pytest.raises(ImportSessionConflict):
+        stale.publish_source(_children(3), expected_cursor=1)
+    second = resumed.publish_source(_children(3), expected_cursor=1)
+    resumed.finalize(expected_cursor=2)
+    assert project.visible_row_ids(sheet) == [*first, *second, *rows[2:]]
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
+        ).fetchone()[0]
+        == 1
+    )
 
 
 def test_stop_after_last_source_preserves_completed_outcome(make_project):

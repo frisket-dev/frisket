@@ -63,15 +63,9 @@ class _NeverDispatchedRun:
 
 
 @pytest.fixture()
-def project(tmp_path):
-    value = Project.create(
-        tmp_path / "terminal-recovery.frisket",
-        name="terminal-recovery",
-    )
-    try:
-        yield value
-    finally:
-        value.close()
+def project(make_project):
+    value = make_project("terminal-recovery")
+    yield value
 
 
 def _seed_orphaned_run(

@@ -113,26 +113,26 @@ def _single_column_bound():
 
 
 def test_empty_import_rows_can_reserve_for_streaming_but_inline_rows_cannot(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    with closing(Project.create(tmp_path / "reserve.frisket")) as project:
-        envelope = reserve_typed_action_job(project, PROJECT_ID, _bound(rows=[]))
-        assert isinstance(envelope, ActionJobEnvelope)
-        with pytest.raises(TypeError, match="supported callable"):
-            reserve_typed_action_job(
-                project,
-                PROJECT_ID,
-                _bound(
-                    rows=[
-                        {
-                            "id": "one",
-                            "amount": 1,
-                            "note": "inline",
-                            "extra values": None,
-                        }
-                    ]
-                ),
-            )
+    project = make_project("reserve")
+    envelope = reserve_typed_action_job(project, PROJECT_ID, _bound(rows=[]))
+    assert isinstance(envelope, ActionJobEnvelope)
+    with pytest.raises(TypeError, match="supported callable"):
+        reserve_typed_action_job(
+            project,
+            PROJECT_ID,
+            _bound(
+                rows=[
+                    {
+                        "id": "one",
+                        "amount": 1,
+                        "note": "inline",
+                        "extra values": None,
+                    }
+                ]
+            ),
+        )
 
 
 def test_table_analysis_runs_on_the_shared_worker_queue(tmp_path: Path) -> None:

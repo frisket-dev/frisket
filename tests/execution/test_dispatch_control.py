@@ -3,7 +3,6 @@
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from contextlib import closing
 from types import SimpleNamespace
 
 import httpx
@@ -11,7 +10,6 @@ import pytest
 
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMRequest
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.changes import ChangeStore
 from frisket.execution.dispatch_control import (
@@ -25,29 +23,29 @@ from tests.ai.test_structured_wire_failures import UsagePolicy
 
 
 @pytest.fixture
-def owned(tmp_path):
-    with closing(Project.create(tmp_path / "dispatch.frisket")) as project:
-        sheet = project.add_sheet("data")
-        output = project.add_column(sheet, "answer", ai_generated=True)
-        rows = project.add_rows(sheet, [{}], {})
-        run = _start_claimed_run(
-            project,
-            sheet_id=sheet,
-            output_column_id=output,
-            row_ids=rows,
-            label="dispatch",
-        )
-        with project.db:
-            project.db.execute("BEGIN IMMEDIATE")
-            ChangeStore(project).start(run.op_id)
-        control = RunDispatch(
-            project,
-            run.run_id,
-            run.authority.writer_attempt_id,
-            claim_token=run.authority.claim_token,
-        )
-        control.check()
-        yield project, run, control
+def owned(make_project):
+    project = make_project("dispatch")
+    sheet = project.add_sheet("data")
+    output = project.add_column(sheet, "answer", ai_generated=True)
+    rows = project.add_rows(sheet, [{}], {})
+    run = _start_claimed_run(
+        project,
+        sheet_id=sheet,
+        output_column_id=output,
+        row_ids=rows,
+        label="dispatch",
+    )
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        ChangeStore(project).start(run.op_id)
+    control = RunDispatch(
+        project,
+        run.run_id,
+        run.authority.writer_attempt_id,
+        claim_token=run.authority.claim_token,
+    )
+    control.check()
+    yield project, run, control
 
 
 def request(**kwargs):
@@ -284,7 +282,7 @@ async def test_unbound_router_cannot_silently_dispatch_standalone():
 
 @pytest.mark.parametrize("injected", [False, True])
 def test_embedding_refresh_checks_run_cancellation_before_provider(
-    tmp_path, monkeypatch, injected
+    make_project, monkeypatch, injected
 ):
     from frisket.engine.executor import ExecutorDeps, run_action_spec
     from frisket.ai.embeddings import EmbeddingGateway
@@ -295,57 +293,55 @@ def test_embedding_refresh_checks_run_cancellation_before_provider(
     )
 
     calls = []
-    with closing(Project.create(tmp_path / "embedding-dispatch.frisket")) as project:
-        sheet = project.add_sheet("data")
-        column = project.add_column(sheet, "headline")
-        project.add_rows(sheet, [{"headline": "hello"}], {"headline": column})
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            keys={"openai": "test"},
-            use_env_keys=False,
-        )
+    project = make_project("embedding-dispatch")
+    sheet = project.add_sheet("data")
+    column = project.add_column(sheet, "headline")
+    project.add_rows(sheet, [{"headline": "hello"}], {"headline": column})
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        keys={"openai": "test"},
+        use_env_keys=False,
+    )
 
-        class Adapter:
-            base_url = "https://example.invalid"
+    class Adapter:
+        base_url = "https://example.invalid"
 
-            async def embed_with_meta(self, *args):
-                calls.append(args)
-                pytest.fail("Cancelled work reached the provider")
+        async def embed_with_meta(self, *args):
+            calls.append(args)
+            pytest.fail("Cancelled work reached the provider")
 
-        router._adapters["openai"] = Adapter()
-        created = run_action_spec(
+    router._adapters["openai"] = Adapter()
+    created = run_action_spec(
+        project,
+        _create_action(sheet, provider="openai", policy={"allow_remote": True}),
+        project_id="test",
+        router=router,
+    )
+    assert created.status == "completed", created.errors
+    index_id = created.outputs[0].ref["index_id"]
+    mint = embeddings.mint_direct_effect_attempt
+
+    def cancel_before_dispatch(current, **kwargs):
+        commitment = mint(current, **kwargs)
+        RunResultStore(current).request_cancel(kwargs["run_id"])
+        return commitment
+
+    monkeypatch.setattr(
+        embeddings, "mint_direct_effect_attempt", cancel_before_dispatch
+    )
+    with pytest.raises(asyncio.CancelledError):
+        run_action_spec(
             project,
-            _create_action(sheet, provider="openai", policy={"allow_remote": True}),
+            _refresh_action(index_id),
             project_id="test",
             router=router,
+            deps=ExecutorDeps(embedding_gateway=EmbeddingGateway(router=router))
+            if injected
+            else None,
         )
-        assert created.status == "completed", created.errors
-        index_id = created.outputs[0].ref["index_id"]
-        mint = embeddings.mint_direct_effect_attempt
-
-        def cancel_before_dispatch(current, **kwargs):
-            commitment = mint(current, **kwargs)
-            RunResultStore(current).request_cancel(kwargs["run_id"])
-            return commitment
-
-        monkeypatch.setattr(
-            embeddings, "mint_direct_effect_attempt", cancel_before_dispatch
-        )
-        with pytest.raises(asyncio.CancelledError):
-            run_action_spec(
-                project,
-                _refresh_action(index_id),
-                project_id="test",
-                router=router,
-                deps=ExecutorDeps(embedding_gateway=EmbeddingGateway(router=router))
-                if injected
-                else None,
-            )
-        assert not calls
-        assert not project.db.in_transaction
-        [run] = project.db.execute("SELECT status FROM runs").fetchall()
-        assert run["status"] == "cancelled"
-        [attempt] = project.db.execute(
-            "SELECT state FROM execution_attempts"
-        ).fetchall()
-        assert attempt["state"] == "halted"
+    assert not calls
+    assert not project.db.in_transaction
+    [run] = project.db.execute("SELECT status FROM runs").fetchall()
+    assert run["status"] == "cancelled"
+    [attempt] = project.db.execute("SELECT state FROM execution_attempts").fetchall()
+    assert attempt["state"] == "halted"

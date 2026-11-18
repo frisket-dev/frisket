@@ -92,7 +92,7 @@ def _assert_no_publication(project):
 
 @pytest.mark.parametrize("streamed", [False, True])
 def test_static_file_lists_preserve_order_occurrences_and_renamed_aliases(
-    tmp_path, monkeypatch, streamed
+    make_project, monkeypatch, streamed
 ):
     monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 1)
     calls = []
@@ -115,60 +115,60 @@ def test_static_file_lists_preserve_order_occurrences_and_renamed_aliases(
         ("attachments", "json"),
     ]
     assert calls == []
-    with closing(Project.create(tmp_path / "project")) as project:
-        seed = project.add_sheet("Existing")
-        column = project.add_column(seed, "Value", type="text")
-        project.add_rows(seed, [{"Value": "one"}, {"Value": "two"}], {"Value": column})
-        result = run_typed_create_sheet_action(project, "p", bound)
-        assert result.status == "completed", result.errors
-        sheet = result.outputs[0].ref
-        assert set(sheet["columns"]) == {"Sender", "Evidence"}
-        column_id = sheet["columns"]["Evidence"]
-        values = project.get_values(sheet["sheet_id"], column_id)
-        row_ids = project.visible_row_ids(sheet["sheet_id"])
-        assert len(row_ids) == 3 and min(row_ids) > 2
-        filenames = [
-            ["first.bin", "second.bin", "first.bin"],
-            ["second.bin", "first.bin"],
-            [],
+    project = make_project("project")
+    seed = project.add_sheet("Existing")
+    column = project.add_column(seed, "Value", type="text")
+    project.add_rows(seed, [{"Value": "one"}, {"Value": "two"}], {"Value": column})
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert result.status == "completed", result.errors
+    sheet = result.outputs[0].ref
+    assert set(sheet["columns"]) == {"Sender", "Evidence"}
+    column_id = sheet["columns"]["Evidence"]
+    values = project.get_values(sheet["sheet_id"], column_id)
+    row_ids = project.visible_row_ids(sheet["sheet_id"])
+    assert len(row_ids) == 3 and min(row_ids) > 2
+    filenames = [
+        ["first.bin", "second.bin", "first.bin"],
+        ["second.bin", "first.bin"],
+        [],
+    ]
+    digest = hashlib.sha256(b"identical attachment bytes").hexdigest()
+    assert [values[row_id] for row_id in row_ids] == [
+        [
+            {
+                "blob": digest,
+                "mime": "application/octet-stream",
+                "filename": name,
+            }
+            for name in names
         ]
-        digest = hashlib.sha256(b"identical attachment bytes").hexdigest()
-        assert [values[row_id] for row_id in row_ids] == [
-            [
-                {
-                    "blob": digest,
-                    "mime": "application/octet-stream",
-                    "filename": name,
-                }
-                for name in names
-            ]
-            for names in filenames
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        refs = [
-            item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
-        ]
-        assert [
-            (
-                ref["row_id"],
-                ref["column_id"],
-                ref["row_index"],
-                ref["filename"],
-                ref["hash"],
-            )
-            for ref in refs
-        ] == [
-            (row_id, column_id, position, filename, digest)
-            for position, (row_id, names) in enumerate(
-                zip(row_ids, filenames, strict=True), 1
-            )
-            for filename in names
-        ]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        replay = run_typed_create_sheet_action(project, "p", bound)
-        assert replay.status == "completed", replay.errors
-        assert replay.receipt_id == result.receipt_id
-        assert calls == [True]
+        for names in filenames
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    refs = [
+        item.ref for item in receipt.evidence if item.ref["kind"] == "imported_blob"
+    ]
+    assert [
+        (
+            ref["row_id"],
+            ref["column_id"],
+            ref["row_index"],
+            ref["filename"],
+            ref["hash"],
+        )
+        for ref in refs
+    ] == [
+        (row_id, column_id, position, filename, digest)
+        for position, (row_id, names) in enumerate(
+            zip(row_ids, filenames, strict=True), 1
+        )
+        for filename in names
+    ]
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    replay = run_typed_create_sheet_action(project, "p", bound)
+    assert replay.status == "completed", replay.errors
+    assert replay.receipt_id == result.receipt_id
+    assert calls == [True]
 
 
 @pytest.mark.parametrize("streamed", [False, True])
@@ -234,65 +234,63 @@ def _closable_rows(rows, streamed, closed):
 @pytest.mark.parametrize("streamed", [False, True])
 @pytest.mark.parametrize("fail", [False, True])
 def test_final_warnings_are_consumed_once_after_row_close_before_publication(
-    tmp_path, monkeypatch, streamed, fail
+    make_project, monkeypatch, streamed, fail
 ):
     monkeypatch.setattr(table_action, "_TABLE_BATCH_SIZE", 1)
     events = []
     late = []
-    with closing(Project.create(tmp_path / "project")) as project:
+    project = make_project("project")
 
-        class Warnings:
-            def __iter__(self):
-                assert events == ["rows_closed"]
-                events.append("warnings_read")
-                assert not project.db.in_transaction
-                for table in ("blobs", "ops", "receipts"):
-                    assert (
-                        project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
-                            0
-                        ]
-                        == 0
-                    )
-                yield from late
-                if fail:
-                    raise RuntimeError("late warning iteration failed")
+    class Warnings:
+        def __iter__(self):
+            assert events == ["rows_closed"]
+            events.append("warnings_read")
+            assert not project.db.in_transaction
+            for table in ("blobs", "ops", "receipts"):
+                assert (
+                    project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    == 0
+                )
+            yield from late
+            if fail:
+                raise RuntimeError("late warning iteration failed")
 
-        def closed():
-            events.append("rows_closed")
-            late.append("Late malformed sibling skipped")
+    def closed():
+        events.append("rows_closed")
+        late.append("Late malformed sibling skipped")
 
-        def produce(
-            params: EmailFeatureParams, blobs: ImportBlobStager
-        ) -> TableResult[EmailFilesRow]:
-            attachment = _stage(blobs, "message.bin")
-            rows = [TableRow(output=EmailFilesRow(from_="Sender", files_=[attachment]))]
-            result = TableResult(
-                rows=_closable_rows(rows, streamed, closed), warnings=Warnings()
-            )
-            assert events == []
-            return result
+    def produce(
+        params: EmailFeatureParams, blobs: ImportBlobStager
+    ) -> TableResult[EmailFilesRow]:
+        attachment = _stage(blobs, "message.bin")
+        rows = [TableRow(output=EmailFilesRow(from_="Sender", files_=[attachment]))]
+        result = TableResult(
+            rows=_closable_rows(rows, streamed, closed), warnings=Warnings()
+        )
+        assert events == []
+        return result
 
-        bound = _bound(produce)
-        result = run_typed_create_sheet_action(project, "p", bound)
+    bound = _bound(produce)
+    result = run_typed_create_sheet_action(project, "p", bound)
+    assert events == ["rows_closed", "warnings_read"]
+    if fail:
+        assert result.status == "failed"
+        _assert_no_publication(project)
+    else:
+        assert result.status == "completed", result.errors
+        assert result.warnings == late
+        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+        assert receipt.warnings == late
+        replay = run_typed_create_sheet_action(project, "p", bound)
+        assert replay.status == "completed", replay.errors
+        assert replay.receipt_id == result.receipt_id
+        assert replay.warnings == late
         assert events == ["rows_closed", "warnings_read"]
-        if fail:
-            assert result.status == "failed"
-            _assert_no_publication(project)
-        else:
-            assert result.status == "completed", result.errors
-            assert result.warnings == late
-            receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-            assert receipt.warnings == late
-            replay = run_typed_create_sheet_action(project, "p", bound)
-            assert replay.status == "completed", replay.errors
-            assert replay.receipt_id == result.receipt_id
-            assert replay.warnings == late
-            assert events == ["rows_closed", "warnings_read"]
 
 
 @pytest.mark.parametrize("streamed", [False, True])
 def test_final_warnings_bound_examples_lengths_and_iterator_consumption(
-    tmp_path, streamed
+    make_project, streamed
 ):
     visited = []
 
@@ -308,15 +306,15 @@ def test_final_warnings_bound_examples_lengths_and_iterator_consumption(
         rows = [TableRow(output=EmailFilesRow(from_="Sender", files_=[]))]
         return TableResult(rows=iter(rows) if streamed else rows, warnings=warnings())
 
-    with closing(Project.create(tmp_path / "project")) as project:
-        result = run_typed_create_sheet_action(project, "p", _bound(produce))
-        assert result.status == "completed", result.errors
-        assert visited == list(range(101))
-        assert len(result.warnings) == 101
-        for index, warning in enumerate(result.warnings[:100]):
-            assert warning.startswith(f"{index}:")
-            assert len(warning) <= 2000
-        assert "omitted" in result.warnings[-1].lower()
-        assert len(result.warnings[-1]) <= 2000
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        assert receipt.warnings == result.warnings
+    project = make_project("project")
+    result = run_typed_create_sheet_action(project, "p", _bound(produce))
+    assert result.status == "completed", result.errors
+    assert visited == list(range(101))
+    assert len(result.warnings) == 101
+    for index, warning in enumerate(result.warnings[:100]):
+        assert warning.startswith(f"{index}:")
+        assert len(warning) <= 2000
+    assert "omitted" in result.warnings[-1].lower()
+    assert len(result.warnings[-1]) <= 2000
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    assert receipt.warnings == result.warnings

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import (
     MediaBlobStore,
     media_cell,
@@ -40,8 +39,8 @@ class _AudioProgram(ActionProgram):
 
 
 @pytest.fixture
-def audio(tmp_path):
-    project = Project.create(tmp_path / "audio.frisket")
+def audio(make_project):
+    project = make_project("audio")
     sheet = project.add_sheet("Sources")
     columns = {name: project.add_column(sheet, name, "json") for name in ("a", "b")}
     try:

@@ -15,7 +15,6 @@ import pytest
 from frisket.ai.embeddings import build_batch_result
 from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 
 PROJECT_ID = "project-embedding-network-fence"
 
@@ -42,14 +41,13 @@ class FakeGateway:
 
 
 @pytest.fixture
-def project(tmp_path):
-    p = Project.create(tmp_path / "emb-net.frisket", name="emb-net")
+def project(make_project):
+    p = make_project("emb-net")
     sheet = p.add_sheet("data")
     cols = {"headline": p.add_column(sheet, "headline")}
     p.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)
     p._sheet_id = sheet  # type: ignore[attr-defined]
     yield p
-    p.close()
 
 
 def _create_action(sheet_id, *, provider, allow_remote, key):

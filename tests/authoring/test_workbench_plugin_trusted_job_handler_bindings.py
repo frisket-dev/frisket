@@ -241,6 +241,7 @@ def test_trusted_backend_activation_rejects_unknown_or_undeclared_handler_bindin
 
 def test_runtime_handler_bindings_require_trusted_capability_and_namespaced_keys(
     tmp_path: Path,
+    client,
 ) -> None:
     _reset_default_registry_for_tests()
     with pytest.raises(ValueError, match="namespaced"):
@@ -261,7 +262,6 @@ def test_runtime_handler_bindings_require_trusted_capability_and_namespaced_keys
                 f"{invalid_prefix}:handler_demo.echo", _trusted_handler
             )
 
-    client = TestClient(create_app(tmp_path / "workspace"))
     project_id = client.post(
         "/api/projects", json={"name": "Runtime binding capability gate"}
     ).json()["id"]

@@ -3,35 +3,31 @@ import json
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.server.notifications.projections import alert_check_notification_candidate
 
 
 @pytest.fixture
-def scene(tmp_path):
-    project = Project.create(tmp_path / "alerts.frisket")
-    try:
-        sheet = project.add_sheet("records")
-        column = project.add_column(sheet, "value")
-        rows = project.add_rows(
-            sheet, [{"value": "old"} for _ in range(3)], {"value": column}
-        )
-        alert = add_alert(
-            project,
-            "Monitor",
-            scope="sheet",
-            sheet_id=sheet,
-            query={"kind": "filter", "sheet_id": sheet, "filter": {}},
-            detection_policy={
-                "kind": "conditions",
-                "entered": True,
-                "exited": True,
-                "fields": [{"sheet_id": sheet, "column_id": column}],
-            },
-        )
-        yield project, sheet, column, rows, alert
-    finally:
-        project.close()
+def scene(make_project):
+    project = make_project("alerts")
+    sheet = project.add_sheet("records")
+    column = project.add_column(sheet, "value")
+    rows = project.add_rows(
+        sheet, [{"value": "old"} for _ in range(3)], {"value": column}
+    )
+    alert = add_alert(
+        project,
+        "Monitor",
+        scope="sheet",
+        sheet_id=sheet,
+        query={"kind": "filter", "sheet_id": sheet, "filter": {}},
+        detection_policy={
+            "kind": "conditions",
+            "entered": True,
+            "exited": True,
+            "fields": [{"sheet_id": sheet, "column_id": column}],
+        },
+    )
+    yield project, sheet, column, rows, alert
 
 
 def record(scene, rows, *, status="ok", query_hash="scope-1", hits=None):

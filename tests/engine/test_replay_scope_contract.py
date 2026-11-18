@@ -161,12 +161,9 @@ class _Fixture:
 
 
 @pytest.fixture
-def fx(tmp_path):
-    project = Project.create(tmp_path / "p.frisket")
-    try:
-        yield _Fixture(project)
-    finally:
-        project.close()
+def fx(make_project):
+    project = make_project("p")
+    yield _Fixture(project)
 
 
 def _require_surface_policy() -> None:

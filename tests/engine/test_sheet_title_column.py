@@ -26,8 +26,8 @@ from frisket.engine.store import Project
 
 
 class TestStoreSetSheetTitleColumn:
-    def test_set_and_read_back(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_set_and_read_back(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         col = p.add_column(sheet, "name")
         p.add_column(sheet, "other")
@@ -38,8 +38,8 @@ class TestStoreSetSheetTitleColumn:
         assert p.sheets()[0]["title_column_id"] == col
         p.close()
 
-    def test_clear_with_none(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_clear_with_none(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         col = p.add_column(sheet, "name")
         p.set_sheet_title_column(sheet, col)
@@ -49,8 +49,8 @@ class TestStoreSetSheetTitleColumn:
         assert p.sheets()[0]["title_column_id"] is None
         p.close()
 
-    def test_rejects_column_from_another_sheet(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_rejects_column_from_another_sheet(self, make_project):
+        p = make_project("t")
         sheet_a = p.add_sheet("a")
         sheet_b = p.add_sheet("b")
         col_b = p.add_column(sheet_b, "name")
@@ -59,8 +59,8 @@ class TestStoreSetSheetTitleColumn:
             p.set_sheet_title_column(sheet_a, col_b)
         p.close()
 
-    def test_rejects_unknown_sheet(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_rejects_unknown_sheet(self, make_project):
+        p = make_project("t")
         with pytest.raises(KeyError, match="no sheet"):
             p.set_sheet_title_column(999999, None)
         p.close()

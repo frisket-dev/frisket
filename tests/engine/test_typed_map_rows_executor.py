@@ -3,7 +3,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import datetime as dt
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -149,8 +148,8 @@ REGISTRY = ActionRegistry(
 
 
 @pytest.fixture
-def project(tmp_path: Path):
-    value = Project.create(tmp_path / "typed-map-rows.frisket")
+def project(make_project):
+    value = make_project("typed-map-rows")
     sheet_id = value.add_sheet("data")
     source_id = value.add_column(sheet_id, "source")
     note_id = value.add_column(sheet_id, "note")
@@ -163,7 +162,6 @@ def project(tmp_path: Path):
         {"source": source_id, "note": note_id},
     )
     yield value, sheet_id, row_ids
-    value.close()
 
 
 def _runner(project: Project) -> MapRunner:

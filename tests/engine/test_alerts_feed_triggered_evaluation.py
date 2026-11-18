@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs import EMBEDDING_REFRESH_KIND, Worker
-from frisket.server.app import create_app
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
 from frisket.features.alerts.triggers import (
@@ -338,12 +337,11 @@ def _finish_source_poll_job(client: TestClient, body: dict[str, Any]):
 
 
 def test_v1_source_poll_action_triggers_alert_check(
-    tmp_path: Path,
+    client,
     monkeypatch: Any,
 ) -> None:
     from frisket import ingest
 
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post(
         "/api/projects", json={"name": "Source trigger route"}
     ).json()["id"]
@@ -481,14 +479,13 @@ def test_noop_and_failed_source_polls_do_not_trigger_alert_checks(
 
 
 def test_v1_source_poll_job_enqueues_embedding_refresh(
-    tmp_path: Path,
+    client,
     monkeypatch: Any,
 ) -> None:
     # HTTP admission queues source.poll; its worker must still enqueue the
     # refresh needed by embedding_similarity alerts after appending source rows.
     from frisket import ingest
 
-    client = TestClient(create_app(tmp_path / "ws"))
     pid = client.post("/api/projects", json={"name": "src emb"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     source_id = FeedStore(project).add_feed(

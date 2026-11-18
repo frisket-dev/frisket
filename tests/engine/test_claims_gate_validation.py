@@ -9,7 +9,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -26,7 +25,6 @@ from frisket.engine.runner.validation import (
     ClaimsGate,
     ExecutionResolutionRefused,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.runs import RunResultStore
@@ -62,8 +60,8 @@ class _OneMicroPolicy:
 
 
 @pytest.fixture()
-def audio_project(tmp_path: Path):
-    project = Project.create(tmp_path / "p.frisket")
+def audio_project(make_project):
+    project = make_project("p")
     sheet_id = project.add_sheet("S")
     col = project.add_column(sheet_id, "media", type="audio")
     blob = project.add_blob(

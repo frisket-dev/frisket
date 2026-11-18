@@ -1233,12 +1233,9 @@ def _catalog_hints(client):
     }
 
 
-def test_recipe_catalog_surfaces_sidecar_engine_availability(tmp_path, monkeypatch):
+def test_recipe_catalog_surfaces_sidecar_engine_availability(client, monkeypatch):
     """The v1 action catalog should include media engine availability from
     /capabilities for the UI picker."""
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
@@ -1275,7 +1272,6 @@ def test_recipe_catalog_surfaces_sidecar_engine_availability(tmp_path, monkeypat
         )
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    client = TestClient(create_app(tmp_path / "ws"))
     _, hints = _catalog_hints(client)
 
     assert captured["url"] == "http://models:8500/capabilities"
@@ -1315,16 +1311,12 @@ def _gateway_target(hints, action_kind: str = "media.transcribe"):
 
 
 def test_recipe_catalog_missing_sidecar_token_disables_quality_tiers(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ):
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "   ")
 
-    client = TestClient(create_app(tmp_path / "ws"))
     _, hints = _catalog_hints(client)
 
     for action_kind, sidecar_id in {
@@ -1340,18 +1332,15 @@ def test_recipe_catalog_missing_sidecar_token_disables_quality_tiers(
 
 
 @requires_ocr_runtime
-def test_recipe_catalog_unconfigured_sidecar_keeps_local_engines(tmp_path, monkeypatch):
+def test_recipe_catalog_unconfigured_sidecar_keeps_local_engines(client, monkeypatch):
     """A missing sidecar must not disable a ready local RapidOCR runtime."""
-    from fastapi.testclient import TestClient
 
     from frisket.ops import ocr_engines_local
-    from frisket.server.app import create_app
 
     monkeypatch.delenv("FRISKET_MODELS_URL", raising=False)
     monkeypatch.delenv("FRISKET_MODELS_TOKEN", raising=False)
     monkeypatch.setattr(ocr_engines_local, "rapidocr_setup_ready", lambda: True)
 
-    client = TestClient(create_app(tmp_path / "ws"))
     _, hints = _catalog_hints(client)
 
     ocr = {e["id"]: e for e in hints["media.ocr"]["engines"]}
@@ -1373,10 +1362,7 @@ def test_recipe_catalog_unconfigured_sidecar_keeps_local_engines(tmp_path, monke
     assert "FRISKET_MODELS_URL" in gateway["error"]
 
 
-def test_recipe_catalog_sidecar_probe_failure_is_nonfatal(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
+def test_recipe_catalog_sidecar_probe_failure_is_nonfatal(client, monkeypatch):
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
@@ -1385,7 +1371,6 @@ def test_recipe_catalog_sidecar_probe_failure_is_nonfatal(tmp_path, monkeypatch)
         raise httpx.TimeoutException("slow sidecar")
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    client = TestClient(create_app(tmp_path / "ws"))
     response, hints = _catalog_hints(client)
 
     assert response.status_code == 200
@@ -1567,11 +1552,8 @@ def test_recipe_catalog_sidecar_probe_cache_expires_deterministically(
 
 
 def test_recipe_catalog_sidecar_probe_cache_key_tracks_url_and_token(
-    tmp_path, monkeypatch
+    client, monkeypatch
 ):
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models-a:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "token-a")
@@ -1586,7 +1568,6 @@ def test_recipe_catalog_sidecar_probe_cache_key_tracks_url_and_token(
         )
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    client = TestClient(create_app(tmp_path / "ws"))
 
     assert client.get("/api/actions/v1/catalog").status_code == 200
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "token-b")
@@ -1601,10 +1582,7 @@ def test_recipe_catalog_sidecar_probe_cache_key_tracks_url_and_token(
     ]
 
 
-def test_recipe_catalog_caches_sidecar_probe_failures(tmp_path, monkeypatch):
-    from fastapi.testclient import TestClient
-
-    from frisket.server.app import create_app
+def test_recipe_catalog_caches_sidecar_probe_failures(client, monkeypatch):
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:8500")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
@@ -1622,7 +1600,6 @@ def test_recipe_catalog_caches_sidecar_probe_failures(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(httpx, "get", fake_get)
-    client = TestClient(create_app(tmp_path / "ws"))
 
     first_response, first_hints = _catalog_hints(client)
     second_response, second_hints = _catalog_hints(client)

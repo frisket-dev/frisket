@@ -23,7 +23,7 @@ class InterruptedAfterReturn(BaseException):
 
 
 @pytest.fixture
-def source(tmp_path, monkeypatch):
+def source(make_project, monkeypatch):
     calls = []
 
     def download(url, **kwargs):
@@ -31,7 +31,7 @@ def source(tmp_path, monkeypatch):
         return b"recoverable bytes", "text/plain", "evidence.txt", None
 
     monkeypatch.setattr("frisket.ops.enclosures.download_url", download)
-    project = Project.create(tmp_path / "source.frisket")
+    project = make_project("source")
     sheet = project.add_sheet("URLs")
     column = project.add_column(sheet, "url", "link")
     (row,) = project.add_rows(

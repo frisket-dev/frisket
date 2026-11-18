@@ -1,13 +1,11 @@
 """Paid scan facts survive later windows and publication failures."""
 
-from contextlib import closing
 import asyncio
 import sqlite3
 
 import pytest
 
 from frisket.actions.types import ActionRequest
-from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from tests.engine.test_map_find_runtime import (
     _FindAdapter,
@@ -34,65 +32,63 @@ def _find(project, *, rows=1):
     return _queued_find(project, request, project_id="find-accounting")
 
 
-def test_find_publication_error_keeps_known_purchase(tmp_path, monkeypatch):
-    with closing(Project.create(tmp_path / "find.frisket")) as project:
-        envelope = _find(project)
-        adapter = _FindAdapter("unused", matches=[])
+def test_find_publication_error_keeps_known_purchase(make_project, monkeypatch):
+    project = make_project("find")
+    envelope = _find(project)
+    adapter = _FindAdapter("unused", matches=[])
 
-        def blocked(*args, **kwargs):
-            raise sqlite3.OperationalError("database is locked")
+    def blocked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
 
-        monkeypatch.setattr(OutputColumnClaimStore, "acquire", blocked)
-        result = _run_queued_find(project, envelope, adapter)
-        assert result.status == "failed"
-        assert len(adapter.requests) == 1
-        row = project.db.execute(
-            "SELECT count(*),sum(provider_cost_usd) FROM model_calls"
-        ).fetchone()
-        assert tuple(row) == pytest.approx((1, 0.0004))
-        assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
-
-
-def test_find_persists_first_plan_before_second_plan_is_interrupted(tmp_path):
-    with closing(Project.create(tmp_path / "interrupted.frisket")) as project:
-        envelope = _find(project, rows=2)
-
-        class Interrupted(_FindAdapter):
-            async def complete(self, request, client):
-                if self.requests:
-                    assert (
-                        project.db.execute(
-                            "SELECT count(*) FROM model_calls"
-                        ).fetchone()[0]
-                        == 1
-                    )
-                    raise asyncio.CancelledError("stopped during next window")
-                return await super().complete(request, client)
-
-        adapter = Interrupted("unused", matches=[])
-        result = _run_queued_find(project, envelope, adapter)
-        assert result.status == "cancelled"
-        assert (
-            project.db.execute(
-                "SELECT status FROM receipts WHERE id=?", (envelope.receipt_id,)
-            ).fetchone()[0]
-            == "cancelled"
-        )
-        assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
-        assert project.db.execute(
-            "SELECT sum(provider_cost_usd) FROM model_calls"
-        ).fetchone()[0] == pytest.approx(0.0004)
+    monkeypatch.setattr(OutputColumnClaimStore, "acquire", blocked)
+    result = _run_queued_find(project, envelope, adapter)
+    assert result.status == "failed"
+    assert len(adapter.requests) == 1
+    row = project.db.execute(
+        "SELECT count(*),sum(provider_cost_usd) FROM model_calls"
+    ).fetchone()
+    assert tuple(row) == pytest.approx((1, 0.0004))
+    assert project.db.execute("SELECT count(*) FROM runs").fetchone()[0] == 0
 
 
-def test_find_publication_attaches_each_already_recorded_purchase_once(tmp_path):
-    with closing(Project.create(tmp_path / "completed.frisket")) as project:
-        envelope = _find(project, rows=2)
-        result = _run_queued_find(project, envelope, _FindAdapter("unused", matches=[]))
-        assert result.status == "completed"
-        facts = project.db.execute(
-            "SELECT count(*),sum(provider_cost_usd),count(DISTINCT run_id) FROM model_calls"
-        ).fetchone()
-        assert tuple(facts) == pytest.approx((2, 0.0008, 1))
-        assert project.db.execute("SELECT cost_actual FROM runs").fetchone()[
-            0
-        ] == pytest.approx(0.0008)
+def test_find_persists_first_plan_before_second_plan_is_interrupted(make_project):
+    project = make_project("interrupted")
+    envelope = _find(project, rows=2)
+
+    class Interrupted(_FindAdapter):
+        async def complete(self, request, client):
+            if self.requests:
+                assert (
+                    project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0]
+                    == 1
+                )
+                raise asyncio.CancelledError("stopped during next window")
+            return await super().complete(request, client)
+
+    adapter = Interrupted("unused", matches=[])
+    result = _run_queued_find(project, envelope, adapter)
+    assert result.status == "cancelled"
+    assert (
+        project.db.execute(
+            "SELECT status FROM receipts WHERE id=?", (envelope.receipt_id,)
+        ).fetchone()[0]
+        == "cancelled"
+    )
+    assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 1
+    assert project.db.execute(
+        "SELECT sum(provider_cost_usd) FROM model_calls"
+    ).fetchone()[0] == pytest.approx(0.0004)
+
+
+def test_find_publication_attaches_each_already_recorded_purchase_once(make_project):
+    project = make_project("completed")
+    envelope = _find(project, rows=2)
+    result = _run_queued_find(project, envelope, _FindAdapter("unused", matches=[]))
+    assert result.status == "completed"
+    facts = project.db.execute(
+        "SELECT count(*),sum(provider_cost_usd),count(DISTINCT run_id) FROM model_calls"
+    ).fetchone()
+    assert tuple(facts) == pytest.approx((2, 0.0008, 1))
+    assert project.db.execute("SELECT cost_actual FROM runs").fetchone()[
+        0
+    ] == pytest.approx(0.0008)

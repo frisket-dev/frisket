@@ -35,7 +35,6 @@ from frisket.engine.executor.map_rows_action import (
     run_typed_map_rows_action,
 )
 from frisket.engine.runner import MapRunner
-from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore, media_cell
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
@@ -86,7 +85,7 @@ REGISTRY = ActionRegistry(
 
 
 @pytest.fixture
-def source(tmp_path, monkeypatch):
+def source(make_project, monkeypatch):
     # Image cache admission requires a successful EXIF adapter, not a retryable
     # missing-dependency envelope. Keep the real parser and cache policy while
     # replacing only the optional local tool transport.
@@ -104,26 +103,23 @@ def source(tmp_path, monkeypatch):
             stderr=b"",
         ),
     )
-    project = Project.create(tmp_path / "row-capabilities.frisket")
-    try:
-        sheet = project.add_sheet("assets")
-        column = project.add_column(sheet, "asset", type="file")
-        digest = project.add_blob(
-            b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sII", 13, b"IHDR", 13, 7),
-            filename="original.png",
-            mime="image/png",
-        )
-        rows = project.add_rows(
-            sheet,
-            [
-                {"asset": media_cell(digest, filename=name, mime="image/png")}
-                for name in ("first.png", "second.png")
-            ],
-            {"asset": column},
-        )
-        yield project, sheet, rows, digest
-    finally:
-        project.close()
+    project = make_project("row-capabilities")
+    sheet = project.add_sheet("assets")
+    column = project.add_column(sheet, "asset", type="file")
+    digest = project.add_blob(
+        b"\x89PNG\r\n\x1a\n" + struct.pack(">I4sII", 13, b"IHDR", 13, 7),
+        filename="original.png",
+        mime="image/png",
+    )
+    rows = project.add_rows(
+        sheet,
+        [
+            {"asset": media_cell(digest, filename=name, mime="image/png")}
+            for name in ("first.png", "second.png")
+        ],
+        {"asset": column},
+    )
+    yield project, sheet, rows, digest
 
 
 @pytest.fixture

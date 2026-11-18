@@ -5,7 +5,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import json
 import threading
-from contextlib import closing
 from dataclasses import replace
 from decimal import Decimal
 
@@ -17,7 +16,6 @@ from frisket.contracts.action import Receipt
 from frisket.engine.executor import resolve_map_preview
 from frisket.engine.runner import MapRunner, validation
 from frisket.engine.runner.preview import PreviewEffectRequiresRun
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.attempt import StaleAttemptWriter, claim
@@ -140,107 +138,101 @@ def _outputs(project):
 
 
 @pytest.mark.parametrize("mode", ["success", "invalid", "cancel"])
-def test_real_model_preview_accounts_success_failure_and_cancel(tmp_path, mode):
-    with closing(Project.create(tmp_path / "preview.frisket")) as project:
-        sheet, row_ids, _ = _seed(project, ["alpha", "beta"])
-        cancelled = threading.Event()
-        adapter = _Adapter(
-            cancel=cancelled if mode == "cancel" else None, invalid=mode == "invalid"
+def test_real_model_preview_accounts_success_failure_and_cancel(make_project, mode):
+    project = make_project("preview")
+    sheet, row_ids, _ = _seed(project, ["alpha", "beta"])
+    cancelled = threading.Event()
+    adapter = _Adapter(
+        cancel=cancelled if mode == "cancel" else None, invalid=mode == "invalid"
+    )
+    runner = _runner(project, adapter)
+    plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
+    before = _outputs(project)
+    spec, attempt = _admit(runner, plan)
+    result = asyncio.run(
+        runner.preview(
+            spec, program=plan.program, attempt=attempt, cancel_event=cancelled
         )
-        runner = _runner(project, adapter)
-        plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
-        before = _outputs(project)
-        spec, attempt = _admit(runner, plan)
-        result = asyncio.run(
+    )
+    facts = runner.run_store.model_calls()
+    assert adapter.calls and len(facts) == len(adapter.calls)
+    assert sum(fact["provider_cost_usd"] for fact in facts) == pytest.approx(
+        len(adapter.calls) * 0.01
+    )
+    assert {fact["attempt_id"] for fact in facts} == {attempt.attempt_id}
+    assert all(fact["run_id"] is None and fact["column_id"] is None for fact in facts)
+    if mode == "cancel":
+        assert result.values == {} and len(adapter.calls) == 1
+    elif mode == "invalid":
+        assert all(cells["summary"].get("error") for cells in result.values.values())
+    else:
+        assert all(
+            cells["summary"]["value"] == "Paid sample."
+            for cells in result.values.values()
+        )
+    assert _outputs(project) == before
+
+
+def test_cancel_before_json_repair_retains_returned_purchase_once(make_project):
+    project = make_project("preview")
+    sheet, row_ids, _ = _seed(project, ["alpha"])
+    cancelled = threading.Event()
+    adapter = _Adapter(cancel=cancelled, invalid=True)
+    runner = _runner(project, adapter)
+    plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
+    before = _outputs(project)
+    spec, attempt = _admit(runner, plan)
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
             runner.preview(
                 spec, program=plan.program, attempt=attempt, cancel_event=cancelled
             )
         )
-        facts = runner.run_store.model_calls()
-        assert adapter.calls and len(facts) == len(adapter.calls)
-        assert sum(fact["provider_cost_usd"] for fact in facts) == pytest.approx(
-            len(adapter.calls) * 0.01
-        )
-        assert {fact["attempt_id"] for fact in facts} == {attempt.attempt_id}
-        assert all(
-            fact["run_id"] is None and fact["column_id"] is None for fact in facts
-        )
-        if mode == "cancel":
-            assert result.values == {} and len(adapter.calls) == 1
-        elif mode == "invalid":
-            assert all(
-                cells["summary"].get("error") for cells in result.values.values()
-            )
-        else:
-            assert all(
-                cells["summary"]["value"] == "Paid sample."
-                for cells in result.values.values()
-            )
-        assert _outputs(project) == before
-
-
-def test_cancel_before_json_repair_retains_returned_purchase_once(tmp_path):
-    with closing(Project.create(tmp_path / "preview.frisket")) as project:
-        sheet, row_ids, _ = _seed(project, ["alpha"])
-        cancelled = threading.Event()
-        adapter = _Adapter(cancel=cancelled, invalid=True)
-        runner = _runner(project, adapter)
-        plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=row_ids))
-        before = _outputs(project)
-        spec, attempt = _admit(runner, plan)
-        with pytest.raises(asyncio.CancelledError):
-            asyncio.run(
-                runner.preview(
-                    spec, program=plan.program, attempt=attempt, cancel_event=cancelled
-                )
-            )
-        facts = runner.run_store.model_calls(receipt_id=attempt.receipt_id)
-        assert len(adapter.calls) == len(facts) == 1
-        assert facts[0]["provider_cost_usd"] == pytest.approx(0.01)
-        assert facts[0]["attempt_id"] == attempt.attempt_id
-        assert _outputs(project) == before
+    facts = runner.run_store.model_calls(receipt_id=attempt.receipt_id)
+    assert len(adapter.calls) == len(facts) == 1
+    assert facts[0]["provider_cost_usd"] == pytest.approx(0.01)
+    assert facts[0]["attempt_id"] == attempt.attempt_id
+    assert _outputs(project) == before
 
 
 @pytest.mark.parametrize("drift", ["scope", "source"])
 def test_paid_preview_binds_scope_but_reads_current_source(
-    tmp_path,
+    make_project,
     drift,
 ):
-    with closing(Project.create(tmp_path / "preview.frisket")) as project:
-        sheet, rows, column = _seed(project, ["alpha", "beta"])
-        adapter = _Adapter()
-        runner = _runner(project, adapter)
-        plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=rows))
-        spec = {
-            **plan.runner_spec,
-            "confirmed": True,
-            "consented_promise_set_hash": "0" * 64,
-        }
-        with pytest.raises(validation.ClaimsGate):
-            runner.prepare_preview(spec, program=plan.program, accounted=True)
-        with pytest.raises(PreviewEffectRequiresRun):
-            asyncio.run(runner.preview(spec, program=plan.program))
-        exact, attempt = _admit(runner, plan)
-        altered = {**exact, "row_ids": rows[:1]} if drift == "scope" else exact
-        if drift == "source":
-            replace_test_source_cell(
-                project, row_id=rows[0], column_id=column, value="omega"
-            )
-        if drift == "scope":
-            with pytest.raises((validation.CostGate, StaleAttemptWriter)):
-                asyncio.run(
-                    runner.preview(altered, program=plan.program, attempt=attempt)
-                )
-            assert adapter.calls == []
-        else:
-            result = asyncio.run(
-                runner.preview(altered, program=plan.program, attempt=attempt)
-            )
-            assert len(adapter.calls) == len(rows)
-            assert "omega" in str(adapter.calls[0].messages)
-            assert "alpha" not in str(adapter.calls[0].messages)
-            assert set(result.values) == set(rows)
-            assert len(runner.run_store.model_calls()) == len(rows)
+    project = make_project("preview")
+    sheet, rows, column = _seed(project, ["alpha", "beta"])
+    adapter = _Adapter()
+    runner = _runner(project, adapter)
+    plan = resolve_map_preview(project, _summarize_action(sheet, row_ids=rows))
+    spec = {
+        **plan.runner_spec,
+        "confirmed": True,
+        "consented_promise_set_hash": "0" * 64,
+    }
+    with pytest.raises(validation.ClaimsGate):
+        runner.prepare_preview(spec, program=plan.program, accounted=True)
+    with pytest.raises(PreviewEffectRequiresRun):
+        asyncio.run(runner.preview(spec, program=plan.program))
+    exact, attempt = _admit(runner, plan)
+    altered = {**exact, "row_ids": rows[:1]} if drift == "scope" else exact
+    if drift == "source":
+        replace_test_source_cell(
+            project, row_id=rows[0], column_id=column, value="omega"
+        )
+    if drift == "scope":
+        with pytest.raises((validation.CostGate, StaleAttemptWriter)):
+            asyncio.run(runner.preview(altered, program=plan.program, attempt=attempt))
+        assert adapter.calls == []
+    else:
+        result = asyncio.run(
+            runner.preview(altered, program=plan.program, attempt=attempt)
+        )
+        assert len(adapter.calls) == len(rows)
+        assert "omega" in str(adapter.calls[0].messages)
+        assert "alpha" not in str(adapter.calls[0].messages)
+        assert set(result.values) == set(rows)
+        assert len(runner.run_store.model_calls()) == len(rows)
 
 
 @pytest.mark.parametrize(

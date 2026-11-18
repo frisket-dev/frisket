@@ -8,12 +8,11 @@ import pytest
 from frisket.actions.core import RegisteredAction
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 
 
 @pytest.fixture
-def completed_custom_join(tmp_path, monkeypatch):
+def completed_custom_join(make_project, monkeypatch):
     definition = replace(ACTION_REGISTRY.get("join.semantic").definition, name="match")
     monkeypatch.setattr(
         ACTION_REGISTRY,
@@ -32,29 +31,26 @@ def completed_custom_join(tmp_path, monkeypatch):
         "frisket.ai.embeddings.backends.resolve_embedder",
         lambda *a, **kw: (embed, "fastembed/test"),
     )
-    project = Project.create(tmp_path / "semantic-consumer.frisket")
-    try:
-        left, right = project.add_sheet("Left"), project.add_sheet("Right")
-        source = project.add_column(left, "source", type="text")
-        target = project.add_column(right, "target", type="text")
-        rows = project.add_rows(left, [{"source": "Acme"}], {"source": source})
-        project.add_rows(right, [{"target": "ACME"}], {"target": target})
-        project.db.commit()
-        request = {
-            "action_id": "custom.match",
-            "scope": {"kind": "sheet_rows", "sheet_id": left},
-            "params": {
-                "source": "source",
-                "target": {"sheet_id": right, "column": "target"},
-            },
-            "sheet_name": "Matches",
-            "idempotency_key": "match",
-        }
-        result = run_action_spec(project, request, project_id="test")
-        assert result.status == "completed", result.errors
-        yield project, result, left, rows
-    finally:
-        project.close()
+    project = make_project("semantic-consumer")
+    left, right = project.add_sheet("Left"), project.add_sheet("Right")
+    source = project.add_column(left, "source", type="text")
+    target = project.add_column(right, "target", type="text")
+    rows = project.add_rows(left, [{"source": "Acme"}], {"source": source})
+    project.add_rows(right, [{"target": "ACME"}], {"target": target})
+    project.db.commit()
+    request = {
+        "action_id": "custom.match",
+        "scope": {"kind": "sheet_rows", "sheet_id": left},
+        "params": {
+            "source": "source",
+            "target": {"sheet_id": right, "column": "target"},
+        },
+        "sheet_name": "Matches",
+        "idempotency_key": "match",
+    }
+    result = run_action_spec(project, request, project_id="test")
+    assert result.status == "completed", result.errors
+    yield project, result, left, rows
 
 
 def link_request(receipt_id):

@@ -14,12 +14,10 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store import Project
-
 
 class TestFreshBundleSemanticType:
-    def test_fresh_bundle_carries_the_column_defaulting_to_null(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_fresh_bundle_carries_the_column_defaulting_to_null(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         p.add_column(sheet, "name")
 
@@ -32,8 +30,8 @@ class TestFreshBundleSemanticType:
 
 
 class TestAddColumnSemanticTypeRoundTrip:
-    def test_add_column_with_semantic_type_round_trips(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_add_column_with_semantic_type_round_trips(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         col_id = p.add_column(sheet, "mentions", semantic_type="entity_mentions")
 
@@ -42,8 +40,8 @@ class TestAddColumnSemanticTypeRoundTrip:
         assert p.columns(sheet)[0]["semantic_type"] == "entity_mentions"
         p.close()
 
-    def test_add_column_without_semantic_type_stays_null(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_add_column_without_semantic_type_stays_null(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         col_id = p.add_column(sheet, "plain")
 
@@ -51,8 +49,8 @@ class TestAddColumnSemanticTypeRoundTrip:
         assert row["semantic_type"] is None
         p.close()
 
-    def test_set_column_semantic_type_updates_and_clears(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_set_column_semantic_type_updates_and_clears(self, make_project):
+        p = make_project("t")
         sheet = p.add_sheet("data")
         col_id = p.add_column(sheet, "mentions")
         assert p.get_column(col_id)["semantic_type"] is None
@@ -64,8 +62,8 @@ class TestAddColumnSemanticTypeRoundTrip:
         assert p.get_column(col_id)["semantic_type"] is None
         p.close()
 
-    def test_set_column_semantic_type_rejects_unknown_column(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_set_column_semantic_type_rejects_unknown_column(self, make_project):
+        p = make_project("t")
         with pytest.raises(KeyError):
             p.set_column_semantic_type(999999, "entity_mentions")
         p.close()

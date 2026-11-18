@@ -7,13 +7,11 @@ from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import json
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import validation
-from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import RouteStore, instance_principal
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.consent_coverage import ConsentCoverage
@@ -53,8 +51,8 @@ class _CountingTariff:
 
 
 @pytest.fixture()
-def routed_audio_project(tmp_path: Path):
-    project = Project.create(tmp_path / "routed-audio.frisket")
+def routed_audio_project(make_project):
+    project = make_project("routed-audio")
     sheet_id = project.add_sheet("audio")
     column_id = project.add_column(sheet_id, "media", type="audio")
     blob = project.add_blob(

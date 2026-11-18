@@ -19,7 +19,6 @@ from frisket.actions.types import (
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import ExecutorDeps, run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.execution.provider import (
     ExecutionCompositionContext,
@@ -39,7 +38,7 @@ async def derived_lookup(
 
 
 @pytest.fixture
-def env(tmp_path, monkeypatch):
+def env(make_project, monkeypatch):
     monkeypatch.delenv("OPENCAGE_API_KEY", raising=False)
     from frisket.engine.executor import geocode_capability
 
@@ -47,7 +46,7 @@ def env(tmp_path, monkeypatch):
         pass
 
     monkeypatch.setattr(geocode_capability, "_nominatim_pace", no_pace)
-    project = Project.create(tmp_path / "geo.frisket")
+    project = make_project("geo")
     sheet_id = project.add_sheet("Places")
     column_id = project.add_column(sheet_id, "address", type="text")
     project.add_rows(sheet_id, [{"address": "Oxford"}], {"address": column_id})
@@ -99,7 +98,6 @@ def env(tmp_path, monkeypatch):
 
     run.responses = responses
     yield project, sheet_id, calls, run
-    project.close()
 
 
 def test_typed_geocode_admits_pins_publishes_and_replays(env):

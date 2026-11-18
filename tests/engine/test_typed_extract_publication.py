@@ -14,7 +14,6 @@ from frisket.engine.executor.extract_result_citations import (
     ExtractResultCitations,
     _grounding_artifact_source,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from frisket.engine.store.receipts import ReceiptStore
 from test_model_rows_actions import _DataAdapter, _run_third_party
@@ -25,8 +24,8 @@ REGISTERED = RegisteredAction("map.extract", EXTRACT)
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "extract.frisket")
+def source(make_project):
+    project = make_project("extract")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body", type="text")
     row = project.add_rows(

@@ -35,7 +35,6 @@ from frisket.engine.executor.classify_read import (
     AdmittedClassifier,
     local_semantic_chunks,
 )
-from frisket.engine.store import Project
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.base import ActionContext
 
@@ -452,19 +451,12 @@ STORY_B = "Routine road work finished early"
 @pytest.mark.asyncio
 async def test_local_classifier_picks_the_cosine_winner_and_caches_labels(
     monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
+    make_project,
 ) -> None:
     embedded = _patch_local_semantic_embedding(monkeypatch)
-    project = Project.create(tmp_path / "classifier.frisket")
-    try:
-        first = await AdmittedClassifier(project=project).classify(
-            Row({}), STORY_A, TOPIC
-        )
-        second = await AdmittedClassifier(project=project).classify(
-            Row({}), STORY_B, TOPIC
-        )
-    finally:
-        project.close()
+    project = make_project("classifier")
+    first = await AdmittedClassifier(project=project).classify(Row({}), STORY_A, TOPIC)
+    second = await AdmittedClassifier(project=project).classify(Row({}), STORY_B, TOPIC)
 
     assert first == {"topic": Outcome.ok("accountability")}
     assert second == {"topic": Outcome.ok("infrastructure")}

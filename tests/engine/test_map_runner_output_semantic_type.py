@@ -77,8 +77,8 @@ def _validated(
 
 
 class TestFreshGeneratedColumnSemanticType:
-    def test_declared_semantic_type_lands_on_the_new_column(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_declared_semantic_type_lands_on_the_new_column(self, make_project):
+        p = make_project("t")
         sheet_id, row_ids = _seed(p)
         run_store = RunResultStore(p)
         spec = {
@@ -99,8 +99,8 @@ class TestFreshGeneratedColumnSemanticType:
         assert p.get_column(col_id)["semantic_type"] == "entity_mentions"
         p.close()
 
-    def test_omitted_semantic_type_leaves_the_new_column_null(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_omitted_semantic_type_leaves_the_new_column_null(self, make_project):
+        p = make_project("t")
         sheet_id, row_ids = _seed(p)
         run_store = RunResultStore(p)
         spec = {
@@ -174,8 +174,8 @@ class TestReuseConvergesSemanticType:
         OutputColumnClaimStore(p).release(claim_token=token)
         return prepared
 
-    def test_second_run_adds_a_semantic_type_the_first_run_lacked(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_second_run_adds_a_semantic_type_the_first_run_lacked(self, make_project):
+        p = make_project("t")
         sheet_id, row_ids = _seed(p)
         base_spec = {
             "action_kind": "test.fake_semantic",
@@ -193,8 +193,8 @@ class TestReuseConvergesSemanticType:
         assert p.get_column(col_id)["semantic_type"] is None
         p.close()
 
-    def test_second_run_changes_an_existing_semantic_type(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_second_run_changes_an_existing_semantic_type(self, make_project):
+        p = make_project("t")
         sheet_id, row_ids = _seed(p)
         base_spec = {
             "action_kind": "test.fake_semantic",
@@ -217,8 +217,8 @@ class TestReuseConvergesSemanticType:
         assert p.get_column(col_id)["semantic_type"] == "entity_mentions"
         p.close()
 
-    def test_second_run_clears_a_semantic_type_no_longer_declared(self, tmp_path):
-        p = Project.create(tmp_path / "t.frisket", name="t")
+    def test_second_run_clears_a_semantic_type_no_longer_declared(self, make_project):
+        p = make_project("t")
         sheet_id, row_ids = _seed(p)
         base_spec = {
             "action_kind": "test.fake_semantic",

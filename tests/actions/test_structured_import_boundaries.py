@@ -61,39 +61,41 @@ def _request(tmp_path, kind):
 
 
 @pytest.mark.parametrize("kind", ["import.xlsx", "import.geojson", "import.kml"])
-def test_typed_import_budget_replay_and_retired_envelope_refusal(tmp_path, kind):
+def test_typed_import_budget_replay_and_retired_envelope_refusal(
+    tmp_path, make_project, kind
+):
     path, request = _request(tmp_path, kind)
-    with closing(Project.create(tmp_path / "project")) as project:
-        refused = run_action_spec(
-            project,
-            request,
-            project_id="p",
-            deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=1)),
-        )
-        assert refused.status == "failed"
-        assert refused.errors[0].code == "import_workload_limit_exceeded"
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
-        completed = run_action_spec(project, request, project_id="p")
-        assert completed.status == "completed", completed.errors
-        path.unlink()
-        replay = run_action_spec(project, request, project_id="p")
-        assert replay.receipt_id == completed.receipt_id
-        legacy = {
-            "schema_version": "frisket.action.v2",
-            "kind": kind,
-            "capabilities": ["project:write"],
-            "params": {
-                "sheet_name": "Imported",
-                "mode": "create_sheet",
-                **request["params"],
-            },
-            "idempotency_key": request["idempotency_key"],
-        }
-        refused = run_action_spec(project, legacy, project_id="p")
-        assert refused.status == "failed"
-        assert refused.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    project = make_project("project")
+    refused = run_action_spec(
+        project,
+        request,
+        project_id="p",
+        deps=ExecutorDeps(import_workload_limits=ImportWorkloadLimits(max_rows=1)),
+    )
+    assert refused.status == "failed"
+    assert refused.errors[0].code == "import_workload_limit_exceeded"
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 0
+    completed = run_action_spec(project, request, project_id="p")
+    assert completed.status == "completed", completed.errors
+    path.unlink()
+    replay = run_action_spec(project, request, project_id="p")
+    assert replay.receipt_id == completed.receipt_id
+    legacy = {
+        "schema_version": "frisket.action.v2",
+        "kind": kind,
+        "capabilities": ["project:write"],
+        "params": {
+            "sheet_name": "Imported",
+            "mode": "create_sheet",
+            **request["params"],
+        },
+        "idempotency_key": request["idempotency_key"],
+    }
+    refused = run_action_spec(project, legacy, project_id="p")
+    assert refused.status == "failed"
+    assert refused.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
 class SourceParams(ActionParams):

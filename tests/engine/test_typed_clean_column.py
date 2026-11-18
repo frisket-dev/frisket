@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
@@ -24,8 +23,8 @@ CLEAN_COLUMN = ACTION_REGISTRY.get("map.clean_column")
 
 
 @pytest.fixture
-def project(tmp_path: Path):
-    store = Project.create(tmp_path / "typed-clean-column.frisket")
+def project(make_project):
+    store = make_project("typed-clean-column")
     sheet_id = store.add_sheet("contacts")
     source_id = store.add_column(sheet_id, "agency", type="text")
     row_ids = store.add_rows(
@@ -39,7 +38,6 @@ def project(tmp_path: Path):
         {"agency": source_id},
     )
     yield store, sheet_id, source_id, row_ids
-    store.close()
 
 
 def _runner(project: Project, router=None) -> MapRunner:

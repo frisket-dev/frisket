@@ -165,7 +165,7 @@ def test_queued_provider_error_does_not_overwrite_run_terminal_state(
 
 
 @pytest.mark.parametrize("status", ["failed", "cancelled", "completed", "partial"])
-def test_reserved_finalization_does_not_rewrite_terminal_receipt(tmp_path, status):
+def test_reserved_finalization_does_not_rewrite_terminal_receipt(make_project, status):
     from frisket.contracts.action import Receipt, ActionError
     from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
     from frisket.engine.executor.action_reservations import (
@@ -173,36 +173,34 @@ def test_reserved_finalization_does_not_rewrite_terminal_receipt(tmp_path, statu
     )
     from frisket.engine.store.receipts import ReceiptStore
 
-    with closing(Project.create(tmp_path / "receipt.frisket")) as project:
-        stored = Receipt(
-            receipt_id="terminal",
-            project_id="p",
-            action_id="act",
-            action_kind="map.template",
-            idempotency_key="same",
-            params_hash="hash",
-            status=status,
-            errors=[
-                ActionError(
-                    code="specific_reason", message="Preserve this exact reason"
-                )
-            ],
-        )
-        ReceiptStore(project).insert(stored)
+    project = make_project("receipt")
+    stored = Receipt(
+        receipt_id="terminal",
+        project_id="p",
+        action_id="act",
+        action_kind="map.template",
+        idempotency_key="same",
+        params_hash="hash",
+        status=status,
+        errors=[
+            ActionError(code="specific_reason", message="Preserve this exact reason")
+        ],
+    )
+    ReceiptStore(project).insert(stored)
 
-        def forbidden():
-            raise AssertionError("terminal replay must not release claims again")
+    def forbidden():
+        raise AssertionError("terminal replay must not release claims again")
 
-        result = _finalize_reserved_action_receipt(
-            project,
-            _TypedProjectEnvelope("map.template", "same", {}),
-            params_hash="hash",
-            project_id="p",
-            receipt=stored.model_copy(update={"status": "completed", "errors": []}),
-            reservation_lost_message="lost",
-            require_running_status=False,
-            before_commit=forbidden,
-        )
-        assert result.status == status
-        assert result.errors[0].code == "specific_reason"
-        assert ReceiptStore(project).parsed_by_id("terminal") == stored
+    result = _finalize_reserved_action_receipt(
+        project,
+        _TypedProjectEnvelope("map.template", "same", {}),
+        params_hash="hash",
+        project_id="p",
+        receipt=stored.model_copy(update={"status": "completed", "errors": []}),
+        reservation_lost_message="lost",
+        require_running_status=False,
+        before_commit=forbidden,
+    )
+    assert result.status == status
+    assert result.errors[0].code == "specific_reason"
+    assert ReceiptStore(project).parsed_by_id("terminal") == stored

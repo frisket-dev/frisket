@@ -36,7 +36,7 @@ def custom_materialize(
     return MaterializedEnclosures(rows=())
 
 
-def test_two_custom_actions_reuse_capability_and_actual_arguments(tmp_path):
+def test_two_custom_actions_reuse_capability_and_actual_arguments(make_project):
     registry = ActionRegistry(
         (
             ActionNamespace(
@@ -54,37 +54,35 @@ def test_two_custom_actions_reuse_capability_and_actual_arguments(tmp_path):
             ),
         )
     )
-    with closing(Project.create(tmp_path / "custom.frisket", name="Custom")) as project:
-        sheet, rows = _seed_enclosure_sheet(project, urls=["https://cdn.example/a.mp3"])
-        calls = []
+    project = make_project("Custom")
+    sheet, rows = _seed_enclosure_sheet(project, urls=["https://cdn.example/a.mp3"])
+    calls = []
 
-        def fetch(url):
-            calls.append(url)
-            return f"audio{len(calls)}".encode(), "audio/mpeg", "a.mp3", None
+    def fetch(url):
+        calls.append(url)
+        return f"audio{len(calls)}".encode(), "audio/mpeg", "a.mp3", None
 
-        for index, (name, keep) in enumerate(
-            (("one", True), ("two", True), ("two", False))
-        ):
-            request = ActionRequest(
-                action_id=f"custom.{name}",
-                scope=SheetRows(sheet_id=sheet, row_ids=rows),
-                params={"keep_existing": keep},
-                idempotency_key=f"custom:{index}",
-            )
-            bound = BoundTypedActionRequest.bind(
-                registry.get(request.action_id), request
-            )
-            result = run_typed_enclosure_action(
-                project, PROJECT_ID, bound, enclosure_fetcher=fetch
-            )
-            assert result.status == "completed"
-            receipt = _receipt(project, result.receipt_id)
-            assert receipt.action_kind == request.action_id
-            assert any(output.ref["kind"] == "media_blob" for output in receipt.outputs)
-            assert bool(receipt.provider_use) == (index != 1)
-        assert (
-            len(calls) == 2
-        )  # Renamed and derived force argument, not builtin Params lookup.
+    for index, (name, keep) in enumerate(
+        (("one", True), ("two", True), ("two", False))
+    ):
+        request = ActionRequest(
+            action_id=f"custom.{name}",
+            scope=SheetRows(sheet_id=sheet, row_ids=rows),
+            params={"keep_existing": keep},
+            idempotency_key=f"custom:{index}",
+        )
+        bound = BoundTypedActionRequest.bind(registry.get(request.action_id), request)
+        result = run_typed_enclosure_action(
+            project, PROJECT_ID, bound, enclosure_fetcher=fetch
+        )
+        assert result.status == "completed"
+        receipt = _receipt(project, result.receipt_id)
+        assert receipt.action_kind == request.action_id
+        assert any(output.ref["kind"] == "media_blob" for output in receipt.outputs)
+        assert bool(receipt.provider_use) == (index != 1)
+    assert (
+        len(calls) == 2
+    )  # Renamed and derived force argument, not builtin Params lookup.
 
 
 @pytest.mark.parametrize("selection", [None, [], list(range(1, 502))])

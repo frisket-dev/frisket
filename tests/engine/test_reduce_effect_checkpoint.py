@@ -60,8 +60,8 @@ class _CountingSummaryAdapter(OpenAICompatAdapter):
 
 
 @pytest.fixture()
-def project(tmp_path):
-    p = Project.create(tmp_path / "reduce-effects.frisket", name="reduce-effects")
+def project(make_project):
+    p = make_project("reduce-effects")
     sheet_id = p.add_sheet("Feature Tour")
     columns = {
         "story": p.add_column(sheet_id, "story", type="text"),

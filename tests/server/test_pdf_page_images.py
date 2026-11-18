@@ -6,7 +6,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from frisket.engine.store import Project
 from frisket.engine.pdf_render import (
     PdfRenderCancelled,
     PdfRenderError,
@@ -21,8 +20,8 @@ from frisket.server.route_errors import register_route_error_handler
 
 
 @pytest.fixture
-def source(tmp_path):
-    project = Project.create(tmp_path / "p.frisket", name="PDF pages")
+def source(make_project):
+    project = make_project("PDF pages")
     digest = project.add_blob(b"%PDF-fixture", filename="a.pdf", mime="application/pdf")
     service = ProjectBlobService(SimpleNamespace(get=lambda _id: project))
     try:

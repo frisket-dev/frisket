@@ -145,7 +145,7 @@ raise RuntimeError('death hook not reached')
         )
 
 
-def test_stale_cleanup_keeps_stopped_owner_with_ambiguous_effect(tmp_path):
+def test_stale_cleanup_keeps_stopped_owner_with_ambiguous_effect(make_project):
     from frisket.engine.executor.action_reservations import (
         _running_receipt_stale_result,
     )
@@ -157,48 +157,48 @@ def test_stale_cleanup_keeps_stopped_owner_with_ambiguous_effect(tmp_path):
         PROJECT_ID,
     )
 
-    with closing(Project.create(tmp_path / "ambiguous-stop.frisket")) as project:
-        owner = _seed_orphaned_run(project, reserved_checkpoint=True)
-        receipts = ReceiptStore(project)
-        prior = receipts.parsed_by_id(owner.receipt_id)
-        running = prior.model_copy(update={"status": "running"})
-        assert receipts.update_body_status(running, require_status="queued")
+    project = make_project("ambiguous-stop")
+    owner = _seed_orphaned_run(project, reserved_checkpoint=True)
+    receipts = ReceiptStore(project)
+    prior = receipts.parsed_by_id(owner.receipt_id)
+    running = prior.model_copy(update={"status": "running"})
+    assert receipts.update_body_status(running, require_status="queued")
+    project.db.execute(
+        "UPDATE receipts SET created_at='2000-01-01' WHERE id=?",
+        (owner.receipt_id,),
+    )
+    project.db.commit()
+    checkpoint = tuple(
         project.db.execute(
-            "UPDATE receipts SET created_at='2000-01-01' WHERE id=?",
-            (owner.receipt_id,),
-        )
-        project.db.commit()
-        checkpoint = tuple(
+            "SELECT * FROM effect_checkpoints WHERE id=?", (owner.checkpoint_id,)
+        ).fetchone()
+    )
+    result = _running_receipt_stale_result(
+        project,
+        receipts.find_by_id(owner.receipt_id),
+        params_hash=running.params_hash,
+        project_id=PROJECT_ID,
+        action=ActionSpec(
+            kind=ACTION_KIND, params={}, idempotency_key=running.idempotency_key
+        ),
+    )
+    assert result is None
+    assert receipts.parsed_by_id(owner.receipt_id).status == "running"
+    assert (
+        project.db.execute(
+            "SELECT status FROM runs WHERE id=?", (owner.run_id,)
+        ).fetchone()[0]
+        == "running"
+    )
+    assert (
+        tuple(
             project.db.execute(
-                "SELECT * FROM effect_checkpoints WHERE id=?", (owner.checkpoint_id,)
+                "SELECT * FROM effect_checkpoints WHERE id=?",
+                (owner.checkpoint_id,),
             ).fetchone()
         )
-        result = _running_receipt_stale_result(
-            project,
-            receipts.find_by_id(owner.receipt_id),
-            params_hash=running.params_hash,
-            project_id=PROJECT_ID,
-            action=ActionSpec(
-                kind=ACTION_KIND, params={}, idempotency_key=running.idempotency_key
-            ),
-        )
-        assert result is None
-        assert receipts.parsed_by_id(owner.receipt_id).status == "running"
-        assert (
-            project.db.execute(
-                "SELECT status FROM runs WHERE id=?", (owner.run_id,)
-            ).fetchone()[0]
-            == "running"
-        )
-        assert (
-            tuple(
-                project.db.execute(
-                    "SELECT * FROM effect_checkpoints WHERE id=?",
-                    (owner.checkpoint_id,),
-                ).fetchone()
-            )
-            == checkpoint
-        )
+        == checkpoint
+    )
 
 
 def test_stop_before_group_metadata_batch_closes_cancelled_owner(project, monkeypatch):
