@@ -10,7 +10,10 @@ from typing import Any, Mapping
 
 from filelock import FileLock
 
-from frisket.contracts.http.import_sessions import ImportPreparationRetryEstimate
+from frisket.contracts.http.import_sessions import (
+    MAX_IMPORT_ROW_STATE_IDS,
+    ImportPreparationRetryEstimate,
+)
 from frisket.engine.store.import_intake import (
     import_intake_dir,
     read_import_header,
@@ -35,8 +38,6 @@ from frisket.server.services.pdf_split_preparation import (
     PdfSplitPreparationAdapter,
     PdfSplitPreparationStore,
 )
-
-_ROW_STATE_LIMIT = 500
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -527,7 +528,7 @@ class PdfSplitPreparationJobs:
                 "AND work.status IN ('pending','running') "
                 "GROUP BY binding.row_id ORDER BY reading DESC, MAX(work.priority) DESC, "
                 "MIN(work.rowid) LIMIT ?",
-                (generation, _ROW_STATE_LIMIT),
+                (generation, MAX_IMPORT_ROW_STATE_IDS),
             ).fetchall()
         return (
             tuple(int(row[0]) for row in rows if row[1]),

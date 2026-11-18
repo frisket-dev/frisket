@@ -10,6 +10,8 @@ from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.import_errors import ImportSourceErrorGroup
 from frisket.contracts.http.models import WireModel
 
+MAX_IMPORT_ROW_STATE_IDS = 500
+
 
 class ImportPreparationChild(WireModel):
     action_id: Literal["media.read_pdf_text", "media.ocr"]
@@ -65,8 +67,12 @@ class ImportSessionStatus(WireModel):
     preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
     # Rows whose page text is being read now, and rows still waiting, front
     # first; each list is bounded.
-    reading_row_ids: list[int] = Field(default_factory=list, max_length=500)
-    waiting_row_ids: list[int] = Field(default_factory=list, max_length=500)
+    reading_row_ids: list[int] = Field(
+        default_factory=list, max_length=MAX_IMPORT_ROW_STATE_IDS
+    )
+    waiting_row_ids: list[int] = Field(
+        default_factory=list, max_length=MAX_IMPORT_ROW_STATE_IDS
+    )
     failed_pages: int = Field(default=0, ge=0)
 
 
@@ -89,6 +95,7 @@ class ImportSessionList(WireModel):
 
 
 __all__ = [
+    "MAX_IMPORT_ROW_STATE_IDS",
     "ImportPreparationChild",
     "ImportPreparationRetryEstimate",
     "ImportPreparationRetryRequest",
