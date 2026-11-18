@@ -2,9 +2,12 @@
 // The gate requires a grid sort control backed by GET /sheets/{id}/data so
 // paging and views observe the same ordered row set.
 
+import { isDeepStrictEqual } from 'node:util';
+
 import { expect, test } from '@playwright/test';
 import {
   createProject,
+  gridReadSelection,
   importCsv,
   openAdvancedSortPanel,
   openProject,
@@ -12,8 +15,6 @@ import {
   uniqueName,
 } from './helpers';
 
-const ascSort = [{ column: 'city', dir: 'asc' }];
-const descSort = [{ column: 'city', dir: 'desc' }];
 
 test('grid sort: order rows by column through the sheet data endpoint', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-grid-sort'));
@@ -27,17 +28,18 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   const columns = await sheetColumns(page.request, pid, sheetId);
+  const cityId = columns.find((column) => column.name === 'city')!.id;
+  const orderedBy = (res: { url(): string }, dir: 'asc' | 'desc') => isDeepStrictEqual(
+    gridReadSelection(new URL(res.url()), pid, sheetId)?.order,
+    [{ column_id: cityId, dir }],
+  );
   await openAdvancedSortPanel(page, columns, 'city');
   await page.getByTestId('grid-sort-column').selectOption('city');
   await page.getByTestId('grid-sort-direction').selectOption('asc');
 
-  const ascResponse = page.waitForResponse((res) => {
-    if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    const rawSort = url.searchParams.get('sort');
-    return rawSort !== null && JSON.stringify(JSON.parse(rawSort)) === JSON.stringify(ascSort);
-  });
+  const ascResponse = page.waitForResponse((res) => (
+    res.request().method() === 'GET' && orderedBy(res, 'asc')
+  ));
   await page.getByTestId('apply-grid-sort').click();
   const asc = await (await ascResponse).json();
   const cityColumn = asc.columns.find((column: { name: string }) => column.name === 'city');
@@ -50,13 +52,9 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
   await expect(page.getByTestId('active-grid-sort')).toContainText('city');
 
   await page.getByTestId('grid-sort-direction').selectOption('desc');
-  const descResponse = page.waitForResponse((res) => {
-    if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    const rawSort = url.searchParams.get('sort');
-    return rawSort !== null && JSON.stringify(JSON.parse(rawSort)) === JSON.stringify(descSort);
-  });
+  const descResponse = page.waitForResponse((res) => (
+    res.request().method() === 'GET' && orderedBy(res, 'desc')
+  ));
   await page.getByTestId('apply-grid-sort').click();
   const desc = await (await descResponse).json();
   expect(
@@ -67,11 +65,8 @@ test('grid sort: order rows by column through the sheet data endpoint', async ({
 
   const clearedResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      !url.searchParams.has('sort')
-    );
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return selection !== null && selection.order.length === 0;
   });
   await page.getByTestId('clear-grid-sort').click();
   const cleared = await (await clearedResponse).json();

@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import {
   createProject,
   editCells,
+  gridReadSelection,
   importCsv,
   mockBasemapTiles,
   setColumnType,
@@ -92,11 +93,8 @@ test('deck.gl map: filter to this area applies a grid bbox filter', async ({ pag
   // matching only the in-view point.
   const dataResp = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      (url.searchParams.get('filter') ?? '').includes('bbox')
-    );
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return selection?.filters.some((filter) => 'bbox' in filter.condition) ?? false;
   });
   await page.getByTestId('map-filter-viewport').click();
   const filtered = await (await dataResp).json();

@@ -6,6 +6,7 @@ import { expect, test } from '@playwright/test';
 
 import {
   createProject,
+  gridReadSelection,
   importCsv,
   openFriendlyFilterSidebar,
   openAdvancedSortPanel,
@@ -167,9 +168,8 @@ test('large sheet product paths use bounded browser traffic', async ({ page }) =
 
   const filterResponse = page.waitForResponse((response) => {
     if (response.request().method() !== 'GET') return false;
-    const url = new URL(response.url());
-    return pathMatches(url, `/api/projects/${pid}/sheets/${sheetId}/data`) &&
-      url.searchParams.has('filter');
+    const selection = gridReadSelection(new URL(response.url()), pid, sheetId);
+    return (selection?.filters.length ?? 0) > 0;
   });
   await openFriendlyFilterSidebar(page, columns, 'status');
   await page.getByTestId('facet-check-status-open').check();
@@ -178,9 +178,8 @@ test('large sheet product paths use bounded browser traffic', async ({ page }) =
 
   const sortResponse = page.waitForResponse((response) => {
     if (response.request().method() !== 'GET') return false;
-    const url = new URL(response.url());
-    return pathMatches(url, `/api/projects/${pid}/sheets/${sheetId}/data`) &&
-      url.searchParams.has('sort');
+    const selection = gridReadSelection(new URL(response.url()), pid, sheetId);
+    return (selection?.order.length ?? 0) > 0;
   });
   await openAdvancedSortPanel(page, columns, 'rank');
   await page.getByTestId('grid-sort-column').selectOption('rank');

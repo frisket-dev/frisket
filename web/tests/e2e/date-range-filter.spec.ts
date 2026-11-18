@@ -1,6 +1,9 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { expect, test } from '@playwright/test';
 import {
   createProject,
+  gridReadSelection,
   importCsv,
   openFriendlyFilterSidebar,
   openProject,
@@ -10,12 +13,10 @@ import {
   uniqueName,
 } from './helpers';
 
-const rangeFilter = {
-  published: {
-    between: {
-      start: '2026-01-01',
-      end: '2026-03-31',
-    },
+const rangeCondition = {
+  between: {
+    start: '2026-01-01',
+    end: '2026-03-31',
   },
 };
 
@@ -39,11 +40,11 @@ function dateCsv(): string {
   return `${rows.join('\n')}\n`;
 }
 
-function isDateRangeDataRequest(url: URL, pid: string, sheetId: number): boolean {
-  if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-  const rawFilter = url.searchParams.get('filter');
-  if (rawFilter === null) return false;
-  return JSON.stringify(JSON.parse(rawFilter)) === JSON.stringify(rangeFilter);
+function isDateRangeDataRequest(url: URL, pid: string, sheetId: number, columnId: number): boolean {
+  const selection = gridReadSelection(url, pid, sheetId);
+  return isDeepStrictEqual(selection?.filters, [
+    { column_id: columnId, condition: rangeCondition },
+  ]);
 }
 
 test('date-range filters use date columns and round-trip through views', async ({
@@ -65,7 +66,7 @@ test('date-range filters use date columns and round-trip through views', async (
 
   const filteredResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    return isDateRangeDataRequest(new URL(res.url()), pid, sheetId);
+    return isDateRangeDataRequest(new URL(res.url()), pid, sheetId, publishedColumn!.id);
   });
   await page.getByTestId('facet-range-start-published').fill('2026-01-01');
   const filtered = await (await filteredResponse).json();
@@ -93,15 +94,14 @@ test('date-range filters use date columns and round-trip through views', async (
   );
   await page.getByTestId('save-view-button').click();
   const view = await (await viewResponse).json();
-  expect(view.spec.filter).toEqual(rangeFilter);
+  expect(view.spec.selection.filters).toEqual([
+    { column_id: publishedColumn!.id, condition: rangeCondition },
+  ]);
 
   const clearedResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      !url.searchParams.has('filter')
-    );
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return selection !== null && selection.filters.length === 0;
   });
   await page.getByTestId('clear-grid-filter').click();
   await clearedResponse;
@@ -109,7 +109,7 @@ test('date-range filters use date columns and round-trip through views', async (
 
   const viewApplyResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    return isDateRangeDataRequest(new URL(res.url()), pid, sheetId);
+    return isDateRangeDataRequest(new URL(res.url()), pid, sheetId, publishedColumn!.id);
   });
   await page.getByTestId('apply-saved-view').filter({ hasText: 'Q1 dates' }).click();
   const restored = await (await viewApplyResponse).json();
@@ -144,12 +144,10 @@ test('relative date filters stay relative on the wire', async ({ page }) => {
   await expect(page.getByTestId('facet-relative-unit-published')).toHaveValue('days');
   const relativeResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    if (url.pathname !== `/api/projects/${pid}/sheets/${sheetId}/data`) return false;
-    const rawFilter = url.searchParams.get('filter');
-    return rawFilter !== null && JSON.stringify(JSON.parse(rawFilter)) === JSON.stringify({
-      published: { date_relative: { amount: 30, unit: 'days' } },
-    });
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return isDeepStrictEqual(selection?.filters, [
+      { column_id: publishedColumn!.id, condition: { date_relative: { amount: 30, unit: 'days' } } },
+    ]);
   });
   await page.getByTestId('facet-advanced-apply-published').click();
   const response = await relativeResponse;

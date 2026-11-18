@@ -48,9 +48,10 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 import {
   createProject,
+  gridReadSelection,
   importCsv,
-  openFriendlyFilterSidebar,
   openCellDrawer,
+  openFriendlyFilterSidebar,
   sheetColumns,
   uniqueName,
 } from './helpers';
@@ -111,8 +112,8 @@ test('render-counts: open sheet -> apply filter -> open drawer -> toggle theme s
   await openFriendlyFilterSidebar(page, columns, 'city');
   const filteredResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` && url.searchParams.has('filter');
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return (selection?.filters.length ?? 0) > 0;
   });
   await page.getByTestId('facet-check-city-Albany').check();
   await filteredResponse;

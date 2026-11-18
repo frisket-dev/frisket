@@ -14,6 +14,7 @@ import {
   clickHeaderLabel,
   clickHeaderMenu,
   createProject,
+  gridReadSelection,
   importCsv,
   mockBasemapTiles,
   openFriendlyFilterSidebar,
@@ -230,14 +231,12 @@ test('grid header: label click sorts server-side and the second click flips dire
   const sheetId = await importCsv(page.request, pid, 'cities.csv', SORT_CSV);
   const columns = await sheetColumns(page.request, pid, sheetId);
 
+  const cityId = columns.find((column) => column.name === 'city')!.id;
   const sortRequests: Array<{ dir: string }> = [];
   page.on('request', (req) => {
-    const u = new URL(req.url());
-    if (u.pathname.includes(`/sheets/${sheetId}/data`) && u.searchParams.get('sort')) {
-      const sort = JSON.parse(u.searchParams.get('sort')!) as Array<{ column: string; dir: string }>;
-      const rule = sort.find((r) => r.column === 'city');
-      if (rule) sortRequests.push({ dir: rule.dir });
-    }
+    const selection = gridReadSelection(new URL(req.url()), pid, sheetId);
+    const rule = selection?.order.find((item) => 'column_id' in item && item.column_id === cityId);
+    if (rule) sortRequests.push({ dir: rule.dir });
   });
 
   await openProject(page, pid, sheetId);
@@ -259,11 +258,12 @@ test('grid header: the funnel opens an inline filter row that filters live via t
   const sheetId = await importCsv(page.request, pid, 'cities.csv', SORT_CSV);
   const columns = await sheetColumns(page.request, pid, sheetId);
 
-  const filterRequests: string[] = [];
+  const statusId = columns.find((column) => column.name === 'status')!.id;
+  const filterRequests: Array<Record<string, unknown>> = [];
   page.on('request', (req) => {
-    const u = new URL(req.url());
-    if (u.pathname.includes(`/sheets/${sheetId}/data`) && u.searchParams.get('filter')) {
-      filterRequests.push(u.searchParams.get('filter')!);
+    const selection = gridReadSelection(new URL(req.url()), pid, sheetId);
+    for (const filter of selection?.filters ?? []) {
+      if (filter.column_id === statusId) filterRequests.push(filter.condition);
     }
   });
 
@@ -282,7 +282,7 @@ test('grid header: the funnel opens an inline filter row that filters live via t
   await expect(page.getByTestId('sheet-stats')).toContainText('2 rows');
   await expect(page.getByTestId('active-grid-filter')).toContainText('status');
   await expect
-    .poll(() => filterRequests.some((f) => f.includes('status') && f.includes('contains')))
+    .poll(() => filterRequests.some((condition) => condition.contains === 'closed'))
     .toBeTruthy();
 
   // Clear restores every row.

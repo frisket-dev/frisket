@@ -5,10 +5,11 @@ import { expect, test } from '@playwright/test';
 import {
   createProject,
   editCells,
+  gridReadSelection,
   importCsv,
   listSheets,
-  openFriendlyFilterSidebar,
   openAdvancedSortPanel,
+  openFriendlyFilterSidebar,
   openProject,
   sheetColumns,
   sheetData,
@@ -166,11 +167,8 @@ test('project menu exports either the entire sheet or the active grid view as CS
   await openFriendlyFilterSidebar(page, columns, 'status');
   const filterResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      url.searchParams.has('filter')
-    );
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return (selection?.filters.length ?? 0) > 0;
   });
   await page.getByTestId('facet-check-status-done').check();
   await filterResponse;
@@ -180,12 +178,8 @@ test('project menu exports either the entire sheet or the active grid view as CS
   await page.getByTestId('grid-sort-direction').selectOption('desc');
   const sortResponse = page.waitForResponse((res) => {
     if (res.request().method() !== 'GET') return false;
-    const url = new URL(res.url());
-    return (
-      url.pathname === `/api/projects/${pid}/sheets/${sheetId}/data` &&
-      url.searchParams.has('filter') &&
-      url.searchParams.has('sort')
-    );
+    const selection = gridReadSelection(new URL(res.url()), pid, sheetId);
+    return (selection?.filters.length ?? 0) > 0 && (selection?.order.length ?? 0) > 0;
   });
   await page.getByTestId('apply-grid-sort').click();
   await sortResponse;
