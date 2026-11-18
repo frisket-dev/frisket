@@ -3,15 +3,15 @@ import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
 import { toWireJsonObject } from "./viewsLenses";
 import type {
   ViewAlertConditions,
-  WatchHit,
-  WatchInfo,
-  WatchInput,
-  WatchPatchInput,
-  WatchRun,
-  WatchRunEvent,
-  WatchRunEventsPage,
-  WatchRunResult,
-  WatchRunsPage,
+  AlertMatch,
+  AlertInfo,
+  AlertInput,
+  AlertPatchInput,
+  AlertCheck,
+  AlertCheckEvent,
+  AlertCheckEventsPage,
+  AlertCheckResult,
+  AlertChecksPage,
 } from "./types";
 import { sqliteTimestampToIso } from './wireValues';
 
@@ -20,24 +20,24 @@ type ContractRequestBody<Id extends keyof HttpContractOperationMap> = Exclude<
   undefined
 >;
 
-type WatchListWire =
+type AlertListWire =
   HttpContractSuccessResponse<"tenant.list_watches.get">;
-type WatchRowWire = WatchListWire[number];
-type WatchRunResultWire =
+type AlertRowWire = AlertListWire[number];
+type AlertCheckResultWire =
   HttpContractSuccessResponse<"tenant.run_watch.post">;
-type WatchRunsPageWire =
+type AlertChecksPageWire =
   HttpContractSuccessResponse<"tenant.list_watch_runs.get">;
-type WatchRunEventsPageWire =
+type AlertCheckEventsPageWire =
   HttpContractSuccessResponse<"tenant.list_watch_run_events.get">;
 
-type WatchRunWire = WatchRunResultWire["run"];
-type WatchHitWire = WatchRunResultWire["hits"][number];
-type WatchRunEventWire = WatchRunEventsPageWire["events"][number];
+type AlertCheckWire = AlertCheckResultWire["run"];
+type AlertMatchWire = AlertCheckResultWire["hits"][number];
+type AlertCheckEventWire = AlertCheckEventsPageWire["events"][number];
 
-type WatchCreateBody = ContractRequestBody<"tenant.create_watch.post">;
-type WatchPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
+type AlertCreateBody = ContractRequestBody<"tenant.create_watch.post">;
+type AlertPatchBody = ContractRequestBody<"tenant.patch_watch.patch">;
 
-const toWatchHit = (wire: WatchHitWire): WatchHit => ({
+const toAlertMatch = (wire: AlertMatchWire): AlertMatch => ({
   runId: wire.run_id,
   sheetId: wire.sheet_id,
   rowId: wire.row_id,
@@ -49,9 +49,9 @@ const toWatchHit = (wire: WatchHitWire): WatchHit => ({
 
 /** Accepts every generated run shape: bare result/latest rows and page rows,
  * whose page-only hits_limit/hits_truncated fields are intentionally dropped. */
-const toWatchRun = (wire: WatchRunWire & { hits?: WatchHitWire[] }): WatchRun => ({
+const toAlertCheck = (wire: AlertCheckWire & { hits?: AlertMatchWire[] }): AlertCheck => ({
   id: wire.id,
-  watchId: wire.watch_id,
+  alertId: wire.watch_id,
   status: wire.status,
   opCursorBefore: wire.op_cursor_before,
   opCursorAfter: wire.op_cursor_after,
@@ -63,10 +63,10 @@ const toWatchRun = (wire: WatchRunWire & { hits?: WatchHitWire[] }): WatchRun =>
   resolvedQuery: wire.resolved_query ?? {},
   startedAt: sqliteTimestampToIso(wire.started_at),
   finishedAt: wire.finished_at ? sqliteTimestampToIso(wire.finished_at) : null,
-  ...(wire.hits ? { hits: wire.hits.map(toWatchHit) } : {}),
+  ...(wire.hits ? { hits: wire.hits.map(toAlertMatch) } : {}),
 });
 
-const toWatchInfo = (wire: WatchRowWire): WatchInfo => ({
+const toAlertInfo = (wire: AlertRowWire): AlertInfo => ({
   id: wire.id,
   name: wire.name,
   viewId: wire.view_id,
@@ -79,10 +79,10 @@ const toWatchInfo = (wire: WatchRowWire): WatchInfo => ({
   lastStatus: wire.last_status,
   createdAt: sqliteTimestampToIso(wire.created_at),
   updatedAt: sqliteTimestampToIso(wire.updated_at),
-  latestRun: wire.latest_run ? toWatchRun(wire.latest_run) : null,
+  latestRun: wire.latest_run ? toAlertCheck(wire.latest_run) : null,
 });
 
-const toWatchRunsPage = (wire: WatchRunsPageWire): WatchRunsPage => ({
+const toAlertChecksPage = (wire: AlertChecksPageWire): AlertChecksPage => ({
   schemaVersion: "frisket.watch_runs_page.v1",
   order: "desc",
   offset: wire.offset,
@@ -90,13 +90,13 @@ const toWatchRunsPage = (wire: WatchRunsPageWire): WatchRunsPage => ({
   total: wire.total,
   hasMore: wire.has_more,
   nextOffset: wire.next_offset,
-  runs: wire.runs.map(toWatchRun),
+  runs: wire.runs.map(toAlertCheck),
 });
 
-const toWatchRunEvent = (wire: WatchRunEventWire): WatchRunEvent => ({
+const toAlertCheckEvent = (wire: AlertCheckEventWire): AlertCheckEvent => ({
   id: wire.id,
   runId: wire.run_id,
-  watchId: wire.watch_id,
+  alertId: wire.watch_id,
   eventKind: wire.event_kind,
   subjectKind: wire.subject_kind,
   subjectRef: wire.subject_ref ?? {},
@@ -109,9 +109,9 @@ const toWatchRunEvent = (wire: WatchRunEventWire): WatchRunEvent => ({
   createdAt: sqliteTimestampToIso(wire.created_at),
 });
 
-const toWatchRunEventsPage = (
-  wire: WatchRunEventsPageWire,
-): WatchRunEventsPage => ({
+const toAlertCheckEventsPage = (
+  wire: AlertCheckEventsPageWire,
+): AlertCheckEventsPage => ({
   schemaVersion: "frisket.watch_run_events_page.v1",
   order: "asc",
   offset: wire.offset,
@@ -119,25 +119,25 @@ const toWatchRunEventsPage = (
   total: wire.total,
   hasMore: wire.has_more,
   nextOffset: wire.next_offset,
-  events: wire.events.map(toWatchRunEvent),
+  events: wire.events.map(toAlertCheckEvent),
 });
 
-const toWatchRunResult = (wire: WatchRunResultWire): WatchRunResult => ({
+const toAlertCheckResult = (wire: AlertCheckResultWire): AlertCheckResult => ({
   schemaVersion: "frisket.watch_run.v1",
-  watch: toWatchInfo(wire.watch),
-  run: toWatchRun(wire.run),
-  hits: wire.hits.map(toWatchHit),
+  alert: toAlertInfo(wire.watch),
+  run: toAlertCheck(wire.run),
+  hits: wire.hits.map(toAlertMatch),
 });
 
-function toWireWatchBody(input: WatchInput): WatchCreateBody {
+function toWireAlertBody(input: AlertInput): AlertCreateBody {
   return { name: input.name, view_id: input.view_id,
     ...(input.detection_policy ? { detection_policy: toWireJsonObject({ ...input.detection_policy }) } : {}),
     ...(input.schedule !== undefined ? { schedule: input.schedule } : {}),
     ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) };
 }
 
-function toWireWatchPatch(input: WatchPatchInput): WatchPatchBody {
-  const body: WatchPatchBody = {};
+function toWireAlertPatch(input: AlertPatchInput): AlertPatchBody {
+  const body: AlertPatchBody = {};
   if (input.name !== undefined) body.name = input.name;
   if (input.enabled !== undefined) body.enabled = input.enabled;
   if (input.schedule !== undefined) body.schedule = input.schedule;
@@ -145,59 +145,59 @@ function toWireWatchPatch(input: WatchPatchInput): WatchPatchBody {
   return body;
 }
 
-/** Watch lifecycle and run history for one project. */
-export function createWatchesApi(projectId: string) {
+/** Alert lifecycle and run history for one project. */
+export function createAlertsApi(projectId: string) {
   return {
-    async listWatches() {
+    async listAlerts() {
       return httpContract(
         "tenant.list_watches.get",
         { pathParams: { pid: projectId } },
-        (wire) => wire.map(toWatchInfo),
+        (wire) => wire.map(toAlertInfo),
       );
     },
 
-    async createWatch(input: WatchInput) {
+    async createAlert(input: AlertInput) {
       return httpContract(
         "tenant.create_watch.post",
-        { pathParams: { pid: projectId }, body: toWireWatchBody(input) },
-        toWatchInfo,
+        { pathParams: { pid: projectId }, body: toWireAlertBody(input) },
+        toAlertInfo,
       );
     },
 
-    async updateWatch(watchId: number, input: WatchPatchInput) {
+    async updateAlert(alertId: number, input: AlertPatchInput) {
       return httpContract(
         "tenant.patch_watch.patch",
-        { pathParams: { pid: projectId, watch_id: watchId }, body: toWireWatchPatch(input) },
-        toWatchInfo,
+        { pathParams: { pid: projectId, watch_id: alertId }, body: toWireAlertPatch(input) },
+        toAlertInfo,
       );
     },
 
-    async deleteWatch(watchId: number): Promise<void> {
+    async deleteAlert(alertId: number): Promise<void> {
       await httpContract(
         "tenant.delete_watch.delete",
-        { pathParams: { pid: projectId, watch_id: watchId } },
+        { pathParams: { pid: projectId, watch_id: alertId } },
       );
     },
 
     /** A bodyless POST: the route declares no request body. */
-    async runWatch(watchId: number) {
+    async checkAlert(alertId: number) {
       return httpContract(
         "tenant.run_watch.post",
-        { pathParams: { pid: projectId, watch_id: watchId } },
-        toWatchRunResult,
+        { pathParams: { pid: projectId, watch_id: alertId } },
+        toAlertCheckResult,
       );
     },
 
-    async getWatchRuns(watchId: number, offset = 0, limit = 20) {
+    async getAlertChecks(alertId: number, offset = 0, limit = 20) {
       return httpContract(
         "tenant.list_watch_runs.get",
-        { pathParams: { pid: projectId, watch_id: watchId }, query: { offset, limit } },
-        toWatchRunsPage,
+        { pathParams: { pid: projectId, watch_id: alertId }, query: { offset, limit } },
+        toAlertChecksPage,
       );
     },
 
-    async getWatchRunEvents(
-      watchId: number,
+    async getAlertCheckEvents(
+      alertId: number,
       runId: number,
       offset = 0,
       limit = 50,
@@ -206,10 +206,10 @@ export function createWatchesApi(projectId: string) {
       return httpContract(
         "tenant.list_watch_run_events.get",
         {
-          pathParams: { pid: projectId, watch_id: watchId, run_id: runId },
+          pathParams: { pid: projectId, watch_id: alertId, run_id: runId },
           query: { offset, limit, event_kind: eventKind || undefined },
         },
-        toWatchRunEventsPage,
+        toAlertCheckEventsPage,
       );
     },
   };

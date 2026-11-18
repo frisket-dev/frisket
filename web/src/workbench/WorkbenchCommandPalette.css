@@ -173,10 +173,10 @@
   font-size: var(--font-size-meta);
   font-weight: 500;
 }
-.search-watch-btn,
+.search-alert-btn,
 .search-save-btn { display: inline-flex; align-items: center; gap: var(--space-4); }
 .palette-search-index-select { max-width: 150px; }
-.search-watch-status { font-size: var(--font-size-meta); color: var(--text-light); }
+.search-alert-status { font-size: var(--font-size-meta); color: var(--text-light); }
 .workbench-command-palette-footer {
   display: flex;
   align-items: center;

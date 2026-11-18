@@ -36,7 +36,7 @@ export function ModelPullHistory({
 
   useEffect(() => {
     // Defer the load so the setState fires outside the synchronous effect
-    // body (matches LensList/WatchesPanel; avoids
+    // body (matches LensList/AlertsPanel; avoids
     // react-hooks/set-state-in-effect cascades).
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);

@@ -2684,21 +2684,21 @@ export interface ViewAlertConditions {
   fields: Array<{ column_id: number; sheet_id?: number }>;
   threshold?: Record<string, unknown>;
 }
-export interface WatchInput {
+export interface AlertInput {
   name: string;
   view_id: number;
   detection_policy?: ViewAlertConditions;
   schedule?: string | null;
   enabled?: boolean;
 }
-export interface WatchPatchInput {
+export interface AlertPatchInput {
   name?: string;
   enabled?: boolean;
   detection_policy?: ViewAlertConditions;
   schedule?: string | null;
 }
 
-export interface WatchHit {
+export interface AlertMatch {
   runId?: number;
   sheetId: number;
   rowId: number;
@@ -2708,9 +2708,9 @@ export interface WatchHit {
   isNew: boolean;
 }
 
-export interface WatchRun {
+export interface AlertCheck {
   id: number;
-  watchId: number;
+  alertId: number;
   status: string;
   opCursorBefore: number;
   opCursorAfter: number;
@@ -2722,10 +2722,10 @@ export interface WatchRun {
   resolvedQuery: Record<string, unknown>;
   startedAt: string;
   finishedAt: string | null;
-  hits?: WatchHit[];
+  hits?: AlertMatch[];
 }
 
-export interface WatchInfo {
+export interface AlertInfo {
   id: number;
   name: string;
   viewId: number;
@@ -2738,26 +2738,26 @@ export interface WatchInfo {
   lastStatus: string | null;
   createdAt: string;
   updatedAt: string;
-  latestRun: WatchRun | null;
+  latestRun: AlertCheck | null;
 }
 
-export interface WatchRunResult {
+export interface AlertCheckResult {
   schemaVersion: 'frisket.watch_run.v1';
-  watch: WatchInfo;
-  run: WatchRun;
-  hits: WatchHit[];
+  alert: AlertInfo;
+  run: AlertCheck;
+  hits: AlertMatch[];
 }
 
-export interface WatchRunsPage extends PageMeta {
+export interface AlertChecksPage extends PageMeta {
   schemaVersion: 'frisket.watch_runs_page.v1';
   order: 'desc';
-  runs: WatchRun[];
+  runs: AlertCheck[];
 }
 
-export interface WatchRunEvent {
+export interface AlertCheckEvent {
   id: number;
   runId: number;
-  watchId: number;
+  alertId: number;
   eventKind: string;
   subjectKind: string;
   subjectRef: Record<string, unknown>;
@@ -2770,10 +2770,10 @@ export interface WatchRunEvent {
   createdAt: string;
 }
 
-export interface WatchRunEventsPage extends PageMeta {
+export interface AlertCheckEventsPage extends PageMeta {
   schemaVersion: 'frisket.watch_run_events_page.v1';
   order: 'asc';
-  events: WatchRunEvent[];
+  events: AlertCheckEvent[];
 }
 
 export type NotificationState = 'unseen' | 'seen' | 'read' | 'acknowledged';

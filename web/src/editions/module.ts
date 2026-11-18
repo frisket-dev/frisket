@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 
 import type { ModelSetupScope } from '../api/engineSetup';
-import type { AdminOverview, WatchInfo } from '../api/types';
+import type { AdminOverview, AlertInfo } from '../api/types';
 import { routesFor, type EditionRoute } from '../routes/openRoutes';
 import {
   settingsSectionsFor,
@@ -29,7 +29,7 @@ export interface AdminOverviewSlotProps {
 
 export interface WatchControlSlotProps {
   readonly projectId: string;
-  readonly watch: Readonly<WatchInfo>;
+  readonly watch: Readonly<AlertInfo>;
   readonly refreshWatches: () => void;
 }
 

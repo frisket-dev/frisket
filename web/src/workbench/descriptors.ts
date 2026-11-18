@@ -287,7 +287,7 @@ export const SAVED_VIEWS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescri
   'frisket.core.panel.saved_views',
 );
 
-export const WATCHES_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
+export const ALERTS_DESCRIPTOR: WorkbenchPanelDescriptor = firstPartyDescriptor(
   'frisket.core.panel.watches',
 );
 

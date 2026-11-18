@@ -14,8 +14,8 @@ import {
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
-import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
-import type { WatchRunLink } from '../state/watchRunLinkStore';
+import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
+import type { AlertCheckLink } from '../state/alertCheckLinkStore';
 import './NotificationsPanel.css';
 
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
@@ -28,7 +28,7 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
     .join(' · ');
 }
 
-const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = { watch: 'Open alert', run: 'Open run', source: 'Open feed' };
+const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = { alert: 'Open alert', run: 'Open run', source: 'Open feed' };
 
 function openSourceLabel(item: NotificationItem): string {
   return OPEN_SOURCE_LABELS[item.sourceKind] ?? 'Open';
@@ -41,11 +41,11 @@ function itemSourceLabel(item: NotificationItem): string {
   return item.sourceKind || 'Source';
 }
 
-function watchRunLink(item: NotificationItem): WatchRunLink | null {
+function alertCheckLink(item: NotificationItem): AlertCheckLink | null {
   if (item.deepLink.kind !== 'watch_run') return null;
-  const watchId = Number(item.deepLink.watch_id ?? item.sourceRef.watch_id);
+  const alertId = Number(item.deepLink.watch_id ?? item.sourceRef.watch_id);
   const runId = Number(item.deepLink.run_id ?? item.sourceRef.run_id);
-  if (!Number.isInteger(watchId) || !Number.isInteger(runId)) return null;
+  if (!Number.isInteger(alertId) || !Number.isInteger(runId)) return null;
   const rawEventIds = Array.isArray(item.deepLink.event_ids)
     ? item.deepLink.event_ids
     : item.sourceEventIds;
@@ -54,7 +54,7 @@ function watchRunLink(item: NotificationItem): WatchRunLink | null {
     const eventId = Number(value);
     if (Number.isInteger(eventId) && eventId > 0) eventIds.push(eventId);
   }
-  return { watchId, runId, eventIds };
+  return { alertId, runId, eventIds };
 }
 
 export function NotificationsPanel() {
@@ -66,7 +66,7 @@ export function NotificationsPanel() {
   const [pending, setPending] = useState<ReadonlySet<number>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const { openDiscover } = useWorkspaceChromeCommands();
-  const watchRunLinkHandle = useWatchRunLinkHandle();
+  const alertCheckLinkHandle = useAlertCheckLinkHandle();
 
   const load = useCallback(() => {
     const generation = ++listGeneration.current;
@@ -134,13 +134,13 @@ export function NotificationsPanel() {
       .then((state) => {
         if (state) applyState(state);
         if (!openSource) return;
-        const link = watchRunLink(item);
+        const link = alertCheckLink(item);
         if (link) {
           // Store-intent handoff: write the slot
           // THEN switch tabs via the existing chrome action directly — no
-          // event. WatchesPanel (Discover tab OR the bottom-dock co-mount)
+          // event. AlertsPanel (Discover tab OR the bottom-dock co-mount)
           // picks the link up by subscription, applies it, and acks.
-          watchRunLinkHandle.setPendingWatchRunLink(link, 'watches');
+          alertCheckLinkHandle.setPendingAlertCheckLink(link, 'alerts');
           openDiscover('Watches');
         }
       }));
@@ -155,7 +155,7 @@ export function NotificationsPanel() {
     <section className="content-stack" data-testid="notifications">
       {/* Notifications is its own Discover tab
           — the tab strip already carries the label/icon, so the panel itself
-          only surfaces the unseen count, matching WatchesPanel's slim header. */}
+          only surfaces the unseen count, matching AlertsPanel's slim header. */}
       {unseen > 0 && (
         <div className="control-row" data-align="end">
           <StatusChip tone="info" size="sm" testId="notifications-count">

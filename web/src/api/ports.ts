@@ -65,7 +65,7 @@ export type EmbeddingApiPort = Pick<
   | 'saveView'
   | 'listViews'
   | 'resolveView'
-  | 'createWatch'
+  | 'createAlert'
 > & {
   /** Polled to completion after a queued create/refresh. */
   getActionJob?: ProjectApi['getActionJob'];

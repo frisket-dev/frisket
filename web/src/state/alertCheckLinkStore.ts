@@ -1,11 +1,11 @@
-import type { ViewAlertConditions, WatchInfo } from '../api/types';
+import type { ViewAlertConditions, AlertInfo } from '../api/types';
 import { createStore } from '../core/store/createStore';
 import type { Store } from '../core/store/types';
 
-/** Per-project, memory-only Watch handoffs. Conditional Discover panels can
+/** Per-project, memory-only Alert handoffs. Conditional Discover panels can
  * disappear, so in-flight intent must not live in a component or persist. */
-export interface WatchRunLink { watchId: number; runId: number; eventIds: number[]; }
-interface PendingWatchRunLink { link: WatchRunLink; target: 'watches'; }
+export interface AlertCheckLink { alertId: number; runId: number; eventIds: number[]; }
+interface PendingAlertCheckLink { link: AlertCheckLink; target: 'alerts'; }
 
 export interface PendingCreateDraft {
   name: string;
@@ -15,69 +15,69 @@ export interface PendingCreateDraft {
   schedule?: string | null;
 }
 
-export type WatchActionIntent = 'run' | 'refresh_run' | 'configure' | 'rename' | 'pause' | 'resume' | 'delete';
-export interface WatchActionOutcome {
+export type AlertActionIntent = 'run' | 'refresh_run' | 'configure' | 'rename' | 'pause' | 'resume' | 'delete';
+export interface AlertActionOutcome {
   status: string | null;
   error: string | null;
   errorCode: string | null;
-  /** A returned Watch upserts locally; null means a successful delete. */
-  watch: WatchInfo | null;
-  focusWatchId: number | null;
+  /** A returned Alert upserts locally; null means a successful delete. */
+  alert: AlertInfo | null;
+  focusAlertId: number | null;
 }
 
-const actionRevision = Symbol('watchActionRevision');
-interface WatchActionRecord {
-  readonly watchId: number;
-  readonly intent: WatchActionIntent;
+const actionRevision = Symbol('alertActionRevision');
+interface AlertActionRecord {
+  readonly alertId: number;
+  readonly intent: AlertActionIntent;
   readonly phase: 'pending' | 'settled';
-  readonly outcome?: WatchActionOutcome;
+  readonly outcome?: AlertActionOutcome;
   readonly [actionRevision]: number;
 }
 
-const createRevision = Symbol('createWatchRevision');
-interface CreateWatchRecord {
+const createRevision = Symbol('createAlertRevision');
+interface CreateAlertRecord {
   readonly draft: PendingCreateDraft;
   readonly phase: 'pending' | 'settled';
-  readonly outcome?: WatchActionOutcome;
+  readonly outcome?: AlertActionOutcome;
   readonly [createRevision]: number;
 }
 
-interface WatchRunLinkState {
-  pendingWatchRunLink: PendingWatchRunLink | null;
+interface AlertCheckLinkState {
+  pendingAlertCheckLink: PendingAlertCheckLink | null;
   pendingCreateDraft: PendingCreateDraft | null;
-  pendingCreateAction: CreateWatchRecord | null;
+  pendingCreateAction: CreateAlertRecord | null;
   /** One record owns each row continuously from request through ack. */
-  watchActions: Readonly<Record<number, WatchActionRecord>>;
+  alertActions: Readonly<Record<number, AlertActionRecord>>;
 }
 
-function createWatchRunLinkState(): WatchRunLinkState {
-  return { pendingWatchRunLink: null, pendingCreateDraft: null, pendingCreateAction: null, watchActions: {} };
+function createAlertCheckLinkState(): AlertCheckLinkState {
+  return { pendingAlertCheckLink: null, pendingCreateDraft: null, pendingCreateAction: null, alertActions: {} };
 }
 
-export function createWatchRunLinkStore(): {
-  store: Store<WatchRunLinkState>;
-  setPendingWatchRunLink(link: WatchRunLink, target: 'watches'): void;
-  ackPendingWatchRunLink(): void;
+export function createAlertCheckLinkStore(): {
+  store: Store<AlertCheckLinkState>;
+  setPendingAlertCheckLink(link: AlertCheckLink, target: 'alerts'): void;
+  ackPendingAlertCheckLink(): void;
   setPendingCreateDraft(draft: PendingCreateDraft): void;
   updatePendingCreateDraft(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy'>>): void;
   clearPendingCreateDraft(): void;
-  claimCreateWatch(): CreateWatchRecord | null;
-  settleCreateWatch(record: CreateWatchRecord, outcome: WatchActionOutcome): void;
-  ackCreateWatch(record: CreateWatchRecord): void;
-  claimWatchAction(watchId: number, intent: WatchActionIntent): WatchActionRecord | null;
-  settleWatchAction(record: WatchActionRecord, outcome: WatchActionOutcome): void;
-  ackWatchAction(record: WatchActionRecord): void;
+  claimCreateAlert(): CreateAlertRecord | null;
+  settleCreateAlert(record: CreateAlertRecord, outcome: AlertActionOutcome): void;
+  ackCreateAlert(record: CreateAlertRecord): void;
+  claimAlertAction(alertId: number, intent: AlertActionIntent): AlertActionRecord | null;
+  settleAlertAction(record: AlertActionRecord, outcome: AlertActionOutcome): void;
+  ackAlertAction(record: AlertActionRecord): void;
 } {
-  const store = createStore<WatchRunLinkState>(createWatchRunLinkState());
+  const store = createStore<AlertCheckLinkState>(createAlertCheckLinkState());
   let nextRevision = 0;
   let draftRevision = 0;
-  const sameAction = (current: WatchActionRecord | undefined, record: WatchActionRecord) =>
+  const sameAction = (current: AlertActionRecord | undefined, record: AlertActionRecord) =>
     current?.[actionRevision] === record[actionRevision];
 
   return {
     store,
-    setPendingWatchRunLink(link, target) { store.set((s) => ({ ...s, pendingWatchRunLink: { link, target } })); },
-    ackPendingWatchRunLink() { store.set((s) => s.pendingWatchRunLink ? { ...s, pendingWatchRunLink: null } : s); },
+    setPendingAlertCheckLink(link, target) { store.set((s) => ({ ...s, pendingAlertCheckLink: { link, target } })); },
+    ackPendingAlertCheckLink() { store.set((s) => s.pendingAlertCheckLink ? { ...s, pendingAlertCheckLink: null } : s); },
     setPendingCreateDraft(draft) { draftRevision = ++nextRevision; store.set((s) => ({ ...s, pendingCreateDraft: draft })); },
     updatePendingCreateDraft(patch) {
       store.set((s) => {
@@ -90,45 +90,45 @@ export function createWatchRunLinkStore(): {
       store.set((s) => s.pendingCreateAction?.phase === 'pending' || !s.pendingCreateDraft
         ? s : { ...s, pendingCreateDraft: null });
     },
-    claimCreateWatch() {
+    claimCreateAlert() {
       const draft = store.get().pendingCreateDraft;
       if (!draft || store.get().pendingCreateAction) return null;
-      const record: CreateWatchRecord = { draft, phase: 'pending', [createRevision]: draftRevision };
+      const record: CreateAlertRecord = { draft, phase: 'pending', [createRevision]: draftRevision };
       store.set((s) => ({ ...s, pendingCreateAction: record }));
       return record;
     },
-    settleCreateWatch(record, outcome) {
+    settleCreateAlert(record, outcome) {
       store.set((s) => s.pendingCreateAction?.[createRevision] !== record[createRevision]
         ? s : { ...s, pendingCreateAction: { ...record, phase: 'settled', outcome } });
     },
-    ackCreateWatch(record) {
+    ackCreateAlert(record) {
       store.set((s) => {
         if (s.pendingCreateAction?.[createRevision] !== record[createRevision]) return s;
         const clearDraft = record.outcome?.error === null && draftRevision === record[createRevision];
         return { ...s, pendingCreateAction: null, pendingCreateDraft: clearDraft ? null : s.pendingCreateDraft };
       });
     },
-    claimWatchAction(watchId, intent) {
-      if (!Number.isInteger(watchId) || watchId <= 0 || store.get().watchActions[watchId]) return null;
-      const record: WatchActionRecord = { watchId, intent, phase: 'pending', [actionRevision]: ++nextRevision };
-      store.set((s) => ({ ...s, watchActions: { ...s.watchActions, [watchId]: record } }));
+    claimAlertAction(alertId, intent) {
+      if (!Number.isInteger(alertId) || alertId <= 0 || store.get().alertActions[alertId]) return null;
+      const record: AlertActionRecord = { alertId, intent, phase: 'pending', [actionRevision]: ++nextRevision };
+      store.set((s) => ({ ...s, alertActions: { ...s.alertActions, [alertId]: record } }));
       return record;
     },
-    settleWatchAction(record, outcome) {
-      store.set((s) => !sameAction(s.watchActions[record.watchId], record) ? s : {
+    settleAlertAction(record, outcome) {
+      store.set((s) => !sameAction(s.alertActions[record.alertId], record) ? s : {
         ...s,
-        watchActions: { ...s.watchActions, [record.watchId]: { ...record, phase: 'settled', outcome } },
+        alertActions: { ...s.alertActions, [record.alertId]: { ...record, phase: 'settled', outcome } },
       });
     },
-    ackWatchAction(record) {
+    ackAlertAction(record) {
       store.set((s) => {
-        if (!sameAction(s.watchActions[record.watchId], record)) return s;
-        const watchActions = { ...s.watchActions };
-        delete watchActions[record.watchId];
-        return { ...s, watchActions };
+        if (!sameAction(s.alertActions[record.alertId], record)) return s;
+        const alertActions = { ...s.alertActions };
+        delete alertActions[record.alertId];
+        return { ...s, alertActions };
       });
     },
   };
 }
 
-export type WatchRunLinkStoreHandle = ReturnType<typeof createWatchRunLinkStore>;
+export type AlertCheckLinkStoreHandle = ReturnType<typeof createAlertCheckLinkStore>;

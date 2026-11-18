@@ -9,35 +9,35 @@ import { PanelEmpty, PanelError, StatusChip } from './PanelPrimitives';
 import { ChevronDown, ChevronRight, Play, RefreshCw, Watch } from 'lucide-react';
 import {
   ApiError,
-  type WatchInfo,
-  type WatchPatchInput,
-  type WatchRun,
-  type WatchRunEvent,
-  type WatchRunResult,
-  type WatchRunsPage,
+  type AlertInfo,
+  type AlertPatchInput,
+  type AlertCheck,
+  type AlertCheckEvent,
+  type AlertCheckResult,
+  type AlertChecksPage,
 } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { dispatchNotificationsChanged, useNotificationSummary } from './notifications/useNotificationSummary';
 import { ConfirmDialog } from './Modal';
-import { useWatchRunLinkHandle } from '../bind/useWatchRunLinkHandle';
+import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import { useSelector } from '../bind/useSelector';
 import type {
   PendingCreateDraft,
-  WatchActionOutcome,
-  WatchActionIntent,
-  WatchRunLink,
-} from '../state/watchRunLinkStore';
+  AlertActionOutcome,
+  AlertActionIntent,
+  AlertCheckLink,
+} from '../state/alertCheckLinkStore';
 import { useEditionModule } from '../editions/module';
-import './WatchesPanel.css';
+import './AlertsPanel.css';
 
 const DEFAULT_VIEW_ALERTS: Conditions = { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] };
 
-type RunsByWatch = Record<number, WatchRunsPage>;
-type EventsByRun = Record<number, WatchRunEvent[]>;
-type WatchNotificationCounts = Record<number, number>;
-interface WatchesPanelState {
-  items: WatchInfo[] | null;
-  runsByWatch: RunsByWatch;
+type ChecksByAlert = Record<number, AlertChecksPage>;
+type EventsByRun = Record<number, AlertCheckEvent[]>;
+type AlertNotificationCounts = Record<number, number>;
+interface AlertsPanelState {
+  items: AlertInfo[] | null;
+  checksByAlert: ChecksByAlert;
   eventsByRun: EventsByRun;
   highlightedEventsByRun: Record<number, number[]>;
   expanded: Record<number, boolean>;
@@ -46,19 +46,19 @@ interface WatchesPanelState {
   error: string | null;
   errorCode: string | null;
   status: string | null;
-  focusWatchId: number | null;
+  focusAlertId: number | null;
   focusPanel: boolean;
   mutationErrors: Record<number, string>;
   notificationSetupNotice: string | null;
 }
 
-type WatchesPanelPatch =
-  | Partial<WatchesPanelState>
-  | ((state: WatchesPanelState) => Partial<WatchesPanelState>);
+type AlertsPanelPatch =
+  | Partial<AlertsPanelState>
+  | ((state: AlertsPanelState) => Partial<AlertsPanelState>);
 
-const initialWatchesPanelState: WatchesPanelState = {
+const initialAlertsPanelState: AlertsPanelState = {
   items: null,
-  runsByWatch: {},
+  checksByAlert: {},
   eventsByRun: {},
   highlightedEventsByRun: {},
   expanded: {},
@@ -67,43 +67,43 @@ const initialWatchesPanelState: WatchesPanelState = {
   error: null,
   errorCode: null,
   status: null,
-  focusWatchId: null,
+  focusAlertId: null,
   focusPanel: false,
   mutationErrors: {},
   notificationSetupNotice: null,
 };
 
 const NOTIFICATION_SETUP_GUIDANCE = 'You do not have Slack or email notifications set up. Visit settings to set them up.';
-const WatchIcon = Watch;
+const AlertIcon = Watch;
 
-function reduceWatchesPanelState(
-  state: WatchesPanelState,
-  patch: WatchesPanelPatch,
-): WatchesPanelState {
+function reduceAlertsPanelState(
+  state: AlertsPanelState,
+  patch: AlertsPanelPatch,
+): AlertsPanelState {
   return { ...state, ...(typeof patch === 'function' ? patch(state) : patch) };
 }
 
-function watchSummary(watch: WatchInfo): string {
-  const policy = watch.detectionPolicy;
+function alertSummary(alert: AlertInfo): string {
+  const policy = alert.detectionPolicy;
   return [policy.entered && 'New matches', policy.fields.length > 0 && 'Changed values', policy.exited && 'Rows leaving', policy.count_changed && 'Count changes', policy.threshold && 'Threshold crossings'].filter(Boolean).join(' · ') || 'Alerts paused';
 }
-function blockedEmbeddingIndexId(watch: WatchInfo): string | null {
-  const query = watch.latestRun?.resolvedQuery;
+function blockedEmbeddingIndexId(alert: AlertInfo): string | null {
+  const query = alert.latestRun?.resolvedQuery;
   const similarity = query?.similarity;
   if (!similarity || typeof similarity !== 'object') return null;
-  const code = watch.latestRun?.errorCode;
+  const code = alert.latestRun?.errorCode;
   if (code !== 'embedding_index_incomplete' && code !== 'embedding_index_stale') return null;
   const id = Reflect.get(similarity, 'embedding_index_id');
   return typeof id === 'string' ? id : null;
 }
 
-function runSummary(run: WatchRun | null): string {
+function runSummary(run: AlertCheck | null): string {
   if (!run) return 'Never checked';
   if (run.status === 'error') return run.errorCode ?? run.error ?? 'Check failed';
   return `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`;
 }
 
-function failedWatchActionOutcome(error: Error): WatchActionOutcome {
+function failedAlertActionOutcome(error: Error): AlertActionOutcome {
   const fallbackCode = Reflect.get(error, 'code');
   const code = error instanceof ApiError
     ? error.code ?? null
@@ -114,26 +114,26 @@ function failedWatchActionOutcome(error: Error): WatchActionOutcome {
     status: null,
     error: error.message,
     errorCode: code,
-    watch: null,
-    focusWatchId: null,
+    alert: null,
+    focusAlertId: null,
   };
 }
 
 /**
- * Manual watchlist runner. This intentionally does not know about schedules or
+ * Manual alert runner. This intentionally does not know about schedules or
  * notification channels; it only lists promoted queries and records run history.
  */
-function useWatchesPanelController(canEdit: boolean) {
+function useAlertsPanelController(canEdit: boolean) {
   const { projectApi, chromePreferences: { projectId } } = useWorkspaceStores();
   const notificationSummary = useNotificationSummary();
-  const watchRunLinkHandle = useWatchRunLinkHandle();
+  const alertCheckLinkHandle = useAlertCheckLinkHandle();
   const [panelState, setPanelState] = useReducer(
-    reduceWatchesPanelState,
-    initialWatchesPanelState,
+    reduceAlertsPanelState,
+    initialAlertsPanelState,
   );
   const {
     items,
-    runsByWatch,
+    checksByAlert,
     eventsByRun,
     highlightedEventsByRun,
     expanded,
@@ -142,64 +142,64 @@ function useWatchesPanelController(canEdit: boolean) {
     error,
     errorCode,
     status,
-    focusWatchId,
+    focusAlertId,
     mutationErrors,
     notificationSetupNotice,
   } = panelState;
-  const watchListGeneration = useRef(0);
+  const alertListGeneration = useRef(0);
 
-  const invalidateWatchList = useCallback(() => {
-    watchListGeneration.current += 1;
+  const invalidateAlertList = useCallback(() => {
+    alertListGeneration.current += 1;
     setPanelState({ listLoading: false });
   }, []);
 
-  const watchNotificationCounts: WatchNotificationCounts = {};
+  const alertNotificationCounts: AlertNotificationCounts = {};
   for (const item of notificationSummary?.bySourceRef ?? []) {
     if (item.sourceKind !== 'watch') continue;
-    const watchId = Number(item.sourceRef.watch_id);
-    if (Number.isInteger(watchId) && watchId > 0) watchNotificationCounts[watchId] = item.unseen;
+    const alertId = Number(item.sourceRef.watch_id);
+    if (Number.isInteger(alertId) && alertId > 0) alertNotificationCounts[alertId] = item.unseen;
   }
 
   const load = useCallback(() => {
-    const generation = ++watchListGeneration.current;
+    const generation = ++alertListGeneration.current;
     setPanelState({
       listLoading: true,
       error: null,
       errorCode: null,
     });
     void projectApi
-      .listWatches()
-      .then((watches) => {
-        if (watchListGeneration.current === generation) setPanelState({ items: watches });
+      .listAlerts()
+      .then((alerts) => {
+        if (alertListGeneration.current === generation) setPanelState({ items: alerts });
       })
       .catch((e: Error) => {
-        if (watchListGeneration.current === generation) setPanelState({ error: e.message });
+        if (alertListGeneration.current === generation) setPanelState({ error: e.message });
       })
       .finally(() => {
-        if (watchListGeneration.current === generation) {
+        if (alertListGeneration.current === generation) {
           setPanelState({ listLoading: false });
         }
       });
   }, [projectApi]);
 
-  const loadRuns = useCallback((watchId: number) => {
+  const loadRuns = useCallback((alertId: number) => {
     return projectApi
-      .getWatchRuns(watchId, 0, 20)
+      .getAlertChecks(alertId, 0, 20)
       .then((page) => {
         setPanelState((current) => ({
-          runsByWatch: { ...current.runsByWatch, [watchId]: page },
+          checksByAlert: { ...current.checksByAlert, [alertId]: page },
         }));
         return page;
       });
   }, [projectApi]);
 
   const loadRunEvents = useCallback((
-    watchId: number,
+    alertId: number,
     runId: number,
     eventIds: number[] = [],
   ) => {
     return projectApi
-      .getWatchRunEvents(watchId, runId, 0, 50)
+      .getAlertCheckEvents(alertId, runId, 0, 50)
       .then((page) => {
         setPanelState((current) => ({
           eventsByRun: { ...current.eventsByRun, [runId]: page.events },
@@ -219,156 +219,156 @@ function useWatchesPanelController(canEdit: boolean) {
 
   useEffect(() => {
     const onChanged = () => load();
-    window.addEventListener('frisket:watches-changed', onChanged);
-    return () => window.removeEventListener('frisket:watches-changed', onChanged);
+    window.addEventListener('frisket:alerts-changed', onChanged);
+    return () => window.removeEventListener('frisket:alerts-changed', onChanged);
   }, [load]);
 
-  const applyWatchRunLink = useCallback((link: WatchRunLink) => {
-    const watchId = Number(link.watchId);
+  const applyAlertCheckLink = useCallback((link: AlertCheckLink) => {
+    const alertId = Number(link.alertId);
     const runId = Number(link.runId);
-    if (!Number.isInteger(watchId) || !Number.isInteger(runId)) return;
+    if (!Number.isInteger(alertId) || !Number.isInteger(runId)) return;
     const eventIds = Array.isArray(link.eventIds) ? link.eventIds : [];
     setPanelState((current) => ({
-      expanded: { ...current.expanded, [watchId]: true },
+      expanded: { ...current.expanded, [alertId]: true },
     }));
     load();
-    void loadRuns(watchId)
-      .then(() => loadRunEvents(watchId, runId, eventIds))
+    void loadRuns(alertId)
+      .then(() => loadRunEvents(alertId, runId, eventIds))
       .catch((e: Error) => setPanelState({ error: e.message }));
   }, [load, loadRunEvents, loadRuns]);
 
   // A notification's "open source" click writes
-  // watchRunLinkStore's pendingWatchRunLink instead of dispatching a live event —
+  // alertCheckLinkStore's pendingAlertCheckLink instead of dispatching a live event —
   // the Discover-tab mount may be unmounted at write time and applies the
-  // intent on its later mount. Read the store FRESH (watchRunLinkHandle.store.get(), not
+  // intent on its later mount. Read the store FRESH (alertCheckLinkHandle.store.get(), not
   // the closed-over selector value) so a StrictMode double-fired effect sees
   // the slot already acked and is a no-op the second time.
   // NO blind clear: only the target this panel owns ('watches') acks.
-  const pendingWatchRunLink = useSelector(
-    watchRunLinkHandle.store,
-    (s) => s.pendingWatchRunLink,
+  const pendingAlertCheckLink = useSelector(
+    alertCheckLinkHandle.store,
+    (s) => s.pendingAlertCheckLink,
   );
   const pendingCreateDraft = useSelector(
-    watchRunLinkHandle.store,
+    alertCheckLinkHandle.store,
     (s) => s.pendingCreateDraft,
   );
   const pendingCreateAction = useSelector(
-    watchRunLinkHandle.store,
+    alertCheckLinkHandle.store,
     (s) => s.pendingCreateAction,
   );
-  const watchActions = useSelector(
-    watchRunLinkHandle.store,
-    (s) => s.watchActions,
+  const alertActions = useSelector(
+    alertCheckLinkHandle.store,
+    (s) => s.alertActions,
   );
   useEffect(() => {
-    const pending = watchRunLinkHandle.store.get().pendingWatchRunLink;
-    if (!pending || pending.target !== 'watches') return;
-    applyWatchRunLink(pending.link);
-    watchRunLinkHandle.ackPendingWatchRunLink();
-  }, [pendingWatchRunLink, watchRunLinkHandle, applyWatchRunLink]);
+    const pending = alertCheckLinkHandle.store.get().pendingAlertCheckLink;
+    if (!pending || pending.target !== 'alerts') return;
+    applyAlertCheckLink(pending.link);
+    alertCheckLinkHandle.ackPendingAlertCheckLink();
+  }, [pendingAlertCheckLink, alertCheckLinkHandle, applyAlertCheckLink]);
   useEffect(() => {
-    for (const action of Object.values(watchRunLinkHandle.store.get().watchActions)) {
+    for (const action of Object.values(alertCheckLinkHandle.store.get().alertActions)) {
       if (action.phase !== 'settled' || !action.outcome) continue;
-      invalidateWatchList();
+      invalidateAlertList();
       setPanelState((current) => {
         const outcome = action.outcome!;
         const lifecycleError = outcome.error !== null && action.intent !== 'run' && action.intent !== 'refresh_run';
-        const items = outcome.error !== null ? current.items : outcome.watch === null
-          ? (current.items ?? []).filter((watch) => watch.id !== action.watchId)
-          : [...(current.items ?? []).filter((watch) => watch.id !== outcome.watch!.id), outcome.watch!];
+        const items = outcome.error !== null ? current.items : outcome.alert === null
+          ? (current.items ?? []).filter((alert) => alert.id !== action.alertId)
+          : [...(current.items ?? []).filter((alert) => alert.id !== outcome.alert!.id), outcome.alert!];
         return {
           items,
           status: outcome.status,
           error: lifecycleError ? null : outcome.error,
           errorCode: lifecycleError ? null : outcome.errorCode,
-          focusWatchId: outcome.focusWatchId,
+          focusAlertId: outcome.focusAlertId,
           focusPanel: action.intent === 'delete'
             && outcome.error === null
-            && outcome.focusWatchId === null,
+            && outcome.focusAlertId === null,
           mutationErrors: lifecycleError
-            ? { ...current.mutationErrors, [action.watchId]: outcome.error ?? '' }
+            ? { ...current.mutationErrors, [action.alertId]: outcome.error ?? '' }
             : current.mutationErrors,
         };
       });
-      watchRunLinkHandle.ackWatchAction(action);
+      alertCheckLinkHandle.ackAlertAction(action);
     }
-  }, [invalidateWatchList, watchActions, watchRunLinkHandle]);
+  }, [invalidateAlertList, alertActions, alertCheckLinkHandle]);
   useEffect(() => {
-    const action = watchRunLinkHandle.store.get().pendingCreateAction;
+    const action = alertCheckLinkHandle.store.get().pendingCreateAction;
     if (!action || action.phase !== 'settled' || !action.outcome) return;
-    invalidateWatchList();
+    invalidateAlertList();
     const outcome = action.outcome;
     setPanelState((current) => ({
-      items: outcome.error === null && outcome.watch
-        ? [...(current.items ?? []).filter((watch) => watch.id !== outcome.watch!.id), outcome.watch]
+      items: outcome.error === null && outcome.alert
+        ? [...(current.items ?? []).filter((alert) => alert.id !== outcome.alert!.id), outcome.alert]
         : current.items,
       status: outcome.status,
       error: outcome.error,
       errorCode: outcome.errorCode,
-      focusWatchId: outcome.focusWatchId,
+      focusAlertId: outcome.focusAlertId,
       creating: false,
-      notificationSetupNotice: outcome.error === null && outcome.watch
+      notificationSetupNotice: outcome.error === null && outcome.alert
         ? NOTIFICATION_SETUP_GUIDANCE
         : current.notificationSetupNotice,
     }));
-    watchRunLinkHandle.ackCreateWatch(action);
-  }, [invalidateWatchList, pendingCreateAction, watchRunLinkHandle]);
+    alertCheckLinkHandle.ackCreateAlert(action);
+  }, [invalidateAlertList, pendingCreateAction, alertCheckLinkHandle]);
 
-  const runWatchAction = useCallback((watchId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<WatchRunResult>) => {
+  const runAlertAction = useCallback((alertId: number, intent: 'run' | 'refresh_run', status: string, request: () => Promise<AlertCheckResult>) => {
     if (!canEdit) return;
-    const claim = watchRunLinkHandle.claimWatchAction(watchId, intent);
+    const claim = alertCheckLinkHandle.claimAlertAction(alertId, intent);
     if (!claim) return;
-    invalidateWatchList();
+    invalidateAlertList();
     setPanelState({ error: null, errorCode: null, status });
-    let outcome!: WatchActionOutcome;
+    let outcome!: AlertActionOutcome;
     void request()
       .then((result) => {
         outcome = {
-          status: `Finished checking ${result.watch.name}.`,
+          status: `Finished checking ${result.alert.name}.`,
           error: null,
           errorCode: null,
-          watch: result.watch,
-          focusWatchId: watchId,
+          alert: result.alert,
+          focusAlertId: alertId,
         };
         dispatchNotificationsChanged(projectId);
-        if (expanded[watchId]) {
-          void loadRuns(watchId).catch((e: Error) => setPanelState({ error: e.message }));
+        if (expanded[alertId]) {
+          void loadRuns(alertId).catch((e: Error) => setPanelState({ error: e.message }));
         }
       })
-      .catch((e: Error) => { outcome = failedWatchActionOutcome(e); })
+      .catch((e: Error) => { outcome = failedAlertActionOutcome(e); })
       .finally(() => {
         // A list GET started while this mutation was in flight must not
         // publish after the direct mutation result above.
-        invalidateWatchList();
-        watchRunLinkHandle.settleWatchAction(claim, outcome);
-        window.dispatchEvent(new Event('frisket:watches-changed'));
+        invalidateAlertList();
+        alertCheckLinkHandle.settleAlertAction(claim, outcome);
+        window.dispatchEvent(new Event('frisket:alerts-changed'));
       });
-  }, [canEdit, expanded, invalidateWatchList, projectId, loadRuns, watchRunLinkHandle]);
+  }, [canEdit, expanded, invalidateAlertList, projectId, loadRuns, alertCheckLinkHandle]);
 
-  const runWatch = useCallback((watchId: number) => {
-    runWatchAction(watchId, 'run', 'Checking alert…', () => projectApi.runWatch(watchId));
-  }, [projectApi, runWatchAction]);
+  const checkAlert = useCallback((alertId: number) => {
+    runAlertAction(alertId, 'run', 'Checking alert…', () => projectApi.checkAlert(alertId));
+  }, [projectApi, runAlertAction]);
 
-  const updateWatch = useCallback((
-    watchId: number,
-    patch: WatchPatchInput,
+  const updateAlert = useCallback((
+    alertId: number,
+    patch: AlertPatchInput,
   ) => {
     if (!canEdit) return Promise.resolve(false);
-    const intent: WatchActionIntent = (patch.detection_policy || patch.schedule !== undefined) ? 'configure' : patch.name === undefined
+    const intent: AlertActionIntent = (patch.detection_policy || patch.schedule !== undefined) ? 'configure' : patch.name === undefined
       ? (patch.enabled ? 'resume' : 'pause')
       : 'rename';
-    const claim = watchRunLinkHandle.claimWatchAction(watchId, intent);
+    const claim = alertCheckLinkHandle.claimAlertAction(alertId, intent);
     if (!claim) return Promise.resolve(false);
-    invalidateWatchList();
+    invalidateAlertList();
     setPanelState((current) => ({
       error: null,
       errorCode: null,
       status: intent === 'configure' ? 'Saving conditions…' : intent === 'rename' ? 'Renaming alert…' : intent === 'pause' ? 'Pausing alert…' : 'Resuming alert…',
-      mutationErrors: { ...current.mutationErrors, [watchId]: '' },
+      mutationErrors: { ...current.mutationErrors, [alertId]: '' },
     }));
-    let outcome!: WatchActionOutcome;
+    let outcome!: AlertActionOutcome;
     return projectApi
-      .updateWatch(watchId, patch)
+      .updateAlert(alertId, patch)
       .then((updated) => {
         outcome = {
           status: (patch.detection_policy || patch.schedule !== undefined) ? `Saved alerts for ${updated.name}.` : patch.name === undefined
@@ -376,121 +376,121 @@ function useWatchesPanelController(canEdit: boolean) {
             : `Renamed alert to ${updated.name}.`,
           error: null,
           errorCode: null,
-          watch: updated,
-          focusWatchId: watchId,
+          alert: updated,
+          focusAlertId: alertId,
         };
         return true;
       })
       .catch((e: Error) => {
-        outcome = failedWatchActionOutcome(e);
+        outcome = failedAlertActionOutcome(e);
         return false;
       })
       .finally(() => {
-        invalidateWatchList();
-        watchRunLinkHandle.settleWatchAction(claim, outcome);
-        window.dispatchEvent(new Event('frisket:watches-changed'));
+        invalidateAlertList();
+        alertCheckLinkHandle.settleAlertAction(claim, outcome);
+        window.dispatchEvent(new Event('frisket:alerts-changed'));
       });
-  }, [canEdit, invalidateWatchList, projectApi, watchRunLinkHandle]);
+  }, [canEdit, invalidateAlertList, projectApi, alertCheckLinkHandle]);
 
-  const deleteWatch = useCallback((watchId: number, focusAfterDeleteId: number | null) => {
+  const deleteAlert = useCallback((alertId: number, focusAfterDeleteId: number | null) => {
     if (!canEdit) return Promise.resolve(false);
-    const claim = watchRunLinkHandle.claimWatchAction(watchId, 'delete');
+    const claim = alertCheckLinkHandle.claimAlertAction(alertId, 'delete');
     if (!claim) return Promise.resolve(false);
-    invalidateWatchList();
+    invalidateAlertList();
     setPanelState((current) => ({
       error: null,
       errorCode: null,
       status: 'Deleting alert…',
-      mutationErrors: { ...current.mutationErrors, [watchId]: '' },
+      mutationErrors: { ...current.mutationErrors, [alertId]: '' },
     }));
-    let outcome!: WatchActionOutcome;
+    let outcome!: AlertActionOutcome;
     return projectApi
-      .deleteWatch(watchId)
+      .deleteAlert(alertId)
       .then(() => {
         outcome = {
           status: 'Alert deleted.',
           error: null,
           errorCode: null,
-          watch: null,
-          focusWatchId: focusAfterDeleteId,
+          alert: null,
+          focusAlertId: focusAfterDeleteId,
         };
         dispatchNotificationsChanged(projectId);
         return true;
       })
       .catch((e: Error) => {
-        outcome = failedWatchActionOutcome(e);
+        outcome = failedAlertActionOutcome(e);
         return false;
       })
       .finally(() => {
-        invalidateWatchList();
-        watchRunLinkHandle.settleWatchAction(claim, outcome);
-        window.dispatchEvent(new Event('frisket:watches-changed'));
+        invalidateAlertList();
+        alertCheckLinkHandle.settleAlertAction(claim, outcome);
+        window.dispatchEvent(new Event('frisket:alerts-changed'));
       });
-  }, [canEdit, invalidateWatchList, projectId, projectApi, watchRunLinkHandle]);
+  }, [canEdit, invalidateAlertList, projectId, projectApi, alertCheckLinkHandle]);
 
-  // Refresh a blocked embedding watch's index, then re-run the watch.
-  const refreshWatchIndex = useCallback((watchId: number, indexId: string) => {
-    runWatchAction(watchId, 'refresh_run', 'Refreshing index…', () => projectApi
+  // Refresh a blocked embedding alert's index, then re-run the alert.
+  const refreshAlertIndex = useCallback((alertId: number, indexId: string) => {
+    runAlertAction(alertId, 'refresh_run', 'Refreshing index…', () => projectApi
       .refreshEmbeddingIndex(indexId, 'incremental')
-      .then(() => projectApi.runWatch(watchId)));
-  }, [projectApi, runWatchAction]);
+      .then(() => projectApi.checkAlert(alertId)));
+  }, [projectApi, runAlertAction]);
 
-  const toggleRuns = useCallback((watchId: number) => {
-    const nextOpen = !expanded[watchId];
+  const toggleRuns = useCallback((alertId: number) => {
+    const nextOpen = !expanded[alertId];
     setPanelState((current) => ({
-      expanded: { ...current.expanded, [watchId]: nextOpen },
+      expanded: { ...current.expanded, [alertId]: nextOpen },
     }));
-    if (!nextOpen || runsByWatch[watchId]) return;
+    if (!nextOpen || checksByAlert[alertId]) return;
     setPanelState({ error: null });
-    void loadRuns(watchId)
+    void loadRuns(alertId)
       .catch((e: Error) => setPanelState({ error: e.message }));
-  }, [expanded, loadRuns, runsByWatch]);
+  }, [expanded, loadRuns, checksByAlert]);
 
-  const createWatch = useCallback(() => {
+  const createAlert = useCallback(() => {
     // Validate the current draft before taking the store-owned claim. The
     // claim is synchronous, so a remounted panel or a rapid second click
     // cannot submit this revision twice.
-    const draft = watchRunLinkHandle.store.get().pendingCreateDraft;
+    const draft = alertCheckLinkHandle.store.get().pendingCreateDraft;
     const name = draft?.name.trim();
     if (!canEdit || !draft || !name) return;
-    const action = watchRunLinkHandle.claimCreateWatch();
+    const action = alertCheckLinkHandle.claimCreateAlert();
     if (!action) return;
 
-    invalidateWatchList();
+    invalidateAlertList();
     setPanelState({ creating: true, error: null, errorCode: null, status: 'Creating alert…' });
     void projectApi
-      .createWatch({ name, view_id: draft.view_id, detection_policy: draft.detection_policy, schedule: draft.schedule === undefined ? '@hourly' : draft.schedule })
-      .then((watch) => {
-        watchRunLinkHandle.settleCreateWatch(action, {
-          status: `Created alert ${watch.name}.`, error: null, errorCode: null, watch, focusWatchId: watch.id,
+      .createAlert({ name, view_id: draft.view_id, detection_policy: draft.detection_policy, schedule: draft.schedule === undefined ? '@hourly' : draft.schedule })
+      .then((alert) => {
+        alertCheckLinkHandle.settleCreateAlert(action, {
+          status: `Created alert ${alert.name}.`, error: null, errorCode: null, alert, focusAlertId: alert.id,
         });
       })
       .catch((e: Error) => {
-        watchRunLinkHandle.settleCreateWatch(action, failedWatchActionOutcome(e));
+        alertCheckLinkHandle.settleCreateAlert(action, failedAlertActionOutcome(e));
       });
-  }, [canEdit, invalidateWatchList, projectApi, watchRunLinkHandle]);
+  }, [canEdit, invalidateAlertList, projectApi, alertCheckLinkHandle]);
 
-  const cancelCreateWatch = useCallback(() => {
-    if (!canEdit || watchRunLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
-    watchRunLinkHandle.clearPendingCreateDraft();
-  }, [canEdit, watchRunLinkHandle]);
+  const cancelCreateAlert = useCallback(() => {
+    if (!canEdit || alertCheckLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
+    alertCheckLinkHandle.clearPendingCreateDraft();
+  }, [canEdit, alertCheckLinkHandle]);
 
   const updateCreateDraft = useCallback((
     patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy' | 'schedule'>>,
   ) => {
-    if (!canEdit || watchRunLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
-    watchRunLinkHandle.updatePendingCreateDraft(patch);
-  }, [canEdit, watchRunLinkHandle]);
+    if (!canEdit || alertCheckLinkHandle.store.get().pendingCreateAction?.phase === 'pending') return;
+    alertCheckLinkHandle.updatePendingCreateDraft(patch);
+  }, [canEdit, alertCheckLinkHandle]);
 
-  const watchNotificationTotal = Object.values(watchNotificationCounts).reduce(
+  const alertNotificationTotal = Object.values(alertNotificationCounts).reduce(
     (sum, count) => sum + count,
     0,
   );
 
   return {
     listLoading,
-    cancelCreateWatch,
-    createWatch,
+    cancelCreateAlert,
+    createAlert,
     creating: creating || pendingCreateAction?.phase === 'pending',
     error,
     errorCode,
@@ -500,22 +500,22 @@ function useWatchesPanelController(canEdit: boolean) {
     items,
     load,
     pendingCreateDraft,
-    refreshWatchIndex,
-    runWatch,
-    runsByWatch,
+    refreshAlertIndex,
+    checkAlert,
+    checksByAlert,
     toggleRuns,
     updateCreateDraft,
-    watchNotificationCounts,
-    watchNotificationTotal,
+    alertNotificationCounts,
+    alertNotificationTotal,
     mutationErrors,
-    pendingActions: Object.fromEntries(Object.entries(watchActions).map(([id, action]) => [id, action.intent])),
+    pendingActions: Object.fromEntries(Object.entries(alertActions).map(([id, action]) => [id, action.intent])),
     status,
-    focusWatchId,
-    clearFocusWatch: () => setPanelState({ focusWatchId: null }),
+    focusAlertId,
+    clearFocusAlert: () => setPanelState({ focusAlertId: null }),
     focusPanel: panelState.focusPanel,
     clearFocusPanel: () => setPanelState({ focusPanel: false }),
-    updateWatch,
-    deleteWatch,
+    updateAlert,
+    deleteAlert,
     notificationSetupNotice,
     dismissNotificationSetupNotice: () => setPanelState({ notificationSetupNotice: null }),
   };
@@ -526,7 +526,7 @@ function useWatchesPanelController(canEdit: boolean) {
 // notification/item count badges visible somewhere once their old toggle
 // header is gone; it renders nothing when there is nothing to show.
 //
-function WatchesPanelHeader({
+function AlertsPanelHeader({
   itemCount,
   notificationTotal,
 }: {
@@ -535,9 +535,9 @@ function WatchesPanelHeader({
 }) {
   if (notificationTotal <= 0 && !(itemCount !== null && itemCount > 0)) return null;
   return (
-    <div className="control-row" data-align="end" data-testid="watches-header">
+    <div className="control-row" data-align="end" data-testid="alerts-header">
       {notificationTotal > 0 && (
-        <StatusChip tone="info" size="sm" testId="watches-notification-count">
+        <StatusChip tone="info" size="sm" testId="alerts-notification-count">
           {notificationTotal}
         </StatusChip>
       )}
@@ -546,7 +546,7 @@ function WatchesPanelHeader({
   );
 }
 
-function WatchCreateComposer({
+function AlertCreateComposer({
   creating,
   draft,
   onCancel,
@@ -561,7 +561,7 @@ function WatchCreateComposer({
 }) {
   const trimmedName = draft.name.trim();
   return (
-    <div className="panel-card" data-testid="watch-create-composer">
+    <div className="panel-card" data-testid="alert-create-composer">
       <div>
         <div className="panel-item-meta">View alerts</div>
         <strong className="panel-item-title">Choose what to alert on.</strong>
@@ -571,15 +571,15 @@ function WatchCreateComposer({
         <TextInput
           autoFocus
 
-          data-testid="watch-create-name"
+          data-testid="alert-create-name"
           aria-label="Alert name"
-          aria-describedby={trimmedName ? undefined : 'watch-create-name-error'}
+          aria-describedby={trimmedName ? undefined : 'alert-create-name-error'}
           value={draft.name}
           disabled={creating}
           onChange={(event) => onUpdate({ name: event.target.value })}
         />
       </label>
-      {!trimmedName && <span id="watch-create-name-error" data-testid="watch-create-name-error">Enter a name to continue.</span>}
+      {!trimmedName && <span id="alert-create-name-error" data-testid="alert-create-name-error">Enter a name to continue.</span>}
       <ViewAlertSchedule value={draft.schedule === undefined ? '@hourly' : draft.schedule} disabled={creating}
         onChange={schedule => onUpdate({ schedule })} />
       <ViewAlertConditions value={draft.detection_policy ?? DEFAULT_VIEW_ALERTS} sheetId={draft.sheet_id} disabled={creating}
@@ -588,24 +588,24 @@ function WatchCreateComposer({
         {NOTIFICATION_SETUP_GUIDANCE}
       </div>
       <div className="form-actions">
-        <ListEditorActions testId="create-watch-button" cancelTestId="cancel"
-          icon={WatchIcon} saveLabel={creating ? 'Creating…' : 'Create alert'}
+        <ListEditorActions testId="create-alert-button" cancelTestId="cancel"
+          icon={AlertIcon} saveLabel={creating ? 'Creating…' : 'Create alert'}
           busy={creating} saveDisabled={!trimmedName} onSave={onCreate} onCancel={onCancel} />
       </div>
     </div>
   );
 }
 
-function WatchRunEvents({
+function AlertCheckEvents({
   events,
   highlightedEventIds,
 }: {
-  events: WatchRunEvent[] | undefined;
+  events: AlertCheckEvent[] | undefined;
   highlightedEventIds: number[];
 }) {
   if (!events) return null;
   return (
-    <ul className="panel-list watch-run-events" data-testid="watch-run-events">
+    <ul className="panel-list alert-check-events" data-testid="alert-check-events">
       {events.map((event) => (
         <li
           className={`control-row panel-item-meta${highlightedEventIds.includes(event.id) ? ' highlighted' : ''}`}
@@ -619,17 +619,17 @@ function WatchRunEvents({
   );
 }
 
-function WatchRunHistory({
+function AlertCheckHistory({
   highlightedEventsByRun,
   eventsByRun,
   page,
 }: {
   highlightedEventsByRun: Record<number, number[]>;
   eventsByRun: EventsByRun;
-  page: WatchRunsPage | undefined;
+  page: AlertChecksPage | undefined;
 }) {
   return (
-    <ul className="panel-list" data-testid="watch-run-history">
+    <ul className="panel-list" data-testid="alert-check-history">
       {!page || page.runs.length === 0 ? (
         <li className="panel-empty">No runs yet.</li>
       ) : (
@@ -643,7 +643,7 @@ function WatchRunHistory({
                   : `${run.matchedRows.toLocaleString()} matched · ${run.newRows.toLocaleString()} new`}
               </span>
             </div>
-            <WatchRunEvents
+            <AlertCheckEvents
               events={eventsByRun[run.id]}
               highlightedEventIds={highlightedEventsByRun[run.id] ?? []}
             />
@@ -654,7 +654,7 @@ function WatchRunHistory({
   );
 }
 
-function WatchItem({
+function AlertItem({
   pendingAction,
   canEdit,
   eventsByRun,
@@ -662,48 +662,48 @@ function WatchItem({
   highlightedEventsByRun,
   notificationCount,
   page,
-  watch,
+  alert,
   onRefreshIndex,
-  onRefreshWatches,
+  onRefreshAlerts,
   onRun,
   onToggleRuns,
-  onUpdateWatch,
-  onDeleteWatch,
+  onUpdateAlert,
+  onDeleteAlert,
   focusAfterDeleteId,
   shouldFocus,
   onFocused,
   mutationError,
 }: {
-  pendingAction: WatchActionIntent | undefined;
+  pendingAction: AlertActionIntent | undefined;
   canEdit: boolean;
   eventsByRun: EventsByRun;
   expanded: boolean;
   highlightedEventsByRun: Record<number, number[]>;
   notificationCount: number;
-  page: WatchRunsPage | undefined;
-  watch: WatchInfo;
-  onRefreshIndex(watchId: number, indexId: string): void;
-  onRefreshWatches(): void;
-  onRun(watchId: number): void;
-  onToggleRuns(watchId: number): void;
-  onUpdateWatch(watchId: number, patch: WatchPatchInput): Promise<boolean>;
-  onDeleteWatch(watchId: number, focusAfterDeleteId: number | null): Promise<boolean>;
+  page: AlertChecksPage | undefined;
+  alert: AlertInfo;
+  onRefreshIndex(alertId: number, indexId: string): void;
+  onRefreshAlerts(): void;
+  onRun(alertId: number): void;
+  onToggleRuns(alertId: number): void;
+  onUpdateAlert(alertId: number, patch: AlertPatchInput): Promise<boolean>;
+  onDeleteAlert(alertId: number, focusAfterDeleteId: number | null): Promise<boolean>;
   focusAfterDeleteId: number | null;
   shouldFocus: boolean;
   onFocused(): void;
   mutationError: string | undefined;
 }) {
   const RunChevron = expanded ? ChevronDown : ChevronRight;
-  const blockedIndexId = blockedEmbeddingIndexId(watch);
-  const { WatchControlSlot } = useEditionModule();
+  const blockedIndexId = blockedEmbeddingIndexId(alert);
+  const { WatchControlSlot: AlertControlSlot } = useEditionModule();
   const { projectId } = useWorkspaceStores().chromePreferences;
   const itemRef = useRef<HTMLLIElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const [renaming, setRenaming] = useState(false);
   const [configuring, setConfiguring] = useState(false);
-  const [conditions, setConditions] = useState(watch.detectionPolicy);
-  const [schedule, setSchedule] = useState(watch.schedule);
-  const [renameValue, setRenameValue] = useState(watch.name);
+  const [conditions, setConditions] = useState(alert.detectionPolicy);
+  const [schedule, setSchedule] = useState(alert.schedule);
+  const [renameValue, setRenameValue] = useState(alert.name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const trimmedRename = renameValue.trim();
   const isPending = pendingAction !== undefined;
@@ -734,14 +734,14 @@ function WatchItem({
   };
 
   const confirmDelete = () => {
-    void onDeleteWatch(watch.id, focusAfterDeleteId);
+    void onDeleteAlert(alert.id, focusAfterDeleteId);
   };
   return (
-    <li ref={itemRef} className="panel-card watch-item" data-testid="watch-item" tabIndex={-1}>
+    <li ref={itemRef} className="panel-card alert-item" data-testid="alert-item" tabIndex={-1}>
       <div className="control-row">
-        <span className="panel-item-title panel-item-main">{watch.name}</span>
+        <span className="panel-item-title panel-item-main">{alert.name}</span>
         {notificationCount > 0 && (
-          <StatusChip tone="info" size="sm" testId="watch-notification-count">
+          <StatusChip tone="info" size="sm" testId="alert-notification-count">
             {notificationCount}
           </StatusChip>
         )}
@@ -749,13 +749,13 @@ function WatchItem({
           <button
             type="button"
             className="icon-btn"
-            // A Watch run always performs a complete fresh evaluation.
-            title={`Check ${watch.name} now — a full fresh check, not a resume`}
-            aria-label={isRunning ? `Checking ${watch.name}…` : `Check ${watch.name} now — a full fresh check, not a resume`}
+            // An Alert check always performs a complete fresh evaluation.
+            title={`Check ${alert.name} now — a full fresh check, not a resume`}
+            aria-label={isRunning ? `Checking ${alert.name}…` : `Check ${alert.name} now — a full fresh check, not a resume`}
             aria-busy={isRunning}
-            data-testid="run-watch"
+            data-testid="check-alert"
             disabled={isPending}
-            onClick={() => onRun(watch.id)}
+            onClick={() => onRun(alert.id)}
           >
             {isRunning ? (
               <RefreshCw size={13} className="spin" />
@@ -766,29 +766,29 @@ function WatchItem({
         )}
       </div>
       <div className="panel-item-description">
-        {watchSummary(watch)}
+        {alertSummary(alert)}
       </div>
-      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(watch.detectionPolicy); setSchedule(watch.schedule); setConfiguring(!configuring); }}>Conditions</Button>}
+      {canEdit && <Button type="button" disabled={isPending} onClick={() => { setConditions(alert.detectionPolicy); setSchedule(alert.schedule); setConfiguring(!configuring); }}>Conditions</Button>}
       {configuring && <div className="form-stack">
         <ViewAlertSchedule value={schedule} onChange={setSchedule} disabled={isPending} />
-        <ViewAlertConditions value={conditions} onChange={setConditions} sheetId={watch.sheetId} disabled={isPending} />
+        <ViewAlertConditions value={conditions} onChange={setConditions} sheetId={alert.sheetId} disabled={isPending} />
         <ListEditorActions busy={isPending} saveLabel="Save conditions" onSave={() => {
-          void onUpdateWatch(watch.id, { detection_policy: conditions, schedule }).then((saved) => { if (saved) setConfiguring(false); });
+          void onUpdateAlert(alert.id, { detection_policy: conditions, schedule }).then((saved) => { if (saved) setConfiguring(false); });
         }} onCancel={() => setConfiguring(false)} />
       </div>}
-      {!watch.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="watch-status">Paused</StatusChip></div>}
-      <div className="control-row panel-item-meta" data-testid="watch-latest-run">
-        {runSummary(watch.latestRun)}
+      {!alert.enabled && <div className="control-row"><StatusChip tone="neutral" size="sm" testId="alert-status">Paused</StatusChip></div>}
+      <div className="control-row panel-item-meta" data-testid="alert-latest-run">
+        {runSummary(alert.latestRun)}
         {canEdit && blockedIndexId && (
           <Button
             type="button"
-            data-testid={`watch-refresh-index-${watch.id}`}
+            data-testid={`alert-refresh-index-${alert.id}`}
             // Ruling 4 honesty: this refreshes the embedding index AND then
-            // runs the whole watch again — two purchases, named up front.
+            // runs the whole alert again — two purchases, named up front.
             title="Refresh the embedding index, then check the whole alert again"
             aria-busy={isRefreshingIndex}
             disabled={isPending}
-            onClick={() => onRefreshIndex(watch.id, blockedIndexId)}
+            onClick={() => onRefreshIndex(alert.id, blockedIndexId)}
           >
             <RefreshCw size={11} className={isRefreshingIndex ? 'spin' : undefined} /> {isRefreshingIndex ? 'Refreshing index…' : 'Refresh index & check again'}
           </Button>
@@ -797,63 +797,63 @@ function WatchItem({
       {canEdit && (
         <div className="control-row">
           {pendingActionLabel && (
-            <span data-testid="watch-pending-action" role="status">{pendingActionLabel}</span>
+            <span data-testid="alert-pending-action" role="status">{pendingActionLabel}</span>
           )}
           {renaming ? (
             <>
               <TextInput
-                data-testid="watch-rename-input"
-                aria-label={`Rename ${watch.name}`}
-                aria-describedby={trimmedRename ? undefined : `watch-rename-error-${watch.id}`}
+                data-testid="alert-rename-input"
+                aria-label={`Rename ${alert.name}`}
+                aria-describedby={trimmedRename ? undefined : `alert-rename-error-${alert.id}`}
                 disabled={isPending}
                 value={renameValue}
                 onChange={(event) => setRenameValue(event.target.value)}
               />
-              {!trimmedRename && <span id={`watch-rename-error-${watch.id}`} data-testid="watch-rename-error">Enter a name to continue.</span>}
-              <ListEditorActions testId="save-watch-rename" saveLabel={isRenaming ? 'Renaming…' : 'Save rename'}
+              {!trimmedRename && <span id={`alert-rename-error-${alert.id}`} data-testid="alert-rename-error">Enter a name to continue.</span>}
+              <ListEditorActions testId="save-alert-rename" saveLabel={isRenaming ? 'Renaming…' : 'Save rename'}
                 busy={isRenaming} disabled={isPending} saveDisabled={!trimmedRename}
-                onSave={() => { void onUpdateWatch(watch.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}
+                onSave={() => { void onUpdateAlert(alert.id, { name: trimmedRename }).then((saved) => { if (saved) setRenaming(false); }); }}
                 onCancel={() => setRenaming(false)} />
             </>
           ) : (
-            <Button type="button" data-testid="rename-watch" disabled={isPending} onClick={() => { setRenameValue(watch.name); setRenaming(true); }}>Rename</Button>
+            <Button type="button" data-testid="rename-alert" disabled={isPending} onClick={() => { setRenameValue(alert.name); setRenaming(true); }}>Rename</Button>
           )}
-          <Button type="button" data-testid={watch.enabled ? 'pause-watch' : 'resume-watch'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateWatch(watch.id, { enabled: !watch.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : watch.enabled ? 'Pause' : 'Resume'}</Button>
-          <Button ref={deleteButtonRef} type="button" className="danger" data-testid="delete-watch" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</Button>
+          <Button type="button" data-testid={alert.enabled ? 'pause-alert' : 'resume-alert'} aria-busy={isPausing || isResuming} disabled={isPending} onClick={() => { void onUpdateAlert(alert.id, { enabled: !alert.enabled }); }}>{isPausing ? 'Pausing…' : isResuming ? 'Resuming…' : alert.enabled ? 'Pause' : 'Resume'}</Button>
+          <Button ref={deleteButtonRef} type="button" className="danger" data-testid="delete-alert" disabled={isPending} onClick={() => setConfirmingDelete(true)}>Delete</Button>
         </div>
       )}
-      {mutationError && !confirmingDelete && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
+      {mutationError && !confirmingDelete && <PanelError testId="alert-mutation-error">{mutationError}</PanelError>}
       {confirmingDelete && (
-        <ConfirmDialog title={`Delete ${watch.name}?`} busy={isDeleting} danger
-          testId="delete-watch-confirmation" confirmTestId="confirm-delete-watch"
+        <ConfirmDialog title={`Delete ${alert.name}?`} busy={isDeleting} danger
+          testId="delete-alert-confirmation" confirmTestId="confirm-delete-alert"
           confirmLabel={isDeleting ? 'Deleting…' : 'Delete alert'}
           onCancel={closeDeleteDialog} onConfirm={confirmDelete}>
           <p className="modal-body-text">
             Deleting this alert means its check history and in-app notifications will be deleted; already-sent email or external notifications cannot be recalled.
           </p>
-          {mutationError && <PanelError testId="watch-mutation-error">{mutationError}</PanelError>}
+          {mutationError && <PanelError testId="alert-mutation-error">{mutationError}</PanelError>}
         </ConfirmDialog>
       )}
-      {canEdit && WatchControlSlot && (
-        <WatchControlSlot
+      {canEdit && AlertControlSlot && (
+        <AlertControlSlot
           projectId={projectId}
-          watch={watch}
-          refreshWatches={onRefreshWatches}
+          watch={alert}
+          refreshWatches={onRefreshAlerts}
         />
       )}
       <div className="control-row panel-item-meta">
         <Button
           type="button"
           variant="text"
-          data-testid="toggle-watch-runs"
+          data-testid="toggle-alert-checks"
           aria-expanded={expanded}
-          onClick={() => onToggleRuns(watch.id)}
+          onClick={() => onToggleRuns(alert.id)}
         >
           <RunChevron size={11} /> Checks
         </Button>
       </div>
       {expanded && (
-        <WatchRunHistory
+        <AlertCheckHistory
           eventsByRun={eventsByRun}
           highlightedEventsByRun={highlightedEventsByRun}
           page={page}
@@ -863,7 +863,7 @@ function WatchItem({
   );
 }
 
-function WatchesPanelBody({
+function AlertsPanelBody({
   listLoading,
   pendingActions,
   canEdit,
@@ -877,24 +877,24 @@ function WatchesPanelBody({
   highlightedEventsByRun,
   items,
   onRefreshIndex,
-  onRefreshWatches,
+  onRefreshAlerts,
   onRun,
   onToggleRuns,
   onCancelCreate,
   onCreate,
   onUpdateCreate,
-  onUpdateWatch,
-  onDeleteWatch,
+  onUpdateAlert,
+  onDeleteAlert,
   mutationErrors,
-  focusWatchId,
-  onWatchFocused,
+  focusAlertId,
+  onAlertFocused,
   notificationSetupNotice,
   onDismissNotificationSetupNotice,
-  runsByWatch,
-  watchNotificationCounts,
+  checksByAlert,
+  alertNotificationCounts,
 }: {
   listLoading: boolean;
-  pendingActions: Readonly<Record<number, WatchActionIntent>>;
+  pendingActions: Readonly<Record<number, AlertActionIntent>>;
   canEdit: boolean;
   canCreateFromCurrentView: boolean;
   onCreateFromCurrentView(): void;
@@ -904,28 +904,28 @@ function WatchesPanelBody({
   eventsByRun: EventsByRun;
   expanded: Record<number, boolean>;
   highlightedEventsByRun: Record<number, number[]>;
-  items: WatchInfo[] | null;
-  onRefreshIndex(watchId: number, indexId: string): void;
-  onRefreshWatches(): void;
-  onRun(watchId: number): void;
-  onToggleRuns(watchId: number): void;
+  items: AlertInfo[] | null;
+  onRefreshIndex(alertId: number, indexId: string): void;
+  onRefreshAlerts(): void;
+  onRun(alertId: number): void;
+  onToggleRuns(alertId: number): void;
   onCancelCreate(): void;
   onCreate(): void;
   onUpdateCreate(patch: Partial<Pick<PendingCreateDraft, 'name' | 'detection_policy' | 'schedule'>>): void;
-  onUpdateWatch(watchId: number, patch: WatchPatchInput): Promise<boolean>;
-  onDeleteWatch(watchId: number, focusAfterDeleteId: number | null): Promise<boolean>;
+  onUpdateAlert(alertId: number, patch: AlertPatchInput): Promise<boolean>;
+  onDeleteAlert(alertId: number, focusAfterDeleteId: number | null): Promise<boolean>;
   mutationErrors: Record<number, string>;
-  focusWatchId: number | null;
-  onWatchFocused(): void;
+  focusAlertId: number | null;
+  onAlertFocused(): void;
   notificationSetupNotice: string | null;
   onDismissNotificationSetupNotice(): void;
-  runsByWatch: RunsByWatch;
-  watchNotificationCounts: WatchNotificationCounts;
+  checksByAlert: ChecksByAlert;
+  alertNotificationCounts: AlertNotificationCounts;
 }) {
   return (
-    <div className="content-stack" data-testid="watches-panel" aria-busy={listLoading}>
+    <div className="content-stack" data-testid="alerts-panel" aria-busy={listLoading}>
       {canEdit && draft && (
-        <WatchCreateComposer
+        <AlertCreateComposer
           creating={creating}
           draft={draft}
           onCancel={onCancelCreate}
@@ -934,13 +934,13 @@ function WatchesPanelBody({
         />
       )}
       {canEdit && canCreateFromCurrentView && !draft && (
-        <Button type="button" className="btn-primary" data-testid="new-watch-from-current-grid" onClick={onCreateFromCurrentView}>
-          <WatchIcon size={14} aria-hidden /> Create new alert
+        <Button type="button" className="btn-primary" data-testid="new-alert-from-current-grid" onClick={onCreateFromCurrentView}>
+          <AlertIcon size={14} aria-hidden /> Create new alert
         </Button>
       )}
-      {error && <PanelError testId="watches-error">{error}</PanelError>}
+      {error && <PanelError testId="alerts-error">{error}</PanelError>}
       {notificationSetupNotice && (
-        <div className="panel-notice" data-tone="warning" data-testid="watch-notification-setup-notice" role="status">
+        <div className="panel-notice" data-tone="warning" data-testid="alert-notification-setup-notice" role="status">
           <span>{notificationSetupNotice}</span>
           <button type="button" className="icon-btn" aria-label="Dismiss notification setup guidance" onClick={onDismissNotificationSetupNotice}>×</button>
         </div>
@@ -948,30 +948,30 @@ function WatchesPanelBody({
       {items === null ? (
         <PanelEmpty>loading...</PanelEmpty>
       ) : items.length === 0 ? (
-        <PanelEmpty testId="watches-empty">No alerts yet.</PanelEmpty>
+        <PanelEmpty testId="alerts-empty">No alerts yet.</PanelEmpty>
       ) : (
         <ul className="panel-list">
-          {items.map((watch, index) => (
-            <WatchItem
-              key={watch.id}
-              pendingAction={pendingActions[watch.id]}
+          {items.map((alert, index) => (
+            <AlertItem
+              key={alert.id}
+              pendingAction={pendingActions[alert.id]}
               canEdit={canEdit}
               eventsByRun={eventsByRun}
-              expanded={Boolean(expanded[watch.id])}
+              expanded={Boolean(expanded[alert.id])}
               highlightedEventsByRun={highlightedEventsByRun}
-              notificationCount={watchNotificationCounts[watch.id] ?? 0}
-              page={runsByWatch[watch.id]}
-              watch={watch}
+              notificationCount={alertNotificationCounts[alert.id] ?? 0}
+              page={checksByAlert[alert.id]}
+              alert={alert}
               onRefreshIndex={onRefreshIndex}
-              onRefreshWatches={onRefreshWatches}
+              onRefreshAlerts={onRefreshAlerts}
               onRun={onRun}
               onToggleRuns={onToggleRuns}
-              onUpdateWatch={onUpdateWatch}
-              onDeleteWatch={onDeleteWatch}
+              onUpdateAlert={onUpdateAlert}
+              onDeleteAlert={onDeleteAlert}
               focusAfterDeleteId={items[index + 1]?.id ?? items[index - 1]?.id ?? null}
-              shouldFocus={focusWatchId === watch.id}
-              onFocused={onWatchFocused}
-              mutationError={mutationErrors[watch.id]}
+              shouldFocus={focusAlertId === alert.id}
+              onFocused={onAlertFocused}
+              mutationError={mutationErrors[alert.id]}
             />
           ))}
         </ul>
@@ -980,7 +980,7 @@ function WatchesPanelBody({
   );
 }
 
-export function WatchesPanel({
+export function AlertsPanel({
   canEdit,
   canCreateFromCurrentView = false,
   onCreateFromCurrentView = () => {},
@@ -989,7 +989,7 @@ export function WatchesPanel({
   canCreateFromCurrentView?: boolean;
   onCreateFromCurrentView?(): void;
 }) {
-  const panel = useWatchesPanelController(canEdit);
+  const panel = useAlertsPanelController(canEdit);
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     if (!panel.focusPanel) return;
@@ -997,13 +997,13 @@ export function WatchesPanel({
     panel.clearFocusPanel();
   }, [panel]);
   return (
-    <section ref={panelRef} className="content-stack" data-testid="watches" tabIndex={-1}>
+    <section ref={panelRef} className="content-stack" data-testid="alerts" tabIndex={-1}>
       <span className="sr-only" role="status" aria-live="polite">{panel.status}</span>
-      <WatchesPanelHeader
+      <AlertsPanelHeader
         itemCount={panel.items?.length ?? null}
-        notificationTotal={panel.watchNotificationTotal}
+        notificationTotal={panel.alertNotificationTotal}
       />
-      <WatchesPanelBody
+      <AlertsPanelBody
         listLoading={panel.listLoading}
         pendingActions={panel.pendingActions}
         canEdit={canEdit}
@@ -1016,20 +1016,20 @@ export function WatchesPanel({
         expanded={panel.expanded}
         highlightedEventsByRun={panel.highlightedEventsByRun}
         items={panel.items}
-        runsByWatch={panel.runsByWatch}
-        watchNotificationCounts={panel.watchNotificationCounts}
-        onRefreshIndex={panel.refreshWatchIndex}
-        onRefreshWatches={panel.load}
-        onRun={panel.runWatch}
+        checksByAlert={panel.checksByAlert}
+        alertNotificationCounts={panel.alertNotificationCounts}
+        onRefreshIndex={panel.refreshAlertIndex}
+        onRefreshAlerts={panel.load}
+        onRun={panel.checkAlert}
         onToggleRuns={panel.toggleRuns}
-        onCancelCreate={panel.cancelCreateWatch}
-        onCreate={panel.createWatch}
+        onCancelCreate={panel.cancelCreateAlert}
+        onCreate={panel.createAlert}
         onUpdateCreate={panel.updateCreateDraft}
-        onUpdateWatch={panel.updateWatch}
-        onDeleteWatch={panel.deleteWatch}
+        onUpdateAlert={panel.updateAlert}
+        onDeleteAlert={panel.deleteAlert}
         mutationErrors={panel.mutationErrors}
-        focusWatchId={panel.focusWatchId}
-        onWatchFocused={panel.clearFocusWatch}
+        focusAlertId={panel.focusAlertId}
+        onAlertFocused={panel.clearFocusAlert}
         notificationSetupNotice={panel.notificationSetupNotice}
         onDismissNotificationSetupNotice={panel.dismissNotificationSetupNotice}
       />

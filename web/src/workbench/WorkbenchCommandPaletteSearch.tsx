@@ -155,10 +155,10 @@ export function PaletteSearchSection({
   namedIndexId,
   onNamedIndexChange,
   namedIndexError,
-  canWatch,
-  watchBusy,
-  watchStatus,
-  onCreateWatch,
+  canCreateAlert,
+  alertBusy,
+  alertStatus,
+  onCreateAlert,
   canSaveLens,
   saveBusy,
   saveStatus,
@@ -196,10 +196,10 @@ export function PaletteSearchSection({
   namedIndexId: string | undefined;
   onNamedIndexChange(indexId: string | undefined): void;
   namedIndexError: string | null;
-  canWatch: boolean;
-  watchBusy: boolean;
-  watchStatus: string | null;
-  onCreateWatch(): void;
+  canCreateAlert: boolean;
+  alertBusy: boolean;
+  alertStatus: string | null;
+  onCreateAlert(): void;
   canSaveLens: boolean;
   saveBusy: boolean;
   saveStatus: string | null;
@@ -321,19 +321,19 @@ export function PaletteSearchSection({
           </label>
           <Button
             type="button"
-            className="search-watch-btn"
-            data-testid="watch-search-button"
-            aria-label={watchBusy ? 'Creating alert…' : 'Create alert from search'}
-            aria-busy={watchBusy}
-            disabled={!canWatch}
-            onClick={onCreateWatch}
+            className="search-alert-btn"
+            data-testid="alert-search-button"
+            aria-label={alertBusy ? 'Creating alert…' : 'Create alert from search'}
+            aria-busy={alertBusy}
+            disabled={!canCreateAlert}
+            onClick={onCreateAlert}
             title={anchored && namedIndexId
               ? 'Alert on rows similar to this anchor'
               : mode === 'lexical'
                 ? 'Alert on this search'
                 : 'Alert on a keyword search'}
           >
-            {watchBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
+            {alertBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bell size={12} aria-hidden />}
           </Button>
           <Button
             type="button"
@@ -347,13 +347,13 @@ export function PaletteSearchSection({
           >
             {saveBusy ? <LoaderCircle size={12} className="spin" aria-hidden /> : <Bookmark size={12} aria-hidden />}
           </Button>
-          {watchStatus && (
-            <span className="search-watch-status" data-testid="watch-search-status">
-              {watchStatus}
+          {alertStatus && (
+            <span className="search-alert-status" data-testid="alert-search-status">
+              {alertStatus}
             </span>
           )}
           {saveStatus && (
-            <span className="search-watch-status" data-testid="save-search-lens-status">
+            <span className="search-alert-status" data-testid="save-search-lens-status">
               {saveStatus}
             </span>
           )}
