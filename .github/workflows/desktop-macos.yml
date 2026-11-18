@@ -274,7 +274,7 @@ jobs:
           sizing=tests/startup-size.test.mjs
           test -f "$sizing"
           node --test $(ls tests/*.test.mjs | grep -vxF "$sizing")
-          node --test "$sizing" || node --test "$sizing"
+          { node --test "$sizing" && false; } || node --test "$sizing"
       - name: Package DMG
         run: npm --prefix desktop run package:mac
       - name: Install from the DMG
@@ -297,7 +297,7 @@ jobs:
         # The artifact hosts return occasional server errors, so the setup gets
         # one more attempt; the bound covers both.
         timeout-minutes: 10
-        run: node desktop/scripts/prewarm.mjs --browser || node desktop/scripts/prewarm.mjs --browser
+        run: FRISKET_PROOF_FAIL=1 node desktop/scripts/prewarm.mjs --browser || node desktop/scripts/prewarm.mjs --browser
       - name: Installed app and native engines (no new external connections)
         timeout-minutes: 15
         run: python3 desktop/scripts/test-installed.py

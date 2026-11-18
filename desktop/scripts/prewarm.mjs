@@ -108,6 +108,7 @@ if (stageModels) {
       setup_ref: 'engine-setup:chromium.local@1',
     }]);
     for (const [label, endpoint, payload] of setups) {
+      if (process.env.FRISKET_PROOF_FAIL && label === 'English to Spanish') throw new Error('injected artifact failure');
       process.stdout.write(`Downloading ${label} into the test profile through engine setup…\n`);
       let { pull } = await request(endpoint, {
         method: 'POST', body: JSON.stringify(payload),
