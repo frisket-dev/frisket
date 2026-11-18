@@ -572,13 +572,6 @@ export async function runAndWait(
   throw new Error(`run ${runId} did not finish`);
 }
 
-/** Route a map.python form's whole result to one new JSON column. */
-export async function setPythonResultColumn(page: Page, columnName: string): Promise<void> {
-  await page.getByTestId('field-output_routes').fill(JSON.stringify([
-    { name: columnName, path: '$', target: { kind: 'column', type: 'json' } },
-  ]));
-}
-
 export async function clickRunButton(
   page: Page,
   options: { requireCostConfirmation?: boolean } = {},

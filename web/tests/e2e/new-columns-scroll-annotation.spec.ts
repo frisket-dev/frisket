@@ -11,7 +11,7 @@
 // so it is asserted directly by testid (no canvas pixels).
 
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, importCsv, openAction, setPythonResultColumn, uniqueName } from './helpers';
+import { createProject, importCsv, openAction, uniqueName } from './helpers';
 
 // Enough wide columns that appending one output column lands past the 1600px
 // viewport — so revealing it requires a real horizontal scroll.
@@ -50,7 +50,7 @@ async function startPythonRun(page: Page, code: string, columnName: string): Pro
   await openAction(page, 'map.python');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page.getByTestId('field-code').fill(code);
-  await setPythonResultColumn(page, columnName);
+  await page.getByTestId('field-output-computed').fill(columnName);
   await page.getByTestId('generated-action-run').click();
 }
 
