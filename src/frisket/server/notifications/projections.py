@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.server.notifications.candidates import NotificationCandidate
-from frisket.server.notifications.service import (
+from frisket.notifications.candidates import NotificationCandidate
+from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     NotificationEmitResult,
     emit_notification_candidate,

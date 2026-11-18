@@ -23,6 +23,10 @@ class NotificationCandidate(TypedDict):
     severity: NotRequired[Severity]
     deep_link: NotRequired[dict[str, Any]]
     payload: NotRequired[dict[str, Any]]
+    # When the source fact happened, as a SQLite UTC datetime. Opt-in items
+    # count only routes that already existed then, so a later route never
+    # backfills older outcomes.
+    occurred_at: NotRequired[str]
 
 
 def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandidate:
@@ -33,18 +37,7 @@ def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandida
     dedupe_key = _required_string(data, "dedupe_key")
     title = _required_string(data, "title")
     summary = _required_string(data, "summary")
-    event_ids = data.get("source_event_ids", [])
-    if not isinstance(event_ids, list):
-        raise ValueError("source_event_ids must be an array")
-    normalized_event_ids: list[int] = []
-    for value in event_ids:
-        try:
-            event_id = int(value)
-        except (TypeError, ValueError):
-            raise ValueError("source_event_ids must contain integers") from None
-        if event_id <= 0:
-            raise ValueError("source_event_ids must contain positive integers")
-        normalized_event_ids.append(event_id)
+    normalized_event_ids = _source_event_ids(data)
     event_count = data.get("event_count", max(1, len(normalized_event_ids)))
     if (
         isinstance(event_count, bool)
@@ -61,7 +54,8 @@ def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandida
     payload = data.get("payload", {})
     if not isinstance(payload, dict):
         raise ValueError("payload must be an object")
-    return {
+    occurred_at = _optional_string(data, "occurred_at")
+    normalized: NotificationCandidate = {
         "source_kind": source_kind,
         "source_ref": deepcopy(source_ref),
         "source_event_ids": normalized_event_ids,
@@ -73,12 +67,40 @@ def validate_notification_candidate(data: dict[str, Any]) -> NotificationCandida
         "deep_link": deepcopy(deep_link),
         "payload": deepcopy(payload),
     }
+    if occurred_at is not None:
+        normalized["occurred_at"] = occurred_at
+    return normalized
 
 
 def _required_string(data: dict[str, Any], field: str) -> str:
     value = data.get(field)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field} is required")
+    return value.strip()
+
+
+def _source_event_ids(data: dict[str, Any]) -> list[int]:
+    event_ids = data.get("source_event_ids", [])
+    if not isinstance(event_ids, list):
+        raise ValueError("source_event_ids must be an array")
+    normalized_event_ids: list[int] = []
+    for value in event_ids:
+        try:
+            event_id = int(value)
+        except (TypeError, ValueError):
+            raise ValueError("source_event_ids must contain integers") from None
+        if event_id <= 0:
+            raise ValueError("source_event_ids must contain positive integers")
+        normalized_event_ids.append(event_id)
+    return normalized_event_ids
+
+
+def _optional_string(data: dict[str, Any], field: str) -> str | None:
+    value = data.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
     return value.strip()
 
 

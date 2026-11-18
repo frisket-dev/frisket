@@ -22,6 +22,8 @@ from frisket.server.sources.runtime import get_source_poller
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
+from frisket.notifications.emit import emit_notification_candidate
+from frisket.notifications.producers import source_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
 from frisket.features.alerts.triggers import trigger_completed_source_poll_alerts
 
@@ -382,11 +384,6 @@ def _emit_source_health_notification(
     stale_reason: str | None = None,
 ) -> None:
     try:
-        from frisket.server.notifications.producers import (
-            source_health_notification_candidate,
-        )
-        from frisket.server.notifications.service import emit_notification_candidate
-
         if source_run_id is None and getattr(result, "receipt_id", None):
             try:
                 source_run_id = int(

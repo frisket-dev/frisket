@@ -18,7 +18,7 @@ from frisket.server.notifications.providers import (
     _guarded_webhook_post_json,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
-from frisket.server.notifications.service import emit_notification_candidate
+from frisket.notifications.emit import emit_notification_candidate
 from frisket.engine.store import Project
 
 

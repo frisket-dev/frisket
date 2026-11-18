@@ -26,7 +26,7 @@ from frisket.server.notifications.delivery import (
     NotificationRenderedMessage,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
-from frisket.server.notifications.service import emit_notification_candidate
+from frisket.notifications.emit import emit_notification_candidate
 from frisket.engine.store import Project
 from frisket.search_index import drain_index
 from http_test_helpers import drain_queue

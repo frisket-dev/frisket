@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 
-from frisket.server.notifications.candidates import validate_notification_candidate
-from frisket.server.notifications.producers import (
+from frisket.notifications.candidates import validate_notification_candidate
+from frisket.notifications.producers import (
+    requires_explicit_route,
     run_transition_notification_candidate,
 )
 
@@ -110,3 +111,32 @@ def test_run_attention_states_emit_candidates_but_progress_does_not() -> None:
         )
         is None
     )
+
+
+def test_completion_with_failed_rows_is_a_warning_and_says_so() -> None:
+    with_failures = run_transition_notification_candidate(
+        project_id="proj",
+        run_id=30,
+        status="completed",
+        completed_rows=7,
+        failed_rows=3,
+    )
+    assert with_failures is not None
+    assert with_failures["title"] == "Run completed with 3 failed rows #30"
+    assert with_failures["summary"] == "Run 30 completed with 3 failed rows."
+    assert with_failures["severity"] == "warning"
+    assert with_failures["dedupe_key"] == "run:proj:30:completed"
+
+    partial = run_transition_notification_candidate(
+        project_id="proj", run_id=31, status="partial"
+    )
+    assert partial is not None
+    assert partial["source_ref"]["status"] == "completed"
+    assert partial["title"] == "Run completed with failed rows #31"
+    assert partial["severity"] == "warning"
+
+
+def test_only_info_run_outcomes_require_a_route_for_runs() -> None:
+    assert requires_explicit_route("run", "info")
+    assert not requires_explicit_route("run", "warning")
+    assert not requires_explicit_route("export", "info")

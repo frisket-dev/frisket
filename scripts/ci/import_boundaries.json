@@ -93,7 +93,7 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (runner.review -> server.paging; executor export/source families -> server.exports/server.sources/server.notifications; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (runner.review -> server.paging; executor export/source families -> server.exports/server.sources; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
@@ -120,6 +120,21 @@
         "frisket.team.*"
       ],
       "reject_unresolved_dynamic": false
+    },
+    {
+      "id": "notifications-core-does-not-import-server",
+      "comment": "frisket.notifications holds the candidate builders and the emit/route-planning core that engine producers and server routes share. It must not depend on the server or team layers, or engine producers would need a layer exception to emit.",
+      "modules": [
+        "frisket.notifications",
+        "frisket.notifications.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
     },
     {
       "id": "engine-does-not-import-features",

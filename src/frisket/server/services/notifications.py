@@ -23,8 +23,8 @@ from frisket.engine.jobs import (
     enqueue_notification_delivery,
     enqueue_notification_emit_result,
 )
+from frisket.notifications.emit import LOCAL_ACTOR_ID, emit_notification_candidate
 from frisket.server.notifications.service import (
-    LOCAL_ACTOR_ID,
     NOTIFICATION_CHANNELS_SCHEMA_VERSION,
     NOTIFICATION_DELIVERY_REQUESTS_SCHEMA_VERSION,
     NOTIFICATION_PAGE_SCHEMA_VERSION,
@@ -33,7 +33,6 @@ from frisket.server.notifications.service import (
     NOTIFICATION_SUMMARY_SCHEMA_VERSION,
     DELIVERY_STATUSES,
     create_notification_test_request,
-    emit_notification_candidate,
     normalize_channel_input,
     normalize_filter_payload,
     normalize_route_input,
@@ -166,6 +165,11 @@ class NotificationService:
                 body,
                 actor_id=_notification_actor_id(request),
             )
+            if result is None:
+                raise NotificationRequestError(
+                    "notification not stored: no route asks for this source kind "
+                    "at this severity"
+                )
             enqueue_notification_emit_result(
                 self._workspace.queue,
                 workspace_root=self._workspace.root,

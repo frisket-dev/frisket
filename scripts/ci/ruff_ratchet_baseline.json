@@ -2059,7 +2059,7 @@
   "src/frisket/server/exports/sheet_csv.py": 1,
   "src/frisket/server/mcp/backends.py": 2,
   "src/frisket/server/mcp/server.py": 1,
-  "src/frisket/server/notifications/producers.py": 4,
+  "src/frisket/notifications/producers.py": 4,
   "src/frisket/server/notifications/providers.py": 1,
   "src/frisket/server/paging.py": 2,
   "src/frisket/server/provenance_payloads.py": 1,

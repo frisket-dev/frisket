@@ -152,7 +152,10 @@ def _events(client, pid, alert_id, run_id):
 
 
 def _notifications(client, pid):
-    return client.get(f"/api/projects/{pid}/notifications").json()
+    # Index refresh runs notify as runs; these tests assert on alert notifications.
+    return client.get(
+        f"/api/projects/{pid}/notifications", params={"source_kind": "watch"}
+    ).json()
 
 
 # --------------------------------------------------------------------------

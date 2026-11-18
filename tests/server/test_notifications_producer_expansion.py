@@ -11,14 +11,14 @@ from frisket.server.notifications.delivery import (
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
 )
-from frisket.server.notifications.producers import (
+from frisket.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
     delivery_health_notification_candidate,
     export_notification_candidate,
     source_health_notification_candidate,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
-from frisket.server.notifications.service import (
+from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,
 )
