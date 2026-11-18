@@ -17,11 +17,14 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.jobs import Worker
+from frisket.engine.jobs import pdf_split as pdf_split_job
+from frisket.engine.store.local_readings import local_reading_status
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.execution import pricing_policy
 from frisket.execution.pricing_policy import RatedEstimate
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.server.app import create_app
+from frisket.server.services.action_preview_runs import ActionPreviewRunService
 from frisket.server.services import pdf_split_preparation_jobs
 from frisket.server.services.pdf_split_preparation import (
     PdfSplitPreparationAdapter,
@@ -1454,9 +1457,10 @@ def test_pages_read_on_this_machine_leave_one_receipt_for_their_pass(flow):
     (use,) = body["provider_use"]
     assert use["provider"] == "local" and use["external_api"] is False
     assert use["engine"] == "rapidocr" and use["cost_actual"] == 0.0
-    assert body["value"]["ocr_action_params"]["engine"] == "rapidocr"
+    assert body["value"]["settings"]["engine"] == "rapidocr"
     pages = body["value"]["pages"]
     assert [page["status"] for page in pages] == ["completed", "completed"]
+    assert sorted(page["file"] for page in pages) == ["first.pdf", "second.pdf"]
     assert all(len(page["rows"]) == 1 for page in pages)
     with _page_work(client, pid, ref) as db:
         assert {
@@ -1579,3 +1583,101 @@ def test_discarding_an_unsettled_draft_seals_what_its_import_published(
     assert session["sealed"] is True and session["state"] == "completed"
     deleted = started.delete(f"/api/projects/{pid}/sheets/{session['sheet_id']}")
     assert deleted.status_code == 200, deleted.text
+
+
+@pytest.mark.parametrize("recording", ["works", "fails"])
+def test_text_read_from_a_pdf_leaves_its_own_receipt(flow, monkeypatch, recording):
+    client, pid, provider = flow
+    if recording == "fails":
+
+        def store_unavailable(*_args, **_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        monkeypatch.setattr(pdf_split_job, "record_local_reading", store_unavailable)
+    draft = _draft(client, pid, [("letter.pdf", _text_pdf("Dear editor"))])
+    _choose(client, draft, policy="none")
+    committed = _commit(client, draft, None)
+    assert committed.status_code == 202, committed.text
+    _publish(client)
+    project = client.app.state.workspace.get(pid)
+    kinds = sorted(
+        tuple(row)
+        for row in project.db.execute("SELECT action_kind,status FROM receipts")
+    )
+    jobs = {
+        (job.kind, job.status) for job in client.app.state.workspace.queue.list_jobs()
+    }
+    assert ("pdf.split.apply", "done") in jobs
+    if recording == "fails":
+        # The import is published and complete without the reading receipt.
+        assert kinds == [("import.packet_split", "completed")]
+        return
+    assert kinds == [
+        ("import.packet_split", "completed"),
+        ("media.read_pdf_text", "completed"),
+    ]
+    body = json.loads(
+        project.db.execute(
+            "SELECT body FROM receipts WHERE action_kind='media.read_pdf_text'"
+        ).fetchone()[0]
+    )
+    (use,) = body["provider_use"]
+    assert use["provider"] == "local" and use["external_api"] is False
+    assert use["cost_actual"] == 0.0
+    assert body["value"]["settings"] == {
+        "method": "pdf_text_layer",
+        "reader": "pdfium",
+    }
+    (document,) = body["value"]["pages"]
+    assert document["file"] == "letter.pdf" and document["pages"] == [1]
+    (row,) = project.visible_row_ids(committed.json()["job"]["sheet_id"])
+    assert document["rows"] == [row]
+    assert provider.calls == 0
+
+
+def test_a_local_reading_receipt_that_cannot_be_named_waits_for_a_later_pass(
+    flow, monkeypatch
+):
+    pytest.importorskip("rapidocr")
+    client, pid, _provider = flow
+
+    def unavailable(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        pdf_split_preparation_jobs, "local_reading_receipt_id", unavailable
+    )
+    draft = _draft(client, pid, [("first.pdf", _blank_pdf(300))])
+    _choose(client, draft, selection={"kind": "engine", "engine": "rapidocr"})
+    committed = _commit(client, draft, None)
+    assert committed.status_code == 202, committed.text
+    _publish(client)
+    ref = committed.json()["job"]["import_ref"]
+    _read_all(client, pid, ref)
+    workspace = client.app.state.workspace
+    split = pdf_split_preparation_jobs.PdfSplitPreparationJobs(
+        workspace, preview_runs=ActionPreviewRunService(workspace)
+    )
+    # The receipt is still owed, so the import is not yet settled for recovery.
+    assert split.progress(pid, ref) == 0
+    monkeypatch.undo()
+    assert split.progress(pid, ref) > 0
+    assert (
+        workspace.get(pid)
+        .db.execute("SELECT COUNT(*) FROM receipts WHERE action_kind='media.ocr'")
+        .fetchone()[0]
+        == 1
+    )
+
+
+@pytest.mark.parametrize(
+    ("statuses", "status"),
+    [
+        ({"completed"}, "completed"),
+        ({"completed", "failed"}, "partial"),
+        ({"failed", "cancelled"}, "failed"),
+        ({"cancelled"}, "cancelled"),
+    ],
+)
+def test_a_reading_pass_nobody_finished_is_cancelled_not_failed(statuses, status):
+    assert local_reading_status(statuses) == status

@@ -21,7 +21,11 @@ from frisket.engine.store.import_intake import (
     read_import_header,
     write_import_header,
 )
-from frisket.contracts.action import Receipt, ReceiptIO
+from frisket.engine.store.local_readings import (
+    local_reading_receipt_id,
+    local_reading_status,
+    record_local_reading,
+)
 from frisket.engine.store.import_sessions import (
     ImportSessionStore,
     import_session_generation_is_applied,
@@ -347,98 +351,69 @@ class PdfSplitPreparationJobs:
         """Leave one receipt for the pages this pass read on this machine.
 
         A page read through a provider has its own receipt; a page read
-        locally has none, so the settled pass records those pages together:
-        no cost, the engine and settings, and each page with its rows.
-        Returns whether nothing is left to record.
+        locally has none, so the settled pass records those pages together.
+        Recording never fails the import. Returns whether nothing is left
+        to record.
         """
-        header = read_import_header(directory)
-        provider = header.provider_state or {}
-        with PdfSplitPreparationStore(directory / "inventory.db") as store:
-            rows = store.db.execute(
-                "SELECT work_key,target_json,status FROM pdf_split_page_work "
-                "WHERE generation=? AND read_locally=1 AND receipt_id IS NULL "
-                "AND status IN ('completed','failed','cancelled') ORDER BY rowid",
-                (generation,),
-            ).fetchall()
-            if not rows:
-                return True
-            bindings = {
-                str(work_key): [
-                    {"row_id": int(row_id), "page_number": int(page)}
-                    for row_id, page in store.db.execute(
-                        "SELECT row_id,page_number FROM pdf_split_page_bindings "
-                        "WHERE work_key=? AND generation=? ORDER BY row_id,page_number",
-                        (work_key, generation),
-                    )
-                ]
-                for work_key, _target, _status in rows
-            }
-        targets = [json.loads(row["target_json"]) for row in rows]
-        params = dict(targets[0]["ocr_action_params"])
-        statuses = {str(row["status"]) for row in rows}
-        status = (
-            "completed"
-            if statuses == {"completed"}
-            else "failed"
-            if "completed" not in statuses
-            else "partial"
-        )
-        parent = str(header.envelope["receipt_id"])
-        identity = json.dumps(
-            [parent, generation, int(provider.get("retries", 0))],
-            separators=(",", ":"),
-        )
-        receipt_id = (
-            "receipt_"
-            + hashlib.sha256(f"local-reading:{identity}".encode()).hexdigest()
-        )
-        pages: list[JsonValue] = [
-            {
-                "file": str(target["occurrence_key"]),
-                "page_number": int(target["page_number"]),
-                "status": str(row["status"]),
-                "rows": [dict(binding) for binding in bindings[str(row["work_key"])]],
-            }
-            for row, target in zip(rows, targets, strict=True)
-        ]
-        pass_value: dict[str, JsonValue] = {
-            "ocr_action_params": json.loads(json.dumps(params)),
-            "pages": pages,
-        }
-        receipts = ReceiptStore(project)
         try:
-            if receipts.find_by_id(receipt_id) is None:
-                receipts.insert_finished(
-                    Receipt(
-                        receipt_id=receipt_id,
-                        project_id=str(header.project_id),
-                        action_id="act_" + receipt_id.removeprefix("receipt_")[:24],
-                        action_kind="media.ocr",
-                        status=status,
-                        params_hash=hashlib.sha256(
-                            json.dumps(params, sort_keys=True).encode()
-                        ).hexdigest(),
-                        inputs=[
-                            ReceiptIO(
-                                name="import",
-                                ref={"kind": "import", "receipt_id": parent},
-                            )
-                        ],
-                        provider_use=[
-                            {
-                                "service": "ocr",
-                                "provider": "local",
-                                "engine": params.get("engine"),
-                                "credential_source": "local",
-                                "external_api": False,
-                                "cost_actual": 0.0,
-                                "model_call_count": len(rows),
-                                "request_count": 0,
-                            }
-                        ],
-                        value=pass_value,
-                    )
-                )
+            header = read_import_header(directory)
+            with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                rows = store.db.execute(
+                    "SELECT work_key,target_json,status FROM pdf_split_page_work "
+                    "WHERE generation=? AND read_locally=1 AND receipt_id IS NULL "
+                    "AND status IN ('completed','failed','cancelled') ORDER BY rowid",
+                    (generation,),
+                ).fetchall()
+                if not rows:
+                    return True
+                bindings = {
+                    str(work_key): [
+                        {"row_id": int(row_id), "page_number": int(page)}
+                        for row_id, page in store.db.execute(
+                            "SELECT row_id,page_number FROM pdf_split_page_bindings "
+                            "WHERE work_key=? AND generation=? "
+                            "ORDER BY row_id,page_number",
+                            (work_key, generation),
+                        )
+                    ]
+                    for work_key, _target, _status in rows
+                }
+            files = {
+                str(source["key"]): str(source["filename"])
+                for source in read_pdf_split_plan(directory)["sources"]
+            }
+            targets = [json.loads(row["target_json"]) for row in rows]
+            settings: dict[str, JsonValue] = json.loads(
+                json.dumps(targets[0]["ocr_action_params"])
+            )
+            pages: list[JsonValue] = [
+                {
+                    "file": files.get(str(target["occurrence_key"])),
+                    "file_key": str(target["occurrence_key"]),
+                    "page_number": int(target["page_number"]),
+                    "status": str(row["status"]),
+                    "rows": [dict(item) for item in bindings[str(row["work_key"])]],
+                }
+                for row, target in zip(rows, targets, strict=True)
+            ]
+            receipt_id = local_reading_receipt_id(
+                "media.ocr",
+                str(header.envelope["receipt_id"]),
+                generation,
+                int((header.provider_state or {}).get("retries", 0)),
+            )
+            record_local_reading(
+                project,
+                receipt_id=receipt_id,
+                project_id=str(header.project_id),
+                action_kind="media.ocr",
+                import_receipt_id=str(header.envelope["receipt_id"]),
+                engine=str(settings.get("engine")),
+                service="ocr",
+                settings=settings,
+                pages=pages,
+                status=local_reading_status(str(row["status"]) for row in rows),
+            )
             with PdfSplitPreparationStore(directory / "inventory.db") as store:
                 with store.db:
                     store.db.executemany(
@@ -450,7 +425,7 @@ class PdfSplitPreparationJobs:
             LOG.warning(
                 "import_local_reading_receipt_failed",
                 extra={
-                    "receipt_id": parent,
+                    "directory": directory.name,
                     "error": safe_error(
                         "import_local_reading_receipt_failed", exc, max_chars=300
                     ).text,
