@@ -452,7 +452,6 @@
   "organization API key creation has a one-time copyable reveal and redacted list": "stale-expectation"
  },
  "settings-chrome-return.spec.ts": {
-  "Home account menu into personal settings keeps no stale back-to-project link": "stale-expectation",
   "project settings carries the same chrome back link": "seed",
   "settings opened from a project page carries the standard chrome with a way back": "seed",
   "the real Guide survives account-settings navigation and reload recovery": "seed"
@@ -464,16 +463,12 @@
  "settings-navigation.spec.ts": {
   "direct project settings route resolves project context without Workspace": "seed",
   "project menu settings entry opens Project General without mounting workspace hosts": "seed",
-  "project-prefixed personal settings route canonicalizes to the global route": "seed",
-  "the Home account menu opens Personal Profile (no stale project hijack)": "stale-expectation"
+  "project-prefixed personal settings route canonicalizes to the global route": "seed"
  },
  "settings-project-autofill.spec.ts": {
   "personal preferences opened from a project page also auto-populates that project": "seed",
   "personal settings opened from a project page auto-populates that project": "seed",
   "switching projects from within a project then opening personal settings autofills the NEW project": "seed"
- },
- "settings-project-data-management-danger-zone.spec.ts": {
-  "Project General owns identity/delete and Data Management owns exports retention and compaction": "stale-expectation"
  },
  "settings-project-general-data.spec.ts": {
   "Project General and Data Management settings update metadata retention and compaction": "stale-expectation"
@@ -485,9 +480,6 @@
  "settings-workspace-ai-providers.spec.ts": {
   "ask model selector opens an authoritative dialog without an inline configuration pane": "stale-expectation",
   "workspace AI-providers settings page renders keys + ollama URL editor": "stale-expectation"
- },
- "source-health-dashboard.spec.ts": {
-  "source health drawer shows redacted status, deltas, costs, warnings, and retry": "stale-expectation"
  },
  "sources.spec.ts": {
   "an RSS source can be added, polled, edited, and deleted from the UI": "stale-expectation"
@@ -511,9 +503,6 @@
  "v1-receipt-inspector.spec.ts": {
   "provenance drawer exposes and inspects v1 executor receipts": "retired-request"
  },
- "watchlists.spec.ts": {
-  "editable Watch controls preserve failed state and describe delete consequences": "stale-expectation"
- },
  "workbench-column-detail-tabs.spec.ts": {
   "column drawer settings and runs use columnDetail descriptor tabs": "seed"
  },
@@ -521,8 +510,7 @@
   "first-party route-backed mainView panes honor hidden profile state": "retired-request"
  },
  "workbench-entrypoints-friction.spec.ts": {
-  "Search this project closes on Escape from controls and result focus": "seed",
-  "the command palette Commands section filters by the typed query, joins keyboard nav, and collapses to an empty state": "stale-expectation"
+  "Search this project closes on Escape from controls and result focus": "seed"
  },
  "workbench-facets-portable-proof.spec.ts": {
   "FriendlyFiltersPanel renders and operates in the Discover panel": "stale-expectation"
@@ -531,7 +519,6 @@
   "workbench host shell exposes fixed regions while the grid remains usable": "seed"
  },
  "workbench-ia-action-drawer.spec.ts": {
-  "Run auto-closes the drawer once the run starts; the job appears in the Monitor": "stale-expectation",
   "legacy footer renders scope line, Preview, and a Run-all split with selection + backfill entries": "stale-expectation",
   "ribbon action reserves a right-side band so the grid ends at the drawer": "stale-expectation"
  },
