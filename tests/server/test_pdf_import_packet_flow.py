@@ -1365,6 +1365,7 @@ def test_a_draft_that_cannot_be_settled_never_stops_startup_and_settles_later(
     _legacy_commit(root / corrupt.rsplit("/", 1)[1])
     (root / corrupt.rsplit("/", 1)[1] / "inventory.db").write_bytes(b"not sqlite" * 64)
     _legacy_commit(root / healthy.rsplit("/", 1)[1])
+
     def seal_unavailable(_inventory):
         raise sqlite3.OperationalError("database is locked")
 

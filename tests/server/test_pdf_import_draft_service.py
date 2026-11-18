@@ -1288,4 +1288,3 @@ def test_a_draft_with_no_readable_owner_is_logged_once_and_counted_for_the_opera
     report = run_diagnostics(workspace_root=workspace.root)["info"]["import_drafts"]
     assert report["unreadable"] == 1
     assert report["summary"] == "1 import draft(s) could not be read"
-
