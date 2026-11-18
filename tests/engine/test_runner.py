@@ -10,6 +10,7 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import json
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 import pytest
 
@@ -60,6 +61,19 @@ def test_confirmation_echo_is_not_part_of_durable_prompt_identity() -> None:
         "consented_promise_set_hash": "scope-and-quote-token",
     }
     assert prompt_hash_of(recipe, retry) == before
+
+
+def test_prompt_hash_is_pinned_to_action_kind_version_and_spec() -> None:
+    # The prompt hash is stored on every run; its inputs and their spelling
+    # must not move, or stored runs stop matching their replays.
+    spec = {
+        "action_kind": "map.classify",
+        "prompt": "Is {{text}} a cat?",
+        "labels": ["yes", "no"],
+        "row_ids": [1, 2],
+        "sheet_id": 4,
+    }
+    assert prompt_hash_of(SimpleNamespace(version="3"), spec) == "3132be38a5d81633"
 
 
 def classify_spec(sheet_id, context="Test rows."):
