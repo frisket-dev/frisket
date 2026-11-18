@@ -134,9 +134,11 @@ def _gapped_audio_fixture(path: Path) -> None:
         "-f",
         "lavfi",
         "-i",
-        "sine=frequency=440:sample_rate=16000:duration=2",
+        "sine=frequency=440:sample_rate=16000:duration=0.976",
         "-af",
-        "aselect='lt(t,0.5)+gte(t,1.5)'",
+        # Shifting the timestamps opens the gap; aselect passes every audio
+        # frame on some ffmpeg builds, which leaves no gap to preserve.
+        "asetpts='PTS+gte(N,8192)*16384'",
         "-c:a",
         "pcm_s16le",
         "-y",

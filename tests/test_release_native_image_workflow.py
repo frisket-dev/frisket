@@ -65,7 +65,7 @@ def test_release_builds_and_smokes_exactly_two_native_platforms() -> None:
         {
             "platform": "linux/amd64",
             "tag_suffix": "amd64",
-            "runs_on": "ubuntu-24.04",
+            "runs_on": "ubuntu-26.04",
         },
         {
             "platform": "linux/arm64",

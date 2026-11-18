@@ -16,7 +16,7 @@ concurrency:
 jobs:
   admission:
     name: admit main revision and desktop version
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: read
@@ -178,7 +178,7 @@ jobs:
   publish:
     name: publish verified desktop installers
     needs: [admission, macos, windows]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
