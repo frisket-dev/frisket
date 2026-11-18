@@ -227,7 +227,7 @@ async def _await_path(path: Path, *, bound: float = 5.0) -> None:
         await asyncio.sleep(0.01)
 
 
-def _assert_no_survivor(started: Path, survived: Path, *, alert_bound: float) -> None:
+def _assert_no_survivor(started: Path, survived: Path, *, watch_bound: float) -> None:
     """Deterministic 'never' (deterministic-time contract): rendezvous with
     the descendant's DEATH — a kernel signal-0 probe on the pid it published
     as its ``started`` marker (a positive await, generous bound) — then check
@@ -236,7 +236,7 @@ def _assert_no_survivor(started: Path, survived: Path, *, alert_bound: float) ->
     has no safe signal-0 probe (``os.kill`` is TerminateProcess on Windows),
     so the bounded watch window remains the irreducible fallback there."""
     if os.name != "posix":
-        deadline = time.monotonic() + alert_bound
+        deadline = time.monotonic() + watch_bound
         while time.monotonic() < deadline:
             assert not survived.exists(), (
                 f"owned sandbox descendant survived: {survived}"
@@ -426,7 +426,7 @@ def test_cooperative_cancel_kills_the_owned_tree_and_is_typed(tmp_path):
     process = asyncio.run(run())
     assert started.exists(), "the descendant tree must have formed"
     assert process.closed
-    _assert_no_survivor(started, survived, alert_bound=1.2)
+    _assert_no_survivor(started, survived, watch_bound=1.2)
 
 
 def test_pre_cancelled_open_spawns_nothing(monkeypatch):
@@ -697,7 +697,7 @@ def test_outer_task_cancel_kills_tree_then_reraises(tmp_path):
 
     process = asyncio.run(run())
     assert process.closed
-    _assert_no_survivor(started, survived, alert_bound=1.2)
+    _assert_no_survivor(started, survived, watch_bound=1.2)
 
 
 def test_clean_root_exit_with_live_descendant_escalates_before_close_returns(tmp_path):
@@ -714,7 +714,7 @@ def test_clean_root_exit_with_live_descendant_escalates_before_close_returns(tmp
 
     process = asyncio.run(run())
     assert process.closed
-    _assert_no_survivor(started, survived, alert_bound=4.2)
+    _assert_no_survivor(started, survived, watch_bound=4.2)
 
 
 def test_output_after_close_is_fatal_but_tree_is_still_reaped():

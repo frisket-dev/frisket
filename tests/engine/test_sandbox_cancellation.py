@@ -99,7 +99,7 @@ _TIMEOUT_WALL_SECONDS = 0.5
 # after the ~1s TERM grace, so its nap must clearly outlast that; the watch
 # window must in turn outlast the nap to catch a would-be survivor.
 _IGNORE_TERM_NAP = 3.0
-_IGNORE_TERM_ALERT = 3.5
+_IGNORE_TERM_WATCH = 3.5
 # Cancellation returns far below this; the worker wall is set higher still, so
 # asserting teardown elapsed < this proves invariant 6 (bounded teardown)
 # rather than assuming it.
@@ -131,7 +131,7 @@ def _assert_marker_never(marker: Path, *, bound: float = _MARKER_WATCH_BOUND) ->
 
 
 def _assert_no_survivor(
-    started: Path, survived: Path, *, alert_bound: float = _MARKER_WATCH_BOUND
+    started: Path, survived: Path, *, watch_bound: float = _MARKER_WATCH_BOUND
 ) -> None:
     """Deterministic 'never' (deterministic-time contract): rendezvous with
     the grandchild's DEATH, then check ``survived`` exactly once — with the
@@ -147,7 +147,7 @@ def _assert_no_survivor(
     is TerminateProcess on Windows), so the bounded watch window remains
     the irreducible fallback."""
     if os.name != "posix":
-        _assert_marker_never(survived, bound=alert_bound)
+        _assert_marker_never(survived, bound=watch_bound)
         return
     if started.exists():
         pid = int(started.read_text())
@@ -297,7 +297,7 @@ def test_root_exits_early_still_kills_orphaned_grandchild(tmp_path, entry):
     assert result.cancelled and not result.ok
     assert started.exists()
     assert elapsed < _TEARDOWN_BOUND
-    _assert_no_survivor(started, survived, alert_bound=_IGNORE_TERM_ALERT)
+    _assert_no_survivor(started, survived, watch_bound=_IGNORE_TERM_WATCH)
 
 
 def test_term_ignoring_grandchild_forces_kill_escalation(tmp_path):
@@ -312,7 +312,7 @@ def test_term_ignoring_grandchild_forces_kill_escalation(tmp_path):
     assert result.cancelled and not result.ok
     assert started.exists()
     assert elapsed < _TEARDOWN_BOUND
-    _assert_no_survivor(started, survived, alert_bound=_IGNORE_TERM_ALERT)
+    _assert_no_survivor(started, survived, watch_bound=_IGNORE_TERM_WATCH)
 
 
 # ---------------------------------------------------------------------------
