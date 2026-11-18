@@ -188,7 +188,7 @@ def _replay_error(project, receipt):
 
 def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     """Publish canonical heads and their actual groups in one writer fence."""
-    from frisket.ops.base import persisted_recipe_invocation_halt
+    from frisket.ops.base import persisted_action_program_invocation_halt
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
@@ -276,7 +276,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "idempotency_checkpoint_operator_decided",
             "An operator accepted this embedding as charged; no clustering result was produced.",
         )
-    if halt := persisted_recipe_invocation_halt(run["params"]):
+    if halt := persisted_action_program_invocation_halt(run["params"]):
         code, detail = halt
         if (
             code == "local_artifact_unavailable"
@@ -663,7 +663,7 @@ def run_typed_cluster_action(
 
     def factory(project, router):
         runner = map_runner_factory(project, router)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         return runner
 
     finalize = partial(finalize_cluster_action, bound=bound)

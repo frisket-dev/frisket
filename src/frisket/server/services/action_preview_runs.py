@@ -53,7 +53,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import claim, set_attempt_state
 from frisket.execution.attempt_authority import AttemptAuthority, attempt_identity
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.execution.resolve_for_action import (
     consented_set_hash,
     exact_match_consent_covers,
@@ -363,7 +363,7 @@ class ActionPreviewRunService:
                 project_id=project_id,
                 action_id=_new_id("act"),
                 action_kind=plan.action_kind,
-                params_hash=attempt_identity(plan.recipe, plan.spec),
+                params_hash=attempt_identity(plan.program, plan.spec),
                 status="running",
                 inputs=[ReceiptIO(name="preview", ref={"kind": "action_preview"})],
             )
@@ -393,7 +393,7 @@ class ActionPreviewRunService:
                         consent_coverage=plan.consent_coverage,
                     ).mint(
                         receipt_id=receipt.receipt_id,
-                        recipe=plan.recipe,
+                        program=plan.program,
                         spec=plan.spec,
                         scope=(SCRATCH_PREVIEW_UNIT_ID,),
                         prepared_work_scope=plan.work_scope,
@@ -510,7 +510,7 @@ class ActionPreviewRunService:
                 elif (
                     status == "cancelled"
                     and not attempt_calls
-                    and isinstance(scratch_failure, RecipeInvocationHalt)
+                    and isinstance(scratch_failure, ActionProgramInvocationHalt)
                     and scratch_failure.code == "local_session_failed"
                 ):
                     terminal_outcome = "cancelled"
@@ -807,7 +807,7 @@ class ActionPreviewRunService:
             estimate = dict(prepared.est or {})
             if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
                 estimate = validation.confirmation_estimate(
-                    prepared.recipe,
+                    prepared.program,
                     plan.runner_spec,
                     estimate,
                     policy=runner.pricing_policy,
@@ -850,9 +850,9 @@ class ActionPreviewRunService:
 
         runner_spec = plan.runner_spec
         accounted = row_effect_spends_or_meters(
-            prepared.recipe, runner_spec, runner.router
+            prepared.program, runner_spec, runner.router
         ) and not _has_exact_free_local_terms(
-            prepared.recipe, runner_spec, prepared.est
+            prepared.program, runner_spec, prepared.est
         )
         receipt = None
         if accounted:
@@ -861,7 +861,7 @@ class ActionPreviewRunService:
                 project_id=project_id,
                 action_id=_new_id("act"),
                 action_kind=plan.action_kind,
-                params_hash=attempt_identity(prepared.recipe, runner_spec),
+                params_hash=attempt_identity(prepared.program, runner_spec),
                 status="running",
                 inputs=[ReceiptIO(name="preview", ref={"kind": "action_preview"})],
             )
@@ -902,7 +902,7 @@ class ActionPreviewRunService:
                         consent_coverage=runner.consent_coverage,
                     ).mint(
                         receipt_id=receipt.receipt_id,
-                        recipe=prepared.recipe,
+                        program=prepared.program,
                         spec=runner_spec,
                         scope=tuple(prepared.row_ids),
                     )

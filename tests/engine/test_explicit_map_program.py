@@ -13,11 +13,11 @@ from frisket.engine.runner import MapRunner, validation
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 
 
 @dataclass
-class _ExplicitProgram(Recipe):
+class _ExplicitProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
 
@@ -76,7 +76,7 @@ def _runner(project: Project, **kwargs: Any) -> MapRunner:
     )
 
 
-def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> Recipe:
+def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> ActionProgram:
     raise AssertionError(
         "an explicit program must not be resolved through the registry"
     )
@@ -89,7 +89,7 @@ def test_explicit_program_drives_estimate_validation_and_preview(
     spec, row_ids = _seed(project)
     program = _ExplicitProgram()
     runner = _runner(project)
-    monkeypatch.setattr(validation, "recipe_for_spec", _forbid_registry_lookup)
+    monkeypatch.setattr(validation, "action_program_for_spec", _forbid_registry_lookup)
 
     assert runner.estimate(spec, program=program) == {
         "rows": 2,
@@ -139,7 +139,7 @@ def test_explicit_program_drives_prepare_and_run_without_registry(
             bound = True
 
     runner = _runner(project, on_progress=bind_prepared_run)
-    monkeypatch.setattr(validation, "recipe_for_spec", _forbid_registry_lookup)
+    monkeypatch.setattr(validation, "action_program_for_spec", _forbid_registry_lookup)
 
     progress = asyncio.run(runner.run(spec, program=program, claim_token=claim_token))
 

@@ -432,7 +432,7 @@ def test_matched_offer_with_unknown_quantity_pins_terms_and_can_admit(project):
 )
 def test_admission_refuses_when_current_offer_no_longer_matches_pin(project, current):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     pinned = _offering()
     target = _target(SYNTHETIC_TARGET_ID)
@@ -457,7 +457,7 @@ def test_admission_refuses_when_current_offer_no_longer_matches_pin(project, cur
         basis=basis,
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project,
             8,
@@ -473,7 +473,7 @@ def test_admission_refuses_when_current_offer_no_longer_matches_pin(project, cur
 
 def test_admission_refuses_when_pinned_offer_is_missing(project):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     pinned = _offering()
     target = _target(SYNTHETIC_TARGET_ID)
@@ -498,7 +498,7 @@ def test_admission_refuses_when_pinned_offer_is_missing(project):
         basis=basis,
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project,
             9,
@@ -522,7 +522,7 @@ def test_platform_funding_cannot_admit_an_old_nonpriced_pin_without_offer(
     project, old_basis
 ):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     target = _target(SYNTHETIC_TARGET_ID)
     provider = _Provider(
@@ -538,7 +538,7 @@ def test_platform_funding_cannot_admit_an_old_nonpriced_pin_without_offer(
         basis=old_basis,
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project,
             12,
@@ -552,7 +552,7 @@ def test_platform_funding_cannot_admit_an_old_nonpriced_pin_without_offer(
 
 def test_current_composition_absence_refuses_an_old_operator_route(project):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     target = _target("local-onnx")
     provider = _Provider(target)
@@ -568,7 +568,7 @@ def test_current_composition_absence_refuses_an_old_operator_route(project):
 
     current = _composition(provider, PlatformMetered())
     assert current.resolution_targets() == ()
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(project, 14, SPEC, composition=current)
 
     assert exc_info.value.code == "promise_violation"
@@ -577,7 +577,7 @@ def test_current_composition_absence_refuses_an_old_operator_route(project):
 
 def test_sibling_offer_does_not_admit_an_unoffered_own_key_engine(project):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     target = _target("remote-api:openai")
     provider = _Provider(target)
@@ -615,7 +615,7 @@ def test_sibling_offer_does_not_admit_an_unoffered_own_key_engine(project):
         engine=pinned_engine,
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project, 15, transcription_spec(engine=pinned_engine), composition=current
         )
@@ -626,7 +626,7 @@ def test_sibling_offer_does_not_admit_an_unoffered_own_key_engine(project):
 
 def test_new_offer_cannot_retroactively_price_an_unpriced_pin(project):
     from frisket.execution.attempt_authority import admit_routed
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
 
     target = _target(SYNTHETIC_TARGET_ID)
     provider = _Provider(
@@ -642,7 +642,7 @@ def test_new_offer_cannot_retroactively_price_an_unpriced_pin(project):
         basis=OperatorBorneZeroCost(),
     )
 
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project,
             10,

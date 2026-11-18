@@ -160,7 +160,7 @@ def test_worker_completes_when_cancel_reports_false(tmp_path, monkeypatch, engin
         # (engine/executor/actions.py, engine/jobs/runs.py), or the
         # mint refuses before any row runs.
         authority=open_attempt_authority(p),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     # No should_cancel wired: the extras callable reports False throughout.
     plan = _plan(p, sheet, engine)
@@ -232,7 +232,7 @@ def test_external_cancel_retains_returned_diagnosis_without_publishing_row(
             # (engine/executor/actions.py, engine/jobs/runs.py), or the
             # mint refuses before any row runs.
             authority=open_attempt_authority(p),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         runner.should_cancel = lambda _run_id: state["cancel"]
         plan = _plan(p, sheet, engine)
@@ -307,7 +307,7 @@ def test_worker_timeout_stays_a_row_failure_not_cancellation(
         # (engine/executor/actions.py, engine/jobs/runs.py), or the
         # mint refuses before any row runs.
         authority=open_attempt_authority(p),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     plan = _plan(p, sheet, engine)
     prog = asyncio.run(
@@ -414,7 +414,7 @@ def test_preview_external_cancel_persists_no_row_values(tmp_path, monkeypatch):
             # (engine/executor/actions.py, engine/jobs/runs.py), or the
             # mint refuses before any row runs.
             authority=open_attempt_authority(p),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         task = asyncio.ensure_future(
             runner.preview(

@@ -24,12 +24,12 @@ def test_source_snapshot_is_captured_with_the_values_in_one_read(
         return original(snapshot, sheet_id, column_id, **kwargs)
 
     monkeypatch.setattr(ProjectReadSnapshot, "get_values_with_refs", read_with_refs)
-    recipe = SimpleNamespace(
+    program = SimpleNamespace(
         capture_source_cells=True, source_columns=lambda spec: ["video"]
     )
     values = row_values(
         project,
-        recipe,
+        program,
         {"sheet_id": sheet, "input_template": template},
         {"video": column},
         row_id,
@@ -54,10 +54,10 @@ def test_row_reader_keeps_current_source_reference(make_project):
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "text")
     [row_id] = project.add_rows(sheet, [{"text": "plain"}], {"text": column})
-    recipe = SimpleNamespace(source_columns=lambda spec: ["text"])
+    program = SimpleNamespace(source_columns=lambda spec: ["text"])
     values = row_values(
         project,
-        recipe,
+        program,
         {"sheet_id": sheet},
         {"text": column},
         row_id,
@@ -79,10 +79,10 @@ def test_local_page_retains_exact_refs_after_source_edit_and_closes_snapshot(
     page = read_source_page(project, sheet, [column], [row_id])
     original_ref = page.cell(sheet, column, row_id)[1]
     project.apply_edits([{"row_id": row_id, "column_id": column, "value": "edited"}])
-    recipe = SimpleNamespace(source_columns=lambda spec: ["text"])
+    program = SimpleNamespace(source_columns=lambda spec: ["text"])
     values = row_values(
         project,
-        recipe,
+        program,
         {"sheet_id": sheet},
         {"text": column},
         row_id,
@@ -97,7 +97,7 @@ def test_local_page_retains_exact_refs_after_source_edit_and_closes_snapshot(
     assert newer.cell(sheet, column, row_id)[1] != original_ref
     model_values = row_values(
         project,
-        recipe,
+        program,
         {"sheet_id": sheet},
         {"text": column},
         row_id,
@@ -110,7 +110,7 @@ def test_local_page_retains_exact_refs_after_source_edit_and_closes_snapshot(
     with pytest.raises(ValueError, match="outside the admitted selection"):
         row_values(
             project,
-            recipe,
+            program,
             {"sheet_id": sheet},
             {"text": column},
             row_id,
@@ -155,12 +155,12 @@ def test_local_page_mutable_inputs_do_not_mutate_capture_or_other_rows(make_proj
     column = project.add_column(sheet, "data", type="json")
     rows = project.add_rows(sheet, [{"data": {"items": [1]}}] * 2, {"data": column})
     page = read_source_page(project, sheet, [column], rows)
-    recipe = SimpleNamespace(source_columns=lambda spec: ["data"])
+    program = SimpleNamespace(source_columns=lambda spec: ["data"])
 
     def read(row_id):
         return row_values(
             project,
-            recipe,
+            program,
             {"sheet_id": sheet},
             {"data": column},
             row_id,
@@ -189,7 +189,7 @@ def test_invalid_source_values_require_an_explicit_repair_policy(tmp_path, paged
             preserve_invalid_source_columns=frozenset({"date"}),
         )
 
-        def read(recipe, *, preserve_invalid=False):
+        def read(program, *, preserve_invalid=False):
             page = (
                 read_source_page(
                     project,
@@ -203,7 +203,7 @@ def test_invalid_source_values_require_an_explicit_repair_policy(tmp_path, paged
             )
             return row_values(
                 project,
-                recipe,
+                program,
                 {"sheet_id": sheet},
                 {"date": column},
                 row_id,

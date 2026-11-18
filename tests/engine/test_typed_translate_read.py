@@ -10,7 +10,7 @@ from frisket.actions.types import Row, RowError
 from frisket.engine.executor import translate_read
 from frisket.engine.executor.translate_read import AdmittedTranslator, TranslationEngine
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
@@ -240,7 +240,7 @@ async def test_bound_translator_checks_admitted_options_route_and_single_call(
     with pytest.raises(RowError, match="options differ"):
         await bound.translate(row, "Hola", options=TranslationOptions(language=["fr"]))
     route.engine = "hy_mt2"
-    with pytest.raises(RecipeInvocationHalt):
+    with pytest.raises(ActionProgramInvocationHalt):
         await bound.translate(row, "Hola", options=options)
     assert not called
     route.engine = "opus_mt"

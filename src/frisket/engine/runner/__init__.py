@@ -14,12 +14,12 @@ from .map_runner import (
     ProviderSpendCapUnenforceable,
     RunProgress,
 )
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 __all__ = [
     "MapRunner",
     "RunProgress",
-    "RecipeInvocationHalt",
+    "ActionProgramInvocationHalt",
     "CostGate",
     "BatchRowLimitExceeded",
     "EmptyInputColumns",

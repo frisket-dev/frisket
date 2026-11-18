@@ -394,7 +394,7 @@ def test_ocr_checkpoint_crash_replays_compact_prepared_page(
         stub_rapidocr_run_scope(monkeypatch)
         monkeypatch.setattr(
             "frisket.engine.runner.map_runner.row_effect_spends_or_meters",
-            lambda recipe, spec, router: True,
+            lambda program, spec, router: True,
         )
         original_consume = RunResultStore.consume_returned_row_effect_checkpoint
 

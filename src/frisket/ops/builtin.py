@@ -1,30 +1,30 @@
-"""Plugin recipe lookup and hashing for shared runner programs."""
+"""Action program lookup by action kind, and the prompt hash of a program run."""
 
 from __future__ import annotations
 
 import json
 
-from .base import Recipe
+from .base import ActionProgram
 
 
-def get_recipe(action_kind: str) -> Recipe:
+def get_action_program(action_kind: str) -> ActionProgram:
     from frisket.authoring.plugin_registry import default_registry
 
     if action_kind != action_kind.strip() or "." not in action_kind:
         raise ValueError(f"action kind {action_kind!r} is not canonical")
-    recipe = default_registry().get_recipe(action_kind)
-    if recipe is None:
+    program = default_registry().get_action_program(action_kind)
+    if program is None:
         raise ValueError(f"unknown action kind {action_kind!r}")
-    return recipe
+    return program
 
 
-def prompt_hash_of(recipe: Recipe, spec: dict) -> str:
+def prompt_hash_of(program: ActionProgram, spec: dict) -> str:
     import hashlib
 
     stable = json.dumps(
         {
             "action_kind": spec["action_kind"],
-            "action_version": recipe.version,
+            "action_version": program.version,
             "spec": {
                 k: v
                 for k, v in spec.items()

@@ -17,7 +17,7 @@ from frisket.engine.runner import validation
 from frisket.engine.runner.map_runner import MapRunner, PreparedRun, RunProgress
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.validation import ClaimsGate
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 
 
 def _retry_spec(spec: dict[str, Any], gate: ClaimsGate) -> dict[str, Any]:
@@ -59,14 +59,14 @@ async def run_with_exact_confirmation(
     fence instead of granting runners ambient claimless authority.
     """
 
-    recipe = validation.recipe_for_spec(spec)
-    output_names = [str(field["name"]) for field in recipe.output_fields(spec)]
-    claim_token = f"output-claim:test:{recipe.name}:{uuid.uuid4()}"
+    program = validation.action_program_for_spec(spec)
+    output_names = [str(field["name"]) for field in program.output_fields(spec)]
+    claim_token = f"output-claim:test:{program.name}:{uuid.uuid4()}"
     claim_store = OutputColumnClaimStore(runner.project)
     claims, conflict = claim_store.acquire(
         sheet_id=int(spec["sheet_id"]),
         output_names=output_names,
-        action_kind=recipe.name,
+        action_kind=program.name,
         claim_token=claim_token,
         lease_seconds=6 * 60 * 60,
     )
@@ -123,21 +123,21 @@ async def run_with_output_claim(
     runner: MapRunner,
     spec: dict[str, Any],
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     confirmed: bool = False,
     resume_run_id: int | None = None,
     reopen_operator_cancelled: bool = True,
 ) -> RunProgress:
     """Run an already-authorized spec with a canonical output reservation."""
 
-    recipe = program or validation.recipe_for_spec(spec)
-    output_names = [str(field["name"]) for field in recipe.output_fields(spec)]
-    claim_token = f"output-claim:test:{recipe.name}:{uuid.uuid4()}"
+    action_program = program or validation.action_program_for_spec(spec)
+    output_names = [str(field["name"]) for field in action_program.output_fields(spec)]
+    claim_token = f"output-claim:test:{action_program.name}:{uuid.uuid4()}"
     claim_store = OutputColumnClaimStore(runner.project)
     claims, conflict = claim_store.acquire(
         sheet_id=int(spec["sheet_id"]),
         output_names=output_names,
-        action_kind=recipe.name,
+        action_kind=action_program.name,
         claim_token=claim_token,
         lease_seconds=6 * 60 * 60,
     )

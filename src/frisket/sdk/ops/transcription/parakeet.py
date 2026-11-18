@@ -27,7 +27,7 @@ from frisket.engine._workers.parakeet_session import (
     ParakeetSessionFailure,
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 from .common import TranscribeCancelled, input_units
 
@@ -68,7 +68,7 @@ class ParakeetAdapter:
         try:
             lease = acquire_local_engine_lease("parakeet-tdt")
         except LocalEngineLeaseBusy as error:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_engine_busy", _LOCAL_ENGINE_BUSY_DETAIL
             ) from error
         try:
@@ -94,12 +94,12 @@ class ParakeetAdapter:
         except (ParakeetArtifactCancelled, ParakeetSessionCancelled) as error:
             raise TranscribeCancelled("transcription cancelled") from error
         except ParakeetArtifactUnavailable as error:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_artifact_unavailable",
                 "the pinned local Parakeet artifacts are unavailable; download them with local engine setup, then retry",
             ) from error
         except ParakeetSessionFailure as error:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed",
                 "the local Parakeet process stopped; completed rows were preserved and the run can be resumed",
             ) from error
@@ -139,7 +139,7 @@ async def execution_scope(
     try:
         lease = acquire_local_engine_lease("parakeet-tdt")
     except LocalEngineLeaseBusy as error:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_engine_busy", _LOCAL_ENGINE_BUSY_DETAIL
         ) from error
     try:

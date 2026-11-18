@@ -34,14 +34,14 @@ def test_capability_checks_do_not_build_catalog_schemas(monkeypatch):
         pytest.fail("execution capability lookup built presentation schemas")
 
     monkeypatch.setattr(RegisteredAction, "catalog_entry", forbidden_catalog)
-    recipe = SimpleNamespace(is_llm=lambda _spec: True)
-    assert remote_capability_for_spec(recipe, {"action_kind": "map.api_call"}) == (
+    program = SimpleNamespace(is_llm=lambda _spec: True)
+    assert remote_capability_for_spec(program, {"action_kind": "map.api_call"}) == (
         "external:api_call"
     )
     spec = {"action_kind": "map.ask", "model": "openai/gpt-5"}
-    assert remote_capability_for_spec(recipe, spec) == "provider:openai"
+    assert remote_capability_for_spec(program, spec) == "provider:openai"
     spec["model"] = "ollama/local-model"
-    assert remote_capability_for_spec(recipe, spec) is None
+    assert remote_capability_for_spec(program, spec) is None
     assert "unsafe:local_code" in action_metadata.declared_action_capabilities(
         "map.python"
     )

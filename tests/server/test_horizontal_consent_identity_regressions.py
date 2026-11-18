@@ -18,7 +18,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.runs import RunResultStore
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue, post_cell_edit_as_v1_action
 from tests.server.test_r70_behavioral_pin import (
@@ -298,7 +298,7 @@ def test_worker_refuses_when_confirmed_source_changes_after_enqueue(
 
     run_row = _run_row(project, run_id)
     assert run_row["status"] == "failed", dict(run_row)
-    halt = persisted_recipe_invocation_halt(run_row["params"])
+    halt = persisted_action_program_invocation_halt(run_row["params"])
     assert halt is None
     assert run_engine_stub == []
     assert (
@@ -441,7 +441,7 @@ def test_unrouted_attempt_naming_rows_outside_recorded_scope_is_refused(
 
     with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
         open_attempt_authority(project).mint(
-            recipe=_stored_program(project, stored_spec),
+            program=_stored_program(project, stored_spec),
             spec=stored_spec,
             run_id=run_id,
             scope=(row_id, extra_row_id),
@@ -510,7 +510,7 @@ def test_unrouted_dispatch_refuses_when_the_live_estimate_cannot_be_projected(
 
     with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
         open_attempt_authority(project).mint(
-            recipe=_stored_program(project, stored_spec),
+            program=_stored_program(project, stored_spec),
             spec=stored_spec,
             run_id=run_id,
             scope=(row_id,),
@@ -541,7 +541,7 @@ def test_unrouted_dispatch_normalizes_a_non_finite_runner_spec_value(
 
     with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
         open_attempt_authority(project).mint(
-            recipe=_stored_program(project, stored_spec),
+            program=_stored_program(project, stored_spec),
             spec=stored_spec,
             run_id=run_id,
             scope=(row_id,),
@@ -575,7 +575,7 @@ def test_unrouted_dispatch_lets_infrastructure_errors_stay_infrastructure(
 
     with pytest.raises(OSError, match="disk went away"):
         open_attempt_authority(project).mint(
-            recipe=_stored_program(project, stored_spec),
+            program=_stored_program(project, stored_spec),
             spec=stored_spec,
             run_id=run_id,
             scope=(row_id,),

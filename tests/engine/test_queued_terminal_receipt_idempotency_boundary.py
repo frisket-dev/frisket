@@ -296,7 +296,7 @@ def test_queued_identity_corruption_refuses_before_recipe_or_runner(
     def unexpected_lookup(_spec: dict[str, Any]) -> Any:
         raise AssertionError("identity refusal must happen before recipe lookup")
 
-    monkeypatch.setattr(validation, "recipe_for_spec", unexpected_lookup)
+    monkeypatch.setattr(validation, "action_program_for_spec", unexpected_lookup)
     registry = HandlerRegistry()
     register_project_run_handler(
         registry,

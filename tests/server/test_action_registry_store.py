@@ -393,7 +393,7 @@ def test_registry_uses_the_canonical_lookup_key_not_the_private_implementation_n
     lookups = []
     monkeypatch.setattr(
         action_registry,
-        "get_recipe",
+        "get_action_program",
         lambda action_kind: lookups.append(action_kind) or PrivateNamedImplementation(),
     )
     artifact = action_registry.build_action_artifact(
@@ -629,10 +629,10 @@ def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
 ) -> None:
     # Typed built-in params are closed models, so free-form nested user data
     # in ``spec.params`` only exists on the plugin recipe path, which remains.
-    from frisket.authoring.plugin_registry import register_recipe, unregister_recipe
-    from frisket.ops.base import Recipe
+    from helpers import install_action_program, remove_action_program
+    from frisket.ops.base import ActionProgram
 
-    class OpaqueParamsRecipe(Recipe):
+    class OpaqueParamsProgram(ActionProgram):
         name = "opaque_params"
         version = "plugin-v1"
         llm = False
@@ -646,8 +646,8 @@ def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
             return spec["input_columns"]
 
     kind = "opaque_params.plugin"
-    register_recipe(
-        OpaqueParamsRecipe(name="opaque_params", version="plugin-v1", llm=False),
+    install_action_program(
+        OpaqueParamsProgram(name="opaque_params", version="plugin-v1", llm=False),
         action_kind=kind,
         plugin="opaque_params",
     )
@@ -676,7 +676,7 @@ def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
         )
         stored = ActionRegistryStore(tmp_path).publish(artifact)
     finally:
-        unregister_recipe(kind)
+        remove_action_program(kind)
     assert stored["spec"]["params"] == spec["params"]
     assert stored["publisher"]["recipe"] == "newsroom style guide"
     assert stored["receipts"][0]["dataset"]["metadata"] == {

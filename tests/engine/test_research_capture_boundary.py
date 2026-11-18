@@ -11,7 +11,7 @@ from frisket.ai.research.row_answer import ResearchFetchObservation
 from frisket.ai.research.search import SearchHit, SearchResponse, SearchUsage
 from frisket.cloud_execution import CloudExecutionRefused
 from frisket.engine.executor import research_read
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 @pytest.mark.asyncio
@@ -24,7 +24,7 @@ async def test_capability_finally_attaches_tools_and_preserves_failure_identity(
         "cancel": asyncio.CancelledError(),
         "row": RowError("search_quota", "Search quota reached"),
         "hosted": CloudExecutionRefused("cloud_refused", "Cloud refused"),
-        "halt": RecipeInvocationHalt("network_disabled", "Network disabled"),
+        "halt": ActionProgramInvocationHalt("network_disabled", "Network disabled"),
         "ordinary": RuntimeError("Ordinary failure"),
     }
     primary = errors[failure]

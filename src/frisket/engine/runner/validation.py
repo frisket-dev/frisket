@@ -26,8 +26,8 @@ from frisket.ai.llm.pdf_estimates import (
     estimate_input_tokens,
     has_pdf_input,
 )
-from frisket.ops.base import Recipe
-from frisket.ops.builtin import get_recipe
+from frisket.ops.base import ActionProgram
+from frisket.ops.builtin import get_action_program
 from frisket.engine.runner.confirmation_context import (
     MoneyConfirmationContext,
     RunnerScope,
@@ -35,7 +35,7 @@ from frisket.engine.runner.confirmation_context import (
     mint_confirmation_hash,
     estimated_usd,
     rate_estimate,
-    recipe_confirmation,
+    action_program_confirmation,
 )
 from frisket.execution.pricing_policy import PersistedRating, PricingPolicy
 from frisket.execution.promises import Promise, PromiseSet
@@ -158,7 +158,7 @@ class ClaimsGate(CostGate):
 
 def confirmation_context(
     project: Project,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     row_ids: list[int],
     estimate: dict[str, Any],
@@ -190,7 +190,7 @@ def confirmation_context(
             "_frisket_queued_action_run",
         }
     }
-    return recipe_confirmation(
+    return action_program_confirmation(
         # The canonical public action kind is the family. The private Recipe
         # object is an implementation selected only after that kind passes
         # strict runner-spec admission.
@@ -200,7 +200,7 @@ def confirmation_context(
             row_ids=[int(row_id) for row_id in row_ids],
             work_scope=canonical_work_scope_binding(
                 project,
-                recipe,
+                program,
                 spec,
                 row_ids,
             ),
@@ -211,7 +211,7 @@ def confirmation_context(
 
 def confirmation_context_hash(
     project: Project,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     row_ids: list[int],
     estimate: dict[str, Any],
@@ -220,13 +220,13 @@ def confirmation_context_hash(
     hash, and the value dispatch compares against a persisted consent."""
 
     return mint_confirmation_hash(
-        confirmation_context(project, recipe, spec, row_ids, estimate)
+        confirmation_context(project, program, spec, row_ids, estimate)
     )
 
 
 def _queued_resume_consent_covers(
     project: Project,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: Mapping[str, Any],
     *,
     run_id: int,
@@ -243,7 +243,7 @@ def _queued_resume_consent_covers(
     from frisket.engine.store.execution_routes import RouteStore
     from frisket.execution.attempt_authority import attempt_identity
 
-    identity = attempt_identity(recipe, spec)
+    identity = attempt_identity(program, spec)
     return any(
         consent.actor == principal
         and consent.action_identity_hash == identity
@@ -253,7 +253,7 @@ def _queued_resume_consent_covers(
 
 
 def _confirmation_facts(
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     estimate: dict[str, Any],
 ) -> dict[str, Any]:
@@ -264,7 +264,7 @@ def _confirmation_facts(
     """
 
     remote_capability = remote_capability_for_spec(
-        recipe,
+        program,
         spec,
     )
     if remote_capability is None:
@@ -272,7 +272,7 @@ def _confirmation_facts(
     return {
         **estimate,
         "requires_confirmation": not (
-            getattr(recipe, "external_cost_is_known_zero", False)
+            getattr(program, "external_cost_is_known_zero", False)
             and estimated_usd(estimate) == 0
         ),
         "remote_capability": remote_capability,
@@ -280,7 +280,7 @@ def _confirmation_facts(
 
 
 def confirmation_estimate(
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     estimate: dict[str, Any],
     *,
@@ -300,11 +300,11 @@ def confirmation_estimate(
     :func:`consented_confirmation_estimate`.
     """
 
-    return _confirmation_facts(recipe, spec, rate_estimate(estimate, policy=policy))
+    return _confirmation_facts(program, spec, rate_estimate(estimate, policy=policy))
 
 
 def consented_confirmation_estimate(
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     estimate: dict[str, Any],
     *,
@@ -330,7 +330,7 @@ def consented_confirmation_estimate(
     yields no rating at all, and the caller refuses ``consent_missing``.
     """
 
-    return _confirmation_facts(recipe, spec, apply_rating(estimate, rating))
+    return _confirmation_facts(program, spec, apply_rating(estimate, rating))
 
 
 class ExecutionResolutionRefused(ValueError):
@@ -612,7 +612,7 @@ class ResumeClaimConfirmation:
 class _ValidatedSpec:
     """Validated, write-free preparation state shared by runs and previews."""
 
-    recipe: Recipe
+    program: ActionProgram
     sheet_id: int
     columns: list[dict[str, Any]]
     col_map: dict[str, int]
@@ -712,7 +712,7 @@ def _bind_rated_estimate(
     return replace(resolved, promise_set=PromiseSet.make(promises))
 
 
-def recipe_for_spec(spec: dict) -> Recipe:
+def action_program_for_spec(spec: dict) -> ActionProgram:
     if "recipe" in spec:
         raise ValueError("runner spec must not carry top-level 'recipe' identity")
     raw_kind = spec.get("action_kind")
@@ -722,7 +722,7 @@ def recipe_for_spec(spec: dict) -> Recipe:
         raise ValueError(f"runner spec action_kind {raw_kind!r} is not canonical")
     action_kind = raw_kind
 
-    return get_recipe(action_kind)
+    return get_action_program(action_kind)
 
 
 class InvalidTargetRows(ValueError):
@@ -805,7 +805,7 @@ def source_values_all_empty(
 
 def assert_network_policy(
     project: Project,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict,
     *,
     selected_egress_class: str | None = None,
@@ -822,7 +822,7 @@ def assert_network_policy(
     if selected_egress_class is not None:
         assert_selected_egress_policy(project, selected_egress_class)
         return
-    capability = remote_capability_for_spec(recipe, spec)
+    capability = remote_capability_for_spec(program, spec)
     if capability is None:
         return
     if project.effective_network_policy() == "off":
@@ -837,7 +837,7 @@ def assert_selected_egress_policy(project: Project, egress_class: str) -> None:
         raise NetworkDisabled(f"execution_route:{egress_class}")
 
 
-def unestimated_cost(recipe: Recipe, spec: dict) -> dict[str, Any]:
+def unestimated_cost(program: ActionProgram, spec: dict) -> dict[str, Any]:
     """What a recipe that produced NO estimate costs — the one site that used
     to answer ``{"cost": 0.0}`` for every recipe alike.
 
@@ -856,7 +856,7 @@ def unestimated_cost(recipe: Recipe, spec: dict) -> dict[str, Any]:
 
     ``cost_class`` is an undefaulted ClassVar, so a recipe that never declared
     raises AttributeError here rather than quietly pricing itself free."""
-    if recipe.cost_class_for(spec) == "free":
+    if program.cost_class_for(spec) == "free":
         return {"cost": 0.0, "cost_source": "free_local"}
     return {"cost": None, "cost_source": "unknown", "requires_confirmation": True}
 
@@ -909,7 +909,7 @@ def estimate_run(
     project: Project,
     spec: dict,
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     composition: ExecutionComposition | None = None,
     pricing_policy: PricingPolicy | None = None,
     resolution: ResolvedExecution | Refusal | None = None,
@@ -934,15 +934,15 @@ def estimate_run(
     categorical claim its own run already consented to, which is exactly what
     kept the resume gate's cost half unreachable.
     """
-    recipe = program if program is not None else recipe_for_spec(spec)
+    action_program = program if program is not None else action_program_for_spec(spec)
     # Model-backed recipes can select Cloud without consumes_resolution.
     # Standalone previews need the same route quote admission resolves; the
     # legacy list-price estimate may describe a different purchase entirely.
-    if resolution is None and recipe.is_llm(spec) and composition is not None:
+    if resolution is None and action_program.is_llm(spec) and composition is not None:
         resolution = resolve_for_action(
             project,
             spec,
-            recipe,
+            action_program,
             composition=composition,
             persistence="ephemeral",
             scope_row_ids=scope_row_ids,
@@ -950,7 +950,7 @@ def estimate_run(
     return _estimate_run(
         project,
         spec,
-        program=recipe,
+        program=action_program,
         composition=composition,
         pricing_policy=pricing_policy,
         resolution=resolution,
@@ -964,7 +964,7 @@ def _estimate_run(
     project: Project,
     spec: dict,
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     composition: ExecutionComposition | None = None,
     pricing_policy: PricingPolicy | None = None,
     resolution: ResolvedExecution | Refusal | None = None,
@@ -972,15 +972,15 @@ def _estimate_run(
     scope_row_ids: list[int] | None = None,
     consent_coverage: ConsentCoverage | None = None,
 ) -> _EstimateRunResult:
-    recipe = program if program is not None else recipe_for_spec(spec)
+    action_program = program if program is not None else action_program_for_spec(spec)
     rows = (
         target_rows(project, spec)
         if scope_row_ids is None
         else [int(row_id) for row_id in scope_row_ids]
     )
-    if recipe.is_llm(spec) and isinstance(resolution, Refusal):
+    if action_program.is_llm(spec) and isinstance(resolution, Refusal):
         raise ExecutionResolutionRefused(resolution)
-    if recipe.is_llm(spec) and isinstance(resolution, ResolvedExecution):
+    if action_program.is_llm(spec) and isinstance(resolution, ResolvedExecution):
         bound = getattr(resolution.cost_basis, "bound", None)
         out = {
             "cost": None if bound is None else float(bound),
@@ -997,7 +997,7 @@ def _estimate_run(
         from frisket.ai.llm.document_input import PDF_ACTION_IDS
 
         if spec.get("action_kind") in PDF_ACTION_IDS:
-            sources = set(recipe.source_columns(spec))
+            sources = set(action_program.source_columns(spec))
             if any(
                 column["type"] == "file" and column["name"] in sources
                 for column in project.columns(spec["sheet_id"])
@@ -1005,7 +1005,7 @@ def _estimate_run(
                 out["warning"] = PDF_ESTIMATE_WARNING
         if pricing_policy is None:
             raise TypeError("estimate_run requires a pricing_policy for routed work")
-        rated = confirmation_estimate(recipe, spec, out, policy=pricing_policy)
+        rated = confirmation_estimate(action_program, spec, out, policy=pricing_policy)
         bound_resolution = _bind_rated_estimate(resolution, rated)
         uncovered = project_uncovered_user_claims(
             project,
@@ -1025,8 +1025,8 @@ def _estimate_run(
             )
             out["promise_set_hash"] = consented_set_hash(bound_resolution.promise_set)
         return _EstimateRunResult(out, bound_resolution)
-    if not recipe.is_llm(spec):
-        if resolution is None and recipe.consumes_resolution:
+    if not action_program.is_llm(spec):
+        if resolution is None and action_program.consumes_resolution:
             if composition is None:
                 raise TypeError(
                     "estimate_run requires a request-scoped composition for "
@@ -1035,7 +1035,7 @@ def _estimate_run(
             resolution = resolve_for_action(
                 project,
                 spec,
-                recipe,
+                action_program,
                 composition=composition,
                 persistence="ephemeral",
                 scope_row_ids=rows,
@@ -1044,23 +1044,30 @@ def _estimate_run(
             # An unavailable route has no executable quote. Do not discard its
             # reason and ask the recipe to invent a second, unrouted estimate.
             raise ExecutionResolutionRefused(resolution)
-        if not recipe.consumes_resolution and recipe.cost_class_for(spec) == "free":
+        if (
+            not action_program.consumes_resolution
+            and action_program.cost_class_for(spec) == "free"
+        ):
             # A declared free, unrouted action has no purchase to estimate.
             # Do not read every source cell before the bounded execution read.
-            est = unestimated_cost(recipe, spec)
+            est = unestimated_cost(action_program, spec)
         else:
             col_map = {c["name"]: c["id"] for c in project.columns(spec["sheet_id"])}
             values = [
-                row_values(project, recipe, spec, col_map, row_id, for_model=False)
+                row_values(
+                    project, action_program, spec, col_map, row_id, for_model=False
+                )
                 for row_id in rows
             ]
-            if resolution is not None and recipe.consumes_resolution:
-                est = recipe.estimate(project, spec, values, resolution=resolution)
+            if resolution is not None and action_program.consumes_resolution:
+                est = action_program.estimate(
+                    project, spec, values, resolution=resolution
+                )
             else:
-                est = recipe.estimate(project, spec, values)
+                est = action_program.estimate(project, spec, values)
         out = {
             "rows": len(rows),
-            **(est if est is not None else unestimated_cost(recipe, spec)),
+            **(est if est is not None else unestimated_cost(action_program, spec)),
         }
         if isinstance(resolution, ResolvedExecution):
             out.update(
@@ -1074,7 +1081,7 @@ def _estimate_run(
                 )
             # Rate once before coverage and hash binding.
             rated = confirmation_estimate(
-                recipe,
+                action_program,
                 spec,
                 out,
                 policy=pricing_policy,
@@ -1111,8 +1118,8 @@ def _estimate_run(
     sample_tokens = []
     pdf_inputs = False
     for row_id in sample:
-        values = row_values(project, recipe, spec, col_map, row_id)
-        call = recipe.render(values, spec)
+        values = row_values(project, action_program, spec, col_map, row_id)
+        call = action_program.render(values, spec)
         pdf_inputs |= has_pdf_input(call.messages)
         sample_tokens.append(estimate_input_tokens(call.messages))
     estimate_known = all(tokens is not None for tokens in sample_tokens)
@@ -1161,7 +1168,7 @@ def exact_replay_available(
     router: ModelRouter,
     spec: dict[str, Any],
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
 ) -> bool:
     """Prove every selected LLM row has its exact canonical cache key.
 
@@ -1174,8 +1181,8 @@ def exact_replay_available(
     if cache is None or router.cache_mode not in {"replay", "replay_strict"}:
         return False
     try:
-        recipe = program or recipe_for_spec(spec)
-        if not recipe.is_llm(spec):
+        action_program = program or action_program_for_spec(spec)
+        if not action_program.is_llm(spec):
             return False
         row_ids = target_rows(project, spec)
         columns = project.columns(int(spec["sheet_id"]))
@@ -1184,26 +1191,26 @@ def exact_replay_available(
         for row_id in row_ids:
             values = row_values(
                 project,
-                recipe,
+                action_program,
                 spec,
                 col_map,
                 row_id,
                 column_types=column_types,
             )
             if (
-                not hasattr(recipe, "run_agent")
-                and not recipe.allow_all_empty_input
+                not hasattr(action_program, "run_agent")
+                and not action_program.allow_all_empty_input
                 and row_source_values_empty(values)
             ):
                 continue
-            call = recipe.render(values, spec)
+            call = action_program.render(values, spec)
             request = LLMRequest(
                 model=str(spec["model"]),
                 messages=call.messages,
                 schema=call.schema,
                 max_tokens=call.max_tokens,
             )
-            if cache.get(request_key(request, recipe.version)) is None:
+            if cache.get(request_key(request, action_program.version)) is None:
                 return False
     except (KeyError, TypeError, ValueError, RowError):
         return False
@@ -1216,7 +1223,7 @@ def validate_spec(
     run_store: RunResultStore,
     spec: dict,
     *,
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     confirmed: bool,
     resume_run_id: int | None,
     pricing_policy: PricingPolicy,
@@ -1237,7 +1244,7 @@ def validate_spec(
     prevent. Both callers hold a ``MapRunner``, which carries the policy its
     composition root gave it."""
     consent_coverage = effective_consent_coverage(project, consent_coverage)
-    recipe = program if program is not None else recipe_for_spec(spec)
+    action_program = program if program is not None else action_program_for_spec(spec)
     est: dict[str, Any] | None = None
     sheet_id = spec["sheet_id"]
     columns = project.columns(sheet_id)
@@ -1262,7 +1269,7 @@ def validate_spec(
     else:
         row_ids = target_rows(project, spec)
 
-    max_batch_rows = getattr(recipe, "max_batch_rows", None)
+    max_batch_rows = getattr(action_program, "max_batch_rows", None)
     if (
         isinstance(max_batch_rows, int)
         and max_batch_rows >= 0
@@ -1275,10 +1282,10 @@ def validate_spec(
 
     # Resumes may legitimately retry a subset whose source cells are empty.
     if resume_run_id is None and row_ids:
-        source_names = recipe.source_columns(spec)
+        source_names = action_program.source_columns(spec)
         if (
             source_names
-            and not recipe.allow_all_empty_input
+            and not action_program.allow_all_empty_input
             and source_values_all_empty(
                 project, sheet_id, col_map, source_names, row_ids
             )
@@ -1288,14 +1295,16 @@ def validate_spec(
     # Keep the code-owned engine/provider fence ahead of credential and quote
     # remediation. A later check uses the successfully selected route's exact
     # egress, catching Cloud routes for otherwise local/sidecar identities.
-    assert_network_policy(project, recipe, spec)
+    assert_network_policy(project, action_program, spec)
 
     # Strict replay proves only the cached model call cannot egress. Other
     # remote subeffects still require consent.
-    model_call_cannot_egress = recipe.is_llm(spec) and model_call_cannot_go_live(router)
+    model_call_cannot_egress = action_program.is_llm(
+        spec
+    ) and model_call_cannot_go_live(router)
     replay_strict_cannot_egress = model_call_cannot_egress and (
         remote_capability_for_spec(
-            recipe,
+            action_program,
             spec,
             include_model_provider=False,
         )
@@ -1314,7 +1323,7 @@ def validate_spec(
         outcome = resolve_for_action(
             project,
             spec,
-            recipe,
+            action_program,
             composition=composition,
             persistence=persistence,
             scope_row_ids=row_ids,
@@ -1330,7 +1339,7 @@ def validate_spec(
     if resolution_refusal is None:
         assert_network_policy(
             project,
-            recipe,
+            action_program,
             spec,
             selected_egress_class=(
                 resolved_execution.resolution.facts.egress_class
@@ -1346,14 +1355,14 @@ def validate_spec(
         output_fields = (
             [dict(field) for field in precomputed_output_fields]
             if precomputed_output_fields is not None
-            else [dict(field) for field in recipe.output_fields(spec)]
+            else [dict(field) for field in action_program.output_fields(spec)]
         )
 
     if resume_run_id is None:
         estimate_result = _estimate_run(
             project,
             spec,
-            program=recipe,
+            program=action_program,
             composition=composition,
             pricing_policy=pricing_policy,
             consent_coverage=consent_coverage,
@@ -1451,7 +1460,9 @@ def validate_spec(
             # Unrouted recipes use their existing cost-confirmation path;
             # unavailable routed executions have already refused in estimate_run.
             gate_usd = float(consent_coverage.threshold_usd)
-            est = confirmation_estimate(recipe, spec, est, policy=pricing_policy)
+            est = confirmation_estimate(
+                action_program, spec, est, policy=pricing_policy
+            )
             # Gate on billed cost, not provider cost.
             estimated = estimated_usd(est)
             requires_confirmation = not replay_strict_cannot_egress and (
@@ -1465,7 +1476,7 @@ def validate_spec(
                 # Allowance and explicit confirmation bind the same exact quote.
                 context = confirmation_context(
                     project,
-                    recipe,
+                    action_program,
                     spec,
                     row_ids,
                     est,
@@ -1502,7 +1513,7 @@ def validate_spec(
         resume_outcome = resolve_for_action(
             project,
             spec,
-            recipe,
+            action_program,
             composition=composition,
             persistence=persistence,
             scope_row_ids=row_ids,
@@ -1510,7 +1521,7 @@ def validate_spec(
         backfill_result = _estimate_run(
             project,
             spec,
-            program=recipe,
+            program=action_program,
             composition=composition,
             pricing_policy=pricing_policy,
             resolution=resume_outcome,
@@ -1545,7 +1556,7 @@ def validate_spec(
                 )
         else:
             backfill_est = confirmation_estimate(
-                recipe, spec, backfill_est, policy=pricing_policy
+                action_program, spec, backfill_est, policy=pricing_policy
             )
             backfill_estimated = estimated_usd(backfill_est)
             requires_confirmation = not replay_strict_cannot_egress and (
@@ -1559,7 +1570,7 @@ def validate_spec(
             ):
                 context = confirmation_context(
                     project,
-                    recipe,
+                    action_program,
                     spec,
                     row_ids,
                     backfill_est,
@@ -1567,7 +1578,7 @@ def validate_spec(
                 context_hash = mint_confirmation_hash(context)
                 queued_resume = _queued_resume_consent_covers(
                     project,
-                    recipe,
+                    action_program,
                     spec,
                     run_id=resume_run_id,
                     principal=consent_coverage.principal,
@@ -1623,13 +1634,13 @@ def validate_spec(
 
     # A configured replay cache may satisfy a row before adapter lookup. Other
     # live provider effects require a key after cost confirmation.
-    recipe_is_llm = recipe.is_llm(spec)
-    cache_can_serve_replay = recipe_is_llm and (
+    program_is_llm = action_program.is_llm(spec)
+    cache_can_serve_replay = program_is_llm and (
         router.cache_mode == "replay" and router.cache is not None
     )
-    model_name = (spec.get("model") or "") if recipe_is_llm else ""
+    model_name = (spec.get("model") or "") if program_is_llm else ""
     effect_engine = model_name
-    if not recipe_is_llm:
+    if not program_is_llm:
         effect_engine = (
             resolved_execution.resolution.facts.engine
             if resolved_execution is not None
@@ -1637,14 +1648,14 @@ def validate_spec(
         )
     provider = effect_engine.split("/", 1)[0] if "/" in effect_engine else ""
     live_provider_effect = provider and (
-        not recipe_is_llm or not model_call_cannot_go_live(router)
+        not program_is_llm or not model_call_cannot_go_live(router)
     )
     cloud_payer = (
         resolved_execution.resolution.facts.cloud_payer
         if resolved_execution is not None
         else None
     )
-    cloud_llm_route = recipe_is_llm and any(
+    cloud_llm_route = program_is_llm and any(
         composition.cloud_payer_for(
             target_id=target.id,
             capability="llm.complete",
@@ -1658,7 +1669,7 @@ def validate_spec(
         # remediation; a replay cache does not prove every row will hit.
         assert_provider_spend_cap(project, provider)
         if (
-            recipe_is_llm
+            program_is_llm
             and not cache_can_serve_replay
             and not router.has_provider(provider)
         ):
@@ -1666,7 +1677,7 @@ def validate_spec(
 
     return _ValidatedSpec(
         consent_coverage=consent_coverage,
-        recipe=recipe,
+        program=action_program,
         sheet_id=sheet_id,
         columns=columns,
         col_map=col_map,
@@ -1784,7 +1795,7 @@ def persist_resolved_execution(
             else RouteStore.for_run(project, run_id)
         )
         store.record_consent(
-            action_identity_hash=attempt_identity(validated.recipe, spec),
+            action_identity_hash=attempt_identity(validated.program, spec),
             promise_set_hash=validated.unrouted_confirmation_hash,
             actor=coverage.principal,
             grant_basis=validated.consent_basis,

@@ -20,7 +20,7 @@ class AdmittedWorkScopeSnapshot(dict[str, Any]):
 
 def canonical_work_scope_binding(
     project: Any,
-    recipe: Any,
+    program: Any,
     spec: Mapping[str, Any],
     row_ids: Sequence[int],
     *,
@@ -37,7 +37,7 @@ def canonical_work_scope_binding(
     columns_by_name = {
         str(column["name"]): int(column["id"]) for column in project.columns(sheet_id)
     }
-    source_names = [str(name) for name in recipe.source_columns(dict(spec))]
+    source_names = [str(name) for name in program.source_columns(dict(spec))]
     return canonical_work_scope_binding_for_columns(
         project,
         sheet_id=sheet_id,

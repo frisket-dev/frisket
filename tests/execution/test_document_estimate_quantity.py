@@ -28,11 +28,11 @@ from frisket.execution.resolve_for_action import (
 )
 from frisket.execution.resolver import ResolvedExecution
 from frisket.execution.targets import CAPABILITY_OCR, CAPABILITY_TO_MARKDOWN
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 
 
 @dataclass
-class _DocumentProgram(Recipe):
+class _DocumentProgram(ActionProgram):
     name: str = "example.document_reader"
     consumes_resolution = True
     execution_capability = CAPABILITY_TO_MARKDOWN

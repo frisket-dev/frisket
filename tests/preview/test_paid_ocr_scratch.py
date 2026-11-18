@@ -141,7 +141,7 @@ def test_paid_ocr_image_plan_binds_source_and_returns_ephemeral_rows(
         assert plan.work_scope["selection"] == {"pages": [1]}
         assert plan.source_identity["sha256"] == plan.work_scope["identity"]
         assert "pages" not in plan.estimate
-        assert attempt_identity(plan.recipe, plan.spec)
+        assert attempt_identity(plan.program, plan.spec)
         assert tuple(project.db.iterdump()) == before
 
         async def pages(self, path, media, options, scratch, *, engine=None):

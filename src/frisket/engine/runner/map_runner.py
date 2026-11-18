@@ -35,11 +35,11 @@ from frisket.execution.consent_coverage import (
     effective_consent_coverage,
 )
 from frisket.ops.base import (
-    RECIPE_INVOCATION_HALT_CODES,
+    ACTION_PROGRAM_INVOCATION_HALT_CODES,
     ActionContext,
-    Recipe,
-    RecipeInvocationHalt,
-    normalize_recipe_invocation_halt,
+    ActionProgram,
+    ActionProgramInvocationHalt,
+    normalize_action_program_invocation_halt,
 )
 from frisket.redaction import safe_error
 from frisket.engine.runner import preparation, validation
@@ -187,7 +187,7 @@ def _row_effect_identity(
     project_storage_identity: str,
     run_id: int,
     row_id: int,
-    recipe: Recipe,
+    program: ActionProgram,
     spec: dict[str, Any],
     values: dict[str, Any],
     out_cols: dict[str, int],
@@ -216,7 +216,7 @@ def _row_effect_identity(
             "schema_version": "frisket.map_row_effect_identity.v1",
             **logical,
             "action_kind": spec["action_kind"],
-            "action_version": recipe.version,
+            "action_version": program.version,
             "spec": semantic_spec,
             "values": values,
             "output_columns": sorted(
@@ -234,7 +234,7 @@ def _row_effect_identity(
             "project_storage_identity": project_storage_identity,
             "row_id": int(row_id),
             "action_kind": spec["action_kind"],
-            "action_version": recipe.version,
+            "action_version": program.version,
             "spec": semantic_spec,
             "values": values,
             "cloud_payer": dict(cloud_payer),
@@ -295,7 +295,7 @@ def _cloud_row_request_id(
         owner_checkpoint_id = str(prior["id"])
         source = EffectCheckpointStore(project.db).get(owner_checkpoint_id)
         if source is None:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "external_effect_reconciliation_required",
                 "The prior Cloud reservation disappeared during recovery.",
             )
@@ -337,7 +337,7 @@ def _returned_row_response(checkpoint: dict[str, Any]) -> dict[str, dict[str, An
         isinstance(name, str) and isinstance(payload, dict)
         for name, payload in response.items()
     ):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "external_effect_reconciliation_required",
             "A returned row-effect checkpoint is incomplete or corrupt; "
             "refusing another provider call until it is reconciled.",
@@ -423,7 +423,7 @@ class MapRunner:
     should_cancel: Callable[[int], bool] | None = None
     defer_cancel_terminal_close: bool = field(kw_only=True, default=False)
     action_context_extras: dict[str, Any] = field(default_factory=dict)
-    allow_action_lifecycle_only_recipes: bool = False
+    allow_action_lifecycle_only_programs: bool = False
     halt_after_consecutive_failures: int | None = DEFAULT_FAILURE_HALT_STREAK
     # Mint once after admission and before any row executes.
     authority: "AttemptAuthority" = field(kw_only=True)
@@ -472,21 +472,21 @@ class MapRunner:
             )
         self.run_store = RunResultStore(self.project)
 
-    def _row_worker_count(self, recipe: Recipe, spec: dict) -> int:
+    def _row_worker_count(self, program: ActionProgram, spec: dict) -> int:
         configured = max(1, int(self.concurrency or 1))
         # ``max_concurrency`` remains the established static recipe cap used
         # by existing temporal/media recipes. ``max_row_concurrency`` adds a
         # spec-dependent cap for run-scoped local workers (for example,
         # Parakeet). Both are independent safety limits.
         caps = [configured]
-        if recipe.max_concurrency is not None:
-            caps.append(max(1, int(recipe.max_concurrency)))
-        dynamic_cap = recipe.max_row_concurrency(spec)
+        if program.max_concurrency is not None:
+            caps.append(max(1, int(program.max_concurrency)))
+        dynamic_cap = program.max_row_concurrency(spec)
         if dynamic_cap is not None:
             caps.append(max(1, int(dynamic_cap)))
         return min(caps)
 
-    def estimate(self, spec: dict, *, program: Recipe | None = None) -> dict:
+    def estimate(self, spec: dict, *, program: ActionProgram | None = None) -> dict:
         """Pre-run estimate for the cost gate. Facade over validation.estimate_run
         (public — server/services/action_previews.py and workbench call this)."""
         assert self.execution_composition is not None
@@ -503,7 +503,7 @@ class MapRunner:
         self,
         spec: dict[str, Any],
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
     ) -> bool:
         """Facade over validation.exact_replay_available (public — called from
         server/action_enqueue.py)."""
@@ -518,7 +518,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         confirmed: bool = False,
         trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> RunProgress:
@@ -543,7 +543,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
@@ -569,8 +569,8 @@ class MapRunner:
             trusted_consent_authorizer=trusted_consent_authorizer,
         )
         if resume_run_id is None and (
-            validated.recipe.atomic_output_columns
-            or validated.recipe.consumes_resolution
+            validated.program.atomic_output_columns
+            or validated.program.consumes_resolution
             or validated.resolved_execution is not None
         ):
             # A fresh atomic family is one lifecycle unit: generated columns, op,
@@ -652,26 +652,28 @@ class MapRunner:
         self,
         spec: dict[str, Any],
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         confirmed: bool,
         resume_run_id: int | None,
         precomputed_output_fields: list[dict[str, Any]] | None = None,
         trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
     ) -> validation._ValidatedSpec:
-        recipe = program if program is not None else validation.recipe_for_spec(spec)
+        action_program = (
+            program if program is not None else validation.action_program_for_spec(spec)
+        )
         if (
-            recipe.action_lifecycle_only
-            and not self.allow_action_lifecycle_only_recipes
+            action_program.action_lifecycle_only
+            and not self.allow_action_lifecycle_only_programs
         ):
             raise ValueError(
-                f"recipe '{recipe.name}' must be run through its supported action"
+                f"recipe '{action_program.name}' must be run through its supported action"
             )
         return validation.validate_spec(
             self.project,
             self.router,
             self.run_store,
             spec,
-            program=recipe,
+            program=action_program,
             confirmed=confirmed,
             resume_run_id=resume_run_id,
             pricing_policy=self.pricing_policy,
@@ -685,7 +687,7 @@ class MapRunner:
         self,
         spec: dict[str, Any],
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         confirmed: bool,
         output_fields: list[dict[str, Any]],
         trusted_consent_authorizer: validation.TrustedConsentAuthorizer | None = None,
@@ -725,7 +727,7 @@ class MapRunner:
             else None
         )
         attempt = self.authority.mint(
-            recipe=prepared.recipe,
+            program=prepared.program,
             spec=spec,
             run_id=prepared.run_id,
             scope=self._attempt_scope(prepared, spec, output_column_ids),
@@ -737,7 +739,7 @@ class MapRunner:
             RoutedAdmission,
         ):
             raise DependentChoiceRefusal(
-                f"recipe '{prepared.recipe.name}' consumes execution resolution "
+                f"recipe '{prepared.program.name}' consumes execution resolution "
                 "but its attempt was admitted UNROUTED; routed dispatch never "
                 "executes unverified"
             )
@@ -747,7 +749,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         confirmed: bool = False,
         resume_run_id: int | None = None,
         reopen_operator_cancelled: bool = True,
@@ -790,14 +792,16 @@ class MapRunner:
             admission = self.run_store.begin_run_resume(
                 prepared.run_id,
                 reopen_operator_cancelled=reopen_operator_cancelled,
-                resumable_halt_codes=RECIPE_INVOCATION_HALT_CODES,
+                resumable_halt_codes=ACTION_PROGRAM_INVOCATION_HALT_CODES,
             )
             resume_admitted = admission.admitted
-        recipe = prepared.recipe
-        capture_result_evidence = getattr(recipe, "capture_result_evidence", None)
-        write_result_evidence = getattr(recipe, "write_result_evidence", None)
+        action_program = prepared.program
+        capture_result_evidence = getattr(
+            action_program, "capture_result_evidence", None
+        )
+        write_result_evidence = getattr(action_program, "write_result_evidence", None)
         required_output_field_names = required_publication_fields(
-            recipe,
+            action_program,
             prepared.output_fields,
         )
         col_map = prepared.col_map
@@ -862,20 +866,20 @@ class MapRunner:
         source_column_types = {
             c["name"]: c["type"]
             for c in self.project.columns(prepared.sheet_id)
-            if c["name"] in set(recipe.source_columns(spec))
+            if c["name"] in set(action_program.source_columns(spec))
         }
         # Source identity was resolved during preparation. Live names/types may
         # have changed since then; they must not retarget or omit these reads.
         source_column_ids = [
             col_map[name]
-            for name in map(str, recipe.source_columns(spec))
+            for name in map(str, action_program.source_columns(spec))
             if name in col_map
         ]
         # Repair actions may deliberately consume a projection-invalid payload;
         # every other source keeps the ordinary typed-reader mask.
         preserve_invalid_column_ids = frozenset(
             col_map[name]
-            for name in getattr(recipe, "preserve_invalid_source_columns", ())
+            for name in getattr(action_program, "preserve_invalid_source_columns", ())
             if name in col_map
         )
 
@@ -1046,7 +1050,7 @@ class MapRunner:
                 ),
                 generation_claim_token=claim_token,
                 keep_zero_success_generated_columns=(
-                    recipe.keep_zero_success_generated_columns
+                    action_program.keep_zero_success_generated_columns
                 ),
                 halted_code=code,
                 halted_reason=reason,
@@ -1057,14 +1061,14 @@ class MapRunner:
                 never_point_column_ids=never_point_column_ids,
             )
 
-        def terminalize_halt(exc: RecipeInvocationHalt) -> RunProgress:
+        def terminalize_halt(exc: ActionProgramInvocationHalt) -> RunProgress:
             """A ``promise_violation`` (or any allowlisted invocation halt)
             raised before a single row dispatched: the run terminalizes as
             CANCELLED with its persisted markers. Recovery is a fresh scoped
             run. Identical to the halt handling on both dispatch branches
             below — the mint simply reaches it first."""
             progress.halted_code, progress.halted_reason = (
-                normalize_recipe_invocation_halt(exc.code, exc.detail)
+                normalize_action_program_invocation_halt(exc.code, exc.detail)
             )
             progress.cancel()
             finalize_pre_dispatch_run(
@@ -1076,7 +1080,7 @@ class MapRunner:
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
                 keep_zero_success_generated_columns=(
-                    recipe.keep_zero_success_generated_columns
+                    action_program.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,
@@ -1131,13 +1135,13 @@ class MapRunner:
                     if admitted_attempt_id is not None:
                         attempt = self.authority.load_admitted(
                             attempt_id=admitted_attempt_id,
-                            recipe=recipe,
+                            program=action_program,
                             spec=spec,
                             run_id=run_id,
                         )
                     else:
                         attempt = self.authority.mint(
-                            recipe=recipe,
+                            program=action_program,
                             spec=spec,
                             run_id=run_id,
                             scope=self._attempt_scope(
@@ -1150,11 +1154,11 @@ class MapRunner:
                     attempt.admission, RoutedAdmission
                 ):
                     raise DependentChoiceRefusal(
-                        f"recipe '{recipe.name}' consumes execution resolution "
+                        f"recipe '{action_program.name}' consumes execution resolution "
                         "but its attempt was admitted UNROUTED; routed "
                         "dispatch never executes unverified"
                     )
-            except RecipeInvocationHalt as exc:
+            except ActionProgramInvocationHalt as exc:
                 return terminalize_halt(exc)
             except BaseException as exc:
                 close_out_pre_dispatch_failure(exc)
@@ -1178,11 +1182,11 @@ class MapRunner:
                 }
 
         batch_local_results = bool(
-            recipe.batch_local_results
+            action_program.batch_local_results
             and attempt is not None
             and attempt.routed is None
-            and not recipe.is_llm(spec)
-            and not row_effect_spends_or_meters(recipe, spec, self.router)
+            and not action_program.is_llm(spec)
+            and not row_effect_spends_or_meters(action_program, spec, self.router)
         )
         progress.writer_attempt_claimed = dispatch_claimed
         claimed = [dispatch_claimed]
@@ -1192,7 +1196,7 @@ class MapRunner:
             first effect — the earliest operation that discloses user data
             externally or incurs provider cost.
 
-            ``RecipeInvocationHalt`` never originates here; a lost CAS is the
+            ``ActionProgramInvocationHalt`` never originates here; a lost CAS is the
             durable, reconsent-shaped refusal (a concurrent reconsent
             superseded this attempt), so it escapes with zero rows dispatched
             and the run reverts (resume) or terminalizes (fresh launch) — see
@@ -1302,7 +1306,7 @@ class MapRunner:
             from frisket.execution.dispatch_control import dispatch_for_context
 
             ctx.extras["router"] = self.router.for_execution(dispatch_for_context(ctx))
-        if not recipe.is_llm(spec) and hasattr(recipe, "execute_batch"):
+        if not action_program.is_llm(spec) and hasattr(action_program, "execute_batch"):
             # Batch recipes intentionally keep whole-run semantics here rather
             # than any page-local execution shape: clean_column needs global
             # canonical grouping, and census demographics needs global dedupe.
@@ -1317,8 +1321,8 @@ class MapRunner:
                     # authorized exactly like a row-oriented one.
                     claim_the_attempt()
                 batch_task = asyncio.create_task(
-                    self._run_batch_recipe(
-                        recipe,
+                    self._run_batch_program(
+                        action_program,
                         spec,
                         ctx,
                         row_ids=row_ids,
@@ -1363,9 +1367,9 @@ class MapRunner:
                         ),
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
-                        auto_verify=bool(recipe.auto_verify),
+                        auto_verify=bool(action_program.auto_verify),
                         writer_attempt_id=attempt.attempt_id,
                         claim_token=claim_token,
                         claimless_direct_effect=self.claimless_direct_effect,
@@ -1392,9 +1396,9 @@ class MapRunner:
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
-                        auto_verify=bool(recipe.auto_verify),
+                        auto_verify=bool(action_program.auto_verify),
                         defer_generation_seal=defer_generation_seal,
                         terminal_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
@@ -1422,7 +1426,7 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         writer_attempt_id=attempt.attempt_id,
                         claim_token=claim_token,
@@ -1439,7 +1443,7 @@ class MapRunner:
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         terminal_attempt_id=(
                             attempt.attempt_id if attempt is not None else None
@@ -1452,13 +1456,13 @@ class MapRunner:
                 if self.on_progress:
                     self.on_progress(progress)
                 raise
-            except RecipeInvocationHalt as exc:
+            except ActionProgramInvocationHalt as exc:
                 # The batch path's twin of the row path's halt handling: a
                 # promise_violation (or any allowlisted invocation halt)
                 # terminalizes this generation as cancelled with its
                 # persisted markers. Recovery gets a fresh scoped run.
                 progress.halted_code, progress.halted_reason = (
-                    normalize_recipe_invocation_halt(exc.code, exc.detail)
+                    normalize_action_program_invocation_halt(exc.code, exc.detail)
                 )
                 progress.cancel()
                 if attempt is not None and claimed[0]:
@@ -1470,7 +1474,7 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1492,7 +1496,7 @@ class MapRunner:
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1515,7 +1519,7 @@ class MapRunner:
                 raise
             except SandboxTeardownError as exc:
                 progress.halted_code, progress.halted_reason = (
-                    normalize_recipe_invocation_halt(
+                    normalize_action_program_invocation_halt(
                         "local_session_failed",
                         "The local model session could not be verified as "
                         "stopped; restart Frisket before resuming the run.",
@@ -1531,7 +1535,7 @@ class MapRunner:
                         status="cancelled",
                         out_cols=out_cols,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1550,7 +1554,7 @@ class MapRunner:
                         out_cols=out_cols,
                         generation_claim_token=claim_token,
                         keep_zero_success_generated_columns=(
-                            recipe.keep_zero_success_generated_columns
+                            action_program.keep_zero_success_generated_columns
                         ),
                         halted_code=progress.halted_code,
                         halted_reason=progress.halted_reason,
@@ -1608,11 +1612,11 @@ class MapRunner:
                 if prepared.read_inputs
                 else row_values(
                     self.project,
-                    recipe,
+                    action_program,
                     spec,
                     col_map,
                     row_id,
-                    for_model=recipe.is_llm(spec),
+                    for_model=action_program.is_llm(spec),
                     column_types=source_column_types,
                     capture=input_capture,
                     admitted_work_scope=admitted_work_scope,
@@ -1637,18 +1641,19 @@ class MapRunner:
             ):
                 raise TypeError("admitted Cloud payer has an invalid type")
             if (
-                row_effect_spends_or_meters(recipe, spec, self.router)
+                row_effect_spends_or_meters(action_program, spec, self.router)
                 and (
                     not getattr(values, "unavailable_inputs", ())
                     or self.run_store.row_effect_checkpoint(run_id, row_id) is not None
                 )
-                and getattr(recipe, "row_effect_checkpoint_owner", "runner") == "runner"
+                and getattr(action_program, "row_effect_checkpoint_owner", "runner")
+                == "runner"
             ):
                 checkpoint_id, checkpoint_identity = _row_effect_identity(
                     project_storage_identity=self.project.storage_identity,
                     run_id=run_id,
                     row_id=row_id,
-                    recipe=recipe,
+                    program=action_program,
                     spec=spec,
                     values=values,
                     out_cols=out_cols,
@@ -1682,7 +1687,7 @@ class MapRunner:
                         checkpoint_should_complete = True
                 if not checkpoint_created:
                     if checkpoint is None:
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "external_effect_reconciliation_required",
                             "A row-effect reservation raced or disappeared; refusing "
                             "another provider call until it is reconciled.",
@@ -1691,7 +1696,7 @@ class MapRunner:
                         checkpoint.get("action_kind") != spec["action_kind"]
                         or checkpoint.get("identity") != checkpoint_identity
                     ):
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "external_effect_reconciliation_required",
                             "A prior row effect was reserved for a different "
                             "request or source value; refusing to substitute the "
@@ -1705,7 +1710,7 @@ class MapRunner:
                             else None
                         )
                         if cloud_payer is None:
-                            raise RecipeInvocationHalt(
+                            raise ActionProgramInvocationHalt(
                                 "external_effect_reconciliation_required",
                                 "A prior process may have reached the provider for "
                                 "this row, but no response was durably recorded; "
@@ -1717,7 +1722,7 @@ class MapRunner:
                     if checkpoint is None:
                         pass
                     elif checkpoint.get("state") != "returned":
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "external_effect_reconciliation_required",
                             "A row-effect checkpoint has an invalid state; refusing "
                             "another provider call until it is reconciled.",
@@ -1756,12 +1761,12 @@ class MapRunner:
             if results is None:
                 if cloud_payer is not None:
                     if checkpoint_id is None or checkpoint_identity is None:
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "promise_violation",
                             "Cloud execution requires a durable admitted row effect",
                         )
                     if attempt is None:
-                        raise RecipeInvocationHalt(
+                        raise ActionProgramInvocationHalt(
                             "promise_violation",
                             "Cloud execution requires an authorized attempt",
                         )
@@ -1829,12 +1834,12 @@ class MapRunner:
                             or attempt is None
                             or attempt.routed is None
                         ):
-                            raise RecipeInvocationHalt(
+                            raise ActionProgramInvocationHalt(
                                 "promise_violation",
                                 "Cloud execution requires a durable admitted row effect",
                             )
                         if self.execution_composition is None:
-                            raise RecipeInvocationHalt(
+                            raise ActionProgramInvocationHalt(
                                 "promise_violation",
                                 "Cloud execution transport is unavailable",
                             )
@@ -1851,7 +1856,7 @@ class MapRunner:
                             claimless_direct_effect=self.claimless_direct_effect,
                         )
                         if runtime_binding is None:
-                            raise RecipeInvocationHalt(
+                            raise ActionProgramInvocationHalt(
                                 "promise_violation",
                                 "Cloud execution lost its admitted payer",
                             )
@@ -1872,7 +1877,7 @@ class MapRunner:
                             self.project,
                             self.router,
                             self._throttle,
-                            recipe,
+                            action_program,
                             values,
                             spec,
                             row_ctx,
@@ -1901,7 +1906,9 @@ class MapRunner:
                     raise
                 except BaseException:
                     # Only statically local rows prove no external effect occurred.
-                    if checkpoint_created and row_effect_cannot_egress(recipe, spec):
+                    if checkpoint_created and row_effect_cannot_egress(
+                        action_program, spec
+                    ):
                         assert checkpoint_id is not None
                         assert checkpoint_identity is not None
                         self.run_store.discard_reserved_row_effect_checkpoint(
@@ -1942,7 +1949,7 @@ class MapRunner:
                     supplemental_accounting: tuple[dict[str, Any], ...] = ()
                     if cloud_llm_coordinator is not None:
                         if attempt is None or attempt.routed is None:
-                            raise RecipeInvocationHalt(
+                            raise ActionProgramInvocationHalt(
                                 "promise_violation",
                                 "Cloud LLM accounting lost its admitted route",
                             )
@@ -2061,7 +2068,7 @@ class MapRunner:
                 # Evaluate the failure streak in source order, not race order.
                 threshold = (
                     None
-                    if recipe.disable_failure_halt
+                    if action_program.disable_failure_halt
                     else self.halt_after_consecutive_failures
                 )
                 if threshold is not None:
@@ -2107,7 +2114,7 @@ class MapRunner:
                 for _position, row_id in page:
                     yield row_id
 
-        worker_count = self._row_worker_count(recipe, spec)
+        worker_count = self._row_worker_count(action_program, spec)
         # Small prefetch buffer: enough to keep workers fed without letting the
         # event loop accumulate row tasks proportional to the run size.
         queue: asyncio.Queue[tuple[int, int, RowSourcePage | None] | None] = (
@@ -2257,7 +2264,7 @@ class MapRunner:
                 claim_the_attempt()
 
                 async def execute_in_scope() -> None:
-                    async with recipe.execution_scope(
+                    async with action_program.execution_scope(
                         spec, ctx, expected_rows=prepared.row_count
                     ):
                         try:
@@ -2289,9 +2296,9 @@ class MapRunner:
                 progress.cancel()
                 if not cooperative_stop or asyncio.current_task().cancelling():
                     outer_cancellation = exc
-            except RecipeInvocationHalt as exc:
+            except ActionProgramInvocationHalt as exc:
                 progress.halted_code, progress.halted_reason = (
-                    normalize_recipe_invocation_halt(exc.code, exc.detail)
+                    normalize_action_program_invocation_halt(exc.code, exc.detail)
                 )
                 progress.cancel()
             except SandboxTeardownError as exc:
@@ -2300,7 +2307,7 @@ class MapRunner:
                 # First terminalize the durable run resumably so direct and
                 # queued action boundaries can preserve a typed receipt.
                 progress.halted_code, progress.halted_reason = (
-                    normalize_recipe_invocation_halt(
+                    normalize_action_program_invocation_halt(
                         "local_session_failed",
                         "The local model session could not be verified as "
                         "stopped; restart Frisket before resuming the run.",
@@ -2335,12 +2342,12 @@ class MapRunner:
                 status="cancelled" if truly_cancelled else "completed",
                 out_cols=out_cols,
                 keep_zero_success_generated_columns=(
-                    recipe.keep_zero_success_generated_columns
+                    action_program.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,
                 auto_verify=bool(
-                    recipe.auto_verify
+                    action_program.auto_verify
                     and progress.halted_code is None
                     and teardown_error is None
                 ),
@@ -2367,12 +2374,12 @@ class MapRunner:
                 out_cols=out_cols,
                 generation_claim_token=claim_token,
                 keep_zero_success_generated_columns=(
-                    recipe.keep_zero_success_generated_columns
+                    action_program.keep_zero_success_generated_columns
                 ),
                 halted_code=progress.halted_code,
                 halted_reason=progress.halted_reason,
                 auto_verify=bool(
-                    recipe.auto_verify
+                    action_program.auto_verify
                     and progress.halted_code is None
                     and teardown_error is None
                 ),
@@ -2400,7 +2407,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         allow_empty_scope: bool = False,
         accounted: bool = False,
     ) -> validation._ValidatedSpec:
@@ -2426,7 +2433,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         allow_empty_scope: bool = False,
     ) -> int:
         """Run the preview guards synchronously (cap + ``validate_spec``)
@@ -2454,7 +2461,7 @@ class MapRunner:
         self,
         spec: dict,
         *,
-        program: Recipe | None = None,
+        program: ActionProgram | None = None,
         allow_empty_scope: bool = False,
         progress_cb: Callable[[int, int], None] | None = None,
         cancel_event: Any | None = None,
@@ -2521,9 +2528,9 @@ class MapRunner:
             after_position = page[-1][0]
             row_ids.extend(row_id for _position, row_id in page)
 
-    async def _run_batch_recipe(
+    async def _run_batch_program(
         self,
-        recipe: Recipe,
+        program: ActionProgram,
         spec: dict,
         ctx: ActionContext,
         *,
@@ -2546,13 +2553,13 @@ class MapRunner:
         # ``out_cols`` is the persisted preparation/claim enumeration.  A
         # resumed worker must not recompute dynamic descriptors from changed
         # recipe code after authority was published.
-        batch_size = getattr(recipe, "batch_size", None)
+        batch_size = getattr(program, "batch_size", None)
         if batch_size is not None and len(row_ids) > batch_size:
             for start in range(0, len(row_ids), batch_size):
                 if cancelled and cancelled():
                     break
-                await self._run_batch_recipe(
-                    recipe,
+                await self._run_batch_program(
+                    program,
                     spec,
                     ctx,
                     row_ids=row_ids[start : start + batch_size],
@@ -2570,7 +2577,7 @@ class MapRunner:
         from frisket.engine.store.consumed_sources import read_consumed_source
         from frisket.engine.runner.row_inputs import RowSourcePage
 
-        staged_capture = getattr(recipe, "staged_input_capture", None)
+        staged_capture = getattr(program, "staged_input_capture", None)
         if staged_capture is not None:
             # The existing inferred-batch spool owns both classifications and
             # the source capture that produced its saved results.
@@ -2578,7 +2585,9 @@ class MapRunner:
             values_by_row = {row_id: {} for row_id in row_ids}
         else:
             source_ids = [
-                col_map[name] for name in recipe.source_columns(spec) if name in col_map
+                col_map[name]
+                for name in program.source_columns(spec)
+                if name in col_map
             ]
             refs: dict[int, dict[int, dict[str, Any]]] = {}
             _, captured_values, batch_capture = read_consumed_source(
@@ -2590,7 +2599,7 @@ class MapRunner:
                 refs_out=refs,
                 preserve_invalid_column_ids=[
                     col_map[name]
-                    for name in getattr(recipe, "preserve_invalid_source_columns", ())
+                    for name in getattr(program, "preserve_invalid_source_columns", ())
                     if name in col_map
                 ],
             )
@@ -2602,7 +2611,7 @@ class MapRunner:
             values_by_row = {
                 row_id: row_values(
                     self.project,
-                    recipe,
+                    program,
                     spec,
                     col_map,
                     row_id,
@@ -2627,10 +2636,10 @@ class MapRunner:
                 # (for example, clustering records an empty result). Do not confuse
                 # it with a nonempty batch whose inputs are all unavailable.
                 if ready or not values_by_row:
-                    async with recipe.execution_scope(
+                    async with program.execution_scope(
                         spec, ctx, expected_rows=len(ready)
                     ):
-                        raw_results = await recipe.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
+                        raw_results = await program.execute_batch(ready, spec, ctx)  # type: ignore[attr-defined]
             except SandboxTeardownError:
                 raise
             except StaleAttemptWriter:
@@ -2675,7 +2684,7 @@ class MapRunner:
                 payload = {"row_id": row_id, "column_id": out_cols[name], **cell}
                 # One shared fingerprint for all outputs of this batch. Rows
                 # depend on the whole batch, not just their own source cells.
-                capture_row = getattr(recipe, "staged_input_first_row_id", row_ids[0])
+                capture_row = getattr(program, "staged_input_first_row_id", row_ids[0])
                 if row_id == capture_row and name == field_names[0]:
                     payload["__consumed_sources"] = batch_capture
                 pending.append(payload)

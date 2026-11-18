@@ -17,7 +17,7 @@ from frisket.cloud_llm_checkpoint import CloudLLMCheckpointCoordinator
 from frisket.engine.store import Project
 from frisket.execution.attempt import AttemptCommitment
 from frisket.execution.provider import ExecutionComposition
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,13 +72,13 @@ def cloud_runtime_binding(
     transport_kind = snapshot.get("transport")
     if payer is None:
         if transport_kind in {"frisket.cloud.media.v1", "frisket.cloud.llm.v1"}:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Cloud execution is missing its admitted payer",
             )
         return None
     if not isinstance(payer, CloudPayerSubject):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Cloud execution payer has an invalid type"
         )
 
@@ -90,7 +90,7 @@ def cloud_runtime_binding(
         or routed.route.engine != engine
         or not isinstance(capability, str)
     ):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Cloud execution differs from its admitted route"
         )
     if (
@@ -99,17 +99,17 @@ def cloud_runtime_binding(
         )
         != payer
     ):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Cloud execution payer differs from its admission"
         )
     provider = composition.provider
     if not isinstance(provider, CloudExecutionTransportProvider):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Cloud execution transport is unavailable"
         )
     transport = provider.cloud_execution_transport(target_id)
     if transport is None:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Cloud execution transport is unavailable"
         )
     estimate = cloud_estimate_authority_for_row(attempt.cost_basis, row_id=row_id)
@@ -153,7 +153,7 @@ def cloud_runtime_binding(
             ),
             route=routed.route,
         )
-    raise RecipeInvocationHalt(
+    raise ActionProgramInvocationHalt(
         "promise_violation", "Cloud execution differs from its admitted route"
     )
 

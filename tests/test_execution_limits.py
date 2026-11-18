@@ -31,7 +31,7 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.ops.integrations import natural_pdf
 from frisket.ops.media_probe import probe_for_ingest
 from frisket.sdk.ops import transcribe_engines
@@ -775,7 +775,7 @@ def test_malformed_pdf_measurement_fails_closed_before_rasterization(
 
 
 @dataclass
-class _LimitCaptureRecipe(Recipe):
+class _LimitCaptureProgram(ActionProgram):
     name: str = "limit_capture"
     llm: bool = False
     cost_class = "free"
@@ -797,8 +797,8 @@ class _LimitCaptureRecipe(Recipe):
 def test_run_preview_and_row_clone_receive_the_same_execution_limits(
     make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _LimitCaptureRecipe()
-    monkeypatch.setattr(validation, "recipe_for_spec", lambda _spec: recipe)
+    program = _LimitCaptureProgram()
+    monkeypatch.setattr(validation, "action_program_for_spec", lambda _spec: program)
     project = make_project("propagation")
     sheet_id = project.add_sheet("Rows")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
@@ -831,4 +831,4 @@ def test_run_preview_and_row_clone_receive_the_same_execution_limits(
     finally:
         project.close()
 
-    assert recipe.observed_limits == [limits, limits]
+    assert program.observed_limits == [limits, limits]

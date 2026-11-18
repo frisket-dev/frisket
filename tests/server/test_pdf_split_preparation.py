@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 from frisket.server.services.pdf_split_preparation import (
     PdfSplitPageTarget,
@@ -995,7 +995,7 @@ def _halt_first_attempt(adapter, code):
         async def halt_once(context):
             attempts.append(work.work_key)
             if len(attempts) == 1:
-                raise RecipeInvocationHalt(code, "the local engine is in use")
+                raise ActionProgramInvocationHalt(code, "the local engine is in use")
             return await run(context)
 
         return lease, (replace(plan, run=halt_once), *prepared[1:])

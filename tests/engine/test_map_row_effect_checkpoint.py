@@ -30,7 +30,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, run_with_exact_confirmation
 
@@ -68,7 +68,7 @@ def _spec(sheet_id: int) -> dict:
     }
 
 
-def _bound(spec: dict) -> tuple[dict, Recipe]:
+def _bound(spec: dict) -> tuple[dict, ActionProgram]:
     """Bind the canonical runner spec to its explicit typed classify program."""
 
     plan = model_plan(spec)
@@ -84,11 +84,11 @@ def _runner(project: Project, router: ModelRouter) -> MapRunner:
         router,
         concurrency=1,
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
 
 
-def _confirmed_spec(runner: MapRunner, spec: dict, program: Recipe) -> dict:
+def _confirmed_spec(runner: MapRunner, spec: dict, program: ActionProgram) -> dict:
     with pytest.raises(CostGate) as challenge:
         runner.prepare_run(spec, program=program, confirmed=False)
     assert challenge.value.promise_set_hash is not None
@@ -119,7 +119,7 @@ def _age_silent_attempt(project: Project, attempt_id: str) -> None:
 def _prepare_claimed_run(
     runner: MapRunner,
     spec: dict,
-    program: Recipe,
+    program: ActionProgram,
     *,
     confirmed: bool = True,
 ) -> tuple[int, str]:
@@ -980,7 +980,7 @@ def test_local_halt_discards_reservation_so_the_run_stays_recoverable(
     checkpoint completion. Its reservation must be discarded so a fresh
     scoped generation can buy the remaining row."""
 
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import (
         media_cell,
@@ -1027,7 +1027,7 @@ def test_local_halt_discards_reservation_so_the_run_stays_recoverable(
         del self, path, spec
         calls += 1
         if halt and calls == 2:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed", "session exited during row work"
             )
         return {

@@ -20,7 +20,7 @@ from frisket.authoring.action_metadata import canonical_action_kind
 from frisket.actions.core import ModelRows
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import discover_references
-from frisket.ops.builtin import get_recipe
+from frisket.ops.builtin import get_action_program
 
 ARTIFACT_SCHEMA_VERSION = "frisket.action_artifact.v1"
 RECEIPT_SCHEMA_VERSION = "frisket.action_eval_receipt.v1"
@@ -237,7 +237,7 @@ def _portable_spec(
                 ]
             )
         else:
-            implementation = get_recipe(action_kind)
+            implementation = get_action_program(action_kind)
             _validate_source_columns(clean)
             runtime_spec = dict(clean)
             if isinstance(runtime_spec.get("output_fields"), list):

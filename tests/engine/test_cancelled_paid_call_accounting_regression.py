@@ -78,7 +78,7 @@ def test_cancel_after_paid_call_returns_keeps_usage_cost_and_project_spend(
     # A bare confirmed flag on the typed program is challenged, never
     # admitted: the runner must quote first.
     plan = model_plan(spec)
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     try:
         asyncio.run(
             runner.run(

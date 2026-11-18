@@ -117,7 +117,7 @@ def _admit(runner, plan):
         )
     attempt = runner.authority.mint(
         receipt_id=receipt.receipt_id,
-        recipe=plan.program,
+        program=plan.program,
         spec=spec,
         scope=tuple(prepared.row_ids),
     )
@@ -338,7 +338,7 @@ def test_paid_ocr_preview_acceptance_is_durable_before_poll(
     source, monkeypatch, terminal
 ):
     from frisket.execution.attempt import attempt_receipt, set_attempt_state
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
     from frisket.ops.integrations.datalab import (
         DatalabEngineError,
         _accepted_submission_accounting,
@@ -403,7 +403,7 @@ def test_paid_ocr_preview_acceptance_is_durable_before_poll(
         progress_cb=lambda done, total: cancelled.set(),
     )
     if terminal == "poll_failure":
-        with pytest.raises(RecipeInvocationHalt, match="accepted"):
+        with pytest.raises(ActionProgramInvocationHalt, match="accepted"):
             asyncio.run(execute)
     else:
         result = asyncio.run(execute)

@@ -25,7 +25,7 @@ from frisket.ai.llm import (
 )
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import cost_of_with_source
-from frisket.ops.base import ActionContext, Recipe, RenderedCall
+from frisket.ops.base import ActionContext, ActionProgram, RenderedCall
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner import CostGate, MapRunner, validation
@@ -53,14 +53,14 @@ def test_rendered_call_uses_shared_default_and_preserves_override() -> None:
 
 def test_confirmation_echo_is_not_part_of_durable_prompt_identity() -> None:
     spec = classify_spec(1, context="Same provider prompt")
-    recipe = model_plan(spec).program
-    before = prompt_hash_of(recipe, spec)
+    program = model_plan(spec).program
+    before = prompt_hash_of(program, spec)
     retry = {
         **spec,
         "confirmed": True,
         "consented_promise_set_hash": "scope-and-quote-token",
     }
-    assert prompt_hash_of(recipe, retry) == before
+    assert prompt_hash_of(program, retry) == before
 
 
 def test_prompt_hash_is_pinned_to_action_kind_version_and_spec() -> None:
@@ -103,7 +103,7 @@ def classify_spec(sheet_id, context="Test rows."):
 
 async def run_with_output_claim(runner, spec, **kwargs):
     """Give the runner its explicit typed program and real output claims."""
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     return await _run_with_output_claim(runner, spec, program=_program(spec), **kwargs)
 
 
@@ -124,7 +124,7 @@ def _program(spec):
     return (
         model_plan(spec).program
         if spec["action_kind"] == "map.classify"
-        else validation.recipe_for_spec(spec)
+        else validation.action_program_for_spec(spec)
     )
 
 
@@ -145,9 +145,9 @@ def prime_cache(
 ) -> None:
     """Pre-compute the EXACT requests the runner will make for these rows and
     cache real-shaped responses for them."""
-    recipe = _program(spec)
+    program = _program(spec)
     for text in row_texts:
-        call = recipe.render({"text": text}, spec)
+        call = program.render({"text": text}, spec)
         req = LLMRequest(
             model=MODEL,
             messages=call.messages,
@@ -155,7 +155,7 @@ def prime_cache(
             max_tokens=call.max_tokens,
         )
         cache.put(
-            request_key(req, recipe.version),
+            request_key(req, program.version),
             LLMResponse(
                 content=None,
                 data={"relevance": score},
@@ -191,13 +191,13 @@ def _prepare_claimed_runner_run(
     *,
     confirmed: bool,
 ):
-    recipe = _program(spec)
-    output_names = [str(field["name"]) for field in recipe.output_fields(spec)]
-    claim_token = f"output-claim:test:{recipe.name}:{id(runner)}"
+    program = _program(spec)
+    output_names = [str(field["name"]) for field in program.output_fields(spec)]
+    claim_token = f"output-claim:test:{program.name}:{id(runner)}"
     claims, conflict = OutputColumnClaimStore(runner.project).acquire(
         sheet_id=int(spec["sheet_id"]),
         output_names=output_names,
-        action_kind=recipe.name,
+        action_kind=program.name,
         claim_token=claim_token,
         lease_seconds=6 * 60 * 60,
     )
@@ -205,7 +205,7 @@ def _prepare_claimed_runner_run(
     assert len(claims) == len(output_names)
     prepared = runner._prepare(  # noqa: SLF001 - runner contract probe
         spec,
-        program=recipe,
+        program=program,
         confirmed=confirmed,
         resume_run_id=None,
     )
@@ -256,7 +256,7 @@ class TestHappyPath:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
 
         progress = asyncio.run(run_with_output_claim(runner, spec))
@@ -282,7 +282,7 @@ class TestHappyPath:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         asyncio.run(run_with_output_claim(runner, spec))
         col = next(c for c in project.columns(sheet) if c["name"] == "relevance")
@@ -313,7 +313,7 @@ class TestHappyPath:
                     project,
                     router,
                     authority=UnroutedOnlyAuthority(project),
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                 ),
                 first_spec,
             )
@@ -341,7 +341,7 @@ class TestHappyPath:
                     project,
                     router,
                     authority=UnroutedOnlyAuthority(project),
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                 ),
                 second_spec,
             )
@@ -385,7 +385,7 @@ class TestHappyPath:
                     project,
                     router,
                     authority=UnroutedOnlyAuthority(project),
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                 ),
                 final_spec,
             )
@@ -418,7 +418,7 @@ class TestPartialFailure:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         confirmed_spec = confirm_remote_spec(runner, spec)
         progress = asyncio.run(
@@ -461,7 +461,7 @@ class TestPartialFailure:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         confirmed_spec = confirm_remote_spec(runner, spec)
         p1 = asyncio.run(run_with_output_claim(runner, confirmed_spec, confirmed=True))
@@ -479,7 +479,7 @@ class TestPartialFailure:
             project,
             router2,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         retry_spec = {
             **spec,
@@ -513,7 +513,7 @@ class TestCostGate:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         est = runner.estimate(spec, program=model_plan(spec).program)
         assert est["cost"] > 1.0
@@ -540,7 +540,7 @@ class TestCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
 
         with pytest.raises(CostGate) as first_gate:
@@ -581,7 +581,7 @@ class TestCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
 
         with pytest.raises(CostGate) as first_gate:
@@ -619,7 +619,7 @@ class TestCostGate:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         est = runner.estimate(spec, program=model_plan(spec).program)
         assert est["cost"] < 1.0
@@ -639,7 +639,9 @@ class TestResumeExtendCostGate:
     gate already covered their scope.
     """
 
-    def _prepared_run_id(self, project, spec, *, program: Recipe | None = None) -> int:
+    def _prepared_run_id(
+        self, project, spec, *, program: ActionProgram | None = None
+    ) -> int:
         # Create the run row + generated columns + recorded scope WITHOUT executing
         # any rows, after the same 402 -> exact echo flow as a live launch.
         program = program or _program(spec)
@@ -649,7 +651,7 @@ class TestResumeExtendCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         try:
             return runner.prepare_run(spec, program=program, confirmed=False).run_id
@@ -684,7 +686,7 @@ class TestResumeExtendCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         # The estimate is scoped to the NEW rows only, and exceeds the gate.
         assert (
@@ -727,7 +729,7 @@ class TestResumeExtendCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         # A bare confirmation cannot approve a backfill scope the original run
         # never estimated. The retry must echo the hash from this backfill's 402.
@@ -759,7 +761,7 @@ class TestResumeExtendCostGate:
 
     def test_extend_to_new_rows_deterministic_not_gated(self, project):
         sheet, cols = seed_sheet(project, ["seed a", "seed b"])
-        program = _FreeResumeRecipe()
+        program = _FreeResumeProgram()
         spec = {
             "action_kind": program.name,
             "sheet_id": sheet,
@@ -783,7 +785,7 @@ class TestResumeExtendCostGate:
                 model_call_policy=LOCAL_PURCHASE_POLICY, keys={"anthropic": "k"}
             ),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         # Deterministic (non-LLM) work costs $0 — a large backfill never prompts.
         assert runner.estimate(resume_spec, program=program)["cost"] == 0.0
@@ -802,7 +804,7 @@ class TestResumeExtendCostGate:
 
 
 @dataclass
-class _FreeResumeRecipe(Recipe):
+class _FreeResumeProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
     name: str = "test.free_resume"
@@ -833,7 +835,7 @@ class TestUndoIntegration:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         progress = asyncio.run(run_with_output_claim(runner, spec))
 
@@ -867,7 +869,7 @@ class TestCodexFinalReviewRegressions:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         confirmed_spec = confirm_remote_spec(runner, spec)
         with pytest.raises(ValueError, match="collides with a source column"):
@@ -906,7 +908,7 @@ class TestCodexFinalReviewRegressions:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         progress = asyncio.run(run_with_output_claim(runner, spec))
         run = project.db.execute(
@@ -936,7 +938,7 @@ class _SlowAdapter:
         )
 
 
-class _SlowCancellationRecipe(Recipe):
+class _SlowCancellationProgram(ActionProgram):
     """A bounded local row call used to exercise cancellation, not transport."""
 
     consumes_resolution = False
@@ -989,7 +991,7 @@ class TestCancel:
             router,
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         confirmed_spec = confirm_remote_spec(runner, spec)
 
@@ -1016,15 +1018,17 @@ class TestCancel:
         monkeypatch: pytest.MonkeyPatch,
     ):
         sheet, _ = seed_sheet(project, [f"text {i}" for i in range(20)])
-        recipe = _SlowCancellationRecipe()
-        original_get_recipe = validation.get_recipe
+        program = _SlowCancellationProgram()
+        original_get_action_program = validation.get_action_program
         monkeypatch.setattr(
             validation,
-            "get_recipe",
-            lambda name: recipe if name == recipe.name else original_get_recipe(name),
+            "get_action_program",
+            lambda name: (
+                program if name == program.name else original_get_action_program(name)
+            ),
         )
         spec = {
-            "action_kind": recipe.name,
+            "action_kind": program.name,
             "sheet_id": sheet,
             "input_columns": ["text"],
             "output_name": "relevance",
@@ -1040,7 +1044,7 @@ class TestCancel:
             router,
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         prepared, claim_token = _prepare_claimed_runner_run(
             runner,
@@ -1059,7 +1063,7 @@ class TestCancel:
                     claim_token=claim_token,
                 )
             )
-            await _wait_for_calls_or_task_exit(task, recipe, 3)
+            await _wait_for_calls_or_task_exit(task, program, 3)
             seen["prog"].cancel()
             return await asyncio.wait_for(task, timeout=2)
 
@@ -1067,7 +1071,7 @@ class TestCancel:
         assert progress.cancelled and progress.done
         # queued rows were dropped, not executed (and not billed)
         assert 0 < progress.completed < progress.total
-        assert recipe.calls < progress.total
+        assert program.calls < progress.total
         run = project.db.execute(
             "SELECT status, completed_rows FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
@@ -1085,15 +1089,17 @@ class TestCancel:
         from frisket.engine.store.runs import RunResultStore
 
         sheet, _ = seed_sheet(project, [f"text {i}" for i in range(32)])
-        recipe = _SlowCancellationRecipe()
-        original_get_recipe = validation.get_recipe
+        program = _SlowCancellationProgram()
+        original_get_action_program = validation.get_action_program
         monkeypatch.setattr(
             validation,
-            "get_recipe",
-            lambda name: recipe if name == recipe.name else original_get_recipe(name),
+            "get_action_program",
+            lambda name: (
+                program if name == program.name else original_get_action_program(name)
+            ),
         )
         spec = {
-            "action_kind": recipe.name,
+            "action_kind": program.name,
             "sheet_id": sheet,
             "input_columns": ["text"],
             "output_name": "relevance",
@@ -1111,7 +1117,7 @@ class TestCancel:
             should_cancel=run_store.cancellation_requested,
             defer_cancel_terminal_close=True,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         prepared, claim_token = _prepare_claimed_runner_run(
             runner,
@@ -1128,7 +1134,7 @@ class TestCancel:
                     claim_token=claim_token,
                 )
             )
-            await _wait_for_calls_or_task_exit(task, recipe, 26)
+            await _wait_for_calls_or_task_exit(task, program, 26)
             assert run_store.request_cancel(prepared.run_id)
             return await asyncio.wait_for(task, timeout=2)
 
@@ -1136,7 +1142,7 @@ class TestCancel:
         assert progress.cancel_requested is True
         assert progress.cancelled is True
         assert progress.done is True
-        assert recipe.calls == 26
+        assert program.calls == 26
         assert progress.completed >= 25
         assert progress.writer_attempt_id is not None
         assert progress.writer_attempt_claimed is True
@@ -1205,15 +1211,17 @@ class TestCancel:
         from frisket.engine.store.runs import RunResultStore
 
         sheet, _ = seed_sheet(project, ["first", "second"])
-        recipe = _SlowCancellationRecipe()
-        original_get_recipe = validation.get_recipe
+        program = _SlowCancellationProgram()
+        original_get_action_program = validation.get_action_program
         monkeypatch.setattr(
             validation,
-            "get_recipe",
-            lambda name: recipe if name == recipe.name else original_get_recipe(name),
+            "get_action_program",
+            lambda name: (
+                program if name == program.name else original_get_action_program(name)
+            ),
         )
         spec = {
-            "action_kind": recipe.name,
+            "action_kind": program.name,
             "sheet_id": sheet,
             "input_columns": ["text"],
             "output_name": "relevance",
@@ -1241,7 +1249,7 @@ class TestCancel:
             should_cancel=cancel_after_attempt_load,
             defer_cancel_terminal_close=True,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         prepared, claim_token = _prepare_claimed_runner_run(
             runner,
@@ -1259,7 +1267,7 @@ class TestCancel:
         )
 
         assert checks == 2
-        assert recipe.calls == 0
+        assert program.calls == 0
         assert progress.cancel_requested is True
         assert progress.cancelled is True
         assert progress.writer_attempt_id is not None
@@ -1300,7 +1308,7 @@ class TestCancel:
             router,
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         # Cancellation becomes observable after submission; no new work starts.
         runner.should_cancel = lambda run_id: adapter.calls >= 1
@@ -1346,7 +1354,7 @@ class TestCancel:
             project,
             router,
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         progress = asyncio.run(run_with_output_claim(runner, spec))
         run = project.db.execute(
@@ -1366,7 +1374,7 @@ ARRAY_ITEM_SCHEMA = {  # a top-level-array output schema, e.g. ops/entities.py
 
 
 @dataclass
-class _FakeArrayRecipe(Recipe):
+class _FakeArrayProgram(ActionProgram):
     """An llm=True recipe declaring a TOP-LEVEL ARRAY output schema — the
     shape structured.py wraps as {"items": [...]} for the wire (StructuredDict
     requires an object, PoC INV1d) and unwraps on return."""
@@ -1406,7 +1414,7 @@ class _ArrayToolUseAdapter:
 
 
 @dataclass
-class _FakeSchemalessRecipe(Recipe):
+class _FakeSchemalessProgram(ActionProgram):
     consumes_resolution = False  # required declaration (Recipe)
     cost_class = "free"  # required declaration (Recipe)
     name: str = "fake_schemaless"
@@ -1527,7 +1535,7 @@ def test_map_row_repairs_three_invalid_outputs_then_persists_fourth_success(
         router,
         concurrency=1,
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
 
     async def run():
@@ -1639,7 +1647,7 @@ def test_schemaless_map_row_persists_direct_response_fact(project):
         llm_row(
             router,
             AdaptiveThrottle(),
-            _FakeSchemalessRecipe(),
+            _FakeSchemalessProgram(),
             {"text": "hello"},
             {"model": "openai/gpt-5-mini"},
         )
@@ -1667,12 +1675,12 @@ class TestStructuredArrayUnwrapMapPath:
             cache_mode="off",
         )
         router._adapters["anthropic"] = _ArrayToolUseAdapter(items)  # noqa: SLF001
-        recipe = _FakeArrayRecipe()
+        program = _FakeArrayProgram()
         spec = {"model": "anthropic/claude-haiku-4-5"}
 
         data, meta = asyncio.run(
             llm_row(
-                router.for_execution(STANDALONE), AdaptiveThrottle(), recipe, {}, spec
+                router.for_execution(STANDALONE), AdaptiveThrottle(), program, {}, spec
             )
         )
 

@@ -26,7 +26,7 @@ from frisket.ai.llm.structured import (
     StructuredRequest,
     _content_to_pai,
 )
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 MAX_AGENT_TURNS = 5
@@ -156,7 +156,7 @@ class McpExtractor:
                             arguments,
                         )
                     )
-                except (asyncio.CancelledError, RecipeInvocationHalt):
+                except (asyncio.CancelledError, ActionProgramInvocationHalt):
                     raise
                 except Exception as exc:  # tool errors are agent observations
                     result = {
@@ -296,7 +296,7 @@ async def open_mcp_extractor(opened: Any, selected_server_ids: tuple[str, ...]):
         bindings = _tool_bindings(await _discover_tools(sessions))
         bindings = [item for item in bindings if item.server_id in selected_server_ids]
         if not bindings:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_artifact_unavailable",
                 "Selected MCP servers exposed no usable tools.",
             )

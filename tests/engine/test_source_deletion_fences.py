@@ -197,12 +197,12 @@ def test_prepared_action_binds_template_sources_and_refuses_deleted_source_befor
             BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request),
         )
         runner = _runner(project)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         prepared = runner.prepare_run(
             plan.spec_dict(), program=plan.program, confirmed=True
         )
         attempt = runner.authority.mint(
-            recipe=plan.program,
+            program=plan.program,
             spec=plan.spec_dict(),
             run_id=prepared.run_id,
             scope=tuple(rows),
@@ -343,7 +343,7 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
         )
         runner = _runner(project)
         runner.concurrency = 1
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         execute = plan.program.execute
         calls = []
 

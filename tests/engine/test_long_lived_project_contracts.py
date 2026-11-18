@@ -17,7 +17,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.engine.store.result_generations import GenerationSealedError
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 from runner_test_helpers import run_with_output_claim
 
@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 @dataclass
-class _EmptyScopeRecipe(Recipe):
+class _EmptyScopeProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
     name: str = "test.empty_scope"
@@ -335,7 +335,7 @@ def test_empty_run_scope_stays_empty_after_rows_are_added(tmp_path: Path) -> Non
 
 def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> None:
     project, sheet_id, text_col, _output_col, _row_ids = _seed_project(tmp_path)
-    program = _EmptyScopeRecipe()
+    program = _EmptyScopeProgram()
     spec = {
         "action_kind": program.name,
         "sheet_id": sheet_id,

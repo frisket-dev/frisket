@@ -40,11 +40,11 @@ def test_queued_agent_interruption_during_schema_repair_keeps_each_paid_fact_onc
     class Adapter:
         async def complete(self, request, client):
             calls.append(request)
-            from frisket.ops.base import RecipeInvocationHalt
+            from frisket.ops.base import ActionProgramInvocationHalt
 
             expected_paid = 1 if kind == "research" else 2
             if len(calls) > expected_paid:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "network_disabled", "Network disabled during repair"
                 )
             if interrupt == "stop" and len(calls) == expected_paid:

@@ -413,7 +413,7 @@ def _queue_v1_project_run_request(
             project,
             router,
             consent_coverage=consent_coverage,
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
             authority=(
                 build_attempt_authority(
                     project,
@@ -530,7 +530,7 @@ def _queue_v1_project_run_request(
                     project,
                     router,
                     consent_coverage=consent_coverage,
-                    allow_action_lifecycle_only_recipes=True,
+                    allow_action_lifecycle_only_programs=True,
                     authority=build_attempt_authority(
                         project,
                         composition=execution_composition,
@@ -549,10 +549,10 @@ def _queue_v1_project_run_request(
                         "the resumed output claim group no longer matches "
                         "the durable output plan"
                     )
-                from frisket.engine.runner.validation import recipe_for_spec
+                from frisket.engine.runner.validation import action_program_for_spec
 
                 attempt = runner.authority.mint(
-                    recipe=request.program or recipe_for_spec(runner_spec),
+                    program=request.program or action_program_for_spec(runner_spec),
                     spec=runner_spec,
                     run_id=progress.run_id,
                     scope=tuple(

@@ -10,7 +10,7 @@ from typing import Any
 from frisket.engine.runner.preparation import (
     PreparedRun,
     _created_generated_column_ids,
-    _validate_managed_recipe_identity,
+    _validate_managed_program_identity,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import (
@@ -19,7 +19,7 @@ from frisket.engine.store.result_generations import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 
 
 _COMPATIBILITY_SCHEMA_VERSION = "frisket.output_compatibility.v1"
@@ -257,7 +257,7 @@ def declare_bound_run_outputs(
     *,
     run_id: int,
     output_fields: list[dict[str, Any]],
-    program: Recipe | None = None,
+    program: ActionProgram | None = None,
     claim_token: str,
     defer_publication: bool = False,
 ) -> None:
@@ -274,9 +274,9 @@ def declare_bound_run_outputs(
     if not isinstance(spec, dict):
         raise ValueError(f"run {run_id} has invalid persisted params")
 
-    from frisket.engine.runner.validation import recipe_for_spec
+    from frisket.engine.runner.validation import action_program_for_spec
 
-    recipe = program if program is not None else recipe_for_spec(spec)
+    action_program = program if program is not None else action_program_for_spec(spec)
     rows = project.db.execute(
         "SELECT output_name,column_id FROM output_column_claims "
         "WHERE claim_token=? AND run_id=? AND status='active' "
@@ -293,10 +293,10 @@ def declare_bound_run_outputs(
         raise ValueError(
             f"run {run_id} bound claim does not match its frozen output descriptors"
         )
-    _validate_managed_recipe_identity(
+    _validate_managed_program_identity(
         run_id=int(run_id),
         run_row=run_row,
-        recipe=recipe,
+        program=action_program,
         action_kind=str(spec["action_kind"]),
     )
     created_ids = _created_generated_column_ids(project, int(run_row["op_id"]))
@@ -304,7 +304,7 @@ def declare_bound_run_outputs(
         project,
         run_store,
         PreparedRun(
-            recipe=recipe,
+            program=action_program,
             sheet_id=int(run_row["sheet_id"]),
             col_map={},
             row_ids=[],

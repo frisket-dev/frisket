@@ -150,9 +150,9 @@ def test_exactly_the_landed_lanes_route_among_phase_4_capabilities():
     """The execution seam and recipe registry agree on the routed lanes."""
     registry = _actual_programs()
     declared = {
-        name: recipe.execution_capability
-        for name, recipe in registry.items()
-        if recipe.execution_capability is not None
+        name: program.execution_capability
+        for name, program in registry.items()
+        if program.execution_capability is not None
     }
     assert declared == {
         "map.classify": CAPABILITY_CLASSIFY,
@@ -255,9 +255,9 @@ def test_the_epoch_invariant_will_notice_a_lane_that_flips_without_wiring_it():
 
     registry = _actual_programs()
     routing = {
-        recipe.execution_capability
-        for recipe in registry.values()
-        if recipe.consumes_resolution
+        program.execution_capability
+        for program in registry.values()
+        if program.consumes_resolution
     }
     assert set(RunResultStore._ROUTED_FACT_CAPABILITIES) == routing, (
         "the epoch invariant's ground truth and the set of routing recipes "

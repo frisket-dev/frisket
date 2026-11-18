@@ -363,8 +363,8 @@ def test_cache_replay_needs_no_key_and_records_zero_cost_cache_fact_once(
         "include_justification": True,
         "include_confidence": True,
     }
-    recipe = model_plan(spec).program
-    call = recipe.render({"story": "The city awarded a no-bid contract."}, spec)
+    program = model_plan(spec).program
+    call = program.render({"story": "The city awarded a no-bid contract."}, spec)
     request = LLMRequest(
         model=params["model"],
         messages=call.messages,
@@ -378,7 +378,7 @@ def test_cache_replay_needs_no_key_and_records_zero_cost_cache_fact_once(
     }
     cache = ResponseCache(project.path / "project.cache.db")
     cache.put(
-        request_key(request, recipe.version),
+        request_key(request, program.version),
         LLMResponse(
             content=json.dumps(reply),
             data=reply,
@@ -443,8 +443,8 @@ def test_wrong_cache_key_does_not_bypass_missing_key_preflight_or_mutate_state(
         "include_justification": True,
         "include_confidence": True,
     }
-    recipe = model_plan(mismatched_spec).program
-    rendered = recipe.render(
+    program = model_plan(mismatched_spec).program
+    rendered = program.render(
         {"story": "A deliberately different cached story."}, mismatched_spec
     )
     cache = ResponseCache(project.path / "project.cache.db")
@@ -456,7 +456,7 @@ def test_wrong_cache_key_does_not_bypass_missing_key_preflight_or_mutate_state(
                 schema=rendered.schema,
                 max_tokens=rendered.max_tokens,
             ),
-            recipe.version,
+            program.version,
         ),
         LLMResponse(
             content=json.dumps({"beat": "other"}),

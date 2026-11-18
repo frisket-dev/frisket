@@ -267,7 +267,7 @@ def test_returned_semantic_match_keeps_original_shared_corpus_on_recovery(
         "JOIN output_column_claims c ON c.run_id=runs.id WHERE c.status='active' LIMIT 1"
     ).fetchone()
     runner = _default_map_runner_factory(case.project, None)
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     progress = asyncio.run(
         runner.run(
             admitted["spec"],

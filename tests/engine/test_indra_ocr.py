@@ -208,7 +208,7 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
     import sys
     from contextlib import redirect_stdout
     from frisket.engine._workers import indra_ocr_artifacts
-    from frisket.ops.base import RecipeInvocationHalt
+    from frisket.ops.base import ActionProgramInvocationHalt
     from frisket.runtime import indra_ocr_install
 
     model_dir = tmp_path / "cache" / "snapshots" / MODEL_REVISION
@@ -287,7 +287,7 @@ def test_indra_fatal_failure_crosses_main_and_host_without_writable_result(
         "run_sandboxed_stdout_lines" if pdf_mode else "run_sandboxed",
         launch,
     )
-    with pytest.raises(RecipeInvocationHalt) as raised:
+    with pytest.raises(ActionProgramInvocationHalt) as raised:
         asyncio.run(
             ocr_engines_local.ocr_indra(
                 [] if pdf_mode else [tmp_path / "page.png"],

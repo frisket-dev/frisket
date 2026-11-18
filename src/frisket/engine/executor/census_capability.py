@@ -35,7 +35,7 @@ from frisket.execution.purchases import (
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.execution.targets import US_CENSUS_TARGET_ID
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.cost_source import free_public_api_estimate
 
 CENSUS_GEOLOOKUP_BATCH_URL = (
@@ -226,7 +226,7 @@ class AdmittedCensusDemographics:
 
     def bind_rows(self, row_ids: tuple[int, ...]) -> AdmittedCensusDemographics:
         if self._row_ids is not None:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Census rows are already bound"
             )
         self._row_ids = frozenset(row_ids)
@@ -255,11 +255,11 @@ class AdmittedCensusDemographics:
         include_moe: bool,
     ) -> Mapping[int, CensusRecord | RowError]:
         if self._row_ids is None or not set(points).issubset(self._row_ids):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Census lookup contains unadmitted rows"
             )
         if self._called:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Census supports one whole-scope lookup per invocation",
             )
@@ -297,7 +297,7 @@ class AdmittedCensusDemographics:
             != "census_demographics"
             or admission.route.target_snapshot.get("transport") != "census.acs5"
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Census lookup requires its admitted provider route",
             )
@@ -307,7 +307,7 @@ class AdmittedCensusDemographics:
             context=ctx.credential_use_context,
         )
         if credential is None:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Set CENSUS_API_KEY for Census data access"
             )
         cost_posture = admission.route.cost_posture
@@ -320,7 +320,7 @@ class AdmittedCensusDemographics:
                 effect="the US Census API call",
             )
         except CredentialUseRefusal as exc:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 f"{exc}; review the claims and re-consent to resume",
             ) from exc

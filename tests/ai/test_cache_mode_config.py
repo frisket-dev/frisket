@@ -277,8 +277,8 @@ class TestReplayStrictCacheMissIsDistinctFromSuccess:
         sheet, _ = _seed_sheet(project, texts)
         spec = _classify_spec(sheet)
         cache = ResponseCache(tmp_path / "c.db")
-        recipe = model_plan(spec).program
-        call = recipe.render({"text": "cached row"}, spec)
+        program = model_plan(spec).program
+        call = program.render({"text": "cached row"}, spec)
         from frisket.ai.llm import LLMRequest, LLMResponse, request_key
 
         req = LLMRequest(
@@ -288,7 +288,7 @@ class TestReplayStrictCacheMissIsDistinctFromSuccess:
             max_tokens=call.max_tokens,
         )
         cache.put(
-            request_key(req, recipe.version),
+            request_key(req, program.version),
             LLMResponse(
                 content=None,
                 data={"relevance": 5},

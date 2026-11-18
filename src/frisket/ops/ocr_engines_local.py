@@ -46,7 +46,7 @@ from frisket.engine.sandbox.shim import (
     run_sandboxed_stdout_lines,
 )
 from frisket.runtime.launch import PythonRuntime, worker_argv
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 LIGHT_ENGINE = "rapidocr"
 INDRA_OCR_ENGINE = "indra-ocr"
@@ -170,7 +170,7 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
 
     available, error = rapidocr_available()
     if not available:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_artifact_unavailable",
             error or _RAPIDOCR_ARTIFACT_DETAIL,
         )
@@ -181,7 +181,7 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
         # owns the stable valid-code list and rejects it before model loading.
         return None
     if requirements is None:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_artifact_unavailable",
             _RAPIDOCR_ARTIFACT_DETAIL,
         )
@@ -192,7 +192,7 @@ def _rapidocr_model_root_dir(language: str | None = None) -> str | None:
     _copy_bundled_rapidocr_aliases(package_root, filenames, shared_dir)
     if rapidocr_model_root_complete(shared_dir, filenames):
         return str(shared_dir)
-    raise RecipeInvocationHalt(
+    raise ActionProgramInvocationHalt(
         "local_artifact_unavailable",
         _RAPIDOCR_ARTIFACT_DETAIL,
     )
@@ -382,7 +382,9 @@ async def rapidocr_execution_scope(*, expected_rows, language, cancelled=None):
     try:
         lease = acquire_local_engine_lease(LIGHT_ENGINE)
     except LocalEngineLeaseBusy as exc:
-        raise RecipeInvocationHalt("local_engine_busy", _RAPIDOCR_BUSY_DETAIL) from exc
+        raise ActionProgramInvocationHalt(
+            "local_engine_busy", _RAPIDOCR_BUSY_DETAIL
+        ) from exc
     try:
         if cancelled is not None and cancelled():
             raise OcrCancelled("OCR cancelled")
@@ -402,7 +404,7 @@ async def rapidocr_execution_scope(*, expected_rows, language, cancelled=None):
         raise OcrCancelled("OCR cancelled") from exc
     except RapidOCRSessionFailure as exc:
         lease.release()
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed", _RAPIDOCR_SESSION_DETAIL
         ) from exc
     except BaseException:
@@ -434,7 +436,7 @@ async def _close_rapidocr_pool(
     if isinstance(close_error, RapidOCRSessionCancelled):
         raise OcrCancelled("OCR cancelled") from close_error
     if isinstance(close_error, RapidOCRSessionFailure):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             _RAPIDOCR_SESSION_DETAIL,
         ) from close_error
@@ -480,7 +482,7 @@ def indra_ocr_available() -> tuple[bool, str | None]:
 
 async def ocr_rapidocr(pool, pages, scratch, language=None):
     if pool is None:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed", "RapidOCR requires its invocation pool"
         )
     return await run_rapidocr_pool(pool, pages)
@@ -492,7 +494,7 @@ async def run_rapidocr_pool(pool: RapidOCRProcessPool, pages: list[Path]) -> lis
     except RapidOCRSessionCancelled as error:
         raise OcrCancelled("OCR cancelled") from error
     except RapidOCRSessionFailure as error:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             _RAPIDOCR_SESSION_DETAIL,
         ) from error
@@ -510,14 +512,14 @@ async def ocr_tesseract(
     deep in the worker."""
     available, err = tesseract_available()
     if not available:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_artifact_unavailable", err or "Tesseract is unavailable"
         )
     out = scratch / "ocr-result.json"
     try:
         argv = worker_argv("tesseract")
     except ValueError as exc:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed", "The local OCR worker runtime is unavailable"
         ) from exc
     try:
@@ -540,7 +542,7 @@ async def ocr_tesseract(
             should_cancel=cancelled,
         )
     except (OSError, fence.SandboxEnforcementUnavailable) as exc:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             "The local OCR worker could not start; repair the local runtime before resuming.",
         ) from exc
@@ -551,13 +553,13 @@ async def ocr_tesseract(
     except (TypeError, ValueError):
         signal = None
     if isinstance(signal, dict) and signal.get("error") == "environment_failed":
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             "The local OCR environment failed; repair local storage or runtime before resuming.",
         )
     if not result.ok or not out.exists():
         if fence.refusal_reason(result.stderr) is not None:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed",
                 "The local OCR sandbox is unavailable; repair the local runtime before resuming.",
             )
@@ -586,7 +588,7 @@ async def ocr_indra(
     model_dir = cached_indra_ocr_path()
     available, error = indra_ocr_available()
     if not available or model_dir is None:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_artifact_unavailable",
             error or "the local Indra OCR engine is unavailable",
         )
@@ -657,7 +659,7 @@ async def ocr_indra(
             **({"on_stdout_line": progress_line} if pdf is not None else {}),
         )
     except (OSError, ValueError, fence.SandboxEnforcementUnavailable) as exc:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             "The local OCR worker could not start; repair the local runtime before resuming.",
         ) from exc
@@ -666,7 +668,7 @@ async def ocr_indra(
     if pdf is None:
         progress_line(result.stdout)
     if environment_failed:
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "local_session_failed",
             "The local OCR environment failed; repair local storage or runtime before resuming.",
         )

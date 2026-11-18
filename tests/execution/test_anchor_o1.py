@@ -216,7 +216,7 @@ def test_anchor_o1_atomic_prepare_reuses_the_resolution_provider(
     runner = MapRunner(
         project,
         router,
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=build_attempt_authority(
             project,
             composition=composition,

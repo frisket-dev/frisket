@@ -1339,7 +1339,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
     spec = plan.spec_dict()
     bound = bound_typed_program_request_from_runner_spec(spec)
     assert bound is not None
-    recipe = _typed_map_rows_plan(bound).program
+    program = _typed_map_rows_plan(bound).program
     composition = compose_cloud_targets(
         _base(),
         user_id=7,
@@ -1351,14 +1351,14 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
         resolved = resolve_for_action(
             project,
             spec,
-            recipe,
+            program,
             composition=composition,
             scope_row_ids=[row_id],
         )
         own_key = resolve_for_action(
             project,
             spec,
-            recipe,
+            program,
             composition=compose_cloud_targets(
                 _base_with_openai_route(),
                 user_id=7,
@@ -1371,7 +1371,7 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
         blocked_cloud = resolve_for_action(
             project,
             spec,
-            recipe,
+            program,
             composition=compose_cloud_targets(
                 _base_with_openai_route(),
                 user_id=7,
@@ -1492,7 +1492,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
     spec = plan.spec_dict()
     bound = bound_typed_program_request_from_runner_spec(spec)
     assert bound is not None
-    recipe = _typed_map_rows_plan(bound).program
+    program = _typed_map_rows_plan(bound).program
     transport = Transport()
     composition = compose_cloud_targets(
         _base(),
@@ -1539,12 +1539,12 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         concurrency=1,
         authority=AttemptAuthority(project, composition=composition),
         on_progress=bind_claim,
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         execution_composition=composition,
     )
     try:
         with pytest.raises(ClaimsGate) as confirmation:
-            asyncio.run(runner.run(spec, program=recipe, claim_token=claim_token))
+            asyncio.run(runner.run(spec, program=program, claim_token=claim_token))
         confirmed = {
             **spec,
             "consented_promise_set_hash": confirmation.value.promise_set_hash,
@@ -1552,7 +1552,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         progress = asyncio.run(
             runner.run(
                 confirmed,
-                program=recipe,
+                program=program,
                 confirmed=True,
                 claim_token=claim_token,
             )

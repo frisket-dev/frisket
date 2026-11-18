@@ -178,9 +178,9 @@ class TestMapRunnerCanonicalWriter:
             calls.append(name)
             raise AssertionError("recipe lookup must follow canonical admission")
 
-        monkeypatch.setattr(validation, "get_recipe", unexpected_lookup)
+        monkeypatch.setattr(validation, "get_action_program", unexpected_lookup)
         with pytest.raises(ValueError):
-            validation.recipe_for_spec(invalid_spec)
+            validation.action_program_for_spec(invalid_spec)
         assert calls == []
 
     def test_spec_carrying_action_kind_resolves_and_stamps_it(
@@ -244,7 +244,7 @@ class TestSdkDeclContract:
             project.close()
 
     def test_get_recipe_refuses_typed_action_kinds(self) -> None:
-        from frisket.ops.builtin import get_recipe
+        from frisket.ops.builtin import get_action_program
 
         # Typed actions execute through an explicit MapRunner program and are
         # deliberately absent from the legacy recipe registry.
@@ -259,20 +259,20 @@ class TestSdkDeclContract:
             "map.mcp_extract",
         ):
             with pytest.raises(ValueError, match="unknown action kind"):
-                get_recipe(kind)
+                get_action_program(kind)
         with pytest.raises(ValueError, match="unknown action kind"):
-            get_recipe("media.ytdlp_download")
+            get_action_program("media.ytdlp_download")
         with pytest.raises(ValueError, match="unknown action kind"):
-            get_recipe("map.template")
+            get_action_program("map.template")
         with pytest.raises(ValueError, match="unknown action kind"):
-            get_recipe("map.clean_dates")
+            get_action_program("map.clean_dates")
         with pytest.raises(ValueError, match="unknown action kind"):
-            get_recipe("map.python")
+            get_action_program("map.python")
         # Short implementation names are private details, not lookup keys.
         with pytest.raises(ValueError, match="not canonical"):
-            get_recipe("extract")
+            get_action_program("extract")
         with pytest.raises(ValueError, match="not canonical"):
-            get_recipe("download_media")
+            get_action_program("download_media")
 
 
 # ---------------------------------------------------------------------------
@@ -282,9 +282,9 @@ class TestSdkDeclContract:
 # ids. A run stamped action_kind="python" then had run_row_action_kind return
 # the RAW "python", so team enforcement authorized "python" while a canonical
 # "map.python" deny-list never matched -> the hosted deny-callback path
-# executed get_recipe("python")=PythonRecipe on stored code: a code-execution
+# executed get_action_program("python")=PythonRecipe on stored code: a code-execution
 # bypass. Fixes: (1) run_row_action_kind canonicalizes the stamped column too;
-# (2) plugin activation rejects any kind get_recipe() resolves.
+# (2) plugin activation rejects any kind get_action_program() resolves.
 # ---------------------------------------------------------------------------
 
 
@@ -293,10 +293,10 @@ class TestCanonicalLookupBoundary:
         "kind", ["agent", "regex_extract", "classify", "plugin_owned", "python"]
     )
     def test_bare_implementation_ids_are_refused(self, kind: str) -> None:
-        from frisket.ops.builtin import get_recipe
+        from frisket.ops.builtin import get_action_program
 
         with pytest.raises(ValueError, match="not canonical"):
-            get_recipe(kind)
+            get_action_program(kind)
 
     @pytest.mark.parametrize(
         "kind", ["agent", "regex_extract", "classify", "plugin_owned"]

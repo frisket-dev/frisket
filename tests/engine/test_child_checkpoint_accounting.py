@@ -296,7 +296,7 @@ def test_equal_decoded_input_with_new_unavailability_cannot_adopt_reserved_effec
             project_storage_identity=project.storage_identity,
             run_id=1,
             row_id=1,
-            recipe=SimpleNamespace(version="1"),
+            program=SimpleNamespace(version="1"),
             spec={"action_kind": "map.extract"},
             out_cols={"answer": 2},
             cloud_payer=_payer().to_snapshot(),

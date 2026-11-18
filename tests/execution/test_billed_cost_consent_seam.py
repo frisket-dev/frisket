@@ -765,7 +765,7 @@ def test_an_installed_policy_is_what_every_lane_actually_rates_through(
 
 #: The modules that MINT a money confirmation, RENDER one, or HANDLE one for
 #: admission. Asserted below to equal the set of files that either call
-#: ``action_confirmation(`` / ``recipe_confirmation(`` — the seam's own two
+#: ``action_confirmation(`` / ``action_program_confirmation(`` — the seam's own two
 #: money mints — or handle a gate's ``estimate_details`` payload. Rendering a
 #: gate for a client and adjudicating a caught gate are both handling; every
 #: side is derived, so this is not a list somebody has to remember to extend.

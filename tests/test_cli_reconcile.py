@@ -295,7 +295,7 @@ def _runner(project: Project, router: ModelRouter) -> MapRunner:
         project,
         router,
         concurrency=1,
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
 

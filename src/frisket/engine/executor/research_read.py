@@ -24,7 +24,7 @@ from frisket.engine.executor.agent_model_calls import (
     require_agent_attempt,
 )
 from frisket.engine.executor.visual_cuts_read import _settle
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.extraction import extract_response_schema, render_extract_messages
 from frisket.ops.integrations.hosted_error import HostedEngineError
 
@@ -45,11 +45,11 @@ class AdmittedResearcher:
         if self._started or self._closed:
             raise RuntimeError("Research invocation is already started or closed")
         if self._ctx.extras.get("preview"):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "preview_unsupported", "Agent Research requires an admitted run"
             )
         if self._ctx.project.effective_network_policy() == "off":
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "network_disabled", "Agent Research requires network access"
             )
         require_agent_attempt(self._ctx)
@@ -266,7 +266,8 @@ class _BoundResearcher:
             # the same returned purchases from structured repair history.
             router.retain_unrecorded_error_calls(exc)
             if not isinstance(exc, Exception) or isinstance(
-                exc, (LLMError, RecipeInvocationHalt, RowError, HostedEngineError)
+                exc,
+                (LLMError, ActionProgramInvocationHalt, RowError, HostedEngineError),
             ):
                 raise
             failure = RowError("research_failed", str(exc)[:500] or "Research failed")

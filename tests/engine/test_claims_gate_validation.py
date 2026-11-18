@@ -236,7 +236,7 @@ def test_resume_never_resolves(audio_project, monkeypatch):
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     prepared = runner._prepare(
@@ -311,7 +311,7 @@ def test_local_free_run_never_gates_and_persists_o1(audio_project):
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     prepared = runner._prepare(
@@ -358,7 +358,7 @@ def test_confirmed_with_matching_echo_passes_and_records_consent(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
         consent_coverage=ConsentCoverage(instance_principal(project), Decimal("0")),
         pricing_policy=_OneMicroPolicy(),
@@ -417,7 +417,7 @@ def test_resolution_backfill_confirmation_requires_current_hash(
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
         authority=UnroutedOnlyAuthority(project),
     )
     # The original run is machine-local and consent-free. Its backfill changes

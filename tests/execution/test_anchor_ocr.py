@@ -1373,7 +1373,7 @@ def test_anchor_ocr_consent_binds_at_the_worker(tmp_path, monkeypatch):
             project,
             router,
             authority=open_attempt_authority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         prepared = runner.prepare_run(
             plan.spec_dict(), confirmed=True, program=plan.program
@@ -1388,7 +1388,7 @@ def test_anchor_ocr_consent_binds_at_the_worker(tmp_path, monkeypatch):
         project.db.commit()
         with pytest.raises(ExecutionRouteVerificationFailed) as refusal:
             open_attempt_authority(project).mint(
-                recipe=plan.program,
+                program=plan.program,
                 spec=plan.spec_dict(),
                 run_id=run_id,
                 scope=(1,),

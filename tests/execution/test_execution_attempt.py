@@ -252,7 +252,7 @@ def _mint(project, run_id, *, scope=(7, 11)):
         offerings=(offering,),
     )
     return AttemptAuthority(project, composition=composition).mint(
-        recipe=_transcription_plan().program, spec=SPEC, run_id=run_id, scope=scope
+        program=_transcription_plan().program, spec=SPEC, run_id=run_id, scope=scope
     )
 
 

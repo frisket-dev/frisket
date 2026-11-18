@@ -23,7 +23,7 @@ from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 from frisket.server.services.sheet_grid import _sheet_data_payload
 from runner_test_helpers import run_with_output_claim
 from tests.action_test_helpers import run_typed_map_request, typed_map_request
@@ -429,7 +429,7 @@ def test_regex_backfill_reconstructs_action_from_requested_cell_head(
 
 
 @dataclass
-class _MixedKindRecipe(Recipe):
+class _MixedKindProgram(ActionProgram):
     """Small deterministic fixture for the shared result publisher.
 
     It is not a product action and therefore does not introduce another
@@ -509,22 +509,24 @@ class _MixedKindRecipe(Recipe):
         }
 
 
-def _install_mixed_kind_recipe(
+def _install_mixed_kind_program(
     monkeypatch: pytest.MonkeyPatch,
-) -> _MixedKindRecipe:
-    recipe = _MixedKindRecipe()
-    original_get_recipe = validation_module.get_recipe
+) -> _MixedKindProgram:
+    program = _MixedKindProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
-        lambda name: recipe if name == recipe.name else original_get_recipe(name),
+        "get_action_program",
+        lambda name: (
+            program if name == program.name else original_get_action_program(name)
+        ),
     )
-    return recipe
+    return program
 
 
 def _run_fixture(
     project: Project,
-    recipe: _MixedKindRecipe,
+    program: _MixedKindProgram,
     *,
     sheet_id: int,
     phase: str,
@@ -534,7 +536,7 @@ def _run_fixture(
     error_row_id: int | None = None,
 ) -> Any:
     spec: dict[str, Any] = {
-        "action_kind": recipe.name,
+        "action_kind": program.name,
         "sheet_id": sheet_id,
         "input_columns": ["seed"],
         "phase": phase,
@@ -611,7 +613,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     restores the first refs, values, evidence, and blob after GC.
     """
 
-    recipe = _install_mixed_kind_recipe(monkeypatch)
+    program = _install_mixed_kind_program(monkeypatch)
     project = make_project("mixed-origin-vertical")
     sheet_id = project.add_sheet("Cases")
     seed_column = project.add_column(sheet_id, "seed", type="integer")
@@ -646,7 +648,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
 
     first = _run_fixture(
         project,
-        recipe,
+        program,
         sheet_id=sheet_id,
         phase="first",
         blob_hash=first_blob,
@@ -735,7 +737,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     )
     second = _run_fixture(
         project,
-        recipe,
+        program,
         sheet_id=sheet_id,
         phase="second",
         blob_hash=second_blob,

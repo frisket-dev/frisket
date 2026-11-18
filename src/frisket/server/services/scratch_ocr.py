@@ -52,7 +52,7 @@ def paid_ocr_scratch_plan(
     from frisket.execution.resolver import Refusal, ResolvedExecution
     from frisket.server.services.scratch_action_preview import (
         ScratchActionPreviewPlan,
-        ScratchActionRecipe,
+        ScratchActionProgram,
         scratch_estimate,
     )
 
@@ -142,11 +142,11 @@ def paid_ocr_scratch_plan(
         "engine": params.engine.root,
         **normalized_options,
     }
-    recipe = ScratchActionRecipe("media.ocr", "ocr")
+    program = ScratchActionProgram("media.ocr", "ocr")
     resolved = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=composition,
         bounded_scratch_input=BoundedScratchInput(len(pages), work_scope),
     )
@@ -167,9 +167,11 @@ def paid_ocr_scratch_plan(
         from frisket.execution.runtime_binding import bind_fact_to_route
 
         if context.cancelled:
-            from frisket.ops.base import RecipeInvocationHalt
+            from frisket.ops.base import ActionProgramInvocationHalt
 
-            raise RecipeInvocationHalt("local_session_failed", "Preview was cancelled.")
+            raise ActionProgramInvocationHalt(
+                "local_session_failed", "Preview was cancelled."
+            )
         with tempfile.TemporaryDirectory(prefix="frisket-ocr-paid-scratch-") as tmp:
             scratch = Path(tmp)
             if media_path is None:
@@ -182,14 +184,14 @@ def paid_ocr_scratch_plan(
                 "filename": filename or source.name,
                 "mime": source_mime,
             }
-            recipe_impl = OcrEngines(cancelled=lambda: context.cancelled)
+            engines = OcrEngines(cancelled=lambda: context.cancelled)
             async with AsyncExitStack() as stack:
                 if (
                     canonical_engine == LIGHT_ENGINE
                     and resolved.resolution.support.transport
                     != "frisket.cloud.media.v1"
                 ):
-                    recipe_impl.pool = await stack.enter_async_context(
+                    engines.pool = await stack.enter_async_context(
                         rapidocr_execution_scope(
                             expected_rows=1,
                             language=normalized_options.get("language"),
@@ -235,7 +237,7 @@ def paid_ocr_scratch_plan(
                 started = time.perf_counter()
                 with context.action_context_scope() as ctx:
                     try:
-                        output_pages = await recipe_impl.run_engine_on_pages(
+                        output_pages = await engines.run_engine_on_pages(
                             canonical_engine,
                             selected,
                             ctx,
@@ -252,7 +254,7 @@ def paid_ocr_scratch_plan(
                     finally:
                         if usage.get("model_calls") or usage["calls"] or returned:
                             calls = usage.get("model_calls") or [
-                                recipe_impl._model_call_for(
+                                engines._model_call_for(
                                     canonical_engine,
                                     source,
                                     output_pages,
@@ -421,7 +423,7 @@ def paid_ocr_scratch_plan(
     return (
         ScratchActionPreviewPlan(
             action_kind="media.ocr",
-            recipe=recipe,
+            program=program,
             spec=spec,
             resolved_execution=resolved,
             estimate=estimate,

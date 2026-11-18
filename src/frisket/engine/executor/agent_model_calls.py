@@ -10,13 +10,13 @@ from frisket.ai.models.accounting import merge_accounting_meta
 from frisket.ai.llm.types import wire_responses
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import attempt_in_scope
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 def require_agent_attempt(ctx):
     attempt = attempt_in_scope(ctx.extras)
     if attempt is None or attempt.run_id != ctx.extras.get("run_id"):
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "consent_missing", "A row agent requires its admitted execution attempt"
         )
     return attempt

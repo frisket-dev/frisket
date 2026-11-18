@@ -673,7 +673,7 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
     """A non-LLM recipe can still spend through a project provider key.
 
     The launch cap is a property of the credential that will be charged, not
-    of ``recipe.is_llm``.  Once that key is exhausted, a confirmed remote ASR
+    of ``program.is_llm``.  Once that key is exhausted, a confirmed remote ASR
     request must fail before the HTTP adapter is called.
     """
     import httpx

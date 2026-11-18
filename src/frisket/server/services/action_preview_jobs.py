@@ -7,7 +7,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from frisket.ops.base import RECIPE_INVOCATION_HALT_CODES, RecipeInvocationHalt
+from frisket.ops.base import (
+    ACTION_PROGRAM_INVOCATION_HALT_CODES,
+    ActionProgramInvocationHalt,
+)
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.redaction import safe_error
 from frisket.contracts.action import Receipt
@@ -56,8 +59,8 @@ class PreviewCancelEvent(threading.Event):
 # Recipe-invocation failures are an internal exception channel. Only this
 # parent-owned vocabulary may cross the preview HTTP boundary; in particular,
 # a child protocol's fatal code must never become a public error code merely
-# because it was carried by RecipeInvocationHalt.
-_PUBLIC_INVOCATION_HALT_CODES = RECIPE_INVOCATION_HALT_CODES
+# because it was carried by ActionProgramInvocationHalt.
+_PUBLIC_INVOCATION_HALT_CODES = ACTION_PROGRAM_INVOCATION_HALT_CODES
 
 
 @dataclass
@@ -201,7 +204,7 @@ class ActionPreviewJobRegistry:
 
         try:
             result = run(progress_cb, job.cancel_event)
-        except RecipeInvocationHalt as exc:
+        except ActionProgramInvocationHalt as exc:
             with self._lock:
                 # Decide cancellation at the terminal-state write, not before
                 # acquiring the lock. A replacement may set the event in the
@@ -407,7 +410,7 @@ def _close_result(result: Any, *, preview_id: str) -> None:
         )
 
 
-def _halt_error_payload(exc: RecipeInvocationHalt) -> dict[str, str]:
+def _halt_error_payload(exc: ActionProgramInvocationHalt) -> dict[str, str]:
     if exc.code not in _PUBLIC_INVOCATION_HALT_CODES:
         safe = safe_error(
             "preview_failed",

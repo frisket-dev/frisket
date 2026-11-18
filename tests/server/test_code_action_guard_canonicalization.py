@@ -101,11 +101,11 @@ class TestGatedCapabilityPredicate:
         # registry entry carries it, so a guard that passes it can still
         # never run code.
         from frisket.authoring.action_metadata import gated_capability_phrase
-        from frisket.ops.builtin import get_recipe
+        from frisket.ops.builtin import get_action_program
 
         assert gated_capability_phrase("python") is None
         with pytest.raises(ValueError, match="not canonical"):
-            get_recipe("python")
+            get_action_program("python")
 
     def test_every_canonical_code_id_is_denied(self):
         from frisket.authoring.action_metadata import (

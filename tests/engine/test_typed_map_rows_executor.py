@@ -37,7 +37,7 @@ from frisket.engine.runner import MapRunner, validation
 from frisket.engine.runner.row_execution import AdaptiveThrottle, execute_row
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import ActionContext, Recipe
+from frisket.ops.base import ActionContext, ActionProgram
 
 
 class RenderParams(ActionParams):
@@ -176,11 +176,11 @@ def _runner(project: Project) -> MapRunner:
     )
 
 
-def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> Recipe:
+def _forbid_registry_lookup(*_args: Any, **_kwargs: Any) -> ActionProgram:
     raise AssertionError("typed map_rows programs must not use the recipe registry")
 
 
-class _LegacyControlRecipe(Recipe):
+class _LegacyControlProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "free"
     llm = False
@@ -211,7 +211,7 @@ def test_prepared_publication_seam_leaves_legacy_control_behavior_unchanged(
                 model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
             ),
             AdaptiveThrottle(),
-            _LegacyControlRecipe(llm=False),
+            _LegacyControlProgram(llm=False),
             {},
             {"action_kind": "map.legacy_test"},
             ActionContext(
@@ -340,7 +340,7 @@ def test_program_previews_sync_handler_without_registry_or_writes(
         store, BoundTypedActionRequest.bind(REGISTRY.get(request.action_id), request)
     )
     before = [column["name"] for column in store.columns(sheet_id)]
-    monkeypatch.setattr(validation, "recipe_for_spec", _forbid_registry_lookup)
+    monkeypatch.setattr(validation, "action_program_for_spec", _forbid_registry_lookup)
 
     preview = asyncio.run(
         _runner(store).preview(plan.spec_dict(), program=plan.program)

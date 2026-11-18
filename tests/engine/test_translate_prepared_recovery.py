@@ -26,14 +26,14 @@ def test_prepared_translate_retry_recovery_and_backfill_keep_typed_authority(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
-    legacy_lookup = builtin.get_recipe
+    legacy_lookup = builtin.get_action_program
 
-    def reject_translation_recipe(kind):
+    def reject_translation_program(kind):
         assert kind != "map.translate", "typed recovery must not look up a recipe"
         return legacy_lookup(kind)
 
-    monkeypatch.setattr(builtin, "get_recipe", reject_translation_recipe)
-    monkeypatch.setattr(validation, "get_recipe", reject_translation_recipe)
+    monkeypatch.setattr(builtin, "get_action_program", reject_translation_program)
+    monkeypatch.setattr(validation, "get_action_program", reject_translation_program)
     requests = []
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,

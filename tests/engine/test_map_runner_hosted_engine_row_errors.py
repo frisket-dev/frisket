@@ -17,7 +17,7 @@ import pytest
 
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
@@ -25,7 +25,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
 
 
-class _FakeHostedRecipe(Recipe):
+class _FakeHostedProgram(ActionProgram):
     """Non-LLM recipe whose per-row behavior is keyed on the source text:
     ``"empty"`` raises the hosted empty_output error, ``"quota"`` raises a
     transient hosted error, anything else succeeds. ``heal=True`` makes every
@@ -59,16 +59,16 @@ class _FakeHostedRecipe(Recipe):
         return {"out": f"t:{text}"}
 
 
-def _install(monkeypatch: pytest.MonkeyPatch) -> _FakeHostedRecipe:
+def _install(monkeypatch: pytest.MonkeyPatch) -> _FakeHostedProgram:
     import frisket.engine.runner.validation as validation_module
 
-    recipe = _FakeHostedRecipe()
-    recipe.source_columns = lambda spec: ["text"]  # type: ignore[method-assign]
-    recipe.output_fields = lambda spec: [  # type: ignore[method-assign]
+    program = _FakeHostedProgram()
+    program.source_columns = lambda spec: ["text"]  # type: ignore[method-assign]
+    program.output_fields = lambda spec: [  # type: ignore[method-assign]
         {"name": "out", "column_type": "text"}
     ]
-    monkeypatch.setattr(validation_module, "get_recipe", lambda name: recipe)
-    return recipe
+    monkeypatch.setattr(validation_module, "get_action_program", lambda name: program)
+    return program
 
 
 def _seed(project: Project, texts: list[str]) -> tuple[int, list[int]]:
@@ -148,15 +148,15 @@ def test_empty_output_fails_row_terminally_and_other_codes_stay_model_error(
 def test_fresh_automatic_scope_retries_model_error_but_never_empty_output(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _install(monkeypatch)
+    program = _install(monkeypatch)
     sheet, row_ids = _seed(project, ["fine", "empty", "quota"])
     first = asyncio.run(run_with_output_claim(_runner(project), _spec(sheet)))
     ok_row, empty_row, quota_row = row_ids
 
     # Automatic recovery selects only the retryable head, then runs that scope
     # as a fresh generation.
-    recipe.heal = True
-    recipe.executed.clear()
+    program.heal = True
+    program.executed.clear()
     retry_spec = {**_spec(sheet), "row_ids": [quota_row], "overwrite": True}
     retry = asyncio.run(
         run_with_output_claim(
@@ -165,7 +165,7 @@ def test_fresh_automatic_scope_retries_model_error_but_never_empty_output(
         )
     )
 
-    assert recipe.executed == ["quota"]
+    assert program.executed == ["quota"]
     assert _results(project, first.run_id)[quota_row]["outcome"] == "model_error"
     heads = ResultGenerationStore(project).read_cell_heads(
         next(c["id"] for c in project.columns(sheet) if c["name"] == "out"), row_ids
@@ -180,7 +180,7 @@ def test_fresh_automatic_scope_retries_model_error_but_never_empty_output(
 def test_failed_row_states_scope_deliberate_fresh_retry_without_repeating_success(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _install(monkeypatch)
+    program = _install(monkeypatch)
     sheet, row_ids = _seed(project, ["fine", "empty", "quota"])
     runner = _runner(project)
     first = asyncio.run(run_with_output_claim(runner, _spec(sheet)))
@@ -192,8 +192,8 @@ def test_failed_row_states_scope_deliberate_fresh_retry_without_repeating_succes
     retry_row_ids = [row_id for row_id in row_ids if failure_states.get(row_id, False)]
     assert retry_row_ids == [empty_row, quota_row]
 
-    recipe.heal = True
-    recipe.executed.clear()
+    program.heal = True
+    program.executed.clear()
     retry = asyncio.run(
         run_with_output_claim(
             _runner(project),
@@ -201,7 +201,7 @@ def test_failed_row_states_scope_deliberate_fresh_retry_without_repeating_succes
         )
     )
 
-    assert recipe.executed == ["empty", "quota"]
+    assert program.executed == ["empty", "quota"]
     heads = ResultGenerationStore(project).read_cell_heads(
         next(c["id"] for c in project.columns(sheet) if c["name"] == "out"), row_ids
     )
@@ -213,15 +213,15 @@ def test_failed_row_states_scope_deliberate_fresh_retry_without_repeating_succes
 def test_deliberate_fresh_retry_reruns_exactly_the_named_rows(
     project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _install(monkeypatch)
+    program = _install(monkeypatch)
     sheet, row_ids = _seed(project, ["fine", "empty", "quota"])
     first = asyncio.run(run_with_output_claim(_runner(project), _spec(sheet)))
     ok_row, empty_row, quota_row = row_ids
     assert _results(project, first.run_id)[empty_row]["outcome"] == "empty_output"
 
     # A deliberate retry creates a fresh generation for ONLY the named row.
-    recipe.heal = True
-    recipe.executed.clear()
+    program.heal = True
+    program.executed.clear()
     retry_spec = _spec(sheet)
     retry_spec["row_ids"] = [empty_row]
     retry_spec["overwrite"] = True
@@ -232,7 +232,7 @@ def test_deliberate_fresh_retry_reruns_exactly_the_named_rows(
         )
     )
 
-    assert recipe.executed == ["empty"]
+    assert program.executed == ["empty"]
     assert _results(project, first.run_id)[empty_row]["outcome"] == "empty_output"
     rows = _results(project, retry.run_id)
     assert rows[empty_row]["outcome"] == "ok"
@@ -252,12 +252,12 @@ def test_deliberate_retry_that_fails_again_stays_an_honest_terminal_failure(
     # "who is to say retry will fix it": a deliberate retry that comes back
     # empty AGAIN re-records the terminal failure — never a silent success,
     # and the failure count does not inflate across attempts.
-    recipe = _install(monkeypatch)
+    program = _install(monkeypatch)
     sheet, row_ids = _seed(project, ["fine", "empty"])
     first = asyncio.run(run_with_output_claim(_runner(project), _spec(sheet)))
     _ok_row, empty_row = row_ids
 
-    recipe.executed.clear()
+    program.executed.clear()
     retry_spec = _spec(sheet)
     retry_spec["row_ids"] = [empty_row]
     retry_spec["overwrite"] = True
@@ -268,7 +268,7 @@ def test_deliberate_retry_that_fails_again_stays_an_honest_terminal_failure(
         )
     )
 
-    assert recipe.executed == ["empty"]
+    assert program.executed == ["empty"]
     assert _results(project, first.run_id)[empty_row]["outcome"] == "empty_output"
     rows = _results(project, retry.run_id)
     assert rows[empty_row]["outcome"] == "empty_output"

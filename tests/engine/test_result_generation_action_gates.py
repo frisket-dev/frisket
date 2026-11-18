@@ -290,7 +290,7 @@ def test_runner_rechecks_document_text_role_before_adopting_generation_free_targ
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             authority=UnroutedOnlyAuthority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         before = _mutation_snapshot(project)
         with pytest.raises(

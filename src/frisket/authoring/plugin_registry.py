@@ -1,6 +1,6 @@
 """Narrow plugin registry seams for recipes, column types, importers, and jobs.
 
-Existing runtime owners still do the real work: recipes are ``Recipe`` objects,
+Existing runtime owners still do the real work: recipes are ``ActionProgram`` objects,
 column types are registered in ``frisket.column_types``, and job handlers
 install into the queue worker's ``HandlerRegistry``.
 """
@@ -22,11 +22,8 @@ from frisket.engine.jobs import (
     JobHandlerContext,
 )
 from frisket.engine.jobs.worker import ECHO_KIND
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 
-# Sentinel for "the class never declared it" — distinct from a declared
-# False, which is the overwhelmingly common (and correct) answer.
-_UNDECLARED = object()
 PluginJobHandler = Callable[[dict], object]
 
 
@@ -51,18 +48,18 @@ class ImporterSpec:
 
 
 @dataclass(frozen=True)
-class RecipeSpec:
+class ActionProgramSpec:
     action_kind: str
-    recipe: Recipe
+    program: ActionProgram
     plugin: str = "core"
 
     def to_public(self) -> dict[str, Any]:
         return {
             "name": self.action_kind,
-            "version": self.recipe.version,
-            "description": self.recipe.description,
-            "llm": self.recipe.llm,
-            "params": self.recipe.params(),
+            "version": self.program.version,
+            "description": self.program.description,
+            "llm": self.program.llm,
+            "params": self.program.params(),
             "plugin": self.plugin,
         }
 
@@ -112,7 +109,7 @@ class PluginRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._recipes: dict[str, RecipeSpec] = {}
+        self._action_programs: dict[str, ActionProgramSpec] = {}
         self._importers: dict[str, ImporterSpec] = {}
         self._job_handlers: dict[str, JobHandlerSpec] = {}
         self._plugin_manifests: dict[str, LoadedPluginManifest] = {}
@@ -166,76 +163,16 @@ class PluginRegistry:
                 for plugin_id in sorted(self._plugin_manifests)
             ]
 
-    def register_recipe(
-        self,
-        recipe: Recipe,
-        *,
-        action_kind: str,
-        plugin: str = "external",
-        replace: bool = False,
-    ) -> Recipe:
-        if action_kind != action_kind.strip() or "." not in action_kind:
-            raise ValueError("recipe action_kind must be canonical")
-        if plugin != "core":
-            from frisket.actions.registry import ACTION_REGISTRY
-
-            if action_kind in ACTION_REGISTRY.action_ids:
-                raise ValueError(
-                    f"plugin action kind collides with a built-in: {action_kind}"
-                )
-        if not recipe.name:
-            raise ValueError("recipe name must be non-empty")
-        # Close the declaration at the REGISTRATION boundary (E-3's other
-        # half). ``Recipe.consumes_resolution`` is an undefaulted ClassVar so
-        # that "undeclared" is unanswerable rather than a silent "no" — but
-        # for an out-of-tree recipe that only surfaced as a bare
-        # AttributeError from whichever of the six consumers happened to ask
-        # first, at DISPATCH time, under a run that already exists. In-tree
-        # recipes are covered by a declaration test; plugins are covered
-        # here, where the refusal can still name the class.
-        if getattr(type(recipe), "consumes_resolution", _UNDECLARED) is _UNDECLARED:
-            raise ValueError(
-                f"recipe {recipe.name!r} ({type(recipe).__module__}."
-                f"{type(recipe).__qualname__}) does not declare "
-                "'consumes_resolution'; every recipe must state whether its "
-                "runs compose with the execution seam (resolve a route, "
-                "compile promises, gate on claims, verify at dispatch). "
-                "Declare 'consumes_resolution = False' unless the recipe "
-                "consumes a resolved execution route."
-            )
-        # Same boundary, same reason, for the money question: an undeclared
-        # cost class used to be a silent "$0.00 and no gate" for any recipe
-        # whose estimate() returned None.
-        if getattr(type(recipe), "cost_class", _UNDECLARED) is _UNDECLARED:
-            raise ValueError(
-                f"recipe {recipe.name!r} ({type(recipe).__module__}."
-                f"{type(recipe).__qualname__}) does not declare 'cost_class'; "
-                "every recipe must state what an ABSENT estimate means for it "
-                "— 'free' (no money moves), 'metered' (a priced meter exists, "
-                "so a missing number is missing, not zero), or 'unpriceable' "
-                "(the price cannot be known before the run, so it needs an "
-                "explicit unknown-cost confirmation)."
-            )
+    def get_action_program(self, name: str) -> ActionProgram | None:
         with self._lock:
-            if action_kind in self._recipes and not replace:
-                raise ValueError(f"action kind already registered: {action_kind}")
-            self._recipes[action_kind] = RecipeSpec(
-                action_kind=action_kind, recipe=recipe, plugin=plugin
-            )
-        return recipe
+            spec = self._action_programs.get(name)
+            return spec.program if spec is not None else None
 
-    def unregister_recipe(self, name: str) -> None:
+    def action_program_specs(self) -> list[ActionProgramSpec]:
         with self._lock:
-            self._recipes.pop(name, None)
-
-    def get_recipe(self, name: str) -> Recipe | None:
-        with self._lock:
-            spec = self._recipes.get(name)
-            return spec.recipe if spec is not None else None
-
-    def recipe_specs(self) -> list[RecipeSpec]:
-        with self._lock:
-            return [self._recipes[name] for name in sorted(self._recipes)]
+            return [
+                self._action_programs[name] for name in sorted(self._action_programs)
+            ]
 
     def register_column_type(
         self,
@@ -527,7 +464,7 @@ class PluginRegistry:
     def unload_plugin_entries(self, plugin_id: str) -> dict[str, list[str]]:
         """Remove process-local entries owned by one plugin id."""
         removed_manifests: list[str] = []
-        removed_recipes: list[str] = []
+        removed_programs: list[str] = []
         removed_importers: list[str] = []
         removed_job_handlers: list[str] = []
         removed_runtime_bindings: dict[str, list[str]] = {
@@ -543,8 +480,10 @@ class PluginRegistry:
             # uses it after deleting the catalog authority.
             if self._plugin_manifests.pop(plugin_id, None) is not None:
                 removed_manifests.append(plugin_id)
-            recipe_names = [
-                name for name, spec in self._recipes.items() if spec.plugin == plugin_id
+            program_names = [
+                name
+                for name, spec in self._action_programs.items()
+                if spec.plugin == plugin_id
             ]
             importer_names = [
                 name
@@ -556,9 +495,9 @@ class PluginRegistry:
                 for kind, spec in self._job_handlers.items()
                 if spec.plugin == plugin_id
             ]
-            for name in recipe_names:
-                self._recipes.pop(name, None)
-                removed_recipes.append(name)
+            for name in program_names:
+                self._action_programs.pop(name, None)
+                removed_programs.append(name)
             for name in importer_names:
                 self._importers.pop(name, None)
                 removed_importers.append(name)
@@ -582,7 +521,7 @@ class PluginRegistry:
             removed_matchers = unregister_plugin_matchers(plugin_id)
         return {
             "manifests": sorted(removed_manifests),
-            "recipes": sorted(removed_recipes),
+            "recipes": sorted(removed_programs),
             "columnTypes": sorted(removed_column_types),
             "matchers": sorted(removed_matchers),
             "importers": sorted(removed_importers),
@@ -604,7 +543,7 @@ class PluginRegistry:
                 }
                 for loaded in self.plugin_manifests()
             ],
-            "recipes": [spec.to_public() for spec in self.recipe_specs()],
+            "recipes": [spec.to_public() for spec in self.action_program_specs()],
             "column_types": [spec.to_public() for spec in self.column_type_specs()],
             "importers": [spec.to_public() for spec in self.importer_specs()],
             "job_handlers": [spec.to_public() for spec in self.job_handler_specs()],
@@ -732,24 +671,8 @@ def get_trusted_backend_handler(key: str) -> PluginJobHandler | None:
         return _TRUSTED_BACKEND_HANDLERS.get(key)
 
 
-def register_recipe(
-    recipe: Recipe,
-    *,
-    action_kind: str,
-    plugin: str = "external",
-    replace: bool = False,
-) -> Recipe:
-    return default_registry().register_recipe(
-        recipe, action_kind=action_kind, plugin=plugin, replace=replace
-    )
-
-
-def unregister_recipe(name: str) -> None:
-    default_registry().unregister_recipe(name)
-
-
-def get_recipe(name: str) -> Recipe | None:
-    return default_registry().get_recipe(name)
+def get_action_program(name: str) -> ActionProgram | None:
+    return default_registry().get_action_program(name)
 
 
 def registry_snapshot() -> dict[str, Any]:

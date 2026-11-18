@@ -54,8 +54,8 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(
     sheet_id, _cols, row_ids = _seed_two_rows(project)
     spec = _classify_spec(sheet_id)
     cache = ResponseCache(tmp_path / "c.db")
-    recipe = model_plan(spec).program
-    call = recipe.render({"text": "hello there"}, spec)
+    program = model_plan(spec).program
+    call = program.render({"text": "hello there"}, spec)
     req = LLMRequest(
         model=spec["model"],
         messages=call.messages,
@@ -65,7 +65,7 @@ def test_replay_mode_cache_hit_completes_keyless_no_missing_provider_key(
     # Only the FIRST row's exact rendered prompt is pre-cached — the
     # second row is a genuine miss, proving this isn't "block nothing".
     cache.put(
-        request_key(req, recipe.version),
+        request_key(req, program.version),
         LLMResponse(
             content=None,
             data={"relevance": 7},

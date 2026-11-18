@@ -18,10 +18,10 @@ import frisket.engine.runner.validation as validation_module
 from frisket.ai.llm import ModelRouter
 from frisket.ops.base import (
     ActionContext,
-    Recipe,
-    RecipeInvocationHalt,
-    normalize_recipe_invocation_halt,
-    persisted_recipe_invocation_halt,
+    ActionProgram,
+    ActionProgramInvocationHalt,
+    normalize_action_program_invocation_halt,
+    persisted_action_program_invocation_halt,
 )
 from frisket.engine.runner import MapRunner
 from frisket.engine.sandbox.shim import SandboxTeardownError
@@ -117,7 +117,7 @@ def test_all_empty_probe_pages_large_explicit_scope() -> None:
     assert project.chunk_sizes == [500, 500, 201]
 
 
-class _ScopeRecipe(Recipe):
+class _ScopeProgram(ActionProgram):
     consumes_resolution = False  # required declaration (Recipe)
     cost_class = "free"  # required declaration (Recipe)
 
@@ -129,7 +129,7 @@ class _ScopeRecipe(Recipe):
         self.calls: list[int] = []
         self.halt_on_call: int | None = None
         self.error_on_call: tuple[int, BaseException] | None = None
-        self.halt_on_entry: RecipeInvocationHalt | None = None
+        self.halt_on_entry: ActionProgramInvocationHalt | None = None
         self.block = False
         self.started = asyncio.Event()
         self.scope_run_snapshots: list[tuple[str, dict[str, Any]]] = []
@@ -180,7 +180,7 @@ class _ScopeRecipe(Recipe):
         if self.block:
             await asyncio.Event().wait()
         if self.halt_on_call == call_number:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed",
                 "session exited while a row was in flight",
             )
@@ -189,7 +189,7 @@ class _ScopeRecipe(Recipe):
         return {str(spec.get("output_name") or "derived"): row_values["text"].upper()}
 
 
-class _BatchScopeRecipe(_ScopeRecipe):
+class _BatchScopeProgram(_ScopeProgram):
     def __init__(self) -> None:
         super().__init__()
         self.name = "test.batch_execution_scope"
@@ -216,15 +216,17 @@ class _BatchScopeRecipe(_ScopeRecipe):
 
 
 @pytest.fixture
-def scope_recipe(monkeypatch: pytest.MonkeyPatch) -> _ScopeRecipe:
-    recipe = _ScopeRecipe()
-    original_get_recipe = validation_module.get_recipe
+def scope_program(monkeypatch: pytest.MonkeyPatch) -> _ScopeProgram:
+    program = _ScopeProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
-        lambda name: recipe if name == recipe.name else original_get_recipe(name),
+        "get_action_program",
+        lambda name: (
+            program if name == program.name else original_get_action_program(name)
+        ),
     )
-    return recipe
+    return program
 
 
 def _seed_project(tmp_path, *, rows: int = 8) -> tuple[Project, int, list[int]]:
@@ -245,9 +247,9 @@ def _seed_project(tmp_path, *, rows: int = 8) -> tuple[Project, int, list[int]]:
     return project, sheet_id, row_ids
 
 
-def _spec(recipe: Recipe, sheet_id: int, **extra: Any) -> dict[str, Any]:
+def _spec(program: ActionProgram, sheet_id: int, **extra: Any) -> dict[str, Any]:
     return {
-        "action_kind": recipe.name,
+        "action_kind": program.name,
         "sheet_id": sheet_id,
         "input_columns": ["text"],
         "output_name": "derived",
@@ -257,15 +259,15 @@ def _spec(recipe: Recipe, sheet_id: int, **extra: Any) -> dict[str, Any]:
 
 @pytest.mark.parametrize("mode", ["immediate", "local", "checkpoint"])
 def test_local_publication_batches_keep_row_errors_and_committed_progress(
-    tmp_path, scope_recipe, monkeypatch, mode
+    tmp_path, scope_program, monkeypatch, mode
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=7)
-    scope_recipe.batch_local_results = mode != "immediate"
+    scope_program.batch_local_results = mode != "immediate"
     if mode == "checkpoint":
         monkeypatch.setattr(
-            scope_recipe, "requires_row_effect_checkpoint", lambda _spec: True
+            scope_program, "requires_row_effect_checkpoint", lambda _spec: True
         )
-    scope_recipe.error_on_call = (2, ValueError("bad source row"))
+    scope_program.error_on_call = (2, ValueError("bad source row"))
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     batches = []
@@ -294,7 +296,7 @@ def test_local_publication_batches_keep_row_errors_and_committed_progress(
             on_progress=progress_committed,
         )
         progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
         assert progress.completed == 7
         assert progress.failed == 1
@@ -311,22 +313,22 @@ def test_local_publication_batches_keep_row_errors_and_committed_progress(
 
 
 def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
-    tmp_path, scope_recipe, monkeypatch
+    tmp_path, scope_program, monkeypatch
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=4)
-    scope_recipe.batch_local_results = True
+    scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     clock = [0.0]
     monkeypatch.setattr(
         map_runner_module, "time", SimpleNamespace(monotonic=lambda: clock[0])
     )
-    execute = scope_recipe.execute
+    execute = scope_program.execute
     column = next(c["id"] for c in project.columns(sheet_id) if c["name"] == "text")
 
     async def advance(values, spec, ctx):
         result = await execute(values, spec, ctx)
         clock[0] += 0.06
-        if len(scope_recipe.calls) == 1:
+        if len(scope_program.calls) == 1:
             project.apply_edits(
                 [
                     {"row_id": row_id, "column_id": column, "value": "changed"}
@@ -335,7 +337,7 @@ def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
             )
         return result
 
-    monkeypatch.setattr(scope_recipe, "execute", advance)
+    monkeypatch.setattr(scope_program, "execute", advance)
     committed = []
     try:
         runner = MapRunner(
@@ -346,7 +348,7 @@ def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
             on_progress=lambda progress: committed.append(progress.completed),
         )
         progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
         assert committed == [0, 2, 4, 4]
         values = project.db.execute(
@@ -362,25 +364,25 @@ def test_local_publication_flushes_on_time_and_reads_each_dispatch_page(
 
 @pytest.mark.parametrize("stop", ["cancel", "halt"])
 def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
-    tmp_path, scope_recipe, monkeypatch, stop
+    tmp_path, scope_program, monkeypatch, stop
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path)
-    scope_recipe.batch_local_results = True
+    scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     if stop == "halt":
-        scope_recipe.halt_on_call = 3
+        scope_program.halt_on_call = 3
     try:
         runner = MapRunner(
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
             concurrency=1,
             authority=UnroutedOnlyAuthority(project),
-            should_cancel=(lambda _run_id: len(scope_recipe.calls) >= 3)
+            should_cancel=(lambda _run_id: len(scope_program.calls) >= 3)
             if stop == "cancel"
             else None,
         )
         progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
         assert progress.cancelled
         actual = project.db.execute(
@@ -403,16 +405,16 @@ def test_local_pending_rows_drain_before_cancel_or_halt_finalization(
             assert progress.completed == 2
             assert [row[0] for row in actual] == row_ids[:2]
             assert run["status"] == "cancelled" and run["completed_rows"] == 2
-        assert scope_recipe.exits == 1
+        assert scope_program.exits == 1
     finally:
         project.close()
 
 
 def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
-    tmp_path, scope_recipe, monkeypatch
+    tmp_path, scope_program, monkeypatch
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path)
-    scope_recipe.batch_local_results = True
+    scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     # Refuse the second member after the store has started writing the first.
@@ -429,18 +431,18 @@ def test_local_batch_publication_refusal_keeps_pending_rows_atomic(
             authority=UnroutedOnlyAuthority(project),
         )
         with pytest.raises(sqlite3.IntegrityError, match="publication refused"):
-            asyncio.run(run_with_output_claim(runner, _spec(scope_recipe, sheet_id)))
+            asyncio.run(run_with_output_claim(runner, _spec(scope_program, sheet_id)))
         assert project.db.execute("SELECT count(*) FROM results").fetchone()[0] == 0
-        assert scope_recipe.exits == 1
+        assert scope_program.exits == 1
     finally:
         project.close()
 
 
 def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
-    tmp_path, scope_recipe, monkeypatch
+    tmp_path, scope_program, monkeypatch
 ):
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=96)
-    scope_recipe.batch_local_results = True
+    scope_program.batch_local_results = True
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
     progress_seen = []
     runner = MapRunner(
@@ -453,10 +455,10 @@ def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
 
     async def exercise():
         task = asyncio.create_task(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
-        await scope_recipe.started.wait()
-        assert 0 < len(scope_recipe.calls) < 96
+        await scope_program.started.wait()
+        assert 0 < len(scope_program.calls) < 96
         progress_seen[0].cancel()
         return await asyncio.wait_for(task, timeout=2)
 
@@ -469,14 +471,14 @@ def test_local_rows_yield_to_external_cancellation_and_drain_pending_results(
             ).fetchone()[0]
             == progress.completed
         )
-        assert scope_recipe.exits == 1
+        assert scope_program.exits == 1
     finally:
         project.close()
 
 
 @pytest.mark.parametrize("concurrency", [1, 2])
 def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
-    tmp_path, scope_recipe, monkeypatch, concurrency
+    tmp_path, scope_program, monkeypatch, concurrency
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=7)
     initial_rows = set(row_ids[:concurrency])
@@ -497,8 +499,8 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
         active += 1
         max_active = max(max_active, active)
         try:
-            scope_recipe.calls.append(row_id)
-            if initial_rows.issubset(scope_recipe.calls):
+            scope_program.calls.append(row_id)
+            if initial_rows.issubset(scope_program.calls):
                 all_initial_started.set()
             if row_id == preferred_row:
                 preferred_started.set()
@@ -514,7 +516,7 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
         finally:
             active -= 1
 
-    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(scope_program, "execute", execute)
     try:
         runner = MapRunner(
             project,
@@ -526,7 +528,7 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
 
         async def exercise():
             task = asyncio.create_task(
-                run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+                run_with_output_claim(runner, _spec(scope_program, sheet_id))
             )
             await asyncio.wait_for(all_initial_started.wait(), timeout=5)
             hints.append(preferred_row)
@@ -540,10 +542,10 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
 
         progress = asyncio.run(exercise())
         assert progress.done and progress.completed == len(row_ids)
-        assert scope_recipe.calls[:concurrency] == row_ids[:concurrency]
-        assert scope_recipe.calls[concurrency] == preferred_row
-        assert sorted(scope_recipe.calls) == sorted(row_ids)
-        assert len(scope_recipe.calls) == len(set(scope_recipe.calls))
+        assert scope_program.calls[:concurrency] == row_ids[:concurrency]
+        assert scope_program.calls[concurrency] == preferred_row
+        assert sorted(scope_program.calls) == sorted(row_ids)
+        assert len(scope_program.calls) == len(set(scope_program.calls))
         assert max_active == concurrency
         assert cancelled == []
     finally:
@@ -552,11 +554,11 @@ def test_preferred_admitted_row_takes_the_next_free_worker_without_restart(
 
 @pytest.mark.parametrize("failed_write", [None, "page", "clear"])
 def test_page_progress_is_best_effort_and_clears_before_the_next_row(
-    tmp_path, scope_recipe, monkeypatch, caplog, failed_write
+    tmp_path, scope_program, monkeypatch, caplog, failed_write
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
     observed = []
-    original_execute = scope_recipe.execute
+    original_execute = scope_program.execute
     original_write = RunResultStore.set_work_progress
 
     def write(store, run_id, **values):
@@ -581,7 +583,7 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
                 )
         return await original_execute(values, spec, ctx)
 
-    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(scope_program, "execute", execute)
     monkeypatch.setattr(RunResultStore, "set_work_progress", write)
     if failed_write == "clear":
         monkeypatch.setattr(RunResultStore, "clear_work_progress", fail_clear)
@@ -593,7 +595,7 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
             authority=UnroutedOnlyAuthority(project),
         )
         progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
         assert progress.done and progress.completed == 2 and progress.failed == 0
         run = runner.run_store.get_run(progress.run_id)
@@ -609,10 +611,10 @@ def test_page_progress_is_best_effort_and_clears_before_the_next_row(
 
 
 def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
-    tmp_path, scope_recipe, monkeypatch
+    tmp_path, scope_program, monkeypatch
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
-    original_execute = scope_recipe.execute
+    original_execute = scope_program.execute
     original_write = RunResultStore.set_work_progress
     first_started = asyncio.Event()
     second_started = asyncio.Event()
@@ -683,7 +685,7 @@ def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
             assert files(ctx.extras["run_id"]) == {row_id: current[row_id]}
         return await original_execute(values, spec, ctx)
 
-    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(scope_program, "execute", execute)
     monkeypatch.setattr(RunResultStore, "set_work_progress", write)
     try:
         runner = MapRunner(
@@ -695,7 +697,7 @@ def test_concurrent_page_progress_keeps_each_file_and_removes_only_finished_row(
 
         async def exercise():
             return await asyncio.wait_for(
-                run_with_output_claim(runner, _spec(scope_recipe, sheet_id)), timeout=5
+                run_with_output_claim(runner, _spec(scope_program, sheet_id)), timeout=5
             )
 
         progress = asyncio.run(exercise())
@@ -791,7 +793,7 @@ def test_exact_ner_rechecks_fresh_output_during_prepare(tmp_path) -> None:
 
 def test_exact_scope_rechecks_membership_inside_prepare_transaction(
     tmp_path,
-    scope_recipe: _ScopeRecipe,
+    scope_program: _ScopeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=1)
@@ -812,7 +814,7 @@ def test_exact_scope_rechecks_membership_inside_prepare_transaction(
     try:
         with pytest.raises(validation_module.InvalidTargetRows) as exc_info:
             runner.prepare_run(
-                _spec(scope_recipe, sheet_id, row_ids=row_ids),
+                _spec(scope_program, sheet_id, row_ids=row_ids),
             )
 
         assert exc_info.value.missing == row_ids
@@ -827,13 +829,13 @@ def _prepare_claimed_run(
 ) -> tuple[Any, str]:
     """Compose the runner with the output reservation its writers require."""
 
-    recipe = validation_module.recipe_for_spec(spec)
-    output_names = [str(field["name"]) for field in recipe.output_fields(spec)]
-    claim_token = f"output-claim:test:{recipe.name}:{spec['sheet_id']}:{id(runner)}"
+    program = validation_module.action_program_for_spec(spec)
+    output_names = [str(field["name"]) for field in program.output_fields(spec)]
+    claim_token = f"output-claim:test:{program.name}:{spec['sheet_id']}:{id(runner)}"
     claims, conflict = OutputColumnClaimStore(runner.project).acquire(
         sheet_id=int(spec["sheet_id"]),
         output_names=output_names,
-        action_kind=recipe.name,
+        action_kind=program.name,
         claim_token=claim_token,
         lease_seconds=6 * 60 * 60,
     )
@@ -853,17 +855,17 @@ def _prepare_claimed_run(
 
 
 def test_local_dispatch_uses_prepared_source_ids_after_column_rename(
-    tmp_path, scope_recipe
+    tmp_path, scope_program
 ):
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=2)
-    scope_recipe.batch_local_results = True
+    scope_program.batch_local_results = True
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         concurrency=1,
         authority=UnroutedOnlyAuthority(project),
     )
-    spec = _spec(scope_recipe, sheet_id)
+    spec = _spec(scope_program, sheet_id)
     try:
         prepared, claim_token = _prepare_claimed_run(runner, spec)
         project.db.execute(
@@ -910,7 +912,7 @@ async def _wait_for_started_or_task_exit(
 
 
 def test_scope_enters_once_for_durable_run_and_preview(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, row_ids = _seed_project(tmp_path)
     try:
@@ -921,47 +923,47 @@ def test_scope_enters_once_for_durable_run_and_preview(
             authority=UnroutedOnlyAuthority(project),
         )
         progress = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
 
         assert progress.done
         assert progress.completed == len(row_ids)
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
-        assert scope_recipe.expected_rows == [len(row_ids)]
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
+        assert scope_program.expected_rows == [len(row_ids)]
 
         with pytest.raises(GenerationSealedError, match="is sealed"):
             asyncio.run(
                 run_with_output_claim(
                     runner,
-                    _spec(scope_recipe, sheet_id),
+                    _spec(scope_program, sheet_id),
                     resume_run_id=progress.run_id,
                 )
             )
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
 
-        scope_recipe.entries = 0
-        scope_recipe.exits = 0
-        scope_recipe.expected_rows.clear()
+        scope_program.entries = 0
+        scope_program.exits = 0
+        scope_program.expected_rows.clear()
         preview = asyncio.run(
-            runner.preview(_spec(scope_recipe, sheet_id, row_ids=row_ids[:3]))
+            runner.preview(_spec(scope_program, sheet_id, row_ids=row_ids[:3]))
         )
 
         assert preview.sampled == 3
         assert set(preview.values) == set(row_ids[:3])
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
-        assert scope_recipe.expected_rows == [3]
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
+        assert scope_program.expected_rows == [3]
     finally:
         project.close()
 
 
 def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=40)
-    scope_recipe.halt_on_call = 3
+    scope_program.halt_on_call = 3
     try:
         runner = MapRunner(
             project,
@@ -971,7 +973,7 @@ def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
         )
         progress = asyncio.run(
             asyncio.wait_for(
-                run_with_output_claim(runner, _spec(scope_recipe, sheet_id)),
+                run_with_output_claim(runner, _spec(scope_program, sheet_id)),
                 timeout=2,
             )
         )
@@ -979,8 +981,8 @@ def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
         assert progress.cancelled
         assert progress.halted_code == "local_session_failed"
         assert progress.completed == 2
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
         run = project.db.execute(
             "SELECT * FROM runs WHERE id=?", (progress.run_id,)
         ).fetchone()
@@ -1006,10 +1008,10 @@ def test_scope_halt_preserves_committed_prefix_without_prefetch_deadlock(
 
 
 def test_halted_run_recovery_uses_fresh_scoped_generation(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=5)
-    scope_recipe.halt_on_call = 3
+    scope_program.halt_on_call = 3
     try:
         runner = MapRunner(
             project,
@@ -1018,13 +1020,13 @@ def test_halted_run_recovery_uses_fresh_scoped_generation(
             authority=UnroutedOnlyAuthority(project),
         )
         first = asyncio.run(
-            run_with_output_claim(runner, _spec(scope_recipe, sheet_id))
+            run_with_output_claim(runner, _spec(scope_program, sheet_id))
         )
         assert first.halted_code == "local_session_failed"
 
-        scope_recipe.halt_on_call = None
-        scope_recipe.scope_run_snapshots.clear()
-        retry_spec = _spec(scope_recipe, sheet_id, row_ids=row_ids[2:])
+        scope_program.halt_on_call = None
+        scope_program.scope_run_snapshots.clear()
+        retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
         retry_spec["overwrite"] = True
         recovered = asyncio.run(
             run_with_output_claim(
@@ -1035,13 +1037,13 @@ def test_halted_run_recovery_uses_fresh_scoped_generation(
 
         assert recovered.run_id != first.run_id
         assert recovered.completed == 3
-        assert scope_recipe.scope_run_snapshots == [
+        assert scope_program.scope_run_snapshots == [
             (
                 "running",
                 {
                     "input_columns": ["text"],
                     "output_name": "derived",
-                    "action_kind": scope_recipe.name,
+                    "action_kind": scope_program.name,
                     "sheet_id": sheet_id,
                     "row_ids": row_ids[2:],
                     "overwrite": True,
@@ -1065,10 +1067,10 @@ def test_halted_run_recovery_uses_fresh_scoped_generation(
 
 
 def test_queue_style_recovery_uses_fresh_scoped_generation(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=5)
-    scope_recipe.halt_on_call = 3
+    scope_program.halt_on_call = 3
     try:
         first_runner = MapRunner(
             project,
@@ -1079,7 +1081,7 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
         first = asyncio.run(
             run_with_output_claim(
                 first_runner,
-                _spec(scope_recipe, sheet_id),
+                _spec(scope_program, sheet_id),
             )
         )
         assert first.halted_code == "local_session_failed"
@@ -1090,8 +1092,8 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
             == "cancelled"
         )
 
-        scope_recipe.halt_on_call = None
-        scope_recipe.scope_run_snapshots.clear()
+        scope_program.halt_on_call = None
+        scope_program.scope_run_snapshots.clear()
         run_store = MapRunner(
             project,
             ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
@@ -1109,7 +1111,7 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
             should_cancel=durable_cancelled,
             authority=UnroutedOnlyAuthority(project),
         )
-        retry_spec = _spec(scope_recipe, sheet_id, row_ids=row_ids[2:])
+        retry_spec = _spec(scope_program, sheet_id, row_ids=row_ids[2:])
         retry_spec["overwrite"] = True
         recovered = asyncio.run(
             run_with_output_claim(
@@ -1121,13 +1123,13 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
         assert recovered.run_id != first.run_id
         assert recovered.completed == 3
         assert recovered.cancelled is False
-        assert scope_recipe.scope_run_snapshots == [
+        assert scope_program.scope_run_snapshots == [
             (
                 "running",
                 {
                     "input_columns": ["text"],
                     "output_name": "derived",
-                    "action_kind": scope_recipe.name,
+                    "action_kind": scope_program.name,
                     "sheet_id": sheet_id,
                     "row_ids": row_ids[2:],
                     "overwrite": True,
@@ -1146,7 +1148,7 @@ def test_queue_style_recovery_uses_fresh_scoped_generation(
 
 
 def test_pre_cancel_and_zero_work_never_enter_scope(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
     try:
@@ -1158,11 +1160,11 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
                     should_cancel=lambda _run_id: True,
                     authority=UnroutedOnlyAuthority(project),
                 ),
-                _spec(scope_recipe, sheet_id),
+                _spec(scope_program, sheet_id),
             )
         )
         assert cancelled.cancelled
-        assert scope_recipe.entries == 0
+        assert scope_program.entries == 0
         run = project.db.execute(
             "SELECT status, params FROM runs WHERE id=?", (cancelled.run_id,)
         ).fetchone()
@@ -1180,11 +1182,11 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
                         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
                         authority=UnroutedOnlyAuthority(empty_project),
                     ),
-                    _spec(scope_recipe, empty_sheet),
+                    _spec(scope_program, empty_sheet),
                 )
             )
             assert empty.total == 0
-            assert scope_recipe.entries == 0
+            assert scope_program.entries == 0
         finally:
             empty_project.close()
     finally:
@@ -1192,11 +1194,11 @@ def test_pre_cancel_and_zero_work_never_enter_scope(
 
 
 def test_outer_cancellation_joins_workers_before_scope_exit(
-    tmp_path, scope_recipe: _ScopeRecipe, monkeypatch
+    tmp_path, scope_program: _ScopeProgram, monkeypatch
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
-    scope_recipe.block = True
-    original_execute = scope_recipe.execute
+    scope_program.block = True
+    original_execute = scope_program.execute
 
     async def execute(values, spec, ctx):
         ctx.extras["report_work_progress"](
@@ -1204,7 +1206,7 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
         )
         return await original_execute(values, spec, ctx)
 
-    monkeypatch.setattr(scope_recipe, "execute", execute)
+    monkeypatch.setattr(scope_program, "execute", execute)
 
     runner = MapRunner(
         project,
@@ -1212,7 +1214,7 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
         concurrency=2,
         authority=UnroutedOnlyAuthority(project),
     )
-    spec = _spec(scope_recipe, sheet_id)
+    spec = _spec(scope_program, sheet_id)
     prepared, claim_token = _prepare_claimed_run(runner, spec)
 
     async def exercise() -> None:
@@ -1223,15 +1225,15 @@ def test_outer_cancellation_joins_workers_before_scope_exit(
                 claim_token=claim_token,
             )
         )
-        await _wait_for_started_or_task_exit(task, scope_recipe.started)
+        await _wait_for_started_or_task_exit(task, scope_program.started)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
 
     try:
         asyncio.run(exercise())
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
         run = project.db.execute(
             "SELECT status, current_attempt_id, work_progress FROM runs WHERE id=?",
             (prepared.run_id,),
@@ -1261,20 +1263,22 @@ def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
-    recipe = _BatchScopeRecipe()
-    recipe.block = True
-    original_get_recipe = validation_module.get_recipe
+    program = _BatchScopeProgram()
+    program.block = True
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
-        lambda name: recipe if name == recipe.name else original_get_recipe(name),
+        "get_action_program",
+        lambda name: (
+            program if name == program.name else original_get_action_program(name)
+        ),
     )
     runner = MapRunner(
         project,
         ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, keys={}),
         authority=UnroutedOnlyAuthority(project),
     )
-    spec = _spec(recipe, sheet_id)
+    spec = _spec(program, sheet_id)
     prepared, claim_token = _prepare_claimed_run(runner, spec)
 
     async def exercise() -> None:
@@ -1285,7 +1289,7 @@ def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
                 claim_token=claim_token,
             )
         )
-        await _wait_for_started_or_task_exit(task, recipe.started)
+        await _wait_for_started_or_task_exit(task, program.started)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=2)
@@ -1316,7 +1320,7 @@ def test_outer_cancellation_fenced_terminalizes_batch_run_before_reraise(
 
 
 def test_persistence_failure_still_joins_workers_and_exits_scope(
-    tmp_path, scope_recipe: _ScopeRecipe, monkeypatch: pytest.MonkeyPatch
+    tmp_path, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=12)
     runner = MapRunner(
@@ -1343,22 +1347,22 @@ def test_persistence_failure_still_joins_workers_and_exits_scope(
                 asyncio.wait_for(
                     run_with_output_claim(
                         runner,
-                        _spec(scope_recipe, sheet_id),
+                        _spec(scope_program, sheet_id),
                     ),
                     timeout=2,
                 )
             )
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
     finally:
         project.close()
 
 
 def test_unprovable_sandbox_teardown_escapes_row_error_boundary(
-    tmp_path, scope_recipe: _ScopeRecipe
+    tmp_path, scope_program: _ScopeProgram
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=4)
-    scope_recipe.error_on_call = (
+    scope_program.error_on_call = (
         2,
         SandboxTeardownError("owned process tree is still alive"),
     )
@@ -1373,12 +1377,12 @@ def test_unprovable_sandbox_teardown_escapes_row_error_boundary(
             asyncio.run(
                 run_with_output_claim(
                     failing_runner,
-                    _spec(scope_recipe, sheet_id),
+                    _spec(scope_program, sheet_id),
                 )
             )
-        assert len(scope_recipe.calls) == 2
-        assert scope_recipe.entries == 1
-        assert scope_recipe.exits == 1
+        assert len(scope_program.calls) == 2
+        assert scope_program.entries == 1
+        assert scope_program.exits == 1
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 1
         run = project.db.execute(
             "SELECT * FROM runs ORDER BY id DESC LIMIT 1"
@@ -1399,7 +1403,7 @@ def test_unprovable_sandbox_teardown_escapes_row_error_boundary(
 
 
 def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
-    tmp_path, scope_recipe: _ScopeRecipe, monkeypatch: pytest.MonkeyPatch
+    tmp_path, scope_program: _ScopeProgram, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
     try:
@@ -1411,7 +1415,7 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
         first = asyncio.run(
             run_with_output_claim(
                 first_runner,
-                _spec(scope_recipe, sheet_id),
+                _spec(scope_program, sheet_id),
             )
         )
         output_column = next(
@@ -1421,7 +1425,7 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
         )
         assert output_column["current_run_id"] == first.run_id
 
-        scope_recipe.halt_on_entry = RecipeInvocationHalt(
+        scope_program.halt_on_entry = ActionProgramInvocationHalt(
             "local_engine_busy", "another invocation owns the local engine"
         )
         second_runner = MapRunner(
@@ -1438,7 +1442,7 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
             asyncio.run(
                 run_with_output_claim(
                     second_runner,
-                    _spec(scope_recipe, sheet_id),
+                    _spec(scope_program, sheet_id),
                 )
             )
 
@@ -1461,12 +1465,14 @@ def test_halt_metadata_status_and_reused_pointer_finalize_atomically(
 def test_batch_run_and_preview_each_own_one_execution_scope(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _BatchScopeRecipe()
-    original_get_recipe = validation_module.get_recipe
+    program = _BatchScopeProgram()
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
-        lambda name: recipe if name == recipe.name else original_get_recipe(name),
+        "get_action_program",
+        lambda name: (
+            program if name == program.name else original_get_action_program(name)
+        ),
     )
     project, sheet_id, row_ids = _seed_project(tmp_path, rows=3)
     runner = MapRunner(
@@ -1475,13 +1481,13 @@ def test_batch_run_and_preview_each_own_one_execution_scope(
         authority=UnroutedOnlyAuthority(project),
     )
     try:
-        progress = asyncio.run(run_with_output_claim(runner, _spec(recipe, sheet_id)))
-        preview = asyncio.run(runner.preview(_spec(recipe, sheet_id, row_ids=row_ids)))
+        progress = asyncio.run(run_with_output_claim(runner, _spec(program, sheet_id)))
+        preview = asyncio.run(runner.preview(_spec(program, sheet_id, row_ids=row_ids)))
         assert progress.completed == 3
         assert preview.sampled == 3
-        assert recipe.entries == 2
-        assert recipe.exits == 2
-        assert recipe.expected_rows == [3, 3]
+        assert program.entries == 2
+        assert program.exits == 2
+        assert program.expected_rows == [3, 3]
     finally:
         project.close()
 
@@ -1489,13 +1495,15 @@ def test_batch_run_and_preview_each_own_one_execution_scope(
 def test_batch_recipe_never_flattens_unprovable_teardown(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    recipe = _BatchScopeRecipe()
-    recipe.batch_error = SandboxTeardownError("owned process tree is still alive")
-    original_get_recipe = validation_module.get_recipe
+    program = _BatchScopeProgram()
+    program.batch_error = SandboxTeardownError("owned process tree is still alive")
+    original_get_action_program = validation_module.get_action_program
     monkeypatch.setattr(
         validation_module,
-        "get_recipe",
-        lambda name: recipe if name == recipe.name else original_get_recipe(name),
+        "get_action_program",
+        lambda name: (
+            program if name == program.name else original_get_action_program(name)
+        ),
     )
     project, sheet_id, _row_ids = _seed_project(tmp_path, rows=2)
     try:
@@ -1508,7 +1516,7 @@ def test_batch_recipe_never_flattens_unprovable_teardown(
             asyncio.run(
                 run_with_output_claim(
                     runner,
-                    _spec(recipe, sheet_id),
+                    _spec(program, sheet_id),
                 )
             )
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
@@ -1544,7 +1552,7 @@ def test_owned_task_join_prioritizes_sibling_teardown_failure() -> None:
 
 
 def test_halt_allowlist_fails_closed_and_redacts_detail() -> None:
-    code, detail = normalize_recipe_invocation_halt(
+    code, detail = normalize_action_program_invocation_halt(
         "child_internal_crash",
         "Authorization: Bearer secret-value",
     )
@@ -1552,31 +1560,31 @@ def test_halt_allowlist_fails_closed_and_redacts_detail() -> None:
     assert "secret-value" not in detail
     assert "parakeet" not in detail.lower()
 
-    code, detail = normalize_recipe_invocation_halt(
+    code, detail = normalize_action_program_invocation_halt(
         "local_session_failed",
         "the local Parakeet process stopped",
     )
     assert code == "local_session_failed"
     assert detail == "the local Parakeet process stopped"
 
-    code, detail = normalize_recipe_invocation_halt(
+    code, detail = normalize_action_program_invocation_halt(
         "local_engine_busy",
         "Authorization: Bearer secret-value " + ("x" * 1_000),
     )
     assert code == "local_engine_busy"
     assert "secret-value" not in detail
     assert len(detail) <= 500
-    assert persisted_recipe_invocation_halt(
+    assert persisted_action_program_invocation_halt(
         {"halted_code": code, "halted_reason": detail}
     ) == (code, detail)
-    assert persisted_recipe_invocation_halt(
+    assert persisted_action_program_invocation_halt(
         {"halted_code": "local_artifact_unavailable"}
     ) == (
         "local_artifact_unavailable",
         "The local engine's model artifacts are unavailable; retry after they are ready.",
     )
     assert (
-        persisted_recipe_invocation_halt(
+        persisted_action_program_invocation_halt(
             {
                 "halted_code": "child_internal_crash",
                 "halted_reason": "must not escape",

@@ -1,5 +1,5 @@
 """The ONE output-retirement mechanism: recipes declare their
-dropped-role output names (`Recipe.retired_output_names`) and the generic
+dropped-role output names (`ActionProgram.retired_output_names`) and the generic
 `retire_dropped_generated_columns` hides any that still exist as ai_generated
 columns outside the current output set — hide-by-default + provenance on
 the op. Typed actions only touch their explicitly declared output names."""
@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 
 
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
@@ -22,7 +22,7 @@ from frisket.engine.runner.column_retirement import (
 from frisket.engine.store import Project
 
 
-class _FakeRecipe(Recipe):
+class _FakeProgram(ActionProgram):
     """Declares two retired names regardless of spec (the map_runner hook does
     the existence/current-output filtering)."""
 
@@ -34,7 +34,7 @@ class _FakeRecipe(Recipe):
 
 
 @dataclass
-class _AbsoluteDetectedRecipe(Recipe):
+class _AbsoluteDetectedProgram(ActionProgram):
     """A (fake) translate-like recipe declaring the SHARED ABSOLUTE name
     detected_language — the F5 collision surface with transcribe."""
 
@@ -48,7 +48,7 @@ class _AbsoluteDetectedRecipe(Recipe):
 
 
 @dataclass
-class _DerivedDetectedRecipe(Recipe):
+class _DerivedDetectedProgram(ActionProgram):
     """A (fake) translate-like recipe whose retired name is DERIVED from its
     (lowercased) output — the F7 case-mismatch surface."""
 
@@ -84,7 +84,7 @@ def test_declared_dropped_roles_are_retired(project: Project):
     retired = retire_dropped_generated_columns(
         project,
         op_id=op_id,
-        recipe=_FakeRecipe(),
+        program=_FakeProgram(),
         spec={"action_kind": "map.fake"},
         columns=project.columns(sheet, include_hidden=True),
         current_output_names={"out"},
@@ -116,7 +116,7 @@ def test_a_role_still_in_the_current_output_is_not_retired(project: Project):
     retired = retire_dropped_generated_columns(
         project,
         op_id=op_id,
-        recipe=_FakeRecipe(),
+        program=_FakeProgram(),
         spec={"action_kind": "map.fake"},
         columns=project.columns(sheet, include_hidden=True),
         current_output_names={"out", "out_confidence"},
@@ -216,7 +216,7 @@ def test_output_instance_guard_across_two_generic_outputs(project: Project):
     retired = retire_dropped_generated_columns(
         project,
         op_id=b_op,
-        recipe=_AbsoluteDetectedRecipe(),
+        program=_AbsoluteDetectedProgram(),
         spec={
             "action_kind": "map.translate",
             "engine": "parakeet-tdt",
@@ -241,7 +241,7 @@ def test_output_instance_guard_retires_own_detected_language(project: Project):
     retired = retire_dropped_generated_columns(
         project,
         op_id=a_rerun_op,
-        recipe=_AbsoluteDetectedRecipe(),
+        program=_AbsoluteDetectedProgram(),
         spec={
             "action_kind": "map.translate",
             "engine": "parakeet-tdt",
@@ -266,7 +266,7 @@ def test_unattributed_absolute_name_survives_a_cross_action_rerun(project: Proje
     retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "translate"}),
-        recipe=_AbsoluteDetectedRecipe(),
+        program=_AbsoluteDetectedProgram(),
         spec={"action_kind": "map.translate", "output_name": "es"},
         columns=project.columns(sheet, include_hidden=True),
         current_output_names={"es"},
@@ -284,7 +284,7 @@ def test_unattributed_absolute_name_survives_same_action_other_output(project: P
     retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "transcribe"}),
-        recipe=_AbsoluteDetectedRecipe(),
+        program=_AbsoluteDetectedProgram(),
         spec={
             "action_kind": "map.translate",
             "engine": "parakeet-tdt",
@@ -310,7 +310,7 @@ def test_output_name_comparison_is_case_folded(project: Project):
     retired = retire_dropped_generated_columns(
         project,
         op_id=project.append_op("map", {"recipe": "translate"}),
-        recipe=_DerivedDetectedRecipe(),
+        program=_DerivedDetectedProgram(),
         spec={"action_kind": "map.translate", "output_name": "es"},
         columns=project.columns(sheet, include_hidden=True),
         current_output_names={"es"},
@@ -327,7 +327,7 @@ def test_recipe_with_nothing_to_retire_is_a_noop(project: Project):
         retire_dropped_generated_columns(
             project,
             op_id=op_id,
-            recipe=Recipe(),  # base: retired_output_names == []
+            program=ActionProgram(),  # base: retired_output_names == []
             spec={},
             columns=project.columns(sheet, include_hidden=True),
             current_output_names={"out"},
@@ -371,7 +371,7 @@ def test_typed_transcribe_only_touches_declared_outputs(project: Project):
         retire_dropped_generated_columns(
             project,
             op_id=project.append_op("map", spec),
-            recipe=program,
+            program=program,
             spec=spec,
             columns=project.columns(sheet, include_hidden=True),
             current_output_names=set(request.output_names.values()),

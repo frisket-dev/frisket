@@ -22,15 +22,11 @@ src/frisket/authoring/action_proposals.py::<module>  test-only
 src/frisket/authoring/action_proposals.py::_bind_draft  test-only
 src/frisket/authoring/actions.py::stable_json  test-only
 src/frisket/authoring/plugin_registry.py::PluginRegistry.install_job_handlers  test-only
-src/frisket/authoring/plugin_registry.py::PluginRegistry.register_recipe  test-only
 src/frisket/authoring/plugin_registry.py::PluginRegistry.unregister_job_handler  unreferenced
 src/frisket/authoring/plugin_registry.py::PluginRegistry.unregister_plugin_manifest  unreferenced
-src/frisket/authoring/plugin_registry.py::PluginRegistry.unregister_recipe  test-only
 src/frisket/authoring/plugin_registry.py::_reset_default_registry_for_tests  test-only
-src/frisket/authoring/plugin_registry.py::register_recipe  test-only
 src/frisket/authoring/plugin_registry.py::register_trusted_backend_handler  test-only
 src/frisket/authoring/plugin_registry.py::registry_snapshot  unreferenced
-src/frisket/authoring/plugin_registry.py::unregister_recipe  test-only
 src/frisket/authoring/plugin_registry.py::unregister_trusted_backend_handler  test-only
 src/frisket/authoring/project_ask_actions.py::validate_action_proposal  test-only
 src/frisket/authoring/workbench/contracts.py::_contains_key  test-only

@@ -15,7 +15,7 @@ from frisket.engine.executor.web_search_read import (
     AdmittedWebSearcher,
     search_provider_use,
 )
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.execution.dispatch_control import STANDALONE
 
 
@@ -41,7 +41,7 @@ def test_search_refuses_unadmitted_calls_before_provider(monkeypatch, mode):
         reader = AdmittedWebSearcher(ctx)
         await reader.search("private query", max_results=1)
 
-    with pytest.raises((RecipeInvocationHalt, RuntimeError)):
+    with pytest.raises((ActionProgramInvocationHalt, RuntimeError)):
         asyncio.run(run())
 
 

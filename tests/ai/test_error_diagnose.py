@@ -337,8 +337,8 @@ def test_replay_strict_golden_cache_run_is_not_treated_as_missing_key(
     sheet_id, _cols = _seed_sheet(project)
     spec = _classify_spec(sheet_id)
     cache = ResponseCache(tmp_path / "c.db")
-    recipe = model_plan(spec).program
-    call = recipe.render({"text": "hello there"}, spec)
+    program = model_plan(spec).program
+    call = program.render({"text": "hello there"}, spec)
     req = LLMRequest(
         model=spec["model"],
         messages=call.messages,
@@ -346,7 +346,7 @@ def test_replay_strict_golden_cache_run_is_not_treated_as_missing_key(
         max_tokens=call.max_tokens,
     )
     cache.put(
-        request_key(req, recipe.version),
+        request_key(req, program.version),
         LLMResponse(
             content=None,
             data={"relevance": 7},

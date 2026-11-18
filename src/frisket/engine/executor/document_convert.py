@@ -57,7 +57,7 @@ from frisket.execution.provider import enforce_pdf_page_limit
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.execution.targets import CAPABILITY_TO_MARKDOWN
 from frisket.ops._sidecar import sidecar_post
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.integrations.hosted_error import HostedEngineError
 
 LIGHT_ENGINE = "markitdown"
@@ -511,7 +511,7 @@ class _BoundDocumentConverter:
                 or expected is None
                 or snapshot.get("transport") != expected
             ):
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation",
                     "Document converter requires its admitted convert transport",
                 )
@@ -519,7 +519,7 @@ class _BoundDocumentConverter:
         if self._owner._engine is None:
             raise RuntimeError("document converter requires an admitted engine")
         if self._owner._engine not in {LIGHT_ENGINE, TRAFILATURA_HTML_ENGINE}:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Document provider requires its admitted route"
             )
         return self._owner._engine
@@ -537,7 +537,7 @@ class _BoundDocumentConverter:
         admission = routed_admission_in_scope(self._ctx.extras)
         if admission is not None:
             return admission.binding.connection
-        raise RecipeInvocationHalt(
+        raise ActionProgramInvocationHalt(
             "promise_violation", "Document gateway requires its admitted route"
         )
 
@@ -859,7 +859,7 @@ class _BoundDocumentConverter:
                 effect=effect,
             )
         except CredentialUseRefusal as exc:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 f"{exc}; select an authorized credential before resuming",
             ) from exc

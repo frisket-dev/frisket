@@ -2,12 +2,12 @@
 
 import json
 
-from frisket.ops.base import Recipe, RenderedCall
+from frisket.ops.base import ActionProgram, RenderedCall
 from frisket.engine.store.keyed_updates import observe, reconcile_fields
 from frisket.engine.store.runs import RunResultStore
 
 
-class GroupSummaryProgram(Recipe):
+class GroupSummaryProgram(ActionProgram):
     consumes_resolution = False
     cost_class = "metered"
 

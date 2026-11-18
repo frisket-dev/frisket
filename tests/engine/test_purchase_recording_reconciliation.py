@@ -75,7 +75,7 @@ def test_accounting_failure_halts_without_automatic_repurchase_and_retains_usage
             router,
             concurrency=1,
             authority=open_attempt_authority(project),
-            allow_action_lifecycle_only_recipes=True,
+            allow_action_lifecycle_only_programs=True,
         )
         from frisket.engine.runner.validation import ClaimsGate
 

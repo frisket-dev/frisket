@@ -17,7 +17,7 @@ from frisket.engine.executor.geocode_capability import (
     GeocodeEngineError,
 )
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 
 
 def _route(**overrides):
@@ -217,7 +217,7 @@ def test_pinned_nominatim_keeps_venue_when_key_appears(monkeypatch):
 def test_pinned_opencage_refuses_missing_key_without_fallback(monkeypatch):
     monkeypatch.delenv("OPENCAGE_API_KEY", raising=False)
     calls = []
-    with pytest.raises(RecipeInvocationHalt, match="credential"):
+    with pytest.raises(ActionProgramInvocationHalt, match="credential"):
         asyncio.run(
             _lookup(
                 "London",
@@ -259,7 +259,7 @@ def test_unrouted_and_wrong_transport_refuse_without_http():
     ctx.extras[ATTEMPT_EXTRA] = replace(
         attempt, admission=replace(attempt.admission, route=route)
     )
-    with pytest.raises(RecipeInvocationHalt, match="transport"):
+    with pytest.raises(ActionProgramInvocationHalt, match="transport"):
         asyncio.run(_lookup("Oxford", ctx))
     assert not calls
 

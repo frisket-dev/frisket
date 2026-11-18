@@ -20,7 +20,7 @@ from frisket.execution.provider import enforce_media_duration_limit
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.execution.targets import CAPABILITY_TRANSCRIBE
-from frisket.ops.base import RecipeInvocationHalt, materialize_media_path
+from frisket.ops.base import ActionProgramInvocationHalt, materialize_media_path
 from frisket.sdk.ops import transcribe_engines
 
 
@@ -76,21 +76,21 @@ class AdmittedTranscriber:
             or admission.route.options
             != authored_options(self._spec, CAPABILITY_TRANSCRIBE)
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Transcriber requires its admitted engine route."
             )
         if preview is not None and (
             preview.facts.engine != self._engine
             or preview.support.capability != CAPABILITY_TRANSCRIBE
         ):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation", "Transcriber requires its resolved preview engine."
             )
         transport = transcribe_engines.transcription_transport(
             self._engine, self._spec, ctx
         )
         if admission is None and preview is None and transport != "local":
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Transcription provider requires its admitted route.",
             )

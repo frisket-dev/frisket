@@ -62,7 +62,7 @@ def finalize_prepared_row_publication(
 
 
 def required_publication_fields(
-    recipe: Any,
+    program: Any,
     output_fields: Collection[dict[str, Any]],
 ) -> frozenset[str]:
     """Return fields whose omission is a producer contract violation.
@@ -79,6 +79,6 @@ def required_publication_fields(
         str(field["name"])
         for field in fields
         if sole_output
-        or bool(getattr(recipe, "atomic_output_columns", False))
+        or bool(getattr(program, "atomic_output_columns", False))
         or field.get("publication_required") is True
     )

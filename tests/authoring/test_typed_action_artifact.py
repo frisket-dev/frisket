@@ -42,7 +42,7 @@ def test_typed_artifact_publishes_and_imports_without_recipe_lookup(
         raise AssertionError("typed actions must not consult the recipe registry")
 
     monkeypatch.setattr(
-        "frisket.authoring.action_registry.get_recipe", forbidden_lookup
+        "frisket.authoring.action_registry.get_action_program", forbidden_lookup
     )
     with TestClient(create_app(tmp_path)) as client:
         response = client.post(
@@ -97,10 +97,10 @@ def test_artifact_model_fact_follows_selected_typed_engine(engine, llm):
 
 
 def test_artifact_preserves_registered_plugin_path():
-    from frisket.authoring.plugin_registry import register_recipe, unregister_recipe
-    from frisket.ops.base import Recipe
+    from helpers import install_action_program, remove_action_program
+    from frisket.ops.base import ActionProgram
 
-    class PluginRecipe(Recipe):
+    class PluginProgram(ActionProgram):
         name = "artifact_test"
         version = "plugin-v3"
         llm = False
@@ -114,8 +114,8 @@ def test_artifact_preserves_registered_plugin_path():
             return spec["input_columns"]
 
     kind = "artifact_test.plugin"
-    register_recipe(
-        PluginRecipe(name="artifact_test", version="plugin-v3", llm=False),
+    install_action_program(
+        PluginProgram(name="artifact_test", version="plugin-v3", llm=False),
         action_kind=kind,
         plugin="artifact_test",
     )
@@ -127,7 +127,7 @@ def test_artifact_preserves_registered_plugin_path():
         assert _checks(artifact)["spec.sources"]["source_columns"] == ["story"]
         assert validate_action_artifact(artifact) == artifact
     finally:
-        unregister_recipe(kind)
+        remove_action_program(kind)
 
 
 def test_deterministic_typed_artifact_uses_declared_logical_output():

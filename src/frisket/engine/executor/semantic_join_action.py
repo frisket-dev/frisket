@@ -485,12 +485,12 @@ def finalize_semantic_join(
             )
         return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
 
-    from frisket.ops.base import persisted_recipe_invocation_halt
+    from frisket.ops.base import persisted_action_program_invocation_halt
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run["cancel_requested_at"] is not None:
         return abort(None, None, status="cancelled")
-    if halt := persisted_recipe_invocation_halt(run["params"]):
+    if halt := persisted_action_program_invocation_halt(run["params"]):
         return abort(*halt)
     plan = replace(
         _typed_map_rows_plan(bound),
@@ -900,7 +900,7 @@ def run_typed_semantic_join_action(
 
     def factory(project, router):
         runner = map_runner_factory(project, router)
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         return runner
 
     spec = _ReservedMaprunnerActionSpec(

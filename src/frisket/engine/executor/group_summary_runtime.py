@@ -428,7 +428,7 @@ async def _complete_reduce_group_summaries(
         )
     authority = AttemptAuthority(project, composition=composition)
     commitment = authority.mint(
-        recipe=program,
+        program=program,
         spec=spec,
         run_id=run_id,
         scope=tuple(resolved["source_row_ids"]),
@@ -481,7 +481,7 @@ async def _complete_reduce_group_summaries(
         )
 
     prepared = PreparedRun(
-        recipe=program,
+        program=program,
         sheet_id=write.sheet_id,
         col_map={},
         row_ids=write.row_ids,

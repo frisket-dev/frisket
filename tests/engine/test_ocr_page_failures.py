@@ -13,7 +13,7 @@ from frisket.engine import pdf_render
 from frisket.engine._workers import pdf_render_worker, tesseract_worker
 from frisket.engine.sandbox.shim import SandboxResult
 from frisket.ops import ocr_engines, ocr_engines_local
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 
 @pytest.mark.parametrize("failure", ["storage", "kernel_memory", "document_memory"])
@@ -72,7 +72,9 @@ def test_renderer_environment_failure_crosses_worker_envelope(
     monkeypatch.setattr(ocr_engines, "render_pdf_pages", pdf_render.render_pdf_pages)
     source = tmp_path / "source.pdf"
     source.write_bytes(b"%PDF-1.4\nfake document")
-    with pytest.raises(RecipeInvocationHalt, match="rendering environment failed"):
+    with pytest.raises(
+        ActionProgramInvocationHalt, match="rendering environment failed"
+    ):
         asyncio.run(
             ocr_engines.OcrEngines()._page_images(
                 source,
@@ -129,7 +131,7 @@ def test_tesseract_storage_failure_uses_pipe_when_result_file_cannot_be_written(
 
     monkeypatch.setattr(ocr_engines_local, "tesseract_available", lambda: (True, None))
     monkeypatch.setattr(ocr_engines_local, "run_sandboxed", launch)
-    with pytest.raises(RecipeInvocationHalt, match="OCR environment failed"):
+    with pytest.raises(ActionProgramInvocationHalt, match="OCR environment failed"):
         asyncio.run(ocr_engines_local.ocr_tesseract([tmp_path / "page.png"], tmp_path))
 
 
@@ -142,7 +144,7 @@ def test_missing_local_worker_authority_halts_immediately(
 
     monkeypatch.setattr(ocr_engines_local, "tesseract_available", lambda: (True, None))
     monkeypatch.setattr(ocr_engines_local, "run_sandboxed", launch)
-    with pytest.raises(RecipeInvocationHalt):
+    with pytest.raises(ActionProgramInvocationHalt):
         asyncio.run(
             ocr_engines_local.ocr_rapidocr(None, [], tmp_path)
             if failure == "pool"

@@ -16,7 +16,7 @@ from frisket.engine.executor.census_capability import (
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.execution.purchases import PurchaseAdmission, PurchasePolicyRequired
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "census"
 
@@ -233,15 +233,15 @@ def test_scope_and_second_call_refuse_before_more_egress(monkeypatch):
         return httpx.Response(200, text="")
 
     capability = _capability(handler, row_ids=(1,))
-    with pytest.raises(RecipeInvocationHalt, match="unadmitted"):
+    with pytest.raises(ActionProgramInvocationHalt, match="unadmitted"):
         _lookup(capability, {2: GeoPoint(lat=0, lon=0)})
     assert not calls
     result = _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert isinstance(result[1], RowError)
-    with pytest.raises(RecipeInvocationHalt, match="one whole-scope"):
+    with pytest.raises(ActionProgramInvocationHalt, match="one whole-scope"):
         _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert len(calls) == 1
-    with pytest.raises(RecipeInvocationHalt, match="already bound"):
+    with pytest.raises(ActionProgramInvocationHalt, match="already bound"):
         capability.bind_rows((2,))
 
 
@@ -251,7 +251,7 @@ def test_missing_key_and_precancel_do_not_call_provider(monkeypatch):
     def handler(_request):
         pytest.fail("no request is allowed")
 
-    with pytest.raises(RecipeInvocationHalt, match="Set CENSUS_API_KEY"):
+    with pytest.raises(ActionProgramInvocationHalt, match="Set CENSUS_API_KEY"):
         _lookup(_capability(handler), {1: GeoPoint(lat=0, lon=0)})
     result = _lookup(
         _capability(handler, cancelled=lambda: True), {1: GeoPoint(lat=0, lon=0)}
@@ -360,7 +360,7 @@ def test_changed_credential_class_refuses_before_egress(monkeypatch):
     capability.ctx.credential_use_context = CredentialUseContext(
         cost_posture="org_key", consented_owner=owner, selected_owner=owner
     )
-    with pytest.raises(RecipeInvocationHalt, match="credential"):
+    with pytest.raises(ActionProgramInvocationHalt, match="credential"):
         _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert capability.request_count == 0
 
@@ -415,7 +415,7 @@ def test_unrouted_lookup_refuses_before_http(monkeypatch):
     capability = AdmittedCensusDemographics(ActionContext(http=object())).bind_rows(
         (1,)
     )
-    with pytest.raises(RecipeInvocationHalt, match="admitted provider route"):
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted provider route"):
         _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert capability.request_count == 0
 
@@ -441,7 +441,7 @@ def test_mismatched_route_refuses_before_http(part, monkeypatch):
     capability.ctx.extras[ATTEMPT_EXTRA] = replace(
         attempt, admission=replace(attempt.admission, route=route)
     )
-    with pytest.raises(RecipeInvocationHalt, match="admitted provider route"):
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted provider route"):
         _lookup(capability, {1: GeoPoint(lat=0, lon=0)})
     assert capability.request_count == 0
 
@@ -518,7 +518,7 @@ def test_census_geolookup_parser_accepts_real_headerless_csv():
 
 
 def test_census_suppressed_degree_counts_stay_unknown():
-    recipe = AdmittedCensusDemographics(ActionContext())
+    program = AdmittedCensusDemographics(ActionContext())
     record = {
         var: "100"
         for var in [
@@ -546,7 +546,7 @@ def test_census_suppressed_degree_counts_stay_unknown():
         }
     )
 
-    data = recipe._format_row(
+    data = program._format_row(
         CensusGeo("11", "001", "002001", "1000"),
         record,
         geography="tract",
@@ -570,10 +570,10 @@ def test_census_acs_non_json_key_error_is_readable():
         async def get(self, _url, params):
             return Response()
 
-    recipe = AdmittedCensusDemographics(ActionContext())
+    program = AdmittedCensusDemographics(ActionContext())
     with pytest.raises(RuntimeError, match="Invalid Census API key"):
         asyncio.run(
-            recipe._fetch_acs_group(
+            program._fetch_acs_group(
                 ("11", "001"),
                 "tract",
                 "2024",
@@ -596,10 +596,10 @@ def test_census_acs_non_json_missing_key_error_is_readable():
         async def get(self, _url, params):
             return Response()
 
-    recipe = AdmittedCensusDemographics(ActionContext())
+    program = AdmittedCensusDemographics(ActionContext())
     with pytest.raises(RuntimeError, match="set CENSUS_API_KEY"):
         asyncio.run(
-            recipe._fetch_acs_group(
+            program._fetch_acs_group(
                 ("11", "001"),
                 "tract",
                 "2024",
@@ -618,9 +618,9 @@ def test_census_acs_block_group_fixture_parses():
                 200, json=_fixture_json("acs_2024_dc_block_groups_980000.json")
             )
 
-    recipe = AdmittedCensusDemographics(ActionContext())
+    program = AdmittedCensusDemographics(ActionContext())
     records = asyncio.run(
-        recipe._fetch_acs_group(
+        program._fetch_acs_group(
             ("11", "001", "980000"),
             "block_group",
             "2024",
@@ -630,7 +630,7 @@ def test_census_acs_block_group_fixture_parses():
     )
 
     assert set(records) == {"110019800001"}
-    formatted = recipe._format_row(
+    formatted = program._format_row(
         CensusGeo("11", "001", "980000", "1034"),
         records["110019800001"],
         geography="block_group",

@@ -253,7 +253,7 @@ def test_prepare_run_is_gated_too(project) -> None:
         project,
         _router(),
         authority=UnroutedOnlyAuthority(project),
-        allow_action_lifecycle_only_recipes=True,
+        allow_action_lifecycle_only_programs=True,
     )
     plan = _plan(project, _translate_request(sheet, "deepl"))
     with pytest.raises(NetworkDisabled):

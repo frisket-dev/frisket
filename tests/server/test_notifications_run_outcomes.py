@@ -16,7 +16,7 @@ from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.notifications.run_outcomes import emit_run_outcome_notification
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.search_index import drain_index
 from frisket.server.app import create_app
 from http_test_helpers import (
@@ -398,7 +398,7 @@ def test_halted_run_needs_user_action_and_its_backfill_notifies_its_own_run(
         del self, path, spec, should_cancel
         calls += 1
         if halt and calls == 2:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "local_session_failed", "session exited during queued work"
             )
         return {

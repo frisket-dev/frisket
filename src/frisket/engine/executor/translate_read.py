@@ -12,7 +12,7 @@ from frisket.actions.translate_types import (
 )
 from frisket.actions.types import Row, RowError
 from frisket.execution.attempt import routed_admission_in_scope
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 from frisket.ops.integrations.translation_engine import TranslationEngine
 
@@ -63,7 +63,7 @@ class AdmittedTranslator:
                 or route.target_snapshot.get("transport") != transports[self._engine]
                 or route.options != authored_options(self._options, "translate")
             ):
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation",
                     "Translator requires its admitted engine route.",
                 )
@@ -72,12 +72,12 @@ class AdmittedTranslator:
                 preview.facts.engine != self._engine
                 or preview.support.capability != "translate"
             ):
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "promise_violation",
                     "Translator requires its resolved preview engine.",
                 )
         else:
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "promise_violation",
                 "Translator requires an admitted translation route.",
             )

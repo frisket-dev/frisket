@@ -422,16 +422,16 @@ async def render_selected_pdf_pages(
         raise OcrComparePreviewError(
             "invalid_input_ref", "OCR comparison source is not materialized"
         )
-    recipe = OcrEngines()
+    program = OcrEngines()
     page_count = source.page_count
-    is_pdf = recipe._is_pdf(source.path, source.media)
+    is_pdf = program._is_pdf(source.path, source.media)
     selected_page = source.page
     render_path = source.path
     render_pages = pages
     if is_pdf:
         if page_count is None:
             page_count = _positive_int(
-                recipe._pdf_page_count(source.path, source.blob_hash)
+                program._pdf_page_count(source.path, source.blob_hash)
             )
         if selected_page is not None:
             if pages != [selected_page]:
@@ -470,7 +470,7 @@ async def render_selected_pdf_pages(
         )
         if page_count is not None:
             _reject_pages_past_page_count(pages, page_count)
-    page_paths = await recipe._page_images(
+    page_paths = await program._page_images(
         render_path,
         source.media,
         {"dpi": dpi, **({"_selected_pages": render_pages} if is_pdf else {})},
@@ -514,7 +514,7 @@ async def run_ocr_engine_preview(
     operator's own box and bill nothing.
     """
 
-    recipe = OcrEngines()
+    program = OcrEngines()
     page_paths = [page.path for page in pages]
     usage: dict[str, Any] = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
     if _is_remote_engine(engine):
@@ -531,7 +531,7 @@ async def run_ocr_engine_preview(
         )
     async with AsyncExitStack() as stack:
         if engine == LIGHT_ENGINE:
-            recipe.pool = await stack.enter_async_context(
+            program.pool = await stack.enter_async_context(
                 rapidocr_execution_scope(expected_rows=1, language=language)
             )
         http = None
@@ -539,7 +539,7 @@ async def run_ocr_engine_preview(
             import httpx
 
             http = await stack.enter_async_context(httpx.AsyncClient())
-        output_pages = await recipe.run_engine_on_pages(
+        output_pages = await program.run_engine_on_pages(
             engine,
             page_paths,
             ActionContext(

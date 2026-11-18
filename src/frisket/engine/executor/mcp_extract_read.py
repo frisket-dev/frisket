@@ -15,7 +15,7 @@ from frisket.engine.executor.agent_model_calls import (
     require_agent_attempt,
 )
 from frisket.engine.executor.visual_cuts_read import _settle
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from frisket.ops.mcp_extract import open_mcp_extractor
 
 
@@ -37,7 +37,7 @@ class AdmittedMcpExtractor:
         if self._closed or self._extractor is not None:
             raise RuntimeError("MCP invocation is already started or closed")
         if self._ctx.extras.get("preview"):
-            raise RecipeInvocationHalt(
+            raise ActionProgramInvocationHalt(
                 "preview_unsupported", "MCP tools require an admitted run"
             )
         require_agent_attempt(self._ctx)
@@ -107,7 +107,7 @@ class _BoundMcpExtractor:
             except BaseException as exc:
                 router.retain_unrecorded_error_calls(exc)
                 if not isinstance(exc, Exception) or isinstance(
-                    exc, (LLMError, RecipeInvocationHalt)
+                    exc, (LLMError, ActionProgramInvocationHalt)
                 ):
                     raise
                 failure = RowError(

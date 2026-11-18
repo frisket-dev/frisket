@@ -274,7 +274,7 @@ def consented_run(project):
 
 def _mint(project, run_id, *, scope=(1, 2)):
     return AttemptAuthority(project, composition=_execution_composition()).mint(
-        recipe=TRANSCRIPTION_PLAN.program, spec=SPEC, run_id=run_id, scope=scope
+        program=TRANSCRIPTION_PLAN.program, spec=SPEC, run_id=run_id, scope=scope
     )
 
 
@@ -1785,7 +1785,7 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
         project,
         composition=_execution_composition(),
     ).mint(
-        recipe=TRANSCRIPTION_PLAN.program,
+        program=TRANSCRIPTION_PLAN.program,
         spec=SPEC,
         run_id=run_id,
         scope=tuple(row_ids),

@@ -29,7 +29,7 @@ from frisket.execution.purchases import (
     execute_purchase,
     policy_for_context,
 )
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.ops.media_metadata import image_dimensions as _image_dimensions
 from frisket.ops import ocr_engines_remote as hosted
 from frisket.ops import ocr_engines_local as local
@@ -299,7 +299,7 @@ class OcrEngines:
             except PdfRenderCancelled:
                 raise OcrCancelled("OCR cancelled") from None
             except PdfRenderEnvironmentError as exc:
-                raise RecipeInvocationHalt(
+                raise ActionProgramInvocationHalt(
                     "local_session_failed",
                     "The PDF rendering environment failed; repair local storage or runtime before resuming.",
                 ) from exc

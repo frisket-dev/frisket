@@ -24,7 +24,7 @@ from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.price_book import OperatorBorne, estimate_classify
 from frisket.execution.provider import CompositionFacts
 from frisket.execution.resolver import ResolutionRequest, resolve
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 
 FIELDS = [
     {"name": "类型 / kind", "type": "category", "labels": ["邮件", "Court filing"]},
@@ -238,7 +238,7 @@ async def test_mismatched_route_refuses_before_network(monkeypatch):
     resolution = replace(
         resolution, support=replace(resolution.support, transport="cloudflare.clef")
     )
-    with pytest.raises(RecipeInvocationHalt, match="admitted engine"):
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted engine"):
         await invoke(
             monkeypatch, lambda _: pytest.fail("must not call"), resolution=resolution
         )
@@ -358,7 +358,7 @@ async def test_unconsented_credential_refuses_before_openai_http(monkeypatch):
     resolution = replace(
         resolution, facts=replace(resolution.facts, cost_posture="org_key")
     )
-    with pytest.raises(RecipeInvocationHalt, match="credential"):
+    with pytest.raises(ActionProgramInvocationHalt, match="credential"):
         await invoke(
             monkeypatch,
             lambda _: pytest.fail("must not call with operator key"),

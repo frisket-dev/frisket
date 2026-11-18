@@ -13,7 +13,7 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.engine.executor.action_inventory import _ActionExecutionEnvelope
-from frisket.ops.base import persisted_recipe_invocation_halt
+from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.receipts import FINISHED_RECEIPT_STATUSES, ReceiptStore
@@ -68,7 +68,7 @@ def _run_backfill_terminal_projection(
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run is None or str(run["status"] or "") != "cancelled":
         return "completed", []
-    halt = persisted_recipe_invocation_halt(run["params"])
+    halt = persisted_action_program_invocation_halt(run["params"])
     if halt is None:
         return "cancelled", []
     code, detail = halt

@@ -7,7 +7,7 @@ from frisket.actions.media_options import TranscriptionOptions
 from frisket.actions.types import ColumnRef, Row, RowError
 from frisket.engine.executor.transcription_read import AdmittedTranscriber
 from frisket.engine.store import Project
-from frisket.ops.base import ActionContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, ActionProgramInvocationHalt
 from frisket.sdk.ops import transcribe_engines
 
 
@@ -175,7 +175,7 @@ def test_gateway_requires_route_before_starting_resources(audio, monkeypatch):
 
     monkeypatch.setattr(transcribe_engines, "transcription_execution_scope", scope)
     reader = AdmittedTranscriber(audio[0], engine="whisper-turbo", options={})
-    with pytest.raises(RecipeInvocationHalt, match="admitted route"):
+    with pytest.raises(ActionProgramInvocationHalt, match="admitted route"):
         asyncio.run(reader.start(expected_rows=1))
     assert not called
 

@@ -50,8 +50,8 @@ def test_own_llm_admission_does_not_render_rows(
     }
     plan = model_plan(legacy_spec)
     spec = {**legacy_spec, **plan.spec_dict()}
-    recipe = plan.program
-    original_render = recipe.render
+    program = plan.program
+    original_render = program.render
     renders = 0
 
     def counted_render(values: dict[str, Any], bound_spec: dict[str, Any]) -> Any:
@@ -59,7 +59,7 @@ def test_own_llm_admission_does_not_render_rows(
         renders += 1
         return original_render(values, bound_spec)
 
-    recipe.render = counted_render
+    program.render = counted_render
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys=keys,
@@ -75,7 +75,7 @@ def test_own_llm_admission_does_not_render_rows(
     outcome = resolve_for_action(
         project,
         spec,
-        recipe,
+        program,
         composition=composition,
         scope_row_ids=row_ids,
     )

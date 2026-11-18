@@ -25,7 +25,7 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 import pytest
 
-from frisket.ops.base import RecipeInvocationHalt
+from frisket.ops.base import ActionProgramInvocationHalt
 from helpers import replace_test_source_cell
 
 from frisket.engine.store.execution_routes import RouteRow, RouteStore
@@ -560,7 +560,7 @@ def test_dispatch_separates_availability_from_confirmed_fact_drift(project):
     # The same exact-ID dereference now observes a definition whose operator
     # and egress rows do not satisfy the confirmed promise set. Exact support
     # remains present; this refusal is about the independently hashed facts.
-    with pytest.raises(RecipeInvocationHalt) as exc_info:
+    with pytest.raises(ActionProgramInvocationHalt) as exc_info:
         admit_routed(
             project,
             42,
@@ -606,7 +606,7 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
     bound = BoundTypedActionRequest.bind(
         ACTION_REGISTRY.get(request.action_id), request
     )
-    _, queued, recipe = typed_queued_map_spec(bound)
+    _, queued, program = typed_queued_map_spec(bound)
     spec = queued.runner_spec_fn(bound.params)
     op_id = project.append_op("map", spec)
     run_store = RunResultStore(project)
@@ -619,7 +619,7 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
     )
     work_scope = canonical_work_scope_binding(
         project,
-        recipe,
+        program,
         spec,
         [row_id],
     )
@@ -668,7 +668,7 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
         run_id,
         spec,
         composition=_composition(provider),
-        recipe=recipe,
+        program=program,
         scope=(row_id,),
     )
     assert admitted.route.subject_id == str(run_id)
@@ -685,7 +685,7 @@ def test_dispatch_preserves_direct_work_scope_authorization(project):
         run_id,
         spec,
         composition=_composition(provider),
-        recipe=recipe,
+        program=program,
         scope=(row_id,),
     )
     assert updated.route.id == admitted.route.id

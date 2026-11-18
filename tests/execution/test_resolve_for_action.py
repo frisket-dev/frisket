@@ -47,7 +47,7 @@ from frisket.execution.provider import (
     ExecutionCompositionContext,
     open_execution_composition,
 )
-from frisket.ops.base import Recipe
+from frisket.ops.base import ActionProgram
 from tests.execution.typed_transcription_helpers import (
     transcription_spec,
     transcription_program,
@@ -65,7 +65,7 @@ def _route_rows(project, run_id: int):
 
 
 @dataclass
-class _PlainRecipe(Recipe):
+class _PlainProgram(ActionProgram):
     """Declared NOT to consume resolution: the seam returns None (capability
     dispatch — non-transcription actions proceed exactly as today).
 
@@ -141,7 +141,7 @@ def test_non_marked_recipe_returns_none(audio_project):
         resolve_for_action(
             project,
             _spec(sheet_id),
-            _PlainRecipe(),
+            _PlainProgram(),
             composition=_composition(project),
         )
         is None
@@ -168,7 +168,7 @@ def test_non_marked_llm_recipe_honors_signed_out_saved_cloud_route(audio_project
     outcome = resolve_for_action(
         project,
         {"model": "openai/gpt-5-mini"},
-        _PlainRecipe(),
+        _PlainProgram(),
         composition=composition,
     )
 
@@ -198,7 +198,7 @@ def test_non_marked_llm_recipe_keeps_saved_own_model_router_path(audio_project):
     outcome = resolve_for_action(
         project,
         {"model": "openai/gpt-5-mini"},
-        _PlainRecipe(),
+        _PlainProgram(),
         composition=composition,
     )
 

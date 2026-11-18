@@ -469,7 +469,7 @@ def run_inferred_batch(
         runner.should_cancel = lambda run_id: (
             should_cancel() or (original(run_id) if original else False)
         )
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         return runner
 
     try:

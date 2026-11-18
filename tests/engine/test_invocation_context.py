@@ -267,7 +267,7 @@ def test_spontaneous_child_cancellation_without_host_stop_still_escapes(project,
         should_cancel=lambda _run: False,
         on_progress=observed_progress.append,
     )
-    runner.allow_action_lifecycle_only_recipes = True
+    runner.allow_action_lifecycle_only_programs = True
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(
             run_with_output_claim(runner, plan.spec_dict(), program=plan.program)
@@ -398,7 +398,7 @@ def test_true_outer_cancellation_still_escapes_with_concurrent_intent(
             authority=UnroutedOnlyAuthority(store),
             should_cancel=lambda _run: intent.is_set(),
         )
-        runner.allow_action_lifecycle_only_recipes = True
+        runner.allow_action_lifecycle_only_programs = True
         task = asyncio.create_task(
             run_with_output_claim(runner, plan.spec_dict(), program=plan.program)
         )

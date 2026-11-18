@@ -67,12 +67,12 @@ def _catalog_external_capability(action_kind: str | None) -> str | None:
     return None
 
 
-def _remote_table_engine(recipe: Any, action_kind: str, engine: str) -> str | None:
+def _remote_table_engine(program: Any, action_kind: str, engine: str) -> str | None:
     # Typed authors may name the action and its Params fields freely. The
     # server-bound capability, not those names or request claims, owns its table.
     table = (
         to_markdown_engine_table()
-        if getattr(recipe, "execution_capability", None) == CAPABILITY_TO_MARKDOWN
+        if getattr(program, "execution_capability", None) == CAPABILITY_TO_MARKDOWN
         else {
             "media.ocr": ocr_engine_table(),
             "media.transcribe": TRANSCRIBE_ENGINE_TABLE,
@@ -105,7 +105,7 @@ def _required_action_kind(spec: dict) -> str:
     return action_kind
 
 
-def row_effect_spends_or_meters(recipe: Any, spec: dict, router: Any) -> bool:
+def row_effect_spends_or_meters(program: Any, spec: dict, router: Any) -> bool:
     """The paidness predicate: whether this one
     row's effect can spend provider money or book a hosted meter.
 
@@ -145,31 +145,31 @@ def row_effect_spends_or_meters(recipe: Any, spec: dict, router: Any) -> bool:
     completer. The MapRunner row-effect fence, cap accrual, and the
     fence-closure test all consume this predicate.
     """
-    if recipe.requires_row_effect_checkpoint(spec):
+    if program.requires_row_effect_checkpoint(spec):
         return True
 
     # Lazy: keeps this module's import surface light for its many
     # server/team consumers; the runner has the router loaded anyway.
     from frisket.ai.llm.router import model_call_cannot_go_live
 
-    if recipe.is_llm(spec) and model_call_cannot_go_live(router):
+    if program.is_llm(spec) and model_call_cannot_go_live(router):
         # The model call is proven free. Anything else this row's effect
         # reaches is not, so keep classifying WITHOUT the model provider.
         return (
             remote_capability_for_spec(
-                recipe,
+                program,
                 spec,
                 include_model_provider=False,
             )
             is not None
         )
     return (
-        remote_capability_for_spec(recipe, spec) is not None
-        or recipe.cost_class_for(spec) != "free"
+        remote_capability_for_spec(program, spec) is not None
+        or program.cost_class_for(spec) != "free"
     )
 
 
-def row_effect_cannot_egress(recipe: Any, spec: dict) -> bool:
+def row_effect_cannot_egress(program: Any, spec: dict) -> bool:
     """Whether a fenced row's effect provably cannot reach a remote provider.
 
     Derived from the same classification as :func:`row_effect_spends_or_meters`:
@@ -179,13 +179,13 @@ def row_effect_cannot_egress(recipe: Any, spec: dict) -> bool:
     egress (unknown codes normalize to ``local_session_failed``), so its
     reservations must stand (commit 07556a97).
     """
-    if recipe.requires_row_effect_checkpoint(spec) or recipe.is_llm(spec):
+    if program.requires_row_effect_checkpoint(spec) or program.is_llm(spec):
         return False
-    return remote_capability_for_spec(recipe, spec) is None
+    return remote_capability_for_spec(program, spec) is None
 
 
 def remote_capability_for_spec(
-    recipe: Any,
+    program: Any,
     spec: dict,
     *,
     include_model_provider: bool = True,
@@ -208,7 +208,7 @@ def remote_capability_for_spec(
     canonical_kind = _required_action_kind(spec)
     # Installed typed plugins have project-scoped declarations, not entries in
     # the first-party catalog. This attribute comes from the checked host program.
-    if getattr(recipe, "external_capability", None) == "external:opencorporates":
+    if getattr(program, "external_capability", None) == "external:opencorporates":
         return "external:opencorporates"
     external = _catalog_external_capability(canonical_kind)
     if external is not None:
@@ -221,17 +221,17 @@ def remote_capability_for_spec(
     else:
         engine = spec.get("engine")
         if isinstance(engine, str) and engine:
-            remote = _remote_table_engine(recipe, canonical_kind, engine)
+            remote = _remote_table_engine(program, canonical_kind, engine)
             if remote is not None:
                 return remote
 
     if not include_model_provider:
         return None
     try:
-        recipe_is_llm = bool(recipe.is_llm(spec))
+        program_is_llm = bool(program.is_llm(spec))
     except Exception:
-        recipe_is_llm = False
-    if recipe_is_llm:
+        program_is_llm = False
+    if program_is_llm:
         model = spec.get("model")
         if isinstance(model, str) and model:
             provider = model.split("/", 1)[0]
