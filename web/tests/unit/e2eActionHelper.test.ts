@@ -1,7 +1,7 @@
 import type { APIRequestContext, APIResponse } from '@playwright/test';
 import { describe, expect, test, vi } from 'vitest';
 
-import { runAndWait } from '../e2e/helpers';
+import { runAndWait, typedActionRequest } from '../e2e/helpers';
 
 function response(status: number, body: unknown): APIResponse {
   return {
@@ -43,31 +43,30 @@ function completed(runId = 7): APIResponse {
 }
 
 describe('runAndWait action contract', () => {
-  test('preserves a supplied canonical row scope', async () => {
-    const { request, post } = harness([completed()]);
-
-    await runAndWait(request, 'project-1', {
-      schema_version: 'frisket.action.v2',
-      kind: 'map.ner',
-      capabilities: ['project:write'],
-      row_scope: {
-        sheet_id: 3,
-        selector: { kind: 'exact_membership', membership: { row_ids: [2, 4] } },
-      },
-      params: {
-        input_columns: ['snippet'],
-        labels: ['person'],
-        engine: 'spacy',
-        output_name: 'entities',
-      },
+  test('typedActionRequest builds the registered request with a fresh retry identity', () => {
+    const first = typedActionRequest('map.ner', {
+      sheetId: 3,
+      rowIds: [2, 4],
+      params: { source: ['snippet'], labels: ['person'], engine: 'spacy' },
+      outputNames: { entities: 'entities' },
+    });
+    const second = typedActionRequest('map.ner', {
+      sheetId: 3,
+      params: { source: ['snippet'], labels: ['person'], engine: 'spacy' },
     });
 
-    expect(post).toHaveBeenCalledTimes(1);
-    const action = post.mock.calls[0]?.[1]?.data as Record<string, unknown>;
-    expect(action.row_scope).toEqual({
-      sheet_id: 3,
-      selector: { kind: 'exact_membership', membership: { row_ids: [2, 4] } },
+    expect(first).toEqual({
+      action_id: 'map.ner',
+      scope: { kind: 'sheet_rows', sheet_id: 3, row_ids: [2, 4] },
+      params: { source: ['snippet'], labels: ['person'], engine: 'spacy' },
+      output_names: { entities: 'entities' },
+      idempotency_key: expect.stringMatching(/^e2e-map\.ner:/),
     });
+    expect(second.scope).toEqual({ kind: 'sheet_rows', sheet_id: 3 });
+    expect(second.output_names).toEqual({});
+    expect(second.idempotency_key).not.toBe(first.idempotency_key);
+    expect(typedActionRequest('row.add', { params: { sheet_id: 3, cells: {} } }).scope)
+      .toEqual({ kind: 'project' });
   });
 
   test('posts a registered row scope without translating a retired recipe alias', async () => {
@@ -91,33 +90,6 @@ describe('runAndWait action contract', () => {
       kind: 'sheet_rows',
       sheet_id: 3,
       row_ids: [4, 2],
-    });
-  });
-
-  test('repairs an older schema-v2 row-scoped helper payload', async () => {
-    const { request, post } = harness([completed()]);
-
-    await runAndWait(request, 'project-1', {
-      schema_version: 'frisket.action.v2',
-      kind: 'map.ner',
-      capabilities: ['project:write'],
-      params: {
-        sheet_id: 3,
-        input_columns: ['snippet'],
-        labels: ['person'],
-        engine: 'spacy',
-        output_name: 'entities',
-      },
-    });
-
-    const action = post.mock.calls[0]?.[1]?.data as {
-      params: Record<string, unknown>;
-      row_scope: Record<string, unknown>;
-    };
-    expect(action.params).not.toHaveProperty('sheet_id');
-    expect(action.row_scope).toEqual({
-      sheet_id: 3,
-      selector: { kind: 'all_rows' },
     });
   });
 

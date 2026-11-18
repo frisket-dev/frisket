@@ -8,43 +8,11 @@ import {
   sheetColumns,
   uniqueName,
 } from './helpers';
+import type { HttpColumnRunsPage } from '../../src/generated/openHttpContracts';
 
-type WireColumnRunsResponse = {
-  offset: number;
-  limit: number;
-  total: number;
-  has_more: boolean;
-  next_offset: number | null;
-  current_run: WireColumnRun | null;
-  current_run_loaded: boolean;
-  runs: WireColumnRun[];
-  column: {
-    id: number;
-    name: string;
-    current_run_id: number | null;
-  };
-};
+type ColumnRun = HttpColumnRunsPage['runs'][number];
 
-type WireColumnRun = {
-  run_id: number;
-  action_kind: string;
-  action_name: string;
-  model: string | null;
-  status: string;
-  spec: Record<string, unknown>;
-  total_rows: number;
-  completed_rows: number;
-  failed_rows: number;
-  cost_actual: number;
-  started_at: string;
-  finished_at: string | null;
-  duration_ms: number | null;
-  tokens_in: number | null;
-  tokens_out: number | null;
-  current: boolean;
-};
-
-function wireColumnRun(runId: number): WireColumnRun {
+function wireColumnRun(runId: number): ColumnRun {
   return {
     run_id: runId,
     action_kind: 'map.template',
@@ -62,10 +30,12 @@ function wireColumnRun(runId: number): WireColumnRun {
     tokens_in: null,
     tokens_out: null,
     current: runId === 9001,
+    human_score: { graded: 0, passed: 0 },
+    judge_scores: [],
   };
 }
 
-function columnRunsPage(offset: number, limit: number): WireColumnRunsResponse {
+function columnRunsPage(offset: number, limit: number): HttpColumnRunsPage {
   const total = 25;
   const runIds = Array.from({ length: total }, (_, index) => 9000 + total - index);
   const pageIds = runIds.slice(offset, offset + limit);
@@ -77,10 +47,16 @@ function columnRunsPage(offset: number, limit: number): WireColumnRunsResponse {
     next_offset: offset + pageIds.length < total ? offset + pageIds.length : null,
     current_run: wireColumnRun(9001),
     current_run_loaded: pageIds.includes(9001),
+    latest_run: wireColumnRun(9025),
+    latest_run_loaded: pageIds.includes(9025),
     column: {
       id: 0,
       name: 'topic',
+      type: 'text',
+      ai_generated: true,
+      mixed_origins: false,
       current_run_id: 9001,
+      latest_run_id: 9025,
     },
     runs: pageIds.map(wireColumnRun),
   };
@@ -128,7 +104,9 @@ test('column drawer navigates paged version history', async ({ page }) => {
   const drawer = page.getByTestId('column-drawer');
   await expect(drawer).toBeVisible();
   await expect(drawer.getByTestId('column-versions').locator('li')).toHaveCount(20);
-  await expect(drawer.getByTestId('column-prompt')).toContainText('column history sentinel 9001');
+  // The drawer describes the latest run (ColumnDrawer prefers latestRun over the
+  // older current one), even when only the current run is off the loaded page.
+  await expect(drawer.getByTestId('column-prompt')).toContainText('column history sentinel 9025');
   await expect(drawer.getByTestId('column-versions-page-note')).toContainText('Showing 1-20 of 25');
 
   requestedOffsets.length = 0;
