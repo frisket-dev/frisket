@@ -311,7 +311,12 @@ export function StatusBar({
     {retryConsent && (
       <CostGateModal
         estimate={retryConsent.estimate}
-        message={`Read text again from ${countLabel(retryConsent.pages, 'page')} with OCR?`}
+        message={`Read text again from ${countLabel(retryConsent.pages, 'page')} with OCR?${
+          retryConsent.interruptedPages > 0
+            ? ` ${countLabel(retryConsent.interruptedPages, 'page')} stopped while being read`
+              + ' and may already have been billed by the provider.'
+            : ''
+        }`}
         onCancel={importProgress.cancelRetry}
         onConfirm={() => importProgress.confirmRetry(retryConsent)}
       />

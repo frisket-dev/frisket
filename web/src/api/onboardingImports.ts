@@ -39,6 +39,8 @@ export type ImportSessionStatus = HttpImportSessionStatus & {
 interface ImportPreparationRetryEstimate {
   planToken: string;
   pages: number;
+  /** Pages a restart stopped mid-read; the provider may already have billed them. */
+  interruptedPages: number;
   estimate: RunEstimate;
 }
 
@@ -516,6 +518,7 @@ export function estimateImportPreparationRetry(
   }, (wire): ImportPreparationRetryEstimate => ({
     planToken: wire.plan_token,
     pages: wire.pages,
+    interruptedPages: wire.interrupted_pages,
     estimate: runEstimateFromV1Wire(wire.estimate),
   }));
 }

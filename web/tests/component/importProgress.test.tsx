@@ -238,7 +238,7 @@ describe('persistent import progress controller', () => {
   it('retries failed pages directly when the estimate needs no consent', async () => {
     listImportSessions.mockResolvedValue({ sessions: [failedPages] });
     estimateImportPreparationRetry.mockResolvedValue({
-      planToken: 'retry:plan', pages: 1,
+      planToken: 'retry:plan', pages: 1, interruptedPages: 0,
       estimate: { cost: 0, rows: 1, requires_confirmation: false },
     });
     retryImportPreparation.mockImplementation(async () => {
@@ -261,7 +261,7 @@ describe('persistent import progress controller', () => {
   it('retries failed pages only after consent to that exact estimate', async () => {
     listImportSessions.mockResolvedValue({ sessions: [failedPages] });
     estimateImportPreparationRetry.mockResolvedValue({
-      planToken: 'retry:paid', pages: 3,
+      planToken: 'retry:paid', pages: 3, interruptedPages: 0,
       estimate: { cost: 0.3, rows: 3, requires_confirmation: true, promise_set_hash: 'hash-3' },
     });
     retryImportPreparation.mockResolvedValue({ ...failedPages, failed_pages: 0, error: null });
@@ -278,10 +278,29 @@ describe('persistent import progress controller', () => {
     expect(screen.queryByRole('button', { name: 'Consent to 3 pages' })).not.toBeInTheDocument();
   });
 
+  it('asks before reading interrupted pages again even under the allowance', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockResolvedValue({
+      planToken: 'retry:interrupted', pages: 1, interruptedPages: 1,
+      estimate: { cost: 0.01, rows: 1, requires_confirmation: false },
+    });
+    retryImportPreparation.mockResolvedValue({ ...failedPages, failed_pages: 0, error: null });
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+    const consent = await screen.findByRole('button', { name: 'Consent to 1 pages' });
+    expect(retryImportPreparation).not.toHaveBeenCalled();
+    fireEvent.click(consent);
+
+    await waitFor(() => expect(retryImportPreparation).toHaveBeenCalledWith(
+      'project-1', 'import-1', 'retry:interrupted', null,
+    ));
+  });
+
   it('shows a changed retry estimate and lets the person estimate again', async () => {
     listImportSessions.mockResolvedValue({ sessions: [failedPages] });
     estimateImportPreparationRetry.mockResolvedValue({
-      planToken: 'retry:stale', pages: 1,
+      planToken: 'retry:stale', pages: 1, interruptedPages: 0,
       estimate: { cost: 0, rows: 1, requires_confirmation: false },
     });
     retryImportPreparation.mockRejectedValueOnce(

@@ -81,6 +81,9 @@ class ImportPreparationRetryEstimate(WireModel):
 
     plan_token: str
     failed_pages: int = Field(ge=1)
+    # Pages a restart stopped while they were being read: the provider may
+    # already have billed them, and reading them again is billed again.
+    interrupted_pages: int = Field(ge=0)
     pages: int = Field(ge=0)
     estimate: ActionEstimate
 

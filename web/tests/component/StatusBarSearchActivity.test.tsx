@@ -90,6 +90,7 @@ describe('StatusBar search activity', () => {
     const confirmRetry = vi.fn();
     const consent = {
       importRef: 'import-failed', planToken: 'retry:plan', confirmation: 'hash-2', pages: 2,
+      interruptedPages: 0,
       estimate: {
         cost: 0.02, billed_cost: 20_000, policy_id: 'pdf-ocr-v1', rows: 2,
         requires_confirmation: true, promise_set_hash: 'hash-2',
@@ -111,6 +112,16 @@ describe('StatusBar search activity', () => {
     expect(screen.getByTestId('cost-gate-estimate')).toHaveTextContent('$0.02');
     fireEvent.click(screen.getByTestId('cost-gate-confirm'));
     expect(confirmRetry).toHaveBeenCalledWith(consent);
+
+    view.rerender(<StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
+      importProgress={importProgressController({
+        activities: [activity], retryConsent: { ...consent, interruptedPages: 1 }, confirmRetry,
+      })}
+      onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />);
+    expect(screen.getByText(
+      'Read text again from 2 pages with OCR? 1 page stopped while being read'
+      + ' and may already have been billed by the provider.',
+    )).toBeVisible();
   });
 
   it('does not infer model installation from a hosted edition having teams', () => {
