@@ -457,6 +457,11 @@ Parallel work happens in git worktrees that share the main checkout's
   against `scripts/dev/known_local_failures.txt` when that file exists.
   Targeted runs, `suite.py -- tests/engine -k name`, skip the lock and use at
   most four workers.
+  A full run also stops itself when the pytest log has not grown for 20
+  minutes (`--stall-minutes N`, `0` disables; it prints the last output line
+  and exits 5), and on Linux with `systemd-run` it caps pytest's memory at 70%
+  of physical memory (`--memory-max 11G`, `0` disables), printing one line when
+  the cap is off.
 - `scripts/dev/land.py <pr>` lands one PR: required checks green on the
   current head, mergeable, squash-merge, confirmed MERGED, main checkout
   fast-forwarded, then the lane worktree and branches removed. `--dry-run`

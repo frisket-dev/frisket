@@ -842,3 +842,87 @@ def test_land_wait_stops_at_once_on_a_real_api_error():
         _wait(runner, pauses)
     assert land.RETRY_PAUSE_SECONDS not in pauses
 
+
+# ---------- suite.py watchdog and memory cap ----------
+
+
+def test_stall_watch_fires_only_after_the_log_state_stops_changing():
+    now = [0.0]
+    watch = suite.StallWatch(60, clock=lambda: now[0])
+    assert not watch.stalled((10, 1))
+    now[0] = 50
+    assert not watch.stalled((10, 1))
+    now[0] = 55
+    assert not watch.stalled((20, 2))
+    now[0] = 114
+    assert not watch.stalled((20, 2))
+    now[0] = 115
+    assert watch.stalled((20, 2))
+
+
+def test_tee_terminates_a_silent_process_and_reports_the_last_line(tmp_path):
+    script = "import time; print('tests/a.py::test_x', flush=True); time.sleep(30)"
+    log = tmp_path / "run.log"
+    status, last = suite.tee(
+        [sys.executable, "-c", script],
+        cwd=tmp_path,
+        env={},
+        log=log,
+        stall_seconds=0.4,
+        poll_seconds=0.1,
+    )
+    assert status != 0
+    assert last == "tests/a.py::test_x"
+    assert "test_x" in log.read_text()
+
+
+def test_tee_without_a_stall_returns_the_exit_status(tmp_path):
+    status, last = suite.tee(
+        [sys.executable, "-c", "print('ok')"],
+        cwd=tmp_path,
+        env={},
+        log=tmp_path / "run.log",
+        stall_seconds=5,
+        poll_seconds=0.1,
+    )
+    assert (status, last) == (0, None)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("11G", 11 * 2**30), ("512m", 512 * 2**20), ("1024", 1024), ("0", 0)],
+)
+def test_parse_size(text, expected):
+    assert suite.parse_size(text) == expected
+
+
+def test_memory_limit_defaults_to_seventy_percent_of_physical_memory():
+    assert suite.memory_limit(None, 1000) == 700
+    assert suite.memory_limit("2G", 1000) == 2 * 2**30
+    assert suite.memory_limit("0", 1000) == 0
+    assert suite.memory_limit(None, None) == 0
+
+
+def test_memory_cap_wraps_the_command_in_a_user_scope():
+    command, note = suite.with_memory_cap(["pytest"], 4096, lambda: True)
+    assert command == [
+        "systemd-run",
+        "--user",
+        "--scope",
+        "--collect",
+        "--quiet",
+        "-p",
+        "MemoryMax=4096",
+        "pytest",
+    ]
+    assert "MemoryMax=4096" in note or "MemoryMax=" in note
+
+
+def test_memory_cap_is_off_when_disabled_or_systemd_is_unavailable():
+    assert suite.with_memory_cap(["pytest"], 0, lambda: True) == (
+        ["pytest"],
+        "memory cap: off (disabled)",
+    )
+    command, note = suite.with_memory_cap(["pytest"], 4096, lambda: False)
+    assert command == ["pytest"]
+    assert note.startswith("memory cap: off")
