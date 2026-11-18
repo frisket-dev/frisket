@@ -26,6 +26,12 @@ which projects open in a `seed-status` annotation; a `seed` entry is judged
 like any other when that record says one of its projects does not open. When
 all of them open, or the run has no record (``--no-deps``), it is reported
 but not judged. An entry naming a project the record lacks is stale.
+
+Entries with the `intermittent` reason pass some runs and fail others. Such
+an entry carries a note naming the suspected cause, ``intermittent:<note>``,
+and is reported with its outcome but never judged: a pass does not ask for
+its removal and a failure is not a new one. ``--update`` leaves it alone; it
+leaves the list by hand, when the cause is fixed.
 The script never adds an entry: listing a failure is a hand edit that names
 its reason class. ``--report-only`` prints the same verdict and exits 0 unless
 the reports are incomplete, for runs whose list has not yet been reconciled
@@ -51,9 +57,11 @@ REASONS = (
     "retired-request",
     "stale-expectation",
     "environment",
+    "intermittent",
     "unclassified",
 )
 SEED_PREFIX = "seed:"
+INTERMITTENT_PREFIX = "intermittent:"
 TITLE_JOIN = " › "
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
@@ -90,7 +98,11 @@ class Run:
 
 def reason_class(reason: str) -> str:
     """The class a reason counts under: ``seed:<projects>`` is `seed`."""
-    return "seed" if reason.startswith(SEED_PREFIX) else reason
+    if reason.startswith(SEED_PREFIX):
+        return "seed"
+    if reason.startswith(INTERMITTENT_PREFIX):
+        return "intermittent"
+    return reason
 
 
 def seed_projects(reason: str) -> list[str]:
@@ -98,6 +110,13 @@ def seed_projects(reason: str) -> list[str]:
     if not reason.startswith(SEED_PREFIX):
         return []
     return reason.removeprefix(SEED_PREFIX).split(",")
+
+
+def intermittent_note(reason: str) -> str | None:
+    """The suspected cause an ``intermittent:`` reason names, else None."""
+    if not reason.startswith(INTERMITTENT_PREFIX):
+        return None
+    return reason.removeprefix(INTERMITTENT_PREFIX).strip()
 
 
 @dataclass
@@ -109,6 +128,8 @@ class Verdict:
     still_failing: list[Key]
     # `seed` entries the run cannot judge, with their outcome
     seed_unjudged: list[tuple[Key, str]] = field(default_factory=list)
+    # `intermittent` entries, never judged, with their outcome
+    intermittent: list[tuple[Key, str]] = field(default_factory=list)
 
     @property
     def failed(self) -> bool:
@@ -212,6 +233,12 @@ def check_list(known: KnownList) -> list[str]:
                         f"{where}: a seed entry names the projects its test opens, "
                         f"{SEED_PREFIX}<project>[,<project>...]"
                     )
+            elif reason == "intermittent" or reason.startswith(INTERMITTENT_PREFIX):
+                if not intermittent_note(reason):
+                    problems.append(
+                        f"{where}: an intermittent entry carries a note naming the "
+                        f"suspected cause, {INTERMITTENT_PREFIX}<note>"
+                    )
             elif reason not in REASONS:
                 problems.append(
                     f"{where}: reason {reason!r} is not one of " + ", ".join(REASONS)
@@ -247,7 +274,10 @@ def classify(known: KnownList, run: Run, spec_root: Path = SPEC_ROOT) -> Verdict
         if seed_projects(entries[key])
         and not run.seed_missing(seed_projects(entries[key]))
     }
-    listed = entries.keys() - unjudged - unknown
+    intermittent = {
+        key for key in present if intermittent_note(entries[key]) is not None
+    }
+    listed = entries.keys() - unjudged - unknown - intermittent
     failed = {key for key, outcome in run.outcomes.items() if outcome == "failed"}
     passing = {
         key for key, outcome in run.outcomes.items() if outcome in {"passed", "flaky"}
@@ -264,6 +294,7 @@ def classify(known: KnownList, run: Run, spec_root: Path = SPEC_ROOT) -> Verdict
         flaky=sorted(k for k, o in run.outcomes.items() if o == "flaky"),
         still_failing=sorted(listed & failed),
         seed_unjudged=sorted((key, run.outcomes[key]) for key in unjudged),
+        intermittent=sorted((key, run.outcomes[key]) for key in intermittent),
     )
 
 
@@ -337,6 +368,19 @@ def summary(known: KnownList, run: Run, verdict: Verdict, *, enforcing: bool) ->
             + ")"
         )
         lines.append("")
+    if verdict.intermittent:
+        notes = {
+            (spec, title): intermittent_note(reason)
+            for spec, titles in known.items()
+            for title, reason in titles.items()
+        }
+        section(
+            "Listed under `intermittent`, not judged",
+            [
+                f"`{label(key)}`: {outcome} ({notes[key]})"
+                for key, outcome in verdict.intermittent
+            ],
+        )
     if run.errors:
         section("Errors outside any test", run.errors)
     return "\n".join(lines)
