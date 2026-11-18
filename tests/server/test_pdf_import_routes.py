@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from frisket.contracts.http.pdf_imports import (
+    PdfImportListResponse,
     PdfImportBatchOcrState,
     PdfImportOcrPreviewEstimate,
     PdfImportOcrPreviewStart,
@@ -213,7 +214,7 @@ class _Service:
         return _status()
 
     def list(self, pid):
-        return [_status()]
+        return PdfImportListResponse(items=[_status()])
 
     def status(self, pid, draft_id):
         return _status()

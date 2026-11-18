@@ -10526,8 +10526,14 @@ type HttpPdfImportListResponse_PdfImportStatus = ({
   "upload": (HttpPdfImportListResponse_PdfImportProgress);
 });
 
+type HttpPdfImportListResponse_PdfImportUnreadableDraft = ({
+  "draft_id": (string);
+  "error": (string);
+});
+
 export type HttpPdfImportListResponse = ({
   "items": (Array<(HttpPdfImportListResponse_PdfImportStatus)>);
+  "unreadable"?: (Array<(HttpPdfImportListResponse_PdfImportUnreadableDraft)>);
 });
 
 type HttpPdfImportManifestBatchRequest_PdfImportManifestFile = ({

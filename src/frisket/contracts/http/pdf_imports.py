@@ -230,8 +230,16 @@ class PdfImportStatus(WireModel):
     commit: dict | None
 
 
+class PdfImportUnreadableDraft(WireModel):
+    """A draft of this project whose stored state could not be read."""
+
+    draft_id: str
+    error: str
+
+
 class PdfImportListResponse(WireModel):
     items: list[PdfImportStatus]
+    unreadable: list[PdfImportUnreadableDraft] = Field(default_factory=list)
 
 
 class PdfImportSample(WireModel):

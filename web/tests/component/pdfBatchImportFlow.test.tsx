@@ -185,7 +185,7 @@ function createApi(initial = snapshot()) {
     create: vi.fn(async () => current),
     addManifest: vi.fn(async () => current),
     sealManifest: vi.fn(async () => current),
-    list: vi.fn(async () => [current]),
+    list: vi.fn(async () => ({ items: [current], unreadable: [] })),
     get: vi.fn(async () => current),
     samples: vi.fn(async (_projectId, _draftId, category) => ({
       items: [{

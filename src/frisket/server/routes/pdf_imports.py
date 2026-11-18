@@ -87,8 +87,7 @@ def register_pdf_import_routes(
         responses=responses,
     )
     async def list_pdf_imports(pid: str) -> PdfImportListResponse:
-        items = await await_thread_worker(service.list, pid)
-        return PdfImportListResponse(items=items)
+        return await await_thread_worker(service.list, pid)
 
     @app.get(
         f"{base}/{{draft_id}}",

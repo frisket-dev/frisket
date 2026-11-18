@@ -930,7 +930,7 @@ def create_app(
         enqueue=enqueue_import_page,
         search_preparation=search_preparation_service,
     )
-    pdf_import_service.retire_ordinary_commits(enqueue_import_page)
+    pdf_import_service.settle_commit_inventories(enqueue_import_page)
     register_import_session_routes(
         app,
         service=import_session_service,

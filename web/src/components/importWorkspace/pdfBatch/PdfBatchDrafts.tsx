@@ -22,10 +22,13 @@ function activeDraft(snapshot: PdfImportSnapshot): boolean {
 
 export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: PdfBatchDraftsProps) {
   const loader = useLoader(
-    (signal) => api.list(projectId, { signal }).then((items) => items.filter(activeDraft)),
+    (signal) => api.list(projectId, { signal }).then((list) => ({
+      ...list, items: list.items.filter(activeDraft),
+    })),
     [api, projectId],
   );
-  const drafts = loader.data ?? [];
+  const drafts = loader.data?.items ?? [];
+  const unreadable = loader.data?.unreadable ?? [];
   const [discardId, setDiscardId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [discardError, setDiscardError] = useState<string | null>(null);
@@ -37,9 +40,12 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
     setDiscardError(null);
     try {
       const next = await api.discard(projectId, draft.draft_id);
-      loader.setData(next.state === 'cancelled'
-        ? drafts.filter((item) => item.draft_id !== draft.draft_id)
-        : drafts.map((item) => item.draft_id === draft.draft_id ? next : item));
+      loader.setData({
+        unreadable,
+        items: next.state === 'cancelled'
+          ? drafts.filter((item) => item.draft_id !== draft.draft_id)
+          : drafts.map((item) => item.draft_id === draft.draft_id ? next : item),
+      });
       setDiscardId(null);
     } catch (problem) {
       setDiscardError(errorMessage(problem));
@@ -49,7 +55,7 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
   };
 
   if (loader.loading) return <div className="pdf-batch-drafts-loading" role="status"><LoaderCircle className="spin" size={14} /> Checking unfinished file imports…</div>;
-  if (drafts.length === 0 && !error) return null;
+  if (drafts.length === 0 && unreadable.length === 0 && !error) return null;
 
   return <section className="pdf-batch-drafts" aria-label="Unfinished file imports">
     <header><strong>Unfinished file imports</strong><span>Continue without starting over.</span></header>
@@ -72,6 +78,10 @@ export function PdfBatchDrafts({ projectId, onResume, api = pdfImportsApi }: Pdf
         </div>}
       </article>;
     })}
+    {unreadable.map((entry) => <article key={entry.draft_id} data-testid="pdf-draft-unreadable">
+      <FileText size={17} aria-hidden />
+      <div><strong>A file import could not be read</strong><span>{entry.error}</span></div>
+    </article>)}
     {error && <p role="alert">{error}</p>}
   </section>;
 }

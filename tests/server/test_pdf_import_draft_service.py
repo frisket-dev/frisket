@@ -1243,18 +1243,26 @@ def test_expired_reader_pins_are_reclaimed_without_removing_active_reader(
     assert not active.exists()
 
 
-def test_list_surfaces_a_draft_whose_status_does_not_validate(
+def test_list_reports_a_draft_that_does_not_validate_beside_healthy_drafts(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace, project_id, service = _service(tmp_path, monkeypatch)
+    other = str(workspace.create("Other", project_id="other")["id"])
     healthy, _ = _declared(service, project_id)
     broken, _ = _declared(service, project_id)
-    assert {item.draft_id for item in service.list(project_id)} == {healthy, broken}
-    manifest = workspace.root / ".pdf_import_drafts" / broken / "manifest.json"
-    header = json.loads(manifest.read_text())
+    foreign, _ = _declared(service, other)
+    listed = service.list(project_id)
+    assert {item.draft_id for item in listed.items} == {healthy, broken}
+    assert listed.unreadable == []
+    drafts = workspace.root / ".pdf_import_drafts"
+    header = json.loads((drafts / broken / "manifest.json").read_text())
     header["choices"]["ocr_policy"] = "sometimes"
-    manifest.write_text(json.dumps(header))
-    with pytest.raises(ValueError, match="ocr_policy"):
-        service.list(project_id)
-    manifest.unlink()
-    assert [item.draft_id for item in service.list(project_id)] == [healthy]
+    (drafts / broken / "manifest.json").write_text(json.dumps(header))
+    # Another project's draft that cannot be read at all is not this
+    # project's to report, and never hides this project's drafts.
+    (drafts / foreign / "manifest.json").write_text("{not json")
+    listed = service.list(project_id)
+    assert [item.draft_id for item in listed.items] == [healthy]
+    (entry,) = listed.unreadable
+    assert entry.draft_id == broken and "ocr_policy" in entry.error
+    assert [item.draft_id for item in service.list(other).items] == []

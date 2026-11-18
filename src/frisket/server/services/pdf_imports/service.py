@@ -6,6 +6,7 @@ import contextlib
 import errno
 import hashlib
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -31,7 +32,9 @@ from frisket.contracts.http.pdf_imports import (
     PdfImportReselectResult,
     PdfImportSample,
     PdfImportSamplesResponse,
+    PdfImportListResponse,
     PdfImportStatus,
+    PdfImportUnreadableDraft,
     PdfTextCategory,
 )
 from frisket.engine.store.import_intake import import_admit_lock, import_intake_dir
@@ -59,6 +62,8 @@ from .previews import (
     thumbnail as render_thumbnail,
 )
 from .semantic_setup import bind_semantic_setup_consent, semantic_setup_facts
+from frisket.redaction import safe_error
+
 from .storage import (
     PdfDraftStore,
     PdfImportDraftError,
@@ -67,6 +72,7 @@ from .storage import (
 )
 
 
+LOG = logging.getLogger(__name__)
 MAX_MANIFEST_BATCH = 256
 MAX_UPLOAD_BATCH = 64
 COPY_CHUNK = 1024 * 1024
@@ -172,21 +178,18 @@ class PdfImportService:
         self._semantic_setup_resolver = semantic_setup_resolver
         self._store.purge_expired()
 
-    def retire_ordinary_commits(
+    def settle_commit_inventories(
         self, enqueue_page: Callable[[str, str, int, bool], Any]
     ) -> None:
-        """Finish imports the retired ordinary publisher left awaiting uploads.
+        """Settle every draft whose commit inventory nothing publishes.
 
-        Their published rows stay; the uploads they still awaited are dropped.
+        Each draft settles on its own; one that cannot is logged and shown as
+        needing attention, and never stops the others or the server.
         """
-        for project_id, import_ref in self._store.retire_ordinary_commits():
-            try:
-                project = self._workspace.get(project_id)
-            except (KeyError, ValueError, OSError):
-                continue
+
+        def seal_import(project_id: str, import_ref: str) -> None:
+            project = self._workspace.get(project_id)
             directory = import_intake_dir(project.path, import_ref)
-            if not (directory / "inventory.db").is_file():
-                continue
             with (
                 import_admit_lock(directory),
                 ImportInventory(directory / "inventory.db") as inventory,
@@ -195,6 +198,22 @@ class PdfImportService:
                     inventory.seal()
                 through = inventory.through
             enqueue_page(project_id, import_ref, through, True)
+
+        for directory in self._store.drafts_with_commit_inventory():
+            try:
+                self._store.settle_commit_inventory(directory, seal_import)
+            except Exception as exc:
+                LOG.warning(
+                    "pdf_draft_settlement_failed",
+                    extra={
+                        "draft_id": directory.name,
+                        "error": safe_error(
+                            "pdf_draft_settlement_failed", exc, max_chars=300
+                        ).text,
+                    },
+                )
+                with contextlib.suppress(Exception):
+                    self._store.mark_unsettled(directory)
 
     def create(
         self,
@@ -735,30 +754,58 @@ class PdfImportService:
                 self._save(directory, header)
             return self._snapshot(header, self._stats(directory))
 
-    def list(self, project_id: str) -> list[PdfImportStatus]:
+    def list(self, project_id: str) -> PdfImportListResponse:
+        """This project's active drafts, and those whose stored state fails to read.
+
+        A draft whose owner cannot be read from its header is logged and left
+        out: it may belong to another project.
+        """
         self._purge_expired()
         project = self._workspace.get(project_id)
-        result: list[PdfImportStatus] = []
+        items: list[PdfImportStatus] = []
+        unreadable: list[PdfImportUnreadableDraft] = []
         for path in sorted(self._root.glob("pdf-*/manifest.json")):
-            with self._lock(path.parent):
+            directory = path.parent
+            with self._lock(directory):
                 try:
-                    text = path.read_text("utf-8")
+                    header = json.loads(path.read_text("utf-8"))
+                    owned = (
+                        header["project_id"] == project_id
+                        and header["storage_identity"] == project.storage_identity
+                    )
                 except FileNotFoundError:
                     # Discarded or expired while this listing ran.
                     continue
-                # Drafts are written atomically by this service, so a header
-                # that does not parse or validate is a fault to surface, not
-                # a draft to hide from the person who owns it.
-                header = json.loads(text)
-                if (
-                    header["project_id"] == project_id
-                    and header["storage_identity"] == project.storage_identity
-                    and header["state"] not in {"cancelled", "committed"}
-                ):
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    LOG.warning(
+                        "pdf_draft_unreadable",
+                        extra={
+                            "draft_id": directory.name,
+                            "error": safe_error(
+                                "pdf_draft_unreadable", exc, max_chars=300
+                            ).text,
+                        },
+                    )
+                    continue
+                if not owned or header.get("state") in {"cancelled", "committed"}:
+                    continue
+                try:
                     if self._refresh_preview_jobs(project_id, header):
-                        self._save(path.parent, header)
-                    result.append(self._snapshot(header, self._stats(path.parent)))
-        return result
+                        self._save(directory, header)
+                    items.append(self._snapshot(header, self._stats(directory)))
+                except Exception as exc:
+                    unreadable.append(
+                        PdfImportUnreadableDraft(
+                            draft_id=directory.name,
+                            error=safe_error(
+                                "pdf_draft_unreadable",
+                                exc,
+                                max_chars=300,
+                                fallback_detail="The draft's stored state could not be read",
+                            ).text,
+                        )
+                    )
+        return PdfImportListResponse(items=items, unreadable=unreadable)
 
     def samples(
         self,

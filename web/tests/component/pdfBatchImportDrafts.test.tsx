@@ -23,7 +23,7 @@ describe('PdfBatchDrafts', () => {
     const open = draft();
     const onResume = vi.fn();
     const api = {
-      list: vi.fn(async () => [open, draft('committed')]),
+      list: vi.fn(async () => ({ items: [open, draft('committed')], unreadable: [] })),
       discard: vi.fn(async () => ({ ...open, state: 'cancelled' as const })),
     };
 
@@ -41,5 +41,20 @@ describe('PdfBatchDrafts', () => {
 
     await waitFor(() => expect(api.discard).toHaveBeenCalledWith('project-1', 'draft-open'));
     await waitFor(() => expect(screen.queryByText('Research folder')).not.toBeInTheDocument());
+  });
+
+  it('shows a draft whose stored state could not be read beside healthy drafts', async () => {
+    const api = {
+      list: vi.fn(async () => ({
+        items: [draft()],
+        unreadable: [{ draft_id: 'draft-broken', error: 'ocr_policy is invalid' }],
+      })),
+      discard: vi.fn(),
+    };
+
+    render(<PdfBatchDrafts projectId="project-1" api={api} onResume={vi.fn()} />);
+
+    expect(await screen.findByText('Research folder')).toBeInTheDocument();
+    expect(screen.getByTestId('pdf-draft-unreadable')).toHaveTextContent('ocr_policy is invalid');
   });
 });

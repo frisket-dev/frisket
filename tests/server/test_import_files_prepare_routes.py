@@ -408,7 +408,7 @@ def test_prepare_discards_adopted_pdf_when_request_disconnects(
         ).state
         == "cancelled"
     )
-    assert client.app.state.pdf_import_service.list(project_id) == []
+    assert client.app.state.pdf_import_service.list(project_id).items == []
     assert _private_directories(client, project_id) == []
 
 

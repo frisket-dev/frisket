@@ -7,7 +7,7 @@ import os
 import secrets
 import shutil
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -141,54 +141,77 @@ class PdfDraftStore:
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue
 
-    def retire_ordinary_commits(self) -> list[tuple[str, str]]:
-        """Settle drafts left mid-commit by the retired ordinary publisher.
-
-        Such a draft kept admitting uploads after its first rows were
-        published, and nothing publishes those uploads any more. A draft
-        whose rows were published becomes committed, one whose bytes never
-        left the draft reopens for review, and any other is cancelled.
-        Returns the (project, import) pairs whose imports still await uploads.
-        """
-        unsealed: list[tuple[str, str]] = []
-        for path in self.root.glob("pdf-*/manifest.json"):
-            directory = path.parent
+    def drafts_with_commit_inventory(self) -> list[Path]:
+        """Drafts whose commit still keeps a commit inventory, in name order."""
+        found = []
+        for path in sorted(self.root.glob("pdf-*/manifest.json")):
             try:
-                with self.lock(directory):
-                    header = json.loads(path.read_text("utf-8"))
-                    commit = header.get("commit")
-                    if (
-                        header.get("state") != "committing"
-                        or not isinstance(commit, dict)
-                        or "commit_inventory_path" not in commit
-                        or commit.get("packet_publication") is True
-                    ):
-                        continue
-                    if commit.get("result") is not None:
-                        header["state"] = "committed"
-                        unsealed.append(
-                            (
-                                str(header["project_id"]),
-                                str(commit["result"]["import_ref"]),
-                            )
-                        )
-                    elif commit.get("promotion_target") is None:
-                        with PdfDraftInventory(directory / "inventory.db") as inventory:
-                            inventory.reset_commit_projection()
-                        for suffix in ("", "-wal", "-shm"):
-                            Path(f"{commit['commit_inventory_path']}{suffix}").unlink(
-                                missing_ok=True
-                            )
-                        header["state"] = "open"
-                        header["commit"] = None
-                    else:
-                        header["state"] = "cancelled"
-                        shutil.rmtree(directory / "files", ignore_errors=True)
-                        shutil.rmtree(directory / "cache", ignore_errors=True)
-                    self.save(directory, header)
-            except (OSError, ValueError, KeyError, Timeout):
+                header = json.loads(path.read_text("utf-8"))
+            except (OSError, json.JSONDecodeError):
                 continue
-        return unsealed
+            if keeps_commit_inventory(header):
+                found.append(path.parent)
+        return found
+
+    def settle_commit_inventory(
+        self, directory: Path, seal_import: Callable[[str, str], None]
+    ) -> None:
+        """Settle one draft whose commit inventory nothing publishes.
+
+        Its published rows stay: the import is sealed before the draft is
+        marked committed, so a failure leaves the draft to be settled again.
+        A draft whose bytes never left it reopens for review; one whose files
+        moved without publishing is cancelled.
+        """
+        with self.lock(directory):
+            header = json.loads((directory / "manifest.json").read_text("utf-8"))
+            if not keeps_commit_inventory(header):
+                return
+            commit = header["commit"]
+            if commit.get("result") is not None:
+                seal_import(
+                    str(header["project_id"]), str(commit["result"]["import_ref"])
+                )
+                header["state"] = "committed"
+            elif commit.get("promotion_target") is None:
+                with PdfDraftInventory(directory / "inventory.db") as inventory:
+                    inventory.reset_commit_projection()
+                for suffix in ("", "-wal", "-shm"):
+                    Path(f"{commit['commit_inventory_path']}{suffix}").unlink(
+                        missing_ok=True
+                    )
+                header["state"] = "open"
+                header["commit"] = None
+            else:
+                header["state"] = "cancelled"
+            self.save(directory, header)
+
+    def mark_unsettled(self, directory: Path) -> None:
+        """Show a draft that could not be settled as needing attention.
+
+        Its commit and files stay, so the next settlement tries it again.
+        """
+        with self.lock(directory):
+            header = json.loads((directory / "manifest.json").read_text("utf-8"))
+            if keeps_commit_inventory(header) and header["state"] != "error":
+                header["state"] = "error"
+                self.save(directory, header)
+
+
+def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
+    """Whether a committing draft keeps a commit inventory.
+
+    Such a draft admitted uploads into an import after its first rows were
+    published, and nothing publishes those uploads. This reading of the draft
+    header can go once no workspace holds a draft with a commit inventory.
+    """
+    commit = header.get("commit")
+    return (
+        header.get("state") in {"committing", "error"}
+        and isinstance(commit, dict)
+        and "commit_inventory_path" in commit
+        and commit.get("packet_publication") is not True
+    )
 
 
 __all__ = [
