@@ -356,8 +356,7 @@ class PdfSplitPreparationJobs:
         with PdfSplitPreparationStore(directory / "inventory.db") as store:
             rows = store.db.execute(
                 "SELECT work_key,target_json,status FROM pdf_split_page_work "
-                "WHERE generation=? AND read_locally=1 AND job_id IS NOT NULL "
-                "AND receipt_id IS NULL "
+                "WHERE generation=? AND read_locally=1 AND receipt_id IS NULL "
                 "AND status IN ('completed','failed','cancelled') ORDER BY rowid",
                 (generation,),
             ).fetchall()

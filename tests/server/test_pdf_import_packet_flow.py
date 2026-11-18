@@ -1444,6 +1444,8 @@ def test_pages_read_on_this_machine_leave_one_receipt_for_their_pass(flow):
     ref = committed.json()["job"]["import_ref"]
     session = _read_all(client, pid, ref)
     assert session["ocr_completed"] == 2
+    # The settled pass is recorded by the progress pass after it settles.
+    _session(client, pid, ref)
     project = client.app.state.workspace.get(pid)
     (receipt,) = project.db.execute(
         "SELECT id,status,body FROM receipts WHERE action_kind='media.ocr'"

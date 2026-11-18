@@ -545,24 +545,28 @@ class PdfSplitPreparationStore:
                 ),
             )
 
+    def record_route(self, work: PdfSplitPageWork, *, read_locally: bool) -> None:
+        """Record, before an attempt starts, whether it is read on this machine."""
+        with self.db:
+            self.db.execute(
+                "UPDATE pdf_split_page_work SET read_locally=? "
+                "WHERE work_key=? AND generation=? AND status='running'",
+                (int(read_locally), work.work_key, work.generation),
+            )
+
     def record_started(
-        self,
-        work: PdfSplitPageWork,
-        *,
-        job_id: str,
-        receipt_id: str | None,
-        read_locally: bool,
+        self, work: PdfSplitPageWork, *, job_id: str, receipt_id: str | None
     ) -> None:
         """Record what an accepted attempt is, in one write.
 
         It applies whatever the attempt has reached since, so a page that
-        finished or failed first still names its job, receipt and route.
+        finished or failed first still names its job and receipt.
         """
         with self.db:
             self.db.execute(
-                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=?,read_locally=? "
+                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=? "
                 "WHERE work_key=? AND generation=? AND status<>'pending'",
-                (job_id, receipt_id, int(read_locally), work.work_key, work.generation),
+                (job_id, receipt_id, work.work_key, work.generation),
             )
 
     def release(self, work: PdfSplitPageWork, *, error: str | None = None) -> None:
@@ -1398,11 +1402,13 @@ class PdfSplitPreparationAdapter:
                 # The facts a page's estimate calls free and local: its route
                 # sends nothing off the machine and its reading costs nothing.
                 priced = ConsentEstimate.from_estimate(estimate)
-                read_locally = (
-                    resolved.resolution.facts.egress_class == "none"
-                    and priced.cost_source == "free_local"
-                    and priced.billed_cost == 0
-                )
+                with PdfSplitPreparationStore(self.inventory_path) as store:
+                    store.record_route(
+                        work,
+                        read_locally=resolved.resolution.facts.egress_class == "none"
+                        and priced.cost_source == "free_local"
+                        and priced.billed_cost == 0,
+                    )
                 if parent_receipt_id is not None and import_child_port(self.workspace):
                     child_key, receipt_id = page_attempt_identity(
                         parent_receipt_id, generation, work.work_key, attempt
@@ -1452,16 +1458,19 @@ class PdfSplitPreparationAdapter:
                     responses.append(dict(started.payload))
                     continue
                 job_id = str(started.payload["preview_id"])
-                job = self.preview_runs._registry.get(self.project_id, job_id)
-                with PdfSplitPreparationStore(self.inventory_path) as store:
-                    store.record_started(
-                        work,
-                        job_id=job_id,
-                        receipt_id=job.receipt.receipt_id
-                        if job and job.receipt
-                        else None,
-                        read_locally=read_locally,
-                    )
+                job = None
+                try:
+                    job = self.preview_runs._registry.get(self.project_id, job_id)
+                finally:
+                    # Recorded even when tracking the accepted job fails.
+                    with PdfSplitPreparationStore(self.inventory_path) as store:
+                        store.record_started(
+                            work,
+                            job_id=job_id,
+                            receipt_id=job.receipt.receipt_id
+                            if job and job.receipt
+                            else None,
+                        )
                 responses.append(dict(started.payload))
             except BaseException as exc:
                 if accepted:
