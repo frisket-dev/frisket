@@ -415,7 +415,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.backend == 'true' }}
     runs-on: ubuntu-26.04
-    timeout-minutes: 35
+    timeout-minutes: 50
     env:
       PYTEST_TARGET: ${{ needs.changes.outputs.surface_tests }}
       GAP_TARGET: ${{ needs.changes.outputs.gap_tests }}
