@@ -92,7 +92,7 @@ async function retryOfLiveImport<T>(request: () => Promise<T>): Promise<T> {
   } catch (error) {
     if (error instanceof ApiError && error.status === 409
       && error.message.includes('rows are no longer available')) {
-      throw new Error('This import was undone');
+      throw new Error('This import was undone', { cause: error });
     }
     throw error;
   }
