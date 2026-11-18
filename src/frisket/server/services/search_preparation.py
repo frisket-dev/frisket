@@ -65,6 +65,7 @@ from frisket.server.services.search_preparation_planning import (
 )
 
 if TYPE_CHECKING:
+    from frisket.contracts.http.import_sessions import ImportPreparationRetryEstimate
     from frisket.server.services.pdf_split_preparation_jobs import (
         PdfImportPreparationSummary,
         PdfSplitPreparationJobs,
@@ -596,7 +597,7 @@ class SearchPreparationService:
 
     def estimate_pdf_import_retry(
         self, project_id: str, import_ref: str, *, request_context: Any = None
-    ) -> dict[str, Any]:
+    ) -> ImportPreparationRetryEstimate:
         return self._page_retry(project_id, import_ref).estimate_retry(
             project_id, import_ref, request_context=request_context
         )
@@ -608,7 +609,7 @@ class SearchPreparationService:
         *,
         plan_token: str,
         confirmation: str | None,
-    ) -> Any:
+    ) -> PdfImportPreparationSummary:
         return self._page_retry(project_id, import_ref).retry(
             project_id, import_ref, plan_token=plan_token, confirmation=confirmation
         )

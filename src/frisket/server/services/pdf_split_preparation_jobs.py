@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from filelock import FileLock
 
+from frisket.contracts.http.import_sessions import ImportPreparationRetryEstimate
 from frisket.engine.store.import_intake import (
     import_intake_dir,
     read_import_header,
@@ -365,7 +366,7 @@ class PdfSplitPreparationJobs:
 
     def estimate_retry(
         self, project_id: str, import_ref: str, *, request_context: Any = None
-    ) -> dict[str, Any]:
+    ) -> ImportPreparationRetryEstimate:
         directory, _generation, failed, plan_token = self._retry_scope(
             project_id, import_ref
         )
@@ -377,12 +378,14 @@ class PdfSplitPreparationJobs:
             )
         except PdfImportOcrConsentError as exc:
             raise ValueError(str(exc)) from exc
-        return {
-            "plan_token": plan_token,
-            "failed_pages": len(failed),
-            "pages": int(estimated["pages"]),
-            "estimate": dict(estimated["estimate"]),
-        }
+        return ImportPreparationRetryEstimate.model_validate(
+            {
+                "plan_token": plan_token,
+                "failed_pages": len(failed),
+                "pages": int(estimated["pages"]),
+                "estimate": dict(estimated["estimate"]),
+            }
+        )
 
     def retry(
         self,

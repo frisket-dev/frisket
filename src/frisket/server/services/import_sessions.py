@@ -290,10 +290,9 @@ class ImportSessionService:
     def estimate_preparation_retry(
         self, project_id: str, ref: str, *, request_context: Any = None
     ) -> ImportPreparationRetryEstimate:
-        estimated = self._split_preparation(project_id, ref).estimate_pdf_import_retry(
+        return self._split_preparation(project_id, ref).estimate_pdf_import_retry(
             project_id, ref, request_context=request_context
         )
-        return ImportPreparationRetryEstimate.model_validate(estimated)
 
     def retry_preparation(
         self, project_id: str, ref: str, *, plan_token: str, confirmation: str | None
