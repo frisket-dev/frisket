@@ -8,6 +8,7 @@
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, uniqueName } from './helpers';
 import { seedReviewClassifyRun } from './reviewFixtures';
+import { requireSeededProject } from './seedProjects';
 
 const CSV = `snippet
 "The zoning board approved a variance for the mayor's cousin without discussion."
@@ -64,6 +65,7 @@ test('picker row hides the pending-review badge until it is nonzero, then shows 
 });
 
 test('picker rows sort by recency, most-recently-modified first', async ({ page }) => {
+  requireSeededProject('Local stories');
   const pid = await createProject(page.request, uniqueName('e2e-picker-recency'));
 
   await page.goto('/');

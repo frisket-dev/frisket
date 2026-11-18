@@ -1,15 +1,19 @@
 // Idempotent seeding: the read-only specs (search, review, ...) expect the
 // demo projects from scripts/e2e/seed_demo.py. Seeding makes real model calls
 // (~$0.25), so it runs ONCE into the persistent e2e workspace and is skipped
-// whenever the projects already exist.
-import { execSync } from 'node:child_process';
+// whenever the projects already exist. Either way the setup then opens each
+// seeded project and records which ones are unusable (absent, or created by an
+// incompatible build), so the specs that need them fail at once with that
+// reason while every other spec still runs.
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test as setup } from '@playwright/test';
+import { test as setup, type APIRequestContext } from '@playwright/test';
+import { testPython } from '../support/testPython';
+import { SEED_REMEDY, SEEDED_PROJECTS, type SeedStatus, writeSeedStatus } from './seedProjects';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 const SEED_MARKER_PROJECT = 'People mentioned';
 
 function sleep(ms: number) {
@@ -80,18 +84,75 @@ async function publishSeedToBaseWorkspace() {
   }
 }
 
+async function projectIds(request: APIRequestContext): Promise<Map<string, string>> {
+  const res = await request.get('/api/projects');
+  if (!res.ok()) throw new Error(`GET /api/projects answered HTTP ${res.status()}`);
+  const ids = new Map<string, string>();
+  for (const project of (await res.json()) as Array<{ id: string; name: string }>) {
+    if (!ids.has(project.name)) ids.set(project.name, project.id);
+  }
+  return ids;
+}
+
+// Runs the paid seeder; returns why the projects are missing when it cannot.
+async function seed(): Promise<string | null> {
+  if (process.env.FRISKET_CACHE_MODE === 'replay_strict') {
+    return 'absent, and seeding makes live model calls, which FRISKET_CACHE_MODE=replay_strict forbids';
+  }
+  const backendURL = process.env.FRISKET_E2E_BACKEND_URL ?? 'http://127.0.0.1:8000';
+  try {
+    execFileSync(testPython(), ['scripts/e2e/seed_demo.py', backendURL], {
+      cwd: path.resolve(here, '../../..'),
+      stdio: 'inherit',
+      timeout: 600_000,
+    });
+  } catch (error) {
+    return `seeding failed (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`;
+  }
+  await publishSeedToBaseWorkspace();
+  return null;
+}
+
+async function openFailure(
+  request: APIRequestContext,
+  id: string | undefined,
+  whyAbsent: string | null,
+): Promise<string | null> {
+  if (id === undefined) return whyAbsent ?? 'absent from the seeded workspace';
+  const res = await request.get(`/api/projects/${encodeURIComponent(id)}/sheets`);
+  if (res.ok()) return null;
+  const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+  const detail = typeof body?.detail === 'string' ? body.detail : res.statusText();
+  return `opening it answers HTTP ${res.status()}: ${detail}`;
+}
+
 setup('seed demo projects (once per workspace)', async ({ request }) => {
   setup.setTimeout(600_000); // first-ever seed: model runs + local transcription
-  const res = await request.get('/api/projects');
-  const projects = (await res.json()) as Array<{ name: string }>;
+  let ids = await projectIds(request);
+  let whyAbsent: string | null = null;
   // pin the LAST project the seeder creates, so a partially-failed seed
   // retries instead of being mistaken for done
-  if (projects.some((p) => p.name === 'People mentioned')) return; // seeded
-  const backendURL = process.env.FRISKET_E2E_BACKEND_URL ?? 'http://127.0.0.1:8000';
-  execSync(`uv run python scripts/e2e/seed_demo.py ${shellQuote(backendURL)}`, {
-    cwd: path.resolve(here, '../../..'),
-    stdio: 'inherit',
-    timeout: 600_000,
-  });
-  await publishSeedToBaseWorkspace();
+  if (!ids.has(SEED_MARKER_PROJECT)) {
+    whyAbsent = await seed();
+    ids = await projectIds(request);
+  }
+  const status: SeedStatus = {};
+  for (const name of SEEDED_PROJECTS) {
+    status[name] = await openFailure(request, ids.get(name), whyAbsent);
+  }
+  writeSeedStatus(status);
+  const byReason = new Map<string, string[]>();
+  for (const name of SEEDED_PROJECTS) {
+    const reason = status[name];
+    if (reason) byReason.set(reason, [...(byReason.get(reason) ?? []), name]);
+  }
+  const unusable = [...byReason.values()].flat();
+  if (unusable.length) {
+    const reasons = [...byReason].map(([reason, names]) => `${names.map((n) => `"${n}"`).join(', ')}: ${reason}`);
+    const message =
+      `${unusable.length} of ${SEEDED_PROJECTS.length} seeded e2e projects are unusable, and the specs ` +
+      `that open them will fail at once. ${reasons.join('. ')}. To restore them: ${SEED_REMEDY}.`;
+    console.warn(message);
+    setup.info().annotations.push({ type: 'seed', description: message });
+  }
 });

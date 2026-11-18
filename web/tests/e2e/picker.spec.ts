@@ -3,8 +3,10 @@
 
 import { expect, test } from '@playwright/test';
 import { createProject, importCsv, openProject, projectIdByName, uniqueName } from './helpers';
+import { requireSeededProject } from './seedProjects';
 
 test('the home screen lists the seeded projects', async ({ page }) => {
+  for (const name of ['Local stories', 'Tariff impacts', 'Council audio']) requireSeededProject(name);
   await page.goto('/');
   await expect(page.getByTestId('home-screen')).toBeVisible();
   const list = page.getByTestId('project-list');
