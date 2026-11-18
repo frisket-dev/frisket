@@ -398,7 +398,7 @@ the shard reports and runs `scripts/ci/e2e_known_failures.py`, which writes
 the job summary (totals, new failures, listed tests now passing, counts by
 reason) and, when the verdict fails on `main`, opens or comments on one issue,
 "Nightly browser suite: new failures" (label `nightly-e2e`); the next passing
-night closes it. It costs about 130 runner-minutes a night.
+night closes it. Expect roughly 100 to 130 runner-minutes a night.
 
 `scripts/ci/e2e_known_failures.json` lists the tests known to fail: spec file
 (relative to `web/tests/e2e`) to test title (describe titles and the test
