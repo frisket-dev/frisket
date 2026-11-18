@@ -187,7 +187,7 @@ def test_list_must_be_sorted_and_use_known_reasons():
         "a › x: a seed entry names the projects its test opens, "
         "seed:<project>[,<project>...]",
         "a › y: reason 'flaky' is not one of seed, retired-request, "
-        "stale-expectation, environment, unclassified",
+        "stale-expectation, environment, intermittent, unclassified",
     ]
 
 
@@ -333,3 +333,52 @@ def test_a_stale_seed_entry_is_still_stale(spec_root):
     assert result.stale == [
         (("a.spec.ts", "renamed"), "no test in the run has this title")
     ]
+
+
+RACE = "intermittent:Enter can arrive before the grid canvas takes focus"
+
+
+@pytest.mark.parametrize("outcome", [PASS, FAIL, FLAKY])
+def test_an_intermittent_entry_is_reported_not_judged(spec_root, outcome):
+    known = {"a.spec.ts": {"flips": RACE}}
+    run = kf.parse_reports([report({"a.spec.ts": {"flips": outcome}})])
+    result = kf.classify(known, run, spec_root)
+    assert not result.failed
+    assert result.new == result.fixed == result.still_failing == []
+    state = kf.OUTCOME[outcome["status"]]
+    assert result.intermittent == [(("a.spec.ts", "flips"), state)]
+    text = kf.summary(known, run, result, enforcing=True)
+    assert "| intermittent | 1 | 0 |" in text
+    assert "**Listed under `intermittent`, not judged: 1**" in text
+    assert (
+        f"- `a.spec.ts › flips`: {state} "
+        "(Enter can arrive before the grid canvas takes focus)" in text
+    )
+
+
+@pytest.mark.parametrize("reason", ["intermittent", "intermittent:", "intermittent:  "])
+def test_an_intermittent_entry_must_name_its_suspected_cause(reason):
+    assert kf.check_list({"a": {"x": reason}}) == [
+        "a › x: an intermittent entry carries a note naming the suspected cause, "
+        "intermittent:<note>"
+    ]
+    assert kf.check_list({"a": {"x": RACE}}) == []
+
+
+def test_update_keeps_a_passing_intermittent_entry(tmp_path, monkeypatch, spec_root):
+    monkeypatch.setattr(kf, "SPEC_ROOT", spec_root)
+    known = {"a.spec.ts": {"fixed": "stale-expectation", "flips": RACE}}
+    run = report({"a.spec.ts": {"fixed": PASS, "flips": PASS}})
+    code, after = _main(tmp_path, known, [run], "--update")
+    assert code == 0
+    assert after == {"a.spec.ts": {"flips": RACE}}
+    assert _main(tmp_path, after, [run])[0] == 0
+
+
+def test_an_intermittent_entry_for_a_missing_test_is_stale(spec_root):
+    known = {"a.spec.ts": {"renamed": RACE}}
+    result = verdict(known, report({"a.spec.ts": {"ok": PASS}}), spec_root=spec_root)
+    assert result.stale == [
+        (("a.spec.ts", "renamed"), "no test in the run has this title")
+    ]
+    assert result.failed
