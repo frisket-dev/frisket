@@ -149,14 +149,6 @@
   "audio playback survives a run while new grid starts wait for terminal progress": "seed:Council audio",
   "audio row controls the one app-level player and actually plays": "seed:Council audio"
  },
- "mentions-panel.spec.ts": {
-  "1 — Mentions CTA opens the map.ner drawer, and a real spaCy run fills the panel": "stale-expectation",
-  "1b — the same map.ner drawer opened from the Act ribbon fills the Mentions panel": "stale-expectation",
-  "2 — a multi-form group discloses its spellings; grouped and exact filters match their counts": "stale-expectation",
-  "4 — a view keeps its entity_eq mention filter through leave and restore": "stale-expectation",
-  "5 — a legacy entity column offers Rebuild and shows none of its old items": "stale-expectation",
-  "6 — filtering by a group that only exists on page 2 keeps both pages loaded": "stale-expectation"
- },
  "notifications-settings.spec.ts": {
   "notification settings manages channels routes digests and delivery health": "stale-expectation"
  },
