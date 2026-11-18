@@ -21,8 +21,8 @@ vi.mock('../../src/media/PdfViewer', () => ({
 }));
 
 import { blobRef } from '../support/evidenceFixtures';
-import { EvidenceViewer } from '../../src/components/EvidenceViewer';
-import type { EvidenceViewerPayload } from '../../src/api/types';
+import { CitationViewer } from '../../src/components/CitationViewer';
+import type { CitationViewerPayload } from '../../src/api/types';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -42,7 +42,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const jsonLeafPayload: EvidenceViewerPayload = {
+const jsonLeafPayload: CitationViewerPayload = {
   schema_version: 'frisket.evidence_viewer.v1',
   link: {
     id: 1,
@@ -184,9 +184,9 @@ const jsonLeafPayload: EvidenceViewerPayload = {
 };
 
 function staleTextPayload(
-  artifactFields: Partial<EvidenceViewerPayload['artifacts'][number]> = {},
-): EvidenceViewerPayload {
-  const source: EvidenceViewerPayload['artifacts'][number] = {
+  artifactFields: Partial<CitationViewerPayload['artifacts'][number]> = {},
+): CitationViewerPayload {
+  const source: CitationViewerPayload['artifacts'][number] = {
     ...structuredClone(jsonLeafPayload.artifacts[1]),
     text_context_status: 'stale',
     recovery_status: null,
@@ -204,11 +204,11 @@ function staleTextPayload(
   };
 }
 
-describe('EvidenceViewer JSON leaves', () => {
+describe('CitationViewer JSON leaves', () => {
   it('renders valid scalar/null JSON leaves without normalizing them into records', async () => {
     getEvidenceViewer.mockResolvedValue(jsonLeafPayload);
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     const detailsToggle = await screen.findByTestId('evidence-details-toggle');
     expect(screen.queryByTestId('evidence-viewer-detail-pane')).not.toBeInTheDocument();
@@ -228,7 +228,7 @@ describe('EvidenceViewer JSON leaves', () => {
       link: { ...jsonLeafPayload.link, role: 'source_provenance' },
     });
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     expect(await screen.findByRole('heading', { name: 'Source provenance' })).toBeVisible();
     expect(screen.getByTestId('evidence-provenance-notice')).toHaveTextContent(
@@ -251,7 +251,7 @@ describe('EvidenceViewer JSON leaves', () => {
       warnings: ['no_word_stream', 'internal_only_warning'],
     });
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     expect(await screen.findByTestId('evidence-text-body')).toHaveTextContent(source.text_context.text);
     expect(screen.queryByText('no_word_stream')).not.toBeInTheDocument();
@@ -261,11 +261,11 @@ describe('EvidenceViewer JSON leaves', () => {
   });
 });
 
-describe('EvidenceViewer stale text recovery', () => {
+describe('CitationViewer stale text recovery', () => {
   it('does not try to locate a stale passage while mounting the viewer', async () => {
     getEvidenceViewer.mockResolvedValue(staleTextPayload());
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     expect(await screen.findByRole('button', { name: 'Try to find this passage' })).not.toBeNull();
     expect(getEvidenceViewer).toHaveBeenCalledTimes(1);
@@ -273,15 +273,15 @@ describe('EvidenceViewer stale text recovery', () => {
   });
 
   it('only requests current-source location after the button is clicked', async () => {
-    let finishRecovery: ((payload: EvidenceViewerPayload) => void) | undefined;
-    const recoveryResponse = new Promise<EvidenceViewerPayload>((resolve) => {
+    let finishRecovery: ((payload: CitationViewerPayload) => void) | undefined;
+    const recoveryResponse = new Promise<CitationViewerPayload>((resolve) => {
       finishRecovery = resolve;
     });
     getEvidenceViewer
       .mockResolvedValueOnce(staleTextPayload())
       .mockReturnValueOnce(recoveryResponse);
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     const button = await screen.findByRole('button', { name: 'Try to find this passage' });
     button.click();
@@ -324,7 +324,7 @@ describe('EvidenceViewer stale text recovery', () => {
         },
       }));
 
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" mode="pane" onClose={() => {}} />);
 
     (await screen.findByRole('button', { name: 'Try to find this passage' })).click();
     expect((await screen.findByTestId('evidence-text-recovery-located')).textContent)
@@ -336,7 +336,7 @@ describe('EvidenceViewer stale text recovery', () => {
 
 
 describe('Ask evidence locations', () => {
-  function citedPagePayload(): EvidenceViewerPayload {
+  function citedPagePayload(): CitationViewerPayload {
     const source = structuredClone(jsonLeafPayload.artifacts[0]);
     source.spans[0].selector = { page_start: 2, page_end: 2 };
     source.pages = [
@@ -348,7 +348,7 @@ describe('Ask evidence locations', () => {
 
   it('opens the cited page and highlights only its supporting region', async () => {
     getEvidenceViewer.mockResolvedValue(citedPagePayload());
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" mode="pane" defaultShowDetails={false} onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" mode="pane" defaultShowDetails={false} onClose={() => {}} />);
     expect(await screen.findByText('Page 2', { exact: true })).toBeVisible();
     expect(screen.queryByText('Page 1', { exact: true })).not.toBeInTheDocument();
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
@@ -356,7 +356,7 @@ describe('Ask evidence locations', () => {
 
   it('shows the source without old highlights when the cited value has changed', async () => {
     getEvidenceViewer.mockResolvedValue(citedPagePayload());
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" highlight={false} mode="pane" defaultShowDetails={false} onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" scopeSpanId="evidence_span:page" highlight={false} mode="pane" defaultShowDetails={false} onClose={() => {}} />);
     expect(await screen.findByText('Page 2', { exact: true })).toBeVisible();
     expect(screen.getByText('Page 1', { exact: true })).toBeVisible();
     expect(screen.queryByTestId('evidence-region-highlight')).not.toBeInTheDocument();
@@ -365,7 +365,7 @@ describe('Ask evidence locations', () => {
 
 
 describe('search evidence locations', () => {
-  function phrasePayload(): EvidenceViewerPayload {
+  function phrasePayload(): CitationViewerPayload {
     const source = structuredClone(jsonLeafPayload.artifacts[0]);
     const span = source.spans[0];
     source.artifact_ref.blob = blobRef('/source.pdf');
@@ -380,7 +380,7 @@ describe('search evidence locations', () => {
 
   it('highlights every selected phrase span on the primary PDF page, excluding unrelated regions', async () => {
     getEvidenceViewer.mockResolvedValue(phrasePayload());
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
+    render(<CitationViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
       scopeSpanIds={['phrase:first', 'phrase:second']} mode="pane" onClose={() => {}} />);
     expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(2);
@@ -389,7 +389,7 @@ describe('search evidence locations', () => {
 
   it('keeps a primary span selected even when a match list contains only its companions', async () => {
     getEvidenceViewer.mockResolvedValue(phrasePayload());
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
+    render(<CitationViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second"
       scopeSpanIds={['phrase:first']} mode="pane" onClose={() => {}} />);
     expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(2);
@@ -397,7 +397,7 @@ describe('search evidence locations', () => {
 
   it('preserves single-span PDF highlights for existing callers', async () => {
     getEvidenceViewer.mockResolvedValue(phrasePayload());
-    render(<EvidenceViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second" mode="pane" onClose={() => {}} />);
+    render(<CitationViewer evidenceLinkId="evidence-link:1" scopeSpanId="phrase:second" mode="pane" onClose={() => {}} />);
     expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '2');
     expect(screen.getAllByTestId('evidence-region-highlight')).toHaveLength(1);
   });
@@ -410,7 +410,7 @@ it('opens a retained source at its requested original page without fetching its 
     { ...payload.artifacts[0], page_count: 8, source_cell: null,
       artifact_ref: { ...payload.artifacts[0].artifact_ref, blob: blobRef('/api/original.pdf') } },
   ];
-  render(<EvidenceViewer evidenceLinkId="evidence-link:1" initialPayload={payload} initialPage={3} mode="pane" onClose={vi.fn()} />);
+  render(<CitationViewer evidenceLinkId="evidence-link:1" initialPayload={payload} initialPage={3} mode="pane" onClose={vi.fn()} />);
   expect(await screen.findByTestId('native-pdf-viewer')).toHaveAttribute('data-current-page', '3');
   expect(getEvidenceViewer).not.toHaveBeenCalled();
 });

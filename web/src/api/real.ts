@@ -37,7 +37,7 @@ import { createActionEstimateValidationApi } from './actionEstimateValidation';
 import { createActionPreviewApi } from './actionPreviewRuns';
 import { createActionHistoryApi } from './actionHistory';
 import { createHistoryReviewApi } from './historyReview';
-import { createProjectEvidenceApi } from './projectEvidence';
+import { createProjectCitationsApi } from './projectCitations';
 import { createInstanceRuntimeApi } from './instanceRuntime';
 import { createAdminOverviewApi } from './adminOverview';
 import { createAdminBrowserApi } from './adminBrowser';
@@ -362,7 +362,7 @@ export function createProjectApi(projectId: string) {
     createActionHistoryApi(projectId),
     createGoogleSheetsExportApi({ v1ActionSession }, projectId),
     scratchComparisons,
-    createProjectEvidenceApi(projectId),
+    createProjectCitationsApi(projectId),
     createRuntimeProjectionsApi(projectId),
     // Arrow is a browser binary protocol, not a JSON contract: keep its error
     // identity on the public API while the raw owner keeps route and decoder

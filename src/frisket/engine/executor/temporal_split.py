@@ -53,7 +53,7 @@ from frisket.engine.executor.temporal_finder_provenance import (
 )
 from frisket.engine.executor.temporal_transcripts import (
     ResolvedTranscriptSource,
-    persist_projected_transcript_evidence,
+    persist_projected_transcript_citations,
     project_transcript,
 )
 from frisket.engine.store import Project
@@ -631,7 +631,7 @@ def publish_split_clip(
         transcript_name = transcript_names.get(transcript.transcript_column_id)
         if transcript_name is None:
             continue
-        projected = persist_projected_transcript_evidence(
+        projected = persist_projected_transcript_citations(
             project,
             transcript=transcript,
             projection=projection,

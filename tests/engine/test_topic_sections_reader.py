@@ -43,7 +43,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.contracts.temporal_values import TimelineRangesValue
 from frisket.features.topic_segmentation import engines
 from frisket.features.topic_segmentation.contracts import SegmentationExecutionError
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from tests.engine.test_temporal_finder_actions import (
     _ExactTopicSegmenter,
     _seed_timestamped_transcripts,
@@ -260,7 +260,7 @@ def test_mixed_capabilities_bind_engine_only_to_declared_target(
 
     async def check():
         async with plan.program.execution_scope(
-            plan.spec_dict(), OpContext(project=project), expected_rows=1
+            plan.spec_dict(), ActionContext(project=project), expected_rows=1
         ):
             owner = plan.program._capability_bindings.get()[0]
             assert owner._engine == topic_engine

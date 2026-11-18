@@ -4,11 +4,11 @@ import json
 import uuid
 
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    record_evidence_link,
+    list_cell_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
@@ -39,7 +39,7 @@ def _attach_whole_cell_evidence(
         span_kind="whole",
         snippet="cell evidence",
     )
-    return record_evidence_link(
+    return record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=subject_ref,
@@ -291,7 +291,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
         ),
     ]
 
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=current_ref,
@@ -319,7 +319,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
             for index, span in enumerate(spans)
         ],
     )
-    unrelated_same_cell = record_evidence_link(
+    unrelated_same_cell = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={
@@ -355,7 +355,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
     _assert_prefixed_uuid(spans[1]["stable_id"], "source_span:")
     _assert_prefixed_uuid(link["stable_id"], "evidence_link:")
 
-    cell_payload = list_cell_evidence(
+    cell_payload = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -370,7 +370,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
         f"/evidence/links/{link['stable_id']}/viewer"
     )
 
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project, link["stable_id"], project_id="project-evidence"
     )
     assert viewer["schema_version"] == "frisket.evidence_viewer.v1"
@@ -500,7 +500,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
         == 8
     )
 
-    active_after_edit = list_cell_evidence(
+    active_after_edit = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -509,7 +509,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
     )
     assert active_after_edit["links"] == []
     assert active_after_edit["stale_count"] == 1
-    stale_after_edit = list_cell_evidence(
+    stale_after_edit = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -519,7 +519,7 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
     )
     assert [item["status"] for item in stale_after_edit["links"]] == ["stale"]
 
-    stale_viewer = resolve_evidence_viewer(
+    stale_viewer = resolve_citation_viewer(
         project, link["stable_id"], project_id="project-evidence"
     )
     assert stale_viewer["link"]["status"] == "stale"
@@ -546,7 +546,7 @@ def test_facade_edit_stales_exact_current_evidence(make_project) -> None:
         [{"row_id": row_id, "column_id": column_id, "value": "corrected"}]
     )
 
-    evidence = list_cell_evidence(
+    evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -608,7 +608,7 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
     )
     assert edited.status == "completed", edited.errors
     edit_op_id = edited.op_ids[0]
-    stale = resolve_evidence_viewer(project, link["stable_id"])["link"]
+    stale = resolve_citation_viewer(project, link["stable_id"])["link"]
     assert stale["status"] == "stale"
     assert stale["stale_reason"] == "manual_cell_edit"
 
@@ -622,11 +622,11 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         project_id="project-edit-evidence-history",
     )
     assert undone.status == "completed", undone.errors
-    restored = resolve_evidence_viewer(project, link["stable_id"])["link"]
+    restored = resolve_citation_viewer(project, link["stable_id"])["link"]
     assert restored["status"] == "active"
     assert restored["stale_reason"] is None
     assert restored["stale_at"] is None
-    untouched = resolve_evidence_viewer(project, already_stale["stable_id"])["link"]
+    untouched = resolve_citation_viewer(project, already_stale["stable_id"])["link"]
     assert untouched["status"] == "stale"
     assert untouched["stale_reason"] == "older_change"
     assert untouched["stale_at"] == "2026-01-02 03:04:05"
@@ -641,7 +641,7 @@ def test_typed_edit_undo_redo_restores_exact_evidence_status(make_project) -> No
         project_id="project-edit-evidence-history",
     )
     assert redone.status == "completed", redone.errors
-    restaled = resolve_evidence_viewer(project, link["stable_id"])["link"]
+    restaled = resolve_citation_viewer(project, link["stable_id"])["link"]
     assert restaled["status"] == "stale"
     assert restaled["stale_reason"] == "manual_cell_edit"
     assert restaled["stale_at"] is not None

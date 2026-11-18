@@ -22,10 +22,10 @@ import {
   COST_GATE_VIEW_DESCRIPTOR,
   EMBEDDINGS_DESCRIPTOR,
   ENTITY_CONNECTIONS_VIEW_DESCRIPTOR,
-  ENTITY_EVIDENCE_VIEW_DESCRIPTOR,
+  ENTITY_CITATIONS_VIEW_DESCRIPTOR,
   FRIENDLY_FILTERS_DESCRIPTOR,
   ENTITY_SUMMARY_VIEW_DESCRIPTOR,
-  EVIDENCE_VIEW_DESCRIPTOR,
+  CITATION_VIEW_DESCRIPTOR,
   GRAPH_NEIGHBORHOOD_VIEW_DESCRIPTOR,
   GRID_VIEW_DESCRIPTOR,
   HISTORY_DESCRIPTOR,
@@ -36,7 +36,7 @@ import {
   PROVENANCE_PANEL_DESCRIPTOR,
   REVIEW_QUEUE_VIEW_DESCRIPTOR,
   ROW_DELETE_CONFIRM_VIEW_DESCRIPTOR,
-  ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR,
+  ROW_INSPECTOR_CITATIONS_SECTION_DESCRIPTOR,
   VIEWS_DESCRIPTOR,
   SOURCES_DESCRIPTOR,
   SOURCE_HEALTH_VIEW_DESCRIPTOR,
@@ -283,11 +283,11 @@ export function WorkbenchCommandButtonFrame({
   );
 }
 
-export function RowInspectorEvidenceSectionFrame({ children }: { children: ReactNode }) {
-  const rowDetailPlacement = placementForHost(ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR, 'rowDetail');
+export function RowInspectorCitationsSectionFrame({ children }: { children: ReactNode }) {
+  const rowDetailPlacement = placementForHost(ROW_INSPECTOR_CITATIONS_SECTION_DESCRIPTOR, 'rowDetail');
   return (
     <WorkbenchContributionFrame
-      descriptor={ROW_INSPECTOR_EVIDENCE_SECTION_DESCRIPTOR}
+      descriptor={ROW_INSPECTOR_CITATIONS_SECTION_DESCRIPTOR}
       host="rightInspector"
       className=""
       dataAttributes={{
@@ -370,7 +370,7 @@ export function ImageGalleryWorkbenchViewFrame({
   );
 }
 
-export function EvidenceWorkbenchViewFrame({
+export function CitationWorkbenchViewFrame({
   host = 'modalOrPeek',
   children,
 }: {
@@ -378,7 +378,7 @@ export function EvidenceWorkbenchViewFrame({
   children: ReactNode;
 }) {
   return (
-    <WorkbenchContributionFrame descriptor={EVIDENCE_VIEW_DESCRIPTOR} host={host}>
+    <WorkbenchContributionFrame descriptor={CITATION_VIEW_DESCRIPTOR} host={host}>
       {children}
     </WorkbenchContributionFrame>
   );
@@ -501,10 +501,10 @@ export function EntityDetailSummaryTabFrame({ children }: { children: ReactNode 
   );
 }
 
-export function EntityDetailEvidenceTabFrame({ children }: { children: ReactNode }) {
+export function EntityDetailCitationsTabFrame({ children }: { children: ReactNode }) {
   return (
     <WorkbenchContributionFrame
-      descriptor={ENTITY_EVIDENCE_VIEW_DESCRIPTOR}
+      descriptor={ENTITY_CITATIONS_VIEW_DESCRIPTOR}
       host="entityDetail"
       className="entity-detail-contribution-tab"
     >

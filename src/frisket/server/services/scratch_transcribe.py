@@ -171,7 +171,7 @@ def paid_transcribe_scratch_plan(
                     end_ms=round(effective_seconds * 1000),
                     out_path=selected,
                 )
-            ctx = context.op_context()
+            ctx = context.action_context()
             engine_id = transcribe_engines.canonical_transcription_engine(
                 params.engine.root
             )

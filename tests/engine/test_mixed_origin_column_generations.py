@@ -14,8 +14,8 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    record_evidence_link,
+    list_cell_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -23,7 +23,7 @@ from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.server.services.sheet_grid import _sheet_data_payload
 from runner_test_helpers import run_with_output_claim
 from tests.action_test_helpers import run_typed_map_request, typed_map_request
@@ -487,7 +487,7 @@ class _MixedKindRecipe(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         row_id = int(ctx.extras["row_id"])
         if row_id == spec.get("error_row_id"):
@@ -686,7 +686,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
         span_kind="text",
         quote="first generation evidence",
     )
-    evidence_link = record_evidence_link(
+    evidence_link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=prior_error_ref,
@@ -844,7 +844,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
         outcome="failed",
     )
 
-    while_error_active = list_cell_evidence(
+    while_error_active = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=error_row,
@@ -870,7 +870,7 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
         for name, column_id in columns.items()
     }
     assert restored == before
-    restored_evidence = list_cell_evidence(
+    restored_evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=error_row,

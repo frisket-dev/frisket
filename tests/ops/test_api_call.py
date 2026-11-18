@@ -34,11 +34,11 @@ from frisket.engine.executor.http_request import (
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store import Project
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
-def _ctx(handler, *, secrets=None) -> OpContext:
-    return OpContext(
+def _ctx(handler, *, secrets=None) -> ActionContext:
+    return ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         project=SimpleNamespace(secret_plaintext=(secrets or {}).get),
     )
@@ -222,7 +222,7 @@ def test_missing_secret_errors_cell():
         "url": "https://api.test.example/x",
         "headers": [["Authorization", "Bearer {{secret.NOPE}}"]],
     }
-    out = _run({}, spec, OpContext(http=None, project=None))
+    out = _run({}, spec, ActionContext(http=None, project=None))
     assert out["error_code"] == "missing_secret"
     assert "NOPE" not in out["error"]  # secret NAME leaks neither value nor id
 
@@ -523,7 +523,7 @@ def test_rate_limiter_spaces_requests_with_shared_run_state(monkeypatch):
     monkeypatch.setattr(
         "frisket.engine.executor.http_request.asyncio.sleep", fake_sleep
     )
-    ctx = OpContext(http=None, extras={"run_state": {}})
+    ctx = ActionContext(http=None, extras={"run_state": {}})
 
     async def pace_three() -> None:
         await _pace_request(ctx, 2.0)
@@ -538,12 +538,12 @@ def test_rate_limiter_spaces_requests_with_shared_run_state(monkeypatch):
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])
 def test_rate_limiter_rejects_non_finite_values(value):
     with pytest.raises(ValueError, match="invalid_params"):
-        asyncio.run(_pace_request(OpContext(http=None), value))
+        asyncio.run(_pace_request(ActionContext(http=None), value))
 
 
 def test_rate_limiter_rejects_non_finite_pacing_interval():
     with pytest.raises(ValueError, match="invalid_params"):
-        asyncio.run(_pace_request(OpContext(http=None), 1e-309))
+        asyncio.run(_pace_request(ActionContext(http=None), 1e-309))
 
 
 def test_rate_limiter_returns_false_on_cancellation_during_wait(monkeypatch):
@@ -564,7 +564,7 @@ def test_rate_limiter_returns_false_on_cancellation_during_wait(monkeypatch):
     monkeypatch.setattr(
         "frisket.engine.executor.http_request.asyncio.sleep", fake_sleep
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=None,
         extras={"run_state": {}, "cancelled": lambda: cancelled["value"]},
     )
@@ -588,7 +588,7 @@ def test_execute_cooperative_cancel_returns_cell_without_egress(_allow_egress):
         calls.append(1)
         return httpx.Response(200, json={"ok": True})
 
-    ctx = OpContext(
+    ctx = ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras={"cancelled": lambda: True},
     )

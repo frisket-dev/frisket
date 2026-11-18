@@ -4,16 +4,16 @@ import type { GridFilterSpec, GridSortSpec, SheetMeta } from '../api/types';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import type {
   DocumentViewState,
-  EvidenceViewerFocus,
-  EvidenceViewerHost,
+  CitationViewerFocus,
+  CitationViewerHost,
   OpenSplitState,
 } from '../state/chromeStore';
 
 interface AskNavigationCommands {
-  openEvidenceViewer(
+  openCitationViewer(
     linkId: string | number,
-    host?: EvidenceViewerHost,
-    focus?: EvidenceViewerFocus,
+    host?: CitationViewerHost,
+    focus?: CitationViewerFocus,
   ): void;
   setDocumentView(documentView: DocumentViewState | null): void;
   setOpenSplit(split: OpenSplitState | null): void;
@@ -38,7 +38,7 @@ export function useAskNavigation(
     const target = citation.target;
     if (!target || target.kind === 'web') return;
     if (target.kind === 'evidence') {
-      commands.openEvidenceViewer(target.evidence_link_id, 'modalOrPeek', {
+      commands.openCitationViewer(target.evidence_link_id, 'modalOrPeek', {
         scopeSpanId: target.span_id,
         scopeSpanIds: target.span_ids,
         highlight: citation.status === 'current',

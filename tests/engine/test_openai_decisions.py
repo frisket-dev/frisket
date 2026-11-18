@@ -331,14 +331,14 @@ def test_action_confirms_executes_records_usage_and_replays(
 
 @pytest.mark.parametrize("action_id", ["map.classify", "map.extract"])
 def test_catalog_uses_existing_openai_setup_and_field_controls(monkeypatch, action_id):
-    from frisket.server.action_catalog_hints import _recipe_engines
+    from frisket.server.action_catalog_hints import _action_engines
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     def engine():
         return next(
-            e for e in _recipe_engines(action_id, {}) if e["id"] == "openai-decisions"
+            e for e in _action_engines(action_id, {}) if e["id"] == "openai-decisions"
         )
 
     assert engine()["available"] is False

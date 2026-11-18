@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from frisket.authoring.action_metadata import canonical_action_kind
-from frisket.authoring.recipe_registry import REMOVED_ACTION_KEYS
+from frisket.authoring.action_registry import REMOVED_ACTION_KEYS
 
 
 class SavedActionSpecError(ValueError):

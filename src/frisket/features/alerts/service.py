@@ -113,7 +113,7 @@ def _check_alert(project: Project, row: Any) -> dict[str, Any]:
         )
     run = project.get_alert_check(run_id)
     if run is None:
-        raise RuntimeError("watch run was not recorded")
+        raise RuntimeError("alert check was not recorded")
     notification = emit_alert_check_notification(
         project, alert_id=alert_id, run_id=run_id
     )

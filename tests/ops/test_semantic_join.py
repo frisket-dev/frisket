@@ -18,7 +18,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.semantic_join_matcher import AdmittedSemanticMatcher
 from frisket.engine.executor.semantic_join_program import semantic_join_references
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ai.embeddings.backends import resolve_embedder as _REAL_RESOLVE_EMBEDDER
 from frisket.engine.runner.review import review_queue
 from frisket.engine.store import Project
@@ -223,7 +223,7 @@ def _match(
         backend=backend,
         estimated_model=backend[1],
     )
-    bound = admitted.bind_row(OpContext(project=project), expected_source=value)
+    bound = admitted.bind_row(ActionContext(project=project), expected_source=value)
     result = asyncio.run(
         bound.match(
             value,

@@ -1,7 +1,7 @@
-import type { EvidenceViewerPayload } from '../../api/open';
+import type { CitationViewerPayload } from '../../api/open';
 import type { ProjectApi } from '../../api/ports';
 import { resolveMediaValue } from '../../media/resolveMediaValue';
-import { jsonRecord, selectorNumber } from './evidenceSourceModel';
+import { jsonRecord, selectorNumber } from './citationSourceModel';
 
 interface SourceLink {
   projectId: string;
@@ -40,7 +40,7 @@ export function activateSourceLink(value: string, projectId: string): boolean {
 }
 
 /** Use the pinned source artifact, not the child row identified by the link. */
-function sourceLinkArtifact(payload: EvidenceViewerPayload, page?: number) {
+function sourceLinkArtifact(payload: CitationViewerPayload, page?: number) {
   if (payload.link.role !== 'source_provenance') return null;
   return payload.artifacts.find((artifact) => artifact.media_type === 'application/pdf'
     && artifact.artifact_ref.blob && (page === undefined || artifact.page_count === null || page <= artifact.page_count)) ?? null;
@@ -52,7 +52,7 @@ export async function openSourceLink(
   navigation: {
     isCurrent(): boolean;
     openOriginal(sheetId: string, rowId: string, columnId: string, page?: number): void;
-    openEvidence(payload: EvidenceViewerPayload, page?: number): void;
+    openEvidence(payload: CitationViewerPayload, page?: number): void;
   },
 ): Promise<void> {
   const payload = await api.getEvidenceViewer(source.evidenceLinkId);

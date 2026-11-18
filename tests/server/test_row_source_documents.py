@@ -8,14 +8,14 @@ from frisket.engine.store import staleness
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
 from frisket.engine.store.media_blobs import media_cell
 from frisket.server.services.project_evidence import (
-    ProjectEvidenceRouteError,
-    ProjectEvidenceService,
+    ProjectCitationsRouteError,
+    ProjectCitationsService,
 )
 from frisket.server.services.row_source_documents import resolve_row_source_documents
 
@@ -118,7 +118,7 @@ def _row_evidence(project: Project, sheet_id: int, row_id: int) -> str:
         quote="supported quote",
         snippet="supported quote",
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="row",
         subject_ref={
@@ -148,7 +148,7 @@ def test_join_row_sources_find_every_original_document_and_existing_evidence(
     evidence_id = _row_evidence(project, *left_expanded)
     _join_sheet, join_row = _join_row(project, left_expanded, right_expanded)
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=join_row
     )
 
@@ -174,7 +174,7 @@ def test_parent_fallback_reports_unavailable_ancestor_separately_from_no_ancestr
     _child_sheet, child_row = _child_row(project, "Rows", source[0], source[1])
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (source[1],))
     project.db.commit()
-    service = ProjectEvidenceService(_Workspace(project))  # type: ignore[arg-type]
+    service = ProjectCitationsService(_Workspace(project))  # type: ignore[arg-type]
 
     unavailable = service.row_source_documents("project", row_id=child_row)
     assert unavailable["ancestry_found"] is True
@@ -205,7 +205,7 @@ def test_source_resolution_is_cycle_safe_and_rejects_a_hidden_requested_row(
     project.db.execute("UPDATE rows SET parent_row_id=? WHERE id=?", (second, first))
     project.db.execute("UPDATE rows SET parent_row_id=? WHERE id=?", (first, second))
     project.db.commit()
-    service = ProjectEvidenceService(_Workspace(project))  # type: ignore[arg-type]
+    service = ProjectCitationsService(_Workspace(project))  # type: ignore[arg-type]
 
     cycle = service.row_source_documents("project", row_id=first)
     assert cycle["ancestry_found"] is True
@@ -214,7 +214,7 @@ def test_source_resolution_is_cycle_safe_and_rejects_a_hidden_requested_row(
 
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (first,))
     project.db.commit()
-    with pytest.raises(ProjectEvidenceRouteError) as exc_info:
+    with pytest.raises(ProjectCitationsRouteError) as exc_info:
         service.row_source_documents("project", row_id=first)
     assert exc_info.value.status_code == 404
 
@@ -239,7 +239,7 @@ def test_carried_file_copies_collapse_to_the_deepest_original_locator(
         carried_rows.append((sheet_id, row_id))
     _join_sheet, join_row = _join_row(project, carried_rows[0], carried_rows[1])
 
-    service = ProjectEvidenceService(_Workspace(project))  # type: ignore[arg-type]
+    service = ProjectCitationsService(_Workspace(project))  # type: ignore[arg-type]
     payload = service.row_source_documents("project", row_id=join_row)
     assert len(payload["documents"]) == 1
     assert payload["documents"][0] == {
@@ -290,7 +290,7 @@ def test_convergent_fan_in_reaches_the_shared_original_document(make_project) ->
     )
     project.db.commit()
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=aggregate_row
     )
 
@@ -324,7 +324,7 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     )
     project.db.commit()
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=join_row
     )
     assert payload["sheet_id"] == join_sheet
@@ -414,7 +414,7 @@ def test_real_right_side_refresh_marks_join_lineage_incomplete(make_project) -> 
         == 1
     )
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=join_row
     )
     assert payload["lineage_stale"] is True
@@ -439,7 +439,7 @@ def test_mismatched_row_subject_is_not_exposed_as_current_evidence(
     )
     project.db.commit()
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=child[1]
     )
     assert payload["evidence_links"] == []
@@ -457,7 +457,7 @@ def test_source_walk_reports_when_the_fixed_depth_bound_is_reached(
         _sheet_id, row_id = _child_row(project, f"Derived {index}", sheet_id, row_id)
         sheet_id = _sheet_id
 
-    payload = ProjectEvidenceService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
+    payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=row_id
     )
     assert payload["ancestry_found"] is True
@@ -529,7 +529,7 @@ def test_row_evidence_summaries_are_capped_and_report_truncation(
         quote="supported quote",
     )
     for _index in range(65):
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="row",
             subject_ref={

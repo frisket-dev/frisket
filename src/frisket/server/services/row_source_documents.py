@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from frisket.engine.store.evidence import list_row_evidence
+from frisket.engine.store.evidence import list_row_citations
 from frisket.engine.store.staleness import sheet_freshness
 from frisket.engine.store.consumed_sources import row_input_state
 
@@ -13,7 +13,7 @@ from frisket.engine.store.consumed_sources import row_input_state
 MAX_SOURCE_ANCESTRY_DEPTH = 16
 MAX_SOURCE_ANCESTRY_ROWS = 256
 MAX_SOURCE_DOCUMENTS = 64
-MAX_SOURCE_EVIDENCE_LINKS = 64
+MAX_SOURCE_CITATIONS = 64
 SQLITE_ID_CHUNK_SIZE = 500
 DOCUMENT_COLUMN_TYPES = ("file", "image")
 
@@ -74,7 +74,7 @@ def resolve_row_source_documents(
     lineage_stale = lineage_freshness == "stale"
 
     evidence_links: list[dict[str, Any]] = []
-    seen_evidence: set[str] = set()
+    seen_citations: set[str] = set()
     documents: list[dict[str, Any]] = []
     document_locations: dict[str, tuple[int, int]] = {}
     unavailable_sources: set[int] = set()
@@ -82,13 +82,13 @@ def resolve_row_source_documents(
     ancestry_found = False
     truncated = False
 
-    truncated = _extend_evidence(
+    truncated = _extend_citations(
         project,
         sheet_id=requested_sheet_id,
         row_id=row_id,
         project_id=project_id,
         out=evidence_links,
-        seen=seen_evidence,
+        seen=seen_citations,
     )
 
     frontier = [row_id]
@@ -130,13 +130,13 @@ def resolve_row_source_documents(
 
             source_sheet_id = int(source_row["sheet_id"])
             truncated = (
-                _extend_evidence(
+                _extend_citations(
                     project,
                     sheet_id=source_sheet_id,
                     row_id=source_row_id,
                     project_id=project_id,
                     out=evidence_links,
-                    seen=seen_evidence,
+                    seen=seen_citations,
                 )
                 or truncated
             )
@@ -241,7 +241,7 @@ def _chunks(values: list[int]) -> list[list[int]]:
     ]
 
 
-def _extend_evidence(
+def _extend_citations(
     project: Any,
     *,
     sheet_id: int,
@@ -250,8 +250,8 @@ def _extend_evidence(
     out: list[dict[str, Any]],
     seen: set[str],
 ) -> bool:
-    remaining = MAX_SOURCE_EVIDENCE_LINKS - len(out)
-    payload = list_row_evidence(
+    remaining = MAX_SOURCE_CITATIONS - len(out)
+    payload = list_row_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -339,7 +339,7 @@ __all__ = [
     "MAX_SOURCE_ANCESTRY_DEPTH",
     "MAX_SOURCE_ANCESTRY_ROWS",
     "MAX_SOURCE_DOCUMENTS",
-    "MAX_SOURCE_EVIDENCE_LINKS",
+    "MAX_SOURCE_CITATIONS",
     "RowSourceNotFound",
     "resolve_row_source_documents",
 ]

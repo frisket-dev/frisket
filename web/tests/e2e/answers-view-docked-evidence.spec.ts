@@ -1,7 +1,7 @@
 // A citation chip's onOpen sets answersView.activeLinkId (the LOCAL scratch
-// slice, not the global chromeStore.EvidenceViewerState), which drives the
-// docked `<EvidenceViewer mode="pane">` in the Grounded Answers view's right
-// pane. EvidenceViewer.tsx's `mode="pane"` docking, region overlay, and
+// slice, not the global chromeStore.CitationViewerState), which drives the
+// docked `<CitationViewer mode="pane">` in the Grounded Answers view's right
+// pane. CitationViewer.tsx's `mode="pane"` docking, region overlay, and
 // temporal-seek mechanics are reused unchanged. This spec seeds one
 // region-grounded (PDF page + bbox) row and
 // one temporal-grounded (transcript + AV seek) row and drives them through the
@@ -43,7 +43,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -108,7 +108,7 @@ try:
         selector={"engine": "rapidocr", "score": 0.97},
         metadata={"raw": {"text": "invoice total 42"}},
     )
-    link = record_evidence_link(
+    link = record_citation(
         project, subject_kind="cell", subject_ref=text_ref,
         spans=[
             {"span_id": page_span["id"], "rank": 0},
@@ -146,7 +146,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -195,7 +195,7 @@ try:
         project, artifact_id=artifact["id"], span_kind="temporal",
         start_ms=1000, end_ms=1900, quote="THE MERIDIAN REPORT", selector={"segment_index": 1},
     )
-    link = record_evidence_link(
+    link = record_citation(
         project, subject_kind="cell_value", subject_ref=transcript_ref,
         sheet_id=sheet_id, row_id=row_id, column_id=transcript_column_id,
         run_id=run_id, op_id=op_id, receipt_id="receipt-transcribe",
@@ -239,7 +239,7 @@ test('region-grounded citation: the DOCKED pane (not the modal) renders the page
   await expect(viewer).toBeVisible();
   // RETARGETED (evidence-pane-reading-surface-v1): the Answers docked pane
   // now collapses the ref-dump aside (link summary + span cards) by default
-  // -- see EvidenceViewer.tsx's `defaultShowDetails` -- so the export-ref
+  // -- see CitationViewer.tsx's `defaultShowDetails` -- so the export-ref
   // assertion below needs an explicit "Show details" first. Deliberate: the
   // pane's default view is now the reading surface, not the raw ref dump.
   await viewer.getByTestId('evidence-details-toggle').click();

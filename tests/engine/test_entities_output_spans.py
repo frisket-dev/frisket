@@ -13,7 +13,7 @@ from frisket.ops.entities import (
     canonicalize_entity_type,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-ner-spans"
@@ -320,7 +320,7 @@ def test_map_ner_writes_unified_type_key_and_evidence_spans(
 
         # capability refinement: entities are now Source-QA retrievable -- an evidence link
         # exists on the entities cell with one span per entity.
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
         )
         assert evidence["links"], (
@@ -329,7 +329,7 @@ def test_map_ner_writes_unified_type_key_and_evidence_spans(
         link = evidence["links"][0]
         assert link["span_count"] == 2
 
-        viewer = resolve_evidence_viewer(project, link["id"])
+        viewer = resolve_citation_viewer(project, link["id"])
         assert len(viewer["artifacts"]) == 1
         artifact = viewer["artifacts"][0]
         assert artifact["artifact_kind"] == "text"
@@ -385,7 +385,7 @@ def test_map_ner_writes_no_spans_when_no_entities_found(
             c for c in project.columns(sheet_id) if c["name"] == "entities"
         )
         (row_id,) = project.get_values(sheet_id, entities_col["id"]).keys()
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project, sheet_id=sheet_id, row_id=row_id, column_id=entities_col["id"]
         )
         assert evidence["links"] == []

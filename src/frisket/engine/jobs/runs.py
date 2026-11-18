@@ -1048,7 +1048,7 @@ def register_project_run_handler(
                 should_cancel=cancelled,
                 on_progress=capture_progress,
                 defer_cancel_terminal_close=True,
-                op_context_extras={
+                action_context_extras={
                     "url_capture_browser": (
                         executor_deps.url_capture_browser
                         if executor_deps is not None

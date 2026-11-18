@@ -35,7 +35,7 @@ from frisket.engine.executor.action_support import ActionCtx, _new_id, _params_h
 
 
 ACTION_JOB_SCHEMA_VERSION = "frisket.action_job.v1"
-ACTION_JOB_ENQUEUED_EVIDENCE_KIND = "queued_action_job_enqueued"
+ACTION_JOB_ENQUEUED_RECORD_KIND = "queued_action_job_enqueued"
 LOG = logging.getLogger("frisket.worker")
 
 
@@ -520,7 +520,7 @@ def _mark_action_job_receipt_queued_for_retry(
 def _action_job_receipt_job_id(receipt: Receipt) -> int | None:
     for item in receipt.evidence:
         ref = item.ref
-        if ref.get("kind") != ACTION_JOB_ENQUEUED_EVIDENCE_KIND:
+        if ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND:
             continue
         job_id = ref.get("job_id")
         if isinstance(job_id, int) and not isinstance(job_id, bool):
@@ -899,12 +899,12 @@ def mark_action_job_enqueued(
         evidence = [
             item
             for item in receipt.evidence
-            if item.ref.get("kind") != ACTION_JOB_ENQUEUED_EVIDENCE_KIND
+            if item.ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND
         ]
         evidence.append(
             ReceiptEvidence(
                 ref={
-                    "kind": ACTION_JOB_ENQUEUED_EVIDENCE_KIND,
+                    "kind": ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": job_kind,
                     "job_id": job_id,
                 }

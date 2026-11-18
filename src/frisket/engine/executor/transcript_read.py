@@ -55,7 +55,7 @@ from frisket.engine.executor.temporal_finder_provenance import (
 )
 from frisket.engine.executor.temporal_transcripts import (
     ResolvedTranscriptSource,
-    persist_projected_transcript_evidence,
+    persist_projected_transcript_citations,
     resolve_timestamped_transcript,
     revalidate_transcript,
 )
@@ -726,7 +726,7 @@ class AdmittedTranscriptReader:
                         )
         return values
 
-    def publication_evidence(self, write, rows, *, receipt_id):
+    def publication_supporting_records(self, write, rows, *, receipt_id):
         evidence = []
         producer_id = create_base_cell_producer(
             self.project.db, stage_id=f"op:{write.op_id}", op_id=write.op_id
@@ -856,7 +856,7 @@ def _publish_projection(
                 )
             )
     initialize_base_cells(project.db, producer_id=producer_id, cells=annotation_cells)
-    projected = persist_projected_transcript_evidence(
+    projected = persist_projected_transcript_citations(
         project,
         transcript=item.source.transcript,
         projection=item.projection,

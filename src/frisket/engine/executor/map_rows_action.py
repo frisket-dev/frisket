@@ -88,7 +88,7 @@ from frisket.contracts.action import (
     ReceiptEvidence,
     ReceiptIO,
 )
-from frisket.ops.base import OpContext, Recipe, RenderedCall
+from frisket.ops.base import ActionContext, Recipe, RenderedCall
 from frisket.engine.executor.action_lifecycle import (
     _PreparedMapExecution,
     _run_reserved_maprunner_action,
@@ -394,9 +394,9 @@ class _TypedMapRowsProgram(Recipe):
         ):
             self.write_result_evidence = self._write_result_evidence
         if self._uses_ner:
-            self.capture_result_evidence = self._capture_ner_result_evidence
+            self.capture_result_evidence = self._capture_ner_result_citations
         if self._uses_extract:
-            self.capture_result_evidence = self._capture_extract_result_evidence
+            self.capture_result_evidence = self._capture_extract_result_citations
         capability = routed_capability(self._terminal)
         if capability is not None:
             self.consumes_resolution = True
@@ -551,15 +551,15 @@ class _TypedMapRowsProgram(Recipe):
                     attempt.attempt_id if attempt is not None else None
                 )
             if self._uses_extract:
-                from frisket.engine.executor.extract_result_evidence import (
-                    ExtractResultEvidence,
+                from frisket.engine.executor.extract_result_citations import (
+                    ExtractResultCitations,
                 )
                 from frisket.execution.attempt import attempt_in_scope
 
                 grounding = self._params.grounding
                 policy = self._params.evidence_policy
                 names = {field.name for field in self._params.fields}
-                self._extract_evidence = ExtractResultEvidence(
+                self._extract_citations = ExtractResultCitations(
                     ctx.project,
                     fields={
                         field.key: field
@@ -908,7 +908,9 @@ class _TypedMapRowsProgram(Recipe):
                     self._capability_bindings.reset(token)
 
     @staticmethod
-    def _persist_returned_capability_facts(ctx: OpContext, bindings: list[Any]) -> None:
+    def _persist_returned_capability_facts(
+        ctx: ActionContext, bindings: list[Any]
+    ) -> None:
         """Returned facts outlive author failure and cancelled publication.
 
         The existing fenced writer deduplicates the capability's stable call
@@ -958,7 +960,7 @@ class _TypedMapRowsProgram(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> PreparedRowPublication:
         bindings = self._capability_bindings.get()
         if self._terminal.capabilities and bindings is None:
@@ -1280,24 +1282,24 @@ class _TypedMapRowsProgram(Recipe):
             output_names=self._output_names,
         )
 
-    def _capture_ner_result_evidence(self, values, capture, results, spec, **kwargs):
-        from frisket.ops.ner_evidence import (
+    def _capture_ner_result_citations(self, values, capture, results, spec, **kwargs):
+        from frisket.ops.ner_citations import (
             capture_result_evidence,
-            typed_ner_evidence_spec,
+            typed_ner_citation_spec,
         )
 
         capture_result_evidence(
             values,
             capture,
             results,
-            {**spec, **typed_ner_evidence_spec(self._params, self._output_names)},
+            {**spec, **typed_ner_citation_spec(self._params, self._output_names)},
             **kwargs,
         )
 
-    def _capture_extract_result_evidence(
+    def _capture_extract_result_citations(
         self, values, capture, results, spec, **kwargs
     ):
-        self._extract_evidence.capture(values, capture, results, spec, **kwargs)
+        self._extract_citations.capture(values, capture, results, spec, **kwargs)
 
     def _write_result_evidence(
         self, project, spec, *, batch, run_id, claim_token, **kwargs
@@ -1312,7 +1314,7 @@ class _TypedMapRowsProgram(Recipe):
                     if call.get("kind") != "translate_read":
                         continue
                     for artifact in call.get("artifacts", ()):
-                        ReceiptStore(project)._record_writer_evidence(
+                        ReceiptStore(project)._record_writer_supporting_record(
                             {**artifact, "kind": "map_translate_artifact"},
                             run_id=run_id,
                             writer_attempt_id=self._translation_writer,
@@ -1320,7 +1322,7 @@ class _TypedMapRowsProgram(Recipe):
                         )
 
         if self._uses_extract:
-            self._extract_evidence.write(
+            self._extract_citations.write(
                 project,
                 spec,
                 batch=batch,
@@ -1331,14 +1333,14 @@ class _TypedMapRowsProgram(Recipe):
             )
 
         if self._uses_ner:
-            from frisket.ops.ner_evidence import (
-                _write_ner_result_evidence,
-                typed_ner_evidence_spec,
+            from frisket.ops.ner_citations import (
+                _write_ner_result_citations,
+                typed_ner_citation_spec,
             )
 
-            _write_ner_result_evidence(
+            _write_ner_result_citations(
                 project,
-                {**spec, **typed_ner_evidence_spec(self._params, self._output_names)},
+                {**spec, **typed_ner_citation_spec(self._params, self._output_names)},
                 batch=batch,
                 run_id=run_id,
                 claim_token=claim_token,
@@ -1390,11 +1392,11 @@ class _TypedMapRowsProgram(Recipe):
                 **kwargs,
             )
         if self._uses_transcriber:
-            from frisket.engine.executor.transcription_evidence import (
-                write_transcription_evidence,
+            from frisket.engine.executor.transcription_citations import (
+                write_transcription_citations,
             )
 
-            write_transcription_evidence(
+            write_transcription_citations(
                 project,
                 spec,
                 batch=batch,
@@ -1413,9 +1415,9 @@ class _TypedMapRowsProgram(Recipe):
             capability in self._terminal.capabilities
             for capability in (OcrReader, NativePdfTextReader)
         ):
-            from frisket.engine.executor.ocr_evidence import write_ocr_evidence
+            from frisket.engine.executor.ocr_citations import write_ocr_citations
 
-            write_ocr_evidence(
+            write_ocr_citations(
                 project,
                 spec,
                 batch=batch,
@@ -1440,7 +1442,7 @@ class _TypedMapBatchProgram(_TypedMapRowsProgram):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, PreparedRowPublication]:
         del spec
         bindings = self._capability_bindings.get()
@@ -1610,7 +1612,7 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
             and self._params.grounding
             and self._params.grounding.enabled
         ):
-            from frisket.engine.executor.extract_result_evidence import (
+            from frisket.engine.executor.extract_result_citations import (
                 extract_prompt_values,
             )
 
@@ -3132,7 +3134,7 @@ def _typed_receipt(
         if pdf_errors and status != "cancelled":
             status, errors = "failed", pdf_errors
     if TopicSectionsReader in getattr(plan.action.definition.run, "capabilities", ()):
-        from frisket.engine.executor.topic_sections_read import topic_receipt_evidence
+        from frisket.engine.executor.topic_sections_read import topic_supporting_records
 
         hidden_names = {
             field.key
@@ -3146,7 +3148,7 @@ def _typed_receipt(
             for ref in hidden_refs
         )
         route_evidence.extend(
-            topic_receipt_evidence(project, facts, output_refs, hidden_refs)
+            topic_supporting_records(project, facts, output_refs, hidden_refs)
         )
         for ref in output_refs:
             ref.update(
@@ -3527,7 +3529,7 @@ def _typed_receipt(
 
         receipt = project_row_media_receipt(project, plan, facts, receipt)
     if getattr(plan.program, "_uses_extract", False):
-        from frisket.engine.executor.extract_result_evidence import (
+        from frisket.engine.executor.extract_result_citations import (
             finalize_extract_receipt,
         )
 

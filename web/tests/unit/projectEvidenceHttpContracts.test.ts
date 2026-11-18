@@ -7,7 +7,7 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { createProjectEvidenceApi } from '../../src/api/projectEvidence';
+import { createProjectCitationsApi } from '../../src/api/projectCitations';
 
 const linkSummary = {
   id: 11,
@@ -201,7 +201,7 @@ describe('project evidence generated HTTP reads', () => {
           ...annotationsFixture.layers[0].spans[0], start: 3, end: 6, source_start: 502, source_end: 505, quote_truncated: true,
         }] }] } : viewerFixture);
     }));
-    const api = createProjectEvidenceApi('project');
+    const api = createProjectCitationsApi('project');
     const annotated = await api.getTextAnnotations('7', '5', { start: 500, limit: 10, revision: 9, occurrenceId: '1:2' });
     expect(annotated.window).toEqual(window);
     expect(annotated.layers[0].positioned && annotated.layers[0].spans[0]).toMatchObject({
@@ -223,7 +223,7 @@ describe('project evidence generated HTTP reads', () => {
     }));
     const signal = new AbortController().signal;
     const options = { signal };
-    const api = createProjectEvidenceApi('evidence/project');
+    const api = createProjectCitationsApi('evidence/project');
 
     await expect(api.getCellEvidence('row/a', 'column/b', { includeStale: true, signal }))
       .resolves.toEqual(cellFixture);
@@ -246,7 +246,7 @@ describe('project evidence generated HTTP reads', () => {
 
   it('returns evidence-viewer JSON leaves unchanged', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(viewerJsonLeavesFixture)));
-    const api = createProjectEvidenceApi('evidence-json-leaves');
+    const api = createProjectCitationsApi('evidence-json-leaves');
 
     await expect(api.getEvidenceViewer('json-leaves')).resolves.toEqual(viewerJsonLeavesFixture);
   });
@@ -257,7 +257,7 @@ describe('project evidence generated HTTP reads', () => {
       requests.push(input);
       return jsonResponse(viewerFixture);
     }));
-    const api = createProjectEvidenceApi('evidence/project');
+    const api = createProjectCitationsApi('evidence/project');
 
     await api.getEvidenceViewer('link/a');
     await api.getEvidenceViewer('link/a', { locateCurrent: true });
@@ -308,7 +308,7 @@ describe('project evidence generated HTTP reads', () => {
       viewerJsonLeavesFixture,
     ];
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(responses.shift())));
-    const api = createProjectEvidenceApi('evidence-domain-factory');
+    const api = createProjectCitationsApi('evidence-domain-factory');
 
     await expect(api.getTextAnnotations('row-a', 'column-b')).resolves.toEqual({
       sheetId: '',

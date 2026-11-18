@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -101,7 +101,7 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
         span_kind="text",
         quote="risk score 0.82",
     )
-    evidence = record_evidence_link(
+    evidence = record_citation(
         project,
         stable_id="evidence_link:fixture-risk",
         subject_kind="cell_value",

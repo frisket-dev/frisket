@@ -1,7 +1,7 @@
 // The Grounded Answers reading view is a WorkViewKind 'answers' that replaces the grid
 // (like Document) with three panes -- left row list (rowTitle,
 // selectionStore-synced), middle the chosen cited column's per-row values
-// with citation chips, right the docked EvidenceViewer pane (wired in
+// with citation chips, right the docked CitationViewer pane (wired in
 // answers-view-docked-evidence-v1). This spec pins the SHELL: registration/
 // availability (data-keyed to SheetMeta.citedColumnIds), the three-pane
 // render, the column picker (mirrors DocumentView's Title select), and
@@ -46,7 +46,7 @@ import json
 import sys
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -91,7 +91,7 @@ try:
             span = record_source_span(
                 project, artifact_id=artifact["id"], span_kind="region", page_start=1, page_end=1, quote=v, snippet=v,
             )
-            record_evidence_link(
+            record_citation(
                 project, subject_kind="cell_value", subject_ref=refs[rid],
                 sheet_id=sheet_id, row_id=rid, column_id=col_id, run_id=run_id, op_id=op_id,
                 link_role="primary_support", confidence=0.9, spans=[{"span_id": span["id"], "rank": 0}],

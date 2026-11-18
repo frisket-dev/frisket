@@ -15,12 +15,12 @@ from frisket.engine.executor.web_search_read import (
     AdmittedWebSearcher,
     search_provider_use,
 )
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.execution.dispatch_control import STANDALONE
 
 
 def _context(**extras):
-    return OpContext(
+    return ActionContext(
         project=None, http=None, extras={"standalone_dispatch": STANDALONE, **extras}
     )
 
@@ -213,7 +213,7 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
         return service
 
     browser = object()
-    runner = SimpleNamespace(op_context_extras={"existing": object()})
+    runner = SimpleNamespace(action_context_extras={"existing": object()})
     deps = _executor_deps_with_defaults(
         deps=ExecutorDeps(
             search_service_factory=factory,
@@ -228,9 +228,9 @@ def test_search_service_dependency_reaches_map_runner_context() -> None:
 
     assert deps.search_service_factory is factory
     assert deps.map_runner_factory(object(), None) is runner
-    assert runner.op_context_extras["search_service_factory"] is factory
-    assert runner.op_context_extras["url_capture_browser"] is browser
-    assert "existing" in runner.op_context_extras
+    assert runner.action_context_extras["search_service_factory"] is factory
+    assert runner.action_context_extras["url_capture_browser"] is browser
+    assert "existing" in runner.action_context_extras
 
 
 def test_paid_search_keeps_returned_receipt_when_accounting_write_fails(monkeypatch):

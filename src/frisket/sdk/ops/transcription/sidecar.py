@@ -18,7 +18,7 @@ from frisket.contracts.transcription_sidecar import (
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ops._sidecar import ephemeral_gateway_connection, sidecar_post
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 from .common import (
     input_units,
@@ -52,7 +52,9 @@ def sidecar_transcribe_timeout(connection: Any) -> httpx.Timeout:
     )
 
 
-def route_gateway_connection(ctx: OpContext, engine: str, *, light_engine: str) -> Any:
+def route_gateway_connection(
+    ctx: ActionContext, engine: str, *, light_engine: str
+) -> Any:
     admission = routed_admission_in_scope(ctx.extras)
     if admission is not None:
         return admission.binding.connection
@@ -70,7 +72,7 @@ class TranscriptionV1Adapter:
         engine: str,
         path: str,
         spec: dict,
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         light_engine: str = "faster_whisper",
     ) -> dict[str, Any]:

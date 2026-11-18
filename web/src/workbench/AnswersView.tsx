@@ -13,8 +13,8 @@ import {
   type CSSProperties,
 } from 'react';
 import { Search } from 'lucide-react';
-import type { CellEvidenceLinkSummary, ColumnDef, Row, SheetMeta } from '../api/types';
-import type { EvidenceLinkViewerApiPort } from '../api/ports';
+import type { CellCitationSummary, ColumnDef, Row, SheetMeta } from '../api/types';
+import type { CitationViewerApiPort } from '../api/ports';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { ResizeSeam } from '../components/ResizeSeam';
 import { CitationChip } from '../components/evidence/CitationChip';
@@ -23,26 +23,26 @@ import { PanelSelect } from '../components/PanelSelect';
 import { useResizable } from '../components/useResizable';
 import { LargeCellValue } from '../components/LargeCellValue';
 import { MarkdownView } from '../markdown';
-import { mergeCitedQuote } from './citationQuote';
-import { useColumnEvidence } from './columnEvidenceResource';
-import { useEvidenceLinkViewer } from './evidenceLinkViewerResource';
+import { mergeCitedPassage } from './citationPassage';
+import { useColumnCitations } from './columnCitationsResource';
+import { useCitationViewerResource } from './citationViewerResource';
 import { resolveTitleColumn, rowTitle as resolveRowTitle } from './rowTitle';
 import { LIST_ITEM_HEIGHT, useWindowedRowList } from './useWindowedRowList';
 import { errorMessage } from '../hooks/errorMessage';
 
-// Lazy, matching App.tsx's LazyEvidenceViewer -- AnswersView itself is
-// imported eagerly (like DocumentView), so a static EvidenceViewer import
+// Lazy, matching App.tsx's LazyCitationViewer -- AnswersView itself is
+// imported eagerly (like DocumentView), so a static CitationViewer import
 // here would pull it into the main bundle and defeat that split (caught by
 // the build's INEFFECTIVE_DYNAMIC_IMPORT warning).
-const LazyEvidenceViewer = lazy(() =>
-  import('../components/EvidenceViewer').then(({ EvidenceViewer }) => ({
-    default: EvidenceViewer,
+const LazyCitationViewer = lazy(() =>
+  import('../components/CitationViewer').then(({ CitationViewer }) => ({
+    default: CitationViewer,
   })),
 );
 
 // Three panes: left = rows (rowTitle, selectionStore-synced), middle = the
 // chosen cited column's SELECTED row's extraction + citation chips, right =
-// the DOCKED EvidenceViewer (mode="pane") driven by answersView.activeLinkId
+// the DOCKED CitationViewer (mode="pane") driven by answersView.activeLinkId
 // — a LOCAL pane, never the global evidence host.
 //
 // Left-pane virtualization is a direct port of DocumentView.tsx's list
@@ -51,7 +51,7 @@ const LazyEvidenceViewer = lazy(() =>
 // The middle pane renders ONLY the left-rail's active row — its
 // chosen-column value + citation chip(s) — and swaps wholesale on selection
 // change. It intentionally does NOT stack every cited column's value for
-// that row: `useColumnEvidence` below only fetches links for the single
+// that row: `useColumnCitations` below only fetches links for the single
 // `chosenColumn`, and stacking other cited columns would mean fetching their
 // evidence just to render them here too — the column picker already exists
 // to choose which column's value shows, so the simplest composition keeps
@@ -66,9 +66,9 @@ const LazyEvidenceViewer = lazy(() =>
 // The middle pane is the single place the extraction value renders.
 
 const LIST_PAGE_SIZE = 100;
-const ANSWERS_EVIDENCE_MIN_WIDTH = 420;
-const ANSWERS_EVIDENCE_MAX_WIDTH = 960;
-const ANSWERS_EVIDENCE_DEFAULT_WIDTH = 600;
+const ANSWERS_CITATION_MIN_WIDTH = 420;
+const ANSWERS_CITATION_MAX_WIDTH = 960;
+const ANSWERS_CITATION_DEFAULT_WIDTH = 600;
 
 interface AnswersViewProps {
   projectId: string;
@@ -119,11 +119,11 @@ export function AnswersView({
   titleColumnOrder,
 }: AnswersViewProps) {
   const { projectApi } = useWorkspaceStores();
-  const evidenceResize = useResizable({
+  const citationResize = useResizable({
     storageKey: `frisket:answers-evidence-width:${projectId}`,
-    minWidth: ANSWERS_EVIDENCE_MIN_WIDTH,
-    maxWidth: ANSWERS_EVIDENCE_MAX_WIDTH,
-    defaultWidth: ANSWERS_EVIDENCE_DEFAULT_WIDTH,
+    minWidth: ANSWERS_CITATION_MIN_WIDTH,
+    maxWidth: ANSWERS_CITATION_MAX_WIDTH,
+    defaultWidth: ANSWERS_CITATION_DEFAULT_WIDTH,
     handleEdge: 'left',
   });
   const chosenColumn = useMemo(
@@ -231,7 +231,7 @@ export function AnswersView({
   // synchronously-readable snapshot, so there is no ordering between two effects
   // to get wrong. The key is `${sheet.id}:${chosenColumn.id}:${rowIds}`.
   const rowIds = useMemo(() => list.rows.map((row) => row.id), [list.rows]);
-  const evidence = useColumnEvidence(sheet.id, chosenColumn?.id ?? null, rowIds, projectApi);
+  const evidence = useColumnCitations(sheet.id, chosenColumn?.id ?? null, rowIds, projectApi);
 
   // The default docked link ("the active row's first cited cell's first
   // link") is a PURE render-time derivation of the resource's current
@@ -288,21 +288,21 @@ export function AnswersView({
   const activeValue = chosenColumn && activeRow ? activeRow.cells[chosenColumn.id] : null;
 
   // The header quote is the SAME full-citation derivation the middle pane's
-  // chips use (citationQuote.ts), fetched once here for the pane's
+  // chips use (citationPassage.ts), fetched once here for the pane's
   // currently-open link — see AnswersCitationChip below for the per-chip
   // sibling call.
-  const activeLinkViewer = useEvidenceLinkViewer(effectiveLinkId, projectApi);
-  const activeLinkQuote = mergeCitedQuote(activeLinkViewer.payload) ?? activeLink?.snippet ?? null;
+  const activeLinkViewer = useCitationViewerResource(effectiveLinkId, projectApi);
+  const activeCitationPassage = mergeCitedPassage(activeLinkViewer.payload) ?? activeLink?.snippet ?? null;
 
   return (
     <div
-      className={`answers-view${evidenceResize.resizing ? ' answers-view-resizing' : ''}`}
+      className={`answers-view${citationResize.resizing ? ' answers-view-resizing' : ''}`}
       data-testid="grounded-answers-view"
       data-project-id={projectId}
       style={{
-        '--answers-evidence-width': `${evidenceResize.width}px`,
-        '--answers-evidence-min-width': `${ANSWERS_EVIDENCE_MIN_WIDTH}px`,
-        '--answers-evidence-max-width': `${ANSWERS_EVIDENCE_MAX_WIDTH}px`,
+        '--answers-evidence-width': `${citationResize.width}px`,
+        '--answers-evidence-min-width': `${ANSWERS_CITATION_MIN_WIDTH}px`,
+        '--answers-evidence-max-width': `${ANSWERS_CITATION_MAX_WIDTH}px`,
       } as CSSProperties}
     >
       <aside className="answers-row-list" data-testid="answers-row-list" aria-label="Rows">
@@ -456,11 +456,11 @@ export function AnswersView({
         className="answers-evidence-seam"
         ariaLabel="Resize the Answers citation pane"
         testId="answers-evidence-seam"
-        width={evidenceResize.width}
-        min={ANSWERS_EVIDENCE_MIN_WIDTH}
-        max={ANSWERS_EVIDENCE_MAX_WIDTH}
-        onResizeStart={evidenceResize.onResizeStart}
-        onResizeKeyDown={evidenceResize.onResizeKeyDown}
+        width={citationResize.width}
+        min={ANSWERS_CITATION_MIN_WIDTH}
+        max={ANSWERS_CITATION_MAX_WIDTH}
+        onResizeStart={citationResize.onResizeStart}
+        onResizeKeyDown={citationResize.onResizeKeyDown}
       />
 
       <section
@@ -476,18 +476,18 @@ export function AnswersView({
                 pane no longer repeats it. */}
             <div className="answers-evidence-citation" data-testid="answers-evidence-citation">
               <div className="answers-evidence-section-label">Citation</div>
-              {activeLinkQuote ? (
-                <blockquote data-testid="answers-evidence-citation-quote">{activeLinkQuote}</blockquote>
+              {activeCitationPassage ? (
+                <blockquote data-testid="answers-evidence-citation-quote">{activeCitationPassage}</blockquote>
               ) : (
                 <span className="muted">No quoted anchor for this citation.</span>
               )}
             </div>
             {/* 2. the media preview (seeked to the span) + the transcript in
                 discrete SEGMENTS scoped to THIS row, cited segment highlighted
-                — the docked EvidenceViewer, scoped via scopeRowId so it renders
+                — the docked CitationViewer, scoped via scopeRowId so it renders
                 only the selected row's own source, never every video's. */}
             <Suspense fallback={<PanelLoading className="grid-host" label="Loading citation…" />}>
-              <LazyEvidenceViewer
+              <LazyCitationViewer
                 key={String(effectiveLinkId)}
                 evidenceLinkId={effectiveLinkId}
                 mode="pane"
@@ -509,7 +509,7 @@ export function AnswersView({
 
 /** One middle-pane citation chip. Split out of the `activeLinks.map(...)`
  * above SOLELY so it can call
- * `useEvidenceLinkViewer` — a hook can't be called a variable number of
+ * `useCitationViewerResource` — a hook can't be called a variable number of
  * times inside a loop, but a variable number of sibling COMPONENT instances
  * each calling it once is exactly the Rules-of-Hooks-safe shape. Falls back
  * to the chip-summary's `link.snippet` (the old rank-0-span text) while the
@@ -521,19 +521,19 @@ function AnswersCitationChip({
   onOpen,
   linkApi,
 }: {
-  link: CellEvidenceLinkSummary;
+  link: CellCitationSummary;
   index: number;
   active: boolean;
   onOpen: (linkId: string) => void;
-  linkApi: EvidenceLinkViewerApiPort;
+  linkApi: CitationViewerApiPort;
 }) {
-  const viewer = useEvidenceLinkViewer(link.stable_id, linkApi);
-  const fullQuote = mergeCitedQuote(viewer.payload) ?? link.snippet;
+  const viewer = useCitationViewerResource(link.stable_id, linkApi);
+  const fullPassage = mergeCitedPassage(viewer.payload) ?? link.snippet;
   return (
     <CitationChip
       linkId={link.stable_id}
       label={`Citation ${index + 1}`}
-      snippet={fullQuote}
+      snippet={fullPassage}
       onOpen={onOpen}
       testId="answers-citation-chip"
       className={active ? 'cell-evidence-link-active' : undefined}

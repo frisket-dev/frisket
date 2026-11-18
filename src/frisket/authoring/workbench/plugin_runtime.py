@@ -159,9 +159,9 @@ def _seed_bundled_catalog_packages(
     *,
     policy: PluginCompositionPolicy,
 ) -> None:
-    from frisket.plugins.load_evidence import (
-        PluginLoadEvidenceError,
-        build_bundled_plugin_load_evidence,
+    from frisket.plugins.load_validation import (
+        PluginLoadValidationError,
+        build_bundled_plugin_load_validation,
     )
 
     root = _bundled_plugins_root()
@@ -186,8 +186,8 @@ def _seed_bundled_catalog_packages(
         if not policy.permits(plugin_id, is_reviewed_bundled=True):
             continue
         try:
-            evidence = build_bundled_plugin_load_evidence(manifest_path)
-        except PluginLoadEvidenceError as exc:
+            evidence = build_bundled_plugin_load_validation(manifest_path)
+        except PluginLoadValidationError as exc:
             _LOGGER.exception(
                 "bundled plugin %r failed catalog seeding validation -- skipped",
                 plugin_id,

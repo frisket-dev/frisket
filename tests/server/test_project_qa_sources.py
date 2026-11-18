@@ -525,7 +525,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
     source, monkeypatch
 ):
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -543,7 +543,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
         start_ms=12000,
         end_ms=15000,
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[row],
@@ -566,7 +566,7 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
 
 def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -616,7 +616,7 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
         page_start=1,
         page_end=1,
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[row],

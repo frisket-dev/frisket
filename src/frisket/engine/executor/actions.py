@@ -168,8 +168,8 @@ def build_map_preview_plan(
     def make_runner() -> Any:
         runner = factory(project, effective_router)
         if deps is not None and deps.url_capture_browser is not None:
-            runner.op_context_extras = {
-                **runner.op_context_extras,
+            runner.action_context_extras = {
+                **runner.action_context_extras,
                 "url_capture_browser": deps.url_capture_browser,
             }
         if deps is not None and deps.execution_composition is not None:
@@ -399,8 +399,8 @@ def _executor_deps_with_defaults(
 
         def map_runner_factory(project, router, _factory=base_factory):
             runner = _factory(project, router)
-            runner.op_context_extras = {
-                **runner.op_context_extras,
+            runner.action_context_extras = {
+                **runner.action_context_extras,
                 "url_capture_browser": browser_renderer,
             }
             return runner
@@ -410,8 +410,8 @@ def _executor_deps_with_defaults(
 
         def map_runner_factory(project, router, _factory=base_factory):
             runner = _factory(project, router)
-            runner.op_context_extras = {
-                **runner.op_context_extras,
+            runner.action_context_extras = {
+                **runner.action_context_extras,
                 "search_service_factory": base.search_service_factory,
             }
             return runner

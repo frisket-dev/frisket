@@ -8,7 +8,7 @@ from typing import Any
 from frisket.engine.store.artifact_timeline import ensure_media_timeline
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -86,7 +86,7 @@ def _temporal_spans(segments, duration_ms):
         }
 
 
-def write_transcription_evidence(
+def write_transcription_citations(
     project,
     spec,
     *,
@@ -190,7 +190,7 @@ def write_transcription_evidence(
         language = read.get("language")
         if isinstance(language, str) and language.strip():
             metadata["language"] = language.strip()
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell",
             subject_ref={
@@ -211,7 +211,7 @@ def write_transcription_evidence(
             producer={"action_kind": spec["action_kind"], "engine": read["engine"]},
             metadata=metadata,
         )
-        store._record_writer_evidence(
+        store._record_writer_supporting_record(
             {
                 "kind": "media_transcribe_temporal_evidence_link",
                 "sheet_id": source["sheet_id"],

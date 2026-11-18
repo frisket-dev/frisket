@@ -13,7 +13,7 @@ import { ExtractView } from '../workbench/extract/ExtractView';
 import { isExtractionRunning } from '../workbench/extract/extractionRunning';
 import { AnswersView } from '../workbench/AnswersView';
 import { resolveTitleColumn } from '../workbench/rowTitle';
-import { EvidenceWorkbenchViewFrame, GraphNeighborhoodWorkbenchViewFrame } from '../workbench/contributions';
+import { CitationWorkbenchViewFrame, GraphNeighborhoodWorkbenchViewFrame } from '../workbench/contributions';
 import { IMAGE_GALLERY_VIEW_DESCRIPTOR } from '../workbench/descriptors';
 import { PluginMainViewHost } from '../workbench/PluginMainViewHost';
 import { GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID } from './contributionIds';
@@ -24,7 +24,7 @@ import { useWorkViewHandle } from '../bind/useWorkViewHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useSelector } from '../bind/useSelector';
 import { useCurrentSheet, useMainViewModel } from './WorkspaceContext';
-import { LazyEvidenceViewer } from './WorkspaceOverlays';
+import { LazyCitationViewer } from './WorkspaceOverlays';
 
 const LazyGenericGraphView = lazy(() => (
   import('../components/GenericGraphView').then(({ GenericGraphView }) => ({
@@ -135,7 +135,7 @@ export function WorkspacePrimarySurface() {
     answersCitedColumns,
     applyGridSortForColumn,
     clearGridSort,
-    closeEvidenceViewer,
+    closeCitationViewer,
     closeSplit,
     documentView,
     documentViewShowing,
@@ -146,8 +146,8 @@ export function WorkspacePrimarySurface() {
     annotatedTextColumnIds,
     documentAnnotationPreferences,
     setSheetAnnotationToggles,
-    evidenceMainViewHidden,
-    evidenceViewerState,
+    citationMainViewHidden,
+    citationViewerState,
     gridContribution,
     gridOnly,
     graphSplitShowing,
@@ -367,7 +367,7 @@ export function WorkspacePrimarySurface() {
       </WorkViewSplit>
     );
   }
-  if (evidenceViewerState?.host === 'mainView' && !evidenceMainViewHidden) {
+  if (citationViewerState?.host === 'mainView' && !citationMainViewHidden) {
     return (
       <div
         className="workbench-mainView-split"
@@ -379,21 +379,21 @@ export function WorkspacePrimarySurface() {
         data-companion-slot="work.companion"
       >
         {gridContribution}
-        <EvidenceWorkbenchViewFrame host="mainView">
+        <CitationWorkbenchViewFrame host="mainView">
           <Suspense fallback={<PanelLoading className="grid-host" label="Loading citation…" />}>
-            <LazyEvidenceViewer
-              key={`${String(evidenceViewerState.linkId)}:${evidenceViewerState.scopeSpanId ?? ''}`}
-              evidenceLinkId={evidenceViewerState.linkId}
-              initialPayload={evidenceViewerState.initialPayload}
-              initialPage={evidenceViewerState.initialPage}
-              scopeSpanId={evidenceViewerState.scopeSpanId}
-              scopeSpanIds={evidenceViewerState.scopeSpanIds}
-              highlight={evidenceViewerState.highlight}
+            <LazyCitationViewer
+              key={`${String(citationViewerState.linkId)}:${citationViewerState.scopeSpanId ?? ''}`}
+              evidenceLinkId={citationViewerState.linkId}
+              initialPayload={citationViewerState.initialPayload}
+              initialPage={citationViewerState.initialPage}
+              scopeSpanId={citationViewerState.scopeSpanId}
+              scopeSpanIds={citationViewerState.scopeSpanIds}
+              highlight={citationViewerState.highlight}
               mode="pane"
-              onClose={closeEvidenceViewer}
+              onClose={closeCitationViewer}
             />
           </Suspense>
-        </EvidenceWorkbenchViewFrame>
+        </CitationWorkbenchViewFrame>
       </div>
     );
   }

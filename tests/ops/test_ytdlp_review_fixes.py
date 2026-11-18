@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from frisket.ops.ytdlp import (
-    _validated_runtime_evidence,
+    _validated_runtime_identity,
     download_media,
 )
 from frisket.ops.ytdlp_outputs import (
@@ -121,12 +121,12 @@ def test_escaping_media_relpath_from_transport_is_rejected(
 
 
 def test_validated_runtime_evidence_passes_well_formed() -> None:
-    assert _validated_runtime_evidence(dict(_GOOD_EVIDENCE)) == _GOOD_EVIDENCE
+    assert _validated_runtime_identity(dict(_GOOD_EVIDENCE)) == _GOOD_EVIDENCE
 
 
 def test_validated_runtime_evidence_allows_empty() -> None:
-    assert _validated_runtime_evidence(None) == {}
-    assert _validated_runtime_evidence({}) == {}
+    assert _validated_runtime_identity(None) == {}
+    assert _validated_runtime_identity({}) == {}
 
 
 @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ def test_validated_runtime_evidence_allows_empty() -> None:
 )
 def test_validated_runtime_evidence_rejects_malformed(bad: dict) -> None:
     with pytest.raises(RuntimeError):
-        _validated_runtime_evidence(bad)
+        _validated_runtime_identity(bad)
 
 
 def test_download_rejects_malformed_transport_evidence(tmp_path: Path) -> None:

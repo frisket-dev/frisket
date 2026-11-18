@@ -26,7 +26,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.sandbox.shim import SandboxResult
 from frisket.engine.store.media_blobs import media_cell
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 
 HTML = "<html><body><h1>Quarterly Report</h1><p>Revenue doubled.</p></body></html>"
 
@@ -93,7 +93,7 @@ def _run_convert(
     limits=None,
     credential_ctx=None,
 ):
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         http=http,
         extras=extras
@@ -497,7 +497,7 @@ def test_actual_renamed_source_column_is_selected_by_argument(project, monkeypat
 def test_wrong_source_argument_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML, name="renamed")
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
     )
@@ -600,7 +600,7 @@ def test_missing_file_cell_refuses_before_document_conversion(project):
 def test_stale_source_value_refuses(project, monkeypatch):
     _stub_markitdown(monkeypatch)
     sheet, cid, row_id = _seed(project, HTML)
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         extras={"row_id": row_id, "preview": True, "cancelled": lambda: False},
     )
@@ -830,7 +830,7 @@ def test_sidecar_conversion_policy_brackets_actual_returned_usage(
         }
 
     monkeypatch.setattr(_sidecar, "_sidecar_post_transport", post)
-    ctx = OpContext(
+    ctx = ActionContext(
         project=None,
         http=object(),
         extras={

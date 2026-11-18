@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_evidence_link, sheet_cited_column_ids
+from frisket.engine.store.evidence import record_citation, sheet_cited_column_ids
 
 
 PROJECT_ID = "citedcols"
@@ -40,7 +40,7 @@ def _seed(ws: Path) -> dict[str, Any]:
 
         # ACTIVE evidence on 'amount' for both rows.
         for row_id in row_ids:
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell_value",
                 subject_ref={
@@ -57,7 +57,7 @@ def _seed(ws: Path) -> dict[str, Any]:
                 spans=[],
             )
         # A STALE link on 'notes' — must NOT count toward the signal.
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell_value",
             subject_ref={
@@ -80,7 +80,7 @@ def _seed(ws: Path) -> dict[str, Any]:
             other_sheet_id, "y", type="text", ai_generated=True
         )
         other_row = project.add_rows(other_sheet_id, [{"y": "z"}], {"y": other_col})[0]
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell_value",
             subject_ref={

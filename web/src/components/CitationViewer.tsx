@@ -1,20 +1,20 @@
-import './EvidenceViewer.css';
+import './CitationViewer.css';
 import { ExternalLink } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { EvidenceViewerPayload } from '../api/open';
+import type { CitationViewerPayload } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { PanelLoading } from './PanelPrimitives';
 import { WindowCloseButton } from './WindowCloseButton';
 import { ArtifactSource } from './evidence/ArtifactSource';
-import { ArtifactDetails, GroundingDegradedNotice, LinkSummary } from './evidence/EvidenceDetails';
-import { PdfPacketSourceCard } from './evidence/EvidenceDocumentSource';
-import type { RecoveryState } from './evidence/EvidenceTextSource';
-import { selectorNumber } from './evidence/evidenceSourceModel';
+import { ArtifactDetails, GroundingDegradedNotice, LinkSummary } from './evidence/CitationDetails';
+import { PdfPacketSourceCard } from './evidence/CitationDocumentSource';
+import type { RecoveryState } from './evidence/CitationTextSource';
+import { selectorNumber } from './evidence/citationSourceModel';
 import { pdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
 
-interface EvidenceViewerProps {
+interface CitationViewerProps {
   evidenceLinkId: string | number;
-  initialPayload?: EvidenceViewerPayload;
+  initialPayload?: CitationViewerPayload;
   initialPage?: number;
   mode?: 'peek' | 'pane';
   onClose(): void;
@@ -31,9 +31,9 @@ interface EvidenceViewerProps {
 type ViewerState =
   | { phase: 'loading' }
   | { phase: 'error'; message: string }
-  | { phase: 'done'; payload: EvidenceViewerPayload };
+  | { phase: 'done'; payload: CitationViewerPayload };
 
-export function EvidenceViewer({
+export function CitationViewer({
   evidenceLinkId,
   initialPayload,
   initialPage,
@@ -45,7 +45,7 @@ export function EvidenceViewer({
   scopeSpanIds,
   highlight = true,
   defaultShowDetails = false,
-}: EvidenceViewerProps) {
+}: CitationViewerProps) {
   const { projectApi, route } = useWorkspaceStores();
   const [readState, setState] = useState<ViewerState>({ phase: 'loading' });
   const state: ViewerState = readState.phase === 'loading' && initialPayload
@@ -118,7 +118,7 @@ export function EvidenceViewer({
 
   const content = (
     <>
-      <EvidenceViewerHeader
+      <CitationViewerHeader
         state={state}
         canOpenCompanion={mode === 'peek' && onOpenCompanion !== undefined}
         onOpenCompanion={onOpenCompanion}
@@ -133,7 +133,7 @@ export function EvidenceViewer({
         </div>
       )}
       {state.phase === 'done' && (
-        <EvidencePayloadView
+        <CitationPayloadView
           payload={state.payload}
           initialPage={initialPage}
           scopeRowId={scopeRowId}
@@ -184,7 +184,7 @@ export function EvidenceViewer({
   );
 }
 
-function EvidenceViewerHeader({
+function CitationViewerHeader({
   state,
   canOpenCompanion,
   onOpenCompanion,
@@ -224,7 +224,7 @@ function EvidenceViewerHeader({
   );
 }
 
-function EvidencePayloadView({
+function CitationPayloadView({
   payload,
   initialPage,
   scopeRowId = null,
@@ -236,7 +236,7 @@ function EvidencePayloadView({
   onLocateCurrent,
   onOpenSiblingSheet,
 }: {
-  payload: EvidenceViewerPayload;
+  payload: CitationViewerPayload;
   initialPage?: number;
   scopeRowId?: string | null;
   scopeSpanId?: string;

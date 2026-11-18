@@ -411,7 +411,7 @@ def test_default_extractor_uses_only_installed_ytdlp_package(
 ):
     sentinel = object()
     monkeypatch.setattr(
-        ytdlp, "_installed_ytdlp_evidence", lambda: dict(_RUNTIME_EVIDENCE)
+        ytdlp, "_installed_ytdlp_identity", lambda: dict(_RUNTIME_EVIDENCE)
     )
     monkeypatch.setattr(
         ytdlp,
@@ -476,15 +476,15 @@ def test_installed_ytdlp_receipt_hashes_package_tree_and_is_cached(
         "distribution",
         lambda _name: _Distribution(),
     )
-    ytdlp._installed_ytdlp_evidence.cache_clear()
+    ytdlp._installed_ytdlp_identity.cache_clear()
     try:
-        first = ytdlp._installed_ytdlp_evidence()
+        first = ytdlp._installed_ytdlp_identity()
         module.write_text("print('two')\n")
-        assert ytdlp._installed_ytdlp_evidence() == first
-        ytdlp._installed_ytdlp_evidence.cache_clear()
-        second = ytdlp._installed_ytdlp_evidence()
+        assert ytdlp._installed_ytdlp_identity() == first
+        ytdlp._installed_ytdlp_identity.cache_clear()
+        second = ytdlp._installed_ytdlp_identity()
     finally:
-        ytdlp._installed_ytdlp_evidence.cache_clear()
+        ytdlp._installed_ytdlp_identity.cache_clear()
 
     assert first["resolved_version"] == "2099.1.2"
     assert re.fullmatch(r"[0-9a-f]{64}", first["artifact_sha256"])
@@ -498,12 +498,12 @@ def test_missing_installed_ytdlp_fails_with_clear_error(
         raise ytdlp.importlib_metadata.PackageNotFoundError("yt-dlp")
 
     monkeypatch.setattr(ytdlp.importlib_metadata, "distribution", _missing)
-    ytdlp._installed_ytdlp_evidence.cache_clear()
+    ytdlp._installed_ytdlp_identity.cache_clear()
     try:
         with pytest.raises(ytdlp.ManagedRuntimeUnavailable, match="yt-dlp"):
-            ytdlp._installed_ytdlp_evidence()
+            ytdlp._installed_ytdlp_identity()
     finally:
-        ytdlp._installed_ytdlp_evidence.cache_clear()
+        ytdlp._installed_ytdlp_identity.cache_clear()
 
 
 def test_ytdlp_cloud_anti_bot_challenge_becomes_safe_provider_diagnosis(

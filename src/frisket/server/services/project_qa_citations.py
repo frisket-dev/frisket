@@ -151,10 +151,10 @@ def _resolve_evidence_target(
     target: dict[str, Any],
     status: str,
 ) -> tuple[dict[str, Any], str] | None:
-    from frisket.engine.store.evidence import resolve_evidence_viewer
+    from frisket.engine.store.evidence import resolve_citation_viewer
 
     try:
-        viewer = resolve_evidence_viewer(project, locator["evidence_link_id"])
+        viewer = resolve_citation_viewer(project, locator["evidence_link_id"])
     except KeyError:
         return None
     span_exists = any(

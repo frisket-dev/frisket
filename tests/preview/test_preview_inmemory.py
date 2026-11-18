@@ -44,7 +44,7 @@ _MISSING = object()
 def test_preview_runner_receives_composed_browser_runtime(make_project) -> None:
     project = make_project("Preview")
     browser = object()
-    runner = SimpleNamespace(op_context_extras={})
+    runner = SimpleNamespace(action_context_extras={})
     try:
         plan = build_map_preview_plan(
             project,
@@ -56,7 +56,9 @@ def test_preview_runner_receives_composed_browser_runtime(make_project) -> None:
                 url_capture_browser=browser,
             ),
         )
-        assert plan.make_runner().op_context_extras["url_capture_browser"] is browser
+        assert (
+            plan.make_runner().action_context_extras["url_capture_browser"] is browser
+        )
     finally:
         project.close()
 

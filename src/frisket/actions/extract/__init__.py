@@ -6,7 +6,7 @@ from frisket.actions.extract.llm import (
     extract_outputs,
 )
 from frisket.actions.extract.grounding import (
-    _evidence_claim as _evidence_claim,
+    _citation_claim as _citation_claim,
 )
 from frisket.actions.extract.json_columns import (
     COLUMNS_FROM_JSON,

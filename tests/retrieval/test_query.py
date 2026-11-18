@@ -11,7 +11,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -651,7 +651,7 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
         bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
     )
     _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row],
@@ -1796,7 +1796,7 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
         page_end=1,
         preview={"blob_hash": page_hash, "mime": "image/png"},
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={
@@ -1830,7 +1830,7 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
     )
     assert (gap.eligible_count, gap.prepared_count) == (2, 0)
 
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={

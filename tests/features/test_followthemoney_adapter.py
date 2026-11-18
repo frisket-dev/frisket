@@ -10,7 +10,7 @@ pytest.importorskip(
 )
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -107,7 +107,7 @@ def test_row_ref_mapping_normalizes_typed_values_and_preserves_refs(
         span_kind="text",
         quote="Jane Smith",
     )
-    evidence = record_evidence_link(
+    evidence = record_citation(
         project,
         stable_id="evidence_link:profile-name",
         subject_kind="cell_value",

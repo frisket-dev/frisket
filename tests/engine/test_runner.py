@@ -24,7 +24,7 @@ from frisket.ai.llm import (
 )
 from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
 from frisket.ai.llm.pricing import cost_of_with_source
-from frisket.ops.base import OpContext, Recipe, RenderedCall
+from frisket.ops.base import ActionContext, Recipe, RenderedCall
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.builtin import prompt_hash_of
 from frisket.engine.runner import CostGate, MapRunner, validation
@@ -1579,7 +1579,7 @@ def test_map_row_exhausts_after_exactly_three_repairs_and_keeps_accounting(
                 model_plan(spec).program,
                 {"text": "Ada Lovelace"},
                 spec,
-                OpContext(
+                ActionContext(
                     project=project,
                     extras={"preview": True, "cancelled": lambda: False},
                 ),

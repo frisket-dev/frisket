@@ -12,7 +12,7 @@ from PIL import Image
 from frisket.credentials import ResolvedCredential
 from frisket.execution.credential_use import CredentialUseContext
 from frisket.execution.purchases import PurchaseAdmission, PurchaseRecordingError
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 class Purchases:
@@ -50,7 +50,7 @@ class Purchases:
 
 
 def context(policy, **kwargs):
-    return OpContext(
+    return ActionContext(
         extras={
             "service_operation_policy": policy,
             "preview": True,

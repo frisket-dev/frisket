@@ -182,7 +182,7 @@ def _moss_sidecar_app(tmp_path: Path, worker_client_factory):
 class _SidecarAsgiRouter(ModelRouter):
     """A real ModelRouter whose http client resolves to the in-process sidecar.
 
-    ``MapRunner`` hands ``router.client`` to every recipe as ``OpContext.http``;
+    ``MapRunner`` hands ``router.client`` to every recipe as ``ActionContext.http``;
     binding it to an ``ASGITransport`` makes ``sidecar_post``'s POST against
     ``FRISKET_MODELS_URL`` land on the real frisket_models FastAPI app without
     a socket. The base ModelRouter's loop-bound cached client is replaced with

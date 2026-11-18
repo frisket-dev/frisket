@@ -353,7 +353,7 @@ def download_media(
         info = dict(handoff.metadata or {})
         video_id = str(info.get("yt_dlp_id") or media_path.stem)
         duration = _float_or_none(info.get("duration_seconds"))
-        runtime_evidence = _validated_runtime_evidence(handoff.runtime_evidence)
+        runtime_evidence = _validated_runtime_identity(handoff.runtime_evidence)
         known_provider = (
             classification.provider
             if classification is not None
@@ -490,12 +490,12 @@ def _build_default_extractor(
     installed package files that command will execute. ``should_cancel`` rides
     into the extractor so a cancelled run aborts an in-flight download.
     """
-    evidence = _installed_ytdlp_evidence()
+    evidence = _installed_ytdlp_identity()
     return _installed_ytdlp_cli_extractor(evidence, should_cancel)
 
 
 @lru_cache(maxsize=1)
-def _installed_ytdlp_evidence() -> dict[str, str]:
+def _installed_ytdlp_identity() -> dict[str, str]:
     """Return version and content identity for the installed yt-dlp package.
 
     Only ``yt_dlp/**`` is hashed. Distribution inventories can also contain
@@ -808,7 +808,7 @@ def _float_or_none(value: Any) -> float | None:
 _SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def _validated_runtime_evidence(evidence: dict[str, str] | None) -> dict[str, str]:
+def _validated_runtime_identity(evidence: dict[str, str] | None) -> dict[str, str]:
     """Shape-check the runtime's receipt evidence before it is persisted.
 
     Empty evidence is legitimate (an injected extractor may supply none), so it

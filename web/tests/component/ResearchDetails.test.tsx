@@ -3,7 +3,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { RunTraceRow, RunTraceRowEvidence } from '../../src/api/types';
+import type { RunTraceRow, RunTraceRowRecord } from '../../src/api/types';
 import { ModelCallDetails, ResearchActivitySummary, ResearchDetails, SourceLinks } from '../../src/components/research/ResearchDetails';
 
 const originalShowModal = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
@@ -20,7 +20,7 @@ afterAll(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function evidence(overrides: Partial<RunTraceRow> = {}): RunTraceRowEvidence {
+function evidence(overrides: Partial<RunTraceRow> = {}): RunTraceRowRecord {
   return {
     runId: 'run-1', rowId: 'row-1', columnId: 'answer-column', recorded: true, status: 'recorded',
     cell: { value: 'The exact-run answer.', error: null },

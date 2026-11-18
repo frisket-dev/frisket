@@ -20,7 +20,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -79,7 +79,7 @@ def _write_layer(
         for start, end, entity_type in spans_in
     ]
     _values, refs = project.get_values_with_refs(sheet, ents_col, row_ids=[row_id])
-    return record_evidence_link(
+    return record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],

@@ -1641,10 +1641,10 @@ def _perform_table_in_txn(
     )
     if list_reader is not None:
         from frisket.engine.executor.list_table_grounding import (
-            propagate_list_item_evidence,
+            propagate_list_item_citations,
         )
 
-        propagate_list_item_evidence(
+        propagate_list_item_citations(
             project,
             sheet_id=write.sheet_id,
             op_id=write.op_id,
@@ -1682,7 +1682,9 @@ def _perform_table_in_txn(
     projection_evidence = [
         evidence
         for reader in projections
-        for evidence in reader.publication_evidence(write, rows, receipt_id=receipt_id)
+        for evidence in reader.publication_supporting_records(
+            write, rows, receipt_id=receipt_id
+        )
     ]
     rows_ref = {
         **write.materialized_rows_ref,
@@ -1738,7 +1740,7 @@ def _perform_table_in_txn(
         )
         receipt.evidence.extend(ReceiptEvidence(ref=ref) for ref in published)
     if (matches := resolved.get("semantic_match_reader")) is not None:
-        receipt.evidence.extend(matches.publication_evidence(write, sources))
+        receipt.evidence.extend(matches.publication_supporting_records(write, sources))
     if (prior := resolved.get("reserved_receipt")) is not None:
         receipt.evidence[:0] = prior.evidence
         if not ReceiptStore(project).update_body_status(

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from frisket.engine.executor.topic_sections_read import (
-    topic_receipt_evidence,
+    topic_supporting_records,
     _topic_analysis_receipt,
 )
 from frisket.features.temporal.transcript_boundaries import lock_transcript_boundaries
@@ -141,7 +141,7 @@ def test_topic_sidecar_binds_exact_value_without_visible_self_reference(
         "frisket.engine.store.runs.RunResultStore",
         lambda project: _SavedResults(value, sidecar),
     )
-    provenance = topic_receipt_evidence(
+    provenance = topic_supporting_records(
         None,
         facts,
         [

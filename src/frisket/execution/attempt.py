@@ -58,7 +58,7 @@ from frisket.execution.resolver import CandidateBinding
 # The value
 # ---------------------------------------------------------------------------
 
-#: ``OpContext.extras`` key carrying the attempt for the one invocation. It
+#: ``ActionContext.extras`` key carrying the attempt for the one invocation. It
 #: Replaces the four route-binding extras (``resolved_route``,
 #: ``route_binding``, ``execution_binding``, and the ``RouteBinding`` pair
 #: type): the attempt IS the typed variant, so a routed

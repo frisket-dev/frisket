@@ -69,7 +69,7 @@ interface SnippetParts {
  *
  *  `slice` on a JavaScript string indexes UTF-16 code units, which is exactly
  *  the unit the route returns, so this is a direct cut and never a search for
- *  the quote in the text (EvidenceViewer's model, which marks the wrong "Ada"
+ *  the quote in the text (CitationViewer's model, which marks the wrong "Ada"
  *  the moment a name appears twice — and a snippet is precisely a window where
  *  it appears more than once).
  *

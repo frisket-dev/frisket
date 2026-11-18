@@ -2,11 +2,11 @@ import { httpContract, type HttpContractSuccessResponse, type RequestOptions } f
 import type {
   ProvenanceManifest,
   RunTraceRow,
-  RunTraceRowEvidence,
+  RunTraceRowRecord,
 } from './types';
 import { actionDisplayNameFromActionKind, sqliteTimestampToIso } from './wireValues';
 
-type RunTraceRowEvidenceWire =
+type RunTraceRowRecordWire =
   HttpContractSuccessResponse<'tenant.action_run_trace_row.get'>;
 type ProvenanceManifestWire =
   HttpContractSuccessResponse<'tenant.provenance.get'>;
@@ -16,7 +16,7 @@ type ProvenanceManifestWire =
 // URL bytes without adding a second runtime parser or validator.
 const numericPathRef = (value: string): number => value as unknown as number;
 
-function mapTraceRow(row: NonNullable<RunTraceRowEvidenceWire['trace']>['row']): RunTraceRow | null {
+function mapTraceRow(row: NonNullable<RunTraceRowRecordWire['trace']>['row']): RunTraceRow | null {
   if (row === null) return null;
   return {
     rowId: row.row_id != null ? String(row.row_id) : null,
@@ -37,10 +37,10 @@ function mapTraceRow(row: NonNullable<RunTraceRowEvidenceWire['trace']>['row']):
   };
 }
 
-function rowEvidence(
-  wire: RunTraceRowEvidenceWire,
+function rowTraceRecord(
+  wire: RunTraceRowRecordWire,
   requestedColumnId: string | null | undefined,
-): RunTraceRowEvidence {
+): RunTraceRowRecord {
   const trace = wire.trace;
   const run = wire.run;
   const actionKind = trace?.action_kind ?? null;
@@ -150,7 +150,7 @@ export function createRunProvenanceApi(projectId: string) {
       rowId: string,
       columnId?: string | null,
       options: RequestOptions = {},
-    ): Promise<RunTraceRowEvidence> {
+    ): Promise<RunTraceRowRecord> {
       return httpContract(
         'tenant.action_run_trace_row.get',
         {
@@ -162,7 +162,7 @@ export function createRunProvenanceApi(projectId: string) {
           query: { column_id: columnId == null ? undefined : numericPathRef(columnId) },
           signal: options.signal,
         },
-        (wire) => rowEvidence(wire, columnId),
+        (wire) => rowTraceRecord(wire, columnId),
       );
     },
 

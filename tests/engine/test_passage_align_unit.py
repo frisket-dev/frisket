@@ -16,7 +16,7 @@ from frisket.engine.store.grounding_contract import (
     WordToken,
     ground,
 )
-from frisket.engine.store.quote_align import Token, align_quote_to_tokens
+from frisket.engine.store.passage_align import Token, align_passage_to_tokens
 
 
 def test_temporal_result_emits_source_segment_indices_not_positions() -> None:
@@ -48,7 +48,7 @@ def test_temporal_index_defaults_to_position_when_absent() -> None:
         Token(text="alpha one", start_ms=0, end_ms=1000, source="segment"),
         Token(text="bravo two", start_ms=1000, end_ms=2000, source="segment"),
     ]
-    results = align_quote_to_tokens("bravo two", tokens)
+    results = align_passage_to_tokens("bravo two", tokens)
     assert results
     assert results[0].segment_indices == [1]
 

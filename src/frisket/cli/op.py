@@ -40,7 +40,7 @@ def _find_typed_action(name: str) -> Any | None:
 def _try_op(name: str, input_arg: str) -> int:
     from pydantic import ValidationError
 
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
 
     try:
         typed = _find_typed_action(name)
@@ -77,7 +77,7 @@ def _try_op(name: str, input_arg: str) -> int:
 
         async def run_search():
             searcher = AdmittedWebSearcher(
-                OpContext(
+                ActionContext(
                     project=None, http=None, extras={"standalone_dispatch": STANDALONE}
                 )
             )

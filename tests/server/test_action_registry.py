@@ -73,7 +73,7 @@ def test_v1_action_registry_publish_list_get_import_without_public_recipe_langua
 ) -> None:
     client = _client(tmp_path)
     workspace = client.app.state.workspace
-    saved_entry = workspace.save_recipe(
+    saved_entry = workspace.save_action(
         "Beat classifier",
         _publishable_saved_action_spec(),
     )
@@ -154,7 +154,7 @@ def test_v1_action_registry_publish_list_get_import_without_public_recipe_langua
 
     templates = [
         saved_actions.saved_action_template(entry)
-        for entry in workspace.saved_recipes()
+        for entry in workspace.saved_actions()
     ]
     assert [template["name"] for template in templates] == [
         "Beat classifier",

@@ -247,10 +247,10 @@ def test_execute_row_reasserts_policy_for_direct_callers(project) -> None:
     )
     plan = _translate_plan(project, "deepl")
     spec = plan.spec_dict()
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
     from frisket.engine.runner.row_execution import execute_row
 
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project, http=None, extras={"preview": True, "cancelled": lambda: False}
     )
     with pytest.raises(NetworkDisabled):

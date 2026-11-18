@@ -19,7 +19,7 @@ excluded by construction — the feature is opt-in and fails closed at read.
 
 from __future__ import annotations
 
-from frisket.engine.store.cell_reference import evidence_subject_ref_json
+from frisket.engine.store.cell_reference import citation_subject_ref_json
 
 from typing import Any
 
@@ -315,7 +315,7 @@ def _resolve_text_annotations(
         if key not in current_ref_cache:
             _val, ref = _current_cell(project, out[0], out[1], out[2])
             current_ref_cache[key] = (
-                evidence_subject_ref_json(ref) if ref is not None else None
+                citation_subject_ref_json(ref) if ref is not None else None
             )
         stored = current_ref_cache[key]
         return stored is not None and stored == r["subject_ref_json"]
@@ -424,7 +424,7 @@ def _resolve_text_annotations(
                 continue
             local_start = max(0, start - base) if type(start) is int else 0
             local_end = min(len(text), end - base) if type(end) is int else 0
-            visible_quote = (
+            visible_passage = (
                 quote[
                     max(0, base - start) : max(0, base - start)
                     + local_end
@@ -437,7 +437,7 @@ def _resolve_text_annotations(
                 sql = "SELECT quote AS value FROM source_spans WHERE id=:span_id"
                 params = {"span_id": int(r["span_id"])}
                 sizes = sql_text_sizes(project.db, sql, params)
-                visible_quote = (
+                visible_passage = (
                     read_sql_text(
                         project.db,
                         sql,
@@ -457,7 +457,7 @@ def _resolve_text_annotations(
                 not isinstance(start, int)
                 or not isinstance(end, int)
                 or not (0 <= start < end <= meta.total_characters)
-                or text[local_start:local_end] != visible_quote
+                or text[local_start:local_end] != visible_passage
             ):
                 invalid += 1
                 continue
@@ -584,7 +584,7 @@ def _annotated_text_column_ids(project: Any, sheet_id: int) -> list[int]:
             continue
         if out not in refs:
             _value, ref = _current_cell(project, out[0], out[1], out[2])
-            refs[out] = evidence_subject_ref_json(ref) if ref is not None else None
+            refs[out] = citation_subject_ref_json(ref) if ref is not None else None
         if refs[out] == row["subject_ref_json"]:
             available.add(int(row["column_id"]))
     return sorted(available)

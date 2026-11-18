@@ -4,7 +4,7 @@ import hashlib
 
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -93,7 +93,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
         ],
         quote="Ada",
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -113,7 +113,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
     counts_before = _counts(project)
 
     ordinary = client.get(endpoint)
-    resolve_viewer = project_evidence_service.resolve_evidence_viewer
+    resolve_viewer = project_evidence_service.resolve_citation_viewer
 
     def resolve_then_edit(snapshot, *args, **kwargs):
         viewer = resolve_viewer(snapshot, *args, **kwargs)
@@ -124,7 +124,7 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
 
     with monkeypatch.context() as race:
         race.setattr(
-            project_evidence_service, "resolve_evidence_viewer", resolve_then_edit
+            project_evidence_service, "resolve_citation_viewer", resolve_then_edit
         )
         located = client.get(endpoint, params={"locate_current": "true"})
 

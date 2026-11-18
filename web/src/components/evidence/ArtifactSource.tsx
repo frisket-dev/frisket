@@ -1,11 +1,11 @@
-import './EvidenceReading.css';
+import './CitationReading.css';
 import { ExternalLink, FileText } from 'lucide-react';
-import type { EvidenceArtifact, EvidenceRegion, EvidenceTextPassageTarget } from '../../api/open';
-import { EvidenceDocumentSource } from './EvidenceDocumentSource';
-import { EvidenceMediaSource } from './EvidenceMediaSource';
-import { RegionOverlay } from './EvidenceRegionOverlay';
-import { TextArtifactSource, TextPassageRecovery, type RecoveryState } from './EvidenceTextSource';
-import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './evidenceSourceModel';
+import type { CitationArtifact, CitationRegion, CitationTextPassageTarget } from '../../api/open';
+import { CitationDocumentSource } from './CitationDocumentSource';
+import { CitationMediaSource } from './CitationMediaSource';
+import { RegionOverlay } from './CitationRegionOverlay';
+import { TextArtifactSource, TextPassageRecovery, type RecoveryState } from './CitationTextSource';
+import { isTextRenderableMediaType, jsonRecord, textCitedSpans } from './citationSourceModel';
 
 export function ArtifactSource({
   artifact,
@@ -19,9 +19,9 @@ export function ArtifactSource({
   recovery = { phase: 'idle' },
   onLocateCurrent,
 }: {
-  artifact: EvidenceArtifact;
+  artifact: CitationArtifact;
   initialPage?: number;
-  textPassageTargets?: readonly EvidenceTextPassageTarget[];
+  textPassageTargets?: readonly CitationTextPassageTarget[];
   playFocusedPassage?: boolean;
   scopeSpanId?: string;
   /** Matching spans to highlight alongside the primary focused span. */
@@ -53,18 +53,18 @@ export function ArtifactSource({
         onLocateCurrent={onLocateCurrent}
       />
       {(artifact.media_type === 'application/pdf' && blob) || artifact.pages.length > 0 ? (
-        <EvidenceDocumentSource artifact={artifact} initialPage={initialPage} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
+        <CitationDocumentSource artifact={artifact} initialPage={initialPage} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
       ) : isTextRenderableMediaType(artifact.media_type) && (artifact.text_context != null || textCitedSpans(artifact).length > 0) ? (
         <TextArtifactSource key={artifact.stable_id} artifact={artifact} textPassageTargets={textPassageTargets} playFocusedPassage={playFocusedPassage} scopeSpanId={scopeSpanId} scopeSpanIds={scopeSpanIds} highlight={highlight} emphasizedSpanIds={emphasizedSpanIds} />
       ) : artifact.media_type.startsWith('image/') && blob ? (
         <div className="evidence-page-image-frame">
           <img className="evidence-page-image" src={blob.url} alt={artifact.title || artifact.filename || 'Source image'} />
           {artifact.spans.map((span) => <RegionOverlay key={span.stable_id}
-            region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as EvidenceRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
+            region={{ id: span.id, stable_id: span.stable_id, bbox: (jsonRecord(span.selector)?.bbox ?? null) as CitationRegion['bbox'], snippet: span.quote || span.snippet, raw: span.raw }}
             emphasized={emphasizedSpanIds.includes(span.stable_id)} />)}
         </div>
       ) : (
-        <EvidenceMediaSource key={`${artifact.stable_id}:${scopeSpanId ?? ''}`} artifact={artifact} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
+        <CitationMediaSource key={`${artifact.stable_id}:${scopeSpanId ?? ''}`} artifact={artifact} scopeSpanId={scopeSpanId} emphasizedSpanIds={emphasizedSpanIds} />
       )}
     </section>
   );

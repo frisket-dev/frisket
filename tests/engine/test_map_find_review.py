@@ -11,11 +11,11 @@ from frisket.engine.runner.review import (
     review_runs_page,
     set_review_run_status,
 )
-from frisket.engine.store.cell_reference import evidence_subject_ref
+from frisket.engine.store.cell_reference import citation_subject_ref
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    list_row_evidence,
-    resolve_evidence_viewer,
+    list_cell_citations,
+    list_row_citations,
+    resolve_citation_viewer,
 )
 from test_map_find_runtime import (
     _FindAdapter,
@@ -203,12 +203,12 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             for name in ("Match", "Source", "Metadata")
         ]
 
-        row_evidence = list_row_evidence(
+        row_evidence = list_row_citations(
             project, sheet_id=findings_sheet_id, row_id=row_id
         )
         assert len(row_evidence["links"]) == 1
         for name, column_id in columns.items():
-            cell_evidence = list_cell_evidence(
+            cell_evidence = list_cell_citations(
                 project,
                 sheet_id=findings_sheet_id,
                 row_id=row_id,
@@ -216,11 +216,11 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
             )
             assert len(cell_evidence["links"]) == 1
             assert cell_evidence["current_value_ref"]["kind"] == "run_result"
-            viewer = resolve_evidence_viewer(
+            viewer = resolve_citation_viewer(
                 project, cell_evidence["links"][0]["stable_id"]
             )
             assert viewer["link"]["role"] == "primary_support"
-            assert viewer["link"]["subject_ref"] == evidence_subject_ref(
+            assert viewer["link"]["subject_ref"] == citation_subject_ref(
                 cell_evidence["current_value_ref"]
             )
             assert (
@@ -293,7 +293,7 @@ def test_find_occurrences_publish_reviewable_grounded_result_heads(
         set_review_run_status(project, run_id=run_id, status="open")["status"] == "open"
     )
 
-    edited_evidence = list_cell_evidence(
+    edited_evidence = list_cell_citations(
         project,
         sheet_id=findings_sheet_id,
         row_id=row_ids[0],

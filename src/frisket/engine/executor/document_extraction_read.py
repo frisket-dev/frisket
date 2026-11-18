@@ -38,7 +38,7 @@ from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.blob_backend import BlobStoreError, validate_blob_digest
 from frisket.engine.store.ocr_word_stream import iter_ocr_word_streams
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -811,7 +811,7 @@ class AdmittedPositionedDocumentReader:
     def generated_columns(self):
         return set()
 
-    def publication_evidence(self, write, rows, *, receipt_id):
+    def publication_supporting_records(self, write, rows, *, receipt_id):
         evidence = []
         artifacts = {}
         fields = extraction_fields(self.params)
@@ -862,7 +862,7 @@ class AdmittedPositionedDocumentReader:
                 _values, refs = self.project.get_values_with_refs(
                     write.sheet_id, column_id, row_ids=[output_row_id]
                 )
-                link = record_evidence_link(
+                link = record_citation(
                     self.project,
                     subject_kind="cell",
                     subject_ref=refs[output_row_id],

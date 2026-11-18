@@ -20,7 +20,7 @@ from frisket.execution.credential_use import (
     CredentialUseRefusal,
     require_consented_credential,
 )
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.integrations.translate_common import TranslateEngineError
 
 
@@ -165,7 +165,7 @@ class TranslationEngine:
         return value or None
 
     @staticmethod
-    def _cancel_signal(ctx: "OpContext") -> Any:
+    def _cancel_signal(ctx: "ActionContext") -> Any:
         """The cooperative-cancel callable MapRunner threads into the row
         context (``ctx.extras['cancelled']``, a ``() -> bool``), or None. Passed
         into on-use provisioning so a cancelled run aborts a large pull promptly
@@ -217,7 +217,7 @@ class TranslationEngine:
         return translation_text(row_values)
 
     async def execute(
-        self, row_values: dict[str, Any], spec: dict, ctx: "OpContext"
+        self, row_values: dict[str, Any], spec: dict, ctx: "ActionContext"
     ) -> Any:
         """Run hosted or local MT and return logical values with actual costs.
 

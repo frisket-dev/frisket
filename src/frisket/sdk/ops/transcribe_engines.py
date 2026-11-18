@@ -35,7 +35,7 @@ from frisket.execution.resolver import (
 )
 from frisket.execution.runtime_binding import ROUTE_OBSERVATION_KEY, bind_fact_to_route
 from frisket.execution.targets import validated_target_snapshot
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.sdk.ops.transcription.common import (
     LocalTranscribeUnsupportedError as LocalTranscribeUnsupportedError,
     TranscribeCancelled as TranscribeCancelled,
@@ -77,7 +77,7 @@ def canonical_transcription_engine(engine: str) -> str:
 
 
 def transcription_transport(
-    engine: str, spec: dict[str, Any], ctx: OpContext | None
+    engine: str, spec: dict[str, Any], ctx: ActionContext | None
 ) -> str | None:
     """Resolve dispatch from a bound route or declared static preference."""
     admission = routed_admission_in_scope((ctx.extras or {}) if ctx is not None else {})
@@ -106,7 +106,7 @@ def transcription_max_row_concurrency(spec: dict[str, Any]) -> int | None:
     return 1 if isinstance(choice, tuple) and choice[1].run_scoped else None
 
 
-def transcription_uses_run_scope(spec: dict[str, Any], ctx: OpContext) -> bool:
+def transcription_uses_run_scope(spec: dict[str, Any], ctx: ActionContext) -> bool:
     admission = routed_admission_in_scope(ctx.extras or {})
     preview = preview_resolution_in_scope(ctx.extras)
     if admission is not None:
@@ -120,7 +120,7 @@ def transcription_uses_run_scope(spec: dict[str, Any], ctx: OpContext) -> bool:
 
 @asynccontextmanager
 async def transcription_execution_scope(
-    spec: dict[str, Any], ctx: OpContext, *, expected_rows: int
+    spec: dict[str, Any], ctx: ActionContext, *, expected_rows: int
 ) -> AsyncIterator[None]:
     engine = canonical_transcription_engine(str(spec.get("engine") or DEFAULT_ENGINE))
     enabled = transcription_uses_run_scope(spec, ctx)
@@ -174,7 +174,7 @@ async def run_transcription_engine(
     engine: str,
     path: str,
     spec: dict[str, Any],
-    ctx: OpContext,
+    ctx: ActionContext,
     *,
     should_cancel: Callable[[], bool] | None = None,
     transport: str | None = None,

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { CellEvidencePayload, EvidenceViewerPayload, ReviewBundle, ReviewBundleField } from '../../src/api/types';
+import type { CellCitationsPayload, CitationViewerPayload, ReviewBundle, ReviewBundleField } from '../../src/api/types';
 import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 const seeks = vi.hoisted(() => vi.fn());
@@ -43,7 +43,7 @@ function reviewField(id: string, columnId: string): ReviewBundleField {
   };
 }
 
-function cellEvidence(linkIds: string[]): CellEvidencePayload {
+function cellEvidence(linkIds: string[]): CellCitationsPayload {
   return {
     schema_version: 'frisket.cell_evidence.v1',
     current_value_ref: { kind: 'run_result', run_id: 'run-9' },
@@ -51,10 +51,10 @@ function cellEvidence(linkIds: string[]): CellEvidencePayload {
       id: index + 1, stable_id, export_ref: stable_id, status: 'active', role: 'citation', evidence_kind: 'source',
       span_count: 1, artifact_count: 1, snippet: null, viewer_href: `/evidence/${stable_id}`,
     })),
-  } as CellEvidencePayload;
+  } as CellCitationsPayload;
 }
 
-function viewer(linkId: string, sourceId: string, spanId: string, title: string): EvidenceViewerPayload {
+function viewer(linkId: string, sourceId: string, spanId: string, title: string): CitationViewerPayload {
   return {
     schema_version: 'frisket.evidence_viewer.v1', warnings: [],
     link: {

@@ -36,7 +36,7 @@ from frisket.execution.consent_coverage import (
 )
 from frisket.ops.base import (
     RECIPE_INVOCATION_HALT_CODES,
-    OpContext,
+    ActionContext,
     Recipe,
     RecipeInvocationHalt,
     normalize_recipe_invocation_halt,
@@ -422,7 +422,7 @@ class MapRunner:
     on_progress: Callable[[RunProgress], None] | None = None
     should_cancel: Callable[[int], bool] | None = None
     defer_cancel_terminal_close: bool = field(kw_only=True, default=False)
-    op_context_extras: dict[str, Any] = field(default_factory=dict)
+    action_context_extras: dict[str, Any] = field(default_factory=dict)
     allow_action_lifecycle_only_recipes: bool = False
     halt_after_consecutive_failures: int | None = DEFAULT_FAILURE_HALT_STREAK
     # Mint once after admission and before any row executes.
@@ -1091,7 +1091,7 @@ class MapRunner:
             return progress
 
         attempt: AttemptCommitment | None = admitted_attempt
-        run_extras = dict(self.op_context_extras)
+        run_extras = dict(self.action_context_extras)
         try:
             declare_prepared_outputs(
                 self.project,
@@ -1271,7 +1271,7 @@ class MapRunner:
                 _log.warning("work_progress_write_failed", exc_info=True)
 
         # remote-engine ops (ocr's VLM tier) reach the router via extras
-        ctx = OpContext(
+        ctx = ActionContext(
             project=self.project,
             http=self.router.client,
             credential_use_context=(
@@ -2470,7 +2470,7 @@ class MapRunner:
             self.router,
             self.run_store,
             self._throttle,
-            self.op_context_extras,
+            self.action_context_extras,
             self._row_worker_count,
             spec,
             program=program,
@@ -2525,7 +2525,7 @@ class MapRunner:
         self,
         recipe: Recipe,
         spec: dict,
-        ctx: OpContext,
+        ctx: ActionContext,
         *,
         row_ids: list[int],
         col_map: dict[str, int],

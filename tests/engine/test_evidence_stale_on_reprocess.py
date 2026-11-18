@@ -11,12 +11,12 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    record_evidence_link,
+    list_cell_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
@@ -187,7 +187,7 @@ def test_reocr_with_different_engine_marks_prior_link_stale(
         assert first.status == "completed", first.errors
 
         text_column_id = _text_column_id(project, sheet_id)
-        first_evidence = list_cell_evidence(
+        first_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -212,7 +212,7 @@ def test_reocr_with_different_engine_marks_prior_link_stale(
         second = run_action_spec(project, second_action, project_id=PROJECT_ID)
         assert second.status == "completed", second.errors
 
-        all_evidence = list_cell_evidence(
+        all_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -233,7 +233,7 @@ def test_reocr_with_different_engine_marks_prior_link_stale(
         assert active_links[0]["stable_id"] != first_stable_id
 
         # the stale link is still resolvable (viewable), never deleted.
-        stale_viewer = resolve_evidence_viewer(
+        stale_viewer = resolve_citation_viewer(
             project, first_stable_id, project_id=PROJECT_ID
         )
         assert stale_viewer["link"]["status"] == "stale"
@@ -263,7 +263,7 @@ def test_reocr_with_unchanged_params_replay_leaves_link_fresh(
         assert first.status == "completed", first.errors
 
         text_column_id = _text_column_id(project, sheet_id)
-        before = list_cell_evidence(
+        before = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -280,7 +280,7 @@ def test_reocr_with_unchanged_params_replay_leaves_link_fresh(
         assert replay.status == "completed"
         assert replay.receipt_id == first.receipt_id
 
-        after = list_cell_evidence(
+        after = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -351,7 +351,7 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
         text_layer_hash=text_hash,
         text_surface_id=surface["id"],
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
@@ -387,14 +387,14 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
     project: Project = seeded["project"]
     try:
         # sanity: unmodified cell resolves with no mismatch.
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, seeded["link"]["stable_id"], project_id=PROJECT_ID
         )
         assert viewer["link"]["text_layer_hash_mismatch"] is False
 
         # Simulate a producer that reprocesses the SAME cell (a second run
         # overwrites the markdown column) WITHOUT going through
-        # `mark_evidence_stale_for_cell_refs` -- exactly the documented gap
+        # `mark_citations_stale_for_cell_refs` -- exactly the documented gap
         # ("fires from only 2 of many mutation sites"). The render path must
         # independently catch the drift via the stored text_layer_hash.
         run_store: RunResultStore = seeded["run_store"]
@@ -420,7 +420,7 @@ def test_text_layer_hash_mismatch_flagged_when_cell_reprocessed_without_stalenes
         run_store.finish_run(second_run_id)
         run_store.point_column_at_run(second_op_id, seeded["output_col"], second_run_id)
 
-        mismatched_viewer = resolve_evidence_viewer(
+        mismatched_viewer = resolve_citation_viewer(
             project, seeded["link"]["stable_id"], project_id=PROJECT_ID
         )
         # the link's own status is untouched by this direct simulation (proving
@@ -442,7 +442,7 @@ def test_text_layer_hash_matches_when_cell_never_reprocessed(
     seeded = _seed_text_layer_link(tmp_path, initial_text="# Stable heading")
     project: Project = seeded["project"]
     try:
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, seeded["link"]["stable_id"], project_id=PROJECT_ID
         )
         assert viewer["link"]["text_layer_hash_mismatch"] is False

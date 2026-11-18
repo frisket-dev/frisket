@@ -13,12 +13,12 @@ import { previewColumnDef, previewValueRow } from '../grid/previewCells';
 import type { PreviewCellDetail } from '../api/types';
 import { isTemporalColumnType, summarizeTemporalCell } from '../temporal/model';
 import { replaceTimelineItemsFromDraft, timelineItemsDraftText, type EditableTimelineType } from '../temporal/draft';
-import { RowInspectorEvidenceSectionFrame } from '../workbench/contributions';
+import { RowInspectorCitationsSectionFrame } from '../workbench/contributions';
 import { documentMediaColumns } from '../workbench/documentMedia';
 import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { RowTextTarget } from '../state/detailStore';
 import { ClampedField, FieldValue } from './rowInspection/FieldValue';
-import { CellEvidenceBlock } from './rowInspection/CellEvidence';
+import { CellCitationsBlock } from './rowInspection/CellCitations';
 import { RowSourceDocuments } from './rowInspection/RowSourceDocuments';
 import { ExplainBlock, ProvenanceBlock } from './rowInspection/CellRunDetails';
 import { contributionSlug } from '../workbench/visibility';
@@ -476,13 +476,13 @@ export function RowField({
           </Button>
         </div>
       )}
-      <RowInspectorEvidenceSectionFrame>
-        <CellEvidenceBlock
+      <RowInspectorCitationsSectionFrame>
+        <CellCitationsBlock
           rowId={row.id}
           columnId={col.id}
           columnName={col.name}
         />
-      </RowInspectorEvidenceSectionFrame>
+      </RowInspectorCitationsSectionFrame>
     </section>
   );
 }

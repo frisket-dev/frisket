@@ -20,28 +20,28 @@ import { errorMessage } from '../hooks/errorMessage';
 import { InlineStatus } from './SettingsPrimitives';
 import { formatBytes, pluralizeNoun } from '../format';
 
-const FALLBACK_EVIDENCE_RETENTION_VALUES = ['compactable', 'pinned', 'materialized'] as const;
+const FALLBACK_RETENTION_VALUES = ['compactable', 'pinned', 'materialized'] as const;
 
-const EVIDENCE_RETENTION_LABELS: Record<string, string> = {
+const RETENTION_LABELS: Record<string, string> = {
   compactable: 'Compactable',
   pinned: 'Pinned',
   materialized: 'Materialized',
 };
 
-const EVIDENCE_RETENTION_DESCRIPTIONS: Record<string, string> = {
+const RETENTION_DESCRIPTIONS: Record<string, string> = {
   compactable: "Save space. Manual compaction may remove a run's supporting records; sheet results stay.",
   pinned: "Keep a run's supporting records when this project is manually compacted.",
   materialized: 'Keep result-linked supporting records as part of the stored result.',
 };
 
-function supportedEvidenceOptions(policy: ProjectRetentionPolicy | null): string[] {
+function supportedRetentionOptions(policy: ProjectRetentionPolicy | null): string[] {
   const raw = Array.isArray(policy?.supported_default_evidence)
     ? policy.supported_default_evidence
-    : [...FALLBACK_EVIDENCE_RETENTION_VALUES];
+    : [...FALLBACK_RETENTION_VALUES];
   const supported = raw.filter((value): value is string => (
-    typeof value === 'string' && value in EVIDENCE_RETENTION_LABELS
+    typeof value === 'string' && value in RETENTION_LABELS
   ));
-  return supported.length ? supported : [...FALLBACK_EVIDENCE_RETENTION_VALUES];
+  return supported.length ? supported : [...FALLBACK_RETENTION_VALUES];
 }
 
 export function ProjectDataManagementSettings({ project }: { project?: ProjectInfo | null }) {
@@ -57,11 +57,11 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
   const canExport = canReviewProject(project);
   const policy = retention.data;
   const projectSettings = settings.data;
-  const evidenceOptions = supportedEvidenceOptions(policy);
-  const evidenceSelectOptions: PanelSelectOption[] = evidenceOptions.map((value) => ({
+  const retentionOptions = supportedRetentionOptions(policy);
+  const retentionSelectOptions: PanelSelectOption[] = retentionOptions.map((value) => ({
     value,
-    label: EVIDENCE_RETENTION_LABELS[value] ?? value,
-    description: EVIDENCE_RETENTION_DESCRIPTIONS[value]
+    label: RETENTION_LABELS[value] ?? value,
+    description: RETENTION_DESCRIPTIONS[value]
       ?? 'Use the retention behavior provided by this project.',
   }));
   const patch = async (input: Partial<ProjectRetentionPolicy>) => {
@@ -190,7 +190,7 @@ export function ProjectDataManagementSettings({ project }: { project?: ProjectIn
               ariaLabel="Supporting records default"
               value={policy.default_evidence}
               disabled={!canMutate}
-              options={evidenceSelectOptions}
+              options={retentionSelectOptions}
               onValueChange={(value) => void patch({ default_evidence: value })}
             />
             <small className="form-hint">

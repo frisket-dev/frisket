@@ -524,7 +524,7 @@ def test_minimax_m3_ocr_uses_publisher_request_profile(tmp_path):
         ocr_module.OcrEngines()._ocr_vlm(
             "openrouter/minimax/minimax-m3",
             [path],
-            ocr_module.OpContext(
+            ocr_module.ActionContext(
                 http=None,
                 extras={"router": StubRouter(), "standalone_dispatch": STANDALONE},
             ),

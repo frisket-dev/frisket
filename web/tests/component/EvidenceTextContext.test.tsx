@@ -5,13 +5,13 @@ import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ArtifactSource } from '../../src/components/evidence/ArtifactSource';
-import { TextArtifactSource } from '../../src/components/evidence/EvidenceTextSource';
-import type { EvidenceArtifact } from '../../src/api/types';
+import { TextArtifactSource } from '../../src/components/evidence/CitationTextSource';
+import type { CitationArtifact } from '../../src/api/types';
 import { evidenceArtifact } from '../support/evidenceFixtures';
 
-type TextContext = NonNullable<EvidenceArtifact['text_context']>;
+type TextContext = NonNullable<CitationArtifact['text_context']>;
 
-function textArtifact(title: string, text: string, ranges: TextContext['ranges']): EvidenceArtifact {
+function textArtifact(title: string, text: string, ranges: TextContext['ranges']): CitationArtifact {
   return {
     ...evidenceArtifact({
       title,

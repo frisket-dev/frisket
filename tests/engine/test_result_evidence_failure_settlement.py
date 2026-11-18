@@ -50,7 +50,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
     tmp_path, monkeypatch, failure
 ):
     project, router, adapter, request = _invocation(tmp_path)
-    record = ReceiptStore._record_writer_evidence
+    record = ReceiptStore._record_writer_supporting_record
     grounding_link_counts = []
 
     def fail_evidence(self, ref, **kwargs):
@@ -61,7 +61,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
             raise failure("private tenant value must not escape")
         return record(self, ref, **kwargs)
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", fail_evidence)
+    monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
     try:
         result = run_action_with_confirmation(
             project, request, project_id=PROJECT_ID, router=router
@@ -113,7 +113,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
             == "effected"
         )
 
-        monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", record)
+        monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", record)
         before = tuple(project.db.iterdump())
         replay = run_action_with_confirmation(
             project, request, project_id=PROJECT_ID, router=router
@@ -142,7 +142,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
 
     deps = ExecutorDeps(map_runner_factory=concurrent_runner)
     project, router, adapter, request = _invocation(tmp_path)
-    record = ReceiptStore._record_writer_evidence
+    record = ReceiptStore._record_writer_supporting_record
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
     project.add_rows(
         sheet_id,
@@ -179,7 +179,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
             raise RuntimeError("evidence storage unavailable")
         return record(self, ref, **kwargs)
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", fail_evidence)
+    monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
     try:
         with pytest.raises(ResultEvidenceWriteFailed):
             run_action_with_confirmation(
@@ -220,14 +220,14 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
     tmp_path, monkeypatch, failure
 ):
     project, router, adapter, request = _invocation(tmp_path)
-    record = ReceiptStore._record_writer_evidence
+    record = ReceiptStore._record_writer_supporting_record
 
     def interrupt(self, ref, **kwargs):
         if ref.get("kind") == "map_extract_grounding_links":
             raise failure("injected interruption")
         return record(self, ref, **kwargs)
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", interrupt)
+    monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", interrupt)
     try:
         if failure is ProcessDeath:
             with pytest.raises(ProcessDeath):

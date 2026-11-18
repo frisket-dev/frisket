@@ -14,7 +14,7 @@ import pytest
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
 
@@ -75,7 +75,7 @@ def _scalar_column_id(project: Project, sheet_id: int) -> int:
 
 def _verdict_viewer(project: Project, *, sheet_id: int, row_id: int) -> dict[str, Any]:
     column_id = _scalar_column_id(project, sheet_id)
-    evidence = list_cell_evidence(
+    evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -83,7 +83,7 @@ def _verdict_viewer(project: Project, *, sheet_id: int, row_id: int) -> dict[str
         project_id=PROJECT_ID,
     )
     assert len(evidence["links"]) == 1, evidence["links"]
-    return resolve_evidence_viewer(
+    return resolve_citation_viewer(
         project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
     )
 
@@ -96,7 +96,7 @@ def _verdict_link_spans(
 
 
 def _assert_player_renderable(artifact: dict[str, Any]) -> None:
-    """The EvidenceViewer.tsx contract (web/src/components/EvidenceViewer.tsx:433):
+    """The CitationViewer.tsx contract (web/src/components/CitationViewer.tsx:433):
     a player renders only when ``blob && media_type.startsWith('audio/'|'video/')``.
     A temporal span whose artifact fails this -- e.g. the row-json artifact
     (``application/vnd.frisket.row+json``, no blob) -- hits the 'no first-party
@@ -424,7 +424,7 @@ def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(
         assert span["quote"] == "some say the vote was rigged"
         # The gap this test now pins down: the span must land on the transcribe
         # writer's `av` artifact (real audio/video mime, blob-backed) -- the
-        # EvidenceViewer.tsx contract for rendering the seekable player, NOT the
+        # CitationViewer.tsx contract for rendering the seekable player, NOT the
         # row-json artifact `_source_artifact` falls back to.
         _assert_player_renderable(artifact)
     finally:

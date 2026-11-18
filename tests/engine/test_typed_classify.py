@@ -37,7 +37,7 @@ from frisket.engine.executor.classify_read import (
 )
 from frisket.engine.store import Project
 from frisket.execution.dispatch_control import STANDALONE
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 TOPIC_FIELD = {
@@ -669,7 +669,7 @@ async def test_native_classifier_publishes_scores_for_each_field(
         Row({}),
         STORY_B,
         fields,
-        ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+        ctx=ActionContext(extras={"standalone_dispatch": STANDALONE}),
     )
 
     assert outcomes == {
@@ -705,7 +705,7 @@ async def test_native_classifier_refuses_blank_and_preserves_long_text() -> None
             Row({}),
             " \n\t",
             TOPIC,
-            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+            ctx=ActionContext(extras={"standalone_dispatch": STANDALONE}),
         )
     assert blank.value.code == "classify_input_empty"
     assert session.calls == []
@@ -715,7 +715,7 @@ async def test_native_classifier_refuses_blank_and_preserves_long_text() -> None
             Row({}),
             long_text,
             TOPIC,
-            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+            ctx=ActionContext(extras={"standalone_dispatch": STANDALONE}),
         )
     assert too_long.value.code == "classify_input_too_long"
     assert session.calls[0]["text"] == long_text
@@ -764,7 +764,7 @@ async def test_native_classifier_fails_closed_on_invalid_worker_output(
             Row({}),
             STORY_A,
             TOPIC,
-            ctx=OpContext(extras={"standalone_dispatch": STANDALONE}),
+            ctx=ActionContext(extras={"standalone_dispatch": STANDALONE}),
         )
     assert raised.value.code == code
 

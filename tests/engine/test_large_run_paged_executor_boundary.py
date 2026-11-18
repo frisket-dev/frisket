@@ -11,7 +11,7 @@ from frisket.authoring.plugin_registry import (
     register_recipe,
     unregister_recipe,
 )
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import declare_bound_run_outputs
@@ -45,7 +45,7 @@ class _WindowProbeRecipe(Recipe):
         ]
 
     async def execute(
-        self, row_values: dict[str, Any], spec: dict, ctx: OpContext
+        self, row_values: dict[str, Any], spec: dict, ctx: ActionContext
     ) -> dict[str, Any]:
         state = _WINDOW_PROBE_STATE
         state["active"] += 1
@@ -83,7 +83,7 @@ class _BatchProbeRecipe(Recipe):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict,
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, dict[str, Any]]:
         _BATCH_PROBE_STATE["seen"] = [
             str(values["text"]) for values in values_by_row.values()

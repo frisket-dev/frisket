@@ -284,7 +284,7 @@ def queue_text_preparation(
     )
 
 
-def dispatch_resolved_evidence_source(
+def dispatch_resolved_cited_source(
     store: RetrievalStore,
     resolved: ResolvedCellTranscriptSource | ResolvedCellOcrTextSource,
     *,
@@ -884,7 +884,7 @@ def process_text_preparation_batch(
         return PreparationProgress(len(batch.items), pending, not pending)
 
 
-def process_evidence_preparation_batch(
+def process_cited_text_preparation_batch(
     project,
     *,
     channel: str,
@@ -1645,13 +1645,13 @@ __all__ = [
     "UNSUPPORTED_MEDIA_CHANNEL",
     "VIDEO_CHANNEL",
     "dispatch_resolved_blob_source",
-    "dispatch_resolved_evidence_source",
+    "dispatch_resolved_cited_source",
     "dispatch_resolved_text_source",
     "parse_preparation_policy",
     "preparation_work_marker",
     "preparation_policy_json",
     "process_blob_image_preparation_batch",
-    "process_evidence_preparation_batch",
+    "process_cited_text_preparation_batch",
     "process_text_preparation_batch",
     "process_timed_media_preparation_batch",
     "publish_lexical_source",

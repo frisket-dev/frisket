@@ -13,7 +13,7 @@ from frisket.actions.types import RowError
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine.executor.visual_cuts_read import _settle
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -269,7 +269,7 @@ def publish_row_file_evidence(
     }
     links = []
     for source in sources.values():
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell",
             subject_ref=source["value_ref"] or {},
@@ -284,7 +284,7 @@ def publish_row_file_evidence(
             metadata=occurrence,
         )
         links.append({"id": link["id"], "stable_id": link["stable_id"]})
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref={

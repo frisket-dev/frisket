@@ -14,7 +14,7 @@ function seedLazyEvidence(pid: string, sheetId: number): void {
 import sys
 from pathlib import Path
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
 
@@ -42,7 +42,7 @@ try:
         }},
     )
     spans = [record_source_span(project, artifact_id=artifact["id"], span_kind="page_range", page_start=page, page_end=page, snippet=f"page {page}", metadata={"engine": "fixture"}) for page in (1, 2)]
-    record_evidence_link(
+    record_citation(
         project, subject_kind="cell", subject_ref=refs[row_id],
         spans=[{"span_id": span["id"], "rank": index} for index, span in enumerate(spans)],
         sheet_id=sheet_id, row_id=row_id, column_id=text_column_id, run_id=run_id,

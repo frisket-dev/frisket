@@ -12,20 +12,20 @@ from typing import Any
 
 import pytest
 
-import frisket.ops.ner_evidence as ner_module
+import frisket.ops.ner_citations as ner_module
 from frisket.ops.ner_local import LocalNerExtractor
 from typed_model_fixtures import model_request, render_ner
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
-    list_cell_evidence,
-    resolve_evidence_viewer,
+    list_cell_citations,
+    resolve_citation_viewer,
 )
-from frisket.ops.ner_evidence import (
+from frisket.ops.ner_citations import (
     capture_result_evidence,
     _NER_CAPTURE_PREFIX,
-    _NER_EVIDENCE_KEY,
+    _NER_CITATION_CAPTURE_KEY,
 )
 
 PROJECT_ID = "proj-ner-surface"
@@ -142,7 +142,7 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
             for r in project.db.execute("SELECT span_role FROM evidence_link_spans")
         }
         assert roles == {"annotation"}
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=project.visible_row_ids(sheet_id)[0],
@@ -152,7 +152,7 @@ def test_single_column_writes_cell_surface(tmp_path, monkeypatch):
                 if column["name"] == "entities"
             ),
         )
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         assert viewer["artifacts"][0]["text_context"] == {
@@ -302,7 +302,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
             == 0
         )
         assert (
-            list_cell_evidence(
+            list_cell_citations(
                 project,
                 sheet_id=sheet_id,
                 row_id=row_ids[0],
@@ -319,7 +319,7 @@ def test_generation_publication_keeps_ner_cells_and_evidence_immutable(
             ).fetchone()[0]
             == 3
         )
-        assert list_cell_evidence(
+        assert list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_ids[0],
@@ -347,14 +347,14 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(
         calls.append(text)
         return [{"text": "Ada", "type": "person", "start": 0, "end": 3, "score": 0.9}]
 
-    original = ner_module._write_ner_result_evidence
+    original = ner_module._write_ner_result_citations
 
     def fail_after_evidence(*args, **kwargs):  # noqa: ANN002, ANN003
         original(*args, **kwargs)
         raise RuntimeError("evidence write failed")
 
     monkeypatch.setattr(LocalNerExtractor, "extract", execute)
-    monkeypatch.setattr(ner_module, "_write_ner_result_evidence", fail_after_evidence)
+    monkeypatch.setattr(ner_module, "_write_ner_result_citations", fail_after_evidence)
     try:
         result = executor_actions.run_action_spec(
             project,
@@ -382,7 +382,7 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(
         assert (
             project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 0
         )
-        monkeypatch.setattr(ner_module, "_write_ner_result_evidence", original)
+        monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
         before = tuple(project.db.iterdump())
         replay = executor_actions.run_action_spec(
             project,
@@ -501,7 +501,7 @@ def test_llm_capture_uses_all_exact_quotes_not_model_offsets(
         row_id=9,
         output_columns={"entities": 10},
     )
-    payload = results["entities"][_NER_EVIDENCE_KEY]
+    payload = results["entities"][_NER_CITATION_CAPTURE_KEY]
     assert payload["positions"] == expected
 
 

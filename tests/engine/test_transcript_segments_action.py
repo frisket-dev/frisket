@@ -22,7 +22,7 @@ from frisket.engine.store.artifact_timeline import (
 )
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.runs import RunResultStore
@@ -120,7 +120,7 @@ def _seed_timestamped_transcript(
         transcript_column_id,
         row_ids=[row_id],
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],

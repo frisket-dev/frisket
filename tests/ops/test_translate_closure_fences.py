@@ -175,7 +175,7 @@ async def test_opus_mt_execution_writes_explicit_source_as_detected(monkeypatch)
     src_code as detected_raw into _shaped_result, so the opt-in
     `{output}_detected_language` column really carries the explicit source
     — the exception is exercised end to end."""
-    from frisket.ops.base import OpContext
+    from frisket.ops.base import ActionContext
     from frisket.ops.integrations import opus_mt
 
     monkeypatch.setattr(opus_mt, "runtime_available", lambda: True)
@@ -193,7 +193,7 @@ async def test_opus_mt_execution_writes_explicit_source_as_detected(monkeypatch)
             "output_name": "es",
             "save_detected_language": True,
         },
-        OpContext(
+        ActionContext(
             project=None,
             http=None,
             extras={"preview": True, "cancelled": lambda: False},

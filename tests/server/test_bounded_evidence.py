@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 from frisket.engine.store.text_annotations import resolve_text_annotations
 from frisket.server.app import create_app
@@ -85,7 +85,7 @@ def _native(tmp_path, *, megabytes=1):
         for left, right in ((start, start + 12), (start + 5, start + 24))
     ]
     _, refs = project.get_values_with_refs(sheet, entities, [row])
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row],
@@ -176,7 +176,7 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(tmp_pa
         text_layer_hash=_hash(fx.text),
         text_surface_id=fx.surface["id"],
     )
-    link = record_evidence_link(
+    link = record_citation(
         fx.project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -204,7 +204,7 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(tmp_pa
     assert len(response.content) < 40_000
     tracemalloc.start()
     try:
-        resolve_evidence_viewer(
+        resolve_citation_viewer(
             fx.project,
             link["id"],
             text_artifact_id=fx.artifact["id"],
@@ -304,7 +304,7 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
         text_layer_hash=_hash(text),
         text_surface_id=surface["id"],
     )
-    link = record_evidence_link(
+    link = record_citation(
         fx.project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -384,7 +384,7 @@ def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_histo
         text_layer_hash=_hash(text),
         text_surface_id=surface["id"],
     )
-    link = record_evidence_link(
+    link = record_citation(
         fx.project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -455,7 +455,7 @@ def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(tmp
         page_start=3,
         page_end=3,
     )
-    link = record_evidence_link(
+    link = record_citation(
         fx.project,
         subject_kind="test",
         subject_ref={"kind": "test"},

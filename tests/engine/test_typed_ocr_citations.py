@@ -23,13 +23,13 @@ from frisket.engine.executor.map_rows_action import (
     _TypedMapRowsProgram,
     run_typed_map_rows_action,
 )
-from frisket.engine.executor.ocr_evidence import write_ocr_evidence
+from frisket.engine.executor.ocr_citations import write_ocr_citations
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import resolve_evidence_viewer
+from frisket.engine.store.evidence import resolve_citation_viewer
 from frisket.engine.store.media_blobs import MediaBlobStore, media_cell
 from frisket.engine.store.ocr_word_stream import (
-    resolve_current_ocr_evidence,
+    resolve_current_ocr_citation,
     resolve_ocr_word_stream,
 )
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
@@ -199,7 +199,7 @@ def setup(tmp_path, monkeypatch):
                     for field in self._resolved_output_fields
                     if field.annotation is OcrText
                 }
-                write_ocr_evidence(
+                write_ocr_citations(
                     current_project,
                     spec,
                     batch=batch,
@@ -275,13 +275,13 @@ def test_exact_text_only_custom_output_publishes_original_geometry_and_page_imag
     stream = resolve_ocr_word_stream(project, read["source"]["blob_hash"])
     assert stream is not None
     assert stream.token_granularity == "line"
-    viewer = resolve_evidence_viewer(project, link["id"], project_id="p")
+    viewer = resolve_citation_viewer(project, link["id"], project_id="p")
     [page] = viewer["artifacts"][0]["pages"]
     assert page["image"]["blob_hash"] == image["blob_hash"]
     assert page["image"]["width"] == 600
     assert (
         len(
-            resolve_current_ocr_evidence(
+            resolve_current_ocr_citation(
                 project, sheet_id=sheet, row_id=row_id, column_id=link["column_id"]
             )
         )
@@ -418,7 +418,7 @@ def test_late_evidence_failure_rolls_back_page_registration_and_geometry(
         raise RuntimeError("evidence publication failed")
 
     with monkeypatch.context() as patch:
-        patch.setattr("frisket.engine.executor.ocr_evidence.record_evidence_link", fail)
+        patch.setattr("frisket.engine.executor.ocr_citations.record_citation", fail)
         result = run()
     assert result.status == "failed"
     assert result.run_id is not None and result.receipt_id is not None

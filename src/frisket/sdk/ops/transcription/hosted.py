@@ -37,7 +37,7 @@ from frisket.execution.credential_use import (
 )
 from frisket.execution.runtime_binding import bind_fact_to_route
 from frisket.local_model_ids import bare_model_name
-from frisket.ops.base import OpContext, RecipeInvocationHalt, media_upload_filename
+from frisket.ops.base import ActionContext, RecipeInvocationHalt, media_upload_filename
 from frisket.ops.integrations.hosted_error import (
     HostedEngineError,
     transport_outcome_is_uncertain,
@@ -144,7 +144,7 @@ def _remote_response_accounting(
     model_id: str,
     provider: str,
     credential_source: str,
-    ctx: OpContext,
+    ctx: ActionContext,
     response: httpx.Response,
     warning: str,
     known_usage: dict[str, Any] | None = None,
@@ -204,7 +204,7 @@ def _halt_unless_consented_credential(
 
 class OpenAITranscriptionAdapter:
     async def transcribe(
-        self, model_id: str, path: str, spec: dict, ctx: OpContext, media: Any
+        self, model_id: str, path: str, spec: dict, ctx: ActionContext, media: Any
     ) -> dict:
         spec = project_transcription_engine_options(model_id, spec)
         provider, _, model = model_id.partition("/")

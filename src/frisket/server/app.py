@@ -125,7 +125,7 @@ from frisket.server.routes.project_inspection import (
     register_project_timing_routes,
     register_sample_project_routes,
 )
-from frisket.server.routes.project_evidence import register_project_evidence_routes
+from frisket.server.routes.project_evidence import register_project_citation_routes
 from frisket.server.routes.document_extraction import (
     register_document_extraction_routes,
 )
@@ -223,7 +223,7 @@ from frisket.server.services.project_backfill_activity import (
     ProjectBackfillActivityService,
 )
 from frisket.server.services.project_debug import ProjectDebugService
-from frisket.server.services.project_evidence import ProjectEvidenceService
+from frisket.server.services.project_evidence import ProjectCitationsService
 from frisket.server.services.project_exports import ProjectExportService
 from frisket.server.services.projects import ProjectLifecycleService
 from frisket.server.services.project_mcp import ProjectMcpService
@@ -1117,7 +1117,7 @@ def create_app(
 
     # ---------- cells / blobs ----------
 
-    register_project_evidence_routes(app, service=ProjectEvidenceService(ws))
+    register_project_citation_routes(app, service=ProjectCitationsService(ws))
     register_document_extraction_routes(app, service=DocumentExtractionService(ws))
 
     register_project_blob_routes(app, service=ProjectBlobService(ws))

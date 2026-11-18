@@ -22,7 +22,7 @@ def _normalized_with_ranges(text: str) -> tuple[str, list[tuple[int, int]]]:
     return "".join(normalized), ranges
 
 
-def quote_ranges(source: str, quote: str) -> list[tuple[int, int]]:
+def passage_ranges(source: str, quote: str) -> list[tuple[int, int]]:
     """Return every exact or whitespace-equivalent half-open source range.
 
     Offsets index Python Unicode codepoints in the original frozen ``source``.
@@ -33,16 +33,16 @@ def quote_ranges(source: str, quote: str) -> list[tuple[int, int]]:
     if not source or not quote:
         return []
     normalized_source, source_ranges = _normalized_with_ranges(source)
-    normalized_quote, _ = _normalized_with_ranges(quote)
-    if not normalized_quote:
+    normalized_passage, _ = _normalized_with_ranges(quote)
+    if not normalized_passage:
         return []
 
     matches: list[tuple[int, int]] = []
     start = 0
     while True:
-        found = normalized_source.find(normalized_quote, start)
+        found = normalized_source.find(normalized_passage, start)
         if found < 0:
             return matches
-        last = found + len(normalized_quote) - 1
+        last = found + len(normalized_passage) - 1
         matches.append((source_ranges[found][0], source_ranges[last][1]))
         start = found + 1

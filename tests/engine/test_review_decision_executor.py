@@ -20,11 +20,11 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.review import review_bundle_page, review_runs_page
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    record_evidence_link,
+    list_cell_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 
 _UNSET = object()
@@ -1160,7 +1160,7 @@ def _attach_cell_evidence(
         span_kind="whole",
         snippet="reviewable map result evidence",
     )
-    return record_evidence_link(
+    return record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[row_id],
@@ -1194,7 +1194,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
 
         accepted = env.run_primary()
         assert accepted.status == "completed", accepted.errors
-        accepted_evidence = list_cell_evidence(
+        accepted_evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=rows[0],
@@ -1213,7 +1213,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
             )
         )
         assert edited.status == "completed", edited.errors
-        edited_evidence = list_cell_evidence(
+        edited_evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=rows[1],
@@ -1221,7 +1221,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
             include_stale=True,
         )
         assert edited_evidence["links"][0]["status"] == "stale"
-        edited_viewer = resolve_evidence_viewer(
+        edited_viewer = resolve_citation_viewer(
             project, edited_evidence["links"][0]["stable_id"]
         )
         assert edited_viewer["link"]["stale_reason"] == "manual_cell_edit"
@@ -1238,7 +1238,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
             )
         )
         assert rejected.status == "completed", rejected.errors
-        rejected_evidence = list_cell_evidence(
+        rejected_evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=rows[0],
@@ -1247,7 +1247,7 @@ def test_review_decision_edit_and_reject_clear_stale_active_evidence(
         )
         assert {link["status"] for link in rejected_evidence["links"]} == {"stale"}
         reject_reasons = {
-            resolve_evidence_viewer(project, link["stable_id"])["link"]["stale_reason"]
+            resolve_citation_viewer(project, link["stable_id"])["link"]["stale_reason"]
             for link in rejected_evidence["links"]
         }
         assert reject_reasons == {"review_decision_reject_clear"}
@@ -1273,7 +1273,7 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
         )
         assert edited.status == "completed", edited.errors
         assert (
-            resolve_evidence_viewer(project, link["stable_id"])["link"]["status"]
+            resolve_citation_viewer(project, link["stable_id"])["link"]["status"]
             == "stale"
         )
 
@@ -1285,7 +1285,7 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
             )
         )
         assert undone.status == "completed", undone.errors
-        restored = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        restored = resolve_citation_viewer(project, link["stable_id"])["link"]
         assert restored["status"] == "active"
         assert restored["stale_reason"] is None
         assert restored["stale_at"] is None
@@ -1298,7 +1298,7 @@ def test_review_edit_undo_redo_restores_exact_evidence_status(
             )
         )
         assert redone.status == "completed", redone.errors
-        restaled = resolve_evidence_viewer(project, link["stable_id"])["link"]
+        restaled = resolve_citation_viewer(project, link["stable_id"])["link"]
         assert restaled["status"] == "stale"
         assert restaled["stale_reason"] == "manual_cell_edit"
 

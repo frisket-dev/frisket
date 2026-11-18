@@ -52,7 +52,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudLLMRequest,
     CloudLLMExecutionRequest,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.engine.store.execution_routes import route_fact_hash
 from frisket.execution.promise_compiler import (
     OperatorBorneZeroCost,
@@ -839,7 +839,7 @@ def _llm_response() -> CloudExecutionResponse:
 
 def test_media_binding_refuses_an_engine_other_than_the_admitted_route():
     attempt = CloudExecutionAttempt("request-1", _payer(), None)
-    ctx = OpContext(
+    ctx = ActionContext(
         cloud_execution=CloudMediaExecutionBinding(object(), attempt, "ocr")
     )
 

@@ -173,8 +173,8 @@ def anchor_id(
 
 # Registry of strategies (name -> function matching the ground() signature). The
 # same shape OCR/transcribe use for engines. ``align`` is
-# registered by ``store.quote_align`` on import (kept out of this module to avoid
-# an import cycle: quote_align imports these types). ``hybrid`` is deliberately
+# registered by ``store.passage_align`` on import (kept out of this module to avoid
+# an import cycle: passage_align imports these types). ``hybrid`` is deliberately
 # absent — the C composition is a call-site sequence, not a registered strategy.
 STRATEGIES: dict[str, Callable[..., list[Match]]] = {
     "anchor_id": anchor_id,
@@ -190,15 +190,15 @@ def register_strategy(name: str, fn: Callable[..., list[Match]]) -> None:
 def _ensure_builtins_registered() -> None:
     """Complete the builtin registry regardless of caller import order.
 
-    ``align`` lives in ``store.quote_align`` (which imports THIS module's types),
+    ``align`` lives in ``store.passage_align`` (which imports THIS module's types),
     so it self-registers on import. We import it lazily HERE — at first accessor
     call, never at module init — so the builtin set is always complete without a
-    module-init import cycle (quote_align -> grounding_contract) and without
-    depending on some earlier caller having imported quote_align first. ``anchor_id``
+    module-init import cycle (passage_align -> grounding_contract) and without
+    depending on some earlier caller having imported passage_align first. ``anchor_id``
     is defined in this module and is registered eagerly above."""
 
     if "align" not in STRATEGIES:
-        import frisket.engine.store.quote_align  # noqa: F401  (registers "align")
+        import frisket.engine.store.passage_align  # noqa: F401  (registers "align")
 
 
 def strategies() -> dict[str, Callable[..., list[Match]]]:

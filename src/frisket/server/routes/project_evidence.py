@@ -15,14 +15,14 @@ from frisket.contracts.http.project_evidence import (
 from frisket.server.route_errors import http_error_responses
 
 from frisket.server.services.project_evidence import (
-    ProjectEvidenceService,
+    ProjectCitationsService,
 )
 
 
-def register_project_evidence_routes(
+def register_project_citation_routes(
     app: FastAPI,
     *,
-    service: ProjectEvidenceService,
+    service: ProjectCitationsService,
 ) -> None:
     @app.get(
         "/api/projects/{pid}/cells/{row_id}/{column_id}/evidence",

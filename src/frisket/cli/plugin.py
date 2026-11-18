@@ -390,7 +390,7 @@ def _plugin_validate(path: Path) -> int:
         PluginManifestLoadError,
         load_plugin_manifest_file,
     )
-    from frisket.plugins.load_evidence import (
+    from frisket.plugins.load_validation import (
         _validate_workbench_descriptor_package_for_manifest,
     )
     from frisket.plugins.frontend_modules import (

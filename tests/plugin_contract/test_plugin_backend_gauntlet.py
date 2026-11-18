@@ -812,7 +812,7 @@ def test_plugin_command_contribution_validates_and_undeclared_fails_closed() -> 
         (fixture_root / "workbench-descriptors.json").read_text(encoding="utf-8")
     )["descriptors"]
     from frisket.contracts.plugin import PluginManifest
-    from frisket.plugins.load_evidence import (
+    from frisket.plugins.load_validation import (
         WorkbenchDescriptorPackageLoadError,
         _validate_workbench_descriptor_package_for_manifest,
     )

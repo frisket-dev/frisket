@@ -233,7 +233,7 @@ def paid_ocr_scratch_plan(
                 returned = False
                 execution_failure: Exception | None = None
                 started = time.perf_counter()
-                with context.op_context_scope() as ctx:
+                with context.action_context_scope() as ctx:
                     try:
                         output_pages = await recipe_impl.run_engine_on_pages(
                             canonical_engine,

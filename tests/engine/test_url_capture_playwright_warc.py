@@ -11,7 +11,7 @@ from frisket.actions.system import typed_action_for_request, validate_root_actio
 from frisket.ops.capture import url as capture_url
 from frisket.ops.capture.url import BrowserUrlRenderResult, BrowserUrlResource
 from frisket.contracts.action import Receipt
-from frisket.engine.store.evidence import list_cell_evidence
+from frisket.engine.store.evidence import list_cell_citations
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.executor.page_capture_action import prepare_page_capture_action
 from frisket.engine.store import Project
@@ -331,7 +331,7 @@ def test_media_capture_url_playwright_warc_records_artifacts_and_replays(
         assert b"x-secret-token" not in warc.lower()
         assert b"Bearer SECRET" not in warc
 
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,

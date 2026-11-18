@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from frisket.engine.store.evidence import list_cell_evidence
+from frisket.engine.store.evidence import list_cell_citations
 from frisket.server.exports import rowset as export_rowset
 from frisket.engine.store import Project
 
@@ -49,7 +49,7 @@ def resolve_investigative_rowset(
 
     Values come from :meth:`Project.get_values_with_refs`, preserving Frisket's
     existing precedence: manual edits, then current run results, then source
-    cells. Evidence comes through :func:`frisket.store.evidence.list_cell_evidence`
+    cells. Evidence comes through :func:`frisket.store.evidence.list_cell_citations`
     and is scoped to the current value ref.
     """
 
@@ -338,7 +338,7 @@ def _cell_for_column(
     column_id = int(column["id"])
     column_name = str(column["name"])
     evidence = (
-        list_cell_evidence(
+        list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.execution.dispatch_control import STANDALONE
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.engine._workers import opus_mt_session, opus_mt_worker
 from frisket.ops.integrations import opus_mt
 from frisket.ops.integrations.translation_engine import TranslationEngine
@@ -69,7 +69,7 @@ async def test_invocation_reuses_managed_worker_and_closes(monkeypatch):
     monkeypatch.setattr(translation_install, "is_installed", lambda: True)
     monkeypatch.setattr(opus_mt_session, "OpusMtSession", Session)
     engine = TranslationEngine(invocation_owned=True)
-    ctx = OpContext(project=None, extras={"standalone_dispatch": STANDALONE})
+    ctx = ActionContext(project=None, extras={"standalone_dispatch": STANDALONE})
     assert await engine._opus_translate("en", "es", ["Hello"], None, ctx=ctx) == [
         "Hola"
     ]
@@ -105,7 +105,7 @@ async def test_direct_engine_call_closes_temporary_session_on_error(monkeypatch)
             "es",
             ["Hello"],
             None,
-            ctx=OpContext(project=None, extras={"standalone_dispatch": STANDALONE}),
+            ctx=ActionContext(project=None, extras={"standalone_dispatch": STANDALONE}),
         )
     assert closed == [True]
 
@@ -241,7 +241,7 @@ async def test_managed_first_use_download_preserves_provenance(monkeypatch):
     monkeypatch.setattr(opus_mt_session, "OpusMtSession", Session)
     monkeypatch.setattr(opus_mt, "ensure_pair_installed", ensure)
     engine = TranslationEngine(invocation_owned=True)
-    ctx = OpContext(project=None, extras={"standalone_dispatch": STANDALONE})
+    ctx = ActionContext(project=None, extras={"standalone_dispatch": STANDALONE})
     result = await engine.execute(
         {"text": "Hello"},
         {"engine": "opus_mt", "target_language": "Spanish", "language": ["en"]},
@@ -289,7 +289,7 @@ async def test_admitted_translator_owns_engine_cleanup(monkeypatch):
     from frisket.engine.executor.translate_read import AdmittedTranslator
 
     owner = AdmittedTranslator(
-        OpContext(project=None),
+        ActionContext(project=None),
         engine="opus_mt",
         options={"target_language": "Spanish", "language": ["en"]},
     )

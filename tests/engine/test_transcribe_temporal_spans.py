@@ -11,7 +11,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.sdk.ops import transcribe_engines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-transcribe-temporal-spans"
@@ -201,7 +201,7 @@ def test_multi_segment_row_writes_temporal_spans_with_rounded_ms(
     row_a = seeded["row_ids"][0]
     try:
         transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_a,
@@ -211,7 +211,7 @@ def test_multi_segment_row_writes_temporal_spans_with_rounded_ms(
         assert len(cell_evidence["links"]) == 1
         link_stable_id = cell_evidence["links"][0]["stable_id"]
 
-        viewer = resolve_evidence_viewer(project, link_stable_id, project_id=PROJECT_ID)
+        viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
         assert len(viewer["artifacts"]) == 1
         artifact = viewer["artifacts"][0]
         assert artifact["artifact_kind"] == "av"
@@ -249,7 +249,7 @@ def test_overrun_segment_clamps_to_artifact_duration(
     row_b = seeded["row_ids"][1]
     try:
         transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_b,
@@ -257,7 +257,7 @@ def test_overrun_segment_clamps_to_artifact_duration(
             project_id=PROJECT_ID,
         )
         assert len(cell_evidence["links"]) == 1
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         artifact = viewer["artifacts"][0]
@@ -280,7 +280,7 @@ def test_zero_segment_row_writes_no_evidence(
     row_c = seeded["row_ids"][2]
     try:
         transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_c,
@@ -306,7 +306,7 @@ def test_unknown_duration_row_writes_spans_without_clamp(
     row_d = seeded["row_ids"][3]
     try:
         transcript_column_id = _transcript_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_d,
@@ -314,7 +314,7 @@ def test_unknown_duration_row_writes_spans_without_clamp(
             project_id=PROJECT_ID,
         )
         assert len(cell_evidence["links"]) == 1
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         artifact = viewer["artifacts"][0]

@@ -9,17 +9,17 @@ from typing import Any
 
 from frisket.actions.grounding_types import EvidenceClaim
 from frisket.contracts.action import ActionError
-from frisket.engine.executor.extract_evidence import (
+from frisket.engine.executor.extract_citations import (
     _CONFIDENT_ALIGNMENTS,
     _first_grounding_method,
     _is_missing_value,
     _prepared_ref_id,
-    _resolve_evidence_entry_spans,
+    _resolve_citation_entry_spans,
     _source_artifact,
     _span_is_usable,
     _text_hash,
 )
-from frisket.engine.store.evidence import record_evidence_link
+from frisket.engine.store.evidence import record_citation
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -39,7 +39,7 @@ def _captured_transcript(project, sources, *, sheet_id, row_id):
             from frisket.engine.executor.temporal_transcripts import (
                 resolve_timestamped_transcript,
             )
-            from frisket.engine.store.cell_reference import evidence_subject_ref
+            from frisket.engine.store.cell_reference import citation_subject_ref
 
             anchor = source.get("transcript_anchor")
             if anchor is None:
@@ -52,17 +52,17 @@ def _captured_transcript(project, sources, *, sheet_id, row_id):
                 # The existing resolver checks copied ownership and retained
                 # coordinates. Only evidence for the captured value can enrich
                 # this request; freeze those immutable refs before dispatch.
-                if copied is None or evidence_subject_ref(
+                if copied is None or citation_subject_ref(
                     copied.transcript_value_ref
-                ) != evidence_subject_ref(ref):
+                ) != citation_subject_ref(ref):
                     continue
                 anchor = {
-                    "subject_ref": evidence_subject_ref(ref),
+                    "subject_ref": citation_subject_ref(ref),
                     "artifact_id": copied.artifact_id,
                     "span_ids": [span["id"] for span in copied.spans],
                 }
                 source["transcript_anchor"] = anchor
-            if anchor["subject_ref"] != evidence_subject_ref(ref):
+            if anchor["subject_ref"] != citation_subject_ref(ref):
                 continue
             artifact_id, span_ids = anchor["artifact_id"], anchor["span_ids"]
         elif ref.get("kind") == "run_result" and ref.get("run_id") is not None:
@@ -154,7 +154,7 @@ def _resolve_claim_source(
 ) -> str | None:
     """Resolve a model label only within the inputs visible for this request."""
 
-    from frisket.engine.store.text_quote_match import quote_ranges
+    from frisket.engine.store.text_passage_match import passage_ranges
 
     eligible = {
         name: source for name, source in sources.items() if source.get("model_visible")
@@ -176,7 +176,7 @@ def _resolve_claim_source(
         name
         for name, source in eligible.items()
         if isinstance(source.get("captured_text"), str)
-        and quote_ranges(source["captured_text"], quote.strip())
+        and passage_ranges(source["captured_text"], quote.strip())
     ]
     matched_canonical = {
         str(eligible[name].get("alias_of") or name) for name in matched
@@ -224,7 +224,7 @@ def _grounding_artifact_source(
     return None
 
 
-class ExtractResultEvidence:
+class ExtractResultCitations:
     """Frozen output policy plus captured input facts, shared by all extract rows."""
 
     def __init__(
@@ -433,7 +433,7 @@ class ExtractResultEvidence:
                             sheet_id=sheet_id,
                             row_id=row_id,
                         )
-                        resolved = _resolve_evidence_entry_spans(
+                        resolved = _resolve_citation_entry_spans(
                             project,
                             artifact=artifact,
                             sheet_id=sheet_id,
@@ -481,7 +481,7 @@ class ExtractResultEvidence:
                             ),
                             **({"item_index": item_index} if is_list else {}),
                         }
-                        link = record_evidence_link(
+                        link = record_citation(
                             project,
                             subject_kind="cell_value",
                             subject_ref={
@@ -544,7 +544,7 @@ class ExtractResultEvidence:
                     f"{spec['action_kind']}: {failures[0]}",
                 )
             if links or unsupported or failures or warnings:
-                store._record_writer_evidence(
+                store._record_writer_supporting_record(
                     {
                         "kind": "map_extract_grounding_links",
                         "link_refs": links,

@@ -24,7 +24,7 @@ import { routeStateToRoute, type RouteState } from '../core/route/RouteState';
 import { activateSourceLink, openSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
 import { requestGridCellReveal } from '../grid/gridCellReveal';
 import { navigate, replaceRoute, type RoutePanel } from '../routes';
-import type { EvidenceViewerFocus, EvidenceViewerHost } from '../state/chromeStore';
+import type { CitationViewerFocus, CitationViewerHost } from '../state/chromeStore';
 import {
   runActionFromSurfaceTransition, openRowPanelTransition, openSearchTextHitTransition,
   openColumnPanelTransition, openRowRefTransition, closeRoutePanelTransition,
@@ -34,7 +34,7 @@ import { documentSimilarityLocation } from '../workbench/documentSimilarity';
 import type { PaletteActionItem, PaletteGotoItem } from '../workbench/WorkbenchCommandPalette';
 import type { PaletteSearchSeed } from '../workbench/usePaletteSearch';
 import { isSupportedWorkbenchVisibilityTarget, type WorkbenchVisibilityTarget } from '../workbench/visibility';
-import { EVIDENCE_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
+import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import type { ChildFilter } from './workspaceState';
 import { OPEN_RUN_REVIEW_EVENT } from '../components/review/openRunReview';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
@@ -53,7 +53,7 @@ export function useWorkspaceNavigationController({
   sheets: SheetMeta[];
   externalRoute: { routeSheetId?: string; routeActionKind?: string; routeReview?: boolean; routePanel?: RoutePanel };
   chromeState: Pick<ReturnType<typeof useWorkspaceChromeState>,
-    'openEvidenceViewer' | 'setOpenSplit' | 'setDocumentView' | 'documentView' | 'openSplit' |
+    'openCitationViewer' | 'setOpenSplit' | 'setDocumentView' | 'documentView' | 'openSplit' |
     'hideActionPanel' | 'recordCommandAction' | 'actionPanelOpen' | 'commandPaletteOpen'>;
   visibility: Pick<ReturnType<typeof useWorkbenchContributionVisibility>, 'isContributionHidden' | 'hideContribution' | 'revealContribution'>;
   grid: Pick<ReturnType<typeof useWorkspaceGridController>, 'activeChildFilter' | 'activeGridFilter' | 'activeGridSort' | 'scopeRowIds' | 'visibleHeaderMenu'>;
@@ -78,7 +78,7 @@ export function useWorkspaceNavigationController({
   const writeRoute = useCallback((next: RouteState) => route.navigate(next), [route]);
   const { routeSheetId, routeActionKind: externalActionKind, routeReview: externalReview, routePanel: externalPanel } = externalRoute;
   const {
-    openEvidenceViewer, setOpenSplit, setDocumentView, documentView, openSplit,
+    openCitationViewer, setOpenSplit, setDocumentView, documentView, openSplit,
     hideActionPanel, recordCommandAction, actionPanelOpen, commandPaletteOpen,
   } = chromeState;
   const { isContributionHidden, hideContribution, revealContribution } = visibility;
@@ -471,22 +471,22 @@ export function useWorkspaceNavigationController({
     [isContributionHidden, routeStateBase, writeRoute],
   );
 
-  const openEvidenceViewerForWorkspace = useCallback((
+  const openCitationViewerForWorkspace = useCallback((
     linkId: string | number,
-    host: EvidenceViewerHost = 'modalOrPeek',
-    focus?: EvidenceViewerFocus,
+    host: CitationViewerHost = 'modalOrPeek',
+    focus?: CitationViewerFocus,
   ) => {
-    if (host === 'mainView' && isContributionHidden(EVIDENCE_CONTRIBUTION_ID)) {
+    if (host === 'mainView' && isContributionHidden(CITATION_CONTRIBUTION_ID)) {
       return;
     }
-    openEvidenceViewer(linkId, host, focus);
-  }, [isContributionHidden, openEvidenceViewer]);
+    openCitationViewer(linkId, host, focus);
+  }, [isContributionHidden, openCitationViewer]);
 
   const navigateToSearchHit = useCallback(
     (hit: ProjectSearchHitWire) => {
       const navigation = hit.navigation;
       if (navigation.kind === 'evidence') {
-        openEvidenceViewerForWorkspace(navigation.evidence_link_id, 'modalOrPeek', {
+        openCitationViewerForWorkspace(navigation.evidence_link_id, 'modalOrPeek', {
           scopeSpanId: navigation.span_id,
           scopeSpanIds: navigation.span_ids,
         });
@@ -545,7 +545,7 @@ export function useWorkspaceNavigationController({
     },
     [
       detail,
-      openEvidenceViewerForWorkspace,
+      openCitationViewerForWorkspace,
       project.id,
       selectSheet,
       selection,
@@ -676,27 +676,27 @@ export function useWorkspaceNavigationController({
   );
   const sourceNavigationEpoch = useRef(0);
   useEffect(() => {
-    const onOpenEvidence = (event: Event) => {
+    const onOpenCitation = (event: Event) => {
       const detail = (event as CustomEvent<{ evidenceLinkId?: unknown; sourceLink?: boolean; page?: number }>).detail;
       const evidenceLinkId = detail?.evidenceLinkId;
       if (typeof evidenceLinkId !== 'string' && typeof evidenceLinkId !== 'number') return;
       const epoch = ++sourceNavigationEpoch.current;
       if (!detail.sourceLink) {
-        openEvidenceViewerForWorkspace(evidenceLinkId);
+        openCitationViewerForWorkspace(evidenceLinkId);
         return;
       }
       void openSourceLink({ projectId: project.id, evidenceLinkId: String(evidenceLinkId), page: detail.page }, projectApi, {
         isCurrent: () => sourceNavigationEpoch.current === epoch,
         openOriginal: openDocumentRef,
-        openEvidence: (initialPayload, initialPage) => openEvidenceViewerForWorkspace(evidenceLinkId, 'modalOrPeek', { initialPayload, initialPage }),
+        openEvidence: (initialPayload, initialPage) => openCitationViewerForWorkspace(evidenceLinkId, 'modalOrPeek', { initialPayload, initialPage }),
       }).catch((error: Error) => { if (sourceNavigationEpoch.current === epoch) showError(error.message); });
     };
-    window.addEventListener('frisket:open-evidence', onOpenEvidence);
+    window.addEventListener('frisket:open-evidence', onOpenCitation);
     return () => {
       sourceNavigationEpoch.current += 1;
-      window.removeEventListener('frisket:open-evidence', onOpenEvidence);
+      window.removeEventListener('frisket:open-evidence', onOpenCitation);
     };
-  }, [openDocumentRef, openEvidenceViewerForWorkspace, project.id, projectApi, showError]);
+  }, [openDocumentRef, openCitationViewerForWorkspace, project.id, projectApi, showError]);
   useEffect(() => {
     if (externalPanel?.kind !== 'evidence') return;
     const href = `/p/${encodeURIComponent(project.id)}/evidence/${encodeURIComponent(externalPanel.evidenceLinkId)}${window.location.search}`;
@@ -857,7 +857,7 @@ export function useWorkspaceNavigationController({
     selectSheet,
     documentPriority: activeDocumentPriority,
     hideWorkbenchContribution,
-    openEvidenceViewer: openEvidenceViewerForWorkspace,
+    openCitationViewer: openCitationViewerForWorkspace,
     openReview,
     revealWorkbenchContribution,
     reviewOpen,
@@ -866,7 +866,7 @@ export function useWorkspaceNavigationController({
     closeReview, closeRoutePanel, closeCommandPaletteAndReset, commandPaletteQuery,
     commandPaletteSearchSeed, setCommandPaletteQuery, commandPaletteBestMatchItems,
     commandPaletteActionItems, commandPaletteGotoItems, navigateToSearchHit, runActionFromSurface,
-    selectSheet, activeDocumentPriority, hideWorkbenchContribution, openEvidenceViewerForWorkspace,
+    selectSheet, activeDocumentPriority, hideWorkbenchContribution, openCitationViewerForWorkspace,
     openReview, revealWorkbenchContribution, reviewOpen, reviewRunId,
   ]);
 
@@ -874,14 +874,14 @@ export function useWorkspaceNavigationController({
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
-    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
+    openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   }), [
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openSourcesFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openSourceHealthMainView,
-    openEvidenceViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
+    openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   ]);

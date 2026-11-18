@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from frisket.engine.executor.temporal_transcripts import (
-    persist_projected_transcript_evidence,
+    persist_projected_transcript_citations,
     project_transcript,
     resolve_compatible_transcripts,
     resolve_timestamped_transcript,
@@ -23,7 +23,7 @@ from frisket.engine.store.artifact_timeline import (
 )
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -88,7 +88,7 @@ def _add_timestamped_transcript(
         }
         if language is not None:
             metadata["language"] = language
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
@@ -286,7 +286,7 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
     )
     op_id = project.append_op("test", {}, label="test")
     project.db.execute("BEGIN IMMEDIATE")
-    evidence = persist_projected_transcript_evidence(
+    evidence = persist_projected_transcript_citations(
         project,
         transcript=resolved,
         projection=projection,

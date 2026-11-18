@@ -454,7 +454,7 @@ class _BoundDocumentConverter:
             # holding "/etc/passwd" is content to convert, not a file reference.
             if media_typed and "\n" not in doc and len(doc) < 4096:
                 try:
-                    candidate = resolve_media_path(doc, ctx, op="to_markdown")
+                    candidate = resolve_media_path(doc, ctx, action="to_markdown")
                     if Path(candidate).exists():
                         return Path(candidate), {"kind": "path"}
                 except ValueError:
@@ -917,7 +917,7 @@ def write_document_convert_evidence(
     """Retain actual reads and quote-free dependencies at the result savepoint."""
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -925,7 +925,7 @@ def write_document_convert_evidence(
     store = ReceiptStore(project)
     reads = document_convert_reads(batch)
     for row_id, read in reads.items():
-        store._record_writer_evidence(
+        store._record_writer_supporting_record(
             {**read, "row_id": row_id},
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
@@ -987,7 +987,7 @@ def write_document_convert_evidence(
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()[0]
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell",
             subject_ref={
@@ -1011,7 +1011,7 @@ def write_document_convert_evidence(
                 "grounding_granularity": ("page" if page_scoped else "whole_document"),
             },
         )
-        store._record_writer_evidence(
+        store._record_writer_supporting_record(
             {
                 "kind": "document_source_provenance",
                 "row_id": row_id,

@@ -50,7 +50,7 @@ import wave
 import io
 from pathlib import Path
 
-from frisket.engine.store.evidence import record_evidence_link, record_source_artifact, record_source_span
+from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -134,7 +134,7 @@ try:
             )
             span_refs.append({"span_id": span["id"], "rank": rank, "span_role": "support", "required": True})
             rank += 1
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=transcript_ref,

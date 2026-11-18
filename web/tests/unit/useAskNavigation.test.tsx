@@ -63,7 +63,7 @@ describe('Ask citation navigation', () => {
 
   it('opens the primary evidence span with all phrase highlights', () => {
     const commands = {
-      openEvidenceViewer: vi.fn(),
+      openCitationViewer: vi.fn(),
       setDocumentView: vi.fn(),
       setOpenSplit: vi.fn(),
     };
@@ -83,7 +83,7 @@ describe('Ask citation navigation', () => {
       },
     };
     act(() => result.current.open(citation));
-    expect(commands.openEvidenceViewer).toHaveBeenCalledWith('link', 'modalOrPeek', {
+    expect(commands.openCitationViewer).toHaveBeenCalledWith('link', 'modalOrPeek', {
       scopeSpanId: 'phrase-start',
       scopeSpanIds: ['phrase-start', 'phrase-end'],
       highlight: true,
@@ -92,7 +92,7 @@ describe('Ask citation navigation', () => {
 
   it('opens a located cell citation at its exact document time', () => {
     const commands = {
-      openEvidenceViewer: vi.fn(),
+      openCitationViewer: vi.fn(),
       setDocumentView: vi.fn(),
       setOpenSplit: vi.fn(),
     };
@@ -117,7 +117,7 @@ describe('Ask citation navigation', () => {
 
   it('keeps a stale cell citation on the ordinary row fallback', () => {
     const commands = {
-      openEvidenceViewer: vi.fn(),
+      openCitationViewer: vi.fn(),
       setDocumentView: vi.fn(),
       setOpenSplit: vi.fn(),
     };

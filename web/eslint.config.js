@@ -76,7 +76,7 @@ const PROP_STUB = {
 const KEEPS_LIVENESS_FLAG = [
   'src/components/ActionPanel.tsx', // open-intent effect guards StrictMode with a ref and a microtask
   'src/components/ColumnDrawer.tsx', // stats refetch takes arguments; the runs list paginates
-  'src/components/EvidenceViewer.tsx', // locate-current request shares an epoch guard and recovery state
+  'src/components/CitationViewer.tsx', // locate-current request shares an epoch guard and recovery state
   'src/components/FriendlyFiltersPanel.tsx', // two-level freshness plus a debounced search
   'src/components/MentionsPanel.tsx', // reducer state with sequence-guarded page appends
   'src/components/ReplayModeBanner.tsx', // runtime-config subscription
@@ -84,13 +84,13 @@ const KEEPS_LIVENESS_FLAG = [
   'src/components/SkillsSettings.tsx', // load seeds an editable draft; writes are generation-guarded
   'src/components/TopNav.tsx', // OAuth connections load seeds the editable connection choice
   'src/components/action-panel/GeneratedActionForm.tsx', // debounced validation and output resolution
-  'src/components/evidence/EvidenceDocumentSource.tsx', // IntersectionObserver subscription
+  'src/components/evidence/CitationDocumentSource.tsx', // IntersectionObserver subscription
   'src/components/importWorkspace/tableImport/TableImportFlow.tsx', // generation-guarded draft lifecycle
   'src/components/pdfSplit/PdfSplitSetup.tsx', // admission effect with delete-on-abort cleanup
   'src/components/project-ask/AskSourcePicker.tsx', // load-more appends pages
   'src/components/review/ReapplyResultsDialog.tsx', // sheets load seeds the editable output names
   'src/components/review/useReviewRuns.ts', // seeds the selection; load-more appends
-  'src/components/rowInspection/CellEvidence.tsx', // payload state shared with the audit refetch
+  'src/components/rowInspection/CellCitations.tsx', // payload state shared with the audit refetch
   'src/settings/ProjectIntegrationSettings.tsx', // per-plugin partial failures with functional local updates
   'src/workbench/AnswersView.tsx', // appending page list
   'src/workbench/ImageGallery.tsx', // appending page list

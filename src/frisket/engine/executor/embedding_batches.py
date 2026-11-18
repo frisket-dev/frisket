@@ -4,10 +4,10 @@ import hashlib
 import json
 from typing import Any
 
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
-def embedding_call_id(ctx: OpContext, model_id: str, texts: list[str]) -> str:
+def embedding_call_id(ctx: ActionContext, model_id: str, texts: list[str]) -> str:
     encoded = json.dumps(
         {"run_id": ctx.extras.get("run_id"), "model_id": model_id, "texts": texts},
         sort_keys=True,
@@ -18,7 +18,7 @@ def embedding_call_id(ctx: OpContext, model_id: str, texts: list[str]) -> str:
 
 
 def refuse_missing_paid_vectors(
-    ctx: OpContext, model_id: str, texts: list[str]
+    ctx: ActionContext, model_id: str, texts: list[str]
 ) -> None:
     from frisket.ai.embeddings.backends import embedder_is_remote
 
@@ -45,7 +45,7 @@ def refuse_missing_paid_vectors(
 
 
 def record_embedding_batch(
-    ctx: OpContext,
+    ctx: ActionContext,
     model_id: str,
     batch: Any,
     texts: list[str],

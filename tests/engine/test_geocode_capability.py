@@ -17,7 +17,7 @@ from frisket.engine.executor.geocode_capability import (
     GeocodeEngineError,
 )
 from frisket.execution.credential_use import CredentialUseContext
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 
 
 def _route(**overrides):
@@ -50,8 +50,8 @@ def _route(**overrides):
     return RouteRow(**base)
 
 
-def _routed_ctx(handler, route) -> OpContext:
-    """A dispatch-scoped OpContext carrying a routed admission pinned to
+def _routed_ctx(handler, route) -> ActionContext:
+    """A dispatch-scoped ActionContext carrying a routed admission pinned to
     ``route`` — the same ``extras[ATTEMPT_EXTRA]`` shape
     ``routed_admission_in_scope`` reads, built the way
     ``tests/ops/test_transcribe_route_binding.py`` builds it for
@@ -108,7 +108,7 @@ def _routed_ctx(handler, route) -> OpContext:
             price_card_version=None,
         ),
     }
-    return OpContext(
+    return ActionContext(
         http=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         extras=extras,
         credential_use_context=CredentialUseContext.open(),

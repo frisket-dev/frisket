@@ -24,7 +24,7 @@ from frisket.contracts.action import (
 from frisket.contracts.actions.schemas._language import AUTO_SENTINEL
 from frisket.contracts.transcription_language import transcribe_language_declaration
 from frisket.server.action_catalog_hints import (
-    _recipe_engines,
+    _action_engines,
     action_catalog_payload_with_launcher_hints,
 )
 
@@ -183,7 +183,7 @@ def test_parakeet_tdt_declares_no_speaker_count_hint():
 # Step 1: catalog projection
 
 
-def test_recipe_engines_emit_language_and_diarization(monkeypatch):
+def test_action_engines_emit_language_and_diarization(monkeypatch):
     # Availability is live machine state: a developer may already have the
     # pinned Parakeet artifacts installed, and a gateway may be configured.
     # This test exercises the unavailable projection deliberately rather than
@@ -192,7 +192,7 @@ def test_recipe_engines_emit_language_and_diarization(monkeypatch):
         "frisket.execution.definitions.parakeet_artifacts_present",
         lambda: False,
     )
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", {})}
     # The collapsed roster removes the old parakeet/parakeet_modal entries.
     # Hosted Whisper Turbo is one separately named fixed model.
     # The `remote` placement row is gone from the catalog.
@@ -316,14 +316,14 @@ def test_recipe_engines_emit_language_and_diarization(monkeypatch):
     ]
 
 
-def test_recipe_engines_offer_parakeet_setup_when_the_asr_extra_is_missing(monkeypatch):
+def test_action_engines_offer_parakeet_setup_when_the_asr_extra_is_missing(monkeypatch):
     monkeypatch.setattr(
         "frisket.execution.definitions.parakeet_artifacts_present", lambda: True
     )
     monkeypatch.setattr(
         "frisket.execution.definitions.parakeet_runtime_present", lambda: False
     )
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", {})}
 
     parakeet = engines["parakeet-tdt"]
     assert parakeet["available"] is False
@@ -331,11 +331,11 @@ def test_recipe_engines_offer_parakeet_setup_when_the_asr_extra_is_missing(monke
     assert parakeet["setup_ref"] == "engine-setup:parakeet-tdt.local-onnx@1"
 
 
-def test_recipe_engines_offer_whisper_setup_when_its_runtime_is_missing(monkeypatch):
+def test_action_engines_offer_whisper_setup_when_its_runtime_is_missing(monkeypatch):
     monkeypatch.setattr(
         "frisket.execution.definitions.faster_whisper_runtime_present", lambda: False
     )
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", {})}
 
     whisper = engines["faster_whisper"]
     assert whisper["available"] is False
@@ -358,7 +358,7 @@ def test_openai_whisper_1_availability_follows_effective_provider_keys(
     ):
         monkeypatch.delenv(env, raising=False)
 
-    whisper1 = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}[
+    whisper1 = {e["id"]: e for e in _action_engines("media.transcribe", {})}[
         "openai/whisper-1"
     ]
     assert whisper1["tier"] == "hosted"
@@ -383,7 +383,7 @@ def test_openai_whisper_1_availability_follows_effective_provider_keys(
 
     project_whisper = {
         e["id"]: e
-        for e in _recipe_engines(
+        for e in _action_engines(
             "media.transcribe", {}, project=_ProjectWithProviderKey()
         )
     }["openai/whisper-1"]
@@ -405,7 +405,7 @@ def test_moss_availability_requires_v1_contract_advertisement():
             }
         ],
     }
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", advertised)}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", advertised)}
     assert engines["moss"]["available"] is True
     assert engines["moss"]["models"] == ["OpenMOSS-Team/MOSS-Transcribe-Diarize"]
 
@@ -423,7 +423,7 @@ def test_moss_availability_requires_v1_contract_advertisement():
         ],
     }
     engines = {
-        e["id"]: e for e in _recipe_engines("media.transcribe", unversioned_same_name)
+        e["id"]: e for e in _action_engines("media.transcribe", unversioned_same_name)
     }
     assert engines["moss"]["available"] is False
     assert "frisket.transcription.v1" in engines["moss"]["error"]
@@ -431,7 +431,7 @@ def test_moss_availability_requires_v1_contract_advertisement():
     # Configured gateway with no moss advertisement → honest not-advertised.
     engines = {
         e["id"]: e
-        for e in _recipe_engines(
+        for e in _action_engines(
             "media.transcribe", {"configured": True, "engines": []}
         )
     }
@@ -453,7 +453,7 @@ def test_vibevoice_asr_is_an_honest_fixed_gateway_profile():
         ],
     }
     engine = {
-        entry["id"]: entry for entry in _recipe_engines("media.transcribe", advertised)
+        entry["id"]: entry for entry in _action_engines("media.transcribe", advertised)
     }["vibevoice-asr"]
     assert engine["available"] is True
     assert engine["tier"] == "sidecar"
@@ -487,7 +487,7 @@ def test_vibevoice_asr_is_an_honest_fixed_gateway_profile():
 
     unavailable = {
         entry["id"]: entry
-        for entry in _recipe_engines(
+        for entry in _action_engines(
             "media.transcribe", {"configured": True, "engines": []}
         )
     }["vibevoice-asr"]
@@ -512,7 +512,7 @@ def test_whisper_turbo_gateway_requires_v1_contract_advertisement(
         advertisement["contract_versions"] = contract_versions
     engines = {
         entry["id"]: entry
-        for entry in _recipe_engines(
+        for entry in _action_engines(
             "media.transcribe",
             {"configured": True, "engines": [advertisement]},
         )
@@ -535,7 +535,7 @@ def test_parakeet_gateway_requires_v1_contract_advertisement():
     }
     engines = {
         entry["id"]: entry
-        for entry in _recipe_engines(
+        for entry in _action_engines(
             "media.transcribe",
             {"configured": True, "engines": [advertisement]},
         )
@@ -566,7 +566,7 @@ def test_moss_v1_advertisement_wins_regardless_of_duplicate_order():
     for ordering in ([unversioned, v1], [v1, unversioned]):
         engines = {
             e["id"]: e
-            for e in _recipe_engines(
+            for e in _action_engines(
                 "media.transcribe", {"configured": True, "engines": list(ordering)}
             )
         }
@@ -618,7 +618,7 @@ def test_parakeet_engine_advertises_pullable_pinned_artifacts():
     sensitive run with a first-use fetch."""
     from frisket.ai.models import artifact_manifest
 
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", {})}
     downloadable = engines["parakeet-tdt"]["downloadable_models"]
     by_name = {d["display_name"]: d for d in downloadable}
     assert set(by_name) == {
@@ -640,7 +640,7 @@ def test_faster_whisper_engine_advertises_pullable_pinned_base_artifact():
     local-model provisioning story) -- one entry, same shape."""
     from frisket.ai.models import artifact_manifest
 
-    engines = {e["id"]: e for e in _recipe_engines("media.transcribe", {})}
+    engines = {e["id"]: e for e in _action_engines("media.transcribe", {})}
     downloadable = engines["faster_whisper"]["downloadable_models"]
     assert len(downloadable) == 1
     entry = downloadable[0]

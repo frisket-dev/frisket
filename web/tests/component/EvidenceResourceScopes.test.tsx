@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ColumnEvidenceApiPort, EvidenceLinkViewerApiPort } from '../../src/api/ports';
-import type { CellEvidenceLinkSummary, ColumnEvidenceBatchPayload, EvidenceViewerPayload } from '../../src/api/types';
-import { useColumnEvidence } from '../../src/workbench/columnEvidenceResource';
-import { useEvidenceLinkViewer } from '../../src/workbench/evidenceLinkViewerResource';
+import type { ColumnCitationsApiPort, CitationViewerApiPort } from '../../src/api/ports';
+import type { CellCitationSummary, ColumnCitationsBatchPayload, CitationViewerPayload } from '../../src/api/types';
+import { useColumnCitations } from '../../src/workbench/columnCitationsResource';
+import { useCitationViewerResource } from '../../src/workbench/citationViewerResource';
 
-type EvidenceApi = ColumnEvidenceApiPort & EvidenceLinkViewerApiPort;
+type EvidenceApi = ColumnCitationsApiPort & CitationViewerApiPort;
 const ROW_IDS = ['3'];
 let sequence = 0;
 const ids = () => ({ sheet: String(++sequence), column: '2', link: sequence });
@@ -18,8 +18,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function columnPayload(label: string): ColumnEvidenceBatchPayload {
-  const link: CellEvidenceLinkSummary = {
+function columnPayload(label: string): ColumnCitationsBatchPayload {
+  const link: CellCitationSummary = {
     id: 1, stable_id: label, export_ref: label, status: 'active', role: 'support',
     evidence_kind: 'source', span_count: 1, artifact_count: 1, snippet: label, viewer_href: '/viewer',
   };
@@ -27,7 +27,7 @@ function columnPayload(label: string): ColumnEvidenceBatchPayload {
     rows: [{ row_id: 3, links: [link] }] };
 }
 
-function viewerPayload(label: string): EvidenceViewerPayload {
+function viewerPayload(label: string): CitationViewerPayload {
   return {
     schema_version: 'frisket.evidence_viewer.v1', artifacts: [], warnings: [],
     link: {
@@ -48,8 +48,8 @@ function scopedApi(label: string) {
 
 function useResources(api: EvidenceApi, key: Ids) {
   return {
-    column: useColumnEvidence(key.sheet, key.column, ROW_IDS, api),
-    viewer: useEvidenceLinkViewer(key.link, api),
+    column: useColumnCitations(key.sheet, key.column, ROW_IDS, api),
+    viewer: useCitationViewerResource(key.link, api),
   };
 }
 
@@ -93,8 +93,8 @@ describe('project-scoped evidence resources', () => {
   });
 
   it('ignores the old project completion after switching APIs without changing numeric IDs', async () => {
-    const oldColumn = deferred<ColumnEvidenceBatchPayload>();
-    const oldViewer = deferred<EvidenceViewerPayload>();
+    const oldColumn = deferred<ColumnCitationsBatchPayload>();
+    const oldViewer = deferred<CitationViewerPayload>();
     const oldApi = scopedApi('old');
     oldApi.getColumnEvidence.mockReturnValue(oldColumn.promise);
     oldApi.getEvidenceViewer.mockReturnValue(oldViewer.promise);
@@ -115,10 +115,10 @@ describe('project-scoped evidence resources', () => {
   });
 
   it('cannot publish an evicted request into a replacement entry with the same key', async () => {
-    const oldColumn = deferred<ColumnEvidenceBatchPayload>();
-    const oldViewer = deferred<EvidenceViewerPayload>();
-    const nextColumn = deferred<ColumnEvidenceBatchPayload>();
-    const nextViewer = deferred<EvidenceViewerPayload>();
+    const oldColumn = deferred<ColumnCitationsBatchPayload>();
+    const oldViewer = deferred<CitationViewerPayload>();
+    const nextColumn = deferred<ColumnCitationsBatchPayload>();
+    const nextViewer = deferred<CitationViewerPayload>();
     const api = scopedApi('other');
     const key = ids();
     const repeatedColumn = vi.fn().mockReturnValueOnce(oldColumn.promise).mockReturnValueOnce(nextColumn.promise);
@@ -146,7 +146,7 @@ describe('project-scoped evidence resources', () => {
   it('keeps settled empty snapshots stable without requesting empty inputs', () => {
     const api = scopedApi('unused');
     const reader = renderHook(() => ({
-      column: useColumnEvidence('1', null, ROW_IDS, api), viewer: useEvidenceLinkViewer(null, api),
+      column: useColumnCitations('1', null, ROW_IDS, api), viewer: useCitationViewerResource(null, api),
     }));
     const empty = reader.result.current;
     reader.rerender();

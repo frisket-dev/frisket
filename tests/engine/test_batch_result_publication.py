@@ -12,7 +12,7 @@ from frisket.engine.runner import MapRunner
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.engine.store import Project
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from runner_test_helpers import run_with_output_claim
 
 
@@ -42,7 +42,7 @@ class _EvidenceBatchRecipe(Recipe):
         self,
         values_by_row: dict[int, dict[str, Any]],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[int, dict[str, Any]]:
         del spec, ctx
         self.executed_batches.append(list(values_by_row))

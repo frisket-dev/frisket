@@ -12,7 +12,7 @@ from PIL import Image
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.structured import StructuredCompleter
 from frisket.execution.dispatch_control import STANDALONE
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines_remote import (
     accumulate_vlm_response_usage,
     ocr_coordinate_profile,
@@ -124,7 +124,7 @@ async def test_positioned_ocr_uses_generic_contract_and_preserves_line_order(
     result = await ocr_vlm(
         "mock/vision",
         [_page(tmp_path)],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -186,7 +186,7 @@ async def test_positioned_ocr_uses_known_yxyx_profile(
     result = await ocr_vlm(
         "gemini/gemini-3.6-flash",
         [_page(tmp_path, size=(1_000, 600))],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -225,7 +225,7 @@ async def test_positioned_ocr_reports_exif_display_coordinate_frame(
     result = await ocr_vlm(
         "mock/vision",
         [page],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -268,7 +268,7 @@ async def test_text_only_ocr_retains_existing_request_and_result_shape(
     result = await ocr_vlm(
         "mock/vision",
         [_page(tmp_path)],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -306,7 +306,7 @@ async def test_invalid_positioned_box_fails_after_preserving_wire_accounting(
         await ocr_vlm(
             "mock/vision",
             [_page(tmp_path)],
-            OpContext(
+            ActionContext(
                 http=None,
                 extras={
                     "router": ModelRouter(
@@ -337,7 +337,7 @@ async def test_minimax_positioned_resize_maps_back_to_original_page(
     result = await ocr_vlm(
         "openrouter/minimax/minimax-m3",
         [_page(tmp_path, size=(4_000, 400))],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -390,7 +390,7 @@ async def test_openai_positioned_ocr_requests_tested_high_detail(
     await ocr_vlm(
         "openrouter/openai/gpt-6.1-sol",
         [_page(tmp_path)],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(
@@ -442,7 +442,7 @@ async def test_claude_positioned_resize_maps_inference_pixels_to_original_page(
     result = await ocr_vlm(
         "openrouter/anthropic/claude-sonnet-5",
         [_page(tmp_path, size=source_size)],
-        OpContext(
+        ActionContext(
             http=None,
             extras={
                 "router": ModelRouter(

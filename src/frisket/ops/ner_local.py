@@ -11,12 +11,12 @@ from frisket.execution.purchases import (
 )
 
 from frisket.ops._sidecar import sidecar_post
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.entities import canonicalize_entities
 
 
 class LocalNerExtractor:
-    def __init__(self, engine: Literal["spacy", "gliner"], context: OpContext):
+    def __init__(self, engine: Literal["spacy", "gliner"], context: ActionContext):
         if engine not in ("spacy", "gliner"):
             raise ValueError("unsupported local NER engine")
         self.engine = engine

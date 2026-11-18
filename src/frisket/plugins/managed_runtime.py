@@ -81,7 +81,7 @@ class RuntimeResolution:
     executable_path: Path
 
 
-def managed_runtime_receipt_evidence(resolution: RuntimeResolution) -> dict[str, str]:
+def managed_runtime_supporting_record(resolution: RuntimeResolution) -> dict[str, str]:
     """Receipt evidence for a resolved runtime: the resolved CONTENT hash, not
     only a version string."""
     return {

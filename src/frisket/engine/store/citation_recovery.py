@@ -19,7 +19,7 @@ from frisket.engine.store.current_value_windows import (
     MANUAL_EDIT_BYTE_LIMIT,
     TEXT_WINDOW_CODEPOINT_LIMIT,
 )
-from frisket.engine.store.text_quote_match import quote_ranges
+from frisket.engine.store.text_passage_match import passage_ranges
 
 
 def _utf16_offset(text: str, codepoint_offset: int) -> int:
@@ -36,7 +36,7 @@ def _notice(*, matched_spans: int, total_spans: int, repeated: bool) -> str:
     return "Found the saved passages in the current source."
 
 
-def locate_current_evidence_text(
+def locate_current_cited_text(
     db: sqlite3.Connection,
     viewer: dict[str, Any],
     *,
@@ -137,7 +137,7 @@ def locate_current_evidence_text(
         matched_spans = 0
         repeated = False
         for span in quoted_spans:
-            matches = quote_ranges(current_text, span["quote"])
+            matches = passage_ranges(current_text, span["quote"])
             if matches:
                 matched_spans += 1
                 repeated = repeated or len(matches) > 1
@@ -218,7 +218,7 @@ def _locate_bounded(
                 (
                     found
                     for span in quoted
-                    if (found := quote_ranges(text, span["quote"]))
+                    if (found := passage_ranges(text, span["quote"]))
                 ),
                 None,
             )
@@ -252,7 +252,7 @@ def _locate_bounded(
     base = passage["window"]["start"]
     ranges = []
     for span in quoted:
-        for left, right in quote_ranges(text, span["quote"])[:100]:
+        for left, right in passage_ranges(text, span["quote"])[:100]:
             ranges.append(
                 {
                     "span_id": span["stable_id"],
@@ -277,4 +277,4 @@ def _locate_bounded(
     )
 
 
-__all__ = ["locate_current_evidence_text"]
+__all__ = ["locate_current_cited_text"]

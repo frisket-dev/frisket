@@ -15,7 +15,7 @@ from frisket.engine.executor.http_request import (
     AdmittedHttpRequester,
     HttpRequestCancelled,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from tests.engine.test_typed_api_call import _confirmed, _install_handler
 from tests.ops.test_api_call import _allow_egress as _allow_egress
 
@@ -37,7 +37,7 @@ def test_requester_refuses_revoked_lifetime_before_egress(
             )
         ) as client:
             cancelled = False
-            ctx = OpContext(http=client, extras={"cancelled": lambda: cancelled})
+            ctx = ActionContext(http=client, extras={"cancelled": lambda: cancelled})
             sender = AdmittedHttpRequester(ctx)
 
             async def revoke():

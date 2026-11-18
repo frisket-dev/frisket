@@ -9,7 +9,7 @@ from .current_cells import stamp_retrieval_revision
 from .search_index_work import enqueue_dirty_scope, latest_revision
 from .transactions import require_transaction
 
-RETRIEVAL_EVIDENCE_LINK_ROLES = frozenset(
+RETRIEVAL_CITATION_ROLES = frozenset(
     {
         "media_ocr_grounding",
         "media_transcribe_temporal",
@@ -147,7 +147,7 @@ def touch_binding_revisions(
 
 
 __all__ = [
-    "RETRIEVAL_EVIDENCE_LINK_ROLES",
+    "RETRIEVAL_CITATION_ROLES",
     "read_binding_revision",
     "read_binding_revisions",
     "touch_binding_revisions",

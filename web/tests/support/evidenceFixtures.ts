@@ -1,17 +1,17 @@
 // Typed evidence fixtures for component tests. Built against the real
-// EvidenceArtifact / EvidenceSpan / EvidenceArtifactRef wire types so a
+// CitationArtifact / CitationSpan / CitationArtifactRef wire types so a
 // contract change breaks the fixture rather than letting a stale shape drift.
 
 import type {
-  EvidenceArtifact,
-  EvidenceArtifactRef,
-  EvidenceBlobRef,
-  EvidenceSpan,
+  CitationArtifact,
+  CitationArtifactRef,
+  CitationBlobRef,
+  CitationSpan,
 } from '../../src/api/types';
 
 let seq = 0;
 
-export function evidenceSpan(overrides: Partial<EvidenceSpan> = {}): EvidenceSpan {
+export function evidenceSpan(overrides: Partial<CitationSpan> = {}): CitationSpan {
   seq += 1;
   return {
     id: seq,
@@ -37,7 +37,7 @@ export function evidenceSpan(overrides: Partial<EvidenceSpan> = {}): EvidenceSpa
   };
 }
 
-export function artifactRef(overrides: Partial<EvidenceArtifactRef> = {}): EvidenceArtifactRef {
+export function artifactRef(overrides: Partial<CitationArtifactRef> = {}): CitationArtifactRef {
   return {
     kind: 'source_artifact',
     stable_id: overrides.stable_id ?? 'source_artifact:1',
@@ -50,11 +50,11 @@ export function artifactRef(overrides: Partial<EvidenceArtifactRef> = {}): Evide
   };
 }
 
-export function blobRef(url: string, overrides: Partial<EvidenceBlobRef> = {}): EvidenceBlobRef {
+export function blobRef(url: string, overrides: Partial<CitationBlobRef> = {}): CitationBlobRef {
   return { hash: 'blob-hash', url, filename: 'notes.txt', ...overrides };
 }
 
-export function evidenceArtifact(overrides: Partial<EvidenceArtifact> = {}): EvidenceArtifact {
+export function evidenceArtifact(overrides: Partial<CitationArtifact> = {}): CitationArtifact {
   seq += 1;
   return {
     id: seq,

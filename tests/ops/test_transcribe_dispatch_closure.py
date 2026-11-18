@@ -10,7 +10,7 @@ from frisket.contracts.actions.schemas._engines import (
     ocr_engine_table,
 )
 from frisket.execution.definitions import build_static_targets
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines import OcrEngines
 
 
@@ -47,7 +47,7 @@ async def test_indra_ocr_dispatches_through_local_adapter(
     result = await engines.run_engine_on_pages(
         "indra-ocr",
         [page],
-        OpContext(
+        ActionContext(
             extras={"standalone_dispatch": STANDALONE},
         ),
         usage={},

@@ -8,7 +8,7 @@
 //
 // This derives that full passage CLIENT-SIDE from the same full-fidelity
 // payload the evidence viewer already fetches (`api.getEvidenceViewer`,
-// EvidenceViewer.tsx's MediaOrFallback) rather than widening the backend
+// CitationViewer.tsx's MediaOrFallback) rather than widening the backend
 // summary — `_link_summary` is shared by every per-cell/per-column chip across
 // the app (RowDrawer included) and owned by a different lane, so this is a pure
 // frontend derivation over data the backend already returns in full.
@@ -25,11 +25,11 @@
 // every one of its spans as cited, so the merge still surfaces the whole
 // citation instead of silently degrading to the old single-span behavior.
 
-import type { EvidenceSpan, EvidenceViewerPayload } from '../api/types';
+import type { CitationSpan, CitationViewerPayload } from '../api/types';
 
-function collectQuote(
-  payload: EvidenceViewerPayload,
-  predicate: (span: EvidenceSpan) => boolean,
+function collectPassage(
+  payload: CitationViewerPayload,
+  predicate: (span: CitationSpan) => boolean,
 ): string | null {
   type Run = { key: string; parts: string[] };
   const runs: Run[] = [];
@@ -60,7 +60,7 @@ function collectQuote(
  * one passage and disjoint runs separated by an ellipsis. `null` when the
  * link carries no quotable spans at all (a page/region citation with no
  * OCR'd text, or a payload that hasn't loaded yet). */
-export function mergeCitedQuote(payload: EvidenceViewerPayload | null | undefined): string | null {
+export function mergeCitedPassage(payload: CitationViewerPayload | null | undefined): string | null {
   if (!payload) return null;
-  return collectQuote(payload, (span) => span.required) ?? collectQuote(payload, () => true);
+  return collectPassage(payload, (span) => span.required) ?? collectPassage(payload, () => true);
 }

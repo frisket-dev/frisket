@@ -206,7 +206,7 @@ class AdmittedWebSearcher:
         )
         if error is not None:
             evidence["error_code"] = error.code
-        ReceiptStore(ctx.project)._record_writer_evidence(
+        ReceiptStore(ctx.project)._record_writer_supporting_record(
             evidence,
             run_id=ctx.extras["run_id"],
             writer_attempt_id=writer.attempt_id,

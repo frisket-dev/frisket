@@ -16,8 +16,8 @@ from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
-    list_cell_evidence,
-    resolve_evidence_viewer,
+    list_cell_citations,
+    resolve_citation_viewer,
 )
 from frisket.server.routes.document_extraction import (
     register_document_extraction_routes,
@@ -556,7 +556,7 @@ def test_actual_run_blank_citation_and_replay(tmp_path):
         values = project.get_values(output["sheet_id"], output["columns"]["Mark"])
         assert list(values.values()) == ["X", ""]
         empty_row = list(values)[1]
-        links = list_cell_evidence(
+        links = list_cell_citations(
             project,
             sheet_id=output["sheet_id"],
             row_id=empty_row,
@@ -564,7 +564,7 @@ def test_actual_run_blank_citation_and_replay(tmp_path):
             project_id="p",
         )
         assert len(links["links"]) == 1
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, links["links"][0]["id"], project_id="p"
         )
         assert viewer
@@ -1300,7 +1300,7 @@ def test_cancelled_template_save_does_not_persist(tmp_path):
     )
     with pytest.raises(TableError, match="cancelled"):
         service.save("p", body, cancelled=lambda: True)
-    assert workspace.saved_recipes() == []
+    assert workspace.saved_actions() == []
 
 
 def test_missing_pdf_bytes_is_a_document_failure_not_a_batch_failure(

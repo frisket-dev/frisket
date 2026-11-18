@@ -23,7 +23,7 @@ from frisket.ai.models.metadata import provider_cost_total
 from frisket.credentials import resolve_credential_for_use
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.integrations.hosted_error import HostedEngineError
 from frisket.ops.integrations.opendocrouter import parse_document
 from frisket.ops.markdown_plain import markdown_to_plain_text
@@ -34,7 +34,7 @@ from frisket.sdk.ops._hosted_accounting import persist_hosted_accepted_accountin
 
 async def parse_with_context(
     *,
-    ctx: OpContext,
+    ctx: ActionContext,
     path: Path,
     engine: str,
     capability: str,
@@ -219,7 +219,7 @@ def _ocr_image(path: Path, scratch: Path) -> Path:
 
 
 async def ocr_pages(
-    engine: str, paths: list[Path], ctx: OpContext, usage: dict
+    engine: str, paths: list[Path], ctx: ActionContext, usage: dict
 ) -> list[dict]:
     facts: dict[str, dict] = {}
 

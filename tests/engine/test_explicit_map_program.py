@@ -13,7 +13,7 @@ from frisket.engine.runner import MapRunner, validation
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 
 
 @dataclass
@@ -39,7 +39,7 @@ class _ExplicitProgram(Recipe):
         self,
         row_values: dict[str, Any],
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
     ) -> dict[str, Any]:
         del ctx
         return {spec["output_name"]: str(row_values["source"]).upper()}

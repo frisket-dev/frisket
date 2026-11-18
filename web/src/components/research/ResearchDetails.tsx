@@ -1,4 +1,4 @@
-import type { RunTraceRow, RunTraceRowEvidence } from '../../api/types';
+import type { RunTraceRow, RunTraceRowRecord } from '../../api/types';
 import { Button } from '../Button';
 import { CopyButton } from '../CopyButton';
 import { Modal } from '../Modal';
@@ -81,7 +81,7 @@ export function ModelCallDetails({ calls }: { calls?: unknown[] }) {
   </details>;
 }
 
-export function ResearchActivitySummary({ evidence }: { evidence: RunTraceRowEvidence }) {
+export function ResearchActivitySummary({ evidence }: { evidence: RunTraceRowRecord }) {
   const row = evidence.trace?.row;
   const research = row?.research;
   const searches = research?.steps.filter(step => step.tool === 'search');
@@ -126,7 +126,7 @@ function ToolStep({ step, index }: { step: ResearchStep; index: number }) {
 
 /** Mount in a stable detail/row owner, outside hover-only cell controls. */
 export function ResearchDetails({ evidence, answer, sources, onClose }: {
-  evidence: RunTraceRowEvidence; answer?: unknown; sources?: unknown; onClose: () => void;
+  evidence: RunTraceRowRecord; answer?: unknown; sources?: unknown; onClose: () => void;
 }) {
   const row = evidence.trace?.row;
   const cell = object(evidence.cell);

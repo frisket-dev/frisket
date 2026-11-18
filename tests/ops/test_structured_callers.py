@@ -11,7 +11,7 @@ import pytest
 
 from frisket.ai.llm.router import ModelRouter
 from frisket.ai.llm.types import LLMResponse, SchemaViolation
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
 def run(coro):
@@ -75,7 +75,7 @@ def test_ocr_vlm_repairs_invalid_then_valid_via_completer(tmp_path):
     router, adapter = _scripted_router(
         [_resp({}), _resp({"text": "HELLO WORLD"})]  # 1st: missing required "text"
     )
-    ctx = OpContext(
+    ctx = ActionContext(
         http=None, extras={**({"router": router}), "standalone_dispatch": STANDALONE}
     )
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}
@@ -92,7 +92,7 @@ def test_ocr_vlm_exhausts_repair_and_raises(tmp_path):
     page = tmp_path / "scan.png"
     page.write_bytes(b"\x89PNG\r\n\x1a\nnot-a-real-image-but-bytes-are-enough")
     router, _ = _scripted_router([_resp({}), _resp({})])
-    ctx = OpContext(
+    ctx = ActionContext(
         http=None, extras={**({"router": router}), "standalone_dispatch": STANDALONE}
     )
     usage = {"calls": 0, "in": 0, "out": 0, "cost": 0.0}

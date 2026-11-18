@@ -21,10 +21,10 @@ from frisket.contracts.http.pdf_packet_splits import (
 )
 from frisket.engine.pdf_render import PdfRenderResult
 from frisket.engine.executor.table_preview import TablePreviewResult
-from frisket.engine.store.evidence import resolve_evidence_viewer
-from frisket.engine.store.cell_reference import evidence_subject_ref
+from frisket.engine.store.evidence import resolve_citation_viewer
+from frisket.engine.store.cell_reference import citation_subject_ref
 from frisket.engine.store.ocr_word_stream import (
-    resolve_current_ocr_evidence,
+    resolve_current_ocr_citation,
     resolve_ocr_word_stream,
 )
 from frisket.server.services.action_preview_runs import ActionPreviewRunResponse
@@ -451,7 +451,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         _, refs = project.get_values_with_refs(
             sheet_id, link["column_id"], row_ids=[link["row_id"]]
         )
-        assert json.loads(link["subject_ref_json"]) == evidence_subject_ref(
+        assert json.loads(link["subject_ref_json"]) == citation_subject_ref(
             refs[link["row_id"]]
         )
         assert refs[link["row_id"]]["producer_id"] > 0
@@ -473,7 +473,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         assert stream is not None
         assert stream.engine == "rapidocr"
         assert all(token.box == (0.1, 0.1, 0.9, 0.2) for token in stream.stream.tokens)
-        current = resolve_current_ocr_evidence(
+        current = resolve_current_ocr_citation(
             project,
             sheet_id=sheet_id,
             row_id=int(artifact["source_row_id"]),
@@ -514,7 +514,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         (sheet_id,),
     ).fetchall()
     viewers = [
-        resolve_evidence_viewer(project, link["id"], project_id=project_id)
+        resolve_citation_viewer(project, link["id"], project_id=project_id)
         for link in source_links
     ]
     assert [viewer["artifacts"][0]["filename"] for viewer in viewers] == [

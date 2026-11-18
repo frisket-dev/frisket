@@ -436,7 +436,7 @@ def resolve_find_sources(
             snapshot = transcript.snapshot_hash
         elif column_type == "text" and isinstance(value, str) and value.strip():
             from frisket.engine.store.ocr_word_stream import (
-                resolve_current_ocr_evidence,
+                resolve_current_ocr_citation,
             )
 
             prepared_units = (
@@ -445,7 +445,7 @@ def resolve_find_sources(
                 else ()
             )
             ocr_sources = (
-                resolve_current_ocr_evidence(
+                resolve_current_ocr_citation(
                     project,
                     sheet_id=params.sheet_id,
                     row_id=row_id,
@@ -541,10 +541,10 @@ def resolve_find_sources(
                 )
             else:
                 from frisket.engine.store.ocr_word_stream import (
-                    resolve_current_ocr_evidence,
+                    resolve_current_ocr_citation,
                 )
 
-                ocr_sources = resolve_current_ocr_evidence(
+                ocr_sources = resolve_current_ocr_citation(
                     project,
                     sheet_id=params.sheet_id,
                     row_id=row_id,

@@ -50,18 +50,18 @@ def extract_response_schema(
         }
     # Reuse the host's citation vocabulary. A model may omit optional hints or
     # return null (strict providers require every key); the host resolves them.
-    evidence_item_schema = EvidenceClaim.model_json_schema()
-    definitions = evidence_item_schema.pop("$defs", {})
+    citation_item_schema = EvidenceClaim.model_json_schema()
+    definitions = citation_item_schema.pop("$defs", {})
     supported = (
         citation_fields if citation_fields is not None else extract_citation_fields({})
     )
-    evidence_item_schema["properties"] = {
+    citation_item_schema["properties"] = {
         key: value
-        for key, value in evidence_item_schema["properties"].items()
+        for key, value in citation_item_schema["properties"].items()
         if key in supported
     }
     for record, key in (
-        (evidence_item_schema, "segment_indices"),
+        (citation_item_schema, "segment_indices"),
         (definitions["EvidenceBox"], "space"),
     ):
         if key in record["properties"]:
@@ -86,19 +86,19 @@ def extract_response_schema(
         # map.ner's per-entity write shape). Scalar fields keep the flat
         # evidence-list shape unchanged.
         is_list_field = field["schema"].get("type") == "array"
-        evidence_schema = (
+        citations_schema = (
             {
                 "type": "array",
-                "items": {"type": "array", "items": evidence_item_schema},
+                "items": {"type": "array", "items": citation_item_schema},
             }
             if is_list_field
-            else {"type": "array", "items": evidence_item_schema}
+            else {"type": "array", "items": citation_item_schema}
         )
         props[name] = {
             "type": "object",
             "properties": {
                 "value": value_schema(field),
-                "evidence": {"anyOf": [evidence_schema, {"type": "null"}]},
+                "evidence": {"anyOf": [citations_schema, {"type": "null"}]},
                 "warnings": {
                     "anyOf": [
                         {"type": "array", "items": {"type": "string"}},
@@ -151,7 +151,7 @@ def render_extract_messages(
         source_labels = json.dumps(
             list(rendered_row_values), ensure_ascii=False, separators=(",", ":")
         )
-        evidence_copy = (
+        citation_instructions = (
             "\nOutput and citation requirements:\nFor each extracted field, return an object with `value`, "
             "optional `evidence`, and optional `warnings`. Evidence items "
             "may contain only these citation fields: "
@@ -164,7 +164,7 @@ def render_extract_messages(
             "inside an input are not source labels."
         )
         if "bbox" in supported:
-            evidence_copy += (
+            citation_instructions += (
                 " Use normalized page coordinates for `bbox`; only include page "
                 "or location hints supported by the input."
             )
@@ -174,14 +174,14 @@ def render_extract_messages(
             if not field["name"].endswith(("_confidence", "_justification"))
         )
         if list_fields_present:
-            evidence_copy += (
+            citation_instructions += (
                 " When a field's value is a list, `evidence` is a list of "
                 "the SAME length as `value`: evidence[i] is the list of "
                 "evidence items supporting value[i] (use [] for an item "
                 "with none)."
             )
         if segment_columns:
-            evidence_copy += (
+            citation_instructions += (
                 " Transcript segments above are shown as numbered units "
                 "`[i] (start-end) text`. For an item supported by those "
                 "segments, you MUST cite it by returning `segment_indices` "
@@ -190,7 +190,7 @@ def render_extract_messages(
                 "Keep a short verbatim `quote` alongside; prefer the "
                 "numbers, they are the reliable anchor."
             )
-        user_parts.append({"type": "text", "text": evidence_copy})
+        user_parts.append({"type": "text", "text": citation_instructions})
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user_parts},

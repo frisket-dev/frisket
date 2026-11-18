@@ -29,10 +29,10 @@ from frisket.engine.executor.action_lifecycle import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.plugins.load_evidence import (
-    PluginLoadEvidence,
-    PluginLoadEvidenceError,
-    build_plugin_load_evidence,
+from frisket.plugins.load_validation import (
+    PluginLoadValidation,
+    PluginLoadValidationError,
+    build_plugin_load_validation,
 )
 
 
@@ -47,7 +47,7 @@ class _ManifestLoader:
         self.action = action
         self.request_hash = request_hash
         self.calls = 0
-        self.evidence: PluginLoadEvidence | None = None
+        self.evidence: PluginLoadValidation | None = None
         self.result: PluginManifestRecord | None = None
 
     def load(self, path: str) -> PluginManifestRecord:
@@ -56,7 +56,7 @@ class _ManifestLoader:
             raise ValueError("a plugin action must load exactly one manifest")
         if not isinstance(path, str) or not path.strip():
             raise ValueError("manifest path must be non-empty")
-        self.evidence = build_plugin_load_evidence(
+        self.evidence = build_plugin_load_validation(
             self.action, Path(path), request_hash=self.request_hash
         )
         loaded = self.evidence.loaded
@@ -79,7 +79,7 @@ def run_typed_plugin_load_action(
     envelope = _typed_params_envelope(bound)
     request_hash = typed_request_hash(bound)
 
-    def evidence_error(error: PluginLoadEvidenceError) -> ActionError:
+    def validation_error(error: PluginLoadValidationError) -> ActionError:
         return ActionError(
             code=error.code,
             message=error.message,
@@ -95,7 +95,7 @@ def run_typed_plugin_load_action(
             action_kind=envelope.kind,
         )
 
-    def resolve(_project: Any, params: Any) -> PluginLoadEvidence | ActionError:
+    def resolve(_project: Any, params: Any) -> PluginLoadValidation | ActionError:
         loader = _ManifestLoader(envelope, request_hash)
         try:
             returned = terminal.handler(params, loader)
@@ -109,8 +109,8 @@ def run_typed_plugin_load_action(
                     "plugin action must load one manifest and return its domain result"
                 )
             return loader.evidence
-        except PluginLoadEvidenceError as error:
-            return evidence_error(error)
+        except PluginLoadValidationError as error:
+            return validation_error(error)
         except Exception:
             return write_error()
 
@@ -131,11 +131,11 @@ def run_typed_plugin_load_action(
         if not path.exists() and not path.is_symlink():
             return None
         try:
-            current = build_plugin_load_evidence(
+            current = build_plugin_load_validation(
                 envelope, path, request_hash=request_hash
             )
-        except PluginLoadEvidenceError as error:
-            return evidence_error(error)
+        except PluginLoadValidationError as error:
+            return validation_error(error)
         if current.manifest_ref != ref:
             return ActionError(
                 code="idempotency_conflict",
@@ -155,7 +155,7 @@ def run_typed_plugin_load_action(
         action_id: str,
         receipt_id: str,
         params_hash: str,
-        resolved: PluginLoadEvidence,
+        resolved: PluginLoadValidation,
     ) -> ActionResult:
         ref = resolved.manifest_ref
         receipt = Receipt(

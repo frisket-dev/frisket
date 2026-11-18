@@ -24,7 +24,9 @@ from frisket.engine.executor.map_rows_action import (
     run_typed_map_rows_action,
 )
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
-from frisket.engine.executor.transcription_evidence import write_transcription_evidence
+from frisket.engine.executor.transcription_citations import (
+    write_transcription_citations,
+)
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
@@ -146,7 +148,7 @@ def setup(tmp_path, monkeypatch):
                     for field in self._resolved_output_fields
                     if field.annotation is TranscriptText
                 }
-                write_transcription_evidence(
+                write_transcription_citations(
                     current_project,
                     spec,
                     batch=batch,

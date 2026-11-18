@@ -28,7 +28,7 @@ beforeAll(() => {
   // blobUrl() needs a selected project to build /api/projects/{pid}/blobs/...
 });
 
-// RowField mounts CellEvidenceBlock, which fetches on mount — isolate from the
+// RowField mounts CellCitationsBlock, which fetches on mount — isolate from the
 // network exactly as RowField.test.tsx does.
 beforeEach(() => {
   vi.stubGlobal('fetch', () => Promise.reject(new Error('no network in unit test')));

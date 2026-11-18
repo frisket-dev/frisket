@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { X } from 'lucide-react';
-import { type CellEvidencePayload, type CellValue, type ReviewBundle, type ReviewBundleField } from '../../api/open';
+import { type CellCitationsPayload, type CellValue, type ReviewBundle, type ReviewBundleField } from '../../api/open';
 import { ReviewExcerpt } from './ReviewExcerpt';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelLoading } from '../PanelPrimitives';
@@ -26,7 +26,7 @@ interface CitationTarget {
   columnId: string;
 }
 
-function currentEvidenceMatchesField(payload: CellEvidencePayload, field: Pick<ReviewBundleField, 'runId' | 'copiedOpId'>): boolean {
+function currentCitationMatchesField(payload: CellCitationsPayload, field: Pick<ReviewBundleField, 'runId' | 'copiedOpId'>): boolean {
   const ref = payload.current_value_ref;
   if (!ref || typeof ref !== 'object' || Array.isArray(ref)) return false;
   if (field.copiedOpId) return (ref as Record<string, unknown>).kind === 'copied_result' && String((ref as Record<string, unknown>).op_id) === field.copiedOpId;
@@ -195,7 +195,7 @@ function citationKey(bundle: ReviewBundle): string {
 async function loadCitationPayloads(targets: readonly CitationTarget[], api: ReturnType<typeof useWorkspaceStores>['projectApi']): Promise<ReviewCitationPayload[]> {
   const perField = await Promise.all(targets.map(async (target) => {
     const cell = await api.getCellEvidence(target.rowId, target.columnId);
-    if (!currentEvidenceMatchesField(cell, target)) return [];
+    if (!currentCitationMatchesField(cell, target)) return [];
     const links = cell.links.filter((link) => link.status === 'active');
     const viewers = await Promise.all(links.map(async (link) => {
       try { return await api.getEvidenceViewer(link.stable_id); } catch { return null; }

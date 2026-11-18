@@ -2011,7 +2011,7 @@ def _export_work_log_receipt(
     )
 
 
-def _exported_rows_evidence_ref(payload: dict[str, Any]) -> dict[str, Any]:
+def _exported_rows_record_ref(payload: dict[str, Any]) -> dict[str, Any]:
     """Bound the exported-rows evidence for large exports.
 
     Small exports keep an explicit ``exported_rows`` row-id list (back-compat).
@@ -2086,7 +2086,7 @@ def _export_sheet_csv_receipt(
             retention="pinned",
         ),
         ReceiptEvidence(
-            ref=_exported_rows_evidence_ref(payload),
+            ref=_exported_rows_record_ref(payload),
             retention="pinned",
         ),
     ]

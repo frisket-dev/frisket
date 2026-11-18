@@ -27,7 +27,7 @@ from frisket.ai.llm import (
 )
 from frisket.ai.models.accounting import merge_accounting_meta, wire_accounting_meta
 from frisket.ops.integrations.hosted_error import HostedEngineError
-from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.grounding import grounding_enabled, unwrap_grounded_value
@@ -102,7 +102,7 @@ async def execute_row(
     recipe: Recipe,
     values: dict,
     spec: dict,
-    ctx: OpContext,
+    ctx: ActionContext,
     *,
     row_id: int | None = None,
     recorder: TraceWriter | None = None,
@@ -138,7 +138,7 @@ async def _execute_row(
     recipe: Recipe,
     values: dict,
     spec: dict,
-    ctx: OpContext,
+    ctx: ActionContext,
     *,
     row_id: int | None = None,
     recorder: TraceWriter | None = None,
@@ -266,7 +266,7 @@ async def _execute_row(
     meta: dict[str, Any] | None = None
     try:
         if hasattr(recipe, "run_agent"):
-            row_ctx = OpContext(
+            row_ctx = ActionContext(
                 project=ctx.project,
                 http=ctx.http,
                 extras={**ctx.extras, "router": router, "row_id": row_id},
@@ -281,7 +281,7 @@ async def _execute_row(
         else:
             # Clone context because parallel rows must not share router state.
             row_ctx = (
-                OpContext(
+                ActionContext(
                     project=ctx.project,
                     http=ctx.http,
                     extras={**ctx.extras, "router": router, "row_id": row_id},
@@ -290,7 +290,7 @@ async def _execute_row(
                     cloud_execution=ctx.cloud_execution,
                 )
                 if ctx.extras.get("router") is not None
-                else OpContext(
+                else ActionContext(
                     project=ctx.project,
                     http=ctx.http,
                     extras={**ctx.extras, "row_id": row_id},

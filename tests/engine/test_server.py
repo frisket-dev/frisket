@@ -347,18 +347,18 @@ class TestProjects:
         )
         assert bad.status_code == 400
 
-    def test_saved_recipe_concurrent_writes_keep_all_entries(self, client):
+    def test_saved_action_concurrent_writes_keep_all_entries(self, client):
         ws = client.app.state.workspace
 
         def save(i: int) -> dict:
-            return ws.save_recipe(
+            return ws.save_action(
                 f"recipe {i}", {"action_kind": "test.concurrent", "i": i}
             )
 
         with ThreadPoolExecutor(max_workers=8) as pool:
             entries = list(pool.map(save, range(20)))
 
-        saved = ws.saved_recipes()
+        saved = ws.saved_actions()
         assert len(saved) == 20
         assert sorted(r["id"] for r in saved) == list(range(1, 21))
         assert sorted(r["spec"]["i"] for r in saved) == list(range(20))

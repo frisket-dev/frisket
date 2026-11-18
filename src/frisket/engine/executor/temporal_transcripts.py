@@ -8,7 +8,7 @@ compatibility reader: only links written with the V1 semantic marker qualify.
 
 from __future__ import annotations
 
-from frisket.engine.store.cell_reference import evidence_subject_ref
+from frisket.engine.store.cell_reference import citation_subject_ref
 
 import json
 from dataclasses import dataclass, replace
@@ -25,7 +25,7 @@ from frisket.engine.store.artifact_timeline import (
 )
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.transcript_projection import (
@@ -181,7 +181,7 @@ def _candidate_payload(
     elif value_ref_kind != "source_cell":
         return None
     subject_ref = _loads_object(link["subject_ref_json"])
-    if subject_ref != evidence_subject_ref(value_ref):
+    if subject_ref != citation_subject_ref(value_ref):
         return None
 
     try:
@@ -663,7 +663,7 @@ def project_transcript(
     )
 
 
-def persist_projected_transcript_evidence(
+def persist_projected_transcript_citations(
     project: Any,
     *,
     transcript: ResolvedTranscriptSource,
@@ -701,7 +701,7 @@ def persist_projected_transcript_evidence(
     subject_ref = refs.get(output_row_id)
     if not isinstance(subject_ref, dict):
         raise RuntimeError("projected transcript cell has no current value ref")
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=subject_ref,
@@ -739,7 +739,7 @@ def persist_projected_transcript_evidence(
 __all__ = [
     "ResolvedTranscriptSource",
     "bind_transcript_to_source",
-    "persist_projected_transcript_evidence",
+    "persist_projected_transcript_citations",
     "project_transcript",
     "resolve_compatible_transcripts",
     "resolve_timestamped_transcript",

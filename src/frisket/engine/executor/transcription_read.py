@@ -190,7 +190,7 @@ class _BoundTranscriber:
             enforce_media_duration_limit(limits.max_media_seconds, duration)
         owner._called_rows.add(self._row_id)
         cancelled = ctx.extras.get("cancelled")
-        with materialize_media_path(media, ctx, op="transcribe") as path:
+        with materialize_media_path(media, ctx, action="transcribe") as path:
             owner._check_active(ctx)
             result = await transcribe_engines.run_transcription_engine(
                 owner._engine,

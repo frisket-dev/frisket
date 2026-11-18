@@ -16,10 +16,10 @@ from frisket.cloud_execution import (
 from frisket.contracts.http.cloud_connection import CloudOCROptions, CloudOCRResult
 from frisket.execution.attempt import routed_admission_in_scope
 from frisket.execution.targets import CAPABILITY_OCR, OcrOptionSupport
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 
 
-def _admitted_support(ctx: OpContext, engine: str) -> OcrOptionSupport:
+def _admitted_support(ctx: ActionContext, engine: str) -> OcrOptionSupport:
     admission = routed_admission_in_scope(ctx.extras)
     if (
         admission is None
@@ -45,7 +45,7 @@ def _admitted_support(ctx: OpContext, engine: str) -> OcrOptionSupport:
     return support.options
 
 
-def cloud_pdf_input_supported(ctx: OpContext, engine: str) -> bool:
+def cloud_pdf_input_supported(ctx: ActionContext, engine: str) -> bool:
     """Return the PDF support fixed by the exact admitted Cloud route."""
 
     return _admitted_support(ctx, engine).pdf_input
@@ -54,7 +54,7 @@ def cloud_pdf_input_supported(ctx: OpContext, engine: str) -> bool:
 async def ocr_cloud(
     engine: str,
     pages: list[Path],
-    ctx: OpContext,
+    ctx: ActionContext,
     usage: dict[str, Any],
     *,
     language: str | None = None,
@@ -63,7 +63,7 @@ async def ocr_cloud(
     """Send all rendered pages as one paid Cloud execution.
 
     The runner supplies the durable request identity and exact payer through
-    ``OpContext.cloud_execution``.  This adapter owns only the lifetime of the
+    ``ActionContext.cloud_execution``.  This adapter owns only the lifetime of the
     open page streams and projects the typed result into the existing OCR
     result shape.
     """
@@ -118,7 +118,7 @@ async def ocr_cloud(
 async def ocr_cloud_pdf(
     engine: str,
     pdf: Path,
-    ctx: OpContext,
+    ctx: ActionContext,
     usage: dict[str, Any],
     *,
     page_count: int,

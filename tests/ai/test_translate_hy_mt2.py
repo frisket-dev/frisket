@@ -13,14 +13,14 @@ import pytest
 
 from frisket.ops.integrations import hy_mt2
 from frisket.ops.integrations.translate_common import TranslateEngineError
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.execution.dispatch_control import STANDALONE
 from frisket.ops.integrations.translation_engine import TranslationEngine
 
 
 def _local_context(**kwargs):
     extras = kwargs.pop("extras", {})
-    return OpContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
+    return ActionContext(extras={"standalone_dispatch": STANDALONE, **extras}, **kwargs)
 
 
 def test_target_language_name_accepts_codes_and_names():
@@ -268,7 +268,7 @@ def test_catalog_hy_mt2_available_tracks_runtime(monkeypatch):
 
     monkeypatch.setattr(hy_mt2, "runtime_available", lambda: True)
     monkeypatch.setattr(hy_mt2, "is_installed", lambda cache_root=None: False)
-    engines = action_catalog_hints._recipe_engines("map.translate", {})
+    engines = action_catalog_hints._action_engines("map.translate", {})
     hy = next(e for e in engines if e["id"] == "hy_mt2")
     assert hy["available"] is True  # runtime present -> selectable
     assert hy.get("error") is None
@@ -279,7 +279,7 @@ def test_catalog_hy_mt2_available_tracks_runtime(monkeypatch):
     assert hy["downloadable_model"]["license"] == "Apache-2.0"
 
     monkeypatch.setattr(hy_mt2, "runtime_available", lambda: False)
-    engines2 = action_catalog_hints._recipe_engines("map.translate", {})
+    engines2 = action_catalog_hints._action_engines("map.translate", {})
     hy2 = next(e for e in engines2 if e["id"] == "hy_mt2")
     assert hy2["available"] is False
     assert "frisket-data[translate-gguf]" in hy2["error"]

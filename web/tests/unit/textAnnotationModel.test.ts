@@ -1,7 +1,7 @@
 // The annotated-text reader's pure model. What is pinned here is the D2
 // partition, because it is the decision the whole renderer rests on and the one
 // with a tempting wrong answer: merging overlapping marks into one highlight
-// (what EvidenceViewer's `highlightQuotes` does) is cheaper, and it destroys
+// (what CitationViewer's `highlightPassages` does) is cheaper, and it destroys
 // exactly the case the reader exists for — "Boeing" nested inside "Boeing
 // Company", where a merged highlight can answer neither which mention you
 // clicked nor how many there are.

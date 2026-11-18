@@ -5,7 +5,7 @@ import type { WorkbenchResolvedLayoutContribution } from '../workbench/layout';
 import type { PluginDetailSubject } from '../workbench/pluginDetailContext';
 import {
   EntityDetailConnectionsTabFrame,
-  EntityDetailEvidenceTabFrame,
+  EntityDetailCitationsTabFrame,
   EntityDetailSummaryTabFrame,
 } from '../workbench/contributions';
 import { contributionSlug } from '../workbench/visibility';
@@ -32,7 +32,7 @@ const FIRST_PARTY_ENTITY_DETAIL_TABS: Record<
   },
   'frisket.investigative.view.entity_evidence': {
     shortName: 'evidence',
-    Frame: EntityDetailEvidenceTabFrame,
+    Frame: EntityDetailCitationsTabFrame,
   },
   'frisket.investigative.view.entity_connections': {
     shortName: 'connections',

@@ -22,7 +22,7 @@
     "tests/test_action_contract_definition_registry.py": "fresh-interpreter registry closure",
     "tests/engine/test_grounding_conformance.py": "fresh-interpreter conformance probe",
     "tests/server/test_server_workspace_schema_boundary.py": "cold-import boundary of frisket.server.app",
-    "tests/server/test_recipe_registry.py": "fresh-interpreter registry probe",
+    "tests/server/test_action_registry_store.py": "fresh-interpreter registry probe",
     "tests/test_cli_main.py": "[project.scripts] frisket console-script process behavior",
     "tests/test_remote_cli.py": "console-script wiring over a subprocess (test says so by name)",
     "tests/engine/test_cli_doctor.py": "console-script doctor: clean stdout/stderr at process boundary",

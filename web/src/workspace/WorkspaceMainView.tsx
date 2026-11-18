@@ -11,7 +11,7 @@ import { OcrCompareTab } from '../workbench/OcrCompareTab';
 import { TranscribeCompareTab } from '../workbench/TranscribeCompareTab';
 import { TranslateCompareTab } from '../workbench/TranslateCompareTab';
 import { TopicSegmentationCompareTab } from '../workbench/TopicSegmentationCompareTab';
-import { EVIDENCE_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
+import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, SOURCE_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
@@ -39,8 +39,8 @@ export const WorkspaceNavigateRegion = memo(function WorkspaceNavigateRegion() {
 export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
   useRenderCount('mainView');
   const {
-    evidenceMainViewHidden,
-    evidenceViewerState,
+    citationMainViewHidden,
+    citationViewerState,
     graphSplitShowing,
     mapSplitShowing,
     mapContributionId,
@@ -60,8 +60,8 @@ export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
           ? SOURCE_HEALTH_CONTRIBUTION_ID
           : graphSplitShowing
             ? GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID
-            : evidenceViewerState?.host === 'mainView' && !evidenceMainViewHidden
-              ? EVIDENCE_CONTRIBUTION_ID
+            : citationViewerState?.host === 'mainView' && !citationMainViewHidden
+              ? CITATION_CONTRIBUTION_ID
               : mapSplitShowing && mapContributionId
                 ? mapContributionId
                 : 'frisket.core.view.grid'
@@ -82,8 +82,8 @@ function WorkspaceMainViewBody() {
     activeWorkView,
     activePromotedView,
     activeMainViewPluginViewDescriptor,
-    evidenceViewerState,
-    evidenceMainViewHidden,
+    citationViewerState,
+    citationMainViewHidden,
     activePreviewView,
     routePanel,
     sheet,
@@ -102,7 +102,7 @@ function WorkspaceMainViewBody() {
   const comparing = ocrCompareActive || transcribeCompareActive || translateCompareActive || topicCompareActive || actionCompareActive;
   const primaryView: WorkspaceTelemetryView = activeWorkView === 'document' || activeWorkView === 'extract' || activeWorkView === 'answers' || activeWorkView === 'graph'
     ? activeWorkView
-    : evidenceViewerState?.host === 'mainView' && !evidenceMainViewHidden ? 'evidence'
+    : citationViewerState?.host === 'mainView' && !citationMainViewHidden ? 'evidence'
       : activeWorkView === 'map' ? 'map'
         : activeMainViewPluginViewDescriptor ? 'plugin' : activeWorkView;
   const visibleView: WorkspaceTelemetryView = comparing ? 'compare'

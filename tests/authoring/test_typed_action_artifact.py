@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.types import SheetRows
-from frisket.authoring.recipe_registry import (
+from frisket.authoring.action_registry import (
     ActionRegistryError,
     build_action_artifact,
     validate_action_artifact,
@@ -42,7 +42,7 @@ def test_typed_artifact_publishes_and_imports_without_recipe_lookup(
         raise AssertionError("typed actions must not consult the recipe registry")
 
     monkeypatch.setattr(
-        "frisket.authoring.recipe_registry.get_recipe", forbidden_lookup
+        "frisket.authoring.action_registry.get_recipe", forbidden_lookup
     )
     with TestClient(create_app(tmp_path)) as client:
         response = client.post(

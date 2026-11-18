@@ -37,7 +37,7 @@ def stage_alert_observation(
         ).fetchone()
         if column is None or int(column[0]) != int(field["sheet_id"]):
             raise AlertObservationIncomplete("A monitored column is unavailable.")
-    with tempfile.TemporaryDirectory(prefix="frisket-watch-") as directory:
+    with tempfile.TemporaryDirectory(prefix="frisket-alert-") as directory:
         path = Path(directory) / "observation.sqlite"
         stage = sqlite3.connect(path)
         try:

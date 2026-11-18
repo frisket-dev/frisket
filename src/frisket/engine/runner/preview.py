@@ -24,7 +24,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.ai.models.accounting import wire_accounting_meta
 from frisket.cloud_execution import cloud_llm_execution_scope
 from frisket.cloud_runtime_binding import CloudRuntimeBinding, cloud_runtime_binding
-from frisket.ops.base import OpContext, Recipe, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, Recipe, RecipeInvocationHalt
 from frisket.redaction import safe_error
 from frisket.engine.runner import validation
 from frisket.engine.runner.batch_normalization import normalize_batch_row
@@ -333,7 +333,7 @@ async def run_preview(
     router: ModelRouter,
     run_store: RunResultStore,
     throttle: AdaptiveThrottle,
-    op_context_extras: dict[str, Any],
+    action_context_extras: dict[str, Any],
     row_worker_count: Callable[[Recipe, dict], int],
     spec: dict,
     *,
@@ -358,7 +358,7 @@ async def run_preview(
     remains with the caller, after this function joins all owned work.
     ``progress_cb(done, total)`` fires per completed row; ``cancel_event``
     (a ``threading.Event``) is checked between rows and surfaced to recipes
-    via ``OpContext.extras['cancelled']``. ``row_worker_count`` is the
+    via ``ActionContext.extras['cancelled']``. ``row_worker_count`` is the
     engine's ``_row_worker_count`` bound method — the recipe-dependent
     concurrency cap logic stays defined once, in the engine, and is invoked
     here only once ``validate_spec`` has resolved the recipe."""
@@ -424,13 +424,13 @@ async def run_preview(
         for c in validated.columns
         if c["name"] in set(recipe.source_columns(spec))
     }
-    ctx = OpContext(
+    ctx = ActionContext(
         project=project,
         http=router.client,
         credential_use_context=composition.credential_use_context,
         execution_limits=composition.limits,
         extras={
-            **op_context_extras,
+            **action_context_extras,
             "router": router,
             "cancelled": is_cancelled,
             "source_column_types": source_column_types,

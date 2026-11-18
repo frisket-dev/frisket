@@ -12,7 +12,7 @@ from frisket.cloud_execution import (
     cloud_media_execution,
 )
 from frisket.contracts.http.cloud_connection import CloudTranscriptionResult
-from frisket.ops.base import OpContext, media_upload_filename
+from frisket.ops.base import ActionContext, media_upload_filename
 from frisket.ops.integrations.hosted_error import HostedEngineError
 
 from .common import transcription_v1_options
@@ -24,7 +24,7 @@ class CloudTranscriptionAdapter:
         engine: str,
         path: str,
         spec: dict[str, Any],
-        ctx: OpContext,
+        ctx: ActionContext,
         media: Any = None,
     ) -> dict[str, Any]:
         transport, attempt = cloud_media_execution(ctx, "transcribe", engine)

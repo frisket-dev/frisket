@@ -1,10 +1,10 @@
-import './EvidenceReading.css';
+import './CitationReading.css';
 import { FileText } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type RefObject } from 'react';
-import type { EvidenceArtifact, EvidencePage } from '../../api/open';
+import type { CitationArtifact, CitationPage } from '../../api/open';
 import { PanelLoading } from '../PanelPrimitives';
-import { RegionOverlay } from './EvidenceRegionOverlay';
-import { pageAnchorId, selectorNumber } from './evidenceSourceModel';
+import { RegionOverlay } from './CitationRegionOverlay';
+import { pageAnchorId, selectorNumber } from './citationSourceModel';
 import type { PdfPacketSourceCardData } from './pdfPacketSourceCardModel';
 
 const PdfViewer = lazy(async () => {
@@ -16,8 +16,8 @@ const ignorePdfPageCount = () => undefined;
 const ignorePdfPageChange = () => undefined;
 
 // Document sources share page anchors across native PDFs, rendered images, and detail links.
-export function EvidenceDocumentSource({ artifact, initialPage, scopeSpanId, emphasizedSpanIds }: {
-  artifact: EvidenceArtifact;
+export function CitationDocumentSource({ artifact, initialPage, scopeSpanId, emphasizedSpanIds }: {
+  artifact: CitationArtifact;
   initialPage?: number;
   scopeSpanId?: string;
   emphasizedSpanIds: readonly string[];
@@ -25,7 +25,7 @@ export function EvidenceDocumentSource({ artifact, initialPage, scopeSpanId, emp
   const blob = artifact.artifact_ref.blob;
   const selectedPdfPage = initialPage !== undefined && initialPage >= 1
     && (artifact.page_count === null || initialPage <= artifact.page_count)
-    ? initialPage : evidencePdfPage(artifact, scopeSpanId, emphasizedSpanIds);
+    ? initialPage : citationPdfPage(artifact, scopeSpanId, emphasizedSpanIds);
   if (artifact.media_type === 'application/pdf' && blob) {
     return (
       <div
@@ -64,12 +64,12 @@ export function EvidenceDocumentSource({ artifact, initialPage, scopeSpanId, emp
     );
   }
   return artifact.pages.map((page) => (
-    <EvidencePageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
+    <CitationPageView key={page.page} page={page} artifactStableId={artifact.stable_id} emphasizedSpanIds={emphasizedSpanIds} />
   ));
 }
 
-function evidencePdfPage(
-  artifact: EvidenceArtifact,
+function citationPdfPage(
+  artifact: CitationArtifact,
   scopeSpanId: string | undefined,
   emphasizedSpanIds: readonly string[],
 ): number {
@@ -87,12 +87,12 @@ function evidencePdfPage(
   return typeof firstPage === 'number' && firstPage >= 1 ? firstPage : 1;
 }
 
-function EvidencePageView({
+function CitationPageView({
   page,
   artifactStableId,
   emphasizedSpanIds,
 }: {
-  page: EvidencePage;
+  page: CitationPage;
   artifactStableId: string;
   emphasizedSpanIds: readonly string[];
 }) {
@@ -112,7 +112,7 @@ function EvidencePageView({
   return (
     <div className="evidence-page" data-testid="evidence-page" id={pageAnchorId(artifactStableId, page.page)}>
       <div className="evidence-page-label">Page {page.page}</div>
-      <LazyEvidencePageImage
+      <LazyCitationPageImage
         key={imageUrl}
         imageUrl={imageUrl}
         page={page}
@@ -123,13 +123,13 @@ function EvidencePageView({
   );
 }
 
-function LazyEvidencePageImage({
+function LazyCitationPageImage({
   imageUrl,
   page,
   emphasizedSpanIds,
 }: {
   imageUrl: string;
-  page: EvidencePage;
+  page: CitationPage;
   emphasizedSpanIds: readonly string[];
 }) {
   const { frameRef, state, measuredHeight, onLoad, onError } = useVisiblePageImage();

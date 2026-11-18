@@ -39,7 +39,7 @@ from frisket.contracts.actions.schemas._engines import (
     ocr_engine_table,
     is_billable_engine,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines import (
     DEFAULT_DPI,
     ENGINE_ALIASES,
@@ -542,7 +542,7 @@ async def run_ocr_engine_preview(
         output_pages = await recipe.run_engine_on_pages(
             engine,
             page_paths,
-            OpContext(
+            ActionContext(
                 project=project,
                 http=http,
                 extras={"preview": True, "cancelled": lambda: False},

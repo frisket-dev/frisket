@@ -742,7 +742,7 @@ def test_damaged_base_install_is_honestly_unavailable(
     )
 
     import frisket.ops.ocr_engines as ocr_module
-    from frisket.server.action_catalog_hints import _recipe_engines
+    from frisket.server.action_catalog_hints import _action_engines
 
     assert __import__("rapidocr") is namespace_only
     with pytest.raises(ImportError):
@@ -760,7 +760,7 @@ def test_damaged_base_install_is_honestly_unavailable(
     assert available is False
     assert error and "RapidOCR" in error and "ocr" in error.casefold()
 
-    engines = {engine["id"]: engine for engine in _recipe_engines("media.ocr", {})}
+    engines = {engine["id"]: engine for engine in _action_engines("media.ocr", {})}
     assert engines["rapidocr"]["available"] is False
     assert "RapidOCR" in engines["rapidocr"].get("error", "")
 

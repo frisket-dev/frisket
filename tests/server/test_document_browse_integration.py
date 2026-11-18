@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -69,7 +69,7 @@ def _import_documents(
     _values, refs = project.get_values_with_refs(
         sheet_id, columns["alongside"], row_ids=[first_row]
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[first_row],

@@ -1,6 +1,6 @@
 /* The document reader has one scrolling surface. Keep the audio/video control
    visible at the top of its left column while transcript rows continue beside
-   it. This stays local to the document reader: EvidenceViewer intentionally
+   it. This stays local to the document reader: CitationViewer intentionally
    renders cited temporal spans as flowing prose. */
 .layout {
   display: flex;

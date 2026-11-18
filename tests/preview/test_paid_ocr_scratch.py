@@ -24,7 +24,7 @@ from frisket.execution.provider import (
     open_execution_composition,
 )
 from frisket.execution.resolve_for_action import consented_set_hash
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.pdf_render import PdfRenderResult
 import frisket.ops.ocr_engines as ocr_engines_module
@@ -71,8 +71,8 @@ class _RunContext:
     def cancelled(self):
         return self.cancel_event.is_set()
 
-    def op_context(self):
-        return OpContext(
+    def action_context(self):
+        return ActionContext(
             project=self.project,
             http=self.router.client,
             extras={
@@ -83,8 +83,8 @@ class _RunContext:
         )
 
     @contextmanager
-    def op_context_scope(self):
-        yield self.op_context()
+    def action_context_scope(self):
+        yield self.action_context()
 
     def write_model_calls(self, calls):
         self.calls.extend(calls)

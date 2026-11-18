@@ -6,16 +6,16 @@ import pytest
 from frisket.actions.core import RegisteredAction
 from frisket.actions.extract import EXTRACT
 from frisket.actions.types import ActionRequest
-from frisket.engine.executor.extract_evidence import (
+from frisket.engine.executor.extract_citations import (
     _captured_text_spans,
     _source_artifact,
 )
-from frisket.engine.executor.extract_result_evidence import (
-    ExtractResultEvidence,
+from frisket.engine.executor.extract_result_citations import (
+    ExtractResultCitations,
     _grounding_artifact_source,
 )
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from frisket.engine.store.receipts import ReceiptStore
 from test_model_rows_actions import _DataAdapter, _run_third_party
 from frisket.ai.llm import ModelRouter
@@ -148,7 +148,7 @@ def test_typed_extract_list_citations_and_confidence_policy(source, members):
         for c in project.columns(sheet, include_hidden=True)
         if c["name"] == "published_events"
     )
-    links = list_cell_evidence(
+    links = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=column["id"]
     )
     assert len(links["links"]) == bool(members)
@@ -194,11 +194,11 @@ def test_text_citation_projects_utf16_ranges_then_marks_changed_source_stale(sou
 
     assert result.status == "completed", result.errors
     output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
-    evidence = list_cell_evidence(
+    evidence = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=output["id"]
     )
     assert len(evidence["links"]) == 1
-    viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
     artifact = viewer["artifacts"][0]
     assert artifact["title"] == "body"
     assert artifact["text_context"]["text"] == text
@@ -219,7 +219,7 @@ def test_text_citation_projects_utf16_ranges_then_marks_changed_source_stale(sou
     project.apply_edits(
         [{"row_id": row, "column_id": column, "value": "changed later"}]
     )
-    edited = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    edited = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
     assert edited["artifacts"][0]["text_context"] is None
     assert edited["artifacts"][0]["text_context_status"] == "stale"
     assert [span["quote"] for span in edited["artifacts"][0]["spans"]] == [
@@ -253,11 +253,11 @@ def test_text_citation_repairs_malformed_source_and_keeps_anchors(source):
 
     assert result.status == "completed", result.errors
     output = next(c for c in project.columns(sheet) if c["name"] == "published_summary")
-    links = list_cell_evidence(
+    links = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=output["id"]
     )["links"]
     artifacts = [
-        resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]
+        resolve_citation_viewer(project, link["stable_id"])["artifacts"][0]
         for link in links
     ]
 
@@ -334,12 +334,12 @@ def test_text_claims_resolve_per_visible_source_and_per_deliberate_claim(source)
     )
     assert result.status == "completed", result.errors
     output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
-    links = list_cell_evidence(
+    links = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=output["id"]
     )["links"]
     assert len(links) == 2
     assert {
-        resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]["title"]
+        resolve_citation_viewer(project, link["stable_id"])["artifacts"][0]["title"]
         for link in links
     } == {"body", "notes"}
 
@@ -408,14 +408,14 @@ def test_real_multi_text_reply_repairs_spurious_segment_hints(source, monkeypatc
     assert result.status == "completed", result.errors
     assert values(source)["published_person"] == "Leena Patel"
     output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
-    links = list_cell_evidence(
+    links = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=output["id"]
     )["links"]
     assert len(links) == 2
     contexts = {
         viewer["artifacts"][0]["title"]: viewer["artifacts"][0]["text_context"]
         for viewer in (
-            resolve_evidence_viewer(project, link["stable_id"]) for link in links
+            resolve_citation_viewer(project, link["stable_id"]) for link in links
         )
     }
     assert len(contexts["filing_text"]["ranges"]) == 2
@@ -477,10 +477,10 @@ def test_template_input_is_captured_as_one_citable_composite(source):
     )
     assert result.status == "completed", result.errors
     output = next(c for c in project.columns(sheet) if c["name"] == "published_person")
-    link = list_cell_evidence(
+    link = list_cell_citations(
         project, sheet_id=sheet, row_id=row, column_id=output["id"]
     )["links"][0]
-    artifact = resolve_evidence_viewer(project, link["stable_id"])["artifacts"][0]
+    artifact = resolve_citation_viewer(project, link["stable_id"])["artifacts"][0]
     assert artifact["title"] == "input"
     assert artifact["source_cell"] is None
     assert artifact["text_context"]["text"] == "Subject: Ada launched a rocket."
@@ -626,7 +626,7 @@ def test_extraction_source_capture_freezes_values_before_grounding(source, monke
         }
     }
     results = {"answer": {"value": "Ada"}}
-    writer = ExtractResultEvidence(project, fields={}, output_names={})
+    writer = ExtractResultCitations(project, fields={}, output_names={})
     writer.capture({}, captured, results, {}, row_id=row)
     captured["body"]["value"]["nested"][0] = "changed"
     monkeypatch.setattr(
@@ -651,7 +651,7 @@ def test_extraction_source_capture_freezes_values_before_grounding(source, monke
 def test_grounding_publication_rolls_back_links_with_failed_receipt_write(
     source, monkeypatch
 ):
-    original = ReceiptStore._record_writer_evidence
+    original = ReceiptStore._record_writer_supporting_record
 
     def fail_after_link(self, ref, **kwargs):
         if ref.get("kind") == "map_extract_grounding_links":
@@ -662,7 +662,9 @@ def test_grounding_publication_rolls_back_links_with_failed_receipt_write(
             raise RuntimeError("receipt evidence failed")
         return original(self, ref, **kwargs)
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", fail_after_link)
+    monkeypatch.setattr(
+        ReceiptStore, "_record_writer_supporting_record", fail_after_link
+    )
     result, requests = run_extract(
         source,
         [{"name": "person", "type": "text"}],
@@ -686,7 +688,7 @@ def test_transcript_prompt_and_evidence_use_captured_version(
     import json
 
     from frisket.engine.store.evidence import record_source_artifact, record_source_span
-    from frisket.engine.executor.extract_result_evidence import _captured_transcript
+    from frisket.engine.executor.extract_result_citations import _captured_transcript
     from test_extract_scalar_temporal_anchors import (
         _seed_transcript_project,
         _run_transcribe,

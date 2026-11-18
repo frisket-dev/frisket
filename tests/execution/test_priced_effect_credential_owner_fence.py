@@ -37,7 +37,7 @@ from frisket.execution.credential_use import (
     CredentialOwner,
     CredentialUseContext,
 )
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops.ocr_engines_remote import (
     _datalab_credential,
     _datalab_credential_parts,
@@ -170,7 +170,7 @@ def _admitted_context(project, context, *, capability, engine, transport, source
         evaluation=None,
         admitted_by_consent_id=None,
     )
-    return OpContext(
+    return ActionContext(
         project=project,
         http=object(),
         credential_use_context=context,
@@ -207,7 +207,7 @@ def test_existing_datalab_ocr_fence_reads_the_normalized_owner_shape(
 
     value, source, owner = _datalab_credential_parts(
         _datalab_credential(
-            OpContext(project=_Project(), credential_use_context=context)
+            ActionContext(project=_Project(), credential_use_context=context)
         )
     )
 

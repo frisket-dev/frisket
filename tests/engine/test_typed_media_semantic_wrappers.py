@@ -22,7 +22,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.temporal_transcripts import resolve_timestamped_transcript
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import owned_media_metadata_document
-from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.sdk.ops import transcribe_engines
 
@@ -174,7 +174,7 @@ def test_only_original_semantic_output_gets_grounding(
         for name in ("renamed_original", "edited", "same_plain_string"):
             column_id = columns[name]
             if kind == "ocr":
-                grounding = resolve_current_ocr_evidence(
+                grounding = resolve_current_ocr_citation(
                     project, sheet_id=sheet, row_id=row_id, column_id=column_id
                 )
             else:

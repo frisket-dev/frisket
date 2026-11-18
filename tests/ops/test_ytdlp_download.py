@@ -14,7 +14,7 @@ from helpers import make_client as _client
 import frisket.ops.ytdlp as ytdlp
 import frisket.ops.ytdlp_outputs as ytdlp_outputs
 from frisket.ops import egress_policy
-from frisket.ops.base import OpContext, materialize_media_path
+from frisket.ops.base import ActionContext, materialize_media_path
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.ops.ytdlp import DownloadedMedia, download_media
 from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
@@ -674,7 +674,7 @@ def test_download_media_recipe_runs_through_project_job_queue(tmp_path, monkeypa
         == 1.25
     )
     with materialize_media_path(
-        media, OpContext(project=project), op="transcribe"
+        media, ActionContext(project=project), action="transcribe"
     ) as path:
         assert path.exists()
         assert path.read_bytes() == _wav_bytes(seconds=1.25)

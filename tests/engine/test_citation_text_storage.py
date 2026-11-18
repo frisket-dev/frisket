@@ -12,11 +12,11 @@ from frisket.upgrades.project.typed_storage_migration import (
 )
 from frisket.engine.store.citation_text import read_text_snapshot
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 
 
@@ -63,7 +63,7 @@ def _native_citation(
 
 
 def _link(project: Project, spans: list[dict]) -> dict:
-    return record_evidence_link(
+    return record_citation(
         project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -93,20 +93,20 @@ def test_native_context_reads_current_text_then_becomes_stale_without_copy(
     assert artifact["metadata"]["captured_text_hash"] == _hash("Ada wrote this.")
     assert "captured_text_frozen" not in artifact["metadata"]
     assert project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
-    current = resolve_evidence_viewer(project, link["id"])["artifacts"][0]
+    current = resolve_citation_viewer(project, link["id"])["artifacts"][0]
     assert current["text_context_status"] == "available"
     assert current["text_context"]["text"] == "Ada wrote this."
 
     project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "Changed later."}]
     )
-    stale = resolve_evidence_viewer(project, link["id"])["artifacts"][0]
+    stale = resolve_citation_viewer(project, link["id"])["artifacts"][0]
     assert stale["text_context_status"] == "stale"
     assert stale["text_context"] is None
     assert stale["spans"][0]["quote"] == "Ada wrote this."
     assert project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 0
 
-    viewer = resolve_evidence_viewer(project, link["id"])
+    viewer = resolve_citation_viewer(project, link["id"])
     assert viewer["link"]["status"] == "stale"
     assert viewer["link"]["stale_reason"] == "source_changed"
 
@@ -147,7 +147,7 @@ def test_synthesized_context_is_saved_once_and_remains_viewable(make_project) ->
     link = _link(project, spans)
 
     assert project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 1
-    viewer = resolve_evidence_viewer(project, link["id"])
+    viewer = resolve_citation_viewer(project, link["id"])
     assert [item["text_context_status"] for item in viewer["artifacts"]] == [
         "available",
         "available",
@@ -194,7 +194,7 @@ def test_snapshot_repairs_malformed_unicode_before_hashing_and_keeps_anchors(
         for start, end in ((0, 6), (9, 14))
     ]
 
-    viewer = resolve_evidence_viewer(project, _link(project, spans)["id"])
+    viewer = resolve_citation_viewer(project, _link(project, spans)["id"])
     context = viewer["artifacts"][0]["text_context"]
 
     assert artifact["metadata"]["captured_text_hash"] == content_hash
@@ -254,7 +254,7 @@ def test_rendered_json_cell_surface_is_not_compared_as_native_text(
     )
     link = _link(project, [span])
 
-    viewer = resolve_evidence_viewer(project, link["id"])
+    viewer = resolve_citation_viewer(project, link["id"])
 
     assert viewer["link"]["text_layer_hash_mismatch"] is False
     assert viewer["artifacts"][0]["text_context"]["text"] == rendered
@@ -282,7 +282,7 @@ def test_viewer_keeps_independent_native_contexts_for_multiple_artifacts(
         for row_id, text in zip(row_ids, ("first", "second"), strict=True)
     ]
     link = _link(project, [item[1] for item in artifacts_and_spans])
-    viewer = resolve_evidence_viewer(project, link["id"])
+    viewer = resolve_citation_viewer(project, link["id"])
 
     assert len(viewer["artifacts"]) == 2
     assert [artifact["text_context"]["text"] for artifact in viewer["artifacts"]] == [

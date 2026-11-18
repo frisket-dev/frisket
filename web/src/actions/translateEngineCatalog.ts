@@ -6,7 +6,7 @@
 // but never in the option set, labels, tier metadata, or availability.
 //
 // Runtime truth is the backend action catalog (map.translate ui_hints.engines,
-// assembled by _recipe_engines("translate") from provider-key + Opus-MT
+// assembled by _action_engines("translate") from provider-key + Opus-MT
 // pair-install state). TRANSLATE_ENGINE_FALLBACK is the honest pre-catalog
 // placeholder: every optional hosted/local engine is unavailable until live
 // catalog truth confirms its key/pair state.

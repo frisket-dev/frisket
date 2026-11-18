@@ -3,7 +3,7 @@
 `{entity_col: {entity_eq: {type, text?|fingerprint?}}}` selects rows carrying
 at least one matching entity, through the shared sheet-filter evaluator
 (`frisket.querysets`) — so /data, row counts, views, CSV/dataset export,
-alerts, alerts, map points, embedding scopes and the query preview all
+alerts, map points, embedding scopes and the query preview all
 honor it without their own branch.
 
 Entity cells are ordinary user JSON: they can be scalar arrays, JSON strings,

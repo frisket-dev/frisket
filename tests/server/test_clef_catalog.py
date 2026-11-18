@@ -8,7 +8,7 @@ from frisket.execution.definitions import StaticExecutionTargetProvider
 from frisket.execution.price_book import OperatorBorne
 from frisket.execution.provider import CompositionFacts, ExecutionComposition
 from frisket.server.action_catalog_hints import (
-    _recipe_engines,
+    _action_engines,
     project_action_catalog_launcher_hints,
 )
 
@@ -32,7 +32,7 @@ def _isolated_classifier_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
 def _engines(capabilities=None, project=None, action_kind="map.classify"):
     return {
         row["id"]: row
-        for row in _recipe_engines(action_kind, capabilities or {}, project=project)
+        for row in _action_engines(action_kind, capabilities or {}, project=project)
     }
 
 

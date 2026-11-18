@@ -163,9 +163,9 @@ def test_successive_samples_keep_other_pages_and_manual_edit(tmp_path):
             project.get_values(sheet, first["text_column_id"], [row])[row]
             == "Page one\n\nPage two"
         )
-        from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+        from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 
-        evidence = resolve_current_ocr_evidence(
+        evidence = resolve_current_ocr_citation(
             project,
             sheet_id=sheet,
             row_id=row,

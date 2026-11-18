@@ -655,7 +655,7 @@ export interface TextAnnotationsOptions {
   signal?: AbortSignal;
 }
 
-export interface EvidenceViewerReadOptions {
+export interface CitationViewerReadOptions {
   locateCurrent?: boolean;
   textArtifactId?: number;
   textStart?: number;
@@ -665,7 +665,7 @@ export interface EvidenceViewerReadOptions {
   signal?: AbortSignal;
 }
 
-export interface EvidenceTextPassageTarget {
+export interface CitationTextPassageTarget {
   spanId: string;
   evidenceLinkId: string | number;
   artifactId: number;
@@ -874,7 +874,7 @@ export interface CellProvenance {
   runId: string;
 }
 
-export interface CellEvidenceLinkSummary {
+export interface CellCitationSummary {
   id: number;
   stable_id: string;
   export_ref: string;
@@ -892,39 +892,39 @@ export interface CellEvidenceLinkSummary {
  * can retain valid scalar, list, or provider/plugin JSON leaves, so callers
  * must not narrow it into a client-owned object shape.
  */
-export type CellEvidencePayload = HttpCellEvidenceResponse;
+export type CellCitationsPayload = HttpCellEvidenceResponse;
 export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
 /**
  * answers-view-column-evidence-batch-v1: the Grounded Answers reading view's
  * middle-pane batch. Per row that has ACTIVE evidence on the column, its
- * row_id + the SAME `CellEvidenceLinkSummary` chip shape `CellEvidencePayload`
+ * row_id + the SAME `CellCitationSummary` chip shape `CellCitationsPayload`
  * carries — a chip here is field-identical to a chip from the per-cell
  * endpoint. A row with no active evidence is simply absent from `rows`.
  */
-export interface ColumnEvidenceBatchRow {
+export interface ColumnCitationsBatchRow {
   row_id: number;
-  links: CellEvidenceLinkSummary[];
+  links: CellCitationSummary[];
 }
 
-export interface ColumnEvidenceBatchPayload {
+export interface ColumnCitationsBatchPayload {
   schema_version: 'frisket.column_evidence_batch.v1';
   sheet_id: number;
   column_id: number;
-  rows: ColumnEvidenceBatchRow[];
+  rows: ColumnCitationsBatchRow[];
 }
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
  * response. Its JSON leaves are open values, so consumers must narrow only
  * the individual leaves they dereference rather than narrowing the payload. */
-export type EvidenceViewerPayload = HttpEvidenceViewerResponse;
-export type EvidenceArtifact = EvidenceViewerPayload['artifacts'][number];
-export type EvidenceArtifactRef = EvidenceArtifact['artifact_ref'];
-export type EvidenceBlobRef = NonNullable<EvidenceArtifactRef['blob']>;
-export type EvidencePage = EvidenceArtifact['pages'][number];
-export type EvidenceRegion = EvidencePage['regions'][number];
-export type EvidenceSpan = EvidenceArtifact['spans'][number];
-export type EvidenceCitationRun = EvidenceArtifact['runs'][number];
+export type CitationViewerPayload = HttpEvidenceViewerResponse;
+export type CitationArtifact = CitationViewerPayload['artifacts'][number];
+export type CitationArtifactRef = CitationArtifact['artifact_ref'];
+export type CitationBlobRef = NonNullable<CitationArtifactRef['blob']>;
+export type CitationPage = CitationArtifact['pages'][number];
+export type CitationRegion = CitationPage['regions'][number];
+export type CitationSpan = CitationArtifact['spans'][number];
+export type CitationRun = CitationArtifact['runs'][number];
 
 /** A display excerpt, never an editable value or an exact clipboard value. */
 export interface BoundedCellValue {
@@ -3580,13 +3580,13 @@ export interface RunTraceRow {
   truncated?: boolean;
 }
 
-export type RunTraceRowEvidenceStatus =
+export type RunTraceRowRecordStatus =
   | 'recorded'
   | 'not_recorded'
   | 'row_not_in_run'
   | 'missing';
 
-export interface RunTraceRowEvidenceTrace {
+export interface RunTraceRowRecordTrace {
   runId: string;
   traceId: string | null;
   actionKind: string | null;
@@ -3600,7 +3600,7 @@ export interface RunTraceRowEvidenceTrace {
 /** Run-level facts available even when no trace was recorded — lets
  *  "Explain this cell" show useful provenance for a deterministic (non-LLM)
  *  op (action, engine, timing, cost, status) instead of a dead-end message. */
-export interface RunTraceRowEvidenceRun {
+export interface RunTraceRowRecordRun {
   actionKind: string | null;
   actionName: string | null;
   status: string | null;
@@ -3610,14 +3610,14 @@ export interface RunTraceRowEvidenceRun {
   costActual: number | null;
 }
 
-export interface RunTraceRowEvidence {
+export interface RunTraceRowRecord {
   runId: string;
   rowId: string;
   columnId: string | null;
   recorded: boolean;
-  status: RunTraceRowEvidenceStatus;
-  run?: RunTraceRowEvidenceRun | null;
-  trace: RunTraceRowEvidenceTrace | null;
+  status: RunTraceRowRecordStatus;
+  run?: RunTraceRowRecordRun | null;
+  trace: RunTraceRowRecordTrace | null;
   /** Value/error from this exact run, not the current cell. */
   cell?: HttpRunTraceRowEvidence['cell'];
 }

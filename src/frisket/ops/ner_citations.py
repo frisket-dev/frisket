@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 _NER_CAPTURE_PREFIX = "__frisket_ner_capture_v1__:"
 _NER_CAPTURE_SCHEMA = "frisket.ner_input_capture.v1"
-_NER_EVIDENCE_KEY = "_frisket_ner_evidence"
+_NER_CITATION_CAPTURE_KEY = "_frisket_ner_evidence"
 
 
-def typed_ner_evidence_spec(
+def typed_ner_citation_spec(
     params: NerParams, output_names: Mapping[str, str]
 ) -> dict[str, Any]:
     """Project only the domain facts consumed by the evidence writer."""
@@ -62,7 +62,7 @@ def capture_result_evidence(
         "row_id": row_id,
         "column_id": int(output_column_id),
     }
-    existing = result.get(_NER_EVIDENCE_KEY)
+    existing = result.get(_NER_CITATION_CAPTURE_KEY)
     if existing is not None:
         if (
             _validated_ner_capture(
@@ -91,12 +91,12 @@ def capture_result_evidence(
         "result_hash": _value_hash(entities),
     }
     if spec.get("input_template") or len(input_capture) != 1:
-        result[_NER_EVIDENCE_KEY] = capture
+        result[_NER_CITATION_CAPTURE_KEY] = capture
         return
     captured = next(iter(input_capture.values()))
     source_text = captured.get("value")
     if not isinstance(source_text, str) or ner_text(row_values) != source_text:
-        result[_NER_EVIDENCE_KEY] = capture
+        result[_NER_CITATION_CAPTURE_KEY] = capture
         return
 
     positions: list[list[list[int]]] = []
@@ -158,7 +158,7 @@ def capture_result_evidence(
                 else []
             )
 
-    result[_NER_EVIDENCE_KEY] = (
+    result[_NER_CITATION_CAPTURE_KEY] = (
         capture
         if legacy_capture is not None
         else {
@@ -206,7 +206,7 @@ def _write_entity_spans(
     if not row_ids:
         return
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
         record_text_surface,
@@ -415,7 +415,7 @@ def _write_entity_spans(
             "column_id": output_column_id,
             "run_id": run_id,
         }
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell",
             subject_ref=subject_ref,
@@ -469,7 +469,7 @@ def _validated_ner_capture(
     return payload
 
 
-def _write_ner_result_evidence(
+def _write_ner_result_citations(
     project: Any,
     runner_spec: dict[str, Any],
     *,
@@ -490,7 +490,7 @@ def _write_ner_result_evidence(
         if int(item["column_id"]) != int(output_column_id):
             continue
         capture = _validated_ner_capture(
-            item.get(_NER_EVIDENCE_KEY),
+            item.get(_NER_CITATION_CAPTURE_KEY),
             item.get("value"),
             expected_result_ref={
                 "run_id": run_id,
@@ -499,7 +499,7 @@ def _write_ner_result_evidence(
                 "column_id": int(output_column_id),
             },
         )
-        if item.get(_NER_EVIDENCE_KEY) is not None and capture is None:
+        if item.get(_NER_CITATION_CAPTURE_KEY) is not None and capture is None:
             raise ValueError("invalid NER evidence capture envelope")
         if capture is not None:
             captures[int(item["row_id"])] = capture

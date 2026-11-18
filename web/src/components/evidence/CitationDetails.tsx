@@ -1,11 +1,11 @@
 import '../PanelPrimitives.css';
 import '../FormControls.css';
-import './EvidenceDetails.css';
+import './CitationDetails.css';
 import { useMemo, type KeyboardEvent } from 'react';
-import type { EvidenceArtifact, EvidenceSpan, EvidenceViewerPayload } from '../../api/open';
+import type { CitationArtifact, CitationSpan, CitationViewerPayload } from '../../api/open';
 import { safeHttpUrl } from '../../core/safeUrl';
 import { CopyButton } from '../CopyButton';
-import { finiteNumber, formatMs, jsonRecord, pageAnchorId, selectorNumber } from './evidenceSourceModel';
+import { finiteNumber, formatMs, jsonRecord, pageAnchorId, selectorNumber } from './citationSourceModel';
 
 const GROUNDING_DEGRADED_COPY: Record<string, string> = {
   no_word_stream:
@@ -46,7 +46,7 @@ export function GroundingDegradedNotice({
   );
 }
 
-export function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
+export function LinkSummary({ payload }: { payload: CitationViewerPayload }) {
   const producer = payload.link.producer;
   const sourceModel = stringField(producer, 'model') ?? stringField(producer, 'source_model');
   const groundingMethod = stringField(producer, 'grounding_method');
@@ -90,7 +90,7 @@ export function LinkSummary({ payload }: { payload: EvidenceViewerPayload }) {
   );
 }
 
-export function ArtifactDetails({ artifact }: { artifact: EvidenceArtifact }) {
+export function ArtifactDetails({ artifact }: { artifact: CitationArtifact }) {
   const sourceHref = safeHttpUrl(artifact.source_url);
   return (
     <section className="panel-card" data-testid="evidence-artifact-details">
@@ -139,7 +139,7 @@ function SpanCard({
   mediaType,
   artifactStableId,
 }: {
-  span: EvidenceSpan;
+  span: CitationSpan;
   mediaType: string;
   artifactStableId: string;
 }) {
@@ -226,7 +226,7 @@ function isDisplayableJsonValue(value: unknown): boolean {
   return record === null || Object.keys(record).length > 0;
 }
 
-function selectorLabel(span: EvidenceSpan): string {
+function selectorLabel(span: CitationSpan): string {
   const selector = span.selector;
   const record = jsonRecord(selector);
   const pageStart = finiteNumber(record?.page_start);
@@ -243,7 +243,7 @@ function selectorLabel(span: EvidenceSpan): string {
   return compactJson(selector);
 }
 
-function temporalLabel(span: EvidenceSpan): string {
+function temporalLabel(span: CitationSpan): string {
   const start = selectorNumber(span, 'start_ms') ?? 0;
   const end = selectorNumber(span, 'end_ms') ?? start;
   return `${formatMs(start)}-${formatMs(end)}`;

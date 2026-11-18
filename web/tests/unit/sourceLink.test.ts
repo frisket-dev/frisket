@@ -5,10 +5,10 @@ import { activateSourceLink, openSourceLink, parseSourceLink } from '../../src/c
 import { buildCell } from '../../src/grid/cells';
 import { parsePathname } from '../../src/routes';
 import { routeToRouteState } from '../../src/core/route/locationMatchesRouteState';
-import type { EvidenceViewerPayload, Row } from '../../src/api/types';
+import type { CitationViewerPayload, Row } from '../../src/api/types';
 import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
-function payload(): EvidenceViewerPayload {
+function payload(): CitationViewerPayload {
   return {
     schema_version: 'frisket.evidence_viewer.v1',
     link: { id: 1, stable_id: 'link:one', role: 'source_provenance' },
@@ -18,7 +18,7 @@ function payload(): EvidenceViewerPayload {
       artifact_ref: artifactRef({ blob: blobRef('/api/original.pdf') }),
       spans: [evidenceSpan({ selector: { kind: 'page_range', page_start: 3, page_end: 5 } })],
     })],
-  } as EvidenceViewerPayload;
+  } as CitationViewerPayload;
 }
 
 describe('source links', () => {

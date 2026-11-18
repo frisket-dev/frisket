@@ -1230,7 +1230,7 @@ def test_queued_receipt_replay_correlates_job_without_authoring_it() -> None:
         evidence=[
             ReceiptEvidence(
                 ref={
-                    "kind": action_jobs.ACTION_JOB_ENQUEUED_EVIDENCE_KIND,
+                    "kind": action_jobs.ACTION_JOB_ENQUEUED_RECORD_KIND,
                     "queue_kind": "action.run",
                     "job_id": 91,
                 }

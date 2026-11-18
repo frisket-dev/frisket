@@ -29,8 +29,8 @@ import {
   type DeleteRowsConfirmState,
   type DocumentViewState,
   type DocumentAlongsidePreference,
-  type EvidenceViewerFocus,
-  type EvidenceViewerHost,
+  type CitationViewerFocus,
+  type CitationViewerHost,
   type PromotedView,
   type OpenSplitState,
   type RibbonMode,
@@ -60,7 +60,7 @@ export function useWorkspaceChromeState(projectId: string) {
   const lastCommandAction = useSelector(chrome.store, (s) => s.lastCommandAction);
   const deleteRowsConfirm = useSelector(chrome.store, (s) => s.deleteRowsConfirm);
   const error = useSelector(chrome.store, (s) => s.error);
-  const evidenceViewerState = useSelector(chrome.store, (s) => s.evidenceViewerState);
+  const citationViewerState = useSelector(chrome.store, (s) => s.citationViewerState);
   const ribbonMode = useSelector(chrome.store, (s) => s.ribbonMode);
   const activeRibbonTab = useSelector(chrome.store, (s) => s.activeRibbonTab);
   const discoverOpen = useSelector(chrome.store, (s) => s.discoverOpen);
@@ -125,15 +125,15 @@ export function useWorkspaceChromeState(projectId: string) {
     }, 8000);
   }, [chrome]);
 
-  const openEvidenceViewer = useCallback((
+  const openCitationViewer = useCallback((
     linkId: string | number,
-    host: EvidenceViewerHost = 'modalOrPeek',
-    focus?: EvidenceViewerFocus,
+    host: CitationViewerHost = 'modalOrPeek',
+    focus?: CitationViewerFocus,
   ) => {
-    chrome.openEvidenceViewer(linkId, host, focus);
+    chrome.openCitationViewer(linkId, host, focus);
   }, [chrome]);
 
-  const closeEvidenceViewer = useCallback(() => chrome.closeEvidenceViewer(), [chrome]);
+  const closeCitationViewer = useCallback(() => chrome.closeCitationViewer(), [chrome]);
 
   const setRibbonMode = useCallback(
     (mode: RibbonMode) => projectPreferences.setRibbonMode(mode),
@@ -189,7 +189,7 @@ export function useWorkspaceChromeState(projectId: string) {
     lastCommandAction,
     deleteRowsConfirm,
     error,
-    evidenceViewerState,
+    citationViewerState,
     ribbonMode,
     activeRibbonTab,
     discoverOpen,
@@ -213,11 +213,11 @@ export function useWorkspaceChromeState(projectId: string) {
     openAsk,
     closeAsk,
     toggleAsk,
-    closeEvidenceViewer,
+    closeCitationViewer,
     hideActionPanel,
     openActionPanel,
     openCommandPalette,
-    openEvidenceViewer,
+    openCitationViewer,
     recordCommandAction,
     setActiveBottomDockTab,
     setDeleteRowsConfirm,

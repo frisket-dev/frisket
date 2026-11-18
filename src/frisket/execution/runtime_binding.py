@@ -1,7 +1,7 @@
 """Run-time refusal envelopes plus the one-ledger fact derivation.
 
 What used to live here as a SECOND head read is gone. ``load_route_binding``
-built the routed run's ``OpContext.extras`` from its own ``RouteStore.head()``
+built the routed run's ``ActionContext.extras`` from its own ``RouteStore.head()``
 call, while the worker fence read the head again — the two-reads-one-truth
 shape ``bound_route_id`` was threaded through three signatures to reconcile.
 The attempt authority (``frisket.execution.attempt_authority``) now reads the

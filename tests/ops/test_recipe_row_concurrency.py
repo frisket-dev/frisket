@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from frisket.ai.llm import ModelRouter
-from frisket.ops.base import OpContext, Recipe
+from frisket.ops.base import ActionContext, Recipe
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import ActionRequest
@@ -52,7 +52,7 @@ class _ConcurrencyProbeRecipe(Recipe):
         ]
 
     async def execute(
-        self, row_values: dict[str, Any], spec: dict, ctx: OpContext
+        self, row_values: dict[str, Any], spec: dict, ctx: ActionContext
     ) -> dict[str, Any]:
         self.active += 1
         self.peak = max(self.peak, self.active)

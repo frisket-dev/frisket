@@ -28,7 +28,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import canonical_json_hash, resolve_timeline
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.media_splice import (
@@ -1176,7 +1176,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         seeded["columns"]["transcript"],
         row_ids=[seeded["row_id"]],
     )
-    primary_link = record_evidence_link(
+    primary_link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[seeded["row_id"]],
@@ -1247,7 +1247,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         alternate_column_id,
         row_ids=[seeded["row_id"]],
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=alternate_refs[seeded["row_id"]],

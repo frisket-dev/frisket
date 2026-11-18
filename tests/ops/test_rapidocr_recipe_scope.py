@@ -20,7 +20,7 @@ from frisket.engine._workers.rapidocr_session import (
     RapidOCRSessionFailure,
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
-from frisket.ops.base import OpContext, RecipeInvocationHalt
+from frisket.ops.base import ActionContext, RecipeInvocationHalt
 from frisket.ops import ocr_engines as ocr_mod
 from frisket.ops import ocr_engines_local as ocr_local
 from frisket.ops.ocr_engines import OcrCancelled, OcrEngines, rapidocr_execution_scope
@@ -139,7 +139,7 @@ def test_non_rapidocr_scope_allocates_nothing(
 
     async def run() -> None:
         reader = AdmittedOcrReader(
-            OpContext(),
+            ActionContext(),
             None,
             engine="tesseract",
             options=OcrOptions().normalize("tesseract"),

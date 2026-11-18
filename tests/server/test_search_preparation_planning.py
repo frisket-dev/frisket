@@ -6,7 +6,7 @@ import pytest
 
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -419,7 +419,7 @@ def test_imported_pdf_page_image_is_not_planned_beside_its_pdf_page(
         page_end=1,
         preview={"blob_hash": image_hash, "mime": "image/png"},
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={

@@ -1,14 +1,14 @@
-interface EvidenceEntry<Snapshot> {
+interface CitationEntry<Snapshot> {
   snapshot: Snapshot;
   listeners: Set<() => void>;
   started: boolean;
 }
 
 /** Evidence reads share requests within one scoped API, never across project APIs. */
-export function createEvidenceResourceCache<Snapshot>(pending: Snapshot, error: Snapshot, capacity: number) {
-  const scopes = new WeakMap<object, Map<string, EvidenceEntry<Snapshot>>>();
+export function createCitationResourceCache<Snapshot>(pending: Snapshot, error: Snapshot, capacity: number) {
+  const scopes = new WeakMap<object, Map<string, CitationEntry<Snapshot>>>();
 
-  function trim(cache: Map<string, EvidenceEntry<Snapshot>>) {
+  function trim(cache: Map<string, CitationEntry<Snapshot>>) {
     for (const [key, entry] of cache) {
       if (cache.size <= capacity) break;
       if (entry.listeners.size === 0) cache.delete(key);

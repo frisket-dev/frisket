@@ -408,7 +408,7 @@ def test_ocr_lexical_text_requires_exact_current_evidence_link(monkeypatch) -> N
     )
     monkeypatch.setattr(
         ocr_word_stream,
-        "resolve_current_ocr_evidence",
+        "resolve_current_ocr_citation",
         lambda *_args, **_kwargs: (resolved,),
     )
     monkeypatch.setattr(

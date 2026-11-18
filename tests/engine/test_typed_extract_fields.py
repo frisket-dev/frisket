@@ -243,9 +243,9 @@ def test_typed_prompt_and_completion_share_fields_but_unwrap_grounding():
 
 
 def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hints():
-    from frisket.actions.extract import _evidence_claim
+    from frisket.actions.extract import _citation_claim
 
-    claim = _evidence_claim(
+    claim = _citation_claim(
         {
             "source": "filing_text",
             "page": "3",
@@ -266,11 +266,11 @@ def test_claims_keep_supported_coordinate_spaces_and_tolerate_bad_independent_hi
     assert claim.source == "filing_text"
     assert claim.bbox.page_width == 100
     assert claim.bbox.space == "pixel"
-    assert _evidence_claim({"quote": "hello", "bbox": {"bad": "data"}}).quote == "hello"
+    assert _citation_claim({"quote": "hello", "bbox": {"bad": "data"}}).quote == "hello"
 
 
 def test_grounded_schema_preserves_citations_and_nullable_absence():
-    from frisket.actions.extract import _evidence_claim
+    from frisket.actions.extract import _citation_claim
     from frisket.actions.grounding_types import EvidenceClaim
 
     schema = extract_response_schema(
@@ -280,13 +280,13 @@ def test_grounded_schema_preserves_citations_and_nullable_absence():
             {"transcript": [{"text": "Ada", "start": 0}]}, document_sources=True
         ),
     )
-    evidence_schema = schema["properties"]["person"]["properties"]["evidence"]["anyOf"][
-        0
-    ]["items"]
-    assert set(evidence_schema["properties"]) == set(EvidenceClaim.model_fields) - {
+    citations_schema = schema["properties"]["person"]["properties"]["evidence"][
+        "anyOf"
+    ][0]["items"]
+    assert set(citations_schema["properties"]) == set(EvidenceClaim.model_fields) - {
         "item_index"
     }
-    assert evidence_schema["additionalProperties"] is False
+    assert citations_schema["additionalProperties"] is False
     claim = {
         "source": "document",
         "page": 3,
@@ -302,13 +302,13 @@ def test_grounded_schema_preserves_citations_and_nullable_absence():
     validator.validate(
         {"person": {"value": "Ada", "evidence": [claim], "warnings": None}}
     )
-    resolved = _evidence_claim(claim)
+    resolved = _citation_claim(claim)
     assert resolved.page == 3 and resolved.snippet == "Ada filed"
     assert resolved.bbox.x0 == 0.1 and resolved.bbox.space == "page_normalized"
     assert resolved.segment_indices == ()
-    empty = dict.fromkeys(evidence_schema["properties"])
+    empty = dict.fromkeys(citations_schema["properties"])
     validator.validate({"person": {"value": "Ada", "evidence": [empty]}})
-    assert _evidence_claim(empty) == EvidenceClaim()
+    assert _citation_claim(empty) == EvidenceClaim()
     validator.validate({"person": {"value": "Ada", "evidence": None}})
 
 

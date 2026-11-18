@@ -233,7 +233,7 @@ def media_upload_filename(path: Any, media: Any) -> str:
     return (root or "audio") + suffix
 
 
-def _trusted_local_media_path(media: Any, *, op: str) -> str:
+def _trusted_local_media_path(media: Any, *, action: str) -> str:
     import os
 
     if (
@@ -243,23 +243,23 @@ def _trusted_local_media_path(media: Any, *, op: str) -> str:
     ):
         return media
     raise ValueError(
-        f"{op} expects a local file or ingested blob; run the "
+        f"{action} expects a local file or ingested blob; run the "
         "'download media' step first for URL columns"
     )
 
 
 @contextmanager
-def materialize_media_path(media: Any, ctx: Any, *, op: str = "this op"):
+def materialize_media_path(media: Any, ctx: Any, *, action: str = "this action"):
     """Keep a blob-backed path alive for exactly one media consumer call."""
 
     if isinstance(media, dict) and media.get("blob"):
         with ctx.project.materialize_blob(str(media["blob"])) as path:
             yield Path(path)
         return
-    yield Path(_trusted_local_media_path(media, op=op))
+    yield Path(_trusted_local_media_path(media, action=action))
 
 
-def resolve_media_path(media, ctx, *, op: str = "this op") -> str:
+def resolve_media_path(media, ctx, *, action: str = "this action") -> str:
     """Resolve only explicitly trusted, persistent host paths.
 
     Blob envelopes must instead use :func:`materialize_media_path` so remote
@@ -269,9 +269,9 @@ def resolve_media_path(media, ctx, *, op: str = "this op") -> str:
     """
     if isinstance(media, dict) and media.get("blob"):
         raise ValueError(
-            f"{op} must keep blob materialization alive; use materialize_media_path"
+            f"{action} must keep blob materialization alive; use materialize_media_path"
         )
-    return _trusted_local_media_path(media, op=op)
+    return _trusted_local_media_path(media, action=action)
 
 
 FIELD_TYPES = {
@@ -399,7 +399,7 @@ class Recipe:
     async def execution_scope(
         self,
         spec: dict,
-        ctx: "OpContext",
+        ctx: "ActionContext",
         *,
         expected_rows: int,
     ) -> AsyncIterator[None]:
@@ -588,14 +588,14 @@ class Recipe:
         raise NotImplementedError
 
     async def execute(
-        self, row_values: dict[str, Any], spec: dict, ctx: "OpContext"
+        self, row_values: dict[str, Any], spec: dict, ctx: "ActionContext"
     ) -> dict[str, Any]:
         """Non-LLM recipes override this. Returns {field_name: value}."""
         raise NotImplementedError
 
 
 @dataclass
-class OpContext:
+class ActionContext:
     """Runtime services available to non-LLM recipes."""
 
     project: Any = None

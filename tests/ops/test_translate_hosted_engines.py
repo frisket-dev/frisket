@@ -24,7 +24,7 @@ from frisket.ops.integrations.translate_common import (
     normalize_detected_bcp47,
     normalize_language,
 )
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.integrations.translation_engine import TranslationEngine
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.credential_use import CredentialUseContext
@@ -57,8 +57,8 @@ def _mock(handler) -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-def _op_context(project: Any, http: httpx.AsyncClient) -> OpContext:
-    return OpContext(
+def _action_context(project: Any, http: httpx.AsyncClient) -> ActionContext:
+    return ActionContext(
         project=project,
         http=http,
         extras={"preview": True, "cancelled": lambda: False},
@@ -470,7 +470,7 @@ async def test_recipe_execute_google_explicit_source_fallback() -> None:
     body = {"data": {"translations": [{"translatedText": "Hola"}]}}
 
     async with _mock(lambda r: httpx.Response(200, json=body)) as http:
-        ctx = _op_context(_StubProject({"GOOGLE_TRANSLATE_API_KEY": "g"}), http)
+        ctx = _action_context(_StubProject({"GOOGLE_TRANSLATE_API_KEY": "g"}), http)
         out = await TranslationEngine().execute(
             {"statement": "Hello"},
             {
@@ -495,7 +495,7 @@ async def test_recipe_execute_deepl_returns_translation_and_bcp47(monkeypatch) -
         return httpx.Response(200, json=fixture)
 
     async with _mock(handler) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
         out = await TranslationEngine().execute(
             {"statement": "Hello, world."},
             {
@@ -526,7 +526,7 @@ async def test_recipe_execute_records_unknown_cost_when_rate_missing(
     fixture = _load("translate_basic.json")
 
     async with _mock(lambda r: httpx.Response(200, json=fixture)) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "k:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "k:fx"}), http)
         out = await TranslationEngine().execute(
             {"statement": "Hello, world."},
             {"engine": "deepl", "target_language": "Spanish", "output_name": "es"},
@@ -544,7 +544,7 @@ async def test_recipe_execute_default_omits_detected_column(monkeypatch) -> None
     fixture = _load("translate_basic.json")
 
     async with _mock(lambda r: httpx.Response(200, json=fixture)) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
         out = await TranslationEngine().execute(
             {"statement": "Hello, world."},
             {"engine": "deepl", "target_language": "Spanish", "output_name": "es"},
@@ -566,7 +566,7 @@ async def test_recipe_execute_empty_provider_result_is_typed_row_failure(monkeyp
     empty_body = {"translations": [{"text": "", "detected_source_language": "EN"}]}
 
     async with _mock(lambda r: httpx.Response(200, json=empty_body)) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
         with pytest.raises(TranslateEngineError) as exc:
             await TranslationEngine().execute(
                 {"statement": "Hello, world."},
@@ -588,7 +588,7 @@ async def test_recipe_execute_empty_source_stays_a_legitimate_empty(monkeypatch)
         raise AssertionError("provider must not be called for empty source")
 
     async with _mock(handler) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "secret:fx"}), http)
         out = await TranslationEngine().execute(
             {"statement": ""},
             {"engine": "deepl", "target_language": "Spanish", "output_name": "es"},
@@ -601,7 +601,7 @@ async def test_recipe_execute_empty_source_stays_a_legitimate_empty(monkeypatch)
 async def test_recipe_execute_missing_key_is_auth_error(monkeypatch) -> None:
     monkeypatch.delenv("DEEPL_API_KEY", raising=False)
     async with _mock(lambda r: httpx.Response(200, json={})) as http:
-        ctx = _op_context(_StubProject({}), http)
+        ctx = _action_context(_StubProject({}), http)
         with pytest.raises(TranslateEngineError) as exc:
             await TranslationEngine().execute(
                 {"statement": "Hi"},
@@ -620,7 +620,7 @@ async def test_recipe_execute_blank_source_skips_the_provider() -> None:
         return httpx.Response(200, json={})
 
     async with _mock(handler) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "s:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "s:fx"}), http)
         out = await TranslationEngine().execute(
             {"statement": "   "},
             {"engine": "deepl", "target_language": "Spanish", "output_name": "es"},
@@ -640,7 +640,7 @@ async def test_recipe_execute_invalid_target_fails_before_calling(monkeypatch) -
         return httpx.Response(200, json={})
 
     async with _mock(handler) as http:
-        ctx = _op_context(_StubProject({"DEEPL_API_KEY": "s:fx"}), http)
+        ctx = _action_context(_StubProject({"DEEPL_API_KEY": "s:fx"}), http)
         with pytest.raises(TranslateEngineError) as exc:
             await TranslationEngine().execute(
                 {"statement": "Hi"},

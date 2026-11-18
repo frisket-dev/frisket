@@ -2,8 +2,8 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ArtifactDetails } from '../../src/components/evidence/EvidenceDetails';
-import { EvidenceMediaSource } from '../../src/components/evidence/EvidenceMediaSource';
+import { ArtifactDetails } from '../../src/components/evidence/CitationDetails';
+import { CitationMediaSource } from '../../src/components/evidence/CitationMediaSource';
 import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 beforeEach(() => { Element.prototype.scrollIntoView = vi.fn(); });
@@ -28,7 +28,7 @@ describe('evidence provenance URLs', () => {
   it.each([[PAGE_URL, [PAGE_URL]], [SCRIPT_URL, []]])(
     'offers the no-preview source link only for an http(s) URL: %s', (sourceUrl, expected) => {
       const artifact = evidenceArtifact({ media_type: 'text/html', source_url: sourceUrl });
-      const { container } = render(<EvidenceMediaSource artifact={artifact} emphasizedSpanIds={[]} />);
+      const { container } = render(<CitationMediaSource artifact={artifact} emphasizedSpanIds={[]} />);
       expect(screen.getByTestId('evidence-artifact-fallback')).toBeInTheDocument();
       expect(hrefs(container)).toEqual(expected);
     },
@@ -43,7 +43,7 @@ describe('evidence provenance URLs', () => {
           span_kind: 'temporal', selector: { start_ms: 1000, end_ms: 2000 }, quote: 'Spoken line', deep_link_url: deepLink,
         })],
       });
-      render(<EvidenceMediaSource artifact={artifact} emphasizedSpanIds={[]} />);
+      render(<CitationMediaSource artifact={artifact} emphasizedSpanIds={[]} />);
       expect(screen.getByText('Spoken line', { exact: false })).toBeInTheDocument();
       const links = [
         ...screen.queryAllByTestId('evidence-temporal-run-open'),

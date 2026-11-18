@@ -8,7 +8,7 @@ knowing the project-db schema.
 
 from __future__ import annotations
 
-from frisket.engine.store.cell_reference import evidence_subject_ref_json
+from frisket.engine.store.cell_reference import citation_subject_ref_json
 
 import hashlib
 import json
@@ -26,7 +26,7 @@ from frisket.engine.store.current_value_windows import decode_text_prefix
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.project import Project
 from frisket.engine.store.retrieval_lifecycle import (
-    RETRIEVAL_EVIDENCE_LINK_ROLES,
+    RETRIEVAL_CITATION_ROLES,
     touch_binding_revisions,
 )
 from frisket.engine.store.transactions import require_transaction, write_transaction
@@ -384,7 +384,7 @@ def merge_artifact_metadata(
     return _artifact_row(project, int(artifact_id))
 
 
-def record_evidence_link(
+def record_citation(
     project: Project,
     *,
     subject_kind: str,
@@ -427,7 +427,7 @@ def record_evidence_link(
             (
                 link_stable_id,
                 subject_kind,
-                evidence_subject_ref_json(subject_ref),
+                citation_subject_ref_json(subject_ref),
                 sheet_id,
                 row_id,
                 column_id,
@@ -462,7 +462,7 @@ def record_evidence_link(
             )
         if (
             status == "active"
-            and link_role in RETRIEVAL_EVIDENCE_LINK_ROLES
+            and link_role in RETRIEVAL_CITATION_ROLES
             and type(row_id) is int
             and row_id > 0
             and type(column_id) is int
@@ -472,7 +472,7 @@ def record_evidence_link(
     return _link_row(project, link_id)
 
 
-def copy_evidence_links(
+def copy_citations(
     project: Project,
     *,
     op_id: int,
@@ -492,7 +492,7 @@ def copy_evidence_links(
         [
             {
                 **copy,
-                "subject_ref": evidence_subject_ref_json(copy["subject_ref"]),
+                "subject_ref": citation_subject_ref_json(copy["subject_ref"]),
                 "stable_id": _stable_id("evidence_link"),
             }
             for copy in copies
@@ -528,7 +528,7 @@ def copy_evidence_links(
         [
             (row, column)
             for row, column, status, role in inserted
-            if status == "active" and role in RETRIEVAL_EVIDENCE_LINK_ROLES
+            if status == "active" and role in RETRIEVAL_CITATION_ROLES
         ],
     )
 
@@ -556,7 +556,7 @@ def sheet_cited_column_ids(project: Project, sheet_id: int) -> list[int]:
     return [int(row["column_id"]) for row in rows]
 
 
-def list_cell_evidence(
+def list_cell_citations(
     project: Project,
     *,
     sheet_id: int,
@@ -582,7 +582,7 @@ def list_cell_evidence(
                 "WHERE row_id=? AND column_id=? AND status='active' "
                 "AND subject_ref_json=? "
                 "ORDER BY created_at, id",
-                (row_id, column_id, evidence_subject_ref_json(current_ref)),
+                (row_id, column_id, citation_subject_ref_json(current_ref)),
             ).fetchall()
         )
     stale_count = int(
@@ -612,7 +612,7 @@ def list_cell_evidence(
     }
 
 
-def list_column_evidence(
+def list_column_citations(
     project: Project,
     *,
     sheet_id: int,
@@ -624,9 +624,9 @@ def list_column_evidence(
     view's middle pane.
 
     Per row THAT HAS ACTIVE evidence on this column, returns its row_id plus
-    the same ``_link_summary`` chip projection ``list_cell_evidence`` produces
+    the same ``_link_summary`` chip projection ``list_cell_citations`` produces
     for one cell — so a chip here is byte-identical to a chip in the row
-    Detail drawer. Current-value-ref scoped exactly like ``list_cell_evidence``
+    Detail drawer. Current-value-ref scoped exactly like ``list_cell_citations``
     (a link only counts if its ``subject_ref_json`` matches the row's CURRENT
     value ref), just batched: one ``get_values_with_refs`` call for every row
     in `row_ids` (or the whole column when `row_ids` is None) instead of N
@@ -660,11 +660,11 @@ def list_column_evidence(
     by_row: dict[int, list[sqlite3.Row]] = {}
     for link_row in link_rows:
         ref = refs.get(link_row["row_id"])
-        # Current-value-ref scoping (list_cell_evidence's exact rule): a link
+        # Current-value-ref scoping (list_cell_citations's exact rule): a link
         # only counts for a row if it was recorded against that row's CURRENT
         # value ref, excluding stale/superseded links left behind by an
         # earlier run/edit that a later run/edit has since replaced.
-        if ref is None or link_row["subject_ref_json"] != evidence_subject_ref_json(
+        if ref is None or link_row["subject_ref_json"] != citation_subject_ref_json(
             ref
         ):
             continue
@@ -686,7 +686,7 @@ def list_column_evidence(
     }
 
 
-def find_item_evidence_link(
+def find_item_citation(
     project: Project,
     *,
     row_id: int,
@@ -744,7 +744,7 @@ def find_item_evidence_link(
     return None
 
 
-def list_row_evidence(
+def list_row_citations(
     project: Project,
     *,
     sheet_id: int,
@@ -757,13 +757,13 @@ def list_row_evidence(
     the shape ``derive.table_from_list``'s item-evidence propagation writes
     (table-from-list-evidence-v1: a derived row's citation is the whole row,
     not one of its columns). The column-scoped sibling is
-    :func:`list_cell_evidence`."""
+    :func:`list_cell_citations`."""
 
     where = "WHERE sheet_id=? AND row_id=? AND column_id IS NULL AND status='active'"
     params: list[Any] = [int(sheet_id), int(row_id)]
     if subject_ref is not None:
         where += " AND subject_ref_json=?"
-        params.append(evidence_subject_ref_json(subject_ref))
+        params.append(citation_subject_ref_json(subject_ref))
     sql = f"SELECT * FROM evidence_links {where} ORDER BY created_at, id"
     if limit is not None:
         sql += " LIMIT ?"
@@ -825,7 +825,7 @@ def _group_citation_runs(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def citation_temporal_runs(
-    project: Project, evidence_link_ref: int | str
+    project: Project, citation_ref: int | str
 ) -> list[dict[str, Any]]:
     """A citation link's cited (``required=1``) temporal spans on an ``av``
     artifact, grouped into contiguous runs (:data:`CITATION_RUN_GAP_TOLERANCE_MS`).
@@ -834,9 +834,9 @@ def citation_temporal_runs(
     resolver needs no second query. Raises ``KeyError`` if the link does not
     exist; returns ``[]`` for a link with no cited AV temporal spans (a
     text/page citation, or one with nothing marked required)."""
-    link = _lookup_link(project, evidence_link_ref)
+    link = _lookup_link(project, citation_ref)
     if link is None:
-        raise KeyError(f"evidence link not found: {evidence_link_ref!r}")
+        raise KeyError(f"evidence link not found: {citation_ref!r}")
     rows = project.db.execute(
         """
         SELECT sp.stable_id AS span_stable_id, sp.start_ms, sp.end_ms,
@@ -886,9 +886,9 @@ def citation_temporal_runs(
     return runs
 
 
-def resolve_evidence_viewer(
+def resolve_citation_viewer(
     project: Project,
-    evidence_link_ref: int | str,
+    citation_ref: int | str,
     *,
     project_id: str | None = None,
     text_artifact_id: int | None = None,
@@ -899,9 +899,9 @@ def resolve_evidence_viewer(
 ) -> dict[str, Any]:
     """Resolve an evidence link into a renderer-neutral viewer payload."""
 
-    link = _lookup_link(project, evidence_link_ref)
+    link = _lookup_link(project, citation_ref)
     if link is None:
-        raise KeyError(f"evidence link not found: {evidence_link_ref!r}")
+        raise KeyError(f"evidence link not found: {citation_ref!r}")
     joined = project.db.execute(
         """
         SELECT els.rank, els.span_role, els.required, els.note,
@@ -1087,7 +1087,7 @@ def resolve_evidence_viewer(
     }
 
 
-def mark_evidence_stale_for_cell_refs(
+def mark_citations_stale_for_cell_refs(
     project: Project,
     targets: list[dict[str, Any]],
     *,
@@ -1114,13 +1114,13 @@ def mark_evidence_stale_for_cell_refs(
     cell regardless of subject ref, so the superseded grounding does not sit
     forever invisible -- neither "active-current" (its subject_ref_json no
     longer matches the cell's live ref once the new run wins) nor counted as
-    stale (``list_cell_evidence``'s ``stale_count`` only counts
+    stale (``list_cell_citations``'s ``stale_count`` only counts
     ``status='stale'``) -- the exact SILENTLY-WRONG #3 orphan this task closes.
     Callers MUST invoke this BEFORE writing the new run's active link, so the
     just-written link is never caught by its own stale sweep.
 
     Transaction-safe standalone (``owns_transaction`` -- the same guard
-    ``record_evidence_link``/``record_source_artifact`` use): the two
+    ``record_citation``/``record_source_artifact`` use): the two
     existing manual-edit/review-decision call sites run inside the
     executor's own BEGIN IMMEDIATE/commit envelope, so this is a no-op
     there; the reprocess call site (``media/ocr.py``) has no such envelope
@@ -1168,7 +1168,7 @@ def mark_evidence_stale_for_cell_refs(
                 select_params = (
                     row_id,
                     column_id,
-                    evidence_subject_ref_json(ref),
+                    citation_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1185,7 +1185,7 @@ def mark_evidence_stale_for_cell_refs(
                     reason,
                     row_id,
                     column_id,
-                    evidence_subject_ref_json(ref),
+                    citation_subject_ref_json(ref),
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1218,7 +1218,7 @@ def _text_layer_hash_mismatch(
 
     This is independent of ``status``/``stale_reason``: it revalidates the
     hash even for a link staleness marking never touched, so a mutation site
-    that forgot to call ``mark_evidence_stale_for_cell_refs`` (the documented
+    that forgot to call ``mark_citations_stale_for_cell_refs`` (the documented
     gap -- ``store/staleness.py``: "fires from only 2 of many mutation
     sites") still surfaces a loud flag instead of silently serving drifted
     grounding. Only hashes attached to a declared cell text surface are
@@ -1533,12 +1533,12 @@ def _span_id_for_ref(project: Project, span: dict[str, Any]) -> int:
     return int(row["id"])
 
 
-def _lookup_link(project: Project, evidence_link_ref: int | str) -> sqlite3.Row | None:
-    if isinstance(evidence_link_ref, int):
+def _lookup_link(project: Project, citation_ref: int | str) -> sqlite3.Row | None:
+    if isinstance(citation_ref, int):
         return project.db.execute(
-            "SELECT * FROM evidence_links WHERE id=?", (evidence_link_ref,)
+            "SELECT * FROM evidence_links WHERE id=?", (citation_ref,)
         ).fetchone()
-    text = str(evidence_link_ref)
+    text = str(citation_ref)
     if text.isdecimal():
         row = project.db.execute(
             "SELECT * FROM evidence_links WHERE id=?", (int(text),)
@@ -1550,7 +1550,7 @@ def _lookup_link(project: Project, evidence_link_ref: int | str) -> sqlite3.Row 
     ).fetchone()
 
 
-def evidence_link_by_stable_id(project: Project, stable_id: str) -> sqlite3.Row | None:
+def citation_by_stable_id(project: Project, stable_id: str) -> sqlite3.Row | None:
     return project.db.execute(
         "SELECT * FROM evidence_links WHERE stable_id=?", (stable_id,)
     ).fetchone()
@@ -1670,7 +1670,7 @@ def _artifact_payload_from_join(
         "text_context": None,
         "spans": [],
         "pages": [],
-        # Populated by resolve_evidence_viewer after the join loop (needs
+        # Populated by resolve_citation_viewer after the join loop (needs
         # the full span set to group runs).
         "runs": [],
     }
@@ -1743,7 +1743,7 @@ def _span_payload(
         "clip_url": clip_url,
         # Which contiguous cited run (see CITATION_RUN_GAP_TOLERANCE_MS)
         # this span belongs to -- None for an uncited span, or a cited span
-        # resolve_evidence_viewer's run pass hasn't reached yet (overwritten
+        # resolve_citation_viewer's run pass hasn't reached yet (overwritten
         # right after this loop, once the full span set is known).
         "run_index": None,
         "_page_start": row["page_start"],

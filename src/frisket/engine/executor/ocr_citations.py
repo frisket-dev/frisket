@@ -6,9 +6,9 @@ import json
 
 from frisket.engine.store.evidence import (
     get_source_artifact,
-    mark_evidence_stale_for_cell_refs,
+    mark_citations_stale_for_cell_refs,
     merge_artifact_metadata,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -121,7 +121,7 @@ def _page_spans(entry, page_images, engine, *, prepared_selector=None):
             }
 
 
-def write_ocr_evidence(
+def write_ocr_citations(
     project,
     spec,
     *,
@@ -291,12 +291,12 @@ def write_ocr_evidence(
                     project, artifact_id=artifact["id"], **descriptor
                 )
                 spans.append({"span_id": span["id"], "rank": len(spans)})
-        mark_evidence_stale_for_cell_refs(
+        mark_citations_stale_for_cell_refs(
             project,
             [{"row_id": row_id, "column_id": column_id, "match_all_active": True}],
             reason="source_reprocessed",
         )
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell",
             subject_ref={
@@ -321,7 +321,7 @@ def write_ocr_evidence(
             link_role="media_ocr_grounding",
             producer={"action_kind": spec["action_kind"], "engine": engine},
         )
-        store._record_writer_evidence(
+        store._record_writer_supporting_record(
             {
                 "kind": "media_ocr_grounding_evidence_link",
                 "sheet_id": source["sheet_id"],

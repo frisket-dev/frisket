@@ -86,7 +86,7 @@ def resolve_clip_source(project: Project, span_stable_id: str) -> ClipSource:
 
 
 def resolve_link_run_clip_source(
-    project: Project, evidence_link_ref: int | str, run_index: int
+    project: Project, citation_ref: int | str, run_index: int
 ) -> ClipSource:
     """citation-span-runs-v1: look up run ``run_index`` of a citation link's
     contiguous cited-span runs (:func:`frisket.store.evidence.
@@ -100,15 +100,15 @@ def resolve_link_run_clip_source(
     a run adds: does the run exist, does its artifact reference a blob.
     """
     try:
-        runs = citation_temporal_runs(project, evidence_link_ref)
+        runs = citation_temporal_runs(project, citation_ref)
     except KeyError as exc:
         raise ClipError(
-            "evidence_link_not_found", f"no evidence link {evidence_link_ref!r}"
+            "evidence_link_not_found", f"no evidence link {citation_ref!r}"
         ) from exc
     if run_index < 0 or run_index >= len(runs):
         raise ClipError(
             "run_not_found",
-            f"evidence link {evidence_link_ref!r} has no run at index {run_index}",
+            f"evidence link {citation_ref!r} has no run at index {run_index}",
         )
     run = runs[run_index]
     blob_hash = run["blob_hash"]

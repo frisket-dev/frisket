@@ -6,11 +6,11 @@ import asyncio
 from frisket.actions.media import OcrParams, _ocr_outputs, ocr_options
 from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 from frisket.engine.executor.ocr_read import ocr_token_granularity
-from frisket.engine.executor.ocr_evidence import _page_spans
+from frisket.engine.executor.ocr_citations import _page_spans
 from frisket.execution.definitions import build_static_targets
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.targets import CAPABILITY_OCR
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.ocr_engines import OcrEngines
 
 
@@ -76,7 +76,7 @@ def test_generic_vlm_dispatch_receives_actual_position_choice(
         OcrEngines().run_engine_on_pages(
             GENERIC_ENGINE,
             [page],
-            OpContext(extras={**({}), "standalone_dispatch": STANDALONE}),
+            ActionContext(extras={**({}), "standalone_dispatch": STANDALONE}),
             usage={},
             scratch=tmp_path,
             keep_text_position=False,

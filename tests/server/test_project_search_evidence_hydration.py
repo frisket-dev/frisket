@@ -11,7 +11,7 @@ from starlette.testclient import TestClient
 
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -98,7 +98,7 @@ def _seed_ocr(project: Project) -> None:
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],

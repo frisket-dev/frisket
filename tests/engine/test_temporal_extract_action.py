@@ -31,7 +31,7 @@ from frisket.engine.store.media_blobs import (
 )
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.receipts import ReceiptStore
@@ -1545,7 +1545,7 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         _values, refs = project.get_values_with_refs(
             sheet_id, column_id, row_ids=[row_id]
         )
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell",
             subject_ref=refs[row_id],

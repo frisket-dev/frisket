@@ -35,7 +35,7 @@ from frisket.retrieval.preparation_policy import write_preparation_policy_patch
 from frisket.server.route_errors import RouteError
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from frisket.server import provider_config
-from frisket.engine.store.project import SUPPORTED_EVIDENCE_RETENTION_VALUES
+from frisket.engine.store.project import SUPPORTED_RETENTION_VALUES
 from frisket.engine.store.sheet_lifecycle import (
     SheetDeleteBlocked,
     SheetDeleteNotFound,
@@ -97,7 +97,7 @@ def _retention_policy_response(policy: dict[str, Any]) -> dict[str, Any]:
     return {
         "schemaVersion": RETENTION_POLICY_SCHEMA_VERSION,
         **policy,
-        "supported_default_evidence": list(SUPPORTED_EVIDENCE_RETENTION_VALUES),
+        "supported_default_evidence": list(SUPPORTED_RETENTION_VALUES),
     }
 
 

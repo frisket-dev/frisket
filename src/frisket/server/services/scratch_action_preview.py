@@ -14,7 +14,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import ATTEMPT_EXTRA, AttemptCommitment
 from frisket.execution.resolve_for_action import SCRATCH_PREVIEW_UNIT_ID
 from frisket.execution.resolver import ResolvedExecution
-from frisket.ops.base import OpContext
+from frisket.ops.base import ActionContext
 from frisket.ops.cost_source import estimate_from_cost_basis
 
 
@@ -89,10 +89,10 @@ class ScratchActionPreviewRunContext:
             self.owner_cancelled is not None and self.owner_cancelled()
         )
 
-    def op_context(self, *, http: Any = None) -> OpContext:
-        return self._op_context(self._cloud_binding(), http=http)
+    def action_context(self, *, http: Any = None) -> ActionContext:
+        return self._action_context(self._cloud_binding(), http=http)
 
-    def _op_context(self, binding: Any, *, http: Any = None) -> OpContext:
+    def _action_context(self, binding: Any, *, http: Any = None) -> ActionContext:
         extras: dict[str, Any] = {
             "preview": True,
             "preview_execution": self.resolved_for_preview,
@@ -101,7 +101,7 @@ class ScratchActionPreviewRunContext:
         }
         if self.attempt is not None:
             extras[ATTEMPT_EXTRA] = self.attempt
-        return OpContext(
+        return ActionContext(
             project=self.project,
             http=http if http is not None else getattr(self.router, "client", None),
             extras=extras,
@@ -129,11 +129,11 @@ class ScratchActionPreviewRunContext:
         )
 
     @contextmanager
-    def op_context_scope(self, *, http: Any = None) -> Iterator[OpContext]:
+    def action_context_scope(self, *, http: Any = None) -> Iterator[ActionContext]:
         """Scope scratch execution to the admitted durable Cloud model call."""
 
         binding = self._cloud_binding()
-        ctx = self._op_context(binding, http=http)
+        ctx = self._action_context(binding, http=http)
         if binding is None or binding.llm_binding is None:
             from contextlib import nullcontext
 

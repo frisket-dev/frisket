@@ -62,11 +62,11 @@ def resolve_ocr_metadata_cells(
 
 TEXT_SOURCE_COLUMN_TYPES = ("text", "category", "json", "link")
 BLOB_SOURCE_COLUMN_TYPES = ("file", "image", "audio", "video")
-EVIDENCE_SOURCE_COLUMN_TYPES = ("timestamped_transcript",)
+CITED_SOURCE_COLUMN_TYPES = ("timestamped_transcript",)
 RETRIEVAL_SOURCE_COLUMN_TYPES = (
     *TEXT_SOURCE_COLUMN_TYPES,
     *BLOB_SOURCE_COLUMN_TYPES,
-    *EVIDENCE_SOURCE_COLUMN_TYPES,
+    *CITED_SOURCE_COLUMN_TYPES,
 )
 
 
@@ -348,10 +348,10 @@ def resolve_cell_ocr_text_source(
     if _cell_uses_prepared_text(project, row_id=row_id, column_id=column_id):
         return None
 
-    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
     from frisket.retrieval.sources import identity_digest, ocr_source_revision
 
-    candidates = resolve_current_ocr_evidence(
+    candidates = resolve_current_ocr_citation(
         project, sheet_id=sheet_id, row_id=row_id, column_id=column_id
     )
     binding = _binding_revision(project, row_id=row_id, column_id=column_id)
@@ -469,9 +469,9 @@ def _prepared_ocr_grounding(
 ) -> tuple[tuple[str, ...], str | None]:
     """Return grounding owned by one exact current OCR text derivative."""
 
-    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 
-    candidates = resolve_current_ocr_evidence(
+    candidates = resolve_current_ocr_citation(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -769,10 +769,10 @@ def _resolve_ocr_lexical_text(
         )
     ):
         return None
-    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+    from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
     from frisket.retrieval.sources import ocr_source_revision
 
-    candidates = resolve_current_ocr_evidence(
+    candidates = resolve_current_ocr_citation(
         project,
         sheet_id=binding.sheet_id,
         row_id=binding.row_id,

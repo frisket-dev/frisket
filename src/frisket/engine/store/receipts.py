@@ -140,7 +140,7 @@ class ReceiptStore:
         before its first finalization. A fresh worker can rebuild the final
         receipt without inspecting Params or executing the guest again.
         """
-        self._record_writer_evidence(
+        self._record_writer_supporting_record(
             {"kind": "map_python_code", "code_hash": code_hash},
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
@@ -156,7 +156,7 @@ class ReceiptStore:
         claim_token: str,
     ) -> None:
         """Attach an output-bound PDF read inside the accepted result savepoint."""
-        self._record_writer_evidence(
+        self._record_writer_supporting_record(
             {**fact, "kind": "pdf_table_read"},
             run_id=run_id,
             writer_attempt_id=writer_attempt_id,
@@ -191,14 +191,14 @@ class ReceiptStore:
                 "confident_threshold": fact["confident_threshold"],
             },
         ):
-            self._record_writer_evidence(
+            self._record_writer_supporting_record(
                 ref,
                 run_id=run_id,
                 writer_attempt_id=writer_attempt_id,
                 claim_token=claim_token,
             )
 
-    def _record_writer_evidence(
+    def _record_writer_supporting_record(
         self,
         ref: dict[str, Any],
         *,
