@@ -812,7 +812,9 @@ class StreamingSheetWriter:
                 ).fetchone()[0]
                 is not None
             ):
-                op_log.step_operation(self.project, "revert", change_id=resumable.change_id)
+                op_log.step_operation(
+                    self.project, "revert", change_id=resumable.change_id
+                )
         self._closed = True
 
     def prepare_removal(self, session: ImportSession) -> None:

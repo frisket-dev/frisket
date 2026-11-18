@@ -186,7 +186,7 @@ class TestRunsAndPointers:
     ):
         sheet, _ = make_sheet(project, 1)
         out_col = project.add_column(sheet, "label", ai_generated=True)
-        op = project.append_op("map")
+        op = project.append_change("map")
         run = RunResultStore(project).start_run(op, sheet, "map.classify", total_rows=1)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         recorded = ["call-d", "call-a", "call-c", "call-b"]
