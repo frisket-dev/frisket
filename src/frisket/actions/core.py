@@ -3816,6 +3816,7 @@ class RegisteredAction:
         if (
             isinstance(terminal, _ProjectAction)
             and terminal.capabilities == (EnclosureMaterializer,)
+            and isinstance(scope, SheetRows)
             and scope.selection is None
             and (scope.row_ids is None or not 1 <= len(scope.row_ids) <= 500)
         ):
@@ -3837,6 +3838,7 @@ class RegisteredAction:
                 and terminal.capabilities == (ValueClusterer,)
             )
             and self.definition.row_scope is RowScope.ALL_ROWS
+            and isinstance(scope, SheetRows)
             and (scope.row_ids is not None or scope.selection is not None)
         ):
             raise ValueError("action requires all rows")

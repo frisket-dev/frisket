@@ -773,10 +773,12 @@ def bind_typed_action_job(
             frozen_scope = SheetRows.model_validate(
                 envelope.resolved_snapshot["selection_scope"]
             )
+            request_scope = bound.request.scope
             if (
-                frozen_scope.selection is not None
+                not isinstance(request_scope, SheetRows)
+                or frozen_scope.selection is not None
                 or frozen_scope.row_ids is None
-                or frozen_scope.sheet_id != bound.request.scope.sheet_id
+                or frozen_scope.sheet_id != request_scope.sheet_id
             ):
                 raise ValueError("Frozen action selection scope is invalid")
             bound = freeze_action_selection(bound, frozen_scope.row_ids)

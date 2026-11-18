@@ -24,7 +24,7 @@ from frisket.engine.executor.map_rows_action import (
     build_typed_map_rows_plan,
     bound_typed_program_request_from_runner_spec,
 )
-from frisket.actions.types import RowError
+from frisket.actions.types import RowError, require_sheet_rows
 from frisket.engine.executor.action_support import _row_input_action_error
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.confirmation_context import (
@@ -172,7 +172,7 @@ class ActionPreviewService:
                         "estimate": {
                             "rows": len(
                                 get_project().visible_row_ids(
-                                    typed.request.scope.sheet_id
+                                    require_sheet_rows(typed.request.scope).sheet_id
                                 )
                             ),
                             "cost": 0.0,

@@ -77,6 +77,7 @@ from frisket.actions.types import (
     Rows,
     Template,
     discover_references,
+    require_sheet_rows,
     _without_none,
 )
 from frisket.actions.system import BoundTypedActionRequest
@@ -1681,6 +1682,7 @@ def build_typed_map_rows_plan(
 
     bound = resolve_action_selection(project, bound)
     request = bound.request
+    scope = require_sheet_rows(request.scope)
     evaluation_context = None
     if isinstance(bound.action.definition.run, ModelRows):
         references = validate_model_rows_project_inputs(
@@ -1688,21 +1690,21 @@ def build_typed_map_rows_plan(
             action_id=bound.action.action_id,
             terminal=bound.action.definition.run,
             params=bound.params,
-            sheet_id=request.scope.sheet_id,
-            row_ids=request.scope.row_ids,
+            sheet_id=scope.sheet_id,
+            row_ids=scope.row_ids,
         )
         evaluation_context = _resolve_model_rows_evaluation_context(
             project,
             action_id=bound.action.action_id,
             terminal=bound.action.definition.run,
             params=bound.params,
-            sheet_id=request.scope.sheet_id,
-            row_ids=request.scope.row_ids,
+            sheet_id=scope.sheet_id,
+            row_ids=scope.row_ids,
             references=references,
         )
     else:
         references = validate_typed_project_references(
-            project, request.scope.sheet_id, bound.params
+            project, scope.sheet_id, bound.params
         )
         if isinstance(bound.action.definition.run, _DirectModelRows):
             _validate_classifier_source_types(
@@ -1715,8 +1717,8 @@ def build_typed_map_rows_plan(
             validate_model_rows_input_provenance(
                 project,
                 action_id=bound.action.action_id,
-                sheet_id=request.scope.sheet_id,
-                row_ids=request.scope.row_ids,
+                sheet_id=scope.sheet_id,
+                row_ids=scope.row_ids,
                 source_column_ids=references.source_column_ids,
             )
     overlapping_columns = sorted(
@@ -1808,7 +1810,8 @@ def resolve_row_output_targets(
 ) -> tuple[dict[str, str], dict[str, int | None]]:
     """Admit typed output descriptors, regardless of where Params were bound."""
 
-    sheet_id = request.scope.sheet_id
+    scope = require_sheet_rows(request.scope)
+    sheet_id = scope.sheet_id
     columns_by_name = {
         str(column["name"]): column
         for column in project.columns(sheet_id, include_hidden=True)
@@ -1898,7 +1901,7 @@ def resolve_row_output_targets(
             or column["semantic_type"] != field.semantic_type
         )
         if (
-            (descriptor_changed and request.scope.row_ids is not None)
+            (descriptor_changed and scope.row_ids is not None)
             or (descriptor_changed and bool(column["hidden"]))
             or (
                 descriptor_changed
@@ -2505,6 +2508,7 @@ def _typed_map_rows_plan(
     """
 
     action, request = bound.action, bound.request
+    scope = require_sheet_rows(request.scope)
     terminal_policy = _MapTerminalPolicy.for_terminal(action.definition.run)
     params, output_fields = bound.params, bound.output_fields
     request_identity = normalized_typed_request_identity(bound)
@@ -2527,7 +2531,7 @@ def _typed_map_rows_plan(
     spec: dict[str, Any] = {
         "action_kind": action.action_id,
         "action_version": "1",
-        "sheet_id": request.scope.sheet_id,
+        "sheet_id": scope.sheet_id,
         "input_columns": list(source_columns),
         "params": request_identity["params"],
         "output_names": final_names,
@@ -2589,8 +2593,8 @@ def _typed_map_rows_plan(
     if terminal_policy.model_backed or terminal_policy.external_confirmation:
         if request.confirmation is not None:
             spec["consented_promise_set_hash"] = request.confirmation
-    if request.scope.row_ids is not None:
-        spec["row_ids"] = list(request.scope.row_ids)
+    if scope.row_ids is not None:
+        spec["row_ids"] = list(scope.row_ids)
 
     frozen_names = MappingProxyType(final_names)
     program_type = (
@@ -2799,8 +2803,9 @@ def _typed_replay_error(
             # output to revalidate, but any published refs still take the normal
             # generation/value checks below, including on unsuccessful runs.
             return None
-        requested_rows = request.scope.row_ids
-        if request.scope.selection is not None and receipt.run_id is not None:
+        scope = require_sheet_rows(request.scope)
+        requested_rows = scope.row_ids
+        if scope.selection is not None and receipt.run_id is not None:
             from frisket.engine.store.runs import RunResultStore
 
             requested_rows = RunResultStore(project).run_row_scope_if_present(
@@ -2827,7 +2832,7 @@ def _typed_replay_error(
             allow_empty_rows=receipt.status == "cancelled",
             expected_row_ids=replay_expected_row_ids(
                 project,
-                sheet_id=request.scope.sheet_id,
+                sheet_id=scope.sheet_id,
                 requested_row_ids=(
                     list(requested_rows) if requested_rows is not None else None
                 ),
@@ -3552,6 +3557,7 @@ def typed_queued_map_spec(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
 
     unresolved = initial_plan or _typed_map_rows_plan(bound)
+    scope = require_sheet_rows(bound.request.scope)
     terminal_policy = _MapTerminalPolicy.for_terminal(bound.action.definition.run)
     action = _typed_request_envelope(bound)
 
@@ -3589,9 +3595,7 @@ def typed_queued_map_spec(
                 }
                 current_targets = {
                     str(column["name"]): int(column["id"])
-                    for column in project.columns(
-                        bound.request.scope.sheet_id, include_hidden=True
-                    )
+                    for column in project.columns(scope.sheet_id, include_hidden=True)
                 }
                 expected_names = set(plan.output_names.values())
                 if set(prepared_targets) != expected_names or any(
@@ -3666,9 +3670,9 @@ def typed_queued_map_spec(
 
             resolved["row_source_snapshot"] = row_source_snapshot(
                 project,
-                bound.request.scope.sheet_id,
+                scope.sheet_id,
                 plan.source_column_ids,
-                row_ids=bound.request.scope.row_ids,
+                row_ids=scope.row_ids,
             )
         return resolved
 
@@ -3747,9 +3751,9 @@ def typed_queued_map_spec(
 
             if payload.get("v1_row_source_snapshot") != row_source_snapshot(
                 project,
-                bound.request.scope.sheet_id,
+                scope.sheet_id,
                 current_plan.source_column_ids,
-                row_ids=bound.request.scope.row_ids,
+                row_ids=scope.row_ids,
             ):
                 return ActionError(
                     code="stale_media_extract_pdf_tables_input"
@@ -3761,9 +3765,7 @@ def typed_queued_map_spec(
                 )
         current_columns = {
             str(column["name"]): int(column["id"])
-            for column in project.columns(
-                bound.request.scope.sheet_id, include_hidden=True
-            )
+            for column in project.columns(scope.sheet_id, include_hidden=True)
         }
         run_id = payload.get("run_id")
         role_to_name = {
