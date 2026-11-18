@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+from contextlib import nullcontext
+from types import SimpleNamespace
 import sqlite3
 import json
 import threading
@@ -15,10 +17,13 @@ from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.engine.jobs import Worker
+from frisket.engine.store.import_inventory import ImportInventory
 from frisket.execution import pricing_policy
 from frisket.execution.pricing_policy import RatedEstimate
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.server.app import create_app
+from frisket.server.services import import_child_execution, pdf_split_preparation_jobs
+from frisket.server.services.pdf_split_preparation import PdfSplitPreparationAdapter
 from tests.deterministic_time import controlled_time
 
 PAID = "anthropic/claude-haiku-4-5"
@@ -1013,9 +1018,6 @@ def test_a_retry_consent_authorizes_its_retry_once_and_only_its_pages(flow):
 def test_a_page_retried_for_its_cached_reading_is_never_read_without_consent(
     flow, monkeypatch
 ):
-    from frisket.server.services.pdf_split_preparation import (
-        PdfSplitPreparationAdapter,
-    )
 
     client, pid, provider = flow
     provider.failures = 1
@@ -1042,8 +1044,6 @@ def test_a_page_retried_for_its_cached_reading_is_never_read_without_consent(
 def test_an_import_notification_that_cannot_be_recorded_never_fails_the_import(
     flow, monkeypatch
 ):
-    from frisket.server.services import pdf_split_preparation_jobs
-
     failures = []
     emit = pdf_split_preparation_jobs.emit_notification_candidate
 
@@ -1071,11 +1071,6 @@ def test_an_import_notification_that_cannot_be_recorded_never_fails_the_import(
 
 
 def test_each_attempt_at_a_page_is_its_own_admitted_purchase(flow, monkeypatch):
-    from contextlib import nullcontext
-    from types import SimpleNamespace
-
-    from frisket.server.services import import_child_execution
-
     client, pid, provider = flow
     # A deployment admits every page attempt as a child purchase of the import.
     monkeypatch.setattr(
@@ -1110,8 +1105,6 @@ def test_each_attempt_at_a_page_is_its_own_admitted_purchase(flow, monkeypatch):
 def test_a_draft_that_cannot_be_settled_never_stops_startup_and_settles_later(
     flow, tmp_path, monkeypatch
 ):
-    from frisket.engine.store.import_inventory import ImportInventory
-
     client, pid, provider = flow
     sessions = f"/api/projects/{pid}/import/files/sessions"
     ref = client.post(sessions, json={"sheet_name": "Legacy"}).json()["import_ref"]
