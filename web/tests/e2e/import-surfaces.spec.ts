@@ -133,12 +133,8 @@ function bulkPreparation(plan: Record<string, unknown>): string {
 
 async function openFilesImport(page: Page) {
   await openImportWorkspace(page);
-  const tableSource = page.getByRole('region', { name: 'Add data', exact: true });
   const filesMode = page.getByTestId('import-mode-files');
-  await expect(tableSource.or(filesMode)).toBeVisible();
-  if (await tableSource.isVisible()) {
-    await page.getByRole('button', { name: 'Multiple files', exact: true }).click();
-  }
+  await filesMode.click();
   await expect(filesMode).toHaveAttribute('aria-selected', 'true');
 }
 
@@ -255,9 +251,9 @@ test('empty-project dropzone keeps a single ordinary file on legacy file import'
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('import-dropzone')).toBeVisible({ timeout: 15_000 });
   await dropFiles(page, [{
-    name: 'notes.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from('ordinary notes\n'),
+    name: 'scan.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('route mock does not decode the image'),
   }]);
 
   await expect.poll(() => ({ preparationCount, legacyFilesCount })).toEqual({
@@ -741,7 +737,9 @@ test('a directly selected extensionless file is sent to the bulk planner', async
   expect(multipartFilenames(planBody)).toEqual(['evidence']);
   expect(multipartFieldValues(planBody, 'logical_paths')).toEqual(['evidence']);
   expect(multipartFieldValues(planBody, 'expand_archive')).toEqual(['false']);
-  await expect(workspace.getByRole('status')).toContainText('No importable files found.');
+  await expect(
+    workspace.getByRole('status').filter({ hasText: 'No importable files found.' }),
+  ).toBeVisible();
 });
 
 test('bulk email warnings remain inert text alongside a successful import', async ({ page }) => {
@@ -864,7 +862,9 @@ test('a bulk plan with no proposed outputs reports that status and cannot execut
   await chooseZip(page, zipPicker, 'metadata-only.zip');
 
   await expect.poll(() => planCount).toBe(1);
-  await expect(workspace.getByRole('status')).toContainText('No importable files found.');
+  await expect(
+    workspace.getByRole('status').filter({ hasText: 'No importable files found.' }),
+  ).toBeVisible();
   await expect(workspace.getByRole('button', { name: /^Execute import$/i })).toHaveCount(0);
   expect(executeCount).toBe(0);
 });

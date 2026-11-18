@@ -136,18 +136,7 @@
   "grounded extract posts citation policy on map.extract and opens evidence links": "stale-expectation"
  },
  "import-surfaces.spec.ts": {
-  "CSV folder selection plans a bulk import, keeps paths aligned, and executes separate sheets": "stale-expectation",
-  "Files accepts two XLSX workbooks, bulk-plans them once, and opens the designated worksheet": "stale-expectation",
   "URL import records invalid URL errors": "stale-expectation",
-  "a bulk plan with no proposed outputs reports that status and cannot execute": "stale-expectation",
-  "a directly selected extensionless file is sent to the bulk planner": "stale-expectation",
-  "a question-bearing CSV plan waits for a choice and an execute click": "stale-expectation",
-  "a question-free bulk plan executes exactly once without showing an execute control": "stale-expectation",
-  "a sole ZIP plans with archive expansion": "stale-expectation",
-  "bulk email warnings remain inert text alongside a successful import": "stale-expectation",
-  "bulk email warnings remain visible alongside a partial import failure": "stale-expectation",
-  "closing a planned bulk import clears it before the workspace reopens": "stale-expectation",
-  "empty-project dropzone keeps a single ordinary file on legacy file import": "stale-expectation",
   "two generic Files selections with one PDF stay on the normal file import": "stale-expectation"
  },
  "investigative-feeds.spec.ts": {
