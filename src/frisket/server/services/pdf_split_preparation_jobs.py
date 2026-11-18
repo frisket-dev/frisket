@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from filelock import FileLock
+from pydantic import JsonValue
 
 from frisket.contracts.http.import_sessions import (
     MAX_IMPORT_ROW_STATE_IDS,
@@ -325,7 +326,7 @@ class PdfSplitPreparationJobs:
                 )
         adapter.resume_fanout(generation=generation)
         state = adapter.progress(generation=generation)
-        if not _settled(state):
+        if session is None or not _settled(state):
             return 0
         # Recovery keeps an import whose outcome is still owed and records it
         # on a later tick; the outcome is owed until it is durably recorded.
@@ -391,6 +392,19 @@ class PdfSplitPreparationJobs:
             "receipt_"
             + hashlib.sha256(f"local-reading:{identity}".encode()).hexdigest()
         )
+        pages: list[JsonValue] = [
+            {
+                "file": str(target["occurrence_key"]),
+                "page_number": int(target["page_number"]),
+                "status": str(row["status"]),
+                "rows": [dict(binding) for binding in bindings[str(row["work_key"])]],
+            }
+            for row, target in zip(rows, targets, strict=True)
+        ]
+        pass_value: dict[str, JsonValue] = {
+            "ocr_action_params": json.loads(json.dumps(params)),
+            "pages": pages,
+        }
         receipts = ReceiptStore(project)
         try:
             if receipts.find_by_id(receipt_id) is None:
@@ -422,18 +436,7 @@ class PdfSplitPreparationJobs:
                                 "request_count": 0,
                             }
                         ],
-                        value={
-                            "ocr_action_params": params,
-                            "pages": [
-                                {
-                                    "file": target["occurrence_key"],
-                                    "page_number": int(target["page_number"]),
-                                    "status": str(row["status"]),
-                                    "rows": bindings[str(row["work_key"])],
-                                }
-                                for row, target in zip(rows, targets, strict=True)
-                            ],
-                        },
+                        value=pass_value,
                     )
                 )
             with PdfSplitPreparationStore(directory / "inventory.db") as store:
