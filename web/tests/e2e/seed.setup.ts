@@ -141,6 +141,9 @@ setup('seed demo projects (once per workspace)', async ({ request }) => {
     status[name] = await openFailure(request, ids.get(name), whyAbsent);
   }
   writeSeedStatus(status);
+  // The known-failures ratchet (scripts/ci/e2e_known_failures.py) reads this
+  // to decide whether tests listed under the `seed` reason must fail.
+  setup.info().annotations.push({ type: 'seed-status', description: JSON.stringify(status) });
   const byReason = new Map<string, string[]>();
   for (const name of SEEDED_PROJECTS) {
     const reason = status[name];
@@ -153,6 +156,5 @@ setup('seed demo projects (once per workspace)', async ({ request }) => {
       `${unusable.length} of ${SEEDED_PROJECTS.length} seeded e2e projects are unusable, and the specs ` +
       `that open them will fail at once. ${reasons.join('. ')}. To restore them: ${SEED_REMEDY}.`;
     console.warn(message);
-    setup.info().annotations.push({ type: 'seed', description: message });
   }
 });
