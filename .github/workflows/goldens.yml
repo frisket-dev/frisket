@@ -19,6 +19,10 @@ on:
     - cron: '0 6 * * 1' # Mondays 06:00 UTC
   workflow_dispatch:
 
+env:
+  # A dependency download slower than uv's 30-second default must not fail the job.
+  UV_HTTP_TIMEOUT: "120"
+
 jobs:
   goldens:
     runs-on: ubuntu-latest

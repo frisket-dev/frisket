@@ -23,6 +23,10 @@ concurrency:
   group: windows-portability-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # A dependency download slower than uv's 30-second default must not fail the job.
+  UV_HTTP_TIMEOUT: "120"
+
 jobs:
   queue-tested:
     permissions:
