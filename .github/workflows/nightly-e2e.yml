@@ -1,0 +1,213 @@
+name: nightly-e2e
+
+# Runs the complete provider-free browser suite (web/playwright/
+# playwright.config.ts) on the head of main once a night, in four shards, and
+# judges it against the shrink-only known-failures list
+# (scripts/ci/e2e_known_failures.py and .json). Pull requests and the merge
+# queue run only deploy-smoke and e2e-cassette-core; this run is what keeps
+# the rest of the suite from rotting unnoticed.
+#
+# Keyless by construction: no secrets reach any job, and
+# FRISKET_CACHE_MODE=replay_strict makes every model call replay from the
+# committed response cache or fail as a cache miss, so no run can spend or
+# egress to a provider. The seed setup therefore never builds the paid demo
+# projects here; the specs that need them fail at once and stay listed under
+# the `seed` reason.
+#
+# A night whose verdict fails opens, or comments on, one issue labelled
+# `nightly-e2e`; the next passing night closes it. Dispatch it to judge the
+# head now (only runs on main touch the issue).
+on:
+  schedule:
+    # 08:41 UTC: off the hour and clear of nightly-platform's 07:23.
+    - cron: "41 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-e2e-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The one enforcement switch. "false" reports the known-failures diff in the
+  # job summary and passes; "true" fails the night on any new failure, any
+  # listed test that now passes, or any stale entry. Flip it once the list has
+  # been reconciled with a run on this runner (CONTRIBUTING.md, Browser suite).
+  E2E_KNOWN_FAILURES_ENFORCE: "false"
+  SHARDS: "4"
+
+jobs:
+  # A scheduled night is skipped when main has not moved since the last
+  # green run on main; a manual dispatch always runs. A failed lookup runs.
+  decide:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      last_green: ${{ steps.decide.outputs.last_green }}
+    steps:
+      - id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          run=true
+          last_green=""
+          if runs="$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/nightly-e2e.yml/runs" \
+              -f branch=main -f status=success -F per_page=50)"; then
+            last_green="$(jq -r '[.workflow_runs[] | select(.event == "schedule" or .event == "workflow_dispatch")][0].head_sha // ""' <<< "$runs" || true)"
+          else
+            echo "::warning::could not list earlier nightly runs; judging this revision"
+          fi
+          if [ "$EVENT_NAME" = schedule ] && [ "$last_green" = "$GITHUB_SHA" ]; then
+            run=false
+            echo "### main is still at $GITHUB_SHA, judged by the last green nightly run; nothing to do" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "run=$run"
+            echo "last_green=$last_green"
+          } >> "$GITHUB_OUTPUT"
+
+  # Same toolchain as ci.yml's browser jobs, plus the workstation extras the
+  # full suite exercises (`standard`: spaCy, ASR, translation, PDF; and
+  # `entities`) and the native Vec1 library for semantic search.
+  shard:
+    needs: decide
+    if: needs.decide.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg
+      - run: uv sync --frozen --dev --extra standard --extra entities
+      - run: uv run --no-sync python scripts/build_vec1.py
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      # Test failures do not fail the shard: the verdict job judges them
+      # against the list. A shard that produced no report could not run the
+      # suite at all, and fails.
+      - name: Browser suite, shard ${{ matrix.shard }}
+        working-directory: web
+        env:
+          UV_NO_SYNC: "1"
+          FRISKET_CACHE_MODE: replay_strict
+          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/e2e-report-${{ matrix.shard }}.json
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set +e
+          npx playwright test --config playwright/playwright.config.ts --shard "$SHARD/$SHARDS" \
+            --reporter=line,json,./playwright/playwright.checklog-reporter.mjs
+          status=$?
+          set -e
+          if [ ! -s "$PLAYWRIGHT_JSON_OUTPUT_NAME" ]; then
+            echo "::error::shard $SHARD wrote no report (playwright exited $status)"
+            exit 1
+          fi
+          echo "playwright exited $status; the verdict job judges the failures"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() }}
+        with:
+          name: e2e-report-${{ matrix.shard }}
+          path: ${{ runner.temp }}/e2e-report-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Judges the merged shard reports, writes the job summary, and opens,
+  # comments on or closes the one `nightly-e2e` issue on main. A cancelled
+  # run reports nothing.
+  verdict:
+    needs: [decide, shard]
+    if: ${{ always() && needs.decide.outputs.run == 'true' && needs.shard.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: e2e-report-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/reports
+      - id: ratchet
+        env:
+          REPORTS: ${{ runner.temp }}/reports
+          VERDICT: ${{ runner.temp }}/verdict.md
+        run: |
+          set +e
+          mode=--report-only
+          [ "$E2E_KNOWN_FAILURES_ENFORCE" = true ] && mode=
+          python3 scripts/ci/e2e_known_failures.py "$REPORTS"/*.json $mode --summary "$VERDICT" > "$RUNNER_TEMP/ratchet.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/ratchet.log"
+          if [ -s "$VERDICT" ]; then
+            cat "$VERDICT" >> "$GITHUB_STEP_SUMMARY"
+          else
+            { echo '### Browser suite: no verdict'; echo; echo '```'; tail -n 20 "$RUNNER_TEMP/ratchet.log"; echo '```'; } | tee "$VERDICT" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
+      - if: ${{ always() && github.ref == 'refs/heads/main' && steps.ratchet.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ steps.ratchet.outcome }}
+          LAST_GREEN: ${{ needs.decide.outputs.last_green }}
+          VERDICT: ${{ runner.temp }}/verdict.md
+        run: |
+          set -euo pipefail
+          label=nightly-e2e
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          open="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
+          if [ "$RESULT" = success ]; then
+            if [ -n "$open" ]; then
+              gh issue comment "$open" --body "The nightly browser suite matched its known-failures list on \`$GITHUB_SHA\`: $run_url"
+              gh issue close "$open" --reason completed
+            fi
+            exit 0
+          fi
+          body="$RUNNER_TEMP/nightly-e2e-issue.md"
+          {
+            echo "The nightly browser suite on \`$GITHUB_SHA\` does not match its known-failures list ($run_url)."
+            echo
+            if [ -n "$LAST_GREEN" ] && [ "$LAST_GREEN" != "$GITHUB_SHA" ]; then
+              echo "Merges since the last green night: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$LAST_GREEN...$GITHUB_SHA"
+              echo
+            fi
+            # An issue body holds at most 65536 characters; the job summary has it all.
+            head -c 60000 "$VERDICT"
+            echo
+            echo "Fix a new failure, or list it by hand in scripts/ci/e2e_known_failures.json with its reason; delete listed tests that now pass. See CONTRIBUTING.md, Browser suite."
+          } > "$body"
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body-file "$body"
+          else
+            gh label create "$label" --color B60205 \
+              --description "The nightly browser suite has new failures" 2>/dev/null || true
+            gh issue create --title "Nightly browser suite: new failures" --label "$label" --body-file "$body"
+          fi
