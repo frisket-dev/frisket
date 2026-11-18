@@ -41,7 +41,7 @@ function renderController(initial: ImportPageReading | null) {
       sheets: [sheet],
       externalRoute: {},
       chromeState: {
-        openEvidenceViewer: vi.fn(), setOpenSplit: vi.fn(), setDocumentView: vi.fn(), documentView: null,
+        openCitationViewer: vi.fn(), setOpenSplit: vi.fn(), setDocumentView: vi.fn(), documentView: null,
         openSplit: null, hideActionPanel: vi.fn(), recordCommandAction: vi.fn(), actionPanelOpen: false,
         commandPaletteOpen: false,
       },
