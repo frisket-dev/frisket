@@ -223,9 +223,9 @@ test('the fan-out guard surfaces the shared costGate confirm UI and re-submits w
   await expect(page.getByTestId('field-join_right_sheet')).toHaveValue(String(rightId));
   await page.getByTestId('field-sheet_name').fill('Big Fanout');
 
-  // The challenge's promise-set hash, and the confirming re-post captured from
-  // the REQUEST as it is sent (not the response), since actually writing ~1M
-  // rows in one transaction takes well past any reasonable e2e wait; the
+  // The challenge's promise-set hash, and the confirming re-post captured and
+  // stopped before it reaches the server: executing it writes ~1M rows and
+  // keeps the shared queue worker indexing them for the rest of the suite. The
   // request-level proof is what this test is for.
   let challengeHash: string | null = null;
   page.on('response', async (res) => {
@@ -234,10 +234,14 @@ test('the fan-out guard surfaces the shared costGate confirm UI and re-submits w
     challengeHash = body.errors?.[0]?.details?.promise_set_hash ?? null;
   });
   let confirmedBody: Record<string, unknown> | null = null;
-  page.on('request', (req) => {
-    if (!req.url().includes(`/api/projects/${pid}/actions/v1/run`) || req.method() !== 'POST') return;
-    const body = req.postDataJSON() as Record<string, unknown>;
-    if (body.action_id === 'derive.join' && typeof body.confirmation === 'string') confirmedBody = body;
+  await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    if (body.action_id === 'derive.join' && typeof body.confirmation === 'string') {
+      confirmedBody = body;
+      await route.abort();
+      return;
+    }
+    await route.continue();
   });
 
   await page.getByTestId('generated-action-run').click();
