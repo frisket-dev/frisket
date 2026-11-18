@@ -273,8 +273,7 @@
   "run watcher can cancel a queued run": "stale-expectation"
  },
  "run-failure-surfacing.spec.ts": {
-  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation",
-  "clicking a preview error cell shows the full error text in the Detail panel": "stale-expectation"
+  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation"
  },
  "run-live-cell-fill.spec.ts": {
   "a failed row shows its error text inline instead of an empty dash": "stale-expectation",

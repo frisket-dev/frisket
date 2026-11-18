@@ -230,6 +230,25 @@ def test_a_backend_cannot_return_a_run_level_code_as_a_row_error() -> None:
         assert TransformFailure(code=code, message="x").code == code
 
 
+def test_a_program_exception_reaches_the_row_as_its_own_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The row error is the exception the program raised, not the frames that
+    lead to it and not a refusal to carry an over-long traceback.
+
+    Red-proof: report the head of the child's stderr, or pass the whole
+    traceback as the message; the row then says something else.
+    """
+
+    monkeypatch.setattr(
+        python_transform, "resolve_executor", lambda: NativeSubprocessExecutor()
+    )
+    with pytest.raises(RowError) as caught:
+        _run(_evaluate(code='raise ValueError("the clerk never answered")'))
+    assert caught.value.code == TRANSFORM_EXCEPTION
+    assert caught.value.message == "ValueError: the clerk never answered"
+
+
 def test_a_row_failure_is_raised_as_a_row_error_with_its_code(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
