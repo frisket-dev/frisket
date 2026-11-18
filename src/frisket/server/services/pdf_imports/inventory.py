@@ -14,20 +14,6 @@ from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.import_inventory import ImportInventory
 
 
-def pdf_ocr_selected(policy: str, category: str) -> bool:
-    """Whether an analyzed file is eligible for OCR under the authored policy."""
-
-    if category in {"other", "unreadable", "unchecked"} or policy == "none":
-        return False
-    if policy == "missing":
-        return category in {"missing", "image"}
-    if policy == "all":
-        return category in {"text", "suspicious", "missing", "image"}
-    if policy == "missing_or_suspicious":
-        return category in {"missing", "suspicious", "image"}
-    raise ValueError("invalid PDF OCR policy")
-
-
 class PdfDraftInventory:
     """Extend the shared import inventory with a declared-before-copy roster."""
 
@@ -704,83 +690,6 @@ class PdfDraftInventory:
             )
         }
         return int(matched["value"]), categories
-
-    def ocr_scope(
-        self, policy: str, *, child_size: int = 256
-    ) -> tuple[str, int, int, list[dict[str, Any]]]:
-        """Hash the OCR roster and summarize deterministic commit-order children."""
-
-        if child_size < 1 or child_size > 256:
-            raise ValueError("OCR child size must be 1..256")
-        digest = hashlib.sha256()
-        child_digest = hashlib.sha256()
-        count = pages = commit_ordinal = 0
-        child_start = 1
-        child_count = child_pages = 0
-        child_row_pages: dict[int, int] = {}
-        children: list[dict[str, Any]] = []
-        cursor = self.db.execute(
-            "SELECT s.ordinal,s.occurrence_id,st.sha256,st.mime,st.page_count,st.category "
-            "FROM pdf_selected s JOIN pdf_selected_state st USING(occurrence_id) "
-            "WHERE st.matched=0 ORDER BY s.ordinal"
-        )
-        for row in cursor:
-            commit_ordinal += 1
-            selected = row["sha256"] is not None and pdf_ocr_selected(
-                policy, str(row["category"])
-            )
-            if selected:
-                fact = {
-                    "commit_ordinal": commit_ordinal,
-                    "selected_ordinal": int(row["ordinal"]),
-                    "occurrence_id": str(row["occurrence_id"]),
-                    "sha256": str(row["sha256"]),
-                    "mime": str(row["mime"]),
-                    "page_count": int(row["page_count"] or 0),
-                    "category": str(row["category"]),
-                }
-                encoded = json.dumps(
-                    fact, sort_keys=True, separators=(",", ":")
-                ).encode()
-                digest.update(encoded)
-                digest.update(b"\n")
-                child_digest.update(encoded)
-                child_digest.update(b"\n")
-                count += 1
-                pages += fact["page_count"]
-                child_count += 1
-                child_pages += fact["page_count"]
-                child_row_pages[commit_ordinal] = fact["page_count"]
-            if commit_ordinal % child_size == 0:
-                if child_count:
-                    children.append(
-                        {
-                            "child_key": f"commit-ordinals:{child_start}-{commit_ordinal}",
-                            "commit_ordinal_start": child_start,
-                            "commit_ordinal_end": commit_ordinal,
-                            "source_count": child_count,
-                            "page_count": child_pages,
-                            "roster_digest": child_digest.hexdigest(),
-                            "row_pages": dict(child_row_pages),
-                        }
-                    )
-                child_start = commit_ordinal + 1
-                child_count = child_pages = 0
-                child_row_pages = {}
-                child_digest = hashlib.sha256()
-        if child_count:
-            children.append(
-                {
-                    "child_key": f"commit-ordinals:{child_start}-{commit_ordinal}",
-                    "commit_ordinal_start": child_start,
-                    "commit_ordinal_end": commit_ordinal,
-                    "source_count": child_count,
-                    "page_count": child_pages,
-                    "roster_digest": child_digest.hexdigest(),
-                    "row_pages": dict(child_row_pages),
-                }
-            )
-        return digest.hexdigest(), count, pages, children
 
     def cache_ocr(
         self,

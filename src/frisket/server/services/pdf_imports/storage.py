@@ -28,10 +28,6 @@ class PdfImportDraftError(RouteError):
     pass
 
 
-class PdfImportPromotionRejected(PdfImportDraftError):
-    """The frozen draft cannot transfer ownership into project storage."""
-
-
 def now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
@@ -145,11 +141,59 @@ class PdfDraftStore:
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue
 
+    def retire_ordinary_commits(self) -> list[tuple[str, str]]:
+        """Settle drafts left mid-commit by the retired ordinary publisher.
+
+        Such a draft kept admitting uploads after its first rows were
+        published, and nothing publishes those uploads any more. A draft
+        whose rows were published becomes committed, one whose bytes never
+        left the draft reopens for review, and any other is cancelled.
+        Returns the (project, import) pairs whose imports still await uploads.
+        """
+        unsealed: list[tuple[str, str]] = []
+        for path in self.root.glob("pdf-*/manifest.json"):
+            directory = path.parent
+            try:
+                with self.lock(directory):
+                    header = json.loads(path.read_text("utf-8"))
+                    commit = header.get("commit")
+                    if (
+                        header.get("state") != "committing"
+                        or not isinstance(commit, dict)
+                        or "commit_inventory_path" not in commit
+                        or commit.get("packet_publication") is True
+                    ):
+                        continue
+                    if commit.get("result") is not None:
+                        header["state"] = "committed"
+                        unsealed.append(
+                            (
+                                str(header["project_id"]),
+                                str(commit["result"]["import_ref"]),
+                            )
+                        )
+                    elif commit.get("promotion_target") is None:
+                        with PdfDraftInventory(directory / "inventory.db") as inventory:
+                            inventory.reset_commit_projection()
+                        for suffix in ("", "-wal", "-shm"):
+                            Path(f"{commit['commit_inventory_path']}{suffix}").unlink(
+                                missing_ok=True
+                            )
+                        header["state"] = "open"
+                        header["commit"] = None
+                    else:
+                        header["state"] = "cancelled"
+                        shutil.rmtree(directory / "files", ignore_errors=True)
+                        shutil.rmtree(directory / "cache", ignore_errors=True)
+                    self.save(directory, header)
+            except (OSError, ValueError, KeyError, Timeout):
+                continue
+        return unsealed
+
 
 __all__ = [
     "PdfDraftStore",
     "PdfImportDraftError",
-    "PdfImportPromotionRejected",
     "SCHEMA_VERSION",
     "now",
 ]

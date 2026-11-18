@@ -315,6 +315,19 @@ class PdfImportCommitRequest(WireModel):
     ocr_confirmation: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
+class PdfImportCommitJob(WireModel):
+    """The packet import a committed draft became."""
+
+    commit_id: str
+    import_ref: str
+    receipt_id: str
+    sheet_id: int
+    state: str
+    committed_rows: int = Field(ge=0)
+    selected_total: int = Field(ge=0)
+    job_id: int | None = None
+
+
 class PdfImportCommitResponse(WireModel):
     schema_version: PdfImportSchemaVersion
     draft_id: str
@@ -322,9 +335,7 @@ class PdfImportCommitResponse(WireModel):
     status: Literal["accepted"]
     manifest_hash: str
     selected_total: int = Field(ge=0)
-    available_through: int = Field(ge=0)
-    uploads_complete: bool
-    job: dict | None = None
+    job: PdfImportCommitJob | None = None
 
 
 __all__ = [

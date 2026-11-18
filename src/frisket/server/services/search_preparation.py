@@ -9,7 +9,7 @@ import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from frisket.contracts.http.search_preparation import (
     MAX_INDEXING_SHEET_NAMES,
@@ -57,15 +57,18 @@ from frisket.retrieval.query import (
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_runs import ActionRunRouteError, ActionRunService
-from frisket.server.services.pdf_import_preparation import (
-    PdfImportPreparationCoordinator,
-)
 from frisket.server.services.pdf_imports.semantic_setup import semantic_setup_facts
 from frisket.server.services.search_preparation_planning import (
     build_plan,
     capture_sources,
     sample_pdf,
 )
+
+if TYPE_CHECKING:
+    from frisket.server.services.pdf_split_preparation_jobs import (
+        PdfImportPreparationSummary,
+        PdfSplitPreparationJobs,
+    )
 
 
 _OCR_REF = "engine-setup:rapidocr.local@1"
@@ -428,15 +431,6 @@ class SearchPreparationService:
             may_run_actions=may_run_actions,
         )
 
-    def _pdf_imports(self) -> PdfImportPreparationCoordinator:
-        return PdfImportPreparationCoordinator(
-            self.workspace,
-            action_runs=self.action_runs,
-            pending_store=self.store,
-            document_text_target=_document_text_target,
-            ensure_semantic_setup=self._ensure_pdf_semantic_setup,
-        )
-
     def _settle(self, row: SearchPreparationBatchRow) -> None:
         self.store.mark_settled(
             row.id, project_id=row.project_id, storage_org_id=row.storage_org_id
@@ -468,23 +462,15 @@ class SearchPreparationService:
             raise RouteError(404, "search preparation batch was not found")
         return row
 
-    def create_from_pdf_import(self, project_id: str, **kwargs: Any) -> Any:
-        return self._pdf_imports().create(project_id, **kwargs)
-
     def reserve_pdf_import(
         self, project_id: str, *, receipt_id: str, import_ref: str
     ) -> None:
-        self._pdf_imports().reserve(
-            project_id, receipt_id=receipt_id, import_ref=import_ref
+        self.store.create_pending_import(
+            storage_org_id=self.workspace.queue_storage_organization_id,
+            project_id=project_id,
+            receipt_id=receipt_id,
+            import_ref=import_ref,
         )
-
-    def abandon_pdf_import(
-        self, project_id: str, *, receipt_id: str, import_ref: str
-    ) -> None:
-        pending = self._pending_for_receipt(project_id, receipt_id)
-        if pending is None or pending.import_ref != import_ref:
-            return
-        self._settle(pending)
 
     def _ensure_pdf_semantic_setup(
         self,
@@ -588,25 +574,44 @@ class SearchPreparationService:
                         project_id, import_ref, None, lock_timeout=lock_timeout
                     )
             return split.progress(project_id, import_ref, lock_timeout=lock_timeout)
-        return self._pdf_imports().progress(
-            project_id, import_ref, lock_timeout=lock_timeout
+        return 0
+
+    def pdf_import_summary(
+        self, project_id: str, import_ref: str
+    ) -> PdfImportPreparationSummary | None:
+        split = self._split_jobs(project_id, import_ref)
+        return None if split is None else split.summary(project_id, import_ref)
+
+    def stop_pdf_import(
+        self, project_id: str, import_ref: str
+    ) -> PdfImportPreparationSummary | None:
+        split = self._split_jobs(project_id, import_ref)
+        return None if split is None else split.stop(project_id, import_ref)
+
+    def _page_retry(self, project_id: str, import_ref: str) -> PdfSplitPreparationJobs:
+        split = self._split_jobs(project_id, import_ref)
+        if split is None:
+            raise RouteError(409, "This import has no page text to retry")
+        return split
+
+    def estimate_pdf_import_retry(
+        self, project_id: str, import_ref: str, *, request_context: Any = None
+    ) -> dict[str, Any]:
+        return self._page_retry(project_id, import_ref).estimate_retry(
+            project_id, import_ref, request_context=request_context
         )
 
-    def pdf_import_summary(self, project_id: str, import_ref: str) -> Any:
-        split = self._split_jobs(project_id, import_ref)
-        return (split or self._pdf_imports()).summary(project_id, import_ref)
-
-    def pdf_import_child_page(
-        self, project_id: str, import_ref: str, *, after: int, limit: int = 100
+    def retry_pdf_import(
+        self,
+        project_id: str,
+        import_ref: str,
+        *,
+        plan_token: str,
+        confirmation: str | None,
     ) -> Any:
-        split = self._split_jobs(project_id, import_ref)
-        return (split or self._pdf_imports()).child_page(
-            project_id, import_ref, after=after, limit=limit
+        return self._page_retry(project_id, import_ref).retry(
+            project_id, import_ref, plan_token=plan_token, confirmation=confirmation
         )
-
-    def stop_pdf_import(self, project_id: str, import_ref: str) -> Any:
-        split = self._split_jobs(project_id, import_ref)
-        return (split or self._pdf_imports()).stop(project_id, import_ref)
 
     def create_after_import(
         self,
@@ -1371,9 +1376,15 @@ class SearchPreparationService:
                 row.project_id, row.import_ref, lock_timeout=lock_timeout
             )
             summary = self.pdf_import_summary(row.project_id, row.import_ref)
-            if summary.stopped or (
-                session.state not in {"active", "paused", "cancelled"}
-                and scheduled >= session.cursor
+            # Only packet imports prepare page text; any other reviewed PDF
+            # preparation intent has nothing left to run.
+            if (
+                summary is None
+                or summary.stopped
+                or (
+                    session.state not in {"active", "paused", "cancelled"}
+                    and scheduled >= session.cursor
+                )
             ):
                 self._settle(row)
             return

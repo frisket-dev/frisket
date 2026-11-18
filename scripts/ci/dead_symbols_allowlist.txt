@@ -179,7 +179,6 @@ src/frisket/server/services/projects.py::ProjectLifecycleService.declare_project
 src/frisket/server/services/projects.py::ProjectLifecycleService.resolve_project_secret_for_consumer  frisket-cloud
 src/frisket/server/services/sample_project.py::sample_articles_csv  unreferenced
 src/frisket/server/services/search_preparation.py::SearchPreparationService.batch_for_receipt  test-only
-src/frisket/server/services/search_preparation.py::SearchPreparationService.create_from_pdf_import  test-only
 src/frisket/server/services/search_preparation.py::SearchPreparationService.recover_pdf_import  frisket-cloud
 src/frisket/server/feeds/runtime.py::registered_feed_kinds  unreferenced
 src/frisket/server/feeds/runtime.py::unregister_feed_checker  test-only

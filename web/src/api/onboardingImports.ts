@@ -5,6 +5,8 @@ import type {
   HttpImportSessionStatus,
 } from '../generated/openHttpContracts';
 import { httpContract, type HttpContractSuccessResponse, type RequestOptions } from './httpContract';
+import { runEstimateFromV1Wire } from './actionEstimateValidation';
+import type { RunEstimate } from './types';
 
 export interface ImportPreparationChild {
   action_id: 'media.read_pdf_text' | 'media.ocr';
@@ -29,7 +31,16 @@ export type ImportSessionStatus = HttpImportSessionStatus & {
   ocr_total: number;
   unreadable_total: number;
   preparation_children: ImportPreparationChild[];
+  reading_row_ids: number[];
+  waiting_row_ids: number[];
+  failed_pages: number;
 };
+
+interface ImportPreparationRetryEstimate {
+  planToken: string;
+  pages: number;
+  estimate: RunEstimate;
+}
 
 type ImportSessionList = Omit<HttpImportSessionList, 'sessions'> & {
   sessions: ImportSessionStatus[];
@@ -59,11 +70,13 @@ function normalizeImportSession(status: HttpImportSessionStatus): ImportSessionS
     unreadable_total: 'unreadable_total' in status && typeof status.unreadable_total === 'number'
       ? status.unreadable_total
       : 0,
-    preparation_pending_confirmation: status.preparation_pending_confirmation ?? null,
     preparation_children: 'preparation_children' in status
       && Array.isArray(status.preparation_children)
       ? status.preparation_children as ImportPreparationChild[]
       : [],
+    reading_row_ids: status.reading_row_ids ?? [],
+    waiting_row_ids: status.waiting_row_ids ?? [],
+    failed_pages: status.failed_pages ?? 0,
   };
 }
 
@@ -490,6 +503,34 @@ export function resolveImportSession(
   return httpContract('tenant.resolve_import_session.post', {
     pathParams: { pid: projectId, ref: importRef }, body: { decision },
     signal: options.signal,
+  }, normalizeImportSession);
+}
+
+/** Prices reading an import's failed pages again; the plan token names exactly those pages. */
+export function estimateImportPreparationRetry(
+  projectId: string,
+  importRef: string,
+): Promise<ImportPreparationRetryEstimate> {
+  return httpContract('tenant.estimate_import_preparation_retry.post', {
+    pathParams: { pid: projectId, ref: importRef },
+  }, (wire): ImportPreparationRetryEstimate => ({
+    planToken: wire.plan_token,
+    pages: wire.pages,
+    estimate: runEstimateFromV1Wire(wire.estimate),
+  }));
+}
+
+/** `confirmation` is the consented estimate's promise_set_hash, or null when
+ * the estimate did not require consent. */
+export function retryImportPreparation(
+  projectId: string,
+  importRef: string,
+  planToken: string,
+  confirmation: string | null,
+): Promise<ImportSessionStatus> {
+  return httpContract('tenant.retry_import_preparation.post', {
+    pathParams: { pid: projectId, ref: importRef },
+    body: { plan_token: planToken, confirmation },
   }, normalizeImportSession);
 }
 

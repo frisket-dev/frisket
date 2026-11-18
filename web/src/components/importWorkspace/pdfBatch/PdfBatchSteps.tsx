@@ -432,7 +432,7 @@ function CategoryRows({ snapshot, category, files }: { snapshot: PdfImportSnapsh
   return <span role="cell">{rows == null ? '…' : pdf ? count(rows, snapshot.choices.organization === 'pages' ? 'page' : 'document') : rows.toLocaleString()}</span>;
 }
 
-export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, batchEstimateWaiting, batchEstimateError, ocrAvailabilityChecking, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onReviewOcr, onImport }: {
+export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, importLabel, canImport, batchEstimateBusy, filesWaiting, batchEstimateError, ocrAvailabilityChecking, ocrAvailable, ocrProblem, onEstimateOcr, onSemantic, onConsent, onBack, onReviewOcr, onImport }: {
   snapshot: PdfImportSnapshot;
   semanticEnabled: boolean;
   consent: boolean;
@@ -440,7 +440,7 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
   importLabel: string;
   canImport: boolean;
   batchEstimateBusy: boolean;
-  batchEstimateWaiting: boolean;
+  filesWaiting: boolean;
   batchEstimateError: string | null;
   ocrAvailabilityChecking: boolean;
   ocrAvailable: boolean;
@@ -475,7 +475,7 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
           ? <span title={ocrProblem ?? undefined}>Setup required · <button type="button" className="link-btn" onClick={onReviewOcr}>Back to OCR engine</button></span>
           : snapshot.choices.ocr_selection.engine === 'rapidocr'
           ? <b>Ready</b>
-          : batchEstimateWaiting
+          : filesWaiting
             ? <span>Waiting for files…</span>
           : snapshot.batch_ocr?.state === 'ready'
           ? <b>Estimate ready</b>
@@ -487,6 +487,8 @@ export function SearchSetupStep({ snapshot, semanticEnabled, consent, busy, impo
     </PanelBody>
     <PanelFooter><Button type="button" disabled={busy} onClick={onBack}>Back</Button><span>{snapshot.paused
       ? 'Copying is paused. Go back to Add files to resume.'
+      : filesWaiting
+      ? 'Wait for every file to be copied and checked before importing.'
       : semanticWaitingForConsent
       ? `Allow the ${setup.download_bytes == null ? 'model' : formatBytes(setup.download_bytes)} download, or turn off search by meaning.`
       : semanticEnabled ? 'Keyword search and search by meaning will be prepared.' : 'Keyword search will be prepared.'}</span><Button type="button" className="btn-primary" disabled={!canImport} onClick={onImport}>{busy ? 'Importing…' : importLabel}</Button></PanelFooter>

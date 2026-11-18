@@ -249,8 +249,7 @@ def test_actual_queue_worker_prepares_original_page_and_publishes_child_under_sp
         project.close()
 
 
-@pytest.mark.parametrize("organized", [False, True])
-def test_worker_recovery_skips_busy_import_lock(tmp_path, monkeypatch, organized):
+def test_worker_recovery_skips_busy_import_lock(tmp_path, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from filelock import FileLock, Timeout
     from frisket.server.services.pdf_split_preparation_jobs import (
@@ -260,16 +259,11 @@ def test_worker_recovery_skips_busy_import_lock(tmp_path, monkeypatch, organized
     adapter, preview, project, _provider, _read, _op, _source = _runtime(
         tmp_path, monkeypatch
     )
-    preparation = SearchPreparationService(adapter.workspace)
-    coordinator = (
-        PdfSplitPreparationJobs(adapter.workspace, preview_runs=preview)
-        if organized
-        else preparation._pdf_imports()
-    )
+    coordinator = PdfSplitPreparationJobs(adapter.workspace, preview_runs=preview)
     import_ref = "import-" + "a" * 32
     directory = import_intake_dir(project.path, import_ref)
     directory.mkdir(parents=True, exist_ok=True)
-    name = ".pdf-split-preparation-admit.lock" if organized else ".pdf-preparation.lock"
+    name = ".pdf-split-preparation-admit.lock"
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             with FileLock(str(directory / name)):

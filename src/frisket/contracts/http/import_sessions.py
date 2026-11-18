@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field, JsonValue
+from pydantic import Field
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.import_errors import ImportSourceErrorGroup
-from frisket.contracts.http.models import RunRowErrorSummary, WireModel
+from frisket.contracts.http.models import WireModel
 
 
 class ImportPreparationChild(WireModel):
@@ -60,10 +61,27 @@ class ImportSessionStatus(WireModel):
     ocr_total: int = 0
     unreadable_total: int = 0
     preparation_stopped: bool = False
-    preparation_pending_confirmation: dict[str, JsonValue] | None = None
     semantic_preparation_error: str | None = None
-    row_error_summary: RunRowErrorSummary | None = None
     preparation_children: list[ImportPreparationChild] = Field(default_factory=list)
+    # Rows whose page text is being read now, and rows still waiting, front
+    # first; each list is bounded.
+    reading_row_ids: list[int] = Field(default_factory=list, max_length=500)
+    waiting_row_ids: list[int] = Field(default_factory=list, max_length=500)
+    failed_pages: int = Field(default=0, ge=0)
+
+
+class ImportPreparationRetryEstimate(WireModel):
+    """The estimate for reading an import's failed pages again."""
+
+    plan_token: str
+    failed_pages: int = Field(ge=1)
+    pages: int = Field(ge=0)
+    estimate: ActionEstimate
+
+
+class ImportPreparationRetryRequest(WireModel):
+    plan_token: str = Field(min_length=1, max_length=128)
+    confirmation: str | None = Field(default=None, max_length=128)
 
 
 class ImportSessionList(WireModel):
@@ -72,6 +90,8 @@ class ImportSessionList(WireModel):
 
 __all__ = [
     "ImportPreparationChild",
+    "ImportPreparationRetryEstimate",
+    "ImportPreparationRetryRequest",
     "ImportSessionList",
     "ImportSessionStatus",
 ]

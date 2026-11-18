@@ -100,7 +100,7 @@ def _borrow_source(service, project_id, draft_id, key, digest, size):
                 item = service._staged(inventory, key)
             if item["sha256"] != digest or item["size"] != size:
                 raise PdfImportDraftError(409, "The imported PDF changed after review")
-            path = service._files_root(directory, header) / digest
+            path = directory / "files" / digest
             try:
                 os.link(path, pinned)
             except FileNotFoundError as exc:

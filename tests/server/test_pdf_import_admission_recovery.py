@@ -1,6 +1,5 @@
 import hashlib
 import io
-import json
 
 import pytest
 from pypdf import PdfWriter
@@ -134,17 +133,6 @@ def test_busy_pdf_destination_does_not_start_receipt_without_session(
             "SELECT id,status,body FROM receipts WHERE id!='receipt:busy'"
         ).fetchall()
         assert len(pending) == 1 and pending[0]["status"] == "queued"
-        if organization == "keep_documents":
-            assert (
-                len(
-                    [
-                        item
-                        for item in json.loads(pending[0]["body"])["inputs"]
-                        if item["name"] == "pdf_import_commit"
-                    ]
-                )
-                == 1
-            )
         assert (
             project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0]
             == 1

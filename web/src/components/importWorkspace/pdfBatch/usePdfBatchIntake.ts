@@ -24,11 +24,6 @@ interface ReselectionOptions {
   refresh(): Promise<void>;
 }
 
-interface ActivePdfBatchIntake {
-  abort(): void;
-  done: Promise<void>;
-}
-
 /** Owns the one browser-side manifest/upload pipeline for a mounted PDF import flow. */
 export function usePdfBatchIntake({
   api,
@@ -171,12 +166,7 @@ export function usePdfBatchIntake({
 
   const files = useCallback(() => selected.current.map((item) => item.file), []);
   const abort = useCallback(() => controller.current?.abort(), []);
-  const active = useCallback((): ActivePdfBatchIntake | null => {
-    const ownedController = controller.current;
-    const done = running.current;
-    if (!ownedController || !done) return null;
-    return { abort: () => ownedController.abort(), done };
-  }, []);
+  const active = useCallback(() => Boolean(controller.current && running.current), []);
 
   return {
     configure,

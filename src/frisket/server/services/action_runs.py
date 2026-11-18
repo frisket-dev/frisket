@@ -7,9 +7,8 @@ import logging
 import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from typing import Any, Callable, Literal, Mapping
+from typing import Any, Callable, Mapping
 
-from frisket.engine.store.import_sessions import ImportExecutionOwner
 from frisket.actions.system import action_id_from_request
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import (
@@ -34,7 +33,6 @@ from frisket.engine.jobs.projection import (
     run_inline_job_payload,
 )
 from frisket.engine.jobs.queue import IMPORT_TABLE_STREAM_KIND, Job
-from frisket.engine.runner.validation import TrustedConsentAuthorizer
 from frisket.server.action_enqueue import (
     QueuedV1ActionRunContext,
     exact_keyless_replay_covers_action,
@@ -381,10 +379,6 @@ class ActionRunService:
         record_history: bool = False,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
-        background_priority: Literal["pdf_import_ocr"] | None = None,
-        import_owner: ImportExecutionOwner | None = None,
-        trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
-        trusted_consent_principal: str | None = None,
     ) -> ActionRunResponse:
         observer = getattr(self._workspace, "action_observer", None)
         state: dict[str, Any] = {"record_history": record_history}
@@ -396,10 +390,6 @@ class ActionRunService:
             request_context=request_context,
             admitted_sources=admitted_sources,
             required_execution_target=required_execution_target,
-            background_priority=background_priority,
-            import_owner=import_owner,
-            trusted_consent_authorizer=trusted_consent_authorizer,
-            trusted_consent_principal=trusted_consent_principal,
             _observation_state=state,
         )
         if state.get("submission_id") is not None:
@@ -473,21 +463,8 @@ class ActionRunService:
         request_context: Any = None,
         admitted_sources: Mapping[str, BoundLocalFile] | None = None,
         required_execution_target: ExactExecutionMatch | None = None,
-        background_priority: Literal["pdf_import_ocr"] | None = None,
-        import_owner: ImportExecutionOwner | None = None,
-        trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
-        trusted_consent_principal: str | None = None,
         _observation_state: dict[str, Any] | None = None,
     ) -> ActionRunResponse:
-        if (trusted_consent_authorizer is None) != (trusted_consent_principal is None):
-            raise ValueError(
-                "trusted consent authority and principal must be supplied together"
-            )
-        if (
-            trusted_consent_principal is not None
-            and not trusted_consent_principal.strip()
-        ):
-            raise ValueError("trusted consent principal must be non-empty")
         # A matching completed receipt is observation, not newly admitted work.
         project = self._workspace.get(project_id)
         if _observation_state is not None:
@@ -599,12 +576,8 @@ class ActionRunService:
                 queue_payload_extra=self._workspace.queue_payload_extra,
                 logger=LOG,
                 request_executor_deps=request_executor_deps,
-                trusted_consent_authorizer=trusted_consent_authorizer,
-                trusted_consent_principal=trusted_consent_principal,
-                import_owner=import_owner,
             ),
             execution_context=execution_context,
-            background_priority=background_priority,
         )
         if queued_result is not None:
             self._reserve_queued_media_search_preparation(
@@ -614,26 +587,6 @@ class ActionRunService:
                 result=queued_result,
             )
             return _action_run_response(queued_result)
-        if trusted_consent_authorizer is not None:
-            return _action_run_response(
-                V1ActionResult(
-                    action={
-                        "kind": str(action_id_from_request(body) or "unknown"),
-                        "action_id": _new_id("act"),
-                    },
-                    status="failed",
-                    project_id=project_id,
-                    errors=[
-                        V1ActionError(
-                            code="derived_consent_refused",
-                            message=(
-                                "trusted derived consent is available only for "
-                                "ordinary queued row actions"
-                            ),
-                        )
-                    ],
-                )
-            )
         execution_composition = request_execution_composition()
         direct_request_deps = request_executor_deps()
         result = run_action_spec(

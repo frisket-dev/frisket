@@ -571,7 +571,8 @@ def test_real_pdf_import_http_create_upload_sample_page_and_discard(
         "engine": "llm",
         "model": "openai/gpt-4.1-mini",
     }
-    assert preview_runs.payload["model"] == "openai/gpt-4.1-mini"
+    # The sample is read under the settings the page estimate uses.
+    assert preview_runs.payload["engine"] == "openai/gpt-4.1-mini"
     started = client.post(
         f"{base}/{draft_id}/files/{sample['occurrence_id']}/pages/1/ocr-preview",
         json={"ocr_selection": preview_selection},

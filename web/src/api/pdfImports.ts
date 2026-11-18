@@ -52,10 +52,6 @@ export type PdfImportSnapshot = Omit<HttpPdfImportStatus, 'batch_ocr' | 'commit'
   commit: PdfImportCommitRecord | null;
 };
 
-type PdfImportCommitResponse = Omit<HttpPdfImportCommitResponse, 'job'> & {
-  job?: ({ sheet_id?: number; import_ref?: string; [key: string]: unknown }) | null;
-};
-
 interface PdfImportRequestOptions {
   signal?: AbortSignal;
   fetch?: typeof globalThis.fetch;
@@ -323,7 +319,7 @@ export function createPdfImportsApi() {
       importId: string,
       input: PdfImportCommitInput,
       options: PdfImportRequestOptions = {},
-    ): Promise<PdfImportCommitResponse> {
+    ): Promise<HttpPdfImportCommitResponse> {
       return trackImportSubmission(projectId, { importKind: 'files', format: 'unknown' }, () => httpContract('tenant.commit_pdf_import.post', {
         pathParams: { pid: projectId, draft_id: importId }, body: input,
         ...requestOptions(options),

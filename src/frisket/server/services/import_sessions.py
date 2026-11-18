@@ -15,6 +15,7 @@ from filelock import FileLock, Timeout
 from frisket.actions.system import typed_action_for_request
 from frisket.contracts.action import ActionResult
 from frisket.contracts.http.import_sessions import (
+    ImportPreparationRetryEstimate,
     ImportSessionList,
     ImportSessionStatus,
 )
@@ -280,6 +281,28 @@ class ImportSessionService:
         with ImportInventory(directory / "inventory.db") as inventory:
             return self._status(project, ref, directory, header, inventory)
 
+    def _split_preparation(self, project_id: str, ref: str):
+        _project, directory, header = self._open(project_id, ref)
+        if self._search_preparation is None or not self._is_split(header, directory):
+            raise ValueError("This import has no page text to retry")
+        return self._search_preparation
+
+    def estimate_preparation_retry(
+        self, project_id: str, ref: str, *, request_context: Any = None
+    ) -> ImportPreparationRetryEstimate:
+        estimated = self._split_preparation(project_id, ref).estimate_pdf_import_retry(
+            project_id, ref, request_context=request_context
+        )
+        return ImportPreparationRetryEstimate.model_validate(estimated)
+
+    def retry_preparation(
+        self, project_id: str, ref: str, *, plan_token: str, confirmation: str | None
+    ) -> ImportSessionStatus:
+        self._split_preparation(project_id, ref).retry_pdf_import(
+            project_id, ref, plan_token=plan_token, confirmation=confirmation
+        )
+        return self.status(project_id, ref)
+
     def cancel(self, project_id: str, ref: str) -> ImportSessionStatus:
         project, directory, _header = self._open(project_id, ref)
         if self._is_split(_header, directory):
@@ -287,48 +310,6 @@ class ImportSessionService:
         with import_admit_lock(directory):
             header = self._validated_header(project, project_id, directory)
             header = request_import_cancel(directory)
-        if (
-            header.pdf_preparation is not None
-            and self._search_preparation is not None
-            and hasattr(self._search_preparation, "pdf_import_summary")
-        ):
-            from frisket.server.services.action_run_cancel import (
-                ActionRunCancelRouteError,
-                ActionRunCancelService,
-            )
-
-            stop_preparation = getattr(
-                self._search_preparation, "stop_pdf_import", None
-            )
-            summary = (
-                stop_preparation(project_id, ref)
-                if callable(stop_preparation)
-                else self._search_preparation.pdf_import_summary(project_id, ref)
-            )
-            cancellation = ActionRunCancelService(self._workspace)
-            child_page = getattr(
-                self._search_preparation, "pdf_import_child_page", None
-            )
-            after = 0
-            while True:
-                children = (
-                    child_page(project_id, ref, after=after, limit=100)
-                    if callable(child_page)
-                    else summary.children
-                )
-                for child in children:
-                    run_id = child.get("run_id")
-                    if isinstance(run_id, int):
-                        try:
-                            cancellation.cancel_run(project_id, run_id)
-                        except ActionRunCancelRouteError as exc:
-                            if exc.status_code not in {404, 409}:
-                                raise
-                    elif isinstance(child.get("job_id"), int):
-                        self._workspace.queue.cancel(int(child["job_id"]))
-                if not callable(child_page) or len(children) < 100:
-                    break
-                after = int(children[-1]["rowid"])
         try:
             with import_worker_lock(directory, timeout=0):
                 session = ImportSessionStore(project).get(ref)
@@ -693,31 +674,24 @@ class ImportSessionService:
             problem_count=progress["source_failed"],
             source_label="PDF split",
             source_error_groups=errors,
-            preparation_completed=0
-            if summary is None
-            else summary.native_completed + summary.ocr_completed,
-            preparation_total=0
-            if summary is None
-            else summary.native_total + summary.ocr_total,
+            preparation_completed=0 if summary is None else summary.ocr_completed,
+            preparation_total=0 if summary is None else summary.ocr_total,
             ocr_completed=0 if summary is None else summary.ocr_completed,
             ocr_total=0 if summary is None else summary.ocr_total,
-            unreadable_total=progress["source_failed"]
-            if summary is None
-            else progress["source_failed"] + summary.unreadable_total,
+            unreadable_total=progress["source_failed"],
             preparation_stopped=False if summary is None else summary.stopped,
-            preparation_pending_confirmation=None
-            if summary is None
-            else summary.pending_confirmation,
             semantic_preparation_error=preparation_error
             if summary is None
             else summary.semantic_error,
-            row_error_summary=None if summary is None else summary.row_error_summary,
             preparation_children=[]
             if summary is None
             else [
                 {key: value for key, value in child.items() if key in child_fields}
                 for child in summary.children
             ],
+            reading_row_ids=[] if summary is None else list(summary.reading_row_ids),
+            waiting_row_ids=[] if summary is None else list(summary.waiting_row_ids),
+            failed_pages=0 if summary is None else summary.failed_pages,
         )
 
     def _open(self, project_id: str, ref: str):
@@ -942,15 +916,6 @@ class ImportSessionService:
                 "paused" if job is not None and job.status == "failed" else "admitting"
             )
         receipt_id = str(header.envelope["receipt_id"])
-        pdf_summary = None
-        if (
-            header.pdf_preparation is not None
-            and self._search_preparation is not None
-            and hasattr(self._search_preparation, "pdf_import_summary")
-        ):
-            pdf_summary = self._search_preparation.pdf_import_summary(
-                header.project_id, ref
-            )
         preparation_status, preparation_batch_id = (
             ("none", None)
             if header.intake_kind == "table" or self._search_preparation is None
@@ -1038,8 +1003,6 @@ class ImportSessionService:
             error=(
                 table_status.error
                 if table_status is not None and table_status.error is not None
-                else pdf_summary.error
-                if pdf_summary is not None and pdf_summary.error is not None
                 else (
                     "Import processing failed. Retry the import to continue."
                     if session is None and state == "paused"
@@ -1083,39 +1046,6 @@ class ImportSessionService:
                 []
                 if table_status is None
                 else table_issue_groups(directory, through=table_status.source_cursor)
-            ),
-            preparation_completed=(
-                0
-                if pdf_summary is None
-                else pdf_summary.native_completed + pdf_summary.ocr_completed
-            ),
-            preparation_total=(
-                0
-                if pdf_summary is None
-                else pdf_summary.native_total + pdf_summary.ocr_total
-            ),
-            ocr_completed=0 if pdf_summary is None else pdf_summary.ocr_completed,
-            ocr_total=0 if pdf_summary is None else pdf_summary.ocr_total,
-            unreadable_total=(
-                0 if pdf_summary is None else pdf_summary.unreadable_total
-            ),
-            preparation_stopped=(False if pdf_summary is None else pdf_summary.stopped),
-            preparation_pending_confirmation=(
-                None if pdf_summary is None else pdf_summary.pending_confirmation
-            ),
-            semantic_preparation_error=(
-                None if pdf_summary is None else pdf_summary.semantic_error
-            ),
-            row_error_summary=(
-                None if pdf_summary is None else pdf_summary.row_error_summary
-            ),
-            preparation_children=(
-                []
-                if pdf_summary is None
-                else [
-                    {key: value for key, value in child.items() if key != "child_key"}
-                    for child in pdf_summary.children
-                ]
             ),
         )
 

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import errno
 import hashlib
 import io
 import json
 import os
-import shutil
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -22,8 +20,8 @@ from frisket.actions.document_extraction_types import (
     PositionedToken,
 )
 from frisket.engine.pdf_text import PdfTextBatch, PdfTextError, PdfTextSample
-from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.services.import_uploads import AdmittedUpload
+from frisket.server.services.pdf_packet_ocr import packet_ocr_params
 from frisket.server.services.pdf_imports import PdfImportDraftError, PdfImportService
 from frisket.server.services.pdf_imports.analysis import analyze_pdf
 from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
@@ -455,7 +453,7 @@ def test_overlapping_staged_analysis_runs_each_occurrence_once(
     assert calls == 1
 
 
-def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
+def test_mixed_files_keep_mime_preview_and_extension_counts(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace, project_id, service = _service(tmp_path, monkeypatch)
@@ -573,52 +571,6 @@ def test_mixed_files_keep_mime_preview_and_missing_ocr_scope(
     ]
     assert other["unlisted_extension_count"] == 0
 
-    choices = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="missing",
-        ocr_selection={"kind": "engine", "engine": "rapidocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "Mixed evidence"},
-    )
-    frozen = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="mixed-commit",
-        expected_revision=choices["revision"],
-    )
-    occurrences = frozen.page_occurrences()
-    assert [(row.mime, row.category, row.ocr_selected) for row in occurrences] == [
-        ("application/pdf", "missing", True),
-        ("application/pdf", "unreadable", False),
-        ("image/png", "image", True),
-        ("text/plain", "other", False),
-        ("application/postscript", "other", False),
-        ("image/png", "unreadable", False),
-    ]
-    with sqlite3.connect(frozen.commit_inventory_path) as db:
-        assert db.execute(
-            "SELECT mime,ocr_selected FROM pdf_commit_occurrences ORDER BY ordinal"
-        ).fetchall() == [
-            ("application/pdf", 1),
-            ("application/pdf", 0),
-            ("image/png", 1),
-            ("text/plain", 0),
-            ("application/postscript", 0),
-            ("image/png", 0),
-        ]
-        assert db.execute(
-            "SELECT mime FROM inventory_items ORDER BY ordinal"
-        ).fetchall() == [
-            ("application/pdf",),
-            ("application/pdf",),
-            ("image/png",),
-            ("text/plain",),
-            ("application/postscript",),
-            ("image/png",),
-        ]
     assert workspace.get(project_id).sheets() == []
 
 
@@ -736,586 +688,6 @@ def test_status_reconciles_preview_registry_terminal_state(
             "receipt_id": "receipt-1",
         }
     ]
-
-
-def test_freeze_projects_unmatched_inventory_and_late_bytes_advance_it(
-    tmp_path: Path, monkeypatch
-) -> None:
-    matched_calls = []
-    ready_calls = []
-
-    def matcher(_project, sheet_id, candidates):
-        matched_calls.append((sheet_id, candidates))
-        return {("one.pdf", len(PDF))}
-
-    def notify_ready(*args):
-        ready_calls.append(args)
-        replay = service.freeze_for_commit(
-            project_id,
-            draft_id,
-            idempotency_key="commit-1",
-            expected_revision=0,
-        )
-        assert replay.commit_id == frozen.commit_id
-        if len(ready_calls) == 1:
-            raise RuntimeError("queue temporarily unavailable")
-
-    workspace, project_id, service = _service(
-        tmp_path,
-        monkeypatch,
-        destination_matcher=matcher,
-        on_commit_ready=notify_ready,
-    )
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload()],
-        file_ids=["one"],
-        logical_paths=["north/one.pdf"],
-        batch_id="upload-1",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="none",
-        ocr_selection={
-            "kind": "engine_model",
-            "engine": "llm",
-            "model": "openai/gpt-4.1-mini",
-        },
-        semantic_search=True,
-        semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
-        destination={"kind": "existing", "sheet_id": 7},
-    )
-    compared = service.match_destination(project_id, draft_id)
-    assert compared["match"]["matched_count"] == 1
-    assert compared["match"]["new_count"] == 1
-    assert compared["match"]["new_category_counts"]["unchecked"] == 1
-    assert matched_calls == [(7, [("one.pdf", len(PDF)), ("two.pdf", len(PDF))])]
-    frozen = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        expected_revision=compared["revision"],
-    )
-    assert frozen.committed_total == 1
-    assert frozen.available_through == 0
-    assert frozen.uploads_complete is False
-    assert frozen.ocr_action_params == {
-        "engine": "llm",
-        "model": "openai/gpt-4.1-mini",
-    }
-    intake_root = workspace.get(project_id).path / ".imports" / "pdf-import-1"
-    intake_root.mkdir(parents=True)
-    promoted = service.promote_commit_inventory(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        target_path=intake_root / "inventory.db",
-    )
-    assert promoted.commit_inventory_path == intake_root / "inventory.db"
-    assert promoted.source_files_root == intake_root / "staged"
-    with pytest.raises(RuntimeError, match="temporarily unavailable"):
-        service.upload(
-            project_id,
-            draft_id,
-            [_upload("two.pdf")],
-            file_ids=["two"],
-            logical_paths=["south/two.pdf"],
-            batch_id="upload-2",
-        )
-    late = service.upload(
-        project_id,
-        draft_id,
-        [_upload("two.pdf")],
-        file_ids=["two"],
-        logical_paths=["south/two.pdf"],
-        batch_id="upload-2",
-    )
-    assert late["match"]["state"] == "ready"
-    assert late["match"]["matched_count"] == 1
-    assert late["match"]["new_category_counts"]["unchecked"] == 0
-    assert late["match"]["new_category_counts"]["missing"] == 1
-    expected_ready = (project_id, draft_id, "commit-1", late["revision"] - 1)
-    assert ready_calls == [expected_ready, expected_ready]
-    replay = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        expected_revision=0,
-    )
-    assert replay.available_through == 1
-    assert replay.sealed is True
-    (occurrence,) = replay.page_occurrences()
-    assert occurrence.occurrence_id == "two"
-    assert occurrence.inventory_ordinal == 2
-    assert occurrence.path is not None
-    assert occurrence.path.parent == intake_root / "staged"
-    with replay.commit_inventory_path.open("rb"):
-        pass
-    with sqlite3.connect(replay.commit_inventory_path) as db:
-        assert db.execute(
-            "SELECT occurrence_id,category,error,sha256,page_count,ocr_selected "
-            "FROM pdf_commit_occurrences WHERE ordinal=1"
-        ).fetchone() == (
-            "two",
-            "missing",
-            None,
-            hashlib.sha256(PDF).hexdigest(),
-            4,
-            0,
-        )
-    shutil.rmtree(replay.source_files_root)
-    promoted_replay = service.promote_commit_inventory(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        target_path=intake_root / "inventory.db",
-    )
-    assert promoted_replay.commit_id == replay.commit_id
-    handoff = service.record_commit_handoff(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        result={"sheet_id": 11, "session_ref": "import-1"},
-    )
-    assert handoff["state"] == "committing"
-    assert "commit_inventory_path" not in handoff["commit"]
-    assert "source_files_root" not in handoff["commit"]
-    assert "promotion_target" not in handoff["commit"]
-    service.reconcile_commit(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        committed=True,
-        result={"sheet_id": 11, "session_ref": "import-1"},
-    )
-    terminal_replay = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="commit-1",
-        expected_revision=0,
-    )
-    assert terminal_replay.commit_result == {
-        "sheet_id": 11,
-        "session_ref": "import-1",
-    }
-    with pytest.raises(PdfImportDraftError, match="result changed"):
-        service.reconcile_commit(
-            project_id,
-            draft_id,
-            idempotency_key="commit-1",
-            committed=True,
-            result={"sheet_id": 12, "session_ref": "import-2"},
-        )
-
-
-def test_paid_ocr_commit_requires_current_import_scope_confirmation(
-    tmp_path: Path, monkeypatch
-) -> None:
-    estimated = []
-
-    def estimator(_project_id, binding, _request_context):
-        estimated.append(dict(binding))
-        promise_hash = "a" * 64
-        return {
-            "estimate": {
-                "rows": 2,
-                "cost": 0.16,
-                "cost_source": "provider_quote",
-                "billed_cost": 160_000,
-                "policy_id": "identity.v1",
-                "pricing_key": "paid-ocr-page",
-                "engine": "remote-ocr",
-                "claims": [{"field": "cost", "display": "$0.16"}],
-                "promise_set_hash": promise_hash,
-                "requires_confirmation": True,
-            },
-            "authorization": {
-                "schema_version": "frisket.pdf_import_ocr_approval.v1",
-                "actor": "user:test",
-                "promise_set_hash": promise_hash,
-                "scope_hash": binding["manifest_hash"],
-                "scope": {
-                    "storage_identity": binding["storage_identity"],
-                    "draft_id": binding["draft_id"],
-                    "roster_digest": binding["work_scope_hash"],
-                    "source_count": binding["selected_count"],
-                    "page_count": binding["known_pages"],
-                },
-                "ocr_action_params": binding["ocr_action_params"],
-                "target": {"target_id": "paid"},
-                "route": {"engine": "remote-ocr"},
-                "promises": [{"field": "cost", "op": "le", "value": "0.16"}],
-                "quote": {"billed_cost": 160_000, "policy_id": "identity.v1"},
-                "allocation": {
-                    "schema_version": "frisket.pdf_import_ocr_allocation.v1",
-                    "roster": "effective_unmatched_ocr_selected_commit_order",
-                    "max_commit_occurrences_per_child": 256,
-                    "source_count": 2,
-                    "page_count": 8,
-                    "approved_billed_cost": 160_000,
-                    "currency": "USD",
-                    "policy_id": "identity.v1",
-                    "row_quote_authority": "canonical_commit_occurrences",
-                    "children": [
-                        {
-                            "child_key": "commit-ordinals:1-2",
-                            "commit_ordinal_start": 1,
-                            "commit_ordinal_end": 2,
-                            "source_count": 2,
-                            "page_count": 8,
-                            "quote": {
-                                "billed_cost": 160_000,
-                                "policy_id": "identity.v1",
-                            },
-                        }
-                    ],
-                },
-            },
-        }
-
-    _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_estimator=estimator
-    )
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf")],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="upload-paid",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="all",
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-    estimate = service.estimate_batch_ocr(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        ocr_policy="all",
-    )
-    assert estimate["advisory"] is False
-    assert estimate["revision"] == service.status(project_id, draft_id)["revision"]
-    assert estimate["estimate"]["billed_cost"] == 160_000
-    assert estimated[0]["selected_count"] == 2
-    assert estimated[0]["known_pages"] == 8
-
-    for confirmation in (None, "b" * 64):
-        with pytest.raises(PdfImportDraftError, match="OCR consent"):
-            service.freeze_for_commit(
-                project_id,
-                draft_id,
-                idempotency_key="paid-commit",
-                expected_revision=estimate["revision"],
-                ocr_confirmation=confirmation,
-            )
-    frozen = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="paid-commit",
-        expected_revision=estimate["revision"],
-        ocr_confirmation="a" * 64,
-    )
-    assert frozen.ocr_authorization is not None
-    assert frozen.ocr_authorization.actor == "user:test"
-    assert frozen.ocr_authorization.scope["page_count"] == 8
-    assert len(estimated) == 4
-
-
-def test_paid_ocr_freeze_rejects_route_or_price_change(
-    tmp_path: Path, monkeypatch
-) -> None:
-    calls = 0
-
-    def estimator(_project_id, binding, _request_context):
-        nonlocal calls
-        calls += 1
-        promise_hash = ("a" if calls == 1 else "b") * 64
-        return {
-            "estimate": {
-                "rows": 2,
-                "cost": 0.16,
-                "cost_source": "provider_quote",
-                "billed_cost": 160_000,
-                "policy_id": "identity.v1",
-                "pricing_key": "paid-ocr-page",
-                "engine": "remote-ocr",
-                "claims": [{"field": "cost", "display": "$0.16"}],
-                "promise_set_hash": promise_hash,
-                "requires_confirmation": True,
-            },
-            "authorization": {
-                "schema_version": "frisket.pdf_import_ocr_approval.v1",
-                "actor": "user:test",
-                "promise_set_hash": promise_hash,
-                "scope_hash": binding["manifest_hash"],
-                "scope": {
-                    "storage_identity": binding["storage_identity"],
-                    "draft_id": binding["draft_id"],
-                    "roster_digest": binding["work_scope_hash"],
-                    "source_count": binding["selected_count"],
-                    "page_count": binding["known_pages"],
-                },
-                "ocr_action_params": binding["ocr_action_params"],
-                "target": {"target_id": "paid"},
-                "route": {"engine": "remote-ocr"},
-                "promises": [{"field": "cost", "op": "le", "value": "0.16"}],
-                "quote": {"billed_cost": 160_000, "policy_id": "identity.v1"},
-                "allocation": {
-                    "schema_version": "frisket.pdf_import_ocr_allocation.v1",
-                    "roster": "effective_unmatched_ocr_selected_commit_order",
-                    "max_commit_occurrences_per_child": 256,
-                    "source_count": 2,
-                    "page_count": 8,
-                    "approved_billed_cost": 160_000,
-                    "currency": "USD",
-                    "policy_id": "identity.v1",
-                    "row_quote_authority": "canonical_commit_occurrences",
-                    "children": [
-                        {
-                            "child_key": "commit-ordinals:1-2",
-                            "commit_ordinal_start": 1,
-                            "commit_ordinal_end": 2,
-                            "source_count": 2,
-                            "page_count": 8,
-                            "quote": {
-                                "billed_cost": 160_000,
-                                "policy_id": "identity.v1",
-                            },
-                        }
-                    ],
-                },
-            },
-        }
-
-    _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_estimator=estimator
-    )
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf")],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="upload-paid",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="all",
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-    estimate = service.estimate_batch_ocr(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        ocr_policy="all",
-    )
-    with pytest.raises(PdfImportDraftError, match="OCR estimate changed"):
-        service.freeze_for_commit(
-            project_id,
-            draft_id,
-            idempotency_key="paid-stale",
-            expected_revision=estimate["revision"],
-            ocr_confirmation="a" * 64,
-        )
-
-
-def test_remote_ocr_with_no_effective_work_needs_no_estimate(
-    tmp_path: Path, monkeypatch
-) -> None:
-    _workspace, project_id, service = _service(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        service,
-        "_analyze",
-        lambda _path: {
-            "analysis_state": "done",
-            "page_count": 4,
-            "category": "text",
-            "sample_pages": [1, 2, 3, 4],
-            "error": None,
-        },
-    )
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf")],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="upload-clean",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="missing_or_suspicious",
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-
-    frozen = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="no-ocr-work",
-        expected_revision=status["revision"],
-    )
-
-    assert frozen.ocr_authorization is None
-    assert frozen.ocr_policy == "missing_or_suspicious"
-
-
-def test_paid_ocr_all_excludes_unreadable_pdf_but_keeps_import_row(
-    tmp_path: Path, monkeypatch
-) -> None:
-    corrupt_pdf = b"%PDF-corrupt".ljust(len(PDF), b"x")
-    estimated = []
-
-    def estimator(_project_id, binding, _request_context):
-        estimated.append(dict(binding))
-        promise_hash = "a" * 64
-        child = binding["child_partitions"][0]
-        return {
-            "estimate": {
-                "rows": 1,
-                "cost": 0.08,
-                "cost_source": "provider_quote",
-                "billed_cost": 80_000,
-                "policy_id": "identity.v1",
-                "engine": "remote-ocr",
-                "claims": [{"field": "cost", "display": "$0.08"}],
-                "promise_set_hash": promise_hash,
-                "requires_confirmation": True,
-            },
-            "authorization": {
-                "schema_version": "frisket.pdf_import_ocr_approval.v1",
-                "actor": "user:test",
-                "promise_set_hash": promise_hash,
-                "scope_hash": binding["manifest_hash"],
-                "scope": {
-                    "storage_identity": binding["storage_identity"],
-                    "draft_id": binding["draft_id"],
-                    "roster_digest": binding["work_scope_hash"],
-                    "source_count": 1,
-                    "page_count": 4,
-                },
-                "ocr_action_params": binding["ocr_action_params"],
-                "target": {"target_id": "paid"},
-                "route": {"engine": "remote-ocr"},
-                "promises": [],
-                "quote": {"billed_cost": 80_000, "policy_id": "identity.v1"},
-                "allocation": {
-                    "schema_version": "frisket.pdf_import_ocr_allocation.v1",
-                    "roster": "effective_unmatched_ocr_selected_commit_order",
-                    "max_commit_occurrences_per_child": 256,
-                    "source_count": 1,
-                    "page_count": 4,
-                    "approved_billed_cost": 80_000,
-                    "currency": "USD",
-                    "policy_id": "identity.v1",
-                    "row_quote_authority": "canonical_commit_occurrences",
-                    "children": [
-                        {
-                            **{
-                                key: value
-                                for key, value in child.items()
-                                if key != "row_pages"
-                            },
-                            "quote": {
-                                "billed_cost": 80_000,
-                                "policy_id": "identity.v1",
-                            },
-                        }
-                    ],
-                },
-            },
-        }
-
-    _workspace, project_id, service = _service(
-        tmp_path, monkeypatch, batch_ocr_estimator=estimator
-    )
-
-    def analyze(path):
-        if path.read_bytes() == corrupt_pdf:
-            return {
-                "analysis_state": "error",
-                "page_count": None,
-                "category": "unreadable",
-                "sample_pages": [],
-                "error": "Could not read PDF",
-            }
-        return {
-            "analysis_state": "done",
-            "page_count": 4,
-            "category": "missing",
-            "sample_pages": [1, 2, 3, 4],
-            "error": None,
-        }
-
-    monkeypatch.setattr(service, "_analyze", analyze)
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf", corrupt_pdf)],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="mixed-upload",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="all",
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-    estimate = service.estimate_batch_ocr(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_selection={"kind": "engine", "engine": "remote-ocr"},
-        ocr_policy="all",
-    )
-    frozen = service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="mixed-paid",
-        expected_revision=estimate["revision"],
-        ocr_confirmation="a" * 64,
-    )
-
-    assert estimated[0]["selected_count"] == 1
-    assert estimated[0]["known_pages"] == 4
-    assert estimated[0]["child_partitions"][0]["row_pages"] == {1: 4}
-    occurrences = frozen.page_occurrences()
-    assert [(row.category, row.ocr_selected) for row in occurrences] == [
-        ("missing", True),
-        ("unreadable", False),
-    ]
-    assert occurrences[1].error == "Could not read PDF"
 
 
 def test_destination_match_uses_bounded_current_value_projection(
@@ -1528,121 +900,6 @@ def test_service_startup_purges_expired_interrupted_cancellation(
     assert not directory.exists()
 
 
-def test_transient_promotion_failure_preserves_commit_for_retry(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace, project_id, service = _service(tmp_path, monkeypatch)
-    draft_id, _ = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf")],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="transient-promotion-upload",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="none",
-        ocr_selection={"kind": "engine", "engine": "rapidocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-    commit = PdfImportCommitService(workspace, intake=service)
-    promote = service.promote_commit_inventory
-
-    def analysis_running(*_args, **_kwargs):
-        raise PdfImportDraftError(409, "PDF text analysis is still running")
-
-    monkeypatch.setattr(service, "promote_commit_inventory", analysis_running)
-    with pytest.raises(PdfImportDraftError, match="analysis is still running"):
-        commit.commit(
-            project_id,
-            draft_id,
-            idempotency_key="transient-promotion",
-            expected_revision=status["revision"],
-        )
-
-    retry_status = service.status(project_id, draft_id)
-    assert retry_status["state"] == "committing"
-    assert retry_status["commit"] is not None
-
-    monkeypatch.setattr(service, "promote_commit_inventory", promote)
-    result = commit.commit(
-        project_id,
-        draft_id,
-        idempotency_key="transient-promotion",
-        expected_revision=retry_status["revision"],
-    )
-    assert result.committed_rows == 2
-    assert service.status(project_id, draft_id)["state"] == "committed"
-
-
-def test_failed_promotion_intent_rolls_back_before_reopening(
-    tmp_path: Path, monkeypatch
-) -> None:
-    workspace, project_id, service = _service(tmp_path, monkeypatch)
-    draft_id, status = _declared(service, project_id)
-    status = service.upload(
-        project_id,
-        draft_id,
-        [_upload(), _upload("two.pdf")],
-        file_ids=["one", "two"],
-        logical_paths=["north/one.pdf", "south/two.pdf"],
-        batch_id="promote-upload",
-    )
-    status = service.update_choices(
-        project_id,
-        draft_id,
-        expected_revision=status["revision"],
-        ocr_policy="none",
-        ocr_selection={"kind": "engine", "engine": "rapidocr"},
-        semantic_search=False,
-        semantic_setup_confirmation=None,
-        destination={"kind": "new", "sheet_name": "PDFs"},
-    )
-    service.freeze_for_commit(
-        project_id,
-        draft_id,
-        idempotency_key="promotion-failure",
-        expected_revision=status["revision"],
-    )
-    intake_root = workspace.get(project_id).path / ".imports" / "failed-promotion"
-    intake_root.mkdir(parents=True)
-    original_promote = service._promote_path
-    calls = 0
-
-    def fail_second(source, target):
-        nonlocal calls
-        calls += 1
-        if calls == 2:
-            raise RuntimeError("staged move failed")
-        return original_promote(source, target)
-
-    monkeypatch.setattr(service, "_promote_path", fail_second)
-    with pytest.raises(RuntimeError, match="staged move failed"):
-        service.promote_commit_inventory(
-            project_id,
-            draft_id,
-            idempotency_key="promotion-failure",
-            target_path=intake_root / "inventory.db",
-        )
-
-    reopened = service.reconcile_commit(
-        project_id,
-        draft_id,
-        idempotency_key="promotion-failure",
-        committed=False,
-    )
-
-    assert reopened["state"] == "open"
-    assert not (intake_root / "inventory.db").exists()
-    assert (workspace.root / ".pdf_import_drafts" / draft_id / "files").is_dir()
-
-
 def test_page_uses_current_ocr_engine_and_settings_cache(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -1658,8 +915,10 @@ def test_page_uses_current_ocr_engine_and_settings_cache(
     )
     directory = workspace.root / ".pdf_import_drafts" / draft_id
     digest = hashlib.sha256(PDF).hexdigest()
-    rapid_params = {"engine": "rapidocr"}
-    llm_params = {"engine": "llm", "model": "openai/gpt-4.1-mini"}
+    rapid_params = packet_ocr_params({"kind": "engine", "engine": "rapidocr"})
+    llm_params = packet_ocr_params(
+        {"kind": "engine_model", "engine": "llm", "model": "openai/gpt-4.1-mini"}
+    )
     with PdfDraftInventory(directory / "inventory.db") as inventory:
         for params, text in ((rapid_params, "rapid text"), (llm_params, "llm text")):
             _settings, settings_hash = preview_settings(params)
@@ -1687,27 +946,13 @@ def test_page_uses_current_ocr_engine_and_settings_cache(
         destination={"kind": "new", "sheet_name": "PDFs"},
     )
     assert status["choices"]["ocr_selection"]["engine"] == "llm"
-    assert service.page(project_id, draft_id, "one", 1)["ocr_text"] == "llm text"
-
-
-def test_cross_filesystem_commit_promotion_is_explicitly_refused(
-    tmp_path: Path, monkeypatch
-) -> None:
-    source = tmp_path / "source"
-    target = tmp_path / "target"
-    source.mkdir()
-    (source / "staged").write_bytes(b"staged")
-
-    def cross_device(_source, _target):
-        raise OSError(errno.EXDEV, "cross-device link")
-
-    monkeypatch.setattr(
-        "frisket.server.services.pdf_imports.service.os.replace", cross_device
-    )
-    with pytest.raises(PdfImportDraftError, match="same filesystem"):
-        PdfImportService._promote_path(source, target)
-    assert (source / "staged").read_bytes() == b"staged"
-    assert not target.exists()
+    page = service.page(project_id, draft_id, "one", 1)
+    assert page["ocr_text"] == "llm text"
+    # The page names the reviewed choice the cached text was read under.
+    assert page["ocr_action_params"] == {
+        "engine": "llm",
+        "model": "openai/gpt-4.1-mini",
+    }
 
 
 def test_failed_first_freeze_removes_unpublished_projection(
@@ -1715,6 +960,14 @@ def test_failed_first_freeze_removes_unpublished_projection(
 ) -> None:
     workspace, project_id, service = _service(tmp_path, monkeypatch)
     draft_id, status = _declared(service, project_id)
+    status = service.upload(
+        project_id,
+        draft_id,
+        [_upload(), _upload("two.pdf")],
+        file_ids=["one", "two"],
+        logical_paths=["north/one.pdf", "south/two.pdf"],
+        batch_id="freeze-upload",
+    )
     status = service.update_choices(
         project_id,
         draft_id,
@@ -1725,13 +978,15 @@ def test_failed_first_freeze_removes_unpublished_projection(
         semantic_setup_confirmation=status["semantic_setup"]["confirmation_hash"],
         destination={"kind": "new", "sheet_name": "PDFs"},
     )
-    original_advance = service._advance_commit_inventory
+    original_projection = PdfDraftInventory.initialize_commit_projection
 
-    def fail_after_artifact(*args, **kwargs):
-        original_advance(*args, **kwargs)
+    def fail_after_projection(inventory):
+        original_projection(inventory)
         raise RuntimeError("freeze interrupted")
 
-    monkeypatch.setattr(service, "_advance_commit_inventory", fail_after_artifact)
+    monkeypatch.setattr(
+        PdfDraftInventory, "initialize_commit_projection", fail_after_projection
+    )
     with pytest.raises(RuntimeError, match="freeze interrupted"):
         service.freeze_for_commit(
             project_id,
@@ -1741,7 +996,6 @@ def test_failed_first_freeze_removes_unpublished_projection(
         )
     directory = workspace.root / ".pdf_import_drafts" / draft_id
     assert service.status(project_id, draft_id)["state"] == "open"
-    assert not (directory / "commit-inventory.db").exists()
     with sqlite3.connect(directory / "inventory.db") as db:
         assert db.execute("SELECT COUNT(*) FROM pdf_commit_projection").fetchone() == (
             0,
@@ -1981,3 +1235,20 @@ def test_expired_reader_pins_are_reclaimed_without_removing_active_reader(
     os.utime(active, (1, 1))
     service._purge_expired()
     assert not active.exists()
+
+
+def test_list_surfaces_a_draft_whose_status_does_not_validate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace, project_id, service = _service(tmp_path, monkeypatch)
+    healthy, _ = _declared(service, project_id)
+    broken, _ = _declared(service, project_id)
+    assert {item["draft_id"] for item in service.list(project_id)} == {healthy, broken}
+    manifest = workspace.root / ".pdf_import_drafts" / broken / "manifest.json"
+    header = json.loads(manifest.read_text())
+    header["choices"]["ocr_policy"] = "sometimes"
+    manifest.write_text(json.dumps(header))
+    with pytest.raises(ValueError, match="ocr_policy"):
+        service.list(project_id)
+    manifest.unlink()
+    assert [item["draft_id"] for item in service.list(project_id)] == [healthy]

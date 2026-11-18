@@ -15,6 +15,7 @@ from frisket.contracts.http.pdf_imports import (
     PdfImportBatchOcrEstimateRequest,
     PdfImportBatchOcrState,
     PdfImportChoicesRequest,
+    PdfImportCommitJob,
     PdfImportCommitRequest,
     PdfImportCommitResponse,
     PdfImportCreateRequest,
@@ -413,9 +414,7 @@ def register_pdf_import_routes(
             status="accepted",
             manifest_hash=frozen.manifest_hash,
             selected_total=frozen.committed_total,
-            available_through=frozen.available_through,
-            uploads_complete=frozen.uploads_complete,
-            job=dict(job) if job is not None else None,
+            job=None if job is None else PdfImportCommitJob.model_validate(job),
         )
 
     @app.delete(

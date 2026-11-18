@@ -117,7 +117,7 @@ def test_final_upload_pages_materialize_eight_pdfs_after_draft_cleanup_and_repla
         idempotency_key="final-search",
         expected_revision=status["revision"],
     )
-    assert frozen.organization == "pages" and frozen.packet_publication
+    assert frozen.organization == "pages"
     committer = PdfImportCommitService(workspace, intake=service)
     result = committer.commit_frozen(pid, frozen)
     project = workspace.get(pid)
@@ -461,7 +461,6 @@ def test_organized_paid_ocr_persists_exact_page_claims_across_choice_revision(
             expected_revision=status["revision"],
             ocr_confirmation=estimate["estimate"]["promise_set_hash"],
         )
-        assert frozen.ocr_authorization is None
         facts = frozen.pdf_preparation
         assert facts["kind"] == "pdf_split_source_pages"
         grant = facts["ocr_authorization"]
