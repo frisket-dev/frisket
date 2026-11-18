@@ -24,7 +24,7 @@ from http_test_helpers import (
     post_canonical_run_spec_as_v1_action,
     queued_python_run_spec,
 )
-from tests.watch_helpers import post_watch, seed_empty_watch_baseline
+from tests.alert_helpers import post_alert, seed_empty_alert_baseline
 from tests.deterministic_time import controlled_time
 
 CSV = (
@@ -335,23 +335,23 @@ def test_preview_records_no_run_notification(tmp_path: Path) -> None:
     assert _run_notifications(client, pid) == []
 
 
-def test_alert_evaluation_notifies_as_a_watch_not_a_run(tmp_path: Path) -> None:
+def test_alert_check_notifies_as_an_alert_not_a_run(tmp_path: Path) -> None:
     client = _client(tmp_path)
     pid, _sheet_id = _project(client)
     drain_index(client.app.state.workspace.get(pid))
-    watch = post_watch(
+    alert = post_alert(
         client,
         f"/api/projects/{pid}/watches",
         json={
-            "name": "Budget watch",
+            "name": "Budget alert",
             "scope": {"kind": "project"},
             "query": {"kind": "fts", "q": "budget", "limit": 10},
         },
     )
-    assert watch.status_code == 200, watch.text
-    watch_id = watch.json()["id"]
-    seed_empty_watch_baseline(client.app.state.workspace.get(pid), watch_id)
-    evaluated = client.post(f"/api/projects/{pid}/watches/{watch_id}/run")
+    assert alert.status_code == 200, alert.text
+    alert_id = alert.json()["id"]
+    seed_empty_alert_baseline(client.app.state.workspace.get(pid), alert_id)
+    evaluated = client.post(f"/api/projects/{pid}/watches/{alert_id}/run")
     assert evaluated.status_code == 200, evaluated.text
     drain_queue(client)
 
