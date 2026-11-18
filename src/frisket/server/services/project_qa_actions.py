@@ -429,18 +429,18 @@ class ProjectAskActionService:
             raise ValueError("prepared action changed; reprepare it before launch")
         if current["quote"] is None:
             raise ValueError(str(current["preparation_reason"]))
-        approval = self._authorize_dispatch(current)
+        consent = self._authorize_dispatch(current)
         if (
-            not isinstance(approval, Mapping)
-            or approval.get("payload_identity") != current["payload_identity"]
+            not isinstance(consent, Mapping)
+            or consent.get("payload_identity") != current["payload_identity"]
         ):
-            raise ValueError("prepared action requires current approval")
+            raise ValueError("prepared action requires current consent")
         estimate = current["quote"]["estimate"]
         promise_set_hash = estimate.get("promise_set_hash")
         if estimate["requires_confirmation"]:
-            if approval.get("promise_set_hash") != promise_set_hash:
+            if consent.get("promise_set_hash") != promise_set_hash:
                 raise ValueError(
-                    "prepared action approval does not match the normal quote"
+                    "prepared action consent does not match the normal quote"
                 )
             if confirmation_hash is not None and confirmation_hash != promise_set_hash:
                 raise ValueError(

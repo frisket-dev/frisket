@@ -20,14 +20,14 @@ import { SelectorField } from '../engine-selector/SelectorField';
 import { AskSourcePicker } from './project-ask/AskSourcePicker';
 import { compactAskToolEvents } from './project-ask/activityEvents';
 import { AskWorkingActivity } from './project-ask/AskToolActivity';
-import { AskResearchApproval, type AskResearchPendingApproval } from './project-ask/AskResearchApproval';
+import { AskResearchPause, type AskResearchPendingPause } from './project-ask/AskResearchPause';
 import { AskResearchSettings } from './project-ask/AskResearchSettings';
 import { inlineMarkerIndexes } from './project-ask/inlineReferences';
 import { SkillReviewDialog } from './project-ask/SkillReviewDialog';
 import { askSkillProposal, resolveAskSkillProposal, skillProposalTarget, type AskSkillProposal } from './project-ask/skillProposal';
 import './ProjectAskDock.css';
 
-function pendingResearchApproval(value: unknown): AskResearchPendingApproval | null {
+function pendingResearchPause(value: unknown): AskResearchPendingPause | null {
   if (!value || typeof value !== 'object') return null;
   const item = value as Record<string, unknown>;
   if (typeof item.id !== 'string' || typeof item.kind !== 'string') return null;
@@ -104,7 +104,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const threadMenuPosition = useAnchoredPosition(threadTriggerRef, { enabled: threadMenuOpen, align: 'left', width: 260, gap: 4 });
   const optionsMenuPosition = useAnchoredPosition(optionsTriggerRef, { enabled: optionsOpen, align: 'left', width: 300, gap: 6 });
   const requestModel = state.model ?? (choice?.authored_selection.kind === 'model' ? choice.authored_selection.model : null);
-  const researchApproval = pendingResearchApproval(state.activeTurn?.research_state?.pending_approval);
+  const researchPause = pendingResearchPause(state.activeTurn?.research_state?.pending_approval);
   const tooManyRows = (state.scope?.sources ?? []).reduce((count, source) => count + (source.kind === 'rows' ? source.row_ids.length : 0), 0) > 1000;
   const canSend = !!requestModel && choice?.can_run === true && choice.authored_selection.kind === 'model'
     && choice.authored_selection.model === requestModel && !state.busy && !!state.draft.trim() && !!state.scope && !tooManyRows;
@@ -218,11 +218,11 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
         onSelect={(selected) => { if (selected.authored_selection.kind === 'model') qa.setOptions({ model: selected.authored_selection.model }); }} /></div>
       {state.error && <p className="ask-error" role="alert">{state.error}</p>}
       {tooManyRows && <p className="ask-error">Choose up to 1,000 rows, or change the scope to the whole sheet.</p>}
-      {researchApproval && <AskResearchApproval
-        approval={researchApproval}
+      {researchPause && <AskResearchPause
+        pause={researchPause}
         disabled={state.busy}
-        onContinue={(update) => void qa.resumeResearch(researchApproval.kind === 'action' ? 'approve' : 'continue', update)}
-        onSkip={researchApproval.kind === 'action' ? () => void qa.resumeResearch('skip') : undefined}
+        onContinue={(update) => void qa.resumeResearch(researchPause.kind === 'action' ? 'approve' : 'continue', update)}
+        onSkip={researchPause.kind === 'action' ? () => void qa.resumeResearch('skip') : undefined}
         onStop={() => void qa.stop()}
       />}
       <div className="ask-composer-sources" aria-label="Question sources">

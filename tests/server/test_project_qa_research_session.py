@@ -146,14 +146,14 @@ async def test_unpriced_model_pauses_without_consuming_budget_or_turn(tmp_path):
         )
         session = ResearchSession(ledger, run["id"], authorize=lambda: None)
         published = asyncio.Event()
-        original_update = ledger.publish_approval
+        original_update = ledger.publish_pause
 
         def update(*args, **kwargs):
             result = original_update(*args, **kwargs)
             loop.call_soon_threadsafe(published.set)
             return result
 
-        ledger.publish_approval = update
+        ledger.publish_pause = update
         loop = asyncio.get_running_loop()
         task = asyncio.create_task(
             session.before_model(LLMRequest(model="openai/unpriced-model", messages=[]))

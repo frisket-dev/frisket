@@ -63,7 +63,7 @@ def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(tmp_path) -
         store.checkpoint(research["id"], [{"role": "assistant", "content": "partial"}])
         store.add_output_grant(research["id"], "receipt-8")
         pending = {"id": "approval-1", "operation_id": "write-1", "kind": "action"}
-        paused = store.publish_approval(research["id"], pending)
+        paused = store.publish_pause(research["id"], pending)
         assert paused["revision"] == 4
         assert paused["state"] == "paused"
         assert paused["saved_messages"][0]["content"] == "partial"
@@ -73,7 +73,7 @@ def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(tmp_path) -
         with pytest.raises(ProjectQAResearchConflictError, match="revision"):
             store.resume(
                 research["id"],
-                approval_id="approval-1",
+                pause_id="approval-1",
                 expected_revision=1,
                 decision="approve",
                 actor="owner",
@@ -169,13 +169,13 @@ def test_admission_is_exact_idempotent_and_settlement_replaces_reservation(
             "provider": "example"
         }
 
-        store.publish_approval(
+        store.publish_pause(
             research["id"],
             {"id": "limit", "operation_id": "call-3", "kind": "turn_limit"},
         )
         limited = store.resume(
             research["id"],
-            approval_id="limit",
+            pause_id="limit",
             expected_revision=2,
             decision="continue",
             actor="owner",

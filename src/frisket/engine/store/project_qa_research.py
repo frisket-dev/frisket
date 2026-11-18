@@ -266,18 +266,18 @@ class ProjectQAResearchStore:
         """Observe parent authority without installing or changing permission."""
         return self._active(research_id)
 
-    def publish_approval(
-        self, research_id: str, pending_approval: Mapping[str, Any]
+    def publish_pause(
+        self, research_id: str, pause: Mapping[str, Any]
     ) -> dict[str, Any]:
         """Publish one exact operation while its parent still admits work."""
-        pending = _mapping(pending_approval, name="pending_approval")
+        pending = _mapping(pause, name="pending_approval")
         for field in ("id", "operation_id", "kind"):
             _nonempty(pending.get(field), name=field)
 
         def write(db: sqlite3.Connection) -> dict[str, Any]:
             current = self._active(research_id)
             if current["pending_approval"] is not None:
-                raise ProjectQAResearchConflictError("An approval is already pending.")
+                raise ProjectQAResearchConflictError("This run is already paused.")
             db.execute(
                 "UPDATE project_qa_research_runs SET state='paused',pending_approval_json=?,"
                 "revision=revision+1,updated_at=? WHERE id=?",
@@ -291,7 +291,7 @@ class ProjectQAResearchStore:
         self,
         research_id: str,
         *,
-        approval_id: str,
+        pause_id: str,
         expected_revision: int,
         decision: str,
         actor: str | None,
@@ -322,14 +322,14 @@ class ProjectQAResearchStore:
             current = self._active(research_id)
             if current["actor"] != actor:
                 raise PermissionError(
-                    "Only the person who started this run can approve it."
+                    "Only the person who started this run can resume it."
                 )
             if current["revision"] != expected_revision:
                 raise ProjectQAResearchConflictError("research revision changed")
             pending = current["pending_approval"] or {}
-            if pending.get("id") != approval_id:
+            if pending.get("id") != pause_id:
                 raise ProjectQAResearchConflictError(
-                    "This approval is no longer pending."
+                    "This run is no longer waiting for that decision."
                 )
             if pending.get("kind") == "unknown_cost":
                 raise ValueError(

@@ -38,7 +38,7 @@ test('shared controls retain their styling when feature CSS loads first or last'
     <div class="menu-pop discover-overflow-menu"><button id="discover" class="menu-item discover-overflow-item" data-active="true">Sources</button></div>
     <label id="destination" class="form-field import-destination-choice-field">Sheet name<input class="form-input"></label>
     <label id="research" class="form-field ask-research-field">Question<input class="form-input"></label>
-    <label id="approval" class="form-field ask-research-approval-field">Limit<input class="form-input"></label>
+    <label id="pause" class="form-field ask-research-pause-field">Limit<input class="form-input"></label>
     <label id="dedup" class="form-field table-import-dedup">Skip duplicates<input type="checkbox"></label>
     <span id="spinner" class="run-spinner activity-progress-spinner"></span>
     <span id="idle" class="run-label">idle</span>
