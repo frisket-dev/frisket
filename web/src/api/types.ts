@@ -1,16 +1,26 @@
 import type { GeneratedActionParams } from '../generated/actionTypes';
 import type {
-  HttpActionPreviewStatusResponse,
-  HttpCellEvidenceResponse,
-  HttpEvidenceViewerResponse,
-  HttpLocalEndpointDiscoveryResponse,
+  HttpActionCatalog,
   HttpActionJob,
-  HttpModelPull,
+  HttpActionPreviewStatusResponse,
   HttpApiTokenCreateResponse,
   HttpApiTokenList,
+  HttpCellEvidenceResponse,
+  HttpCellTextAnnotationsResponse,
+  HttpClusterPreviewResponse,
+  HttpColumnEvidenceResponse,
+  HttpColumnRunsPage,
+  HttpColumnStats,
+  HttpColumnValuesPreviewResponse,
+  HttpEvidenceViewerResponse,
+  HttpInstanceInfoResponse,
+  HttpLocalEndpointDiscoveryResponse,
+  HttpModelPull,
+  HttpModelPullStartResponse,
   HttpOrganizationEnvList,
   HttpOrganizationKeyList,
   HttpOrganizationProviderCatalog,
+  HttpProjectAttemptsPage,
   HttpProjectInviteCreate,
   HttpProjectMemberList,
   HttpProjectMemberRemove,
@@ -20,11 +30,17 @@ import type {
   HttpProjectRetentionResponse,
   HttpProjectSecretCatalogResponse,
   HttpProjectSettingsRequest,
-  HttpSpendReport,
   HttpProjectSettingsResponse,
+  HttpProvenanceManifest,
   HttpReceipt,
   HttpRowSourceDocumentsResponse,
   HttpRunTraceRowEvidence,
+  HttpSavedViewResolved,
+  HttpSpendReport,
+  HttpWorkbenchPluginActivation,
+  HttpWorkbenchPluginBackendActivation,
+  HttpWorkbenchPluginInstallExecution,
+  HttpWorkbenchPluginRuntimeIndex,
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
 
@@ -50,13 +66,10 @@ export interface ProjectInfo {
   archived?: boolean;
 }
 
-// Instance identity: a third-party operator's own display name/welcome
-// message/support contact, so a self-hosted or hosted-for-others deployment
-// isn't stuck with our hardcoded branding/copy.
-export interface InstanceIdentity {
-  display_name: string;
-  support_contact?: string | null;
-}
+// Instance identity: a third-party operator's own display name and support
+// contact, so a self-hosted or hosted-for-others deployment isn't stuck with
+// our hardcoded branding/copy.
+export type InstanceIdentity = HttpInstanceInfoResponse;
 
 /**
  * The shared, open identity payload for GET /api/me: who you are and which
@@ -333,25 +346,11 @@ export interface ColumnPatch {
   format?: ColumnDisplayFormat | null;
 }
 
-export interface ColumnStatsTopValue {
-  value: string;
-  count: number;
-}
+export type ColumnStatsTopValue = NonNullable<HttpColumnStats['top_values']>[number];
 
-interface ColumnStatsHistogramBin {
-  min: number;
-  max: number;
-  count: number;
-}
+type ColumnStatsHistogramBin = ColumnStatsNumeric['histogram'][number];
 
-export interface ColumnStatsNumeric {
-  count: number;
-  mean: number;
-  median: number;
-  min: number;
-  max: number;
-  histogram: ColumnStatsHistogramBin[];
-}
+export type ColumnStatsNumeric = NonNullable<HttpColumnStats['numeric']>;
 
 export interface ColumnStatsText {
   count: number;
@@ -364,17 +363,9 @@ export interface ColumnStatsText {
   lengthHistogram: ColumnStatsHistogramBin[];
 }
 
-export interface ColumnStatsDate {
-  count: number;
-  min: string;
-  median: string;
-  max: string;
-}
+export type ColumnStatsDate = NonNullable<HttpColumnStats['date']>;
 
-export interface ColumnStatsJsonType {
-  type: string;
-  count: number;
-}
+export type ColumnStatsJsonType = NonNullable<HttpColumnStats['json_types']>[number];
 
 export interface ColumnStatsFile {
   count: number;
@@ -490,18 +481,7 @@ export interface DeleteSheetResult {
  *  `TextAnnotations.text` — the SAME index unit a JavaScript string uses, so
  *  `text.slice(start, end)` is the mark, with no conversion and no re-location
  *  by quote search (the reader's D1: flat text + server offsets). */
-export interface TextPassageWindow {
-  /** Absolute Unicode codepoint offsets; passage highlights remain local UTF-16. */
-  start: number;
-  end: number;
-  total_characters: number;
-  total_bytes: number;
-  retrieval_revision: number | null;
-  previous_start: number | null;
-  next_start: number | null;
-  reached_start: boolean;
-  reached_end: boolean;
-}
+export type TextPassageWindow = NonNullable<HttpCellTextAnnotationsResponse['window']>;
 
 export interface TextAnnotationsOptions {
   start?: number;
@@ -730,18 +710,7 @@ export interface CellProvenance {
   runId: string;
 }
 
-export interface CellCitationSummary {
-  id: number;
-  stable_id: string;
-  export_ref: string;
-  status: 'active' | 'stale' | 'replaced' | 'rejected' | (string & {});
-  role: string;
-  evidence_kind: string;
-  span_count: number;
-  artifact_count: number;
-  snippet: string | null;
-  viewer_href: string;
-}
+export type CellCitationSummary = HttpCellEvidenceResponse['links'][number];
 
 /**
  * Generated contract authority for cell-evidence reads. `current_value_ref`
@@ -758,17 +727,9 @@ export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
  * carries — a chip here is field-identical to a chip from the per-cell
  * endpoint. A row with no active evidence is simply absent from `rows`.
  */
-export interface ColumnCitationsBatchRow {
-  row_id: number;
-  links: CellCitationSummary[];
-}
+export type ColumnCitationsBatchRow = ColumnCitationsBatchPayload['rows'][number];
 
-export interface ColumnCitationsBatchPayload {
-  schema_version: 'frisket.column_evidence_batch.v1';
-  sheet_id: number;
-  column_id: number;
-  rows: ColumnCitationsBatchRow[];
-}
+export type ColumnCitationsBatchPayload = HttpColumnEvidenceResponse;
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
  * response. Its JSON leaves are open values, so consumers must narrow only
@@ -1316,10 +1277,7 @@ export interface JsonSchemaLike {
   [key: string]: unknown;
 }
 
-export interface ActionCatalogErrorSpec {
-  code: string;
-  message: string;
-}
+export type ActionCatalogErrorSpec = HttpActionCatalog['actions'][number]['errors'][number];
 
 export interface ActionCatalogPolicy {
   kind?: string;
@@ -1645,10 +1603,7 @@ export interface DownloadablePair {
 /** POST /providers/models/pull response (202). `deduplicated` is true when
  *  the request joined an already-running pull for the same model instead of
  *  starting a new one (atomic active-operation uniqueness). */
-export interface ModelPullStartResult {
-  pull: ModelPullDto;
-  deduplicated: boolean;
-}
+export type ModelPullStartResult = HttpModelPullStartResponse;
 
 export interface ProviderValidateResult {
   provider?: string;
@@ -2523,14 +2478,7 @@ export interface ViewCreateInput extends ViewDefinitionInput { name: string; }
 export interface ViewRenameInput { name: string; }
 export type ViewDefinitionReplaceInput = ViewDefinitionInput;
 
-export interface ViewResolved {
-  view_id: number;
-  query_hash: string;
-  refs: Array<{ sheet_id: number; row_id: number; search_score: number | null; similarity_score: number | null; relevance_score: number | null }>;
-  total: number;
-  offset: number;
-  limit: number;
-}
+export type ViewResolved = HttpSavedViewResolved;
 
 export interface ViewAlertConditions {
   kind: 'conditions';
@@ -2965,106 +2913,31 @@ export interface ActionJobsPage {
  *
  *  Nothing here is invented client-side: the panel names the pricing key and
  *  rate the server actually pinned. */
-export interface AttemptSettlement {
-  /** Retained wire spelling; opaque offering terms version, or null for
-   *  provider-direct and unpriced attempts. */
-  price_card_version: string | null;
-  terminal_status: string | null;
-  charge_usd: string | null;
-  unsettleable?: string;
-  pricing_key?: string | null;
-  unit_rate?: string;
-  quantity_unit?: string;
-  charge_authority?: string;
-  ceiling_mode?: string;
-  row_settlement_mode?: string;
-  metered_quantity?: string;
-  metered_unit?: string;
-  billable_quantity?: string;
-  /** Full valid meter at the pinned rate, before any pinned charge ceiling. */
-  rated_charge_usd?: string | null;
-  /** Quantity actually applied to `charge_usd`; may be below billable quantity. */
-  charged_quantity?: string | null;
-  /** Rated value excluded from the charge by the pinned ceiling. */
-  absorbed_overage_usd?: string | null;
-  rated_calls?: number;
-  unmetered_calls?: number;
-  consented_quantity?: string | null;
-  exceeds_consented?: boolean | null;
-}
+export type AttemptSettlement = NonNullable<AttemptReceipt['settlement']>;
 
-export interface AttemptReceiptConsent {
-  id: string;
-  grant_basis: string | null;
-  actor: string | null;
-  granted_at: string | null;
-  promise_set_hash: string | null;
-}
+export type AttemptReceiptConsent = NonNullable<AttemptReceipt['consent']>;
 
-export interface AttemptReceiptTarget {
-  target_id?: string | null;
-  transport?: string | null;
-  engine?: string | null;
-  operator?: string | null;
-  egress_class?: string | null;
-  region?: string | null;
-  credential_source?: string | null;
-}
+export type AttemptReceiptTarget = NonNullable<AttemptReceipt['target']>;
 
 /** One execution attempt's receipt. `run_id` is null for a COMPACTION-ORPHANED
  *  attempt: ruling 7 keeps the consent + charge record after `compact()` has
  *  reclaimed the run's data, so a null run id is the honest "the run is gone",
  *  never a missing field. */
-export interface AttemptReceipt {
-  attempt_id: string;
-  run_id: number | null;
-  seq: number;
-  state: string;
-  action_identity_hash: string;
-  scope: number[];
-  target: AttemptReceiptTarget | null;
-  consent: AttemptReceiptConsent | null;
-  cost_basis: JsonValue | null;
-  price_card_version: string | null;
-  settlement: AttemptSettlement | null;
-  evaluation: JsonValue | null;
-  /** Whose credential actually bore the work, derived server-side from the
-   *  calls this attempt authorized. `cost_basis: operator_borne_zero` means
-   *  the PLATFORM charged nothing — it does not mean the run was free, and a
-   *  run billed to the user's own provider key is both. `null` is "no
-   *  metering to read", which is not the same as "nothing external ran". */
-  borne_by: AttemptReceiptBorneBy | null;
-  created_at: string;
-}
+export type AttemptReceipt = AttemptReceiptsPage['attempts'][number];
 
 /** Providers whose cost landed on a credential the operator holds (a project
  *  key, an organization BYOK key, or the deployment's env key). Empty means every call
  *  ran locally or came from cache — genuinely free. */
-export interface AttemptReceiptBorneBy {
-  credentialed_providers: string[];
-}
+export type AttemptReceiptBorneBy = NonNullable<AttemptReceipt['borne_by']>;
 
-export interface AttemptReceiptsPage {
-  schema_version: string;
-  order: string;
-  offset: number;
-  limit: number;
-  total: number;
-  has_more: boolean;
-  next_offset: number | null;
-  run_id: number | null;
-  attempts: AttemptReceipt[];
-}
+export type AttemptReceiptsPage = HttpProjectAttemptsPage;
 
 export interface BackfillResult {
   runId: string;
   filled: number;
 }
 
-export interface ClusterValue {
-  value: string;
-  count: number;
-}
+export type ClusterValue = HttpClusterPreviewResponse['clusters'][number]['values'][number];
 
 export interface ClusterGroup {
   key: string;
@@ -3086,10 +2959,7 @@ export interface ClusterPreviewResult {
 }
 
 /** One distinct value in a column-values preview page, with its row count. */
-export interface ColumnValueCount {
-  value: string;
-  count: number;
-}
+export type ColumnValueCount = HttpColumnValuesPreviewResponse['values'][number];
 
 export interface NumberColumnDistributionBin {
   start: number;
@@ -3349,10 +3219,7 @@ export interface RunRowsPage extends PageMeta {
 }
 
 /** One run that wrote into a generated column (column provenance). */
-export interface ReviewPassRate {
-  passed: number;
-  graded: number;
-}
+export type ReviewPassRate = NonNullable<HttpColumnRunsPage['current_run']>['human_score'];
 
 /** One completed judge run pinned to this exact output run and column. */
 export interface JudgeReviewPassRate extends ReviewPassRate {
@@ -3481,13 +3348,7 @@ export interface RunTraceRowRecord {
 // ---------------------------------------------------------------------------
 // Project provenance manifest (GET /provenance)
 
-export interface ProvenanceModelSummary {
-  model: string;
-  provider: string | null;
-  runs: number;
-  rows: number;
-  cost: number;
-}
+export type ProvenanceModelSummary = HttpProvenanceManifest['models'][number];
 
 export interface ProvenanceActionKindSummary {
   actionKind: string;
@@ -4164,11 +4025,7 @@ export interface EmbeddingIndexAnalysisResult {
   sheetId: number;
 }
 
-export interface WorkbenchPluginContributionSummary {
-  kind: string;
-  count: number;
-  ids: string[];
-}
+export type WorkbenchPluginContributionSummary = HttpWorkbenchPluginRuntimeIndex['plugins'][number]['contributionSummary'][number];
 
 export interface WorkbenchPluginFrontendComponentBinding {
   schemaVersion: 'frisket.workbench_plugin_frontend_component_binding.v1';
@@ -4179,12 +4036,7 @@ export interface WorkbenchPluginFrontendComponentBinding {
   moduleUrl?: string;
 }
 
-export interface WorkbenchPluginDescriptorPackage {
-  schemaVersion: 'frisket.workbench_descriptor_package.v1';
-  sourcePath: string;
-  descriptorCount: number;
-  runtimeOnlyFieldsStripped: string[];
-}
+export type WorkbenchPluginDescriptorPackage = NonNullable<HttpWorkbenchPluginInstallExecution['workbenchDescriptorPackage']>;
 
 export interface WorkbenchPluginDescriptorManifest {
   schemaVersion?: string;
@@ -4324,21 +4176,7 @@ export interface WorkbenchPluginLocalInstallExecution {
   workbenchDescriptorManifests?: WorkbenchPluginDescriptorManifest[] | null;
 }
 
-export interface WorkbenchPluginActivation {
-  schemaVersion: 'frisket.workbench_plugin_activation.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string;
-  manifestSha256: string;
-  packageSha256: string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  activation: 'registryManifestRegistered' | string;
-  installState: 'enabled' | string;
-  registryActivated: boolean;
-  arbitraryPackageLoadAllowed: boolean;
-  permissionsAccepted: string[];
-  registeredPluginManifests: string[];
-}
+export type WorkbenchPluginActivation = HttpWorkbenchPluginActivation;
 
 export interface WorkbenchPluginBackendActivationRequest {
   pluginId: string;
@@ -4347,23 +4185,7 @@ export interface WorkbenchPluginBackendActivationRequest {
   executableHandlersAllowed: boolean;
 }
 
-export interface WorkbenchPluginBackendActivation {
-  schemaVersion: 'frisket.workbench_plugin_backend_activation.v1';
-  projectId: string;
-  pluginId: string;
-  receiptId: string;
-  manifestSha256: string;
-  packageSha256: string;
-  runtimeSource: 'plugin.load_receipt' | string;
-  arbitraryPackageLoadAllowed: boolean;
-  executableHandlersRegistered: boolean;
-  trustedRuntimeBindingsRegistered: boolean;
-  // Registry summaries are intentionally open: each plugin runtime may
-  // register arbitrary JSON-shaped contribution metadata.
-  registeredBackendContributions: Record<string, JsonValue>;
-  registeredExecutableHandlers: Record<string, JsonValue>;
-  registeredRuntimeBindings: Record<string, JsonValue>;
-}
+export type WorkbenchPluginBackendActivation = HttpWorkbenchPluginBackendActivation;
 
 export interface WorkbenchPluginInstallFailure {
   code: string;
