@@ -37,6 +37,9 @@ export function useReviewRuns(initialRunId?: string) {
       const available = mergeRuns(page.runs, pinned?.runs ?? []);
       setRuns(available);
       setNextOffset(page.nextOffset);
+      // A requested run that is gone or has nothing to review must not be
+      // silently replaced by another run.
+      if (pinned && pinned.runs.length === 0) setError(`Run #${initialRunId} has no results to review.`);
       setSelectedRunId(pinned?.runs[0]?.sourceId
         ?? available.find((run) => run.reviewStatus === 'open')?.sourceId
         ?? available[0]?.sourceId ?? '');

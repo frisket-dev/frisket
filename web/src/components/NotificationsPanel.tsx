@@ -16,6 +16,8 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import type { AlertCheckLink } from '../state/alertCheckLinkStore';
+import { navigate } from '../routes';
+import { openRunReview } from './review/openRunReview';
 import './NotificationsPanel.css';
 
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
@@ -55,6 +57,19 @@ function alertCheckLink(item: NotificationItem): AlertCheckLink | null {
     if (Number.isInteger(eventId) && eventId > 0) eventIds.push(eventId);
   }
   return { alertId, runId, eventIds };
+}
+
+interface RunLink { projectId: string | null; runId: string; }
+
+function runLink(item: NotificationItem): RunLink | null {
+  if (item.deepLink.kind !== 'run') return null;
+  const runId = Number(item.deepLink.run_id ?? item.sourceRef.run_id);
+  if (!Number.isInteger(runId) || runId <= 0) return null;
+  const projectId = item.deepLink.project_id ?? item.sourceRef.project_id;
+  return {
+    projectId: typeof projectId === 'string' && projectId ? projectId : null,
+    runId: String(runId),
+  };
 }
 
 export function NotificationsPanel() {
@@ -142,7 +157,16 @@ export function NotificationsPanel() {
           // picks the link up by subscription, applies it, and acks.
           alertCheckLinkHandle.setPendingAlertCheckLink(link, 'alerts');
           openDiscover('Watches');
+          return;
         }
+        const run = runLink(item);
+        if (!run) return;
+        // Run ids are per project: never open another project's run here.
+        if (run.projectId !== null && run.projectId !== projectId) {
+          navigate({ kind: 'project', projectId: run.projectId });
+          return;
+        }
+        openRunReview(run.runId);
       }));
   };
 

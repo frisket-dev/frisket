@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi, type MockInstance } from 'vitest';
 import type { ProjectApi } from '../../src/api/ports';
 import type { NotificationItem } from '../../src/api/types';
 import { NotificationsPanel } from '../../src/components/NotificationsPanel';
 import { NOTIFICATIONS_CHANGED_EVENT } from '../../src/components/notifications/useNotificationSummary';
+import { OPEN_RUN_REVIEW_EVENT } from '../../src/components/review/openRunReview';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 function notification(id: number, state: NotificationItem['state'] = 'unseen'): NotificationItem {
@@ -98,4 +99,53 @@ it('opens an acknowledged alert source without marking it read again', async () 
     alertId: 3, runId: 5, eventIds: [11],
   }));
   expect(api.markNotificationRead).not.toHaveBeenCalled();
+});
+
+function runNotification(deepLink: Record<string, unknown>): NotificationItem {
+  return {
+    ...notification(7, 'read'), sourceKind: 'run', sourceRef: {}, sourceEventIds: [],
+    title: 'Run completed #12', deepLink,
+  };
+}
+
+function openRunRequests(dispatch: MockInstance<typeof window.dispatchEvent>) {
+  return dispatch.mock.calls
+    .map(([event]) => event)
+    .filter((event): event is CustomEvent => event.type === OPEN_RUN_REVIEW_EVENT)
+    .map((event) => event.detail);
+}
+
+it('opens a run notification in Review for the open project', async () => {
+  const { api } = renderNotifications([
+    runNotification({ kind: 'run', project_id: 'notification-actions', run_id: 12 }),
+  ]);
+  api.markNotificationRead.mockResolvedValue({ notificationId: 7, state: 'read' });
+  const dispatch = vi.spyOn(window, 'dispatchEvent');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open run' }));
+  await waitFor(() => expect(openRunRequests(dispatch)).toEqual([{ runId: '12' }]));
+  expect(api.markNotificationRead).toHaveBeenCalledWith(7);
+});
+
+it('switches to the run notification project instead of opening a run of this one', async () => {
+  const { api } = renderNotifications([
+    runNotification({ kind: 'run', project_id: 'other-project', run_id: 12 }),
+  ]);
+  api.markNotificationRead.mockResolvedValue({ notificationId: 7, state: 'read' });
+  const dispatch = vi.spyOn(window, 'dispatchEvent');
+  const pushState = vi.spyOn(window.history, 'pushState');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open run' }));
+  await waitFor(() => expect(pushState).toHaveBeenCalledWith(null, '', '/p/other-project'));
+  expect(openRunRequests(dispatch)).toEqual([]);
+});
+
+it('ignores a run notification without a usable run id', async () => {
+  const { api } = renderNotifications([runNotification({ kind: 'run', run_id: 'gone' })]);
+  api.markNotificationRead.mockResolvedValue({ notificationId: 7, state: 'read' });
+  const dispatch = vi.spyOn(window, 'dispatchEvent');
+  const pushState = vi.spyOn(window.history, 'pushState');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open run' }));
+  await waitFor(() => expect(api.markNotificationRead).toHaveBeenCalledWith(7));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Open run' })).toBeEnabled());
+  expect(openRunRequests(dispatch)).toEqual([]);
+  expect(pushState).not.toHaveBeenCalled();
 });
