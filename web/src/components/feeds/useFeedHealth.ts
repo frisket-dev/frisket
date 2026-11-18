@@ -67,7 +67,7 @@ export function useFeedHealth(feedApi: FeedApiPort) {
       if (isCurrent()) options.onPolled?.(result.sheetId);
     } catch (error) {
       if (isCurrent()) {
-        problem = `Poll failed: ${message(error)}`;
+        problem = `Check failed: ${message(error)}`;
         patch(id, { pollError: problem });
       }
     } finally {

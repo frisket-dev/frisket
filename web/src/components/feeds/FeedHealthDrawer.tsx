@@ -175,7 +175,7 @@ export function FeedHealthDrawer({
               onClick={() => { void actions.fetchNow(healthOpenId); }}
             >
               <RefreshCw size={12} className={busy === healthOpenId ? 'spin' : undefined} />
-              Poll now
+              Check now
             </Button>
             <span data-testid={`source-health-cost-${healthOpenId}`}>
               Cost {formatCost(openHealth.costs.recentActualMicro)}

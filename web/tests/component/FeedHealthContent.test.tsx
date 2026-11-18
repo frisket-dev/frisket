@@ -36,7 +36,7 @@ it('keeps summaries, run details, jobs, warnings and poll behavior in shared sou
   expect(screen.getByTestId('source-health-jobs-4')).toHaveTextContent('Extraction failed');
   expect(screen.getByTestId('source-health-warnings-4')).toHaveTextContent('Incomplete metadata');
   expect(screen.getByTestId('source-health-redactions-4')).toHaveTextContent('token / cursor page 2');
-  fireEvent.click(screen.getByRole('button', { name: 'Poll now' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Check now' }));
   await waitFor(() => expect(polled).toHaveBeenCalledWith(2));
   expect(feedApi.fetchFeed).toHaveBeenCalledWith(4);
 });

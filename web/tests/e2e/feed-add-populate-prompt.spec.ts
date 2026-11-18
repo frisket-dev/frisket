@@ -2,7 +2,7 @@
 // OR the Sources panel's "Add source" affordance (both reach the exact same
 // FeedImportForm; sources-panel-add-flow-v1 already pins that reuse) -- a
 // "Populate feed?" prompt opens immediately, offering the same run the
-// Sources panel's own "Poll now" affordance makes (source.poll ->
+// Feeds panel's own "Check now" affordance makes (source.poll ->
 // api.fetchFeed). Run launches it; Not now dismisses with no run.
 //
 // Deterministic + network-free: the source URL is http://localhost/..., which
@@ -94,7 +94,7 @@ test('Run launches exactly the manual poll (source.poll on the new feed)', async
   await expect(page.getByTestId('feed-populate-prompt')).toBeVisible();
   await page.getByTestId('feed-populate-run').click();
 
-  // Same action a Sources-panel "Poll now" click would fire.
+  // Same action a Feeds-panel "Check now" click would fire.
   await expect.poll(() => pollActions.length).toBe(1);
   const created = (await sources(page.request, pid)).find((s) => s.name === feedName)!;
   expect(pollActions[0]).toMatchObject({

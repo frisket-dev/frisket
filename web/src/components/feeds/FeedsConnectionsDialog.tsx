@@ -57,7 +57,7 @@ export function FeedsConnectionsDialog({
             <span className="sources-connections-icon"><Database size={18} aria-hidden /></span>
             <div>
               <h2 id="sources-connections-title">Feeds &amp; connections</h2>
-              <p>Manage recurring feeds, polling, and connection health for this project.</p>
+              <p>Manage recurring feeds, scheduled checks, and connection health for this project.</p>
             </div>
           </div>
           <WindowCloseButton

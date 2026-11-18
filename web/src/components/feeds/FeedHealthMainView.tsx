@@ -60,7 +60,7 @@ export function FeedHealthMainView({
               onClick={() => { void poll(sourceId, { onPolled }); }}
             >
               <RefreshCw size={12} className={busy ? 'spin' : undefined} />
-              Poll now
+              Check now
             </Button>
             <span data-testid={`source-health-cost-${sourceId}`}>
               Cost {formatCost(health.costs.recentActualMicro)}

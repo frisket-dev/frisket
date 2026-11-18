@@ -37,7 +37,7 @@ async function sources(request: import('@playwright/test').APIRequestContext, pi
   return res.json();
 }
 
-test('an RSS feed can be added, polled, edited, and deleted from the UI', async ({ page }) => {
+test('an RSS feed can be added, checked, edited, and deleted from the UI', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-sources'));
   const feedName = uniqueName('Test feed');
   // localhost is in netguard BLOCKED_HOSTS → rejected before any network I/O.
@@ -185,7 +185,7 @@ test('an RSS feed can be added, polled, edited, and deleted from the UI', async 
   });
   expect(String(sourceFetchActions[0].idempotency_key)).toMatch(/^web-source\.poll:/);
   await expect(page.getByTestId(`source-runs-${id}`)).toBeVisible();
-  await expect(page.getByTestId('sources-error')).toContainText(/Poll failed:/);
+  await expect(page.getByTestId('sources-error')).toContainText(/Check failed:/);
   await expect(page.getByTestId('sources-error')).toContainText(/blocked|localhost|private/i);
   await expect(page.getByTestId(`source-runs-${id}`)).toContainText(/error/i);
   await expect(page.getByTestId(`source-runs-${id}`)).toContainText(/blocked|localhost|private/i);

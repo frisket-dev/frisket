@@ -94,7 +94,7 @@ describe('source health request ownership', () => {
     act(() => { void result.current.poll(7, { afterPoll, onPolled }); void result.current.poll(7, { afterPoll, onPolled }); });
     expect(port.fetchFeed).toHaveBeenCalledOnce();
     await act(async () => { pending.reject(new Error('Offline')); });
-    expect(result.current.entries[7]).toMatchObject({ busy: false, loading: false, error: 'Poll failed: Offline' });
+    expect(result.current.entries[7]).toMatchObject({ busy: false, loading: false, error: 'Check failed: Offline' });
     expect(port.getFeedHealth).toHaveBeenCalledWith(7, 0, 20);
     expect(afterPoll).toHaveBeenCalledOnce();
     expect(onPolled).not.toHaveBeenCalled();

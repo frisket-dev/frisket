@@ -58,7 +58,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
             )}
 
             <div className="control-row source-controls">
-              <label className="control-row" title="Enable scheduled polling">
+              <label className="control-row" title="Enable scheduled checks">
                 <input
                   type="checkbox"
                   checked={s.enabled}
@@ -82,8 +82,8 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
               <button
                 type="button"
                 className="icon-btn"
-                title="Poll now"
-                aria-label={`Poll ${s.name}`}
+                title="Check now"
+                aria-label={`Check ${s.name}`}
                 data-testid={`source-fetch-${s.id}`}
                 disabled={busy === s.id}
                 onClick={() => { void actions.fetchNow(s.id); }}
@@ -129,7 +129,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                 aria-controls={`source-poll-history-${s.id}`}
                 onClick={() => { void actions.toggleRuns(s.id); }}
               >
-                <RunChevron size={14} aria-hidden /> Poll history
+                <RunChevron size={14} aria-hidden /> Check history
               </Button>
             </div>
 
@@ -138,7 +138,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                 {runs[s.id] === undefined ? (
                   <li className="panel-empty">loading...</li>
                 ) : runs[s.id].length === 0 ? (
-                  <li className="panel-empty">No polls yet.</li>
+                  <li className="panel-empty">No checks yet.</li>
                 ) : (
                   <>
                     {runs[s.id].map((r) => (
@@ -158,7 +158,7 @@ export function FeedList({ actions, armedDelete, busy, expanded, items, runPages
                     ))}
                     {page?.hasMore && (
                       <li className="panel-empty" data-testid={`source-runs-page-note-${s.id}`}>
-                        {page.total.toLocaleString()} total polls / older polls not loaded
+                        {page.total.toLocaleString()} total checks / older checks not loaded
                       </li>
                     )}
                   </>

@@ -111,10 +111,10 @@ it('refreshes run history after a failed poll and retains the unloaded-page noti
   const { api, onPolled } = setup();
   api.fetchFeed.mockRejectedValueOnce(new Error('Connection refused'));
   fireEvent.click(await screen.findByTestId('source-fetch-7'));
-  expect(await screen.findByTestId('source-runs-page-note-7')).toHaveTextContent('23 total polls / older polls not loaded');
+  expect(await screen.findByTestId('source-runs-page-note-7')).toHaveTextContent('23 total checks / older checks not loaded');
   expect(screen.getByTestId('source-runs-7')).toHaveTextContent('1 new / 2 changed / 4 revised / 3 skipped');
   expect(screen.getByTestId('source-runs-7')).toHaveTextContent('Redacted poll failure');
-  expect(screen.getByTestId('sources-error')).toHaveTextContent('Poll failed: Connection refused');
+  expect(screen.getByTestId('sources-error')).toHaveTextContent('Check failed: Connection refused');
   expect(api.getFeed).toHaveBeenCalledWith(7, 0, 20);
   expect(onPolled).not.toHaveBeenCalled();
 });

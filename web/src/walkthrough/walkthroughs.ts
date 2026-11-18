@@ -872,7 +872,7 @@ const RSS_IMPORT_WALKTHROUGH: WalkthroughDefinition = {
     {
       id: 'populate-feed',
       title: 'Fetch the current items',
-      instruction: 'Click Import to poll the new feed.',
+      instruction: 'Click Import to check the new feed.',
       target: { kind: 'element', id: 'feed-populate-run' },
       expected: 'A new sheet is populated from the public RSS items.',
       advance: 'click-target',

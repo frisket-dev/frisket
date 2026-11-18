@@ -401,7 +401,7 @@ export async function capturePanelCardScenes(page: Page, shot: Shot) {
   await openDiscoverTab(page, 'Sources');
   const sourceCard = page.getByTestId(`source-item-${sourceId}`);
   await expect(sourceCard).toBeVisible();
-  const pollHistory = sourceCard.getByRole('button', { name: 'Poll history', exact: true });
+  const pollHistory = sourceCard.getByRole('button', { name: 'Check history', exact: true });
   await expect(pollHistory).toHaveAttribute('aria-expanded', 'false');
   await pollHistory.click();
   await expect(pollHistory).toHaveAttribute('aria-expanded', 'true');

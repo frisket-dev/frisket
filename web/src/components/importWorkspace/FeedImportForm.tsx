@@ -185,7 +185,7 @@ export function FeedImportForm({
     if (!populate || populate.busy) return;
     setPopulate({ ...populate, busy: true, error: null });
     try {
-      // The exact fetch a Sources-panel "Poll now" click makes
+      // The exact fetch a Feeds-panel "Check now" click makes
       // (FeedsPanel.tsx's fetchNow -> feedApi.fetchFeed).
       const result = await api.fetchFeed(populate.source.id);
       void job.refresh();
@@ -211,7 +211,7 @@ export function FeedImportForm({
         </div>
         <p className="modal-body-text">
           Import <strong>{populate.source.name}</strong> now to pull in its rows
-          — the same fetch as Poll now in Feeds. You can import it again
+          — the same fetch as Check now in Feeds. You can import it again
           later either way.
         </p>
         {populate.error && (

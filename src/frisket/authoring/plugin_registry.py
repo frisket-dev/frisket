@@ -593,7 +593,7 @@ def _register_builtin_importers(registry: PluginRegistry) -> None:
         ("pdf", (".pdf",), ("application/pdf",), "Import PDF pages/files."),
         ("files", (), ("*/*",), "Import uploaded files as media cells."),
         ("urls", (), ("text/uri-list",), "Import remote media URLs."),
-        ("rss", (".rss", ".xml"), ("application/rss+xml",), "Poll RSS feeds."),
+        ("rss", (".rss", ".xml"), ("application/rss+xml",), "Check RSS feeds."),
     ):
         registry.register_importer(
             name,
@@ -609,7 +609,7 @@ def _register_builtin_job_handlers(registry: PluginRegistry) -> None:
     for kind, description in (
         (ECHO_KIND, "Test echo handler."),
         (RUN_PROJECT_KIND, "Execute a prepared project recipe run."),
-        (FEED_POLL_KIND, "Poll a scheduled project source."),
+        (FEED_POLL_KIND, "Check a scheduled project feed."),
         (ENCLOSURE_DOWNLOAD_KIND, "Download RSS/media enclosures."),
     ):
         registry.register_job_handler(

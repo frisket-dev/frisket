@@ -60,7 +60,7 @@ export function FeedEditorForm({ actions, busy, form, formFrame }: FeedEditorFor
 
       <PanelSelect
         className="form-input"
-        aria-label="Polling cadence"
+        aria-label="Check schedule"
         data-testid="source-interval"
         value={form.cadence}
         onChange={(e) => actions.updateForm({ cadence: e.target.value as FeedInterval })}
