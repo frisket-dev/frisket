@@ -29,7 +29,7 @@ jobs:
   # A scheduled night is skipped when main has not moved since the last
   # green run on main; a manual dispatch always runs. A failed lookup runs.
   decide:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -103,7 +103,7 @@ jobs:
     name: platform-proofs
     needs: [decide, desktop-macos, desktop-windows, macos-portability, windows-portability]
     if: ${{ always() && needs.decide.outputs.run == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}
@@ -116,7 +116,7 @@ jobs:
   report:
     needs: [decide, platform-proofs]
     if: ${{ always() && needs.decide.outputs.run == 'true' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read

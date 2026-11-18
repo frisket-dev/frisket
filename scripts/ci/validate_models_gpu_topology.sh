@@ -16,9 +16,13 @@ docker compose -f "$compose_file" --profile gpu config --format json \
   >"$compose_config"
 
 # Assert against Compose's rendered service graph, including interpolation and
-# profile expansion, rather than re-parsing the YAML in a unit test.
+# profile expansion, rather than re-parsing the YAML in a unit test. Every
+# binding precedes the boolean chain: jq releases disagree on whether
+# `a and b as $x | c` binds `b` or `a and b`.
 jq -e '
   .services as $services |
+  $services["gpu-worker"] as $worker |
+  $services["gpu-lease-init"] as $init |
   ($services | keys | sort) == ["caddy", "gateway", "gpu-lease-init", "gpu-worker"] and
   ([$services | to_entries[] | select(((.value.ports // []) | length) > 0) |
     .key] | sort) == ["caddy"] and
@@ -28,7 +32,6 @@ jq -e '
   (($services["gpu-worker"].networks | keys) == ["workers"]) and
   (($services.gateway.networks | keys | sort) == ["edge", "workers"]) and
   ((.networks.workers.internal // false) == false) and
-  $services["gpu-worker"] as $worker |
   ($worker.profiles == ["gpu"]) and
   ($worker.entrypoint == ["python3", "-m",
     "frisket_models.transcription.gpu_lease"]) and
@@ -41,7 +44,6 @@ jq -e '
   ($worker.environment.FRISKET_GPU_LEASE_FILE == "/run/frisket-gpu/gpu-worker.lock") and
   ([$worker.volumes[] | select(.source == "gpu-lease" and
     .target == "/run/frisket-gpu")] | length) == 1 and
-  $services["gpu-lease-init"] as $init |
   ($init.profiles == ["gpu"]) and
   ($init.user == "0:0") and
   ($init.entrypoint[0:2] == ["python3", "-c"]) and

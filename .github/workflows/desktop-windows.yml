@@ -49,7 +49,7 @@ jobs:
   #   * Manual dispatches and release calls run the signed jobs instead.
   changes:
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.nightly
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       relevant: ${{ steps.paths.outputs.relevant }}
       reason: ${{ steps.paths.outputs.reason }}
@@ -514,7 +514,7 @@ jobs:
     name: desktop-windows-ci
     if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || inputs.nightly) }}
     needs: [changes, installed-app]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - env:
           RESULTS: ${{ toJSON(needs) }}

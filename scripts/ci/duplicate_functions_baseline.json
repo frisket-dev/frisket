@@ -89,41 +89,12 @@
    "sidecar/workers/whisper_turbo/src/frisket_whisper_turbo/adapter.py::build_registration.probe"
   ],
   [
-   "src/frisket/actions/cleanup.py::CleanColumnParams._nonblank_null_tokens",
-   "src/frisket/actions/extract/json_columns.py::JsonRoute._trimmed",
-   "src/frisket/actions/find_types.py::FindOptions.nonblank_instruction",
-   "src/frisket/actions/group_summary_types.py::GroupSummaryOptions.nonblank_instruction",
-   "src/frisket/actions/judge.py::JudgeParams._nonblank_guidelines",
-   "src/frisket/actions/model_rows.py::AskParams._question",
-   "src/frisket/actions/resolve.py::CombineGroup._valid_canonical",
-   "src/frisket/actions/translate_types.py::TranslationOptions._target",
-   "src/frisket/actions/types.py::SourceCreateIntent._required_text",
-   "src/frisket/actions/types.py::SourcePatch._required_text_when_present",
-   "src/frisket/actions/types.py::Template._nonblank",
-   "src/frisket/contracts/actions/schemas/_validators.py::validate_input_ref",
-   "src/frisket/contracts/actions/schemas/_validators.py::validate_output_name",
-   "src/frisket/contracts/http/views_lenses.py::SavedViewRenameRequest._name_is_nonblank",
-   "src/frisket/contracts/http/alerts.py::WatchCreateRequest._name_is_nonblank"
-  ],
-  [
    "src/frisket/actions/cluster_types.py::ClusterReview.valid_overrides",
    "src/frisket/actions/entities.py::ResolveEntitiesParams._overrides"
   ],
   [
-   "src/frisket/actions/import_xlsx.py::UpdateXlsxParams._validate_update_mapping",
-   "src/frisket/actions/imports.py::UpdateCsvParams._validate_update_mapping"
-  ],
-  [
-   "src/frisket/actions/model_rows.py::SummarizeParams._instruction",
    "src/frisket/actions/resolve.py::_clean_target",
-   "src/frisket/actions/types.py::ActionRequest._valid_sheet_name",
-   "src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftPoint._validate_optional_text",
-   "src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftRange._validate_optional_text",
-   "src/frisket/contracts/actions/schemas/temporal.py::TemporalDraftRangeSelection._validate_optional_text"
-  ],
-  [
-   "src/frisket/contracts/actions/schemas/_base.py::is_json_value",
-   "src/frisket/engine/executor/action_support.py::_is_json_value"
+   "src/frisket/actions/types.py::ActionRequest._valid_sheet_name"
   ],
   [
    "src/frisket/ai/embeddings/scope.py::_safe_obj",
@@ -170,8 +141,12 @@
    "src/frisket/execution/pricing_policy.py::PricingPolicyConflict.__init__"
   ],
   [
-   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_execution",
-   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_estimate"
+   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_estimate",
+   "src/frisket/cloud_execution.py::HttpCloudExecutionTransport._parse_execution"
+  ],
+  [
+   "src/frisket/contracts/actions/schemas/_base.py::is_json_value",
+   "src/frisket/engine/executor/action_support.py::_is_json_value"
   ],
   [
    "src/frisket/contracts/actions/schemas/temporal.py::_is_embedded_duration_bounds_error",
@@ -182,25 +157,8 @@
    "src/frisket/contracts/decisions.py::_probability"
   ],
   [
-   "src/frisket/contracts/plugin.py::PluginManifestMatcher._clean_matcher_value",
-   "src/frisket/contracts/plugin.py::PluginManifestWorkbenchComponentBinding._clean_component_binding_value"
-  ],
-  [
-   "src/frisket/contracts/plugin.py::PluginManifestRuntimeBinding._clean_binding_value",
-   "src/frisket/contracts/plugin.py::PluginManifestRuntimeBindingWrite._clean_write_value",
-   "src/frisket/contracts/plugin.py::PluginManifestSetting._clean_setting_text"
-  ],
-  [
-   "src/frisket/engine/_workers/embeddinggemma_artifacts.py::cached_embeddinggemma_path",
-   "src/frisket/engine/_workers/indra_ocr_artifacts.py::cached_indra_ocr_path"
-  ],
-  [
    "src/frisket/engine/_workers/embeddinggemma_artifacts.py::embeddinggemma_artifact",
    "src/frisket/engine/_workers/indra_ocr_artifacts.py::indra_ocr_artifact"
-  ],
-  [
-   "src/frisket/engine/_workers/opus_mt_session.py::OpusMtSession._close",
-   "src/frisket/engine/_workers/spacy_session.py::SpacySession._close"
   ],
   [
    "src/frisket/engine/_workers/parakeet_session.py::ParakeetProcessSession._sample_peak_memory",
@@ -209,10 +167,6 @@
   [
    "src/frisket/engine/_workers/parakeet_session.py::_decode_frame",
    "src/frisket/engine/_workers/rapidocr_session.py::_decode_frame"
-  ],
-  [
-   "src/frisket/engine/_workers/parakeet_worker.py::_protocol_stdout",
-   "src/frisket/engine/_workers/rapidocr_worker.py::_protocol_stdout"
   ],
   [
    "src/frisket/engine/_workers/rapidocr_models.py::_sha256_file",
@@ -232,14 +186,6 @@
    "src/frisket/engine/executor/action_families/exports.py::_resolve_sheet_parquet"
   ],
   [
-   "src/frisket/engine/executor/action_reservations.py::_queued_receipt_job_id",
-   "src/frisket/engine/executor/queued_actions.py::_queued_receipt_job_id"
-  ],
-  [
-   "src/frisket/engine/executor/actions.py::_composed_map_runner_factory.factory",
-   "src/frisket/engine/executor/actions.py::_default_map_runner_factory"
-  ],
-  [
    "src/frisket/engine/executor/classify_read.py::AdmittedClassifier._check_open",
    "src/frisket/engine/executor/document_convert.py::AdmittedDocumentConverter._check_active",
    "src/frisket/engine/executor/file_fetch.py::AdmittedFileFetcher._check_open",
@@ -253,6 +199,10 @@
   [
    "src/frisket/engine/executor/document_convert.py::_BoundDocumentConverter.__init__",
    "src/frisket/engine/executor/transcription_read.py::_BoundTranscriber.__init__"
+  ],
+  [
+   "src/frisket/engine/executor/feed_action.py::_config",
+   "src/frisket/engine/executor/feed_poll_action.py::_feed_config_dict"
   ],
   [
    "src/frisket/engine/executor/file_fetch.py::AdmittedFileFetcher.__init__",
@@ -283,10 +233,6 @@
    "src/frisket/engine/executor/run_backfill_action.py::_RunBackfiller.retry"
   ],
   [
-   "src/frisket/engine/executor/feed_action.py::_config",
-   "src/frisket/engine/executor/feed_poll_action.py::_feed_config_dict"
-  ],
-  [
    "src/frisket/engine/executor/temporal_extract_publication.py::_staged_extract_annotations",
    "src/frisket/engine/executor/temporal_split.py::_projectable_annotations"
   ],
@@ -303,12 +249,12 @@
    "src/frisket/engine/jobs/embeddings.py::maintenance_enables_source_append"
   ],
   [
-   "src/frisket/engine/jobs/projection.py::parse_status_time",
-   "src/frisket/server/run_status.py::_parse_status_time"
-  ],
-  [
    "src/frisket/engine/jobs/feeds.py::_feed_dict",
    "src/frisket/server/services/feeds.py::_feed_dict"
+  ],
+  [
+   "src/frisket/engine/jobs/projection.py::parse_status_time",
+   "src/frisket/server/run_status.py::_parse_status_time"
   ],
   [
    "src/frisket/engine/projections/point_backend.py::GeoProjectionBackend._prune_other_generations",
@@ -360,14 +306,6 @@
    "src/frisket/engine/store/runs.py::RunResultStore.set_worker_version"
   ],
   [
-   "src/frisket/engine/store/project_qa.py::ProjectQAStore._write",
-   "src/frisket/engine/store/project_qa_research.py::ProjectQAResearchStore._write"
-  ],
-  [
-   "src/frisket/engine/store/runs.py::RunResultStore.fail_result_value",
-   "src/frisket/engine/store/runs.py::RunResultStore.withhold_result_value"
-  ],
-  [
    "src/frisket/engine/store/runs.py::RunResultStore.increment_total_rows",
    "src/frisket/engine/store/runs.py::RunResultStore.set_total_rows"
   ],
@@ -387,6 +325,10 @@
   [
    "src/frisket/execution/resolve_for_action.py::_census_cost_basis",
    "src/frisket/execution/resolve_for_action.py::_geocode_cost_basis"
+  ],
+  [
+   "src/frisket/features/alerts/triggers.py::_is_embedding_similarity_alert",
+   "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
   ],
   [
    "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__",
@@ -411,10 +353,6 @@
    "src/frisket/features/investigations/rowsets.py::InvestigativeRowsetError.__init__",
    "src/frisket/preview/common.py::ComparePreviewError.__init__",
    "src/frisket/server/exports/rowset.py::ExportError.__init__"
-  ],
-  [
-   "src/frisket/features/alerts/triggers.py::_is_embedding_similarity_alert",
-   "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
   ],
   [
    "src/frisket/ingest.py::_media_kind",
@@ -444,6 +382,10 @@
   [
    "src/frisket/server/exports/work_log.py::build_work_log_payload.spec",
    "src/frisket/server/services/project_debug.py::_spec"
+  ],
+  [
+   "src/frisket/server/feeds/api_list_dicts.py::_record_scalar_text",
+   "src/frisket/server/feeds/api_list_dicts.py::_record_source_item_id"
   ],
   [
    "src/frisket/server/notifications/providers.py::_required_secret",
@@ -495,18 +437,6 @@
    "src/frisket/server/services/search_preparation_planning.py::_imported_pdf_page_source"
   ],
   [
-   "src/frisket/server/feeds/api_list_dicts.py::_config_positive_int",
-   "src/frisket/server/feeds/courtlistener.py::_config_positive_int"
-  ],
-  [
-   "src/frisket/server/feeds/api_list_dicts.py::_record_scalar_text",
-   "src/frisket/server/feeds/api_list_dicts.py::_record_source_item_id"
-  ],
-  [
-   "src/frisket/server/feeds/youtube.py::register_youtube_channel_feed_checker",
-   "src/frisket/server/feeds/youtube.py::register_youtube_playlist_feed_checker"
-  ],
-  [
    "src/frisket/upgrades/project/domain_migration.py::capture_current_baseline",
    "src/frisket/upgrades/project/domain_migration.py::install_current_baseline"
   ]
@@ -527,10 +457,6 @@
    "src/frisket/actions/ner.py::NerParams._source",
    "src/frisket/actions/row_research.py::ResearchParams._source",
    "src/frisket/actions/translate.py::TranslateParams._source"
-  ],
-  [
-   "src/frisket/contracts/actions/schemas/_base.py::is_json_value",
-   "src/frisket/engine/executor/action_support.py::_is_json_value"
   ],
   [
    "src/frisket/contracts/http/pdf_packet_splits.py::PdfPacketIndexRange._ordered",
@@ -559,16 +485,13 @@
   ],
   [
    "src/frisket/engine/executor/extract_citations.py::_text_hash",
-   "src/frisket/engine/executor/group_summary_runtime.py::_text_hash",
-   "src/frisket/engine/executor/operation_action.py::_text_hash",
    "src/frisket/engine/executor/feed_action.py::_text_hash",
    "src/frisket/engine/executor/feed_poll_action.py::_text_hash",
+   "src/frisket/engine/executor/group_summary_runtime.py::_text_hash",
+   "src/frisket/engine/executor/operation_action.py::_text_hash",
    "src/frisket/engine/store/citation_text.py::_text_hash",
    "src/frisket/engine/store/evidence.py::_text_hash",
-   "src/frisket/ops/ner_citations.py::_text_hash",
-   "src/frisket/server/feeds/api_list_dicts.py::_text_hash",
-   "src/frisket/server/feeds/courtlistener.py::_text_hash",
-   "src/frisket/server/feeds/youtube.py::_text_hash"
+   "src/frisket/ops/ner_citations.py::_text_hash"
   ],
   [
    "src/frisket/engine/executor/import_blob_stage.py::AdmittedImportBlobStager._require_open",
@@ -577,15 +500,8 @@
   ],
   [
    "src/frisket/engine/jobs/queue.py::_mapping",
-   "src/frisket/server/services/selector_choices_projection.py::_mapping",
-   "src/frisket/server/feeds/health.py::_mapping"
-  ],
-  [
-   "src/frisket/engine/store/cell_writes.py::_require_transaction",
-   "src/frisket/engine/store/current_cells.py::_require_transaction",
-   "src/frisket/engine/store/search_index_work.py::_require_transaction",
-   "src/frisket/upgrades/project/domain_migration.py::_require_transaction",
-   "src/frisket/upgrades/project/historical_current_cells.py::_require_transaction"
+   "src/frisket/server/feeds/health.py::_mapping",
+   "src/frisket/server/services/selector_choices_projection.py::_mapping"
   ],
   [
    "src/frisket/engine/store/execution_routes.py::_now",
@@ -602,11 +518,6 @@
    "src/frisket/retrieval/content.py::_check_cancelled",
    "src/frisket/retrieval/media.py::_check_cancelled",
    "src/frisket/retrieval/preparation.py::_check_cancelled"
-  ],
-  [
-   "src/frisket/server/feeds/api_list_dicts.py::_hash_json",
-   "src/frisket/server/feeds/courtlistener.py::_hash_json",
-   "src/frisket/server/feeds/youtube.py::_hash_json"
   ],
   [
    "src/frisket/team/auth_limits.py::_aware",

@@ -115,6 +115,6 @@
  "web/tests/e2e/run-progress-visibility.spec.ts": 1,
  "web/tests/e2e/substrate-cross-project.spec.ts": 1,
  "web/tests/e2e/workbench-ia-action-drawer.spec.ts": 2,
- "web/tests/unit/nerImportPromptModel.test.ts": 1,
- "web/tests/unit/alertsHttpContracts.test.ts": 1
+ "web/tests/unit/alertsHttpContracts.test.ts": 1,
+ "web/tests/unit/nerImportPromptModel.test.ts": 1
 }

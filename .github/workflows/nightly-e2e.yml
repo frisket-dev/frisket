@@ -43,7 +43,7 @@ jobs:
   # A scheduled night is skipped when main has not moved since the last
   # green run on main; a manual dispatch always runs. A failed lookup runs.
   decide:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read
@@ -80,7 +80,7 @@ jobs:
   shard:
     needs: decide
     if: needs.decide.outputs.run == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 75
     strategy:
       fail-fast: false
@@ -141,7 +141,7 @@ jobs:
   verdict:
     needs: [decide, shard]
     if: ${{ always() && needs.decide.outputs.run == 'true' && needs.shard.result != 'cancelled' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
