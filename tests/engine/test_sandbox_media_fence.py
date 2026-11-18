@@ -333,10 +333,10 @@ def test_a_confined_ffmpeg_extracts_the_same_frame(tmp_path):
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
     reason="ffmpeg not installed",
 )
-def test_the_real_video_frames_op_still_extracts_frames_confined(tmp_path):
+def test_the_real_video_frames_op_still_extracts_frames_confined(
+    tmp_path, make_project
+):
     """Real ffprobe/ffmpeg through the admitted reader and production stager."""
-    from contextlib import closing
-    from frisket.engine.store import Project
     from frisket.actions.types import ColumnRef
     from frisket.actions.row_media_types import FrameCount
     from tests.engine.test_row_media_reader import bound_media
@@ -377,12 +377,12 @@ def test_the_real_video_frames_op_still_extracts_frames_confined(tmp_path):
                 assert blob.mime == "image/jpeg"
                 assert blob.path.read_bytes().startswith(bytes((255, 216)))
 
-    with closing(Project.create(tmp_path / "frames.frisket")) as project:
-        asyncio.run(run(project))
+    project = make_project("frames")
+    asyncio.run(run(project))
 
 
 def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
-    tmp_path, monkeypatch
+    tmp_path, make_project, monkeypatch
 ):
     """AdmittedFaceExtractor end to end, real OpenCV, confined.
 
@@ -393,11 +393,9 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
     through the fence, and the detections are compared with an unconfined run
     of the same worker on the same bytes.
     """
-    from contextlib import closing
 
     cv2 = pytest.importorskip("cv2")
     numpy = pytest.importorskip("numpy")
-    from frisket.engine.store import Project
     from frisket.actions.types import ColumnRef
     from frisket.engine.executor import row_media_read
     from frisket.runtime.launch import worker_argv
@@ -430,8 +428,8 @@ def test_the_real_extract_faces_op_reads_its_image_through_the_fence(
                 for face in faces
             ]
 
-    with closing(Project.create(tmp_path / "faces.frisket")) as project:
-        out = asyncio.run(run(project))
+    project = make_project("faces")
+    out = asyncio.run(run(project))
 
     unconfined = json.loads(
         asyncio.run(

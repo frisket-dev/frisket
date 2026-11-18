@@ -26,8 +26,8 @@ from frisket.engine.store.search_index_work import (
 _PRE_SEARCH_DIGEST = "frisket.schema.v1:cb9a46c224c6d5e95af3c7e91df76e26"
 
 
-def test_worklist_revision_progress_and_ack_survive_deletion(tmp_path) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+def test_worklist_revision_progress_and_ack_survive_deletion(make_project) -> None:
+    project = make_project("search-work")
     db = project.db
     db.execute("DELETE FROM search_dirty_scopes")
     db.commit()
@@ -55,17 +55,17 @@ def test_worklist_revision_progress_and_ack_survive_deletion(tmp_path) -> None:
     assert latest_revision(db) == second
 
 
-def test_worklist_mutations_require_authoritative_transaction(tmp_path) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+def test_worklist_mutations_require_authoritative_transaction(make_project) -> None:
+    project = make_project("search-work")
     with pytest.raises(RuntimeError, match="caller transaction"):
         enqueue_dirty_scope(project.db)
 
 
 @pytest.mark.parametrize("column_id", [None, 5])
 def test_broader_scope_supersedes_narrow_work_with_fresh_revision(
-    tmp_path, column_id
+    make_project, column_id
 ) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+    project = make_project("search-work")
     db = project.db
     db.execute("DELETE FROM search_dirty_scopes")
     db.commit()
@@ -86,8 +86,8 @@ def test_broader_scope_supersedes_narrow_work_with_fresh_revision(
     project.close()
 
 
-def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+def test_current_cell_refresh_enqueues_bounded_region(make_project) -> None:
+    project = make_project("search-work")
     sheet_id = project.add_sheet("Sheet")
     column_id = project.add_column(sheet_id, "Text")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
@@ -108,8 +108,8 @@ def test_current_cell_refresh_enqueues_bounded_region(tmp_path) -> None:
     assert (scope.row_id_start, scope.row_id_end) == (row_id, row_id)
 
 
-def test_visibility_triggers_cover_rows_columns_and_sheets(tmp_path) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+def test_visibility_triggers_cover_rows_columns_and_sheets(make_project) -> None:
+    project = make_project("search-work")
     sheet_id = project.add_sheet("Sheet")
     column_id = project.add_column(sheet_id, "Text")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
@@ -133,8 +133,8 @@ def test_visibility_triggers_cover_rows_columns_and_sheets(tmp_path) -> None:
     )
 
 
-def test_plain_connection_reads_latest_revision(tmp_path) -> None:
-    project = Project.create(tmp_path / "project", name="search-work")
+def test_plain_connection_reads_latest_revision(make_project) -> None:
+    project = make_project("search-work")
     path = project.db_path
     project.close()
     db = sqlite3.connect(path)

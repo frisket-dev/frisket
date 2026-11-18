@@ -12,7 +12,6 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.blob_metadata import (
     BlobMetadataDocumentStore,
     BlobMetadataNamespaceCASDecision,
@@ -27,8 +26,8 @@ CALLER_SHEET_NAME = "Caller edit"
 
 
 @pytest.fixture
-def project(tmp_path):
-    project = Project.create(tmp_path / "ownership.frisket")
+def project(make_project):
+    project = make_project("ownership")
     sheet_id = project.add_sheet("Source")
     column_id = project.add_column(sheet_id, "value")
     project.add_rows(sheet_id, [{"value": "original"}], {"value": column_id})

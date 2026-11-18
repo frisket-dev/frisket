@@ -26,7 +26,6 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor import run_action_spec
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sheet_lifecycle import (
     delete_sheet,
@@ -41,22 +40,15 @@ from tests.engine.test_derive_link_table_executor import (
 
 
 @pytest.fixture
-def semantic_project(tmp_path, monkeypatch):
-    project = Project.create(tmp_path / "semantic.frisket")
-    try:
-        seed = _seed(project, tmp_path)
+def semantic_project(tmp_path, make_project, monkeypatch):
+    project = make_project("semantic")
+    seed = _seed(project, tmp_path)
 
-        def forbidden(*args, **kwargs):
-            raise AssertionError(
-                "link materialization must not repeat semantic compute"
-            )
+    def forbidden(*args, **kwargs):
+        raise AssertionError("link materialization must not repeat semantic compute")
 
-        monkeypatch.setattr(
-            "frisket.ai.embeddings.backends.resolve_embedder", forbidden
-        )
-        yield project, seed
-    finally:
-        project.close()
+    monkeypatch.setattr("frisket.ai.embeddings.backends.resolve_embedder", forbidden)
+    yield project, seed
 
 
 def _run(project, request):

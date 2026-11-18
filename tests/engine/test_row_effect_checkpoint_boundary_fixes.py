@@ -227,92 +227,89 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
 
 
 @pytest.fixture()
-def checkpointed_run(tmp_path):
+def checkpointed_run(make_project):
     """A minimal run row plus a reserved row-effect checkpoint, store-level."""
 
-    project = Project.create(tmp_path / "idless.frisket", name="idless")
-    try:
-        sheet_id = project.add_sheet("S")
-        source_column_id = project.add_column(sheet_id, "source")
-        output_column_id = project.add_column(
-            sheet_id,
-            "classification",
-            ai_generated=True,
-        )
-        row_id = project.add_rows(
-            sheet_id,
-            [{"source": "one"}],
-            {"source": source_column_id},
-        )[0]
-        op_id = project.append_change("map", {"action_kind": "map.classify"})
-        store = RunResultStore(project)
-        run_id = store.start_run(
-            op_id,
-            sheet_id,
-            "map.classify",
-            row_ids=[row_id],
-        )
-        receipt_id = "receipt_idless_checkpoint"
-        claim_token = f"output-claim:{receipt_id}"
-        ReceiptStore(project).insert_running(
-            Receipt(
-                receipt_id=receipt_id,
-                project_id="project",
-                action_id="action_idless_checkpoint",
-                action_kind="map.classify",
-                status="running",
-                run_id=run_id,
-            )
-        )
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["classification"],
-            action_kind="map.classify",
+    project = make_project("idless")
+    sheet_id = project.add_sheet("S")
+    source_column_id = project.add_column(sheet_id, "source")
+    output_column_id = project.add_column(
+        sheet_id,
+        "classification",
+        ai_generated=True,
+    )
+    row_id = project.add_rows(
+        sheet_id,
+        [{"source": "one"}],
+        {"source": source_column_id},
+    )[0]
+    op_id = project.append_change("map", {"action_kind": "map.classify"})
+    store = RunResultStore(project)
+    run_id = store.start_run(
+        op_id,
+        sheet_id,
+        "map.classify",
+        row_ids=[row_id],
+    )
+    receipt_id = "receipt_idless_checkpoint"
+    claim_token = f"output-claim:{receipt_id}"
+    ReceiptStore(project).insert_running(
+        Receipt(
             receipt_id=receipt_id,
+            project_id="project",
+            action_id="action_idless_checkpoint",
+            action_kind="map.classify",
+            status="running",
             run_id=run_id,
-            claim_token=claim_token,
         )
-        assert conflict is None
-        assert len(claims) == 1
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=claim_token,
-            run_id=run_id,
-            expected_output_names=["classification"],
-        )
-        attempt_id = "attempt_idless_checkpoint"
-        project.db.execute(
-            "INSERT INTO execution_attempts "
-            "(id, run_id, seq, state, action_identity_hash, scope_json, "
-            "created_at) VALUES (?, ?, 0, 'dispatching', 'idless', ?, "
-            "datetime('now'))",
-            (attempt_id, run_id, json.dumps([row_id])),
-        )
-        project.db.execute(
-            "UPDATE runs SET current_attempt_id=? WHERE id=?",
-            (attempt_id, run_id),
-        )
-        project.db.commit()
-        assert store.reserve_row_effect_checkpoint(
-            "cp-1",
-            run_id=run_id,
-            row_id=row_id,
-            action_kind="classify",
-            identity="identity-digest",
-            authorized_attempt_id=attempt_id,
-            writer_attempt_id=attempt_id,
-            claim_token=claim_token,
-        )
-        yield (
-            project,
-            store,
-            int(run_id),
-            int(row_id),
-            int(output_column_id),
-            attempt_id,
-            claim_token,
-        )
-    finally:
-        project.close()
+    )
+    claims, conflict = OutputColumnClaimStore(project).acquire(
+        sheet_id=sheet_id,
+        output_names=["classification"],
+        action_kind="map.classify",
+        receipt_id=receipt_id,
+        run_id=run_id,
+        claim_token=claim_token,
+    )
+    assert conflict is None
+    assert len(claims) == 1
+    OutputColumnClaimStore(project).bind_to_run(
+        claim_token=claim_token,
+        run_id=run_id,
+        expected_output_names=["classification"],
+    )
+    attempt_id = "attempt_idless_checkpoint"
+    project.db.execute(
+        "INSERT INTO execution_attempts "
+        "(id, run_id, seq, state, action_identity_hash, scope_json, "
+        "created_at) VALUES (?, ?, 0, 'dispatching', 'idless', ?, "
+        "datetime('now'))",
+        (attempt_id, run_id, json.dumps([row_id])),
+    )
+    project.db.execute(
+        "UPDATE runs SET current_attempt_id=? WHERE id=?",
+        (attempt_id, run_id),
+    )
+    project.db.commit()
+    assert store.reserve_row_effect_checkpoint(
+        "cp-1",
+        run_id=run_id,
+        row_id=row_id,
+        action_kind="classify",
+        identity="identity-digest",
+        authorized_attempt_id=attempt_id,
+        writer_attempt_id=attempt_id,
+        claim_token=claim_token,
+    )
+    yield (
+        project,
+        store,
+        int(run_id),
+        int(row_id),
+        int(output_column_id),
+        attempt_id,
+        claim_token,
+    )
 
 
 def _fact(call_id: str | None) -> dict:

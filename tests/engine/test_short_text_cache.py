@@ -67,8 +67,8 @@ def test_cache_is_per_cell_and_counts_utf8_bytes(make_project):
     assert p.get_values(s, c)[rows[0]] == "x" * 1000
 
 
-def test_upgrade_preserves_prepared_refs_and_reopens(tmp_path):
-    p = Project.create(tmp_path / "upgrade")
+def test_upgrade_preserves_prepared_refs_and_reopens(make_project):
+    p = make_project("upgrade")
     path = p.path
     s = p.add_sheet("Docs")
     c = p.add_column(s, "body", type="text")

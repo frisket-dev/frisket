@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 
 import pytest
 from pydantic import BaseModel
@@ -23,7 +22,6 @@ from frisket.engine.executor.action_inventory import ExecutorDeps
 from frisket.engine.executor.sheet_rows_read import AdmittedSheetRowsReader
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.executor.table_preview import preview_table
-from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.sdk import SheetRowsReader as PublicSheetRowsReader
@@ -169,23 +167,23 @@ def _bound(
 
 
 @pytest.fixture
-def stars(tmp_path):
-    with closing(Project.create(tmp_path / "project")) as project:
-        sheet_id = project.add_sheet("Stars")
-        constellation = project.add_column(sheet_id, "constellation", "text")
-        rating = project.add_column(sheet_id, "rating", "number")
-        star = project.add_column(sheet_id, "star", "text")
-        row_ids = project.add_rows(
-            sheet_id,
-            [
-                {"constellation": "Lyra", "rating": 4.5, "star": "Vega"},
-                {"constellation": "Orion", "rating": 3.5, "star": "Rigel"},
-                {"constellation": "Lyra", "rating": 4.8, "star": "Sheliak"},
-                {"constellation": "Orion", "rating": 2.5, "star": "Saiph"},
-            ],
-            {"constellation": constellation, "rating": rating, "star": star},
-        )
-        yield project, sheet_id, row_ids
+def stars(make_project):
+    project = make_project("project")
+    sheet_id = project.add_sheet("Stars")
+    constellation = project.add_column(sheet_id, "constellation", "text")
+    rating = project.add_column(sheet_id, "rating", "number")
+    star = project.add_column(sheet_id, "star", "text")
+    row_ids = project.add_rows(
+        sheet_id,
+        [
+            {"constellation": "Lyra", "rating": 4.5, "star": "Vega"},
+            {"constellation": "Orion", "rating": 3.5, "star": "Rigel"},
+            {"constellation": "Lyra", "rating": 4.8, "star": "Sheliak"},
+            {"constellation": "Orion", "rating": 2.5, "star": "Saiph"},
+        ],
+        {"constellation": constellation, "rating": rating, "star": star},
+    )
+    yield project, sheet_id, row_ids
 
 
 def _preview(project, bound):

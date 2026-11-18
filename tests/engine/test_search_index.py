@@ -7,7 +7,6 @@ import threading
 import pytest
 
 from frisket.engine.jobs.search_index import process_index_batches
-from frisket.engine.store import Project
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import SearchIndexNotReady, drain_index, index_batch, search_project
@@ -15,8 +14,8 @@ import frisket.search_index as maintenance
 
 
 @pytest.fixture
-def documents(tmp_path):
-    project = Project.create(tmp_path / "search.frisket", name="search")
+def documents(make_project):
+    project = make_project("search")
     sheet = project.add_sheet("Documents")
     column = project.add_column(sheet, "body")
     rows = project.add_rows(

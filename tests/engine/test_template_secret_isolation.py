@@ -10,16 +10,15 @@ import pytest
 
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.actions import run_action_spec
-from frisket.engine.store import Project
 from frisket.ops.integrations.mcp_project import project_mcp_launch_config
 from frisket.team.security.secrets import encrypt_secret
 from tests.ops.test_api_call import _allow_egress as _allow_egress
 
 
 @pytest.fixture
-def request_project(tmp_path, monkeypatch, _allow_egress):
+def request_project(make_project, monkeypatch, _allow_egress):
     monkeypatch.setenv("FRISKET_SECRETS_MASTER_KEY", "fake-test-master-key")
-    project = Project.create(tmp_path / "request.frisket")
+    project = make_project("request")
     sheet = project.add_sheet("Rows")
     project.add_rows(sheet, [{}], {})
     sent = []
