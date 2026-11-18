@@ -18,7 +18,7 @@ from frisket.contracts.http.project_evidence import (
     EvidenceViewerResponse,
     RowSourceDocumentsResponse,
 )
-from frisket.server.routes.project_evidence import register_project_evidence_routes
+from frisket.server.routes.project_evidence import register_project_citation_routes
 
 
 class _EvidenceService:
@@ -233,7 +233,7 @@ class _EvidenceService:
 
 def _app() -> FastAPI:
     app = FastAPI()
-    register_project_evidence_routes(app, service=_EvidenceService())  # type: ignore[arg-type]
+    register_project_citation_routes(app, service=_EvidenceService())  # type: ignore[arg-type]
     return app
 
 

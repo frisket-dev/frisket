@@ -7,7 +7,7 @@ from frisket.contracts.action import ActionError
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_span,
     record_source_artifact,
 )
@@ -84,7 +84,7 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
 
     links = {}
     for row_id in row_ids:
-        links[row_id] = record_evidence_link(
+        links[row_id] = record_citation(
             project,
             subject_kind="cell_value",
             subject_ref=refs[row_id],

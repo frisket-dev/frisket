@@ -14,8 +14,8 @@ from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
-    record_evidence_link,
-    list_cell_evidence,
+    record_citation,
+    list_cell_citations,
 )
 
 
@@ -117,7 +117,7 @@ def test_reapply_preserves_citation_span_and_saved_result_ref_and_undoes_new_col
         page_start=1,
         quote="original cited passage",
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[rows[0]],
@@ -150,7 +150,7 @@ def test_reapply_preserves_citation_span_and_saved_result_ref_and_undoes_new_col
     restored = next(c for c in project.columns(sheet) if c["name"] == "Restored")
     _, refs = project.get_values_with_refs(sheet, restored["id"], row_ids=[rows[0]])
     assert refs[rows[0]]["retained_result"]["run_id"] == original.run_id
-    citations = list_cell_evidence(
+    citations = list_cell_citations(
         project, sheet_id=sheet, row_id=rows[0], column_id=restored["id"]
     )
     assert len(citations["links"]) == 1

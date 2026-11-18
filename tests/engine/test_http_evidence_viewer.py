@@ -6,7 +6,7 @@ from typing import Any
 
 from frisket.contracts.action import ActionError
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -48,7 +48,7 @@ def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
         selector={"blob_hash": blob_hash},
         text_layer_hash=blob_hash,
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -108,7 +108,7 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
         text_layer_hash=content_hash,
         text_surface_id=surface["id"],
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="test",
         subject_ref={"kind": "test"},
@@ -267,7 +267,7 @@ def _seed_evidence(
             }
         },
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=current_ref,
@@ -288,7 +288,7 @@ def _seed_evidence(
         },
         spans=[{"span_id": region["id"], "rank": 0, "required": True}],
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={**current_ref, "run_id": run_id + 999},

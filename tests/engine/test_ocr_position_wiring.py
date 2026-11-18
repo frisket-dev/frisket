@@ -6,7 +6,7 @@ import asyncio
 from frisket.actions.media import OcrParams, _ocr_outputs, ocr_options
 from frisket.contracts.actions.schemas._engines import is_generic_vlm_ocr_engine
 from frisket.engine.executor.ocr_read import ocr_token_granularity
-from frisket.engine.executor.ocr_evidence import _page_spans
+from frisket.engine.executor.ocr_citations import _page_spans
 from frisket.execution.definitions import build_static_targets
 from frisket.execution.resolve_for_action import authored_options
 from frisket.execution.targets import CAPABILITY_OCR

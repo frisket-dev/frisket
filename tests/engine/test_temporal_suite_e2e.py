@@ -25,7 +25,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import TimelineLease, resolve_timeline
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.receipts import ReceiptStore
@@ -235,7 +235,7 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         transcript_column_id,
         row_ids=[row_id],
     )
-    evidence_link = record_evidence_link(
+    evidence_link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],

@@ -91,8 +91,8 @@ def test_grounded_extract_live_probe(tmp_path: Path, run_index: int) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.ai.llm import ModelRouter, ResponseCache
     from frisket.engine.store.evidence import (
-        list_cell_evidence,
-        resolve_evidence_viewer,
+        list_cell_citations,
+        resolve_citation_viewer,
     )
     from frisket.engine.store.project import Project
 
@@ -182,9 +182,9 @@ def test_grounded_extract_live_probe(tmp_path: Path, run_index: int) -> None:
         )
         assert isinstance(value, str) and value.strip(), value
 
-        # ``list_cell_evidence`` is current-value scoped, so the only active link
+        # ``list_cell_citations`` is current-value scoped, so the only active link
         # it returns is the one this extraction just wrote on the fresh cell.
-        evidence_links = list_cell_evidence(
+        evidence_links = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -194,7 +194,7 @@ def test_grounded_extract_live_probe(tmp_path: Path, run_index: int) -> None:
         assert len(evidence_links) == 1, evidence_links
 
         # The viewer payload: audio/video artifact WITH a blob and a temporal span.
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, evidence_links[0]["stable_id"], project_id="lane-probe"
         )
         artifact = viewer["artifacts"][0]

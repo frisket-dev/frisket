@@ -18,7 +18,7 @@ from executor_harness import (
 from frisket.ai.llm import ModelRouter
 from typed_model_fixtures import model_request
 from frisket.engine.store import Project
-from frisket.ops.ner_evidence import _write_entity_spans
+from frisket.ops.ner_citations import _write_entity_spans
 
 # Reset by _patch_sidecar at the start of every harness test for this case;
 # asserts on it are only meaningful behind that patch.

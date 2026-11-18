@@ -16,7 +16,7 @@ from frisket.engine.store.current_value_windows import (
     read_current_value_window,
 )
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -199,7 +199,7 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             "prepared_ref_id,outcome FROM current_cell_values WHERE row_id=? AND column_id=?",
             (row, column),
         ).fetchone()
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell_value",
             subject_ref=current_value_ref(head, row_id=row, column_id=column),

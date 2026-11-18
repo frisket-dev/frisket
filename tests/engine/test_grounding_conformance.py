@@ -19,10 +19,10 @@ from frisket.engine.store.grounding_contract import (
     WordToken,
     ground,
 )
-from frisket.engine.store.quote_align import (  # noqa: F401 -- registers "align"
+from frisket.engine.store.passage_align import (  # noqa: F401 -- registers "align"
     DEFAULT_THRESHOLD,
     _blend_score,
-    _normalize_quote,
+    _normalize_passage,
     align,
 )
 
@@ -192,8 +192,8 @@ def test_grounding_conformance(path: pathlib.Path) -> None:
 
 def test_strategies_accessor_registers_builtins_independent_of_import_order() -> None:
     """A fresh interpreter that imports ONLY grounding_contract
-    (never quote_align) must still resolve "align" via strategies() — proving
-    registration does not depend on the caller importing quote_align first."""
+    (never passage_align) must still resolve "align" via strategies() — proving
+    registration does not depend on the caller importing passage_align first."""
 
     import subprocess
     import sys
@@ -242,7 +242,7 @@ _NEGATIVE_PAIRS = [
 
 
 def _score(a: str, b: str) -> float:
-    return _blend_score(_normalize_quote(a), _normalize_quote(b), ocr_shape=True)
+    return _blend_score(_normalize_passage(a), _normalize_passage(b), ocr_shape=True)
 
 
 def test_threshold_075_separates_ocr_garble_from_unrelated() -> None:
@@ -256,7 +256,7 @@ def test_threshold_075_separates_ocr_garble_from_unrelated() -> None:
 
     # The re-pin: 0.75 keeps recall perfect and precision high on our data,
     # confirming NPD's default holds under our rapidfuzz blend (W1.5). If this
-    # ever fails, re-pin the default HERE and in the quote_align docstring.
+    # ever fails, re-pin the default HERE and in the passage_align docstring.
     assert recall == 1.0, f"recall={recall} (fn={fn})"
     assert precision >= 0.8, f"precision={precision} (fp={fp})"
     assert tn >= len(_NEGATIVE_PAIRS) - 1

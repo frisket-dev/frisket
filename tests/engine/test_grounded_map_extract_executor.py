@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from executor_harness import run_action_with_confirmation
 from frisket.actions.grounding_types import EvidenceClaim
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import (
     media_cell,
@@ -433,7 +433,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
             == "Acme Civic Works"
         )
 
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -452,7 +452,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
             f"/evidence/links/{link_summary['stable_id']}/viewer"
         )
 
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, link_summary["stable_id"], project_id=PROJECT_ID
         )
         assert viewer["link"]["row_id"] == row_id
@@ -471,7 +471,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         assert viewer["artifacts"][0]["pages"][0]["regions"] == []
         assert "model_bbox_unverified" in viewer["warnings"]
 
-        vendor_evidence = list_cell_evidence(
+        vendor_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -551,7 +551,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
             project_id=PROJECT_ID,
         )
         assert edit.status == "completed"
-        stale_evidence = list_cell_evidence(
+        stale_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -594,13 +594,13 @@ def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
         amount_column_id = int(columns["contract_amount"]["id"])
         vendor_column_id = int(columns["vendor"]["id"])
 
-        amount_link = list_cell_evidence(
+        amount_link = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
             column_id=amount_column_id,
         )["links"][0]
-        amount_viewer = resolve_evidence_viewer(
+        amount_viewer = resolve_citation_viewer(
             project,
             amount_link["stable_id"],
             project_id=PROJECT_ID,
@@ -616,13 +616,13 @@ def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
         assert amount_page["regions"] == []
         assert "model_bbox_unverified" in amount_viewer["warnings"]
 
-        vendor_link = list_cell_evidence(
+        vendor_link = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
             column_id=vendor_column_id,
         )["links"][0]
-        vendor_viewer = resolve_evidence_viewer(
+        vendor_viewer = resolve_citation_viewer(
             project,
             vendor_link["stable_id"],
             project_id=PROJECT_ID,
@@ -696,7 +696,7 @@ def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
         )
         assert (
             len(
-                list_cell_evidence(
+                list_cell_citations(
                     project,
                     sheet_id=sheet_id,
                     row_id=row_id,
@@ -706,7 +706,7 @@ def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
             == 1
         )
         assert (
-            list_cell_evidence(
+            list_cell_citations(
                 project,
                 sheet_id=sheet_id,
                 row_id=row_id,
@@ -748,7 +748,7 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
     # exact record forces the post-grounding rollback this test asserts. The
     # executor must settle that writer failure as a terminal
     # ``project_write_failed`` result (reservation released), never leak it.
-    original_record = ReceiptStore._record_writer_evidence
+    original_record = ReceiptStore._record_writer_supporting_record
 
     def fail_after_grounding(self, ref, **kwargs):  # noqa: ANN001, ANN003, ANN202
         if ref.get("kind") == "map_extract_grounding_links":
@@ -758,7 +758,9 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
             raise RuntimeError("forced receipt failure after grounding")
         return original_record(self, ref, **kwargs)
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", fail_after_grounding)
+    monkeypatch.setattr(
+        ReceiptStore, "_record_writer_supporting_record", fail_after_grounding
+    )
 
     project = Project(project_path)
     try:
@@ -801,7 +803,9 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
 
         # Same key, writer healthy again: the failed receipt is replayed as-is
         # and no second paid call is made.
-        monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", original_record)
+        monkeypatch.setattr(
+            ReceiptStore, "_record_writer_supporting_record", original_record
+        )
         before = tuple(project.db.iterdump())
         replay = run_action_with_confirmation(
             project,

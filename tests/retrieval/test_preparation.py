@@ -44,12 +44,12 @@ from frisket.retrieval.preparation import (
     TEXT_CHANNEL,
     VIDEO_CHANNEL,
     dispatch_resolved_blob_source,
-    dispatch_resolved_evidence_source,
+    dispatch_resolved_cited_source,
     dispatch_resolved_text_source,
     preparation_work_marker,
     process_blob_image_preparation_batch,
     process_text_preparation_batch,
-    process_evidence_preparation_batch,
+    process_cited_text_preparation_batch,
     process_timed_media_preparation_batch,
     read_preparation_policy,
     write_preparation_policy,
@@ -895,9 +895,9 @@ def test_transcript_preparation_resumes_derived_segments(
     )
     try:
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_evidence_source(store, resolved)
+            dispatch_resolved_cited_source(store, resolved)
 
-        first = process_evidence_preparation_batch(
+        first = process_cited_text_preparation_batch(
             project,
             channel=TRANSCRIPT_CHANNEL,
             encoder=_Encoder(),
@@ -905,7 +905,7 @@ def test_transcript_preparation_resumes_derived_segments(
         )
         assert first.processed_parts == 1 and first.pending
         for _ in range(4):
-            progress = process_evidence_preparation_batch(
+            progress = process_cited_text_preparation_batch(
                 project,
                 channel=TRANSCRIPT_CHANNEL,
                 encoder=_Encoder(),
@@ -948,7 +948,7 @@ def test_dirty_dispatch_prepares_real_timestamped_transcript_column(
         ).fetchone()
         assert int(binding["column_id"]) == transcript_column_id
 
-    progress = process_evidence_preparation_batch(
+    progress = process_cited_text_preparation_batch(
         project,
         channel=TRANSCRIPT_CHANNEL,
         encoder=_Encoder(),
@@ -1003,8 +1003,8 @@ def test_ocr_preparation_keeps_authoritative_span_ids(
     )
     try:
         with RetrievalStore(project).open() as store:
-            dispatch_resolved_evidence_source(store, resolved)
-        progress = process_evidence_preparation_batch(
+            dispatch_resolved_cited_source(store, resolved)
+        progress = process_cited_text_preparation_batch(
             project,
             channel=OCR_TEXT_CHANNEL,
             encoder=_Encoder(),
@@ -1529,7 +1529,7 @@ def test_index_claim_runs_one_bounded_preparation_pass(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         search_index_job,
-        "process_evidence_preparation_batch",
+        "process_cited_text_preparation_batch",
         lambda *_args, channel, **_kwargs: (
             calls.append(channel) or PreparationProgress(1, True, False)
         ),

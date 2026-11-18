@@ -25,7 +25,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    record_evidence_link,
+    record_citation,
     record_source_span,
 )
 from frisket.engine.store.runs import RunResultStore
@@ -504,9 +504,9 @@ def test_topic_finder_accepts_fresh_transcript_evidence_with_clamped_overrun(
         (row_id, int(transcript_column["id"])),
     ).fetchone()
     assert evidence_link is not None
-    from frisket.engine.store.cell_reference import evidence_subject_ref
+    from frisket.engine.store.cell_reference import citation_subject_ref
 
-    assert json.loads(evidence_link["subject_ref_json"]) == evidence_subject_ref(
+    assert json.loads(evidence_link["subject_ref_json"]) == citation_subject_ref(
         current_refs[row_id]
     )
     resolved = resolve_timestamped_transcript(
@@ -732,7 +732,7 @@ def _seed_timestamped_transcripts(
         transcript_column_id,
         row_ids=[row_ids[0]],
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_ids[0]],

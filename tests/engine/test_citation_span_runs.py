@@ -13,10 +13,10 @@ from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     CITATION_RUN_GAP_TOLERANCE_MS,
     citation_temporal_runs,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 
 
@@ -90,7 +90,7 @@ def _seed_two_run_link(
         end_ms=run1_start + 1000,
         quote="a distinct, later thing",
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
@@ -210,7 +210,7 @@ def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
         end_ms=2900,
         quote="context, not cited",
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
@@ -257,7 +257,7 @@ def test_viewer_payload_attaches_run_index_and_clip_urls(tmp_path: Path) -> None
     )
     seeded = _seed_two_run_link(project, blob_hash=blob_hash)
 
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project, seeded["link"]["stable_id"], project_id="proj"
     )
     artifact = viewer["artifacts"][0]

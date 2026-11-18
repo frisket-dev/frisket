@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from frisket.engine.store.evidence import (
     EVIDENCE_VIEWER_SCHEMA_VERSION,
-    list_cell_evidence,
-    mark_evidence_stale_for_cell_refs,
-    record_evidence_link,
+    list_cell_citations,
+    mark_citations_stale_for_cell_refs,
+    record_citation,
     record_source_artifact,
     record_source_span,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
@@ -63,7 +63,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         page_start=2,
         quote="$1,250,000",
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=current_ref,
@@ -76,7 +76,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         receipt_id="receipt-1",
     )
 
-    listed = list_cell_evidence(
+    listed = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -91,7 +91,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         in listed["links"][0]["viewer_href"]
     )
 
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project,
         link["stable_id"],
         project_id="project-evidence",
@@ -100,12 +100,12 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     assert viewer["artifacts"][0]["filename"] == "contract.pdf"
     assert viewer["artifacts"][0]["spans"][0]["quote"] == "$1,250,000"
 
-    stale = mark_evidence_stale_for_cell_refs(
+    stale = mark_citations_stale_for_cell_refs(
         project,
         [{"row_id": row_id, "column_id": output_col, "current_value_ref": current_ref}],
     )
     assert stale == [link["stable_id"]]
-    listed_stale = list_cell_evidence(
+    listed_stale = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,

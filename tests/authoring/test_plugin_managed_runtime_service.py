@@ -39,7 +39,7 @@ def _api() -> Any:
         "RuntimeSwitchNotAtJobBoundary",
         "HostedUpstreamFetchForbidden",
         "default_cache_root",
-        "managed_runtime_receipt_evidence",
+        "managed_runtime_supporting_record",
         "report_managed_runtime_states",
         "managed_runtime_cli",
     ]
@@ -293,7 +293,7 @@ def test_receipt_evidence_records_artifact_content_hash(tmp_path):
     spec = _spec(module, cache_root)
 
     resolution = service.resolve(spec, channel=_good_channel())
-    evidence = module.managed_runtime_receipt_evidence(resolution)
+    evidence = module.managed_runtime_supporting_record(resolution)
 
     assert set(evidence) >= {"runtime_name", "resolved_version", "artifact_sha256"}
     assert evidence["runtime_name"] == "yt-dlp"

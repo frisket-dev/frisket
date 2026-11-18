@@ -266,7 +266,7 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
 def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
     tmp_path: Path,
 ) -> None:
-    from frisket.engine.store.evidence import record_evidence_link
+    from frisket.engine.store.evidence import record_citation
 
     client = _client(tmp_path)
     pid, sheet_id, rows, columns = _seed_project(client)
@@ -275,7 +275,7 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
         sheet_id, columns["status"], row_ids=[rows["a"]]
     )
     current_ref = refs[rows["a"]]
-    exact = record_evidence_link(
+    exact = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=current_ref,
@@ -284,7 +284,7 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
         row_id=rows["a"],
         column_id=columns["status"],
     )
-    unrelated = record_evidence_link(
+    unrelated = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={**current_ref, "kind": "other_value"},

@@ -196,7 +196,7 @@ def test_semantic_search_uses_shared_runtime_and_mints_a_citation(
 
 def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypatch):
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -220,7 +220,7 @@ def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypat
         start_ms=4250,
         end_ms=9500,
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[row],

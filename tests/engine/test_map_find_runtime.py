@@ -40,11 +40,11 @@ from frisket.engine.store import Project
 from frisket.engine.store.artifact_timeline import resolve_timeline
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-    list_row_evidence,
-    record_evidence_link,
+    list_row_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 from frisket.engine.store.receipts import ReceiptStore
@@ -351,7 +351,7 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
     _values, refs = project.get_values_with_refs(
         sheet_id, transcript_column_id, row_ids=[row_id]
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
@@ -900,11 +900,11 @@ def test_find_action_job_writes_one_grounded_row_per_match(make_project) -> None
         )[finding_row_id]
         == "neutral"
     )
-    evidence = list_row_evidence(
+    evidence = list_row_citations(
         project, sheet_id=findings_sheet_id, row_id=finding_row_id
     )
     assert len(evidence["links"]) == 1
-    viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
     span = viewer["artifacts"][0]["spans"][0]
     assert span["span_kind"] == "text"
     assert "China trade policy" in span["quote"]
@@ -1107,10 +1107,10 @@ def test_find_action_job_locates_raw_image_regions_with_same_call_details(
         )[finding_row_id]
         == "neutral"
     )
-    evidence = list_row_evidence(
+    evidence = list_row_citations(
         project, sheet_id=findings_sheet_id, row_id=finding_row_id
     )
-    viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+    viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
     artifact = viewer["artifacts"][0]
     span = artifact["spans"][0]
     assert artifact["media_type"] == "image/png"
@@ -1190,13 +1190,13 @@ def test_timestamped_find_row_exposes_original_video_start_end_and_clip(
     )
     assert findings_sheet_id is not None
     finding_row_id = project.visible_row_ids(findings_sheet_id)[0]
-    evidence = list_row_evidence(
+    evidence = list_row_citations(
         project,
         sheet_id=findings_sheet_id,
         row_id=finding_row_id,
         project_id="project-find-video",
     )
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project,
         evidence["links"][0]["stable_id"],
         project_id="project-find-video",
@@ -1493,7 +1493,7 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
@@ -1587,7 +1587,7 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row_id],
@@ -1694,7 +1694,7 @@ def test_find_rerun_atomically_supersedes_managed_generation(make_project) -> No
     )
     assert findings_sheet_id is not None
     first_row_id = project.visible_row_ids(findings_sheet_id)[0]
-    first_evidence = list_row_evidence(
+    first_evidence = list_row_citations(
         project, sheet_id=findings_sheet_id, row_id=first_row_id
     )["links"][0]
 

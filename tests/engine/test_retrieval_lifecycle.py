@@ -10,7 +10,7 @@ from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cells
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -180,7 +180,7 @@ def test_retrieval_evidence_publication_touches_its_current_binding(tmp_path) ->
     )
     before = read_binding_revision(project.db, row_id=row_id, column_id=column_id)
 
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell",
         subject_ref={"kind": "source_cell", "row_id": row_id, "column_id": column_id},

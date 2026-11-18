@@ -6,7 +6,7 @@ import json
 import test_execution_lifecycle_recovery as recovery
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     sheet_cited_column_ids,
@@ -36,7 +36,7 @@ def _source(work, *, count=4):
     with project.transaction_scope():
         for i in range(count):
             stale = i % 2 == 1
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell",
                 subject_ref=refs[rows[i % 2]],

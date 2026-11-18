@@ -12,7 +12,7 @@ from typing import Any
 
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -82,7 +82,7 @@ def _write_layer(
             metadata={"entity_type": etype},
         )
         spans.append(s)
-    return record_evidence_link(
+    return record_citation(
         project,
         subject_kind="cell",
         subject_ref=subject_ref
@@ -254,7 +254,7 @@ def test_surfaceless_and_non_annotation_spans_excluded(make_project):
         text_layer_hash=_text_hash("Ada Lovelace"),
         text_surface_id=surf["id"],
     )
-    record_evidence_link(
+    record_citation(
         p,
         subject_kind="cell",
         subject_ref=_entities_ref(p, sheet, ents, row_id),
@@ -291,7 +291,7 @@ def test_unsupported_offset_unit_is_unpositioned(make_project):
         text_surface_id=surf["id"],
         metadata={"entity_type": "person"},
     )
-    record_evidence_link(
+    record_citation(
         p,
         subject_kind="cell",
         subject_ref=_entities_ref(p, sheet, ents, row_id),
@@ -344,7 +344,7 @@ def test_corrupt_geometry_with_matching_hash_is_counted_not_drawn(make_project):
         text_surface_id=surf["id"],
         metadata={"entity_type": "person"},
     )
-    record_evidence_link(
+    record_citation(
         p,
         subject_kind="cell",
         subject_ref=_entities_ref(p, sheet, ents, row_id),

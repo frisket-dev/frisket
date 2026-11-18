@@ -140,7 +140,7 @@ def test_empty_cell_citation_remains_current_until_the_cell_changes(tmp_path):
 
 def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -168,7 +168,7 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
             span_kind="text",
             quote="Ada signed the letter.",
         )
-        link = record_evidence_link(
+        link = record_citation(
             project,
             subject_kind="cell_value",
             subject_ref=refs[rows[0]],

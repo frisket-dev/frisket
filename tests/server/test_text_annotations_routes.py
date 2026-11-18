@@ -21,7 +21,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -76,7 +76,7 @@ def _seed(ws: Path) -> dict[str, Any]:
             for start, end, entity_type in [(0, 12, "person"), (17, 32, "person")]
         ]
         _values, refs = project.get_values_with_refs(sheet_id, ents, row_ids=[row_id])
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell",
             subject_ref=refs[row_id],

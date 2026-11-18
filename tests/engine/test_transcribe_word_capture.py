@@ -27,7 +27,7 @@ from frisket.sdk.ops.transcribe_engines import (
 from frisket.sdk.ops.transcription.common import _segment_with_speaker
 from frisket.engine.sandbox.shim import SandboxResult
 from helpers import stub_parakeet_run_scope
-from frisket.engine.store.evidence import resolve_evidence_viewer
+from frisket.engine.store.evidence import resolve_citation_viewer
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +322,7 @@ def test_evidence_writer_stores_ms_normalized_words_in_selector(
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import media_cell
-    from frisket.engine.store.evidence import list_cell_evidence
+    from frisket.engine.store.evidence import list_cell_citations
 
     project = make_project("word-capture-evidence")
     sheet_id = project.add_sheet("Episodes")
@@ -397,7 +397,7 @@ def test_evidence_writer_stores_ms_normalized_words_in_selector(
     transcript_column_id = next(
         c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
     )
-    cell_evidence = list_cell_evidence(
+    cell_evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -405,7 +405,7 @@ def test_evidence_writer_stores_ms_normalized_words_in_selector(
         project_id="project-word-capture-evidence",
     )
     (link,) = cell_evidence["links"]
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project, link["stable_id"], project_id="project-word-capture-evidence"
     )
     (artifact,) = viewer["artifacts"]
@@ -422,7 +422,7 @@ def test_evidence_writer_omits_words_when_segment_carries_none(
 ) -> None:
     from frisket.engine.executor import run_action_spec
     from frisket.engine.store.media_blobs import media_cell
-    from frisket.engine.store.evidence import list_cell_evidence
+    from frisket.engine.store.evidence import list_cell_citations
 
     project = make_project("word-capture-absent")
     sheet_id = project.add_sheet("Episodes")
@@ -495,7 +495,7 @@ def test_evidence_writer_omits_words_when_segment_carries_none(
     transcript_column_id = next(
         c["id"] for c in project.columns(sheet_id) if c["name"] == "transcript"
     )
-    cell_evidence = list_cell_evidence(
+    cell_evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_id,
@@ -503,7 +503,7 @@ def test_evidence_writer_omits_words_when_segment_carries_none(
         project_id="project-word-capture-absent",
     )
     (link,) = cell_evidence["links"]
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project, link["stable_id"], project_id="project-word-capture-absent"
     )
     (artifact,) = viewer["artifacts"]

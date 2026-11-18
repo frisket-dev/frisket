@@ -1,5 +1,5 @@
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -35,7 +35,7 @@ def test_grid_source_labels_use_retained_metadata_for_loaded_cells(make_project)
         page_start=3,
         page_end=5,
     )
-    record_evidence_link(
+    record_citation(
         project,
         stable_id="split:one",
         subject_kind="cell_value",

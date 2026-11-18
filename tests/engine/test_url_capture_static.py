@@ -17,8 +17,8 @@ from frisket.actions.system import (
 from frisket.ops.capture import url as capture_url
 from frisket.contracts.action import Receipt
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    record_evidence_link,
+    list_cell_citations,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -175,7 +175,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             span_kind="whole",
             snippet="first capture evidence",
         )
-        attached = record_evidence_link(
+        attached = record_citation(
             project,
             subject_kind="cell_value",
             subject_ref=refs[row_id],
@@ -185,7 +185,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             column_id=output_column_id,
             op_id=first.op_ids[0],
         )
-        first_evidence = list_cell_evidence(
+        first_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -205,7 +205,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             deps=ExecutorDeps(url_capture_fetcher=fake_fetch),
         )
         assert second.status == "completed", second.errors
-        after_second = list_cell_evidence(
+        after_second = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -217,7 +217,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
         assert after_second["stale_count"] == 1
 
         assert project.undo() == second.op_ids[0]
-        after_undo = list_cell_evidence(
+        after_undo = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -229,7 +229,7 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
         assert after_undo["stale_count"] == 0
 
         assert project.redo() == second.op_ids[0]
-        after_redo = list_cell_evidence(
+        after_redo = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_id,
@@ -434,7 +434,7 @@ def test_media_capture_url_static_contract_and_replay(
         assert "SECRET" not in receipt_json
         assert "set-cookie" not in receipt_json.lower()
 
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=good_row,

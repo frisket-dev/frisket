@@ -11,16 +11,16 @@ from PIL import Image
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
-from frisket.engine.executor.extract_evidence import (
-    _resolve_evidence_entry_spans,
+from frisket.engine.executor.extract_citations import (
+    _resolve_citation_entry_spans,
     _source_artifact,
     _source_spans,
 )
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
-    resolve_evidence_viewer,
+    resolve_citation_viewer,
 )
 
 from helpers import stub_rapidocr_run_scope
@@ -205,7 +205,7 @@ def _link_and_resolve(
     seeded: dict[str, Any], spans: list[dict[str, Any]]
 ) -> dict[str, Any]:
     project: Project = seeded["project"]
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref={"kind": "run_result", "row_id": seeded["row_ids"][0]},
@@ -217,7 +217,7 @@ def _link_and_resolve(
         row_id=seeded["row_ids"][0],
         link_role="primary_support",
     )
-    return resolve_evidence_viewer(project, link["stable_id"], project_id=PROJECT_ID)
+    return resolve_citation_viewer(project, link["stable_id"], project_id=PROJECT_ID)
 
 
 def test_hyphenated_two_line_quote_aligns_to_region_spans(
@@ -524,7 +524,7 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
             source_label="prepared",
         )
 
-        spans = _resolve_evidence_entry_spans(
+        spans = _resolve_citation_entry_spans(
             project,
             artifact=selected_artifact,
             sheet_id=seeded["sheet_id"],
@@ -608,7 +608,7 @@ def test_prepared_cross_page_quote_pins_each_page_version(
             "sentence crosses\n\nthe page boundary",
             column_id=2,
         )
-        spans = _resolve_evidence_entry_spans(
+        spans = _resolve_citation_entry_spans(
             project,
             artifact=artifact,
             sheet_id=seeded["sheet_id"],
@@ -670,7 +670,7 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
             captured_sources={"prepared": source},
             source_label="prepared",
         )
-        spans = _resolve_evidence_entry_spans(
+        spans = _resolve_citation_entry_spans(
             project,
             artifact=fallback_artifact,
             sheet_id=seeded["sheet_id"],
@@ -730,7 +730,7 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
                 captured_sources={"prepared": source},
             )
             spans.extend(
-                _resolve_evidence_entry_spans(
+                _resolve_citation_entry_spans(
                     project,
                     artifact=artifact,
                     sheet_id=seeded["sheet_id"],
@@ -790,7 +790,7 @@ def test_prepared_page_and_region_claims_do_not_require_a_quote(tmp_path, claim,
             artifact_cache={},
             captured_sources={"prepared": source},
         )
-        spans = _resolve_evidence_entry_spans(
+        spans = _resolve_citation_entry_spans(
             project,
             artifact=artifact,
             sheet_id=seeded["sheet_id"],

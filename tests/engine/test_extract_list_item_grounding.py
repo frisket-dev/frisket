@@ -16,7 +16,7 @@ from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
 
@@ -27,11 +27,11 @@ PROJECT_ID = "project-extract-list-item-grounding"
 
 
 def _assert_player_renderable(artifact: dict[str, Any]) -> None:
-    """The EvidenceViewer.tsx contract (web/src/components/EvidenceViewer.tsx:433):
+    """The CitationViewer.tsx contract (web/src/components/CitationViewer.tsx:433):
     a player renders only when ``blob && media_type.startsWith('audio/'|'video/')``.
     List-item temporal spans go through the SAME shared resolution chain as the
-    scalar path (``_resolve_evidence_entry_spans`` ->
-    ``_transcript_segment_indices_spans``/``_transcript_quote_spans``,
+    scalar path (``_resolve_citation_entry_spans`` ->
+    ``_transcript_segment_indices_spans``/``_transcript_passage_spans``,
     sdk/ops/extract.py) -- extract-scalar-temporal-anchors-v1's fix (landing on
     the transcribe writer's ``av`` artifact, not the row-json artifact
     ``_source_artifact`` falls back to when the input column is transcript
@@ -83,10 +83,10 @@ def test_list_field_evidence_schema_is_index_aligned_list_of_lists() -> None:
         for alt in moments.get("anyOf", [moments])
         if isinstance(alt, dict) and "properties" in alt
     )
-    evidence_schema = grounded["properties"]["evidence"]
-    assert {"type": "null"} in evidence_schema["anyOf"]
+    citations_schema = grounded["properties"]["evidence"]
+    assert {"type": "null"} in citations_schema["anyOf"]
     evidence_array = next(
-        alt for alt in evidence_schema["anyOf"] if alt.get("type") == "array"
+        alt for alt in citations_schema["anyOf"] if alt.get("type") == "array"
     )
     assert evidence_array["items"]["type"] == "array"
 
@@ -319,7 +319,7 @@ def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
                 (seeded["sheet_id"],),
             ).fetchone()["id"]
         )
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=row_id,
@@ -331,7 +331,7 @@ def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
 
         quotes_by_link = []
         for link_summary in evidence["links"]:
-            viewer = resolve_evidence_viewer(
+            viewer = resolve_citation_viewer(
                 project, link_summary["stable_id"], project_id=PROJECT_ID
             )
             assert viewer["artifacts"][0]["text_context"]
@@ -379,7 +379,7 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
                 (seeded["sheet_id"],),
             ).fetchone()["id"]
         )
-        links = list_cell_evidence(
+        links = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=row_id,
@@ -388,7 +388,7 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
         )["links"]
         assert len(links) == 3
         viewers = [
-            resolve_evidence_viewer(project, link["stable_id"], project_id=PROJECT_ID)
+            resolve_citation_viewer(project, link["stable_id"], project_id=PROJECT_ID)
             for link in links
         ]
         assert all(viewer["artifacts"][0]["text_context"] for viewer in viewers)
@@ -553,7 +553,7 @@ def test_transcript_sourced_three_item_list_writes_three_segment_scoped_links(
                 (seeded["sheet_id"],),
             ).fetchone()["id"]
         )
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=row_id,
@@ -565,7 +565,7 @@ def test_transcript_sourced_three_item_list_writes_three_segment_scoped_links(
 
         ranges_by_link = []
         for link_summary in evidence["links"]:
-            viewer = resolve_evidence_viewer(
+            viewer = resolve_citation_viewer(
                 project, link_summary["stable_id"], project_id=PROJECT_ID
             )
             artifact = viewer["artifacts"][0]
@@ -631,7 +631,7 @@ def test_transcript_item_with_invalid_segment_index_is_unsupported_not_guessed(
                 (seeded["sheet_id"],),
             ).fetchone()["id"]
         )
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=row_id,

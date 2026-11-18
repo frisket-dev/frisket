@@ -326,7 +326,7 @@ def test_runtime_filter_retains_full_project_read_api_and_outer_transaction(
 
 def test_split_source_range_is_bounded_to_current_cell(docs):
     from frisket.engine.store.evidence import (
-        record_evidence_link,
+        record_citation,
         record_source_artifact,
         record_source_span,
     )
@@ -347,7 +347,7 @@ def test_split_source_range_is_bounded_to_current_cell(docs):
         page_end=3,
     )
     _, refs = project.get_values_with_refs(sheet, source, [rows[0]])
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[rows[0]],

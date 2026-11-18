@@ -1,5 +1,5 @@
 """record_text_surface and the opt-in text_surface_id / layer_family threading
-through record_source_span / record_evidence_link.
+through record_source_span / record_citation.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import pytest
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
     record_text_surface,
@@ -442,7 +442,7 @@ class TestSpanAndLinkThreading:
                 span_kind="text",
                 quote="hello",
             )
-            link = record_evidence_link(
+            link = record_citation(
                 p,
                 subject_kind="cell",
                 subject_ref={"row_id": 2, "column_id": 9},
@@ -475,7 +475,7 @@ class TestSpanAndLinkThreading:
                 quote="hello",
             )
             with pytest.raises(ValueError):
-                record_evidence_link(
+                record_citation(
                     p,
                     subject_kind="cell",
                     subject_ref={},
@@ -495,7 +495,7 @@ class TestSpanAndLinkThreading:
                 span_kind="text",
                 quote="hello",
             )
-            link = record_evidence_link(
+            link = record_citation(
                 p,
                 subject_kind="cell",
                 subject_ref={},

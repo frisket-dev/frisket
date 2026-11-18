@@ -10,7 +10,7 @@ from frisket.contracts.action import ActionError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -64,7 +64,7 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
         page_end=page or len(pages),
         quote=pages[page - 1] if page else "\n\n".join(pages),
     )
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[source_cell[1]],
@@ -215,7 +215,7 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
                 ],
             )
             _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell",
                 subject_ref=refs[cell[1]],
@@ -227,7 +227,7 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
                 producer={"action_kind": "media.read_pdf_text"},
             )
             _, alternatives = project.get_values_with_refs(cell[0], _other, [cell[1]])
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell",
                 subject_ref=alternatives[cell[1]],
@@ -301,7 +301,10 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
     tmp_path, source_column, copied_grounding
 ):
     from frisket.actions.types import ActionRequest
-    from frisket.engine.store.evidence import list_row_evidence, resolve_evidence_viewer
+    from frisket.engine.store.evidence import (
+        list_row_citations,
+        resolve_citation_viewer,
+    )
     from frisket.engine.store.receipts import ReceiptStore
     from tests.engine.test_map_find_runtime import (
         _FindAdapter,
@@ -318,7 +321,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
         span = chosen[2]
         if copied_grounding:
             _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell",
                 subject_ref=refs[cell[1]],
@@ -332,7 +335,7 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
         else:
             # Use the actual producer descriptor: a complete page snippet,
             # with no quote and no copied cell grounding link.
-            from frisket.engine.executor.ocr_evidence import _page_spans
+            from frisket.engine.executor.ocr_citations import _page_spans
 
             prepared = PreparedContentStore(project).resolve(chosen[0])
             [pin] = prepared.pins
@@ -395,10 +398,10 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
             project.get_values(findings["id"], column["id"], [row])[row]
             == "chosen second"
         )
-        [link] = list_row_evidence(project, sheet_id=findings["id"], row_id=row)[
+        [link] = list_row_citations(project, sheet_id=findings["id"], row_id=row)[
             "links"
         ]
-        viewer = resolve_evidence_viewer(project, link["stable_id"])
+        viewer = resolve_citation_viewer(project, link["stable_id"])
         [artifact] = viewer["artifacts"]
         assert artifact["artifact_ref"]["blob"]["hash"] == blob
         assert artifact["source_cell"] == dict(
@@ -594,7 +597,7 @@ def test_ask_manual_text_without_grounding_link_searches_and_resolves_citation(
 
 def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(tmp_path):
     from frisket.actions.types import ActionRequest
-    from frisket.engine.executor.ocr_evidence import _page_spans
+    from frisket.engine.executor.ocr_citations import _page_spans
     from tests.engine.test_map_find_runtime import _operation_for_request
 
     with closing(Project.create(tmp_path / "find-full-page.frisket")) as project:
@@ -638,7 +641,7 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(tmp_pat
             selector=anchors[2]["selector"],
         )
         _, refs = project.get_values_with_refs(cell[0], other, [cell[1]])
-        record_evidence_link(
+        record_citation(
             project,
             subject_kind="cell_value",
             subject_ref=refs[cell[1]],
@@ -704,7 +707,7 @@ def test_page_selection_requires_applied_owner_of_primary_support(tmp_path):
         with project.transaction_scope():
             op = project.append_op("evidence.attach", commit=False)
             ChangeStore(project).start(op)
-            record_evidence_link(
+            record_citation(
                 project,
                 subject_kind="cell_value",
                 subject_ref=refs[cell[1]],

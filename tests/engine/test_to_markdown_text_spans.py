@@ -10,7 +10,7 @@ from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.executor.document_convert import _BoundDocumentConverter
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 
 
 PROJECT_ID = "project-to-markdown-text-spans"
@@ -161,7 +161,7 @@ def test_markdown_row_writes_quote_free_source_provenance(
     row_a = seeded["row_ids"][0]
     try:
         markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_a,
@@ -173,7 +173,7 @@ def test_markdown_row_writes_quote_free_source_provenance(
         assert cell_evidence["links"][0]["snippet"] is None
         link_stable_id = cell_evidence["links"][0]["stable_id"]
 
-        viewer = resolve_evidence_viewer(project, link_stable_id, project_id=PROJECT_ID)
+        viewer = resolve_citation_viewer(project, link_stable_id, project_id=PROJECT_ID)
         assert len(viewer["artifacts"]) == 1
         artifact = viewer["artifacts"][0]
         assert artifact["artifact_kind"] == "file"
@@ -232,14 +232,14 @@ def test_provenance_span_does_not_copy_the_derived_markdown(
         )[row_a]
         assert stored_markdown == _MARKDOWN_BY_BLOB["a"]
 
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_a,
             column_id=markdown_column_id,
             project_id=PROJECT_ID,
         )
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         span = viewer["artifacts"][0]["spans"][0]
@@ -260,7 +260,7 @@ def test_zero_content_row_writes_no_evidence(
     row_b = seeded["row_ids"][1]
     try:
         markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_b,
@@ -286,7 +286,7 @@ def test_evidence_link_binds_to_markdown_output_cell_not_input_doc_cell(
     row_a = seeded["row_ids"][0]
     try:
         markdown_column_id = _markdown_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_a,
@@ -300,7 +300,7 @@ def test_evidence_link_binds_to_markdown_output_cell_not_input_doc_cell(
         doc_column_id = project.db.execute(
             "SELECT id FROM columns WHERE sheet_id=? AND name='doc'", (sheet_id,)
         ).fetchone()["id"]
-        doc_cell_evidence = list_cell_evidence(
+        doc_cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=row_a,
@@ -364,7 +364,7 @@ def test_inline_text_input_writes_text_artifact_kind(
     assert result.status == "completed", result.errors
 
     markdown_column_id = _markdown_column_id(project, sheet_id)
-    cell_evidence = list_cell_evidence(
+    cell_evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,
         row_id=row_ids[0],
@@ -372,7 +372,7 @@ def test_inline_text_input_writes_text_artifact_kind(
         project_id=PROJECT_ID,
     )
     assert len(cell_evidence["links"]) == 1
-    viewer = resolve_evidence_viewer(
+    viewer = resolve_citation_viewer(
         project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
     )
     artifact = viewer["artifacts"][0]

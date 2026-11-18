@@ -7,7 +7,7 @@ import pytest
 
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -144,7 +144,7 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
         bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
     )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    link = record_evidence_link(
+    link = record_citation(
         project,
         subject_kind="cell",
         subject_ref=refs[row],
@@ -369,7 +369,7 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(make_p
         quote="The council approved the bluewharf repair.",
     )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
-    record_evidence_link(
+    record_citation(
         project,
         subject_kind="cell_value",
         subject_ref=refs[row],

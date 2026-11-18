@@ -7,16 +7,16 @@ from typing import Any
 
 import pytest
 
-import frisket.ops.ner_evidence as ner_module
+import frisket.ops.ner_citations as ner_module
 from typed_model_fixtures import model_plan, render_ner
 from frisket.actions.ner import NerModelOutput, normalize_ner_output
 from executor_harness import run_action_with_confirmation
 from frisket.actions.system import validate_root_action as validate_action_spec
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
-from frisket.ops.ner_evidence import _NER_EVIDENCE_KEY
+from frisket.ops.ner_citations import _NER_CITATION_CAPTURE_KEY
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
 
@@ -317,13 +317,13 @@ def test_map_ner_llm_engine_runs_and_writes_unified_entities(
         # grounding/evidence per the NER precedent: map.ner's own span writer
         # ran (entities-unified-output-and-spans-v1), not map.extract's
         # generic grounding wrapper.
-        evidence = list_cell_evidence(
+        evidence = list_cell_citations(
             project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
         )
         assert evidence["links"], "map.ner(engine=llm) must write an evidence link"
         link = evidence["links"][0]
         assert link["span_count"] == 1
-        viewer = resolve_evidence_viewer(project, link["id"])
+        viewer = resolve_citation_viewer(project, link["id"])
         artifact = viewer["artifacts"][0]
         assert artifact["artifact_kind"] == "text"
         span = artifact["spans"][0]
@@ -352,13 +352,13 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
             ]
         }
     )
-    original = ner_module._write_ner_result_evidence
+    original = ner_module._write_ner_result_citations
 
     def fail_after_evidence(*args, **kwargs):  # noqa: ANN002, ANN003
         original(*args, **kwargs)
         raise RuntimeError("evidence write failed")
 
-    monkeypatch.setattr(ner_module, "_write_ner_result_evidence", fail_after_evidence)
+    monkeypatch.setattr(ner_module, "_write_ner_result_citations", fail_after_evidence)
     project = Project(project_path)
     action = _map_ner_llm_action(
         sheet_id, idempotency_key="map_ner_llm_evidence_rollback@sha256:stable"
@@ -381,7 +381,7 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
         ).fetchone()
         assert checkpoint["state"] == "returned"
         payload = json.loads(checkpoint["payload"])["entities"]
-        assert payload[_NER_EVIDENCE_KEY]["schema_version"].endswith(
+        assert payload[_NER_CITATION_CAPTURE_KEY]["schema_version"].endswith(
             "ner_input_capture.v1"
         )
         assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
@@ -392,7 +392,7 @@ def test_returned_ner_checkpoint_keeps_private_evidence_when_publish_rolls_back(
         assert (
             project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
         )
-        monkeypatch.setattr(ner_module, "_write_ner_result_evidence", original)
+        monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
         before = tuple(project.db.iterdump())
         replay = run_action_with_confirmation(
             project, action, project_id=PROJECT_ID, router=router
@@ -478,10 +478,10 @@ def test_map_ner_llm_highlights_every_exact_repeated_mention(tmp_path: Path) -> 
             (0, 3),
             (8, 11),
         ]
-        link = list_cell_evidence(
+        link = list_cell_citations(
             project, sheet_id=sheet_id, row_id=row_id, column_id=column["id"]
         )["links"][0]
-        viewer = resolve_evidence_viewer(project, link["id"])
+        viewer = resolve_citation_viewer(project, link["id"])
         spans = viewer["artifacts"][0]["spans"]
         assert [
             (span["selector"]["char_start"], span["selector"]["char_end"])

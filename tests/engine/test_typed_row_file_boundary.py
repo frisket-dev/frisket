@@ -345,7 +345,7 @@ def test_late_file_evidence_failure_rolls_back_both_output_results(
     fetch_run, monkeypatch
 ):
     project, _, _, run = fetch_run
-    original = ReceiptStore._record_writer_evidence
+    original = ReceiptStore._record_writer_supporting_record
     seen = []
 
     def die(self, fact, **kwargs):
@@ -355,7 +355,7 @@ def test_late_file_evidence_failure_rolls_back_both_output_results(
             if len(seen) == 2:
                 raise InjectedDeath
 
-    monkeypatch.setattr(ReceiptStore, "_record_writer_evidence", die)
+    monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", die)
     with pytest.raises(InjectedDeath):
         run()
     assert len(seen) == 2

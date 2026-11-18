@@ -17,9 +17,9 @@ from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
-    list_cell_evidence,
-    list_row_evidence,
-    resolve_evidence_viewer,
+    list_cell_citations,
+    list_row_citations,
+    resolve_citation_viewer,
 )
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
@@ -235,14 +235,14 @@ def test_moments_table_row_citation_opens_at_its_item_span(
     seeded = _run_to_extracted_moments(tmp_path, monkeypatch)
     project: Project = seeded["project"]
     try:
-        source_evidence = list_cell_evidence(
+        source_evidence = list_cell_citations(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=seeded["row_ids"][0],
             column_id=seeded["moments_column_id"],
         )
         assert {
-            resolve_evidence_viewer(project, link["stable_id"])["link"]["item_index"]
+            resolve_citation_viewer(project, link["stable_id"])["link"]["item_index"]
             for link in source_evidence["links"]
         } == {0, 1, 2}
         derived = run_action_with_exact_confirmation(
@@ -284,11 +284,11 @@ def test_moments_table_row_citation_opens_at_its_item_span(
 
             # RED CHECK: each derived row's OWN citation opens the viewer at
             # ITS source item's span, not an orphan and not another row's.
-            evidence = list_row_evidence(
+            evidence = list_row_citations(
                 project, sheet_id=child_sheet_id, row_id=row_id, project_id=PROJECT_ID
             )
             assert len(evidence["links"]) == 1
-            viewer = resolve_evidence_viewer(
+            viewer = resolve_citation_viewer(
                 project, evidence["links"][0]["stable_id"], project_id=PROJECT_ID
             )
             spans = viewer["artifacts"][0]["spans"]
@@ -385,10 +385,10 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             assert list(values.values()) == quotes
             links = []
             for index, (row_id, quote) in enumerate(values.items()):
-                evidence = list_row_evidence(project, sheet_id=child_id, row_id=row_id)
+                evidence = list_row_citations(project, sheet_id=child_id, row_id=row_id)
                 assert len(evidence["links"]) == 1
                 link = evidence["links"][0]
-                viewer = resolve_evidence_viewer(
+                viewer = resolve_citation_viewer(
                     project, link["stable_id"], project_id=PROJECT_ID
                 )
                 span = viewer["artifacts"][0]["spans"][0]
@@ -472,14 +472,14 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
             ]
 
         before = {table: snapshot(table) for table in table_keys}
-        real_copy = sheet_refresh.propagate_list_item_evidence
+        real_copy = sheet_refresh.propagate_list_item_citations
 
         def fail_after_copy(*args, **kwargs):
             real_copy(*args, **kwargs)
             raise RuntimeError("late evidence failure")
 
         monkeypatch.setattr(
-            sheet_refresh, "propagate_list_item_evidence", fail_after_copy
+            sheet_refresh, "propagate_list_item_citations", fail_after_copy
         )
         refused = refresh("grounded-refresh-failed")
         assert refused.status == "failed"
@@ -534,7 +534,7 @@ def test_ungrounded_list_source_propagates_no_row_evidence(
     ).fetchall()
     assert len(rows) == 2
     for row in rows:
-        evidence = list_row_evidence(
+        evidence = list_row_citations(
             project, sheet_id=child_sheet_id, row_id=int(row["id"])
         )
         assert evidence["links"] == []
@@ -567,7 +567,7 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
                     }
                 ]
             )
-            current = list_cell_evidence(
+            current = list_cell_citations(
                 project,
                 sheet_id=seeded["sheet_id"],
                 row_id=seeded["row_ids"][0],
@@ -584,7 +584,7 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
             assert {row["status"] for row in preserved} == {"active"}
             edit_op_id = project.op_cursor
             assert project.undo() == edit_op_id
-            restored = list_cell_evidence(
+            restored = list_cell_citations(
                 project,
                 sheet_id=seeded["sheet_id"],
                 row_id=seeded["row_ids"][0],
@@ -592,7 +592,7 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
             )
             assert len(restored["links"]) == len(original)
             assert project.redo() == edit_op_id
-            hidden_again = list_cell_evidence(
+            hidden_again = list_cell_citations(
                 project,
                 sheet_id=seeded["sheet_id"],
                 row_id=seeded["row_ids"][0],
@@ -641,12 +641,12 @@ def test_manual_list_edit_cannot_borrow_an_unrelated_item_citation(
             [replacement, *original[1:]] if source_kind == "column" else original
         )
         for index, (row_id, quote) in enumerate(values.items()):
-            evidence = list_row_evidence(project, sheet_id=sheet_id, row_id=row_id)
+            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
             if source_kind == "column" and index == 0:
                 assert evidence["links"] == []
                 continue
             assert len(evidence["links"]) == 1
-            viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+            viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
             assert viewer["artifacts"][0]["spans"][0]["quote"] == quote
     finally:
         project.close()
@@ -696,7 +696,7 @@ def test_item_grounding_matches_the_admitted_source_run(
             output.sheet_id for output in created.outputs if output.kind == "sheet"
         )
         for index, row_id in enumerate(project.visible_row_ids(sheet_id)):
-            evidence = list_row_evidence(project, sheet_id=sheet_id, row_id=row_id)
+            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
             assert len(evidence["links"]) == (0 if index == 0 else 1)
     finally:
         project.close()
@@ -751,9 +751,9 @@ def test_item_grounding_publishes_the_link_spans_captured_during_admission(
             _extract_reply()["moments"]["value"],
             strict=True,
         ):
-            evidence = list_row_evidence(project, sheet_id=sheet_id, row_id=row_id)
+            evidence = list_row_citations(project, sheet_id=sheet_id, row_id=row_id)
             assert len(evidence["links"]) == 1
-            viewer = resolve_evidence_viewer(project, evidence["links"][0]["stable_id"])
+            viewer = resolve_citation_viewer(project, evidence["links"][0]["stable_id"])
             assert viewer["artifacts"][0]["spans"][0]["quote"] == quote
     finally:
         project.close()

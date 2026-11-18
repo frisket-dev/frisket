@@ -10,7 +10,7 @@ pytest.importorskip(
 )
 
 from frisket.engine.store.evidence import (
-    record_evidence_link,
+    record_citation,
     record_source_artifact,
     record_source_span,
 )
@@ -86,7 +86,7 @@ def test_ftm_entity_matching_returns_read_only_candidate_groups_with_refs(
         span_kind="text",
         quote="Jane@example.org",
     )
-    evidence = record_evidence_link(
+    evidence = record_citation(
         project,
         stable_id="evidence_link:email-profile",
         subject_kind="cell_value",

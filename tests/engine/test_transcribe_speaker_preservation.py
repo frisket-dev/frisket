@@ -17,7 +17,7 @@ def test_grounding_segment_token_and_anchor_carry_speaker():
 
 
 def test_evidence_span_selector_carries_speaker():
-    from frisket.engine.executor.transcription_evidence import _temporal_spans
+    from frisket.engine.executor.transcription_citations import _temporal_spans
 
     spans = list(
         _temporal_spans(

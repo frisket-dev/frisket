@@ -11,10 +11,10 @@ import pytest
 
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store.media_blobs import media_cell
-from frisket.engine.store.ocr_word_stream import resolve_current_ocr_evidence
+from frisket.engine.store.ocr_word_stream import resolve_current_ocr_citation
 from frisket.ops.ocr_engines import OcrEngines
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_evidence, resolve_evidence_viewer
+from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from frisket.engine.store.grounding import normalize_bbox
 
 from helpers import stub_rapidocr_run_scope
@@ -251,7 +251,7 @@ def test_image_row_writes_page_and_region_spans_with_source_page_image(
 
         sheet_id = seeded["sheet_id"]
         text_column_id = _text_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=seeded["row_ids"][0],
@@ -259,7 +259,7 @@ def test_image_row_writes_page_and_region_spans_with_source_page_image(
             project_id=PROJECT_ID,
         )
         assert len(cell_evidence["links"]) == 1
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         assert len(viewer["artifacts"]) == 1
@@ -357,7 +357,7 @@ def test_exhaustive_ocr_evidence_scans_each_block_once_in_source_order(
         assert result.status == "completed", result.errors
 
         text_column_id = _text_column_id(project, seeded["sheet_id"])
-        resolved = resolve_current_ocr_evidence(
+        resolved = resolve_current_ocr_citation(
             project,
             sheet_id=seeded["sheet_id"],
             row_id=seeded["row_ids"][0],
@@ -502,14 +502,14 @@ def test_pdf_row_retains_geometry_without_display_blobs_and_keeps_empty_page(
 
         sheet_id = seeded["sheet_id"]
         text_column_id = _text_column_id(project, sheet_id)
-        cell_evidence = list_cell_evidence(
+        cell_evidence = list_cell_citations(
             project,
             sheet_id=sheet_id,
             row_id=seeded["row_ids"][0],
             column_id=text_column_id,
             project_id=PROJECT_ID,
         )
-        viewer = resolve_evidence_viewer(
+        viewer = resolve_citation_viewer(
             project, cell_evidence["links"][0]["stable_id"], project_id=PROJECT_ID
         )
         artifact = viewer["artifacts"][0]
