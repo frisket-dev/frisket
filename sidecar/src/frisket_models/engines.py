@@ -281,7 +281,7 @@ def _surya_block_to_block(block: Any) -> dict[str, Any]:
 
 
 def load_surya2() -> Callable[[list[bytes]], list[dict]]:
-    """Surya 2.5 adapter for surya-ocr 0.23.x.
+    """Surya 2.5 adapter for surya-ocr 0.24.x.
 
     The shared ``SuryaInferenceManager`` owns the upstream vLLM-or-llama.cpp
     backend. ``RecognitionPredictor`` performs full-page OCR and returns

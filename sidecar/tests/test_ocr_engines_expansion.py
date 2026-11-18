@@ -201,7 +201,7 @@ def test_dots_mocr_missing_extra_is_503_with_install_hint(client):
 def test_surya2_adapter_uses_v2_manager_and_html_block_schema(
     monkeypatch, with_confidence
 ):
-    """Pin the 0.23 API without starting or contacting a backend."""
+    """Pin the 0.24 API without starting or contacting a backend."""
     from frisket_models import engines
 
     calls: dict[str, object] = {}
