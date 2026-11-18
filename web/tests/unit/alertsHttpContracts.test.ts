@@ -7,7 +7,7 @@ vi.mock("pluralize", () => ({
   }),
 }));
 
-import type { WatchInput } from "../../src/api/types";
+import type { AlertInput } from "../../src/api/types";
 
 const runRow = {
   id: 4,
@@ -35,7 +35,7 @@ const hitRow = {
   is_new: true,
 };
 
-const watchRow = {
+const alertRow = {
   id: 1,
   name: "Budget",
 
@@ -54,7 +54,7 @@ const watchRow = {
 
 const runResultFixture = {
   schema_version: "frisket.watch_run.v1",
-  watch: watchRow,
+  watch: alertRow,
   run: runRow,
   hits: [hitRow],
 };
@@ -98,10 +98,10 @@ const eventsPageFixture = {
   events: [eventRow],
 };
 
-// The preserved Base domain shapes (toWatchRun / toWatchInfo / …).
+// The preserved Base domain shapes (toAlertCheck / toAlertInfo / …).
 const expectedRun = {
   id: 4,
-  watchId: 1,
+  alertId: 1,
   status: "ok",
   opCursorBefore: 0,
   opCursorAfter: 3,
@@ -125,7 +125,7 @@ const expectedHit = {
   isNew: true,
 };
 
-const expectedWatch = {
+const expectedAlert = {
   id: 1,
   name: "Budget",
 
@@ -145,7 +145,7 @@ const expectedWatch = {
 const expectedEvent = {
   id: 9,
   runId: 4,
-  watchId: 1,
+  alertId: 1,
   eventKind: "row_entered",
   subjectKind: "row",
   subjectRef: { sheet_id: 3, row_id: 7 },
@@ -169,17 +169,17 @@ function jsonResponse(
   });
 }
 
-type WatchesModule = typeof import("../../src/api/watches");
+type AlertsModule = typeof import("../../src/api/alerts");
 
 /** The seven browser operations, by public method. */
-const watchOperationIds: Record<string, string> = {
-  listWatches: "tenant.list_watches.get",
-  createWatch: "tenant.create_watch.post",
-  updateWatch: "tenant.patch_watch.patch",
-  deleteWatch: "tenant.delete_watch.delete",
-  runWatch: "tenant.run_watch.post",
-  getWatchRuns: "tenant.list_watch_runs.get",
-  getWatchRunEvents: "tenant.list_watch_run_events.get",
+const alertOperationIds: Record<string, string> = {
+  listAlerts: "tenant.list_watches.get",
+  createAlert: "tenant.create_watch.post",
+  updateAlert: "tenant.patch_watch.patch",
+  deleteAlert: "tenant.delete_watch.delete",
+  checkAlert: "tenant.run_watch.post",
+  getAlertChecks: "tenant.list_watch_runs.get",
+  getAlertCheckEvents: "tenant.list_watch_run_events.get",
 };
 
 interface TransportCall {
@@ -222,13 +222,13 @@ async function withMockedTransport<T>(
 
 /** Wire payload the transport hands back for each operation. */
 function transportResponse(operationId: string): unknown {
-  if (operationId === "tenant.list_watches.get") return [watchRow];
-  if (operationId === "tenant.create_watch.post") return watchRow;
+  if (operationId === "tenant.list_watches.get") return [alertRow];
+  if (operationId === "tenant.create_watch.post") return alertRow;
   if (operationId === "tenant.patch_watch.patch") {
-    return { ...watchRow, name: "Renamed", enabled: false };
+    return { ...alertRow, name: "Renamed", enabled: false };
   }
   if (operationId === "tenant.delete_watch.delete") {
-    return { ok: true, deleted: watchRow.id };
+    return { ok: true, deleted: alertRow.id };
   }
   if (operationId === "tenant.run_watch.post") return runResultFixture;
   if (operationId === "tenant.list_watch_runs.get") return runsPageFixture;
@@ -237,25 +237,25 @@ function transportResponse(operationId: string): unknown {
 
 afterEach(() => vi.unstubAllGlobals());
 
-describe("watchlist generated HTTP transport", () => {
+describe("alert generated HTTP transport", () => {
   it("owns exactly the seven operations and preserves path, query, and body", async () => {
-    const module: WatchesModule = await import("../../src/api/watches");
-    const api = module.createWatchesApi("watch-contract");
+    const module: AlertsModule = await import("../../src/api/alerts");
+    const api = module.createAlertsApi("watch-contract");
     expect(Object.keys(api).sort()).toEqual([
-      "createWatch",
-      "deleteWatch",
-      "getWatchRunEvents",
-      "getWatchRuns",
-      "listWatches",
-      "runWatch",
-      "updateWatch",
+      "checkAlert",
+      "createAlert",
+      "deleteAlert",
+      "getAlertCheckEvents",
+      "getAlertChecks",
+      "listAlerts",
+      "updateAlert",
     ]);
 
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses: unknown[] = [
-      [watchRow],
-      watchRow,
-      { ...watchRow, name: "Renamed" },
+      [alertRow],
+      alertRow,
+      { ...alertRow, name: "Renamed" },
       { ok: true, deleted: 1 },
       runResultFixture,
       runsPageFixture,
@@ -271,15 +271,15 @@ describe("watchlist generated HTTP transport", () => {
       }),
     );
 
-    await api.listWatches();
-    await api.createWatch({ name: "Budget", view_id: 4 });
-    await api.updateWatch(1, { name: "Renamed" });
-    await api.deleteWatch(1);
-    await api.runWatch(1);
-    await api.getWatchRuns(1);
-    await api.getWatchRuns(1, 2, 3);
-    await api.getWatchRunEvents(1, 4);
-    await api.getWatchRunEvents(1, 4, 1, 2, "row_entered");
+    await api.listAlerts();
+    await api.createAlert({ name: "Budget", view_id: 4 });
+    await api.updateAlert(1, { name: "Renamed" });
+    await api.deleteAlert(1);
+    await api.checkAlert(1);
+    await api.getAlertChecks(1);
+    await api.getAlertChecks(1, 2, 3);
+    await api.getAlertCheckEvents(1, 4);
+    await api.getAlertCheckEvents(1, 4, 1, 2, "row_entered");
 
     expect(
       requests.map((request) => [request.input, request.init?.method]),
@@ -301,7 +301,7 @@ describe("watchlist generated HTTP transport", () => {
         "GET",
       ],
     ]);
-    // Lifecycle PATCH carries only the supplied mutable field. The Watch's
+    // Lifecycle PATCH carries only the supplied mutable field. The Alert's
     // query/binding state is immutable after creation, and DELETE/run stay
     // bodyless.
     expect(requests.map((request) => request.init?.body)).toEqual([
@@ -337,13 +337,13 @@ describe("watchlist generated HTTP transport", () => {
     ]);
   });
 
-  it("keeps the preserved realApi domain mapping for watches, runs, and events", async () => {
+  it("keeps the preserved realApi domain mapping for alerts, runs, and events", async () => {
     const real = await import("../../src/api/real");
     const projectApi = real.createProjectApi("watch-domain");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> = [];
     const responses: unknown[] = [
-      [watchRow],
-      watchRow,
+      [alertRow],
+      alertRow,
       runResultFixture,
       runsPageFixture,
       eventsPageFixture,
@@ -355,26 +355,26 @@ describe("watchlist generated HTTP transport", () => {
         return jsonResponse(responses.shift());
       }),
     );
-    const listed = await projectApi.listWatches();
-    const created = await projectApi.createWatch({
+    const listed = await projectApi.listAlerts();
+    const created = await projectApi.createAlert({
       name: "Budget",
       view_id: 4,
     });
-    const runResult = await projectApi.runWatch(1);
-    const runsPage = await projectApi.getWatchRuns(1, 2, 3);
-    const eventsPage = await projectApi.getWatchRunEvents(1, 4, 1, 2, "row_entered");
+    const runResult = await projectApi.checkAlert(1);
+    const runsPage = await projectApi.getAlertChecks(1, 2, 3);
+    const eventsPage = await projectApi.getAlertCheckEvents(1, 4, 1, 2, "row_entered");
 
-    // WatchInfo keeps its camelCase fields and derived latestRun.
-    expect(listed).toEqual([expectedWatch]);
-    expect(created).toEqual(expectedWatch);
+    // AlertInfo keeps its camelCase fields and derived latestRun.
+    expect(listed).toEqual([expectedAlert]);
+    expect(created).toEqual(expectedAlert);
     // WatchRunResult keeps its literal schemaVersion and mapped hits.
     expect(runResult).toEqual({
       schemaVersion: "frisket.watch_run.v1",
-      watch: expectedWatch,
+      alert: expectedAlert,
       run: expectedRun,
       hits: [expectedHit],
     });
-    // WatchRunsPage keeps camelCase paging; toWatchRun drops the per-run
+    // WatchRunsPage keeps camelCase paging; toAlertCheck drops the per-run
     // hits_limit/hits_truncated wire keys and keeps mapped hits.
     expect(runsPage).toEqual({
       schemaVersion: "frisket.watch_runs_page.v1",
@@ -405,7 +405,7 @@ describe("watchlist generated HTTP transport", () => {
       "/api/projects/watch-domain/watches/1/runs/4/events" +
         "?offset=1&limit=2&event_kind=row_entered",
     ]);
-    // Direct Watches send only their independently captured query.
+    // Direct Alerts send only their independently captured query.
     expect(requests[1].init?.body).toBe(
       JSON.stringify({
         name: "Budget",
@@ -420,15 +420,15 @@ describe("watchlist generated HTTP transport", () => {
     const bodies: unknown[] = [];
     vi.stubGlobal('fetch', vi.fn(async (_input, init) => {
       bodies.push(JSON.parse(init.body));
-      return jsonResponse({ ...watchRow, schedule: null });
+      return jsonResponse({ ...alertRow, schedule: null });
     }));
-    expect((await projectApi.createWatch({ name: 'Manual', view_id: 4, schedule: null })).schedule).toBeNull();
-    expect((await projectApi.updateWatch(1, { schedule: null })).schedule).toBeNull();
+    expect((await projectApi.createAlert({ name: 'Manual', view_id: 4, schedule: null })).schedule).toBeNull();
+    expect((await projectApi.updateAlert(1, { schedule: null })).schedule).toBeNull();
     expect(bodies).toEqual([{ name: 'Manual', view_id: 4, schedule: null }, { schedule: null }]);
   });
 
-  it("keeps the plain-string watch error envelope on ApiError", async () => {
-    // Watch errors are plain string details ({"detail": "alert not found"}):
+  it("keeps the plain-string alert error envelope on ApiError", async () => {
+    // Alert errors are plain string details ({"detail": "alert not found"}):
     // status + message, with code and details both undefined.
     const real = await import("../../src/api/real");
     const projectApi = real.createProjectApi("watch-error");
@@ -437,7 +437,7 @@ describe("watchlist generated HTTP transport", () => {
       vi.fn(async () => jsonResponse({ detail: "alert not found" }, 404)),
     );
     const error = await projectApi
-      .runWatch(9999)
+      .checkAlert(9999)
       .then(() => undefined)
       .catch((caught: unknown) => caught);
 
@@ -458,8 +458,8 @@ describe("watchlist generated HTTP transport", () => {
     );
 
     const [patchError, deleteError] = await Promise.all([
-      lifecycleApi.updateWatch(9999, { enabled: false }).catch((caught: unknown) => caught),
-      lifecycleApi.deleteWatch(9999).catch((caught: unknown) => caught),
+      lifecycleApi.updateAlert(9999, { enabled: false }).catch((caught: unknown) => caught),
+      lifecycleApi.deleteAlert(9999).catch((caught: unknown) => caught),
     ]);
 
     for (const error of [patchError, deleteError]) {
@@ -474,20 +474,20 @@ describe("watchlist generated HTTP transport", () => {
 
   it("calls each generated operation with its own id", async () => {
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh: WatchesModule = await import("../../src/api/watches");
-      const api = fresh.createWatchesApi("watch-ids");
+      const fresh: AlertsModule = await import("../../src/api/alerts");
+      const api = fresh.createAlertsApi("watch-ids");
       const invokers: Record<string, () => Promise<unknown>> = {
-        listWatches: () => api.listWatches(),
-        createWatch: () => api.createWatch({ name: "Budget", view_id: 4 }),
-        updateWatch: () => api.updateWatch(1, { enabled: false }),
-        deleteWatch: () => api.deleteWatch(1),
-        runWatch: () => api.runWatch(1),
-        getWatchRuns: () => api.getWatchRuns(1),
-        getWatchRunEvents: () => api.getWatchRunEvents(1, 4),
+        listAlerts: () => api.listAlerts(),
+        createAlert: () => api.createAlert({ name: "Budget", view_id: 4 }),
+        updateAlert: () => api.updateAlert(1, { enabled: false }),
+        deleteAlert: () => api.deleteAlert(1),
+        checkAlert: () => api.checkAlert(1),
+        getAlertChecks: () => api.getAlertChecks(1),
+        getAlertCheckEvents: () => api.getAlertCheckEvents(1, 4),
       };
       expect(Object.keys(invokers).sort()).toEqual(Object.keys(api).sort());
 
-      for (const [method, operationId] of Object.entries(watchOperationIds)) {
+      for (const [method, operationId] of Object.entries(alertOperationIds)) {
         calls.length = 0;
         await invokers[method]();
         expect(
@@ -501,16 +501,16 @@ describe("watchlist generated HTTP transport", () => {
   it(
     "maps narrow lifecycle PATCHes to complete Watches and DELETE acknowledgements to void",
     async () => {
-    // Data flow: public/domain input -> generated request -> complete Watch
+    // Data flow: public/domain input -> generated request -> complete Alert
     // response. The lifecycle seam is intentionally narrow: neither PATCH
     // variant can carry a query or a binding edit.
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh: WatchesModule = await import("../../src/api/watches");
-      const domain = fresh.createWatchesApi("watch-lifecycle");
+      const fresh: AlertsModule = await import("../../src/api/alerts");
+      const domain = fresh.createAlertsApi("watch-lifecycle");
 
-      const renamed = await domain.updateWatch(1, { name: "Renamed" });
-      const paused = await domain.updateWatch(1, { enabled: false });
-      const deleted = await domain.deleteWatch(1);
+      const renamed = await domain.updateAlert(1, { name: "Renamed" });
+      const paused = await domain.updateAlert(1, { enabled: false });
+      const deleted = await domain.deleteAlert(1);
 
       expect(calls.map((call) => call.operationId)).toEqual([
         "tenant.patch_watch.patch",
@@ -535,14 +535,14 @@ describe("watchlist generated HTTP transport", () => {
       expect(calls[1].options.body).not.toHaveProperty("binding_mode");
       expect(calls[2].options).not.toHaveProperty("body");
 
-      // PATCH returns a whole Watch row, not a lifecycle-specific subset.
+      // PATCH returns a whole Alert row, not a lifecycle-specific subset.
       expect(renamed).toEqual({
-        ...expectedWatch,
+        ...expectedAlert,
         name: "Renamed",
         enabled: false,
       });
       expect(paused).toEqual({
-        ...expectedWatch,
+        ...expectedAlert,
         name: "Renamed",
         enabled: false,
       });
@@ -550,7 +550,7 @@ describe("watchlist generated HTTP transport", () => {
     });
   });
 
-  it("routes every realApi watch method through the generated transport", async () => {
+  it("routes every realApi alert method through the generated transport", async () => {
     // THE LIVE-PATH PROOF: the object the product actually uses. The
     // transport is mocked BEFORE real.ts is imported, and everything is
     // pulled from that same fresh registry.
@@ -568,48 +568,48 @@ describe("watchlist generated HTTP transport", () => {
           results[name] = error;
         }
       };
-      await invoke("listWatches", () => projectApi.listWatches());
-      await invoke("createWatch", () =>
-        projectApi.createWatch({
+      await invoke("listAlerts", () => projectApi.listAlerts());
+      await invoke("createAlert", () =>
+        projectApi.createAlert({
           name: "Budget",
           view_id: 4,
         }),
       );
-      await invoke("updateWatch", () => projectApi.updateWatch(1, { enabled: false }));
-      await invoke("deleteWatch", () => projectApi.deleteWatch(1));
-      await invoke("runWatch", () => projectApi.runWatch(1));
-      await invoke("getWatchRuns", () => projectApi.getWatchRuns(1, 2, 3));
-      await invoke("getWatchRunEvents", () =>
-        projectApi.getWatchRunEvents(1, 4, 1, 2, "row_entered"),
+      await invoke("updateAlert", () => projectApi.updateAlert(1, { enabled: false }));
+      await invoke("deleteAlert", () => projectApi.deleteAlert(1));
+      await invoke("checkAlert", () => projectApi.checkAlert(1));
+      await invoke("getAlertChecks", () => projectApi.getAlertChecks(1, 2, 3));
+      await invoke("getAlertCheckEvents", () =>
+        projectApi.getAlertCheckEvents(1, 4, 1, 2, "row_entered"),
       );
 
       expect(
         calls.map((call) => call.operationId),
         "every realApi watch method must ride its generated operation",
-      ).toEqual(Object.values(watchOperationIds));
+      ).toEqual(Object.values(alertOperationIds));
       expect(
         fetchSpy,
         "no realApi watch method may bypass the generated transport with a direct fetch",
       ).not.toHaveBeenCalled();
 
       // Distinct domain mappings, preserved from Base.
-      expect(results.listWatches).toEqual([expectedWatch]);
-      expect(results.createWatch).toEqual(expectedWatch);
-      expect(results.updateWatch).toEqual({
-        ...expectedWatch,
+      expect(results.listAlerts).toEqual([expectedAlert]);
+      expect(results.createAlert).toEqual(expectedAlert);
+      expect(results.updateAlert).toEqual({
+        ...expectedAlert,
         name: "Renamed",
         enabled: false,
       });
-      expect(results.deleteWatch).toBeUndefined();
-      expect(results.runWatch).toEqual({
+      expect(results.deleteAlert).toBeUndefined();
+      expect(results.checkAlert).toEqual({
         schemaVersion: "frisket.watch_run.v1",
-        watch: expectedWatch,
+        alert: expectedAlert,
         run: expectedRun,
         hits: [expectedHit],
       });
-      const runsPage = results.getWatchRuns as { runs: unknown[] };
+      const runsPage = results.getAlertChecks as { runs: unknown[] };
       expect(runsPage.runs).toEqual([{ ...expectedRun, hits: [expectedHit] }]);
-      const eventsPage = results.getWatchRunEvents as { events: unknown[] };
+      const eventsPage = results.getAlertCheckEvents as { events: unknown[] };
       expect(eventsPage.events).toEqual([expectedEvent]);
     });
   });
@@ -636,28 +636,28 @@ describe("watchlist generated HTTP transport", () => {
       }
       if (operationId === "tenant.create_watch.post") {
         return {
-          ...watchRow,
+          ...alertRow,
           view_id: 4,
         };
       }
       return transportResponse(operationId);
     }, async (calls) => {
-      const fresh: WatchesModule = await import("../../src/api/watches");
-      const domain = fresh.createWatchesApi("watch-domain-a");
-      const input: WatchInput = {
+      const fresh: AlertsModule = await import("../../src/api/alerts");
+      const domain = fresh.createAlertsApi("watch-domain-a");
+      const input: AlertInput = {
         name: "Budget",
         view_id: 4,
 
         enabled: false,
       };
-      const created = domain.createWatch(input);
+      const created = domain.createAlert(input);
 
-      const [listed, createdWatch, runResult, runsPage, eventsPage] = await Promise.all([
-        domain.listWatches(),
+      const [listed, createdAlert, runResult, runsPage, eventsPage] = await Promise.all([
+        domain.listAlerts(),
         created,
-        domain.runWatch(1),
-        domain.getWatchRuns(1),
-        domain.getWatchRunEvents(1, 4, undefined, undefined, ""),
+        domain.checkAlert(1),
+        domain.getAlertChecks(1),
+        domain.getAlertCheckEvents(1, 4, undefined, undefined, ""),
       ]);
 
       expect(calls.map((call) => call.operationId)).toEqual([
@@ -698,8 +698,8 @@ describe("watchlist generated HTTP transport", () => {
 
       // Mapping allocates feature containers but leaves typed JSON subtrees
       // referentially intact, just as the legacy adapter did.
-      expect(listed[0].detectionPolicy).toBe(watchRow.detection_policy);
-      expect(createdWatch.viewId).toBe(4);
+      expect(listed[0].detectionPolicy).toBe(alertRow.detection_policy);
+      expect(createdAlert.viewId).toBe(4);
       expect(runResult.hits).not.toBe(runResultFixture.hits);
       expect(runResult.run.resolvedQuery).toBe(runRow.resolved_query);
       expect(runsPage.runs[0].hits).toEqual([]);
@@ -714,10 +714,10 @@ describe("watchlist generated HTTP transport", () => {
 
   it("serializes alert configuration by saved View identity without copying criteria", async () => {
     await withMockedTransport(transportResponse, async (calls) => {
-      const fresh: WatchesModule = await import("../../src/api/watches");
-      const domain = fresh.createWatchesApi("watch-independent-filter");
+      const fresh: AlertsModule = await import("../../src/api/alerts");
+      const domain = fresh.createAlertsApi("watch-independent-filter");
 
-      await domain.createWatch({
+      await domain.createAlert({
         name: "Open rows",
         view_id: 4,
 

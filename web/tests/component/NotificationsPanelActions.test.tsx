@@ -91,11 +91,11 @@ it('keeps the second row pending when the first concurrent action completes', as
   await waitFor(() => expect(within(second).getByTestId('notification-open-source')).toBeEnabled());
 });
 
-it('opens an acknowledged watch source without marking it read again', async () => {
+it('opens an acknowledged alert source without marking it read again', async () => {
   const { api, stores } = renderNotifications([notification(1, 'acknowledged')]);
   fireEvent.click(await screen.findByTestId('notification-open-source'));
-  await waitFor(() => expect(stores.watchRunLink.store.get().pendingWatchRunLink?.link).toEqual({
-    watchId: 3, runId: 5, eventIds: [11],
+  await waitFor(() => expect(stores.alertCheckLink.store.get().pendingAlertCheckLink?.link).toEqual({
+    alertId: 3, runId: 5, eventIds: [11],
   }));
   expect(api.markNotificationRead).not.toHaveBeenCalled();
 });

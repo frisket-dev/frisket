@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { NotificationSummary } from '../../src/api/open';
 import type { ProjectApi } from '../../src/api/ports';
 import { NotificationsPanel } from '../../src/components/NotificationsPanel';
-import { WatchesPanel } from '../../src/components/WatchesPanel';
+import { AlertsPanel } from '../../src/components/AlertsPanel';
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from '../../src/components/notifications/useNotificationSummary';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -23,7 +23,7 @@ function deferred<T>() {
 }
 function api() {
   return { qa: { citation: vi.fn(), report: vi.fn() },
-    getNotificationsSummary: vi.fn(), listWatches: vi.fn().mockResolvedValue([]),
+    getNotificationsSummary: vi.fn(), listAlerts: vi.fn().mockResolvedValue([]),
     listNotifications: vi.fn().mockResolvedValue({ notifications: [] }) };
 }
 function Readout({ name }: { name: string }) {
@@ -36,9 +36,9 @@ it('deduplicates co-mounted notification/watch reads and legacy event invalidati
   projectApi.getNotificationsSummary.mockResolvedValue(summary(5));
   const harness = createWorkspaceTestHarness({ projectId: 'summary-shared',
     api: { projectApi: projectApi as unknown as ProjectApi } });
-  harness.render(<><NotificationsPanel /><WatchesPanel canEdit={false} /></>);
+  harness.render(<><NotificationsPanel /><AlertsPanel canEdit={false} /></>);
   expect(await screen.findByTestId('notifications-count')).toHaveTextContent('5');
-  expect(await screen.findByTestId('watches-notification-count')).toHaveTextContent('5');
+  expect(await screen.findByTestId('alerts-notification-count')).toHaveTextContent('5');
   expect(projectApi.getNotificationsSummary).toHaveBeenCalledTimes(1);
   act(() => { window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT)); });
   await waitFor(() => expect(projectApi.getNotificationsSummary).toHaveBeenCalledTimes(2));

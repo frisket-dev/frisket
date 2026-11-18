@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
-// Surface a blocked watch's Refresh affordance in WatchesPanel. The
-// embedding + watch endpoints are stubbed (deterministic, embedder-independent);
+// Surface a blocked alert's Refresh affordance in AlertsPanel. The
+// embedding + alert endpoints are stubbed (deterministic, embedder-independent);
 // the backend contracts are covered by Python tests.
 
 const INDEX_ID = 'embidx_e2e';
@@ -37,7 +37,7 @@ function makeIndex(sheetId: number) {
 }
 
 async function stubEmbeddings(page: Page, pid: string, sheetId: number) {
-  const watchPosts: Record<string, unknown>[] = [];
+  const alertPosts: Record<string, unknown>[] = [];
   const actionPosts: Record<string, unknown>[] = [];
 
   await page.route(`**/api/projects/${pid}/embeddings/v1/indexes*`, (route) =>
@@ -65,7 +65,7 @@ async function stubEmbeddings(page: Page, pid: string, sheetId: number) {
   );
   await page.route(`**/api/projects/${pid}/watches`, async (route) => {
     if (route.request().method() === 'POST') {
-      watchPosts.push(route.request().postDataJSON() as Record<string, unknown>);
+      alertPosts.push(route.request().postDataJSON() as Record<string, unknown>);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -103,15 +103,15 @@ async function stubEmbeddings(page: Page, pid: string, sheetId: number) {
     }
     await route.continue();
   });
-  return { watchPosts, actionPosts };
+  return { alertPosts, actionPosts };
 }
 
-test('a blocked embedding watch shows a Refresh link that refreshes the index', async ({ page }) => {
+test('a blocked embedding alert shows a Refresh link that refreshes the index', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-emb-watch'));
   const sheetId = await importCsv(page.request, pid, 'a.csv', 'headline\ncat\nkitten\n');
   const { actionPosts } = await stubEmbeddings(page, pid, sheetId);
 
-  // a blocked embedding_similarity watch (its index needs a refresh)
+  // a blocked embedding_similarity alert (its index needs a refresh)
   await page.route(`**/api/projects/${pid}/watches`, (route) =>
     route.fulfill({
       status: 200,
@@ -142,8 +142,8 @@ test('a blocked embedding watch shows a Refresh link that refreshes the index', 
   await page.goto(`/p/${pid}`);
   await openDiscoverTab(page, 'Watches');
 
-  await expect(page.getByTestId('watch-latest-run')).toContainText('embedding_index_incomplete');
-  await page.getByTestId('watch-refresh-index-7').click();
+  await expect(page.getByTestId('alert-latest-run')).toContainText('embedding_index_incomplete');
+  await page.getByTestId('alert-refresh-index-7').click();
   // refresh -> embedding.index_refresh action posted
   await expect.poll(() => actionPosts.map((p) => p.action_id)).toContain('embedding.index_refresh');
 });

@@ -10,14 +10,14 @@ test('a current grid selection becomes a persistent View with its own alert', as
   const sheetId = await importCsv(page.request, pid, 'stories.csv', 'title,status\nBudget,open\nRoad,closed\n');
   await openProject(page, pid, sheetId);
   await openDiscoverTab(page, 'Watches');
-  const panel = page.getByTestId('watches-panel');
-  await panel.getByTestId('new-watch-from-current-grid').click();
-  await page.getByTestId('watch-create-name').fill('Daily stories');
+  const panel = page.getByTestId('alerts-panel');
+  await panel.getByTestId('new-alert-from-current-grid').click();
+  await page.getByTestId('alert-create-name').fill('Daily stories');
   await page.getByLabel('Check frequency', { exact: true }).selectOption('@daily');
   await page.getByLabel('Rows leaving this view', { exact: true }).check();
   const created = page.waitForResponse(response => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/projects/${pid}/watches`);
-  await page.getByTestId('create-watch-button').click();
+  await page.getByTestId('create-alert-button').click();
   const response = await created;
   expect(response.ok()).toBeTruthy();
   const request = response.request().postDataJSON();
@@ -30,7 +30,7 @@ test('a current grid selection becomes a persistent View with its own alert', as
       selection: expect.objectContaining({ scope: { kind: 'sheet', sheet_id: sheetId } }),
     }),
   })]));
-  const item = panel.getByTestId('watch-item').filter({ hasText: 'Daily stories' });
+  const item = panel.getByTestId('alert-item').filter({ hasText: 'Daily stories' });
   await expect(item).toBeVisible();
   await page.screenshot({ path: 'test-results/domain-view-alert.png', fullPage: true });
   await item.getByRole('button', { name: 'Conditions', exact: true }).click();

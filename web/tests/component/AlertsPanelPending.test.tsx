@@ -5,8 +5,8 @@ import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectApi } from '../../src/api/ports';
 import type { ProjectQAApi } from '../../src/api/projectQA';
-import { ApiError, type WatchInfo, type WatchRunResult } from '../../src/api/open';
-import { WatchesPanel } from '../../src/components/WatchesPanel';
+import { ApiError, type AlertInfo, type AlertCheckResult } from '../../src/api/open';
+import { AlertsPanel } from '../../src/components/AlertsPanel';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const emptyNotificationSummary = {
@@ -26,7 +26,7 @@ function projectQAFixture(): Pick<ProjectQAApi, 'citation' | 'report'> {
   return { citation: vi.fn(), report: vi.fn() };
 }
 
-function watch(id: number, name: string): WatchInfo {
+function alert(id: number, name: string): AlertInfo {
   return {
     id,
     name,
@@ -44,12 +44,12 @@ function watch(id: number, name: string): WatchInfo {
   };
 }
 
-function blockedEmbeddingWatch(id: number, name: string): WatchInfo {
+function blockedEmbeddingAlert(id: number, name: string): AlertInfo {
   return {
-    ...watch(id, name),
+    ...alert(id, name),
     lastStatus: 'error',
     latestRun: {
-      id: 3, watchId: id, status: 'error', opCursorBefore: 0, opCursorAfter: 0, matchedRows: 0, newRows: 0,
+      id: 3, alertId: id, status: 'error', opCursorBefore: 0, opCursorAfter: 0, matchedRows: 0, newRows: 0,
       error: 'embedding index is stale', errorCode: 'embedding_index_stale', resolvedQueryHash: null,
       resolvedQuery: { similarity: { kind: 'embedding_similarity', embedding_index_id: 'idx-1' } },
       startedAt: '2026-08-31 00:00:00', finishedAt: null,
@@ -98,140 +98,140 @@ afterEach(() => {
   }
 });
 
-describe('WatchesPanel pending actions', () => {
+describe('AlertsPanel pending actions', () => {
   it('describes an enabled threshold-only alert instead of calling it paused', async () => {
-    const item = watch(1, 'Threshold alert');
+    const item = alert(1, 'Threshold alert');
     item.detectionPolicy = { kind: 'conditions', entered: false, exited: false, count_changed: false,
       fields: [], threshold: { kind: 'threshold_crossed', metric: 'matched_rows', threshold: 10, direction: 'at_or_above' } };
     const projectApi = {
-      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
+      qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'threshold-alert', api: { projectApi } });
-    harness.render(<WatchesPanel canEdit />);
+    harness.render(<AlertsPanel canEdit />);
     expect(await screen.findByText('Threshold crossings')).toBeInTheDocument();
     expect(screen.queryByText('Alerts paused')).not.toBeInTheDocument();
   });
 
   it('changes independent alert conditions on the same saved View', async () => {
-    const item = watch(1, 'Open contracts');
+    const item = alert(1, 'Open contracts');
     const projectApi = {
-      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([item]),
+      qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      updateWatch: vi.fn(async (_id, patch) => ({ ...item, detectionPolicy: patch.detection_policy })),
+      updateAlert: vi.fn(async (_id, patch) => ({ ...item, detectionPolicy: patch.detection_policy })),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'conditions', api: { projectApi } });
-    harness.render(<WatchesPanel canEdit />);
+    harness.render(<AlertsPanel canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Conditions' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Rows leaving this view' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'Check frequency' }), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save conditions' }));
-    await waitFor(() => expect(projectApi.updateWatch).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true }, schedule: null }));
-    expect(projectApi.updateWatch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(projectApi.updateAlert).toHaveBeenCalledWith(1, { detection_policy: { ...item.detectionPolicy, exited: true }, schedule: null }));
+    expect(projectApi.updateAlert).toHaveBeenCalledTimes(1);
   });
 
   it('keeps rename cancellation available for an invalid draft and retains a failed rename', async () => {
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
+      listAlerts: vi.fn().mockResolvedValue([alert(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      updateWatch: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
+      updateAlert: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'rename-validation', api: { projectApi } });
-    harness.render(<WatchesPanel canEdit />);
-    fireEvent.click(await screen.findByTestId('rename-watch'));
-    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: '   ' } });
-    expect(screen.getByTestId('save-watch-rename')).toBeDisabled();
+    harness.render(<AlertsPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('rename-alert'));
+    fireEvent.change(screen.getByTestId('alert-rename-input'), { target: { value: '   ' } });
+    expect(screen.getByTestId('save-alert-rename')).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(projectApi.updateWatch).not.toHaveBeenCalled();
+    expect(projectApi.updateAlert).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('rename-watch'));
-    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: 'New Alpha' } });
-    fireEvent.click(screen.getByTestId('save-watch-rename'));
-    expect(await screen.findByTestId('watch-mutation-error')).toHaveTextContent('Rename unavailable');
-    expect(screen.getByTestId('watch-rename-input')).toHaveValue('New Alpha');
-    expect(screen.getByTestId('save-watch-rename')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('rename-alert'));
+    fireEvent.change(screen.getByTestId('alert-rename-input'), { target: { value: 'New Alpha' } });
+    fireEvent.click(screen.getByTestId('save-alert-rename'));
+    expect(await screen.findByTestId('alert-mutation-error')).toHaveTextContent('Rename unavailable');
+    expect(screen.getByTestId('alert-rename-input')).toHaveValue('New Alpha');
+    expect(screen.getByTestId('save-alert-rename')).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
   });
 
-  it('creates an independent Watch from the captured current grid and shows local notification guidance', async () => {
+  it('creates an independent Alert from the captured current grid and shows local notification guidance', async () => {
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([]),
+      listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      createWatch: vi.fn().mockResolvedValue(watch(10, 'Watch: Current')),
+      createAlert: vi.fn().mockResolvedValue(alert(10, 'Watch: Current')),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'current-grid-watch', api: { projectApi } });
-    harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
+    harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
     harness.render(
-      <WatchesPanel
+      <AlertsPanel
         canEdit
       />,
     );
     expect(await screen.findByText(notificationSetupGuidance)).toBeInTheDocument();
-    expect(screen.queryByTestId('watch-create-source-summary')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('watch-create-mode')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert-create-source-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert-create-mode')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Notification settings' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('create-watch-button'));
-    await waitFor(() => expect(projectApi.createWatch).toHaveBeenCalledWith({
+    fireEvent.click(screen.getByTestId('create-alert-button'));
+    await waitFor(() => expect(projectApi.createAlert).toHaveBeenCalledWith({
       name: 'Watch: Current',
       view_id: currentGridDraft.view_id,
       detection_policy: undefined,
       schedule: '@hourly',
     }));
-    expect(await screen.findByTestId('watch-notification-setup-notice')).toHaveTextContent(notificationSetupGuidance);
+    expect(await screen.findByTestId('alert-notification-setup-notice')).toHaveTextContent(notificationSetupGuidance);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notification setup guidance' }));
-    expect(screen.queryByTestId('watch-notification-setup-notice')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('alert-notification-setup-notice')).not.toBeInTheDocument();
   });
 
-  it('retains an independent Watch draft after a failed create', async () => {
+  it('retains an independent Alert draft after a failed create', async () => {
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([watch(1, 'Open rows')]),
+      listAlerts: vi.fn().mockResolvedValue([alert(1, 'Open rows')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      createWatch: vi.fn().mockRejectedValue(new ApiError(500, 'Watch service unavailable')),
+      createAlert: vi.fn().mockRejectedValue(new ApiError(500, 'Watch service unavailable')),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'sheetless-watches', api: { projectApi } });
-    harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
+    harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
 
     harness.render(
-      <WatchesPanel
+      <AlertsPanel
         canEdit
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('create-watch-button'));
-    await waitFor(() => expect(screen.getByTestId('watches-error')).toHaveTextContent('Watch service unavailable'));
+    fireEvent.click(await screen.findByTestId('create-alert-button'));
+    await waitFor(() => expect(screen.getByTestId('alerts-error')).toHaveTextContent('Watch service unavailable'));
 
-    expect(screen.getByTestId('watch-create-composer')).toBeInTheDocument();
+    expect(screen.getByTestId('alert-create-composer')).toBeInTheDocument();
     expect(screen.getByText(notificationSetupGuidance)).toBeInTheDocument();
-    expect(screen.getByTestId('create-watch-button')).toBeEnabled();
-    expect(screen.getByTestId('run-watch')).toBeEnabled();
-    expect(screen.getByTestId('rename-watch')).toBeEnabled();
-    expect(screen.getByTestId('pause-watch')).toBeEnabled();
-    expect(screen.getByTestId('delete-watch')).toBeEnabled();
+    expect(screen.getByTestId('create-alert-button')).toBeEnabled();
+    expect(screen.getByTestId('check-alert')).toBeEnabled();
+    expect(screen.getByTestId('rename-alert')).toBeEnabled();
+    expect(screen.getByTestId('pause-alert')).toBeEnabled();
+    expect(screen.getByTestId('delete-alert')).toBeEnabled();
   });
 
-  it('keeps each row independently actionable while refusing a duplicate run on one watch', async () => {
-    const alpha = watch(1, 'Alpha');
-    const beta = watch(2, 'Beta');
-    const alphaRun = deferred<WatchRunResult>();
-    const betaRun = deferred<WatchRunResult>();
+  it('keeps each row independently actionable while refusing a duplicate run on one alert', async () => {
+    const alpha = alert(1, 'Alpha');
+    const beta = alert(2, 'Beta');
+    const alphaRun = deferred<AlertCheckResult>();
+    const betaRun = deferred<AlertCheckResult>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([alpha, beta]),
+      listAlerts: vi.fn().mockResolvedValue([alpha, beta]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      runWatch: vi.fn((watchId: number) => watchId === alpha.id ? alphaRun.promise : betaRun.promise),
+      checkAlert: vi.fn((alertId: number) => alertId === alpha.id ? alphaRun.promise : betaRun.promise),
     } as unknown as ProjectApi;
     const { render } = createWorkspaceTestHarness({ projectId: 'pending-actions', api: { projectApi } });
 
-    render(<WatchesPanel canEdit />);
+    render(<AlertsPanel canEdit />);
 
-    await waitFor(() => expect(screen.getAllByTestId('watch-item')).toHaveLength(2));
-    const [alphaRow, betaRow] = screen.getAllByTestId('watch-item');
-    const alphaButton = within(alphaRow).getByTestId('run-watch');
-    const betaButton = within(betaRow).getByTestId('run-watch');
+    await waitFor(() => expect(screen.getAllByTestId('alert-item')).toHaveLength(2));
+    const [alphaRow, betaRow] = screen.getAllByTestId('alert-item');
+    const alphaButton = within(alphaRow).getByTestId('check-alert');
+    const betaButton = within(betaRow).getByTestId('check-alert');
 
     fireEvent.click(alphaButton);
 
@@ -240,170 +240,170 @@ describe('WatchesPanel pending actions', () => {
     expect(betaButton).toBeEnabled();
     fireEvent.click(betaButton);
     // React has not needed to publish the first pending state for the second
-    // row to start: ownership is keyed synchronously by watch id.
-    expect(projectApi.runWatch).toHaveBeenCalledTimes(2);
+    // row to start: ownership is keyed synchronously by alert id.
+    expect(projectApi.checkAlert).toHaveBeenCalledTimes(2);
 
     fireEvent.click(alphaButton);
-    expect(projectApi.runWatch).toHaveBeenCalledTimes(2);
+    expect(projectApi.checkAlert).toHaveBeenCalledTimes(2);
 
-    alphaRun.resolve({ watch: alpha } as WatchRunResult);
-    betaRun.resolve({ watch: beta } as WatchRunResult);
+    alphaRun.resolve({ alert: alpha } as AlertCheckResult);
+    betaRun.resolve({ alert: beta } as AlertCheckResult);
     await waitFor(() => expect(alphaButton).toBeEnabled());
     expect(betaButton).toBeEnabled();
   });
 
   it('keeps a draft claim across panel remounts and emits only one create request', async () => {
-    const created = watch(3, 'View: Open rows');
-    const create = deferred<WatchInfo>();
+    const created = alert(3, 'View: Open rows');
+    const create = deferred<AlertInfo>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([]),
+      listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      createWatch: vi.fn(() => create.promise),
+      createAlert: vi.fn(() => create.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'create-remount', api: { projectApi } });
-    harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
+    harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
 
-    const first = harness.render(<WatchesPanel canEdit />);
-    await waitFor(() => expect(screen.getByTestId('watch-create-composer')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('create-watch-button'));
-    expect(projectApi.createWatch).toHaveBeenCalledTimes(1);
+    const first = harness.render(<AlertsPanel canEdit />);
+    await waitFor(() => expect(screen.getByTestId('alert-create-composer')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('create-alert-button'));
+    expect(projectApi.createAlert).toHaveBeenCalledTimes(1);
     first.unmount();
 
-    harness.render(<WatchesPanel canEdit />);
-    const createButton = await screen.findByTestId('create-watch-button');
+    harness.render(<AlertsPanel canEdit />);
+    const createButton = await screen.findByTestId('create-alert-button');
     expect(createButton).toBeDisabled();
     fireEvent.click(createButton);
-    expect(projectApi.createWatch).toHaveBeenCalledTimes(1);
+    expect(projectApi.createAlert).toHaveBeenCalledTimes(1);
 
     create.resolve(created);
-    await waitFor(() => expect(screen.queryByTestId('watch-create-composer')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('alert-create-composer')).not.toBeInTheDocument());
   });
 
   it('retains a failed create outcome across remount', async () => {
-    const create = deferred<WatchInfo>();
+    const create = deferred<AlertInfo>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([]),
+      listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      createWatch: vi.fn(() => create.promise),
+      createAlert: vi.fn(() => create.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'create-failure-remount', api: { projectApi } });
-    harness.stores.watchRunLink.setPendingCreateDraft(currentGridDraft);
-    const first = harness.render(<WatchesPanel canEdit />);
-    fireEvent.click(await screen.findByTestId('create-watch-button'));
+    harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
+    const first = harness.render(<AlertsPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('create-alert-button'));
     first.unmount();
     create.reject(new Error('Watch service unavailable'));
     await Promise.resolve();
     await Promise.resolve();
 
-    harness.render(<WatchesPanel canEdit />);
-    expect(await screen.findByTestId('watches-error')).toHaveTextContent('Watch service unavailable');
-    expect(screen.getByTestId('watch-create-composer')).toBeInTheDocument();
+    harness.render(<AlertsPanel canEdit />);
+    expect(await screen.findByTestId('alerts-error')).toHaveTextContent('Watch service unavailable');
+    expect(screen.getByTestId('alert-create-composer')).toBeInTheDocument();
   });
 
-  it('keeps a Watch row claim across panel remounts and refuses a duplicate run', async () => {
-    const alpha = watch(1, 'Alpha');
-    const run = deferred<WatchRunResult>();
+  it('keeps an Alert row claim across panel remounts and refuses a duplicate run', async () => {
+    const alpha = alert(1, 'Alpha');
+    const run = deferred<AlertCheckResult>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([alpha]),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      runWatch: vi.fn(() => run.promise),
+      checkAlert: vi.fn(() => run.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'run-remount', api: { projectApi } });
 
-    const first = harness.render(<WatchesPanel canEdit />);
-    const firstRun = await screen.findByTestId('run-watch');
+    const first = harness.render(<AlertsPanel canEdit />);
+    const firstRun = await screen.findByTestId('check-alert');
     fireEvent.click(firstRun);
-    expect(projectApi.runWatch).toHaveBeenCalledTimes(1);
+    expect(projectApi.checkAlert).toHaveBeenCalledTimes(1);
     first.unmount();
 
-    harness.render(<WatchesPanel canEdit />);
-    const remountedRun = await screen.findByTestId('run-watch');
+    harness.render(<AlertsPanel canEdit />);
+    const remountedRun = await screen.findByTestId('check-alert');
     expect(remountedRun).toBeDisabled();
     expect(remountedRun).toHaveAccessibleName('Checking Alpha…');
     fireEvent.click(remountedRun);
-    expect(projectApi.runWatch).toHaveBeenCalledTimes(1);
+    expect(projectApi.checkAlert).toHaveBeenCalledTimes(1);
 
-    run.resolve({ watch: alpha } as WatchRunResult);
+    run.resolve({ alert: alpha } as AlertCheckResult);
     await waitFor(() => expect(remountedRun).toBeEnabled());
   });
 
   it('shows a run failure settled while unmounted exactly once after remount', async () => {
-    const alpha = watch(1, 'Alpha');
-    const run = deferred<WatchRunResult>();
+    const alpha = alert(1, 'Alpha');
+    const run = deferred<AlertCheckResult>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([alpha]),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      runWatch: vi.fn(() => run.promise),
+      checkAlert: vi.fn(() => run.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'run-outcome-remount', api: { projectApi } });
 
-    const first = harness.render(<WatchesPanel canEdit />);
-    fireEvent.click(await screen.findByTestId('run-watch'));
-    expect(projectApi.runWatch).toHaveBeenCalledTimes(1);
+    const first = harness.render(<AlertsPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('check-alert'));
+    expect(projectApi.checkAlert).toHaveBeenCalledTimes(1);
     first.unmount();
 
     run.reject(new Error('Watch service unavailable'));
     await Promise.resolve();
     await Promise.resolve();
 
-    const second = harness.render(<WatchesPanel canEdit />);
-    expect(await screen.findByTestId('watches-error')).toHaveTextContent('Watch service unavailable');
-    expect(screen.getByTestId('run-watch')).toBeEnabled();
+    const second = harness.render(<AlertsPanel canEdit />);
+    expect(await screen.findByTestId('alerts-error')).toHaveTextContent('Watch service unavailable');
+    expect(screen.getByTestId('check-alert')).toBeEnabled();
     second.unmount();
 
-    harness.render(<WatchesPanel canEdit />);
-    await screen.findByTestId('run-watch');
-    expect(screen.queryByTestId('watches-error')).not.toBeInTheDocument();
+    harness.render(<AlertsPanel canEdit />);
+    await screen.findByTestId('check-alert');
+    expect(screen.queryByTestId('alerts-error')).not.toBeInTheDocument();
   });
 
   it('keeps an in-flight rename visibly owned across a panel remount', async () => {
-    const alpha = watch(1, 'Alpha');
-    const renamed = watch(1, 'Renamed Alpha');
-    const rename = deferred<WatchInfo>();
+    const alpha = alert(1, 'Alpha');
+    const renamed = alert(1, 'Renamed Alpha');
+    const rename = deferred<AlertInfo>();
     let settled = false;
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn(() => Promise.resolve(settled ? [renamed] : [alpha])),
+      listAlerts: vi.fn(() => Promise.resolve(settled ? [renamed] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      updateWatch: vi.fn(() => rename.promise),
+      updateAlert: vi.fn(() => rename.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'rename-remount', api: { projectApi } });
 
-    const first = harness.render(<WatchesPanel canEdit />);
-    await screen.findByTestId('rename-watch');
-    fireEvent.click(screen.getByTestId('rename-watch'));
-    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: renamed.name } });
-    fireEvent.click(screen.getByTestId('save-watch-rename'));
-    expect(projectApi.updateWatch).toHaveBeenCalledTimes(1);
+    const first = harness.render(<AlertsPanel canEdit />);
+    await screen.findByTestId('rename-alert');
+    fireEvent.click(screen.getByTestId('rename-alert'));
+    fireEvent.change(screen.getByTestId('alert-rename-input'), { target: { value: renamed.name } });
+    fireEvent.click(screen.getByTestId('save-alert-rename'));
+    expect(projectApi.updateAlert).toHaveBeenCalledTimes(1);
     first.unmount();
 
-    harness.render(<WatchesPanel canEdit />);
-    expect(await screen.findByTestId('watch-pending-action')).toHaveTextContent('Renaming…');
-    expect(screen.getByTestId('rename-watch')).toBeDisabled();
+    harness.render(<AlertsPanel canEdit />);
+    expect(await screen.findByTestId('alert-pending-action')).toHaveTextContent('Renaming…');
+    expect(screen.getByTestId('rename-alert')).toBeDisabled();
 
     settled = true;
     rename.resolve(renamed);
-    await waitFor(() => expect(screen.queryByTestId('watch-pending-action')).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId('watch-item')).toHaveTextContent(renamed.name));
+    await waitFor(() => expect(screen.queryByTestId('alert-pending-action')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('alert-item')).toHaveTextContent(renamed.name));
   });
 
   it('keeps a pending delete confirmation open after forced closure and restores Cancel focus', async () => {
     const remove = deferred<void>();
     const projectApi = {
-      qa: projectQAFixture(), listWatches: vi.fn().mockResolvedValue([watch(1, 'Alpha')]),
+      qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([alert(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      deleteWatch: vi.fn(() => remove.promise),
+      deleteAlert: vi.fn(() => remove.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'delete-dialog-owner', api: { projectApi } });
-    harness.render(<WatchesPanel canEdit />);
-    const trigger = await screen.findByTestId('delete-watch');
+    harness.render(<AlertsPanel canEdit />);
+    const trigger = await screen.findByTestId('delete-alert');
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByTestId('confirm-delete-watch'));
-    const dialog = screen.getByTestId('delete-watch-confirmation') as HTMLDialogElement;
+    fireEvent.click(screen.getByTestId('confirm-delete-alert'));
+    const dialog = screen.getByTestId('delete-alert-confirmation') as HTMLDialogElement;
     dialog.showModal = vi.fn(() => { dialog.setAttribute('open', ''); });
     dialog.close = () => { dialog.removeAttribute('open'); fireEvent(dialog, new Event('close')); };
     expect(dialog).toHaveAttribute('aria-busy', 'true');
@@ -413,65 +413,65 @@ describe('WatchesPanel pending actions', () => {
     expect(dialog).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     remove.reject(new Error('Delete unavailable'));
-    expect(await screen.findByTestId('watch-mutation-error')).toHaveTextContent('Delete unavailable');
+    expect(await screen.findByTestId('alert-mutation-error')).toHaveTextContent('Delete unavailable');
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
   it('keeps an in-flight deletion visibly owned across a panel remount', async () => {
-    const alpha = watch(1, 'Alpha');
+    const alpha = alert(1, 'Alpha');
     const remove = deferred<void>();
     let settled = false;
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn(() => Promise.resolve(settled ? [] : [alpha])),
+      listAlerts: vi.fn(() => Promise.resolve(settled ? [] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      deleteWatch: vi.fn(() => remove.promise),
+      deleteAlert: vi.fn(() => remove.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'delete-remount', api: { projectApi } });
 
-    const first = harness.render(<WatchesPanel canEdit />);
-    await screen.findByTestId('delete-watch');
-    fireEvent.click(screen.getByTestId('delete-watch'));
-    fireEvent.click(await screen.findByTestId('confirm-delete-watch'));
-    expect(projectApi.deleteWatch).toHaveBeenCalledTimes(1);
+    const first = harness.render(<AlertsPanel canEdit />);
+    await screen.findByTestId('delete-alert');
+    fireEvent.click(screen.getByTestId('delete-alert'));
+    fireEvent.click(await screen.findByTestId('confirm-delete-alert'));
+    expect(projectApi.deleteAlert).toHaveBeenCalledTimes(1);
     first.unmount();
 
-    harness.render(<WatchesPanel canEdit />);
-    expect(await screen.findByTestId('watch-pending-action')).toHaveTextContent('Deleting…');
-    expect(screen.getByTestId('delete-watch')).toBeDisabled();
-    expect(screen.queryByTestId('delete-watch-confirmation')).not.toBeInTheDocument();
+    harness.render(<AlertsPanel canEdit />);
+    expect(await screen.findByTestId('alert-pending-action')).toHaveTextContent('Deleting…');
+    expect(screen.getByTestId('delete-alert')).toBeDisabled();
+    expect(screen.queryByTestId('delete-alert-confirmation')).not.toBeInTheDocument();
 
     settled = true;
     remove.resolve();
-    await waitFor(() => expect(screen.queryByTestId('watch-pending-action')).not.toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId('watches-empty')).toBeInTheDocument());
-    await waitFor(() => expect(screen.getByTestId('watches')).toHaveFocus());
+    await waitFor(() => expect(screen.queryByTestId('alert-pending-action')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('alerts-empty')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('alerts')).toHaveFocus());
   });
 
   it('retires a list started during rename when the mutation settles', async () => {
-    const alpha = watch(1, 'Alpha');
-    const renamed = watch(1, 'Renamed Alpha');
-    const staleList = deferred<WatchInfo[]>();
-    const rename = deferred<WatchInfo>();
+    const alpha = alert(1, 'Alpha');
+    const renamed = alert(1, 'Renamed Alpha');
+    const staleList = deferred<AlertInfo[]>();
+    const rename = deferred<AlertInfo>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn()
+      listAlerts: vi.fn()
         .mockResolvedValueOnce([alpha])
         .mockImplementationOnce(() => staleList.promise)
         .mockResolvedValue([renamed]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-      updateWatch: vi.fn(() => rename.promise),
+      updateAlert: vi.fn(() => rename.promise),
     } as unknown as ProjectApi;
     const { render } = createWorkspaceTestHarness({ projectId: 'rename-list-race', api: { projectApi } });
 
-    render(<WatchesPanel canEdit />);
-    await waitFor(() => expect(screen.getByTestId('watch-item')).toHaveTextContent('Alpha'));
-    fireEvent.click(screen.getByTestId('rename-watch'));
-    fireEvent.change(screen.getByTestId('watch-rename-input'), { target: { value: 'Renamed Alpha' } });
-    fireEvent.click(screen.getByTestId('save-watch-rename'));
-    window.dispatchEvent(new Event('frisket:watches-changed'));
-    await waitFor(() => expect(projectApi.listWatches).toHaveBeenCalledTimes(2));
+    render(<AlertsPanel canEdit />);
+    await waitFor(() => expect(screen.getByTestId('alert-item')).toHaveTextContent('Alpha'));
+    fireEvent.click(screen.getByTestId('rename-alert'));
+    fireEvent.change(screen.getByTestId('alert-rename-input'), { target: { value: 'Renamed Alpha' } });
+    fireEvent.click(screen.getByTestId('save-alert-rename'));
+    window.dispatchEvent(new Event('frisket:alerts-changed'));
+    await waitFor(() => expect(projectApi.listAlerts).toHaveBeenCalledTimes(2));
 
     rename.resolve(renamed);
     await waitFor(() => expect(screen.getByText('Renamed Alpha', { exact: true })).toBeInTheDocument());
@@ -480,55 +480,55 @@ describe('WatchesPanel pending actions', () => {
     expect(screen.queryByText('Alpha', { exact: true })).not.toBeInTheDocument();
   });
 
-  it('refreshes a blocked embedding index before re-running the watch and pins each step', async () => {
-    const alpha = blockedEmbeddingWatch(1, 'Alpha');
+  it('refreshes a blocked embedding index before re-running the alert and pins each step', async () => {
+    const alpha = blockedEmbeddingAlert(1, 'Alpha');
     const refresh = deferred<unknown>();
-    const run = deferred<WatchRunResult>();
+    const run = deferred<AlertCheckResult>();
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([alpha]),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       refreshEmbeddingIndex: vi.fn(() => refresh.promise),
-      runWatch: vi.fn(() => run.promise),
+      checkAlert: vi.fn(() => run.promise),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'refresh-index', api: { projectApi } });
-    const { container } = harness.render(<WatchesPanel canEdit />);
-    const button = await screen.findByTestId('watch-refresh-index-1');
+    const { container } = harness.render(<AlertsPanel canEdit />);
+    const button = await screen.findByTestId('alert-refresh-index-1');
     const steps = [container.innerHTML];
 
     fireEvent.click(button);
     expect(projectApi.refreshEmbeddingIndex).toHaveBeenCalledWith('idx-1', 'incremental');
-    expect(projectApi.runWatch).not.toHaveBeenCalled();
+    expect(projectApi.checkAlert).not.toHaveBeenCalled();
     fireEvent.click(button);
     expect(projectApi.refreshEmbeddingIndex).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(button).toHaveTextContent('Refreshing index…'));
     steps.push(container.innerHTML);
 
     refresh.resolve(undefined);
-    await waitFor(() => expect(projectApi.runWatch).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(projectApi.checkAlert).toHaveBeenCalledWith(1));
     steps.push(container.innerHTML);
 
-    run.resolve({ watch: { ...alpha, name: 'Alpha refreshed', latestRun: null } } as WatchRunResult);
+    run.resolve({ alert: { ...alpha, name: 'Alpha refreshed', latestRun: null } } as AlertCheckResult);
     await waitFor(() => expect(screen.getByText('Alpha refreshed', { exact: true })).toBeInTheDocument());
     steps.push(container.innerHTML);
     expect(steps).toMatchSnapshot();
   });
 
-  it('settles a failed index refresh without running the watch', async () => {
-    const alpha = blockedEmbeddingWatch(1, 'Alpha');
+  it('settles a failed index refresh without running the alert', async () => {
+    const alpha = blockedEmbeddingAlert(1, 'Alpha');
     const projectApi = {
       qa: projectQAFixture(),
-      listWatches: vi.fn().mockResolvedValue([alpha]),
+      listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       refreshEmbeddingIndex: vi.fn().mockRejectedValue(new Error('Index refresh unavailable')),
-      runWatch: vi.fn(),
+      checkAlert: vi.fn(),
     } as unknown as ProjectApi;
     const harness = createWorkspaceTestHarness({ projectId: 'refresh-index-failure', api: { projectApi } });
-    const { container } = harness.render(<WatchesPanel canEdit />);
-    fireEvent.click(await screen.findByTestId('watch-refresh-index-1'));
-    expect(await screen.findByTestId('watches-error')).toHaveTextContent('Index refresh unavailable');
-    await waitFor(() => expect(screen.getByTestId('watch-refresh-index-1')).toBeEnabled());
-    expect(projectApi.runWatch).not.toHaveBeenCalled();
+    const { container } = harness.render(<AlertsPanel canEdit />);
+    fireEvent.click(await screen.findByTestId('alert-refresh-index-1'));
+    expect(await screen.findByTestId('alerts-error')).toHaveTextContent('Index refresh unavailable');
+    await waitFor(() => expect(screen.getByTestId('alert-refresh-index-1')).toBeEnabled());
+    expect(projectApi.checkAlert).not.toHaveBeenCalled();
     expect(container.innerHTML).toMatchSnapshot();
   });
 });

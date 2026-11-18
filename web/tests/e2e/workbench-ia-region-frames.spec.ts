@@ -213,12 +213,12 @@ test('R2: Discover hosted panel bodies contribute zero own-padding; the host own
   const gutter = '12px 14px 16px 14px';
   const zero = '0px 0px 0px 0px';
 
-  // Watches tab: the host gutter is the contract; the watches body adds none.
+  // Alerts tab: the host gutter is the contract; the alerts body adds none.
   await openDiscoverTab(page, 'Watches');
   const bodyW = await box(page.getByTestId('discover-body'));
   expect(`${bodyW.pt} ${bodyW.pr} ${bodyW.pb} ${bodyW.pl}`).toBe(gutter);
-  const watches = await box(page.getByTestId('watches-panel'));
-  expect(`${watches.pt} ${watches.pr} ${watches.pb} ${watches.pl}`).toBe(zero);
+  const alerts = await box(page.getByTestId('alerts-panel'));
+  expect(`${alerts.pt} ${alerts.pr} ${alerts.pb} ${alerts.pl}`).toBe(zero);
 
   // Embeddings tab: same contract; the embeddings body adds none.
   await openDiscoverTab(page, 'Embeddings');
@@ -237,14 +237,14 @@ test('R2: Discover hosted panel bodies contribute zero own-padding; the host own
 // font + color) in a dock tab and a Discover tab.
 
 test('C6: a PanelEmpty renders identically in a dock tab and a Discover tab', async ({ page }) => {
-  // A fresh project has no watches and no sources, so both empty states render.
+  // A fresh project has no alerts and no sources, so both empty states render.
   const pid = await createProject(page.request, uniqueName('region-frames-empty'));
   const sheetId = await importCsv(page.request, pid, 'cities.csv', TINY_CSV);
   await openProject(page, pid, sheetId);
 
-  // Dock: the Watches dock tab's empty state.
+  // Dock: the Alerts dock tab's empty state.
   await page.getByTestId('bottom-dock-tab-watches').click();
-  const dockEmpty = page.getByTestId('bottom-dock-panel').getByTestId('watches-empty');
+  const dockEmpty = page.getByTestId('bottom-dock-panel').getByTestId('alerts-empty');
   await expect(dockEmpty).toBeVisible();
   await expect(dockEmpty).toHaveClass(/panel-empty/);
   const dockBox = await box(dockEmpty);
