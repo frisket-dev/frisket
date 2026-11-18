@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 
 from frisket.server import static_serving
 from frisket.server.app import create_app
+from tests.http_test_helpers import connected_client_receive
 
 
 async def _raw_asgi_get(app: Any, path: str) -> int:
@@ -34,8 +35,7 @@ async def _raw_asgi_get(app: Any, path: str) -> int:
     helper for the full rationale)."""
     status_holder: dict[str, int] = {}
 
-    async def receive() -> dict[str, Any]:
-        return {"type": "http.request", "body": b"", "more_body": False}
+    receive = connected_client_receive()
 
     async def send(message: dict[str, Any]) -> None:
         if message["type"] == "http.response.start":
