@@ -1012,8 +1012,8 @@ def test_page_refused_by_a_busy_local_engine_runs_again_without_rebilling(
     )
     try:
         adapter.publish_child_pages = lambda bindings, ref: [True for _ in bindings]
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, estimated)
         attempts = _halt_first_attempt(adapter, "local_engine_busy")
         jobs = adapter.start_pending(generation="generation-one")
         assert _wait_preview(preview, jobs)[0]["status"] == "error"
@@ -1046,8 +1046,8 @@ def test_other_local_engine_halts_still_fail_the_page(tmp_path, monkeypatch):
         tmp_path, monkeypatch
     )
     try:
-        quoted = adapter.quote(targets=[read], plan_token="admitted-plan")
-        _admit_split(adapter, project, read, quoted)
+        estimated = adapter.estimate(targets=[read], plan_token="admitted-plan")
+        _admit_split(adapter, project, read, estimated)
         _halt_first_attempt(adapter, "local_session_failed")
         jobs = adapter.start_pending(generation="generation-one")
         assert _wait_preview(preview, jobs)[0]["status"] == "error"
