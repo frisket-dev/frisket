@@ -1,6 +1,6 @@
 """Generic notification core service.
 
-Watchlists, runs, sources, and plugins emit candidates. This module validates,
+Alerts, runs, sources, and plugins emit candidates. This module validates,
 dedupes, records generic notification items, and plans external delivery
 requests. In-app delivery is the durable item/feed projection; external
 providers run only from delivery requests.
@@ -434,14 +434,14 @@ def _event_kinds_for_candidate(
         return []
     source_ref = candidate["source_ref"]
     try:
-        watch_id = int(source_ref["watch_id"])
+        alert_id = int(source_ref["watch_id"])
         run_id = int(source_ref["run_id"])
     except (KeyError, TypeError, ValueError):
         raise ValueError("watch notification source_ref requires watch_id and run_id")
     if not event_ids:
         raise ValueError("watch notification source events are required")
-    rows = project.watch_events_for_notification(
-        watch_id=watch_id, run_id=run_id, event_ids=event_ids
+    rows = project.alert_events_for_notification(
+        alert_id=alert_id, run_id=run_id, event_ids=event_ids
     )
     found = {int(row["id"]) for row in rows}
     if found != set(event_ids):
@@ -506,17 +506,17 @@ def _dedupe_key(
     candidate: NotificationCandidate, source_ref: dict[str, Any], event_ids: list[int]
 ) -> str:
     if candidate["source_kind"] == "watch" and event_ids:
-        return watch_events_dedupe_key(
-            watch_id=int(source_ref["watch_id"]),
+        return alert_events_dedupe_key(
+            alert_id=int(source_ref["watch_id"]),
             run_id=int(source_ref["run_id"]),
             event_ids=event_ids,
         )
     return str(candidate["dedupe_key"]).strip()
 
 
-def watch_events_dedupe_key(*, watch_id: int, run_id: int, event_ids: list[int]) -> str:
+def alert_events_dedupe_key(*, alert_id: int, run_id: int, event_ids: list[int]) -> str:
     # The check owns one summary, irrespective of how many detail previews fit.
-    return f"watch:{int(watch_id)}:run:{int(run_id)}"
+    return f"watch:{int(alert_id)}:run:{int(run_id)}"
 
 
 def _channel_secret_ref(kind: str, data: dict[str, Any]) -> str | None:

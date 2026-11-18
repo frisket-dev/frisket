@@ -1,16 +1,16 @@
-"""Watch run event vocabulary and serialization helpers."""
+"""Alert check event vocabulary and serialization helpers."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-WATCH_RUN_EVENT_SCHEMA_VERSION = "frisket.watch_run_events_page.v1"
-WATCH_EVENT_ROW_ENTERED = "row_entered"
-WATCH_EVENT_ROW_EXITED = "row_exited"
-WATCH_EVENT_COUNT_CHANGED = "count_changed"
-WATCH_EVENT_THRESHOLD_CROSSED = "threshold_crossed"
-WATCH_EVENT_ROW_CHANGED = "row_changed"
+ALERT_CHECK_EVENT_SCHEMA_VERSION = "frisket.watch_run_events_page.v1"
+ALERT_EVENT_ROW_ENTERED = "row_entered"
+ALERT_EVENT_ROW_EXITED = "row_exited"
+ALERT_EVENT_COUNT_CHANGED = "count_changed"
+ALERT_EVENT_THRESHOLD_CROSSED = "threshold_crossed"
+ALERT_EVENT_ROW_CHANGED = "row_changed"
 
 ALLOWED_EVENT_KINDS = {
     "row_entered",
@@ -68,7 +68,7 @@ ALLOWED_SUBJECT_KINDS = {
 def row_entered_event(
     *,
     run_id: int,
-    watch_id: int,
+    alert_id: int,
     sheet_id: int,
     row_id: int,
     rank: int,
@@ -81,8 +81,8 @@ def row_entered_event(
         after_json["reentered"] = True
     return {
         "run_id": int(run_id),
-        "watch_id": int(watch_id),
-        "event_kind": WATCH_EVENT_ROW_ENTERED,
+        "watch_id": int(alert_id),
+        "event_kind": ALERT_EVENT_ROW_ENTERED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
         "before_json": None,
@@ -97,7 +97,7 @@ def row_entered_event(
 def row_exited_event(
     *,
     run_id: int,
-    watch_id: int,
+    alert_id: int,
     sheet_id: int,
     row_id: int,
     rank: int,
@@ -105,8 +105,8 @@ def row_exited_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(watch_id),
-        "event_kind": WATCH_EVENT_ROW_EXITED,
+        "watch_id": int(alert_id),
+        "event_kind": ALERT_EVENT_ROW_EXITED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
         "before_json": {"matched": True},
@@ -121,7 +121,7 @@ def row_exited_event(
 def count_changed_event(
     *,
     run_id: int,
-    watch_id: int,
+    alert_id: int,
     previous_run_id: int | None,
     previous_count: int,
     current_count: int,
@@ -129,8 +129,8 @@ def count_changed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(watch_id),
-        "event_kind": WATCH_EVENT_COUNT_CHANGED,
+        "watch_id": int(alert_id),
+        "event_kind": ALERT_EVENT_COUNT_CHANGED,
         "subject_kind": "aggregate",
         "subject_ref": {"metric": "matched_rows"},
         "before_json": {
@@ -148,7 +148,7 @@ def count_changed_event(
 def threshold_crossed_event(
     *,
     run_id: int,
-    watch_id: int,
+    alert_id: int,
     previous_run_id: int | None,
     previous_count: int,
     current_count: int,
@@ -159,8 +159,8 @@ def threshold_crossed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(watch_id),
-        "event_kind": WATCH_EVENT_THRESHOLD_CROSSED,
+        "watch_id": int(alert_id),
+        "event_kind": ALERT_EVENT_THRESHOLD_CROSSED,
         "subject_kind": "aggregate",
         "subject_ref": {"metric": "matched_rows", "threshold": int(threshold)},
         "before_json": {
@@ -183,7 +183,7 @@ def threshold_crossed_event(
 def row_changed_event(
     *,
     run_id: int,
-    watch_id: int,
+    alert_id: int,
     sheet_id: int,
     row_id: int,
     rank: int,
@@ -191,8 +191,8 @@ def row_changed_event(
 ) -> dict[str, Any]:
     return {
         "run_id": int(run_id),
-        "watch_id": int(watch_id),
-        "event_kind": WATCH_EVENT_ROW_CHANGED,
+        "watch_id": int(alert_id),
+        "event_kind": ALERT_EVENT_ROW_CHANGED,
         "subject_kind": "row",
         "subject_ref": {"sheet_id": int(sheet_id), "row_id": int(row_id)},
         "before_json": {
@@ -230,7 +230,7 @@ def event_json(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
-def decode_watch_run_event(row: Any) -> dict[str, Any]:
+def decode_alert_check_event(row: Any) -> dict[str, Any]:
     data = dict(row)
     data["subject_ref"] = _loads_json(data.get("subject_ref"), {})
     for key in ("before_json", "after_json", "delta_json"):

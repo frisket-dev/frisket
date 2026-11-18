@@ -95,11 +95,11 @@ def update_view(
 
 def delete_view(project: Any, view_id: int) -> None:
     # Reuse alert deletion so notification payloads cannot retain deleted details.
-    from .watches import delete_watch
+    from .alerts import delete_alert
 
     for row in project.db.execute(
         "SELECT id FROM watches WHERE view_id=?", (view_id,)
     ).fetchall():
-        delete_watch(project, int(row["id"]))
+        delete_alert(project, int(row["id"]))
     project.db.execute("DELETE FROM views WHERE id=?", (view_id,))
     project.db.commit()

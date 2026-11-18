@@ -38,7 +38,7 @@ from . import (
     project_meta,
     saved_views,
     sheet_lifecycle,
-    watches,
+    alerts,
 )
 from .schema import (
     FORMAT_VERSION,
@@ -569,22 +569,22 @@ class Project:
     update_view = saved_views.update_view
     delete_view = saved_views.delete_view
 
-    # ---------- watches: watchlists ----------
-    get_watch = watches.get_watch
-    add_watch = watches.add_watch
-    update_watch = watches.update_watch
-    delete_watch = watches.delete_watch
-    watch_latest_run = watches.watch_latest_run
-    get_watch_run = watches.get_watch_run
-    watch_runs_page = watches.watch_runs_page
-    watch_runs_total = watches.watch_runs_total
-    watch_run_hits = watches.watch_run_hits
-    watch_run_events = watches.watch_run_events
-    watch_run_events_total = watches.watch_run_events_total
-    watch_events_for_notification = watches.watch_events_for_notification
-    record_watch_run = watches.record_watch_run
-    # Bound last: this rebinds ``watches`` inside the class body.
-    watches = watches.watches
+    # ---------- alerts: alerts ----------
+    get_alert = alerts.get_alert
+    add_alert = alerts.add_alert
+    update_alert = alerts.update_alert
+    delete_alert = alerts.delete_alert
+    alert_latest_run = alerts.alert_latest_run
+    get_alert_check = alerts.get_alert_check
+    alert_checks_page = alerts.alert_checks_page
+    alert_checks_total = alerts.alert_checks_total
+    alert_check_matches = alerts.alert_check_matches
+    alert_check_events = alerts.alert_check_events
+    alert_check_events_total = alerts.alert_check_events_total
+    alert_events_for_notification = alerts.alert_events_for_notification
+    record_alert_check = alerts.record_alert_check
+    # Bound last: this rebinds ``alerts`` inside the class body.
+    alerts = alerts.alerts
 
     # ---------- notifications ----------
     notification_item_by_dedupe_key = notifications.notification_item_by_dedupe_key

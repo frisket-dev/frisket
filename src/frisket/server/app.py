@@ -179,7 +179,7 @@ from frisket.server.routes.sheet_grid import register_sheet_grid_routes
 from frisket.server.routes.spend import register_spend_routes
 from frisket.server.routes.sources import register_source_routes
 from frisket.server.routes.views import register_view_routes
-from frisket.server.routes.watches import register_watch_routes
+from frisket.server.routes.alerts import register_alert_routes
 from frisket.server.routes.walkthroughs import register_walkthrough_routes
 from frisket.server.routes.workbench import register_workbench_routes
 from frisket.server.services.action_param_validation import (
@@ -238,7 +238,7 @@ from frisket.server.services.sheet_grid import SheetGridService
 from frisket.server.services.spend import SpendService
 from frisket.server.services.sources import SourceService
 from frisket.server.services.views import ViewService
-from frisket.server.services.watches import WatchService
+from frisket.server.services.alerts import AlertService
 from frisket.server.services.work_log_exports import WorkLogExportService
 from frisket.server.services.workbench import WorkbenchService
 from frisket.ai.llm import ModelRouter
@@ -1164,9 +1164,9 @@ def create_app(
     view_service = ViewService(ws)
     register_view_routes(app, service=view_service)
 
-    register_watch_routes(
+    register_alert_routes(
         app,
-        service=WatchService(ws),
+        service=AlertService(ws),
     )
 
     register_notification_routes(app, service=NotificationService(ws))

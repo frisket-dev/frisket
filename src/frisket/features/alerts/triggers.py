@@ -1,4 +1,4 @@
-"""Source materialization triggers for watch evaluation."""
+"""Source materialization triggers for alert evaluation."""
 
 from __future__ import annotations
 
@@ -8,10 +8,10 @@ from typing import Any, TypedDict
 
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
-from frisket.features.watchlists.service import (
-    WatchBindingError,
-    run_watch_evaluation,
-    watch_query,
+from frisket.features.alerts.service import (
+    AlertBindingError,
+    check_alert,
+    alert_query,
 )
 
 
@@ -83,11 +83,11 @@ def source_poll_materialization_from_receipt(
     }
 
 
-def trigger_source_materialized_watches(
+def trigger_source_materialized_alerts(
     project: Project,
     materialization: SourcePollMaterialization,
     *,
-    enqueue_keyword_watches: Callable[[list[Any], SourcePollMaterialization], None]
+    enqueue_keyword_alerts: Callable[[list[Any], SourcePollMaterialization], None]
     | None = None,
 ) -> list[dict[str, Any]]:
     if (
@@ -96,26 +96,26 @@ def trigger_source_materialized_watches(
         or not materialization.get("row_ids")
     ):
         return []
-    watches = affected_enabled_watches(project, materialization)
-    keyword_watches = [watch for watch in watches if _is_keyword_watch(watch)]
-    if keyword_watches and enqueue_keyword_watches is not None:
-        enqueue_keyword_watches(keyword_watches, materialization)
-        watches = [watch for watch in watches if not _is_keyword_watch(watch)]
-    elif keyword_watches:
+    alerts = affected_enabled_alerts(project, materialization)
+    keyword_alerts = [alert for alert in alerts if _is_keyword_alert(alert)]
+    if keyword_alerts and enqueue_keyword_alerts is not None:
+        enqueue_keyword_alerts(keyword_alerts, materialization)
+        alerts = [alert for alert in alerts if not _is_keyword_alert(alert)]
+    elif keyword_alerts:
         # Standalone synchronous callers have no worker that could finish this
         # dependency; preserve their established complete-on-return contract.
         from frisket.search import drain_index
 
         drain_index(project)
     out: list[dict[str, Any]] = []
-    for watch in watches:
+    for alert in alerts:
         try:
-            evaluation = run_watch_evaluation(project, watch)
-        except WatchBindingError as exc:
-            if exc.code != "search_index_not_ready" or not _is_keyword_watch(watch):
+            evaluation = check_alert(project, alert)
+        except AlertBindingError as exc:
+            if exc.code != "search_index_not_ready" or not _is_keyword_alert(alert):
                 out.append(
                     {
-                        "watch_id": int(watch["id"]),
+                        "watch_id": int(alert["id"]),
                         "status": "error",
                         "error_code": exc.code,
                         "error": str(exc),
@@ -123,11 +123,11 @@ def trigger_source_materialized_watches(
                 )
                 continue
             # A writer may land after the standalone drain. Retry only this
-            # watch once; previous successful watches must not emit twice.
+            # alert once; previous successful alerts must not emit twice.
             from frisket.search import drain_index
 
             drain_index(project)
-            evaluation = run_watch_evaluation(project, watch)
+            evaluation = check_alert(project, alert)
         evaluation.update(
             {
                 "trigger_kind": "source_poll_materialized",
@@ -142,12 +142,12 @@ def trigger_source_materialized_watches(
     return out
 
 
-def trigger_completed_source_poll_watches(
+def trigger_completed_source_poll_alerts(
     project: Project,
     *,
     project_id: str,
     receipt_id: str | None,
-    enqueue_keyword_watches: Callable[[list[Any], SourcePollMaterialization], None]
+    enqueue_keyword_alerts: Callable[[list[Any], SourcePollMaterialization], None]
     | None = None,
 ) -> list[dict[str, Any]]:
     if not receipt_id:
@@ -159,53 +159,53 @@ def trigger_completed_source_poll_watches(
     )
     if materialization is None:
         return []
-    return trigger_source_materialized_watches(
+    return trigger_source_materialized_alerts(
         project,
         materialization,
-        enqueue_keyword_watches=enqueue_keyword_watches,
+        enqueue_keyword_alerts=enqueue_keyword_alerts,
     )
 
 
-def affected_enabled_watches(
+def affected_enabled_alerts(
     project: Project,
     materialization: SourcePollMaterialization,
 ) -> list[Any]:
     sheet_id = int(materialization["sheet_id"])
     out: list[Any] = []
-    for watch in project.watches():
-        if not bool(watch["enabled"]) or watch["schedule"] is None:
+    for alert in project.alerts():
+        if not bool(alert["enabled"]) or alert["schedule"] is None:
             continue
-        # embedding_similarity watches are evaluated AFTER their index refresh job
-        # completes (jobs/watches.py), not inline on the source poll — evaluating
+        # embedding_similarity alerts are evaluated AFTER their index refresh job
+        # completes (jobs/alerts.py), not inline on the source poll — evaluating
         # them here would block on embedding_index_incomplete (rows not yet
-        # embedded) and never re-fire. Non-embedding watches (fts/filter) still run
+        # embedded) and never re-fire. Non-embedding alerts (fts/filter) still run
         # inline.
-        if _is_embedding_similarity_watch(watch):
+        if _is_embedding_similarity_alert(alert):
             continue
-        if _watch_may_be_affected(watch, sheet_id=sheet_id):
-            out.append(watch)
+        if _alert_may_be_affected(alert, sheet_id=sheet_id):
+            out.append(alert)
     return out
 
 
-def _is_embedding_similarity_watch(watch: Any) -> bool:
+def _is_embedding_similarity_alert(alert: Any) -> bool:
     try:
-        return bool(watch_query(watch).get("similarity"))
-    except WatchBindingError:
+        return bool(alert_query(alert).get("similarity"))
+    except AlertBindingError:
         return False
 
 
-def _is_keyword_watch(watch: Any) -> bool:
+def _is_keyword_alert(alert: Any) -> bool:
     try:
-        return bool(watch_query(watch).get("search"))
-    except WatchBindingError:
+        return bool(alert_query(alert).get("search"))
+    except AlertBindingError:
         return False
 
 
-def _watch_may_be_affected(watch: Any, *, sheet_id: int) -> bool:
+def _alert_may_be_affected(alert: Any, *, sheet_id: int) -> bool:
     try:
-        scope = watch_query(watch)["scope"]
+        scope = alert_query(alert)["scope"]
         return scope["kind"] == "project" or scope.get("sheet_id") == sheet_id
-    except WatchBindingError:
+    except AlertBindingError:
         # Keep polling unavailable definitions; restoration can make them usable.
         return True
 

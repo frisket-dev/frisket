@@ -23,7 +23,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.sources import SourceStore
 from frisket.operability.structured_logging import correlation_log_payload
-from frisket.features.watchlists.triggers import trigger_completed_source_poll_watches
+from frisket.features.alerts.triggers import trigger_completed_source_poll_alerts
 
 from .embeddings import enqueue_source_append_refreshes
 from .notifications_delivery import enqueue_notification_emit_result
@@ -196,30 +196,30 @@ def register_source_poll_handler(
                 row_ids=list(summary.get("enclosure_row_ids") or []),
                 prepare_for_search=prepare_enclosures_for_search,
             )
-            enqueue_keyword_watches = None
+            enqueue_keyword_alerts = None
             if queue is not None:
-                from frisket.engine.jobs.watches import (
-                    enqueue_keyword_watch_evaluations,
+                from frisket.engine.jobs.alerts import (
+                    enqueue_keyword_alert_evaluations,
                 )
 
-                def enqueue_keyword_watches(watches, materialization):
-                    enqueue_keyword_watch_evaluations(
+                def enqueue_keyword_alerts(alerts, materialization):
+                    enqueue_keyword_alert_evaluations(
                         queue,
-                        watches=watches,
+                        alerts=alerts,
                         project_id=project_id,
                         workspace_root=project_root,
                         storage_org_id=_coerce_storage_org_id(payload),
                         trigger_ref={"source_run_id": materialization["source_run_id"]},
                     )
 
-            triggered_watch_runs = trigger_completed_source_poll_watches(
+            triggered_alert_checks = trigger_completed_source_poll_alerts(
                 project,
                 project_id=project_id,
                 receipt_id=result.receipt_id,
-                enqueue_keyword_watches=enqueue_keyword_watches,
+                enqueue_keyword_alerts=enqueue_keyword_alerts,
             )
             if queue is not None:
-                for evaluation in triggered_watch_runs:
+                for evaluation in triggered_alert_checks:
                     enqueue_notification_emit_result(
                         queue,
                         workspace_root=project_root,
@@ -258,7 +258,7 @@ def register_source_poll_handler(
                 "op_id": summary["op_id"],
                 "enclosure_jobs": len(jobs),
                 "embedding_refresh_jobs": len(embedding_jobs),
-                "triggered_watch_runs": len(triggered_watch_runs),
+                "triggered_watch_runs": len(triggered_alert_checks),
             }
         finally:
             project.close()

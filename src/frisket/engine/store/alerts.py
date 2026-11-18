@@ -1,6 +1,6 @@
-"""Watchlist store for a project bundle: watch definitions, watch runs and
+"""Alert store for a project bundle: alert definitions, alert checks and
 their hits/events, per-row field state for row-changed detection, and the
-event synthesis that ``record_watch_run`` persists in one transaction. Free
+event synthesis that ``record_alert_check`` persists in one transaction. Free
 functions over the facade's per-thread SQLite connection; ``project`` stays
 duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
@@ -12,7 +12,7 @@ from typing import Any
 from collections.abc import Iterable
 from itertools import groupby
 
-from frisket.features.watchlists.events import (
+from frisket.features.alerts.events import (
     count_changed_event,
     event_json,
     row_changed_event,
@@ -31,11 +31,11 @@ from frisket.engine.store.transactions import write_transaction
 UNCHANGED_SCHEDULE = object()
 
 
-class WatchCheckConflict(ValueError):
+class AlertCheckConflict(ValueError):
     """A check lost its definition/baseline race and should be retried."""
 
 
-def _decode_watch_detection_policy(value: Any) -> dict[str, Any]:
+def _decode_alert_detection_policy(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         raw = value
     else:
@@ -69,18 +69,18 @@ def _threshold_crossing(
     return None
 
 
-def watches(project: Any) -> list[sqlite3.Row]:
+def alerts(project: Any) -> list[sqlite3.Row]:
     return project.db.execute(
         "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
         "JOIN views ON views.id=watches.view_id ORDER BY watches.created_at, watches.id"
     ).fetchall()
 
 
-def get_watch(project: Any, watch_id: int) -> sqlite3.Row | None:
+def get_alert(project: Any, alert_id: int) -> sqlite3.Row | None:
     return project.db.execute(
         "SELECT watches.*, views.spec AS view_spec, views.sheet_id FROM watches "
         "JOIN views ON views.id=watches.view_id WHERE watches.id=?",
-        (watch_id,),
+        (alert_id,),
     ).fetchone()
 
 
@@ -95,7 +95,7 @@ def _validate_schedule(schedule: str | None) -> None:
         )
 
 
-def add_watch(
+def add_alert(
     project: Any,
     name: str,
     *,
@@ -127,9 +127,9 @@ def add_watch(
     return cur.lastrowid
 
 
-def update_watch(
+def update_alert(
     project: Any,
-    watch_id: int,
+    alert_id: int,
     *,
     name: str | None = None,
     enabled: bool | None = None,
@@ -157,9 +157,9 @@ def update_watch(
         sets.append("schedule=?")
         values.append(schedule)
     if not sets:
-        return get_watch(project, watch_id)
+        return get_alert(project, alert_id)
     sets.append("updated_at=datetime('now')")
-    values.append(int(watch_id))
+    values.append(int(alert_id))
     cur = project.db.execute(
         f"UPDATE watches SET {', '.join(sets)} WHERE id=?",
         values,
@@ -168,22 +168,22 @@ def update_watch(
         project.db.rollback()
         return None
     project.db.commit()
-    return get_watch(project, watch_id)
+    return get_alert(project, alert_id)
 
 
-def delete_watch(project: Any, watch_id: int) -> bool:
-    """Delete one Watch and the local notifications explicitly scoped to it.
+def delete_alert(project: Any, alert_id: int) -> bool:
+    """Delete one Alert and the local notifications explicitly scoped to it.
 
     Watch-owned runs and state are covered by the schema foreign keys.  The
     notification tables intentionally use JSON source references, so their
     matching local projections and routes must be removed in this transaction
-    before deleting the Watch.  Delivery outside this database is not touched.
+    before deleting the Alert.  Delivery outside this database is not touched.
     """
-    watch_id = int(watch_id)
+    alert_id = int(alert_id)
     with write_transaction(project.db):
         cur = project.db.cursor()
         if (
-            cur.execute("SELECT 1 FROM watches WHERE id=?", (watch_id,)).fetchone()
+            cur.execute("SELECT 1 FROM watches WHERE id=?", (alert_id,)).fetchone()
             is None
         ):
             return False
@@ -191,55 +191,55 @@ def delete_watch(project: Any, watch_id: int) -> bool:
             "DELETE FROM notification_items "
             "WHERE source_kind='watch' "
             "AND json_extract(source_ref, '$.watch_id')=?",
-            (watch_id,),
+            (alert_id,),
         )
         cur.execute(
             "DELETE FROM notification_routes "
             "WHERE source_kind='watch' "
             "AND json_extract(source_ref_match_json, '$.watch_id')=?",
-            (watch_id,),
+            (alert_id,),
         )
-        cur.execute("DELETE FROM watches WHERE id=?", (watch_id,))
+        cur.execute("DELETE FROM watches WHERE id=?", (alert_id,))
         return True
 
 
-def watch_latest_run(project: Any, watch_id: int) -> sqlite3.Row | None:
+def alert_latest_run(project: Any, alert_id: int) -> sqlite3.Row | None:
     return project.db.execute(
         "SELECT * FROM watch_runs WHERE watch_id=? "
         "ORDER BY started_at DESC, id DESC LIMIT 1",
-        (watch_id,),
+        (alert_id,),
     ).fetchone()
 
 
-def get_watch_run(project: Any, run_id: int) -> sqlite3.Row | None:
+def get_alert_check(project: Any, run_id: int) -> sqlite3.Row | None:
     return project.db.execute(
         "SELECT * FROM watch_runs WHERE id=?",
         (run_id,),
     ).fetchone()
 
 
-def watch_runs_page(
+def alert_checks_page(
     project: Any,
-    watch_id: int,
+    alert_id: int,
     offset: int = 0,
     limit: int = 50,
 ) -> list[sqlite3.Row]:
     return project.db.execute(
         "SELECT * FROM watch_runs WHERE watch_id=? "
         "ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?",
-        (watch_id, limit, offset),
+        (alert_id, limit, offset),
     ).fetchall()
 
 
-def watch_runs_total(project: Any, watch_id: int) -> int:
+def alert_checks_total(project: Any, alert_id: int) -> int:
     row = project.db.execute(
         "SELECT COUNT(*) AS count FROM watch_runs WHERE watch_id=?",
-        (watch_id,),
+        (alert_id,),
     ).fetchone()
     return int(row["count"] if row else 0)
 
 
-def watch_run_hits(
+def alert_check_matches(
     project: Any,
     run_id: int,
     limit: int = 20,
@@ -250,7 +250,7 @@ def watch_run_hits(
     ).fetchall()
 
 
-def watch_run_events(
+def alert_check_events(
     project: Any,
     run_id: int,
     *,
@@ -270,7 +270,7 @@ def watch_run_events(
     ).fetchall()
 
 
-def watch_run_events_total(
+def alert_check_events_total(
     project: Any,
     run_id: int,
     *,
@@ -288,8 +288,8 @@ def watch_run_events_total(
     return int(row["count"] if row else 0)
 
 
-def watch_events_for_notification(
-    project: Any, *, watch_id: int, run_id: int, event_ids: list[int]
+def alert_events_for_notification(
+    project: Any, *, alert_id: int, run_id: int, event_ids: list[int]
 ) -> list[sqlite3.Row]:
     if not event_ids:
         return []
@@ -297,7 +297,7 @@ def watch_events_for_notification(
     return project.db.execute(
         "SELECT * FROM watch_run_events WHERE watch_id=? AND run_id=? "
         f"AND id IN ({placeholders}) ORDER BY id ASC",
-        (int(watch_id), int(run_id), *(int(value) for value in event_ids)),
+        (int(alert_id), int(run_id), *(int(value) for value in event_ids)),
     ).fetchall()
 
 
@@ -310,15 +310,15 @@ def _display_observed(raw: str) -> Any:
     )
 
 
-def _watch_definition(row: Any) -> tuple[Any, ...]:
+def _alert_definition(row: Any) -> tuple[Any, ...]:
     return tuple(
         row[key] for key in ("view_id", "view_spec", "detection_policy", "enabled")
     )
 
 
-def record_watch_run(
+def record_alert_check(
     project: Any,
-    watch_id: int,
+    alert_id: int,
     *,
     hits: Iterable[dict[str, Any]],
     status: str = "ok",
@@ -330,7 +330,7 @@ def record_watch_run(
     error_code: str | None = None,
     advance_cursor: bool = True,
     observation_project: Any | None = None,
-    expected_watch: Any | None = None,
+    expected_alert: Any | None = None,
 ) -> int:
     """Publish one coherent observation, differences and latest baseline together.
 
@@ -339,47 +339,47 @@ def record_watch_run(
     replace that baseline. The caller can stream hits from its read snapshot.
     """
     from contextlib import ExitStack
-    from .watch_observation import stage_watch_observation, WatchObservationIncomplete
+    from .alert_observation import stage_alert_observation, AlertObservationIncomplete
 
-    watch_row = project.get_watch(watch_id)
-    if watch_row is None:
+    alert_row = project.get_alert(alert_id)
+    if alert_row is None:
         raise ValueError("watch not found")
-    expected = expected_watch if expected_watch is not None else watch_row
+    expected = expected_alert if expected_alert is not None else alert_row
     policy = detection_conditions(
-        _decode_watch_detection_policy(expected["detection_policy"])
+        _decode_alert_detection_policy(expected["detection_policy"])
     )
     with ExitStack() as stack:
         source = observation_project or stack.enter_context(project.read_snapshot())
         try:
             staged = stack.enter_context(
-                stage_watch_observation(
+                stage_alert_observation(
                     source,
                     hits if status == "ok" else (),
                     policy["fields"] if status == "ok" else [],
-                    watch_id=watch_id,
+                    alert_id=alert_id,
                 )
             )
-        except WatchObservationIncomplete as exc:
+        except AlertObservationIncomplete as exc:
             status, error, error_code, advance_cursor = (
                 "error",
                 str(exc),
                 "watch_inputs_unavailable",
                 False,
             )
-            staged = stack.enter_context(stage_watch_observation(source, (), []))
+            staged = stack.enter_context(stage_alert_observation(source, (), []))
         db = project.db
         db.execute("ATTACH DATABASE ? AS watch_observation", (str(staged),))
         try:
             with write_transaction(db):
-                current = project.get_watch(watch_id)
+                current = project.get_alert(alert_id)
                 if current is None:
-                    raise WatchCheckConflict("watch was deleted during evaluation")
-                if _watch_definition(current) != _watch_definition(expected):
-                    raise WatchCheckConflict(
+                    raise AlertCheckConflict("watch was deleted during evaluation")
+                if _alert_definition(current) != _alert_definition(expected):
+                    raise AlertCheckConflict(
                         "watch definition changed during evaluation; retry"
                     )
                 if current["last_run_id"] != expected["last_run_id"]:
-                    raise WatchCheckConflict(
+                    raise AlertCheckConflict(
                         "another watch check completed during evaluation; retry"
                     )
                 if (
@@ -388,12 +388,12 @@ def record_watch_run(
                         "SELECT 1 FROM watch_observation.members now LEFT JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id WHERE rows.id IS NULL LIMIT 1"
                     ).fetchone()
                 ):
-                    raise WatchCheckConflict(
+                    raise AlertCheckConflict(
                         "source rows were permanently removed during evaluation; retry"
                     )
                 previous = db.execute(
                     "SELECT * FROM watch_runs WHERE id=? AND watch_id=? AND status='ok'",
-                    (current["baseline_run_id"], watch_id),
+                    (current["baseline_run_id"], alert_id),
                 ).fetchone()
                 baseline = (
                     previous is not None
@@ -401,7 +401,7 @@ def record_watch_run(
                 )
                 previous_policy = (
                     detection_conditions(
-                        _decode_watch_detection_policy(previous["detection_policy"])
+                        _decode_alert_detection_policy(previous["detection_policy"])
                     )
                     if baseline
                     else {}
@@ -415,7 +415,7 @@ def record_watch_run(
                     "matched_rows,new_rows,error,resolved_query_hash,resolved_query,detection_policy,error_code,finished_at) "
                     "VALUES (?,?,?,?,?,0,?,?,?,?,?,datetime('now'))",
                     (
-                        watch_id,
+                        alert_id,
                         status,
                         op_cursor_before,
                         op_cursor_after if advance_cursor else op_cursor_before,
@@ -437,7 +437,7 @@ def record_watch_run(
                         "before_json,after_json,delta_json,severity,rank,snippet) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             run_id,
-                            watch_id,
+                            alert_id,
                             event["event_kind"],
                             event["subject_kind"],
                             event_json(event["subject_ref"]),
@@ -456,19 +456,19 @@ def record_watch_run(
                         "SELECT COUNT(*) FROM watch_observation.members now WHERE NOT EXISTS "
                         "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)",
-                        (watch_id,),
+                        (alert_id,),
                     ).fetchone()[0]
                     if policy["entered"]:
                         for hit in db.execute(
                             "SELECT now.* FROM watch_observation.members now WHERE NOT EXISTS "
                             "(SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                             "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id) ORDER BY now.rank",
-                            (watch_id,),
+                            (alert_id,),
                         ):
                             record(
                                 row_entered_event(
                                     run_id=run_id,
-                                    watch_id=watch_id,
+                                    alert_id=alert_id,
                                     sheet_id=hit["sheet_id"],
                                     row_id=hit["row_id"],
                                     rank=0,
@@ -483,12 +483,12 @@ def record_watch_run(
                             "WHERE old.watch_id=? AND NOT EXISTS "
                             "(SELECT 1 FROM watch_observation.members now WHERE old.sheet_id=now.sheet_id "
                             "AND old.row_id=now.row_id) ORDER BY old.sheet_id,old.row_id",
-                            (watch_id,),
+                            (alert_id,),
                         ):
                             record(
                                 row_exited_event(
                                     run_id=run_id,
-                                    watch_id=watch_id,
+                                    alert_id=alert_id,
                                     sheet_id=hit["sheet_id"],
                                     row_id=hit["row_id"],
                                     rank=0,
@@ -503,7 +503,7 @@ def record_watch_run(
                         record(
                             count_changed_event(
                                 run_id=run_id,
-                                watch_id=watch_id,
+                                alert_id=alert_id,
                                 previous_run_id=previous["id"],
                                 previous_count=previous_count,
                                 current_count=matched,
@@ -521,7 +521,7 @@ def record_watch_run(
                             record(
                                 threshold_crossed_event(
                                     run_id=run_id,
-                                    watch_id=watch_id,
+                                    alert_id=alert_id,
                                     previous_run_id=previous["id"],
                                     previous_count=previous_count,
                                     current_count=matched,
@@ -537,7 +537,7 @@ def record_watch_run(
                         "JOIN watch_seen_rows member ON member.watch_id=old.watch_id AND member.sheet_id=old.sheet_id AND member.row_id=old.row_id "
                         "JOIN columns col ON col.id=now.column_id WHERE old.value_json!=now.value_json "
                         "ORDER BY now.sheet_id,now.row_id,now.column_id",
-                        (watch_id,),
+                        (alert_id,),
                     )
                     for (sheet, row), changes in groupby(
                         changed, key=lambda cell: (cell["sheet_id"], cell["row_id"])
@@ -545,7 +545,7 @@ def record_watch_run(
                         record(
                             row_changed_event(
                                 run_id=run_id,
-                                watch_id=watch_id,
+                                alert_id=alert_id,
                                 sheet_id=sheet,
                                 row_id=row,
                                 rank=0,
@@ -571,22 +571,22 @@ def record_watch_run(
                         "(? AND NOT EXISTS (SELECT 1 FROM watch_seen_rows old WHERE old.watch_id=? "
                         "AND old.sheet_id=now.sheet_id AND old.row_id=now.row_id)) "
                         "FROM watch_observation.members now JOIN rows ON rows.id=now.row_id AND rows.sheet_id=now.sheet_id ORDER BY now.rank LIMIT 500",
-                        (run_id, int(baseline), watch_id),
+                        (run_id, int(baseline), alert_id),
                     )
                     # Diff-apply: unchanged million-row checks must not rewrite their baseline.
                     db.execute(
                         "DELETE FROM watch_seen_rows WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.members now WHERE now.sheet_id=watch_seen_rows.sheet_id AND now.row_id=watch_seen_rows.row_id)",
-                        (watch_id,),
+                        (alert_id,),
                     )
                     db.execute(
                         "INSERT INTO watch_seen_rows (watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) "
                         "SELECT ?,sheet_id,row_id,?,? FROM watch_observation.members WHERE 1 "
                         "ON CONFLICT(watch_id,sheet_id,row_id) DO NOTHING",
-                        (watch_id, run_id, run_id),
+                        (alert_id, run_id, run_id),
                     )
                     db.execute(
                         "DELETE FROM watch_row_field_state WHERE watch_id=? AND NOT EXISTS (SELECT 1 FROM watch_observation.fields now WHERE now.sheet_id=watch_row_field_state.sheet_id AND now.row_id=watch_row_field_state.row_id AND now.column_id=watch_row_field_state.column_id)",
-                        (watch_id,),
+                        (alert_id,),
                     )
                     db.execute(
                         "INSERT INTO watch_row_field_state (watch_id,sheet_id,row_id,column_id,value_json,value_hash,last_observed_run_id) "
@@ -594,11 +594,11 @@ def record_watch_run(
                         "ON CONFLICT(watch_id,sheet_id,row_id,column_id) DO UPDATE SET "
                         "value_json=excluded.value_json,value_hash=excluded.value_hash,last_observed_run_id=excluded.last_observed_run_id "
                         "WHERE watch_row_field_state.value_json!=excluded.value_json",
-                        (watch_id, run_id),
+                        (alert_id, run_id),
                     )
                     db.execute(
                         "UPDATE watches SET baseline_run_id=? WHERE id=?",
-                        (run_id, watch_id),
+                        (run_id, alert_id),
                     )
                 db.execute(
                     "UPDATE watch_runs SET new_rows=?,notification_pending=? WHERE id=?",
@@ -610,7 +610,7 @@ def record_watch_run(
                         op_cursor_after if advance_cursor else op_cursor_before,
                         run_id,
                         status,
-                        watch_id,
+                        alert_id,
                     ),
                 )
                 return int(run_id)

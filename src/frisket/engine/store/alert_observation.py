@@ -13,17 +13,17 @@ from pathlib import Path
 from typing import Any
 
 
-class WatchObservationIncomplete(ValueError):
+class AlertObservationIncomplete(ValueError):
     pass
 
 
 @contextmanager
-def stage_watch_observation(
+def stage_alert_observation(
     project: Any,
     hits: Iterable[dict[str, Any]],
     fields: list[dict[str, Any]],
     *,
-    watch_id: int | None = None,
+    alert_id: int | None = None,
 ) -> Iterator[Path]:
     """Consume membership and tracked cells from the caller's read snapshot.
 
@@ -36,7 +36,7 @@ def stage_watch_observation(
             (int(field["column_id"]),),
         ).fetchone()
         if column is None or int(column[0]) != int(field["sheet_id"]):
-            raise WatchObservationIncomplete("A monitored column is unavailable.")
+            raise AlertObservationIncomplete("A monitored column is unavailable.")
     with tempfile.TemporaryDirectory(prefix="frisket-watch-") as directory:
         path = Path(directory) / "observation.sqlite"
         stage = sqlite3.connect(path)
@@ -84,7 +84,7 @@ def stage_watch_observation(
                         )
                     }
                     if "pending" in states.values():
-                        raise WatchObservationIncomplete(
+                        raise AlertObservationIncomplete(
                             "A monitored value is not available yet."
                         )
                     values = project.get_values(
@@ -114,7 +114,7 @@ def stage_watch_observation(
                         ],
                     )
                 stage.commit()
-            if watch_id is not None:
+            if alert_id is not None:
                 # Snapshot facts only; a later edit/delete must not rewrite why
                 # this completed check observed a departure. Keep no content.
                 unavailable = iter(
@@ -124,7 +124,7 @@ def stage_watch_observation(
                         "FROM watch_seen_rows old LEFT JOIN sheets ON sheets.id=old.sheet_id "
                         "LEFT JOIN rows ON rows.id=old.row_id AND rows.sheet_id=old.sheet_id "
                         "WHERE old.watch_id=? AND (sheets.id IS NULL OR sheets.hidden=1 OR rows.id IS NULL OR rows.hidden=1)",
-                        (watch_id,),
+                        (alert_id,),
                     )
                 )
                 while batch := list(islice(unavailable, 500)):

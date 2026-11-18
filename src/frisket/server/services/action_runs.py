@@ -63,9 +63,9 @@ from frisket.engine.store.table_import_intake import (
     table_import_status,
     table_issue_groups,
 )
-from frisket.features.watchlists.triggers import (
+from frisket.features.alerts.triggers import (
     source_poll_materialization_from_receipt,
-    trigger_completed_source_poll_watches,
+    trigger_completed_source_poll_alerts,
 )
 from frisket.server.route_errors import RouteError
 from frisket.server.services.action_history import (
@@ -710,7 +710,7 @@ class ActionRunService:
         if callable(schedule_search):
             schedule_search()
         self._enqueue_completed_v1_source_poll_enclosures(project, project_id, result)
-        self._trigger_completed_v1_source_poll_watches(project, project_id, result)
+        self._trigger_completed_v1_source_poll_alerts(project, project_id, result)
         if self._workspace.require_explicit_provider_keys and any(
             error.details.get("resumable") is True for error in result.errors
         ):
@@ -1229,7 +1229,7 @@ class ActionRunService:
             )
         )
 
-    def _trigger_completed_v1_source_poll_watches(
+    def _trigger_completed_v1_source_poll_alerts(
         self,
         project: Project,
         project_id: str,
@@ -1259,17 +1259,17 @@ class ActionRunService:
                     "sheet_id": materialization["sheet_id"],
                 },
             )
-        from frisket.engine.jobs.watches import enqueue_keyword_watch_evaluations
+        from frisket.engine.jobs.alerts import enqueue_keyword_alert_evaluations
 
         return len(
-            trigger_completed_source_poll_watches(
+            trigger_completed_source_poll_alerts(
                 project,
                 project_id=project_id,
                 receipt_id=result.receipt_id,
-                enqueue_keyword_watches=lambda watches, materialization: (
-                    enqueue_keyword_watch_evaluations(
+                enqueue_keyword_alerts=lambda alerts, materialization: (
+                    enqueue_keyword_alert_evaluations(
                         self._workspace.queue,
-                        watches=watches,
+                        alerts=alerts,
                         project_id=project_id,
                         workspace_root=self._workspace.root,
                         storage_org_id=self._workspace.queue_storage_org_id,

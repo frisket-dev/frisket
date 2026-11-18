@@ -1,13 +1,13 @@
-"""Queued ``watch.evaluate`` jobs — dependency-aware watch evaluation.
+"""Queued ``watch.evaluate`` jobs — dependency-aware alert evaluation.
 
-The source-append pipeline must sequence: source poll -> embedding refresh -> watch
-evaluation. The source poll evaluates non-embedding watches inline, but an
-``embedding_similarity`` watch must wait until its index's refresh job COMPLETES (or
+The source-append pipeline must sequence: source poll -> embedding refresh -> alert
+evaluation. The source poll evaluates non-embedding alerts inline, but an
+``embedding_similarity`` alert must wait until its index's refresh job COMPLETES (or
 it blocks on ``embedding_index_incomplete`` because the appended rows aren't
 embedded yet, and never re-fires). So the embedding-refresh worker enqueues one
-``watch.evaluate`` job per dependent watch on completion, and this handler runs it.
+``watch.evaluate`` job per dependent alert on completion, and this handler runs it.
 
-Reuses the generic SqliteJobQueue — no new automation framework. The watch
+Reuses the generic SqliteJobQueue — no new automation framework. The alert
 evaluator itself never calls a provider (row anchors only).
 """
 
@@ -21,7 +21,7 @@ from frisket.engine.store import Project
 from frisket.engine.jobs.notifications_delivery import (
     enqueue_notification_emit_result,
 )
-from frisket.features.watchlists.service import WatchBindingError, run_watch_evaluation
+from frisket.features.alerts.service import AlertBindingError, check_alert
 
 from .queue import JobQueue, TERMINAL, claimed_project_location
 from .project_opener import (
@@ -38,33 +38,33 @@ if TYPE_CHECKING:
     from frisket.retrieval.preparation import PreparationEncoder
 
 
-WATCH_EVALUATE_KIND = "watch.evaluate"
+ALERT_EVALUATE_KIND = "watch.evaluate"
 
 
-def _watch_query(row: Any) -> dict[str, Any]:
-    from frisket.features.watchlists.service import watch_query
+def _alert_query(row: Any) -> dict[str, Any]:
+    from frisket.features.alerts.service import alert_query
 
     try:
-        return watch_query(row)
-    except WatchBindingError:
+        return alert_query(row)
+    except AlertBindingError:
         return {}
 
 
-def find_embedding_similarity_watches(project: Project, index_id: str) -> list[Any]:
-    """Enabled embedding_similarity watches bound to ``index_id``."""
+def find_embedding_similarity_alerts(project: Project, index_id: str) -> list[Any]:
+    """Enabled embedding_similarity alerts bound to ``index_id``."""
     out: list[Any] = []
-    for watch in project.watches():
-        if not bool(watch["enabled"]) or watch["schedule"] is None:
+    for alert in project.alerts():
+        if not bool(alert["enabled"]) or alert["schedule"] is None:
             continue
-        query = _watch_query(watch).get("similarity") or {}
+        query = _alert_query(alert).get("similarity") or {}
         if str(query.get("embedding_index_id") or "") == index_id:
-            out.append(watch)
+            out.append(alert)
     return out
 
 
-def _watch_eval_dedupe_key(watch_id: int, trigger_ref: dict[str, Any] | None) -> str:
-    """Stable per (watch, trigger) so a refresh completion evaluates each dependent
-    watch at most once per source run / schedule tick (-> notify exactly once). Each
+def _alert_eval_dedupe_key(alert_id: int, trigger_ref: dict[str, Any] | None) -> str:
+    """Stable per (alert, trigger) so a refresh completion evaluates each dependent
+    alert at most once per source run / schedule tick (-> notify exactly once). Each
     trigger kind gets a PREFIXED tag so a source_run_id and a schedule_tick (both
     bare ints) can never collide in the same key namespace."""
     trigger_ref = trigger_ref or {}
@@ -76,10 +76,10 @@ def _watch_eval_dedupe_key(watch_id: int, trigger_ref: dict[str, Any] | None) ->
         tag = f"dk-{trigger_ref['dedupe_key']}"
     else:
         tag = "manual"
-    return f"watch:{watch_id}:eval:{tag}"
+    return f"watch:{alert_id}:eval:{tag}"
 
 
-def enqueue_due_watch_evaluations(
+def enqueue_due_alert_evaluations(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
@@ -89,7 +89,7 @@ def enqueue_due_watch_evaluations(
 ) -> list[dict[str, int | str]]:
     """Schedule observations of current data, independently of source writes.
 
-    Reuse the watch worker and queue cadence; never prepare model inputs here.
+    Reuse the alert worker and queue cadence; never prepare model inputs here.
     Failed checks are attempts too, while their last successful baseline stays
     untouched. A pending trigger/index continuation suppresses another check.
     """
@@ -98,17 +98,17 @@ def enqueue_due_watch_evaluations(
     enqueued = []
 
     def visit(project_id: str, project: Project) -> None:
-        for watch in project.watches():
-            if not watch["enabled"]:
+        for alert in project.alerts():
+            if not alert["enabled"]:
                 continue
-            interval = _schedule_interval(watch["schedule"])
+            interval = _schedule_interval(alert["schedule"])
             if interval is None:
                 continue
-            watch_id = int(watch["id"])
-            prefix = f"watch:{watch_id}:eval:"
+            alert_id = int(alert["id"])
+            prefix = f"watch:{alert_id}:eval:"
             if (
                 queue.find_job_by_refs(
-                    WATCH_EVALUATE_KIND,
+                    ALERT_EVALUATE_KIND,
                     project_id=project_id,
                     storage_org_id=storage_org_id,
                     dedupe_key_prefix=prefix,
@@ -117,13 +117,13 @@ def enqueue_due_watch_evaluations(
             ):
                 continue
             prior_job = queue.find_job_by_refs(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 statuses=TERMINAL,
                 project_id=project_id,
                 storage_org_id=storage_org_id,
                 dedupe_key_prefix=prefix,
             )
-            prior_run = project.watch_latest_run(watch_id)
+            prior_run = project.alert_latest_run(alert_id)
             attempts = [
                 value
                 for value in (
@@ -144,15 +144,15 @@ def enqueue_due_watch_evaluations(
                 continue
             trigger = {
                 "trigger_kind": "schedule",
-                "schedule": watch["schedule"],
+                "schedule": alert["schedule"],
                 "schedule_tick": int(now.timestamp() // interval.total_seconds()),
             }
-            key = _watch_eval_dedupe_key(watch_id, trigger)
+            key = _alert_eval_dedupe_key(alert_id, trigger)
             job_id = queue.enqueue(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "workspace_root": str(root),
                     "trigger_ref": trigger,
                     "dedupe_key": key,
@@ -165,19 +165,19 @@ def enqueue_due_watch_evaluations(
                 max_attempts=3,
             )
             enqueued.append(
-                {"project_id": project_id, "watch_id": watch_id, "job_id": job_id}
+                {"project_id": project_id, "watch_id": alert_id, "job_id": job_id}
             )
 
     scan_projects(
         project_bundle_paths(root, require_slug=project_opener is not None),
         bundle_opener(Project, project_opener, storage_org_id),
         visit,
-        failure_event="watch_project_schedule_failed",
+        failure_event="alert_project_schedule_failed",
     )
     return enqueued
 
 
-def enqueue_index_watch_evaluations(
+def enqueue_index_alert_evaluations(
     queue: JobQueue | None,
     *,
     project: Project,
@@ -187,17 +187,17 @@ def enqueue_index_watch_evaluations(
     index_id: str,
     trigger_ref: dict[str, Any] | None = None,
 ) -> list[int]:
-    """Enqueue one ``watch.evaluate`` job per dependent embedding_similarity watch,
-    deduped per (watch, trigger). Enqueue-only — never evaluates inline."""
+    """Enqueue one ``watch.evaluate`` job per dependent embedding_similarity alert,
+    deduped per (alert, trigger). Enqueue-only — never evaluates inline."""
     if queue is None:
         return []
     job_ids: list[int] = []
-    for watch in find_embedding_similarity_watches(project, index_id):
-        watch_id = int(watch["id"])
-        dedupe_key = _watch_eval_dedupe_key(watch_id, trigger_ref)
+    for alert in find_embedding_similarity_alerts(project, index_id):
+        alert_id = int(alert["id"])
+        dedupe_key = _alert_eval_dedupe_key(alert_id, trigger_ref)
         if (
             queue.find_job_by_refs(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 project_id=project_id,
                 storage_org_id=storage_org_id,
                 dedupe_key=dedupe_key,
@@ -207,7 +207,7 @@ def enqueue_index_watch_evaluations(
             continue
         job_ids.append(
             queue.enqueue(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
                     **(
@@ -215,7 +215,7 @@ def enqueue_index_watch_evaluations(
                         if storage_org_id is not None
                         else {}
                     ),
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "index_id": index_id,
                     "trigger_ref": trigger_ref or {},
                     "dedupe_key": dedupe_key,
@@ -227,23 +227,23 @@ def enqueue_index_watch_evaluations(
     return job_ids
 
 
-def enqueue_keyword_watch_evaluations(
+def enqueue_keyword_alert_evaluations(
     queue: JobQueue,
     *,
-    watches: list[Any],
+    alerts: list[Any],
     project_id: str,
     workspace_root: str | Path,
     storage_org_id: int | None,
     trigger_ref: dict[str, Any],
 ) -> list[int]:
-    """Enqueue affected FTS watches without evaluating on the caller thread."""
+    """Enqueue affected FTS alerts without evaluating on the caller thread."""
     job_ids = []
-    for watch in watches:
-        watch_id = int(watch["id"])
-        dedupe_key = _watch_eval_dedupe_key(watch_id, trigger_ref)
+    for alert in alerts:
+        alert_id = int(alert["id"])
+        dedupe_key = _alert_eval_dedupe_key(alert_id, trigger_ref)
         if (
             queue.find_job_by_refs(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 project_id=project_id,
                 storage_org_id=storage_org_id,
                 dedupe_key=dedupe_key,
@@ -253,10 +253,10 @@ def enqueue_keyword_watch_evaluations(
             continue
         job_ids.append(
             queue.enqueue(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 {
                     "project_id": project_id,
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "trigger_ref": trigger_ref,
                     "dedupe_key": dedupe_key,
                     "workspace_root": str(workspace_root),
@@ -272,7 +272,7 @@ def enqueue_keyword_watch_evaluations(
     return job_ids
 
 
-def register_watch_evaluate_handler(
+def register_alert_evaluate_handler(
     registry: HandlerRegistry,
     *,
     workspace_root: str | Path,
@@ -281,12 +281,12 @@ def register_watch_evaluate_handler(
     project_opener: ProjectOpener | None = None,
     embedding_encoder: PreparationEncoder | None = None,
 ) -> HandlerRegistration:
-    """Register the worker handler that runs one queued watch evaluation."""
+    """Register the worker handler that runs one queued alert evaluation."""
     root = Path(workspace_root)
 
     def handle(payload: dict, context: JobHandlerContext) -> dict:
         project_id = str(payload["project_id"])
-        watch_id = int(payload["watch_id"])
+        alert_id = int(payload["watch_id"])
         if project_opener is None:
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
@@ -309,7 +309,7 @@ def register_watch_evaluate_handler(
 
             continuation = {
                 "project_id": project_id,
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "trigger_ref": payload.get("trigger_ref") or {},
                 "workspace_root": str(project_root),
             }
@@ -318,32 +318,32 @@ def register_watch_evaluate_handler(
             if isinstance(context.trusted_job_org_id, int):
                 continuation["org_id"] = context.trusted_job_org_id
             marker = index_work_marker(project, include_preparation=False) or "repair"
-            trigger_key = _watch_eval_dedupe_key(watch_id, continuation["trigger_ref"])
+            trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
-                WATCH_EVALUATE_KIND,
+                ALERT_EVALUATE_KIND,
                 {**continuation, "dedupe_key": f"{trigger_key}:index:{marker}"},
                 max_attempts=3,
             )
             return {
                 "project_id": project_id,
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "status": "indexing",
                 "indexed": processed,
             }
 
         try:
-            row = project.get_watch(watch_id)
+            row = project.get_alert(alert_id)
             if row is None:
                 return {
                     "project_id": project_id,
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "skipped": True,
                     "reason": "not_found",
                 }
             if not bool(row["enabled"]):
                 return {
                     "project_id": project_id,
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "skipped": True,
                     "reason": "disabled",
                 }
@@ -352,16 +352,16 @@ def register_watch_evaluate_handler(
             ):
                 return {
                     "project_id": project_id,
-                    "watch_id": watch_id,
+                    "watch_id": alert_id,
                     "skipped": True,
                     "reason": "manual_only",
                 }
-            if _watch_query(row).get("search"):
+            if _alert_query(row).get("search"):
                 from .search_index import index_work_marker, process_index_batches
 
-                # Keyword watches depend only on lexical publication. Running
+                # Keyword alerts depend only on lexical publication. Running
                 # optional semantic preparation here could let contention for
-                # the shared encoder delay or exhaust an otherwise-ready watch.
+                # the shared encoder delay or exhaust an otherwise-ready alert.
                 processed, _complete = process_index_batches(
                     project, embedding_encoder=None
                 )
@@ -369,12 +369,12 @@ def register_watch_evaluate_handler(
                 # reports its quantum complete. Re-read durable work before
                 # evaluating so that run cannot advance past an unseen row.
                 # Semantic preparation may remain after the lexical dependency
-                # is ready and must not delay a keyword-only watch.
+                # is ready and must not delay a keyword-only alert.
                 if index_work_marker(project, include_preparation=False) is not None:
                     return continue_after_indexing(processed)
             try:
-                evaluation = run_watch_evaluation(project, row)
-            except WatchBindingError as exc:
+                evaluation = check_alert(project, row)
+            except AlertBindingError as exc:
                 if exc.code != "search_index_not_ready":
                     raise
                 return continue_after_indexing(0)
@@ -389,7 +389,7 @@ def register_watch_evaluate_handler(
             run = evaluation["run"]
             return {
                 "project_id": project_id,
-                "watch_id": watch_id,
+                "watch_id": alert_id,
                 "run_id": evaluation["run_id"],
                 "status": run.get("status"),
                 "error_code": run.get("error_code"),
@@ -398,7 +398,7 @@ def register_watch_evaluate_handler(
             project.close()
 
     return registry.add(
-        WATCH_EVALUATE_KIND,
+        ALERT_EVALUATE_KIND,
         handle,
         origin="frisket.production.watch_evaluate",
     )

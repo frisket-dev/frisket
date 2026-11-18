@@ -293,7 +293,7 @@ def _resolve_index_export(
             )
         # Authoritative preflight: the export must reflect the CURRENT source scope,
         # not just the ready rows. Use the same freshness contract as the index list
-        # + watches (index_freshness/freshness_reason): block on changed ready rows
+        # + alerts (index_freshness/freshness_reason): block on changed ready rows
         # (embedding_source_stale), on missing/errored rows the export would silently
         # omit (embedding_index_incomplete), or an unresolvable scope
         # (embedding_index_scope_invalid). Never write a partial/stale artifact.

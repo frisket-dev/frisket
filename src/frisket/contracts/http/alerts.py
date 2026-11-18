@@ -1,6 +1,6 @@
-"""HTTP contracts for the watchlist browser routes.
+"""HTTP contracts for the alert browser routes.
 
-A Watch enables alerts on a saved View; selection belongs to that View.
+An Alert is a saved condition on a saved View; selection belongs to that View.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from frisket.contracts.http.models import WireModel
 from frisket.contracts.actions.schemas._validators import nonblank
 
 # The schema_version literals below are the ones the producers emit
-# (server/services/watches.py and
+# (server/services/alerts.py and
 # frisket.features.watchlists.events.WATCH_RUN_EVENT_SCHEMA_VERSION). Restated
 # here because the contracts package stays out of the service/runtime layers;
 # the backend contract test pins the events literal against the producer's own
@@ -21,7 +21,7 @@ from frisket.contracts.actions.schemas._validators import nonblank
 
 
 class _ClosedRequest(WireModel):
-    """The greenfield Watch mutation boundary is closed and strict."""
+    """The greenfield Alert mutation boundary is closed and strict."""
 
     model_config = ConfigDict(extra="forbid", strict=True, populate_by_name=True)
 

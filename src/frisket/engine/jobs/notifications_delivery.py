@@ -879,7 +879,7 @@ def reconcile_notification_delivery_requests(
             continue
         try:
             from frisket.server.notifications.projections import (
-                emit_watch_run_notification,
+                emit_alert_check_notification,
             )
 
             pending_checks = project.db.execute(
@@ -887,8 +887,8 @@ def reconcile_notification_delivery_requests(
             ).fetchall()
             for check in pending_checks:
                 try:
-                    emit_watch_run_notification(
-                        project, watch_id=check["watch_id"], run_id=check["id"]
+                    emit_alert_check_notification(
+                        project, alert_id=check["watch_id"], run_id=check["id"]
                     )
                 except Exception:
                     LOG.warning(

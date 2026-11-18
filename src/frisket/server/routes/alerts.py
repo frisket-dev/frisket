@@ -1,10 +1,10 @@
-"""Watchlist route registration."""
+"""Alert route registration."""
 
 from __future__ import annotations
 
 from fastapi import FastAPI
 
-from frisket.contracts.http.watches import (
+from frisket.contracts.http.alerts import (
     Watch,
     WatchCreateRequest,
     WatchDelete,
@@ -16,22 +16,22 @@ from frisket.contracts.http.watches import (
 )
 from frisket.server.paging import PageLimit100, PageLimit500, PageOffset
 from frisket.server.route_errors import http_error_responses, register_typed_error
-from frisket.server.services.watches import (
-    WatchNotFound,
-    WatchRequestError,
-    WatchRunNotFound,
-    WatchService,
+from frisket.server.services.alerts import (
+    AlertNotFound,
+    AlertRequestError,
+    AlertCheckNotFound,
+    AlertService,
 )
 
 
-def register_watch_routes(
+def register_alert_routes(
     app: FastAPI,
     *,
-    service: WatchService,
+    service: AlertService,
 ) -> None:
-    register_typed_error(app, WatchNotFound, 404, "alert not found")
-    register_typed_error(app, WatchRunNotFound, 404, "alert check not found")
-    register_typed_error(app, WatchRequestError, detail=None)
+    register_typed_error(app, AlertNotFound, 404, "alert not found")
+    register_typed_error(app, AlertCheckNotFound, 404, "alert check not found")
+    register_typed_error(app, AlertRequestError, detail=None)
 
     @app.get(
         "/api/projects/{pid}/watches",
@@ -39,7 +39,7 @@ def register_watch_routes(
         responses=http_error_responses(401, 403, 404, 409, 500),
     )
     def list_watches(pid: str) -> WatchList:
-        return service.list_watches(pid)
+        return service.list_alerts(pid)
 
     @app.post(
         "/api/projects/{pid}/watches",
@@ -47,7 +47,7 @@ def register_watch_routes(
         responses=http_error_responses(400, 401, 403, 404, 409, 422, 500),
     )
     def create_watch(pid: str, body: WatchCreateRequest) -> Watch:
-        return service.create_watch(
+        return service.create_alert(
             pid,
             name=body.name,
             view_id=body.view_id,
@@ -67,7 +67,7 @@ def register_watch_routes(
             for field in body.model_fields_set
             if field in {"name", "enabled", "detection_policy", "schedule"}
         }
-        return service.patch_watch(pid, watch_id, fields=fields)
+        return service.patch_alert(pid, watch_id, fields=fields)
 
     @app.delete(
         "/api/projects/{pid}/watches/{watch_id}",
@@ -75,7 +75,7 @@ def register_watch_routes(
         responses=http_error_responses(401, 403, 404, 409, 500),
     )
     def delete_watch(pid: str, watch_id: int) -> WatchDelete:
-        return service.delete_watch(pid, watch_id)
+        return service.delete_alert(pid, watch_id)
 
     # run_watch stays BODYLESS: an event-triggered evaluation with no request
     # payload today and none after the migration.
@@ -85,7 +85,7 @@ def register_watch_routes(
         responses=http_error_responses(400, 401, 403, 404, 409, 422, 500),
     )
     def run_watch(pid: str, watch_id: int) -> WatchRunResult:
-        return service.run_watch(pid, watch_id)
+        return service.check_alert(pid, watch_id)
 
     @app.get(
         "/api/projects/{pid}/watches/{watch_id}/runs",
@@ -99,7 +99,7 @@ def register_watch_routes(
         limit: PageLimit100 = 20,
         hits_limit: PageLimit500 = 20,
     ) -> WatchRunsPage:
-        return service.list_watch_runs(
+        return service.list_alert_checks(
             pid,
             watch_id,
             offset=offset,
@@ -120,7 +120,7 @@ def register_watch_routes(
         limit: PageLimit100 = 50,
         event_kind: str | None = None,
     ) -> WatchRunEventsPage:
-        return service.list_watch_run_events(
+        return service.list_alert_check_events(
             pid,
             watch_id,
             run_id,
