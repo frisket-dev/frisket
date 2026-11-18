@@ -109,7 +109,9 @@ test('the command palette Commands section filters by the typed query, joins key
   await expect(commandRows).toHaveCount(1);
   await expect(openSources).toHaveAttribute('data-active', 'true');
   await queryInput.press('Enter');
-  await expect(page.getByTestId('workbench-contribution-frisket-core-panel-sources')).toBeVisible();
+  await expect(page.getByTestId('workbench-region-commandPalette')).toHaveCount(0);
+  await expect(page.getByTestId('sources-connections-dialog')).toBeVisible();
+  await expect(page.getByTestId('sources-panel')).toBeVisible();
 });
 
 test('Search this project closes on Escape from controls and result focus', async ({ page }) => {

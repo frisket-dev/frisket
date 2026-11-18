@@ -2,7 +2,7 @@ import type { SourceRun } from '../../api/open';
 import { formatUsd } from '../../format';
 
 export function statusLabel(value: string | null | undefined): string {
-  if (!value || value === 'never') return 'never checked';
+  if (!value || value === 'never' || value === 'never_run') return 'never checked';
   return value.replaceAll('_', ' ');
 }
 

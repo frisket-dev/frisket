@@ -38,7 +38,7 @@ export function settingsItemAvailability(
   definition: SettingsSectionDefinition,
   context: SettingsNavContext,
 ): Pick<SettingsNavItem, 'disabled' | 'disabledReason' | 'path'> {
-  if (definition.visibility === 'project' && !context.projectId) {
+  if (definition.scope === 'project' && !context.projectId) {
     return {
       disabled: true,
       disabledReason: 'Open a project to manage project settings.',
@@ -74,7 +74,7 @@ function settingsNavItems(
   return definitions.flatMap((definition) => {
     if (definition.visibility === 'local-only' && context.identityMode) return [];
     if (!matchesQuery(definition, query)) return [];
-    if (definition.visibility === 'project' && !context.projectId) return [];
+    if (definition.scope === 'project' && !context.projectId) return [];
     return [{ definition, ...settingsItemAvailability(definition, context) }];
   });
 }
