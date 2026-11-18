@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import sqlite3
 import json
 import threading
 
@@ -783,7 +784,7 @@ def test_paid_ocr_of_all_pages_skips_an_unreadable_pdf_but_keeps_its_row(flow):
 
 
 def _legacy_commit(draft_dir, **commit):
-    """Write the commit shape the retired ordinary publisher left mid-flight."""
+    """Write a commit that keeps a commit inventory for uploads still to come."""
     manifest = draft_dir / "manifest.json"
     header = json.loads(manifest.read_text())
     header["state"] = "committing"
@@ -807,7 +808,7 @@ def _legacy_commit(draft_dir, **commit):
     manifest.write_text(json.dumps(header))
 
 
-def test_startup_settles_drafts_left_mid_commit_by_the_ordinary_publisher(
+def test_startup_settles_drafts_whose_commit_keeps_a_commit_inventory(
     flow,
     tmp_path,
 ):
@@ -859,3 +860,337 @@ def test_startup_settles_drafts_left_mid_commit_by_the_ordinary_publisher(
     _choose(restarted, unpublished, organization="keep_documents", policy="none")
     committed = _commit(restarted, unpublished, None, key="again")
     assert committed.status_code == 202, committed.text
+
+
+def _page_work(client, pid, ref):
+    path = client.app.state.workspace.get(pid).path / ".imports" / ref / "inventory.db"
+    return sqlite3.connect(path)
+
+
+def _interrupt(client, pid, ref):
+    """Leave the import's page as a restart does: running, its attempt gone."""
+    with _page_work(client, pid, ref) as db:
+        db.execute(
+            "UPDATE pdf_split_page_work SET status='running',error=NULL,job_id='gone'"
+        )
+
+
+def _retry(client, pid, ref, *, confirm=True):
+    sessions = f"/api/projects/{pid}/import/files/sessions/{ref}"
+    estimate = client.post(f"{sessions}/preparation/retry/estimate")
+    assert estimate.status_code == 200, estimate.text
+    body = estimate.json()
+    hash_ = (body["estimate"] or {}).get("promise_set_hash")
+    response = client.post(
+        f"{sessions}/preparation/retry",
+        json={
+            "plan_token": body["plan_token"],
+            "confirmation": hash_ if confirm else None,
+        },
+    )
+    return body, response
+
+
+def _settle(client, pid, ref, *, read):
+    with controlled_time() as clock:
+        session = clock.wait_until(
+            lambda: (
+                lambda value: (
+                    value
+                    if _settled(value) and value["ocr_completed"] == read
+                    else None
+                )
+            )(_session(client, pid, ref)),
+            message="page text did not settle",
+        )
+    _session(client, pid, ref)
+    return session
+
+
+@pytest.mark.parametrize("stored", [False, True])
+def test_a_page_interrupted_by_a_restart_is_retryable_and_charged_once(flow, stored):
+    client, pid, provider = flow
+    if not stored:
+        provider.failures = 1
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0 if not stored else 1)
+    # A stored reading survives the restart; an unstored one is lost with it.
+    _interrupt(client, pid, ref)
+    session = _settle(client, pid, ref, read=0)
+    assert session["failed_pages"] == 1
+    (notice,) = [n for n in _notifications(client, pid) if n["severity"] == "warning"]
+    assert notice["title"] == "Import finished with 1 page not read"
+    assert not [n for n in _notifications(client, pid) if n["severity"] == "info"]
+
+    estimate, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    assert estimate["pages"] == (0 if stored else 1)
+    session = _settle(client, pid, ref, read=1)
+    assert session["failed_pages"] == 0
+    assert _charged(client, pid) == (1, 1)
+
+
+def test_retried_pages_are_read_under_the_retry_consent_not_the_import_consent(
+    flow, monkeypatch
+):
+    class Retail:
+        policy_id = "test.pdf-import-retail.v1"
+
+        def rate(self, facts):
+            return RatedEstimate(
+                billed_cost=facts.provider_cost * 2,
+                provider_cost=facts.provider_cost,
+                lane="cost_plus",
+                policy_id=self.policy_id,
+            )
+
+    client, pid, provider = flow
+    provider.failures = 1
+    ref, _sheet, original = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    # The price changed since the import was consented, so only the retry's
+    # own consent can cover reading the page again.
+    monkeypatch.setattr(pricing_policy, "_INSTALLED_POLICY", Retail())
+    estimate, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    assert (
+        estimate["estimate"]["billed_cost"] == 2 * original["estimate"]["billed_cost"]
+    )
+    assert _settle(client, pid, ref, read=1)["failed_pages"] == 0
+    assert provider.calls == 2
+
+
+def test_a_retry_consent_authorizes_its_retry_once_and_only_its_pages(flow):
+    client, pid, provider = flow
+    provider.failures = 1
+    files = [("first.pdf", _blank_pdf(300)), ("second.pdf", _blank_pdf(301))]
+    ref, _sheet, _estimate = _import(client, pid, files)
+    _settle(client, pid, ref, read=1)
+    sessions = f"/api/projects/{pid}/import/files/sessions/{ref}"
+    first = client.post(f"{sessions}/preparation/retry/estimate").json()
+
+    # The set of pages not read changes after the estimate: its token is void.
+    with _page_work(client, pid, ref) as db:
+        db.execute(
+            "UPDATE pdf_split_page_work SET status='failed' WHERE status='completed'"
+        )
+    stale = client.post(
+        f"{sessions}/preparation/retry",
+        json={
+            "plan_token": first["plan_token"],
+            "confirmation": first["estimate"]["promise_set_hash"],
+        },
+    )
+    assert stale.status_code == 409, stale.text
+    with _page_work(client, pid, ref) as db:
+        db.execute(
+            "UPDATE pdf_split_page_work SET status='completed' WHERE rowid=("
+            "SELECT MIN(rowid) FROM pdf_split_page_work WHERE status='failed' "
+            "AND prepared_ref_id IS NOT NULL)"
+        )
+
+    provider.failures = 1
+    accepted, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    _settle(client, pid, ref, read=1)
+    calls = provider.calls
+    # The retry failed again; its consent does not authorize another one.
+    reused = client.post(
+        f"{sessions}/preparation/retry",
+        json={
+            "plan_token": accepted["plan_token"],
+            "confirmation": accepted["estimate"]["promise_set_hash"],
+        },
+    )
+    assert reused.status_code == 409, reused.text
+    assert provider.calls == calls
+    fresh, again = _retry(client, pid, ref)
+    assert fresh["plan_token"] != accepted["plan_token"]
+    assert again.status_code == 200, again.text
+    assert _settle(client, pid, ref, read=2)["failed_pages"] == 0
+
+
+def test_a_page_retried_for_its_cached_reading_is_never_read_without_consent(
+    flow, monkeypatch
+):
+    from frisket.server.services.pdf_split_preparation import (
+        PdfSplitPreparationAdapter,
+    )
+
+    client, pid, provider = flow
+    provider.failures = 1
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    calls = provider.calls
+    seen = []
+
+    def vanishing_cache(self, target):
+        # Cached while the retry is estimated and decided, gone at dispatch.
+        seen.append(target)
+        return 1 if len(seen) <= 3 else None
+
+    monkeypatch.setattr(PdfSplitPreparationAdapter, "cached_reference", vanishing_cache)
+    estimate, retried = _retry(client, pid, ref, confirm=False)
+    assert estimate["pages"] == 0
+    assert retried.status_code == 200, retried.text
+    monkeypatch.undo()
+    session = _settle(client, pid, ref, read=0)
+    assert session["failed_pages"] == 1
+    assert provider.calls == calls
+
+
+def test_an_import_notification_that_cannot_be_recorded_never_fails_the_import(
+    flow, monkeypatch
+):
+    from frisket.server.services import pdf_split_preparation_jobs
+
+    failures = []
+    emit = pdf_split_preparation_jobs.emit_notification_candidate
+
+    def broken(*args, **kwargs):
+        if not failures:
+            failures.append(True)
+            raise RuntimeError("notification store unavailable")
+        return emit(*args, **kwargs)
+
+    client, pid, provider = flow
+    provider.failures = 1
+    monkeypatch.setattr(
+        pdf_split_preparation_jobs, "emit_notification_candidate", broken
+    )
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    session = _settle(client, pid, ref, read=0)
+    assert session["failed_pages"] == 1 and session["error"]
+    assert failures == [True]
+    # The outcome is recorded on a later pass once the store accepts it.
+    (notice,) = _notifications(client, pid)
+    assert notice["severity"] == "warning"
+    _estimate_body, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    assert _settle(client, pid, ref, read=1)["failed_pages"] == 0
+
+
+def test_each_attempt_at_a_page_is_its_own_admitted_purchase(flow, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+
+    from frisket.server.services import import_child_execution
+
+    client, pid, provider = flow
+    # A deployment admits every page attempt as a child purchase of the import.
+    monkeypatch.setattr(
+        import_child_execution, "import_execution_context", lambda *_args: None
+    )
+    admitted = []
+
+    def admit_import_child(**facts):
+        admitted.append((facts["child_key"], facts["receipt_id"]))
+        return nullcontext(None)
+
+    client.app.state.workspace.import_child_admission_port = SimpleNamespace(
+        admit_import_child=admit_import_child
+    )
+    provider.failures = 1
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    _estimate_body, retried = _retry(client, pid, ref)
+    assert retried.status_code == 200, retried.text
+    _settle(client, pid, ref, read=1)
+    (first, second) = admitted
+    assert first[0] != second[0] and first[1] != second[1]
+    project = client.app.state.workspace.get(pid)
+    statuses = dict(
+        project.db.execute(
+            "SELECT id,status FROM receipts WHERE id IN (?,?)", (first[1], second[1])
+        ).fetchall()
+    )
+    assert statuses == {first[1]: "failed", second[1]: "completed"}
+
+
+def test_a_draft_that_cannot_be_settled_never_stops_startup_and_settles_later(
+    flow, tmp_path, monkeypatch
+):
+    from frisket.engine.store.import_inventory import ImportInventory
+
+    client, pid, provider = flow
+    sessions = f"/api/projects/{pid}/import/files/sessions"
+    ref = client.post(sessions, json={"sheet_name": "Legacy"}).json()["import_ref"]
+    client.post(
+        f"{sessions}/{ref}/files",
+        files=[
+            ("files", ("first.pdf", _blank_pdf(300), "application/pdf")),
+            ("logical_paths", (None, "first.pdf")),
+            ("batch_id", (None, "first")),
+        ],
+    )
+    _publish(client)
+    published, corrupt, healthy = (
+        _draft(client, pid, [("a.pdf", _blank_pdf(301))]) for _ in range(3)
+    )
+    root = client.app.state.workspace.root / ".pdf_import_drafts"
+    _legacy_commit(
+        root / published.rsplit("/", 1)[1],
+        result={"import_ref": ref, "sheet_id": 1, "receipt_id": "legacy"},
+        promotion_target={"inventory_path": "x", "source_files_root": "y"},
+        promoted=True,
+    )
+    _legacy_commit(root / corrupt.rsplit("/", 1)[1])
+    (root / corrupt.rsplit("/", 1)[1] / "inventory.db").write_bytes(b"not sqlite" * 64)
+    _legacy_commit(root / healthy.rsplit("/", 1)[1])
+
+    def seal_unavailable(_inventory):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(ImportInventory, "seal", seal_unavailable)
+    started = TestClient(create_app(tmp_path / "workspace", router=provider.router))
+    # Each draft settles on its own: the healthy one reopens, the others wait.
+    assert started.get(healthy).json()["state"] == "open"
+    for draft in (published, corrupt):
+        header = json.loads(
+            (root / draft.rsplit("/", 1)[1] / "manifest.json").read_text()
+        )
+        assert header["state"] == "error" and header["commit"] is not None
+    assert started.get(f"{sessions}/{ref}").json()["sealed"] is False
+
+    monkeypatch.undo()
+    restarted = TestClient(create_app(tmp_path / "workspace", router=provider.router))
+    assert restarted.get(published).json()["state"] == "committed"
+    _publish(restarted)
+    session = restarted.get(f"{sessions}/{ref}").json()
+    assert session["sealed"] is True and session["state"] == "completed"
+    header = json.loads(
+        (root / corrupt.rsplit("/", 1)[1] / "manifest.json").read_text()
+    )
+    assert header["state"] == "error"
+
+
+def test_a_retry_whose_price_changed_after_its_estimate_is_refused(flow, monkeypatch):
+    class Retail:
+        policy_id = "test.pdf-import-retail.v1"
+
+        def rate(self, facts):
+            return RatedEstimate(
+                billed_cost=facts.provider_cost * 2,
+                provider_cost=facts.provider_cost,
+                lane="cost_plus",
+                policy_id=self.policy_id,
+            )
+
+    client, pid, provider = flow
+    provider.failures = 1
+    ref, _sheet, _estimate = _import(client, pid, [("scan.pdf", _blank_pdf(300))])
+    _settle(client, pid, ref, read=0)
+    sessions = f"/api/projects/{pid}/import/files/sessions/{ref}"
+    shown = client.post(f"{sessions}/preparation/retry/estimate").json()
+    monkeypatch.setattr(pricing_policy, "_INSTALLED_POLICY", Retail())
+    refused = client.post(
+        f"{sessions}/preparation/retry",
+        json={
+            "plan_token": shown["plan_token"],
+            "confirmation": shown["estimate"]["promise_set_hash"],
+        },
+    )
+    # The consent was to the estimate as shown; the current one asks again.
+    assert refused.status_code == 409, refused.text
+    assert "exact claims" in refused.json()["detail"]
+    assert provider.calls == 1

@@ -33,6 +33,10 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+CACHED_READING_ONLY = "cached-reading-only"
+"""A retried page's consent marker: reuse its cached reading, never read it."""
+
+
 class PdfSplitPreparationInProgress(ValueError):
     """The same original page already has an admitted live OCR execution."""
 
@@ -123,6 +127,7 @@ class PdfSplitPreparationStore:
                 status TEXT NOT NULL DEFAULT 'pending', prepared_ref_id INTEGER,
                 job_id TEXT, receipt_id TEXT, error TEXT,
                 priority INTEGER NOT NULL DEFAULT 0, plan_token TEXT,
+                attempt INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(work_key,generation));
             CREATE TABLE IF NOT EXISTS pdf_split_page_occurrences (
                 work_key TEXT NOT NULL, generation TEXT NOT NULL,
@@ -155,6 +160,10 @@ class PdfSplitPreparationStore:
             if "plan_token" not in columns:
                 self.db.execute(
                     "ALTER TABLE pdf_split_page_work ADD COLUMN plan_token TEXT"
+                )
+            if "attempt" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"
                 )
 
     def close(self) -> None:
@@ -437,7 +446,8 @@ class PdfSplitPreparationStore:
         with self.db:
             return (
                 self.db.execute(
-                    "UPDATE pdf_split_page_work SET status='running' WHERE work_key=? AND generation=? AND status='pending'",
+                    "UPDATE pdf_split_page_work SET status='running',attempt=attempt+1 "
+                    "WHERE work_key=? AND generation=? AND status='pending'",
                     (work_key, generation),
                 ).rowcount
                 == 1
@@ -560,12 +570,17 @@ class PdfSplitPreparationStore:
         return PdfImportOcrGrant.from_mapping(json.loads(row[0])) if row else None
 
     def grant(self, generation: str, work_key: str | None = None):
-        """The consent covering a page: its retry consent, else the import's."""
+        """The consent covering a page: its retry consent, else the import's.
+
+        A page retried only to reuse a cached reading has no consent at all.
+        """
         if work_key is not None:
             row = self.db.execute(
                 "SELECT plan_token FROM pdf_split_page_work WHERE work_key=? AND generation=?",
                 (work_key, generation),
             ).fetchone()
+            if row is not None and row[0] == CACHED_READING_ONLY:
+                return None
             if row is not None and row[0] is not None:
                 return self._plan_grant(str(row[0]))
         row = self.db.execute(
@@ -781,11 +796,15 @@ class PdfSplitPreparationAdapter:
                 finally:
                     lease.close()
         if not children:
+            # Every target already has a reading, so nothing is read or billed.
             return {
                 "pages": 0,
                 "estimate": {
-                    "cost": 0,
+                    "rows": 0,
+                    "cost": 0.0,
                     "billed_cost": 0,
+                    "cost_source": "free_local",
+                    "policy_id": "local",
                     "requires_confirmation": False,
                 },
                 "authorization": None,
@@ -1111,9 +1130,16 @@ class PdfSplitPreparationAdapter:
             grants = {
                 work.work_key: store.grant(generation, work.work_key) for work in works
             }
+            cache_only = {
+                str(row[0])
+                for row in store.db.execute(
+                    "SELECT work_key FROM pdf_split_page_work WHERE generation=? AND plan_token=?",
+                    (generation, CACHED_READING_ONLY),
+                )
+            }
         for work in works:
             grant = grants[work.work_key]
-            if grant is None:
+            if grant is None and work.work_key not in cache_only:
                 raise ValueError("source-page OCR requires its reviewed approval")
             with PdfSplitPreparationStore(self.inventory_path) as store:
                 if not self._generation_current(
@@ -1121,16 +1147,26 @@ class PdfSplitPreparationAdapter:
                 ):
                     store.cancel_generation(generation)
                     break
-            authorizer = source_page_ocr_authorizer(
-                grant,
-                project_id=self.project_id,
-                plan_token=str(grant.scope["plan_token"]),
-                target=work.target.consent_identity,
-                work_key=work.work_key,
+            authorizer = (
+                None
+                if grant is None
+                else source_page_ocr_authorizer(
+                    grant,
+                    project_id=self.project_id,
+                    plan_token=str(grant.scope["plan_token"]),
+                    target=work.target.consent_identity,
+                    work_key=work.work_key,
+                )
             )
             with PdfSplitPreparationStore(self.inventory_path) as store:
                 if not store.claim(work.work_key, generation=generation):
                     continue
+                attempt = int(
+                    store.db.execute(
+                        "SELECT attempt FROM pdf_split_page_work WHERE work_key=? AND generation=?",
+                        (work.work_key, generation),
+                    ).fetchone()[0]
+                )
             lease = None
             flight = None
             accepted = False
@@ -1185,6 +1221,16 @@ class PdfSplitPreparationAdapter:
                     if capture is None:
                         self.fanout(work)
                     flight.release()
+                    continue
+                if authorizer is None or grant is None:
+                    # The page was retried to reuse a reading that is gone; it
+                    # is never read under another page's consent.
+                    flight.release()
+                    with PdfSplitPreparationStore(self.inventory_path) as store:
+                        store.release(
+                            work,
+                            error="The cached text for this page is no longer available; retry the page.",
+                        )
                     continue
                 lease, prepared = self._prepare(
                     work,
@@ -1283,7 +1329,11 @@ class PdfSplitPreparationAdapter:
                     import_child_port,
                 )
 
-                child_key = f"pdf-split-page:{generation}:{work.work_key}"
+                # Every dispatch after the first is its own purchase, so its
+                # admission and receipt never collide with an earlier attempt.
+                child_key = f"pdf-split-page:{generation}:{work.work_key}" + (
+                    "" if attempt <= 1 else f":attempt-{attempt}"
+                )
                 admission = nullcontext(None)
                 receipt_id = None
                 if parent_receipt_id is not None and import_child_port(self.workspace):

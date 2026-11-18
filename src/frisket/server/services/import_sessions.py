@@ -295,10 +295,20 @@ class ImportSessionService:
         )
 
     def retry_preparation(
-        self, project_id: str, ref: str, *, plan_token: str, confirmation: str | None
+        self,
+        project_id: str,
+        ref: str,
+        *,
+        plan_token: str,
+        confirmation: str | None,
+        request_context: Any = None,
     ) -> ImportSessionStatus:
         self._split_preparation(project_id, ref).retry_pdf_import(
-            project_id, ref, plan_token=plan_token, confirmation=confirmation
+            project_id,
+            ref,
+            plan_token=plan_token,
+            confirmation=confirmation,
+            request_context=request_context,
         )
         return self.status(project_id, ref)
 

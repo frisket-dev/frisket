@@ -609,9 +609,14 @@ class SearchPreparationService:
         *,
         plan_token: str,
         confirmation: str | None,
+        request_context: Any = None,
     ) -> PdfImportPreparationSummary:
         return self._page_retry(project_id, import_ref).retry(
-            project_id, import_ref, plan_token=plan_token, confirmation=confirmation
+            project_id,
+            import_ref,
+            plan_token=plan_token,
+            confirmation=confirmation,
+            request_context=request_context,
         )
 
     def create_after_import(

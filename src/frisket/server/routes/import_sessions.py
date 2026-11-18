@@ -181,7 +181,7 @@ def register_import_session_routes(
         responses=responses,
     )
     async def retry_import_preparation(
-        pid: str, ref: str, body: ImportPreparationRetryRequest
+        request: Request, pid: str, ref: str, body: ImportPreparationRetryRequest
     ) -> ImportSessionStatus:
         return await transition(
             service.retry_preparation,
@@ -189,6 +189,7 @@ def register_import_session_routes(
             ref,
             plan_token=body.plan_token,
             confirmation=body.confirmation,
+            request_context=request,
         )
 
     @app.post(
