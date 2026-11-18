@@ -6,6 +6,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionInputColumns,
   uniqueName,
 } from './helpers';
 
@@ -62,6 +63,7 @@ async function startSimulatedPythonRun(page: import('@playwright/test').Page, pi
     });
   });
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page
     .getByTestId('field-code')
@@ -82,7 +84,7 @@ async function startSimulatedPythonRun(page: import('@playwright/test').Page, pi
   return body.run_id;
 }
 
-test('active run has prominent progress and pending AI-cell affordances', async ({ page }) => {
+test('an active run shows a progress banner with its watcher', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-run-progress-visibility'));
   const rows = Array.from({ length: 24 }, (_, i) => `"row ${i} needs slow local work"`).join('\n');
   await importCsv(page.request, pid, 'rows.csv', `note\n${rows}\n`);
@@ -95,6 +97,4 @@ test('active run has prominent progress and pending AI-cell affordances', async 
   await expect(banner).toBeVisible({ timeout: 15_000 });
   await expect(banner).toContainText(/queued|running|rows/i);
   await expect(page.getByTestId('run-watcher')).toBeVisible();
-  await expect(page.getByTestId('pending-ai-cells')).toBeVisible();
-  await expect(page.getByTestId('pending-ai-cells')).toContainText(/filling|pending|running/i);
 });

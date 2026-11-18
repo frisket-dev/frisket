@@ -112,7 +112,7 @@ test('substitute maps values (one to a target, one to null) and autocloses on Ap
   await expect(form.getByTestId('resolve-footer-summary')).toContainText('2 of 5 values mapped');
   await page.screenshot({ path: test.info().outputPath('substitute.png') });
 
-  await form.getByTestId('resolve-apply').click();
+  await drawer.getByTestId('resolve-apply').click();
   // action-drawer-autoclose-on-start-v1: a synchronous completed resolve
   // commit closes the drawer on its own.
   await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
@@ -166,7 +166,7 @@ test('replace authors ordered rules with a first-match-wins commit', async ({
 
   await page.screenshot({ path: test.info().outputPath('replace.png') });
 
-  await form.getByTestId('resolve-apply').click();
+  await drawer.getByTestId('resolve-apply').click();
   await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
 
   await pollColumnValues(page, pid, sheetId, 'dept_clean', [
@@ -223,7 +223,7 @@ test('combine hand-groups three variants into one canonical bucket', async ({ pa
   await expect(form.getByTestId('resolve-footer-summary')).toContainText('3 → 1 group');
   await page.screenshot({ path: test.info().outputPath('combine.png') });
 
-  await form.getByTestId('resolve-apply').click();
+  await drawer.getByTestId('resolve-apply').click();
   await expect(page.getByTestId('action-drawer')).toHaveCount(0, { timeout: 15_000 });
 
   await pollColumnValues(page, pid, sheetId, 'brand_clean', [

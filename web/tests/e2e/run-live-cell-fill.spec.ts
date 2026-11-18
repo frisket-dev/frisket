@@ -15,7 +15,7 @@
 // a cell pulses, fills, or shows an error.
 
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, importCsv, openAction, uniqueName } from './helpers';
+import { createProject, importCsv, openAction, selectActionInputColumns, uniqueName } from './helpers';
 
 interface LiveFillProbe {
   runId: string | null;
@@ -107,6 +107,7 @@ async function generatedColumnId(page: Page): Promise<string> {
 
 async function startPythonRun(page: Page, code: string, columnName: string): Promise<void> {
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'n');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page.getByTestId('field-code').fill(code);
   await page.getByTestId('field-output-computed').fill(columnName);

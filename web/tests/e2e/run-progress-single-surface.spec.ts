@@ -7,6 +7,7 @@ import {
   createProject,
   importCsv,
   openAction,
+  selectActionInputColumns,
   uniqueName,
 } from './helpers';
 
@@ -31,6 +32,7 @@ async function startSimulatedPythonRun(page: Page, pid: string, sleepSeconds = 0
     status: 'completed',
   });
   await openAction(page, 'map.python');
+  await selectActionInputColumns(page, 'note');
   await expect(page.getByTestId('field-code')).toBeVisible();
   await page
     .getByTestId('field-code')

@@ -64,7 +64,7 @@ test('deletes selected rows through a confirmed v1 row.delete action', async ({ 
   });
 
   await openProject(page, pid, sheetId);
-  await expect(page.getByTestId('sheet-stats')).toHaveText('3 rows · 1 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('3 rows · 1 column');
   await openHistory(page);
 
   // Delete-N is selection-contextual: absent (not merely disabled) until rows
@@ -90,7 +90,7 @@ test('deletes selected rows through a confirmed v1 row.delete action', async ({ 
   // confirm deletes the two selected rows
   await page.getByTestId('delete-rows-button').click();
   await page.getByTestId('delete-rows-confirm').click();
-  await expect(page.getByTestId('sheet-stats')).toHaveText('1 rows · 1 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('1 row · 1 column');
   await expect.poll(async () => (await sheetData(page.request, pid, sheetId)).total).toBe(1);
 
   expect(legacyRowsCalled).toBe(false);

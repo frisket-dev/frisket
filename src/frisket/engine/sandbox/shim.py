@@ -1821,7 +1821,7 @@ async def run_python_op(
             )
         raise RuntimeError(
             f"sandboxed op failed (rc={result.returncode}, "
-            f"timeout={result.timed_out}): {result.stderr[:500]}"
+            f"timeout={result.timed_out}): {result.stderr[-500:]}"
         )
     try:
         return json.loads(result.stdout)

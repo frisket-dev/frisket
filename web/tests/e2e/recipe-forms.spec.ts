@@ -56,7 +56,7 @@ test('catalog actions without static cards are reachable and runnable', async ({
     output_names: { cleaned: 'raw_iso' },
     idempotency_key: expect.any(String),
   });
-  await expect(page.getByTestId('sheet-stats')).toHaveText('1 rows · 3 columns', {
+  await expect(page.getByTestId('sheet-stats')).toHaveText('1 row · 3 columns', {
     timeout: 30_000,
   });
 });
@@ -109,7 +109,7 @@ test('an action form actually runs (regex, offline) — not just visible control
     'note\n"contract worth $4,200 total"\n"fee was $96 flat"\n',
   );
   await page.goto(`/p/${pid}`);
-  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 1 columns');
+  await expect(page.getByTestId('sheet-stats')).toHaveText('2 rows · 1 column');
 
   await openAction(page, 'map.regex_extract');
   await selectActionInputColumns(page, 'note');

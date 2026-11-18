@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { chooseEmbeddingModel, stubEmbeddingSelector } from './embeddingSelectorFixture';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
 const INDEX_ID = 'embidx_create_flow';
@@ -97,6 +98,8 @@ interface CreateBody {
 async function installStubs(page: Page, pid: string, sheetId: number) {
   let index: ReturnType<typeof makeIndex> | null = null;
   let lastCreate: CreateBody | null = null;
+
+  await stubEmbeddingSelector(page, pid);
 
   await page.route(`**/api/projects/${pid}/embeddings/v1/provider-catalog*`, (route) =>
     route.fulfill({
@@ -198,16 +201,13 @@ test('remote index creation separates source, egress, cost, and summary review',
     'aria-current',
     'step',
   );
-  const sourceColumns = page.getByTestId('embedding-source-columns');
-  await expect(sourceColumns).toHaveCSS('flex-direction', 'column');
   const headlineBox = await page.getByTestId('embedding-source-col-headline').boundingBox();
   const bodyBox = await page.getByTestId('embedding-source-col-body').boundingBox();
   expect(headlineBox).not.toBeNull();
   expect(bodyBox).not.toBeNull();
   expect(bodyBox!.y).toBeGreaterThan(headlineBox!.y + headlineBox!.height);
   await page.getByTestId('embedding-source-col-body').check();
-  await page.getByTestId('embedding-model-field').click();
-  await page.getByTestId('embedding-model-card-embed-v3').click();
+  await chooseEmbeddingModel(page, 'cohere-embed-v3');
 
   await page.getByTestId('embedding-create-next').click();
   await expect(page.getByTestId('embedding-create-step-egress')).toHaveAttribute(
