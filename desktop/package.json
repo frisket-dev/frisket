@@ -18,7 +18,7 @@
   "devDependencies": {
     "@electron/asar": "3.4.1",
     "@playwright/test": "1.60.0",
-    "electron": "44.3.0",
+    "electron": "44.11.4",
     "electron-builder": "26.15.3",
     "js-yaml": "4.3.2"
   },
