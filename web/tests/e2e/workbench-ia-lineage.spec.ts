@@ -12,6 +12,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 // Workbench IA increment 7 — LIVE derived-sheet lineage UI.
 //
@@ -56,8 +57,8 @@ finally:
     project.close()
 `;
   const out = execFileSync(
-    'uv',
-    ['run', 'python', '-c', script, workspace, pid, String(parentSheetId)],
+    testPython(),
+    ['-c', script, workspace, pid, String(parentSheetId)],
     { cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000 },
   );
   return Number(out.toString().trim());

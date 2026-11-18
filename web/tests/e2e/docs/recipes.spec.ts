@@ -5,6 +5,7 @@ import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createProject, importCsv, openAction, openCellDrawer, openImportWorkspace, openProject, selectActionSourceColumns, selectRow, sheetColumns, sheetData, textPdf } from '../helpers';
 import { captureCheckpoint, captureRibbon, publishCaptureBundle } from './capture';
 import { captureReview } from './workflows-review';
+import { testPython } from '../../support/testPython';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -53,7 +54,7 @@ test('court sample imports and runs the selected filings through strict replay',
     'RV-CV-2026-00611_meridian-v-riverton_injunction-motion.pdf',
   ]);
   const selectedRowIds = initialData.rows.slice(0, 3).map(row => row.id).sort((a, b) => a - b);
-  execFileSync(process.env.FRISKET_E2E_PYTHON!, [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json')], { env: process.env, stdio: 'inherit', timeout: 60_000 });
+  execFileSync(testPython(), [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json')], { env: process.env, stdio: 'inherit', timeout: 60_000 });
   expect(JSON.parse(readFileSync(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json'), 'utf8'))).toEqual(JSON.parse(readFileSync(path.resolve('tests/e2e/docs/fixtures/court-live-requests.json'), 'utf8')));
   copyFileSync(path.resolve('tests/e2e/docs/fixtures/court-live.cache.db'), path.join(process.env.FRISKET_E2E_WS!, `${pid}.frisket`, 'project.cache.db'));
   await selectRow(page, 0);
@@ -84,7 +85,7 @@ test('court sample imports and runs the selected filings through strict replay',
   const paramsPath = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'ui-params.json');
   writeFileSync(paramsPath, JSON.stringify(actual, null, 2));
   const authoredPath = path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'authored-requests.json');
-  execFileSync(process.env.FRISKET_E2E_PYTHON!, [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), authoredPath, paramsPath], { env: process.env, stdio: 'inherit', timeout: 60_000 });
+  execFileSync(testPython(), [path.resolve('tests/e2e/docs/render_court_requests.py'), process.env.FRISKET_E2E_WS!, pid, String(imported.id), path.resolve('../guides/recipes/court-filings-to-table.json'), authoredPath, paramsPath], { env: process.env, stdio: 'inherit', timeout: 60_000 });
   expect(JSON.parse(readFileSync(authoredPath, 'utf8'))).toEqual(JSON.parse(readFileSync(path.join(process.env.FRISKET_DOCS_PROOF_DIR!, 'llm-requests.json'), 'utf8')));
   const source = page.getByTestId('text-source-columns');
   const engineTarget = page.locator('[data-tour="action-engine-selector"]');
@@ -347,7 +348,7 @@ test('council sample opens the real transcription comparison', async ({ page }) 
   await expect(page.getByTestId('transcribe-compare-dropzone')).toBeVisible();
   captures.push(await captureCheckpoint(page, { id: 'council-compare-empty', root: compare, maxHeight: 420, annotations: [] }, stage));
   const filename = 'ann-arbor-policy-committee-2022-04-19-excerpt.mp3';
-  const audio = execFileSync(process.env.FRISKET_E2E_PYTHON!, ['-c', 'import sys; from frisket.sample_content.audio import council_audio_bytes; sys.stdout.buffer.write(council_audio_bytes(sys.argv[1]))', filename], { env: process.env, maxBuffer: 20 * 1024 * 1024 });
+  const audio = execFileSync(testPython(), ['-c', 'import sys; from frisket.sample_content.audio import council_audio_bytes; sys.stdout.buffer.write(council_audio_bytes(sys.argv[1]))', filename], { env: process.env, maxBuffer: 20 * 1024 * 1024 });
   await page.getByTestId('transcribe-compare-file-input').setInputFiles({ name: filename, mimeType: 'audio/mpeg', buffer: audio });
   await expect(compare).toContainText(filename);
   const columns = page.getByTestId('transcribe-compare-engine-column');

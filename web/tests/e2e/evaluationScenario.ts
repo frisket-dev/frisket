@@ -5,11 +5,11 @@ import { expect, type Page } from '@playwright/test';
 import { createProject, importCsv, runAndWait, sheetColumns, sheetData, setProjectModelRoute, uniqueName } from './helpers';
 import { exposeReplayModel, prepareOwnModelReplay, REPLAY_MODEL } from './replayModelScenario';
 import { actionSelectorResponse, stubActionSelectorChoices } from './selectorChoicesFixture';
+import { testPython } from '../support/testPython';
 
 const ALTERNATE_REPLAY_MODEL = 'anthropic/claude-haiku-4-5';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 export const EVALUATION_ROW_COUNT = 38;
 const EVALUATION_FIELDS = [
   { name: 'plaintiff', type: 'text', description: 'Name of the plaintiff in the public notice.' },
@@ -108,7 +108,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, ['-c', script, workspace, projectId, JSON.stringify(action(sheetId, EVALUATION_VARIANTS[0].context))], {
+  execFileSync(testPython(), ['-c', script, workspace, projectId, JSON.stringify(action(sheetId, EVALUATION_VARIANTS[0].context))], {
     cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000, input: JSON.stringify(alternateModel ? [...EVALUATION_VARIANTS, { ...EVALUATION_VARIANTS[3], context: EVALUATION_VARIANTS[0].context, model: ALTERNATE_REPLAY_MODEL }] : EVALUATION_VARIANTS),
     env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
   });

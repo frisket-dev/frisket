@@ -16,7 +16,7 @@ test ! -e ../.secrets && test ! -L ../.secrets || { echo "Remove secrets from th
 env -i HOME="$CAPTURE_HOME" XDG_CACHE_HOME="$CAPTURE_HOME/cache" \
   PATH="$PATH" LANG=C.UTF-8 TZ=UTC CI=1 \
   UV_NO_SYNC=1 UV_PROJECT_ENVIRONMENT="$CAPTURE_VENV" \
-  FRISKET_E2E_MINIMAL_DEPS=1 FRISKET_E2E_PYTHON="$CAPTURE_VENV/bin/python" \
+  FRISKET_E2E_MINIMAL_DEPS=1 FRISKET_TEST_PYTHON="$CAPTURE_VENV/bin/python" \
   FRISKET_E2E_BASE_WS="$CAPTURE_HOME/workspace" FRISKET_E2E_WORKERS=1 \
   FRISKET_CACHE_MODE=replay_strict GEMINI_API_KEY=docs-offline-placeholder \
   OPENROUTER_API_KEY=docs-offline-placeholder \

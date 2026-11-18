@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createProjectApi } from '../../src/api/real';
 import type { ActionCatalogEntry, ActionProposal, GeneratedActionDraft } from '../../src/api/types';
-import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 
 const KINDS = [
   'map.classify', 'map.extract', 'map.ner', 'map.translate', 'reduce.group_summary',
@@ -52,8 +53,8 @@ function transport(projectId: string, challenge = false) {
 }
 
 afterEach(() => vi.unstubAllGlobals());
-const describeServed = hasServedActionCatalogPython() || process.env.CI ? describe : describe.skip;
-const catalog = hasServedActionCatalogPython() || process.env.CI ? servedActionCatalog() : null;
+const describeServed = hasTestPython() || process.env.CI ? describe : describe.skip;
+const catalog = hasTestPython() || process.env.CI ? servedActionCatalog() : null;
 describeServed('Ask typed direct-run wire', () => {
   it('posts typed proposals with scope, nested Params, and destinations unchanged', async () => {
     const api = createProjectApi('proposal-matrix');

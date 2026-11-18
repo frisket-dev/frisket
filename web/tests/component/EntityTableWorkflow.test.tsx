@@ -17,7 +17,8 @@ import { CompletedClusterResult } from '../../src/components/CompletedClusterRes
 import { ReceiptInspector } from '../../src/components/ReceiptInspector';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { sheetMeta } from '../support/actionFormFixtures';
-import { hasServedActionCatalogPython, servedActionCatalog } from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 
 const SHEET = sheetMeta([], { id: '7', name: 'People' });
 function receipt(receiptId = 'receipt:clusters', overrides: Partial<V1Receipt> = {}): V1Receipt {
@@ -27,7 +28,7 @@ function receipt(receiptId = 'receipt:clusters', overrides: Partial<V1Receipt> =
     providerUse: [], evidence: [], errors: [], ...overrides };
 }
 
-describe.skipIf(!hasServedActionCatalogPython() && !process.env.CI)('entity table workflow', () => {
+describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', () => {
   let catalog: ActionCatalogPayload;
   let stores: WorkspaceStores;
   const showError = vi.fn();

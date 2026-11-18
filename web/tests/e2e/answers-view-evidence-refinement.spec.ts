@@ -32,6 +32,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, openProject, uniqueName } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
@@ -151,7 +152,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,

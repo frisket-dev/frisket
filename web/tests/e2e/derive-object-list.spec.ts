@@ -26,12 +26,12 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv/bin/python');
 
 const CSV =
   'episode,description\n' +
@@ -95,7 +95,7 @@ try:
 finally:
     project.close()
 `;
-  const out = execFileSync(PYTHON, ['-c', script, workspace, pid, String(sheetId), name], {
+  const out = execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId), name], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,
@@ -240,7 +240,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, ['-c', script, workspace, pid, String(sheetId)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { createEvaluationScenario, EVALUATION_EXPECTED, EVALUATION_ROW_COUNT, EVALUATION_VARIANTS } from './evaluationScenario';
 import { clickGroupHeader, clickHeaderMenu, editCells, listSheets, openProject, sheetData } from './helpers';
+import { testPython } from '../support/testPython';
 
 test.use({ deviceScaleFactor: 2 });
 
@@ -134,7 +135,7 @@ async function downloadedText(download: import('@playwright/test').Download) {
 }
 
 function csvRecords(text: string): Array<Record<string, string>> {
-  const python = process.env.FRISKET_E2E_PYTHON ?? path.resolve('..', '.venv/bin/python');
+  const python = testPython();
   const result = execFileSync(python, ['-c', 'import csv,io,json,sys; print(json.dumps(list(csv.DictReader(io.StringIO(sys.stdin.read())))))'], { input: text, encoding: 'utf8' });
   return JSON.parse(result);
 }

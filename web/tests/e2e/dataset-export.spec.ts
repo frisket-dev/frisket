@@ -14,6 +14,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 test('project menu exports the current sheet as CSV and the work log as Markdown', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('dataset-export'));
@@ -125,7 +126,7 @@ test('Export data packages an MP3 with its complete transcript and timed segment
   expect(download.suggestedFilename()).toMatch(/\.zip$/);
   const archivePath = await download.path();
   expect(archivePath).toBeTruthy();
-  const inspection = JSON.parse(execFileSync(process.env.FRISKET_E2E_PYTHON ?? 'python3', ['-c', `
+  const inspection = JSON.parse(execFileSync(testPython(), ['-c', `
 import csv, hashlib, io, json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as archive:
     names = archive.namelist()

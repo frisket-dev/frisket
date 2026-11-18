@@ -24,6 +24,7 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
+import { testPython } from '../support/testPython';
 
 test.use({ deviceScaleFactor: 2 });
 
@@ -40,8 +41,6 @@ const CSV = `snippet
 const REPO_ROOT = path.basename(process.cwd()) === 'web'
   ? path.resolve(process.cwd(), '..')
   : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON
-  ?? path.join(REPO_ROOT, '.venv/bin/python');
 
 function classifyAction(sheetId: number, prompt: string, idempotencyKey: string) {
   return {
@@ -136,7 +135,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, [
+  execFileSync(testPython(), [
     '-c', script, workspace, pid, String(sheetId), MODEL, prompt,
     JSON.stringify(LABELS), JSON.stringify(topics),
   ], {

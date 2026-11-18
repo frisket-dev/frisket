@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { testPython } from '../support/testPython';
 
 // The evidence viewer's temporal path has a click-to-seek mechanic lifted from
 // MediaPlayerPeek.tsx:22-40 + transcriptAlign.ts: users can say
@@ -178,7 +179,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, kind, mediaB64], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid, kind, mediaB64], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,
@@ -390,7 +391,7 @@ try:
 finally:
     project.close()
 `;
-  const output = execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
+  const output = execFileSync(testPython(), ['-c', script, workspace, pid, AUDIO_FIXTURE_B64], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,

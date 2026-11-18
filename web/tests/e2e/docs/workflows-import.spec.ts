@@ -6,6 +6,7 @@ import {
   previewTableFile, sheetData, uniqueName,
 } from '../helpers';
 import { captureCheckpoint, captureRibbon, publishCaptureBundle } from './capture';
+import { testPython } from '../../support/testPython';
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 1600, height: 1000 } });
 test.skip(!process.env.FRISKET_DOCS_PROOF_DIR, 'Run through the isolated documentation capture harness');
@@ -53,7 +54,7 @@ async function finishCourtImport(page: Page, flow: ReturnType<Page['getByTestId'
 
 test('documentation: table import and the file and URL entry modes', async ({ page }) => {
   test.setTimeout(180_000);
-  const csv = execFileSync(process.env.FRISKET_E2E_PYTHON!, ['-c',
+  const csv = execFileSync(testPython(), ['-c',
     'from frisket.server.services.sample_project import sample_docket_csv; print(sample_docket_csv(), end="")'], { env: process.env });
   const pid = await createProject(page.request, uniqueName('docs-import-table'));
   const seed = await importCsv(page.request, pid, 'existing.csv', csv.toString());

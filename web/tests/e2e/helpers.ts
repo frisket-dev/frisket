@@ -13,6 +13,8 @@ import path from 'node:path';
 import { crc32, deflateSync } from 'node:zlib';
 
 import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { testPython } from '../support/testPython';
+import { requireSeededProject } from './seedProjects';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
@@ -212,6 +214,7 @@ export async function projectIdByName(
   request: APIRequestContext,
   name: string,
 ): Promise<string> {
+  requireSeededProject(name);
   const projects = await listProjects(request);
   const p = projects.find((x) => x.name === name);
   if (!p) throw new Error(`seeded project "${name}" not found — run scripts/e2e/seed_demo.py`);
@@ -716,7 +719,7 @@ if not worker.run_once():
     finally:
         project.close()
 `;
-  execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, String(runId)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(runId)], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

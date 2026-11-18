@@ -4,12 +4,10 @@ import { actionTemplatesFromCatalog } from '../../src/actions/model';
 import type { ActionCatalogEntry, ActionCatalogPayload } from '../../src/api/types';
 import * as presentationOwner from '../../src/components/action-panel/actionPresentation';
 import { completeMappedActionCatalog } from '../support/actionCatalogFixtures';
-import {
-  hasServedActionCatalogPython,
-  servedActionCatalog,
-} from '../support/servedActionCatalog';
+import { servedActionCatalog } from '../support/servedActionCatalog';
+import { hasTestPython } from '../support/testPython';
 
-const hasServedCatalog = hasServedActionCatalogPython();
+const hasServedCatalog = hasTestPython();
 const catalog: ActionCatalogPayload = hasServedCatalog || process.env.CI
   ? servedActionCatalog()
   : completeMappedActionCatalog();

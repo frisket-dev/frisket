@@ -21,6 +21,9 @@ paid or external runs.
   one command per smell, no obligation to act (`--help` lists the kinds).
 - Web (from `web/`): `npx vitest run`; types: `npx tsc -b` (the root
   tsconfig uses project references; `tsc --noEmit` alone checks no files).
+- Browser suite (from `web/`, about an hour): `FRISKET_CACHE_MODE=replay_strict
+  npx playwright test --config playwright/playwright.config.ts`, judged by
+  `scripts/ci/e2e_known_failures.py`; see CONTRIBUTING.md, Browser suite.
 - Lint: `ruff check src tests` and `ruff format --check src tests`,
   plus the gates in `scripts/ci/lint_*.py`,
   `scripts/ci/check_import_boundaries.py --source-root src

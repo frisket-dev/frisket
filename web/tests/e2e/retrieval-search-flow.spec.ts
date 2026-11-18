@@ -12,12 +12,12 @@ import {
   textPdf,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
-const PYTHON = process.env.FRISKET_TEST_PYTHON;
 const SCREENSHOTS = process.env.FRISKET_RETRIEVAL_SCREENSHOTS;
 
 test.use({
@@ -26,7 +26,6 @@ test.use({
 });
 
 function drainLexicalIndex(projectId: string): void {
-  if (!PYTHON) throw new Error('FRISKET_TEST_PYTHON must name the shared test interpreter');
   const workspace = process.env.FRISKET_E2E_WS;
   if (!workspace) throw new Error('FRISKET_E2E_WS must name the active test workspace');
   const script = String.raw`
@@ -43,7 +42,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync(PYTHON, ['-c', script, workspace, projectId], {
+  execFileSync(testPython(), ['-c', script, workspace, projectId], {
     cwd: REPO_ROOT,
     env: {
       ...process.env,

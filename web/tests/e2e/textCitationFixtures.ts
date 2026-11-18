@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT = path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
-const PYTHON = process.env.FRISKET_E2E_PYTHON ?? path.join(REPO_ROOT, '.venv', 'bin', 'python');
 
 export function extractRecordedContent(pid: string): { sheetId: number; sources: string[] } {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
@@ -59,7 +59,7 @@ try:
 finally:
     project.close()
 `;
-  return JSON.parse(execFileSync(PYTHON, ['-c', script, workspace, pid], {
+  return JSON.parse(execFileSync(testPython(), ['-c', script, workspace, pid], {
     cwd: REPO_ROOT, encoding: 'utf8', timeout: 60_000,
     env: { ...process.env, FRISKET_CACHE_MODE: 'off' },
   })) as { sheetId: number; sources: string[] };

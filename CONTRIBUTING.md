@@ -362,6 +362,71 @@ read historical values by ID, without substituting a same-name successor.
   target with `FRISKET_CACHE_REFRESH=1 FRISKET_CACHE_MODE=replay`, then review
   and commit `tests/cache/llm_cache.db`.
 
+### Browser suite
+
+The complete browser suite (`web/tests/e2e`, about 700 tests) boots its own
+backend and Vite server. CI runs only `deploy-smoke` and
+`e2e-cassette-core` on pull requests and in the queue; the rest runs nightly
+and on developers' machines. From `web/`:
+
+```sh
+FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
+  npx playwright test --config playwright/playwright.config.ts
+```
+
+- `FRISKET_TEST_PYTHON` is the interpreter specs (and vitest's catalog
+  helpers) shell out to; it defaults to the repository `.venv`, so a worktree
+  must set it. A worktree also needs `UV_PROJECT_ENVIRONMENT=<main>/.venv`,
+  `UV_NO_SYNC=1` and `PYTHONPATH=<worktree>/src` for the backend.
+- `FRISKET_CACHE_MODE=replay_strict` keeps the run keyless: model calls
+  replay from the committed response cache or fail. Without it some specs make
+  cheap real calls.
+- About 50 tests read four demo projects (`scripts/e2e/seed_demo.py`) from a
+  cache in `~/.frisket/e2e-ws`. The `seed` setup opens each one first and
+  records which are absent or unopenable (a cache from an older schema); the
+  specs that need them then fail at once with that reason. Building the cache
+  makes real model calls (about $0.25): delete the directory and run once with
+  model keys and without `replay_strict`.
+- A full run takes 50 to 80 minutes at the default two workers
+  (`FRISKET_E2E_WORKERS`). Add `--reporter=line,json,./playwright/playwright.checklog-reporter.mjs`
+  with `PLAYWRIGHT_JSON_OUTPUT_NAME=<file>` to judge it as below.
+
+`nightly-e2e.yml` runs the suite on `main` at 08:41 UTC in four shards on
+`ubuntu-latest`, keyless (`replay_strict`, no secrets), and skips a night on
+which `main` has not moved since its last green run. Its `verdict` job merges
+the shard reports and runs `scripts/ci/e2e_known_failures.py`, which writes
+the job summary (totals, new failures, listed tests now passing, counts by
+reason) and, when the verdict fails on `main`, opens or comments on one issue,
+"Nightly browser suite: new failures" (label `nightly-e2e`); the next passing
+night closes it. Expect roughly 100 to 130 runner-minutes a night.
+
+`scripts/ci/e2e_known_failures.json` lists the tests known to fail: spec file
+(relative to `web/tests/e2e`) to test title (describe titles and the test
+title joined by ` › `) to a reason class, `seed`, `retired-request`,
+`stale-expectation`, `environment` or `unclassified`. The list only shrinks.
+The script fails on a failure the list does not name, on a listed test that
+now passes (delete it, or run with `--update`, which only removes entries and
+refuses while a new failure is unlisted), and on an entry whose spec file or
+title no longer exists (rename it by hand when the test was renamed). A test
+that passes on retry counts as passing and is reported as flaky. Adding an
+entry is a hand edit naming its reason; fix the test instead when you can.
+`seed` entries are judged only when the seed setup found none of the demo
+projects, as on CI; with a seeded cache they are reported, not judged.
+
+The list was first generated on macOS, so the nightly starts in report-only
+mode (`E2E_KNOWN_FAILURES_ENFORCE: "false"` in `nightly-e2e.yml`): it prints
+the differences and passes. To reconcile it with Linux and turn enforcement
+on:
+
+1. `gh workflow run nightly-e2e.yml --ref main`, and wait for it.
+2. `gh run download <run id> -p 'e2e-report-*' -D reports`.
+3. `python scripts/ci/e2e_known_failures.py reports/*.json`; add each new
+   failure it names to the list by hand with its reason (usually
+   `environment` for Linux-only ones), then rerun with `--update` to drop the
+   listed tests that pass on Linux, and once more without flags until it
+   passes.
+4. Land the list and `E2E_KNOWN_FAILURES_ENFORCE: "true"` in one PR.
+
 ### Working in worktrees
 
 Parallel work happens in git worktrees that share the main checkout's
@@ -435,6 +500,7 @@ run on main", or the diff does "not affect" it at all.
 | Python tests | the test directories of the changed source areas plus the root tests; the complete suite when dependencies, test configuration, shared test helpers, package data, a top-level module, `sidecar/` or a wheel build input changed | complete suite, including the `gap` subset | no |
 | Sidecar, Postgres, GPU-topology checks | by layer | yes | no |
 | `deploy-smoke`, `e2e-cassette-core` | when the e2e specs, Playwright configs, `scripts/e2e/`, `web/package*.json` or `ci.yml` changed | yes | no |
+| Full browser suite (`nightly-e2e`), judged by `scripts/ci/e2e_known_failures.py` | no | no | yes, when `main` moved |
 | Docker build and Compose smoke | when an image input changed | when an image input changed | no (weekly, and every release) |
 | macOS and Windows installed-app proofs, macOS and Windows portability smokes | when the job's own inputs changed (below) | when the job's own inputs changed | always, in full |
 | macOS managed-Python slice (not required) | when `src/frisket/`, `tests/`, `pyproject.toml`, `uv.lock`, `.python-version`, the vec1 build or its workflow changed | same | always |

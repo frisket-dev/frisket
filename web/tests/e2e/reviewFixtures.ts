@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import { testPython } from '../support/testPython';
 
 type ReviewClassifyField = {
   description?: string;
@@ -104,7 +105,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, payload], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, payload], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,

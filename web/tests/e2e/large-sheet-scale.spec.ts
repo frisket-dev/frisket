@@ -16,6 +16,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
+import { testPython } from '../support/testPython';
 
 const REPO_ROOT =
   path.basename(process.cwd()) === 'web'
@@ -46,7 +47,7 @@ try:
 finally:
     project.close()
 `;
-  execFileSync('uv', ['run', 'python', '-c', script, workspace, pid, String(count)], {
+  execFileSync(testPython(), ['-c', script, workspace, pid, String(count)], {
     cwd: REPO_ROOT,
     stdio: 'pipe',
     timeout: 60_000,
