@@ -55,8 +55,6 @@ import type {
 } from '../generated/openHttpContracts';
 import { isRecord } from './wireValues';
 
-
-
 export interface ProjectInfo {
   id: string;
   name: string;
@@ -161,13 +159,11 @@ export interface RuntimeConfig {
 export type RecipeFencePosture = 'enforced' | 'partial' | 'none' | 'unknown';
 
 export type SpendReport = HttpSpendReport;
-export type SpendRow = SpendReport['rows'][number];
 
 export type OrganizationKeyInfo = HttpOrganizationKeyList[number];
 export type OrganizationEnvInfo = HttpOrganizationEnvList[number];
 
 export type ProviderCatalog = HttpOrganizationProviderCatalog;
-export type ProviderCatalogItem = ProviderCatalog['providers'][number];
 
 export type ApiTokenInfo = HttpApiTokenList[number];
 export type ApiTokenCreateResponse = HttpApiTokenCreateResponse;
@@ -194,8 +190,6 @@ export type ProjectProviderKeys = HttpProjectProviderKeyCatalogResponse;
 export type ProjectProviderKeyInfo = ProjectProviderKeys['providers'][number];
 
 export type ProjectSecrets = HttpProjectSecretCatalogResponse;
-export type ProjectSecretInfo = ProjectSecrets['secrets'][number];
-export type ProjectSecretMigrationConflict = ProjectSecrets['conflicts'][number];
 
 export interface AdminOverview {
   totals: {
@@ -726,15 +720,9 @@ export type CellCitationSummary = HttpCellEvidenceResponse['links'][number];
 export type CellCitationsPayload = HttpCellEvidenceResponse;
 export type RowSourceDocumentsPayload = HttpRowSourceDocumentsResponse;
 
-/**
- * answers-view-column-evidence-batch-v1: the Grounded Answers reading view's
- * middle-pane batch. Per row that has ACTIVE evidence on the column, its
- * row_id + the SAME `CellCitationSummary` chip shape `CellCitationsPayload`
- * carries — a chip here is field-identical to a chip from the per-cell
- * endpoint. A row with no active evidence is simply absent from `rows`.
- */
-export type ColumnCitationsBatchRow = ColumnCitationsBatchPayload['rows'][number];
-
+/** The Grounded Answers reading view's middle-pane batch: one row per row
+ *  with ACTIVE evidence on the column, carrying the same link summary shape
+ *  as `CellCitationsPayload`. A row with no active evidence is absent. */
 export type ColumnCitationsBatchPayload = HttpColumnEvidenceResponse;
 
 /** Browser aliases intentionally track the generated evidence-viewer wire
@@ -2082,8 +2070,6 @@ export interface TimelineProjectionArtifact {
   [key: string]: unknown;
 }
 
-export type GraphRowRef = SheetGraphEdge['row_ref'];
-
 // --- Generic sheet-graph view -----------------------------------------------
 // GET /projects/:pid/sheets/:sheetId/graph — derived from the materialized
 // edge/join substrate, NOT the FtM neighborhood service.
@@ -2194,11 +2180,7 @@ export interface TopicSegmentationCompareScratchInput {
 
 export type TopicSegmentationCompareUnit = TopicSegmentationCompareScratchResult['units'][number];
 
-export type TopicSegmentationCompareBoundary = TopicSegmentationCompareEngineResult['boundaries'][number];
-
 export type TopicSegmentationCompareCanonicalBoundary = TopicSegmentationCompareEngineResult['canonical_boundaries'][number];
-
-export type TopicSegmentationCompareSection = TopicSegmentationCompareEngineResult['sections'][number];
 
 export type TopicSegmentationCompareEngineResult = TopicSegmentationCompareScratchResult['results'][number];
 
@@ -2724,20 +2706,14 @@ export interface ActionJobsPage {
  *  rate the server actually pinned. */
 export type AttemptSettlement = NonNullable<AttemptReceipt['settlement']>;
 
-export type AttemptReceiptConsent = NonNullable<AttemptReceipt['consent']>;
-
-export type AttemptReceiptTarget = NonNullable<AttemptReceipt['target']>;
-
 /** One execution attempt's receipt. `run_id` is null for a COMPACTION-ORPHANED
  *  attempt: ruling 7 keeps the consent + charge record after `compact()` has
  *  reclaimed the run's data, so a null run id is the honest "the run is gone",
- *  never a missing field. */
+ *  never a missing field. `borne_by` lists providers whose cost landed on a
+ *  credential the operator holds (project key, organization key or the
+ *  deployment's env key); empty means every call ran locally or came from
+ *  cache, and null means there was no metering to read. */
 export type AttemptReceipt = AttemptReceiptsPage['attempts'][number];
-
-/** Providers whose cost landed on a credential the operator holds (a project
- *  key, an organization BYOK key, or the deployment's env key). Empty means every call
- *  ran locally or came from cache — genuinely free. */
-export type AttemptReceiptBorneBy = NonNullable<AttemptReceipt['borne_by']>;
 
 export type AttemptReceiptsPage = HttpProjectAttemptsPage;
 
@@ -2770,10 +2746,6 @@ export interface ClusterPreviewResult {
 /** One distinct value in a column-values preview page, with its row count. */
 export type ColumnValueCount = HttpColumnValuesPreviewResponse['values'][number];
 
-export type NumberColumnDistributionBin = Extract<ColumnDistribution, { kind: 'number' }>['bins'][number];
-
-export type IntegerColumnDistributionBin = Extract<ColumnDistribution, { kind: 'integer' }>['bins'][number];
-
 export type ColumnDistribution = NonNullable<HttpColumnValuesPreviewResponse['distribution']>;
 
 /** Read-only column-values preview (POST /column-values/v1/preview): the
@@ -2805,13 +2777,9 @@ export interface ColumnValuesPreview {
   listFacet?: ColumnListFacet | null;
 }
 
-/** One selectable member in a list-valued-column facet. `count` is distinct
- * sheet rows, rather than member occurrences, so it equals the filter result
- * for that one selector. */
-export type ColumnListFacetChoice = ColumnListFacet['choices'][number];
-
 /** Independently paged member inventory carried alongside a whole-cell
- * column-values preview. */
+ * column-values preview. A choice's `count` is distinct sheet rows, not
+ * member occurrences, so it equals the filter result for that selector. */
 export type ColumnListFacet = NonNullable<HttpColumnValuesPreviewResponse['list_facet']>;
 
 /** The `entity_eq` selector a mention group emits, verbatim from the preview
@@ -2940,7 +2908,6 @@ export interface ReplaceRulesPreview {
   testResult: { matchedRuleIndex: number | null; output: string | null } | null;
   valueHash: string;
 }
-
 
 interface RunInspectorCell {
   columnId: string;
@@ -3876,8 +3843,6 @@ export interface WorkbenchPluginSettingDescriptor {
   max?: number | null;
   description?: string | null;
 }
-
-export type WorkbenchPluginSettingInfo = WorkbenchPluginSettings['settings'][number];
 
 export type WorkbenchPluginSettings = HttpWorkbenchPluginSettings;
 
