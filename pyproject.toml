@@ -30,7 +30,7 @@ dependencies = [
     "formualizer==0.13.0",
     # Local semantic search, joins, clustering, and embedding indexes are core
     # product paths. Model weights still download lazily on first use.
-    "fastembed>=0.4",
+    "fastembed>=0.9",
     # Local OCR is a base capability. RapidOCR loads an ONNX backend
     # dynamically, so own the tested CPU runtime explicitly. The optimized
     # worker currently targets RapidOCR 3.8's private session seam.
@@ -67,7 +67,7 @@ dependencies = [
     # binary wheel release so PDF conversion has no host Poppler prerequisite.
     "pypdfium2==5.9.0",
     # PDFium's bitmap adapter writes worker output through Pillow.
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "python-multipart>=0.0.32",
     "python-statemachine>=3.2.2,<4",
     "regex>=2026.5.9",
