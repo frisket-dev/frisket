@@ -1988,6 +1988,7 @@ def _refresh_index(
         # Repair is covered by the same claim cleanup as provider work: an
         # interrupted repair must not strand the acquired refresh lease.
         repair_unfinalized_refresh(project, params.index_id)
+        index, space = _index_in_current_space(store, index, space)
         result = _do_refresh(
             project,
             action,
@@ -2019,6 +2020,19 @@ def _refresh_index(
     finally:
         if not stale_writer:
             store.release_refresh_claim(params.index_id, claim, status=release_status)
+
+
+def _index_in_current_space(store: EmbeddingStore, index: Any, space: Any):
+    """Return the claimed index and its space after moving it off an older local
+    encoding generation, whose vectors the refresh must not reuse."""
+    moved_space_id = store.move_index_to_current_space(str(index["id"]))
+    if moved_space_id is None:
+        return index, space
+    moved_index = store.get_index(str(index["id"]))
+    moved_space = store.get_space(moved_space_id)
+    if moved_index is None or moved_space is None:
+        raise RuntimeError("embedding index changed under its refresh claim")
+    return moved_index, moved_space
 
 
 def _do_refresh(

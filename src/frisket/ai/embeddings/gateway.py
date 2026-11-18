@@ -19,6 +19,7 @@ from typing import Any, Literal
 from frisket.redaction import redact_text
 
 from .capabilities import EmbeddingBatchResult, build_batch_result
+from .spaces import LOCAL_FASTEMBED_ENCODER_REVISION
 
 # Text providers known to L2-normalize their output (OpenAI/Gemini embeddings and
 # the fastembed sentence-transformer models all return unit vectors). Used only
@@ -126,6 +127,7 @@ class EmbeddingGateway:
             provider_kind="local_process",
             requested_model=model or "local-image",
             actual_model_id=model_id,
+            model_revision=LOCAL_FASTEMBED_ENCODER_REVISION,
             modality="image",
             normalization=provider_normalization("fastembed"),
             usage={"input_count": len(images)},
@@ -167,6 +169,7 @@ class EmbeddingGateway:
             provider_kind="local_process",
             requested_model=model or "local",
             actual_model_id=model_id,
+            model_revision=LOCAL_FASTEMBED_ENCODER_REVISION,
             modality=modality,
             normalization=normalization,
             usage={"input_count": len(texts)},

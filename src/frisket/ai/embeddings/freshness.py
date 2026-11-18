@@ -16,6 +16,7 @@ from frisket.engine.store import Project
 from frisket.retrieval.query import PinnedRetrievalReader, RetrievalQueryError
 from frisket.retrieval.store import RetrievalStore
 
+from .spaces import current_space_descriptor, space_id_for
 from .unified_index import descriptor_space, recipe_for_index
 
 FRESHNESS_FRESH = "fresh"
@@ -388,6 +389,9 @@ def index_freshness(
                 )
             descriptor, _declared_space = descriptor_space(space)
             recipe = recipe_for_index(reader, pinned_index, descriptor)
+            # Members embedded by an older local encoding generation belong to
+            # another space: they are stale until a refresh re-embeds them.
+            space_id = space_id_for(current_space_descriptor(descriptor))
             dataset_id = str(pinned_index["id"])
             sheet_id = int(pinned_index["sheet_id"])
             ready, stale, _surplus, ready_samples, stale_samples = _member_status(
@@ -396,7 +400,7 @@ def index_freshness(
                 dataset_id=dataset_id,
                 sheet_id=sheet_id,
                 recipe_id=recipe.recipe_id,
-                space_id=str(space["id"]),
+                space_id=space_id,
             )
             missing = 0
             stale_targets = 0
@@ -413,7 +417,7 @@ def index_freshness(
                     dataset_id=dataset_id,
                     sheet_id=sheet_id,
                     recipe_id=recipe.recipe_id,
-                    space_id=str(space["id"]),
+                    space_id=space_id,
                 ):
                     stale_targets += len(
                         build_source_payloads(reader, pinned_index, columns, row_ids)

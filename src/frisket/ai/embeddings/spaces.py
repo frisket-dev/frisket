@@ -40,6 +40,13 @@ VALID_MODALITIES = frozenset(ALL_MODALITIES)
 VALID_METRICS = frozenset({"cosine", "dot", "euclidean", "l2"})
 VALID_DTYPES = frozenset({"float32", "float16", "int8"})
 
+# The vectors an in-process FastEmbed model produces for a given model id depend
+# on the library's tokenizer limits and model sources, so a local space records
+# the encoding generation as its ``model_revision``. Change it only when a
+# FastEmbed upgrade changes those vectors; a patch release that does not must
+# keep it, or every local index needlessly re-embeds.
+LOCAL_FASTEMBED_ENCODER_REVISION = "fastembed-0.9"
+
 # The strict descriptor, in a fixed field set. canonical_json sorts keys, so the
 # tuple order here is documentation, not the hash input — but the SET is the
 # identity boundary: a key outside it (a label, a schedule) cannot affect a
@@ -100,7 +107,7 @@ def make_space_descriptor(
     modality: str,
     dimension: int,
     requested_model: str | None = None,
-    model_revision: str = "unknown",
+    model_revision: str | None = None,
     dtype: str = "float32",
     distance_metric: str = "cosine",
     normalization: str = "none",
@@ -112,10 +119,14 @@ def make_space_descriptor(
     """Build and validate a strict space descriptor.
 
     ``vector_options`` is hashed into ``vector_options_hash`` unless an explicit
-    hash is supplied. Validation is fail-loud: a zero dimension or an unknown
-    modality/metric/dtype raises rather than minting a quietly-wrong space.
+    hash is supplied. ``model_revision`` defaults to the provider's current
+    encoding generation (see ``current_space_descriptor``). Validation is
+    fail-loud: a zero dimension or an unknown modality/metric/dtype raises rather
+    than minting a quietly-wrong space.
     """
     voh = vector_options_hash_value or vector_options_hash(vector_options)
+    if model_revision is None:
+        model_revision = _current_model_revision(str(provider_id)) or "unknown"
     descriptor = {
         "contract_version": contract_version,
         "provider_id": str(provider_id),
@@ -150,6 +161,24 @@ def validate_descriptor(descriptor: dict[str, Any]) -> None:
     for f in ("provider_id", "provider_kind", "actual_model_id"):
         if not descriptor[f]:
             raise ValueError(f"space descriptor {f} must be non-empty")
+
+
+def _current_model_revision(provider_id: str) -> str | None:
+    """The encoding generation this build produces for a provider, or None when
+    the provider's vectors do not depend on a library in this process."""
+    return LOCAL_FASTEMBED_ENCODER_REVISION if provider_id == "fastembed" else None
+
+
+def current_space_descriptor(descriptor: dict[str, Any]) -> dict[str, Any]:
+    """The descriptor that the space's provider produces vectors under today.
+
+    A local space minted by an older encoding generation maps to the current
+    one, so its stored vectors read as belonging to a different space and are
+    re-embedded; every other descriptor is returned unchanged."""
+    revision = _current_model_revision(str(descriptor["provider_id"]))
+    if revision is None or descriptor["model_revision"] == revision:
+        return descriptor
+    return {**descriptor, "model_revision": revision}
 
 
 def _strict_subset(descriptor: dict[str, Any]) -> dict[str, Any]:
