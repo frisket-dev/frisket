@@ -168,9 +168,12 @@ def register_import_session_routes(
     async def estimate_import_preparation_retry(
         request: Request, pid: str, ref: str
     ) -> ImportPreparationRetryEstimate:
-        return await transition(
-            service.estimate_preparation_retry, pid, ref, request_context=request
-        )
+        try:
+            return await await_thread_worker(
+                service.estimate_preparation_retry, pid, ref, request_context=request
+            )
+        except _EXPECTED_SESSION_CONFLICTS as exc:
+            raise _route_error(exc) from exc
 
     @app.post(
         f"{base}/{{ref}}/preparation/retry",

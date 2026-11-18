@@ -409,13 +409,10 @@ def _queue_v1_project_run_request(
             # the real value in the payload (_queued_action_reservation_
             # payload); free kinds never trip the gate at $0.
             attempt_id: str | None = None
-            program_kwargs = (
-                {} if request.program is None else {"program": request.program}
-            )
             if atomic_publication:
                 prepared, admitted_attempt = runner.prepare_admitted_run(
                     runner_spec,
-                    **program_kwargs,
+                    program=request.program,
                     confirmed=bool(reservation.get("confirmed", False)),
                     output_fields=reservation["output_fields"],
                 )
@@ -427,7 +424,7 @@ def _queue_v1_project_run_request(
             else:
                 progress = runner.prepare_run(
                     runner_spec,
-                    **program_kwargs,
+                    program=request.program,
                     confirmed=bool(reservation.get("confirmed", False)),
                 )
             request.entry.mark_prepared(

@@ -300,6 +300,7 @@ def test_failed_pages_warn_and_retry_with_consent_to_their_own_estimate(flow):
         )
     assert session["failed_pages"] == 1 and session["ocr_completed"] == 1
     assert provider.calls == 2
+    _session(client, pid, ref)
     (warning,) = _notifications(client, pid)
     assert warning["source_kind"] == "import"
     assert warning["severity"] == "warning"
@@ -406,6 +407,9 @@ def test_clean_page_text_is_notified_only_to_a_route_for_imports(flow, source_ki
         clock.wait_until(
             lambda: _settled(_session(client, pid, ref)), message="text not read"
         )
+    # The outcome is recorded on the first preparation pass that sees every
+    # page settled, which may be the pass after the one that reported it.
+    _session(client, pid, ref)
     notices = _notifications(client, pid)
     if source_kind is None:
         assert notices == []
