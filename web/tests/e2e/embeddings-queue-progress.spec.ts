@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { embeddingIndexFixture, embeddingIndexListFixture } from '../support/embeddingIndexFixtures';
+import { chooseEmbeddingModel, stubEmbeddingSelector } from './embeddingSelectorFixture';
 import { createProject, importCsv, openDiscoverTab, uniqueName } from './helpers';
 
 // Embedding refreshes can take long enough to require queue progress. Creation
@@ -82,6 +83,8 @@ async function installStubs(page: Page, pid: string, sheetId: number) {
     if (refreshLaunchedAt === null) return 'done';
     return Date.now() - refreshLaunchedAt < RUNNING_WINDOW_MS ? 'running' : 'done';
   }
+
+  await stubEmbeddingSelector(page, pid);
 
   await page.route(`**/api/projects/${pid}/embeddings/v1/provider-catalog*`, (route) =>
     route.fulfill({
@@ -208,9 +211,7 @@ test('create embeddings enqueues the build, the jobs panel shows it running, and
   await openDiscoverTab(page, 'Embeddings');
   await expect(page.getByTestId('embeddings-panel')).toBeVisible();
   await page.getByTestId('embeddings-add-button').click();
-  await expect(page.getByTestId('embedding-model-field')).toBeVisible();
-  await page.getByTestId('embedding-model-field').click();
-  await page.getByTestId('embedding-model-card-paraphrase-MiniLM').click();
+  await chooseEmbeddingModel(page, 'fastembed-paraphrase-MiniLM');
   await page.getByTestId('embedding-create-next').click();
   await expect(page.getByTestId('embedding-create-summary')).toBeVisible();
   await page.getByTestId('embedding-create').click();

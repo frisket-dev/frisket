@@ -57,28 +57,6 @@
  "editable-grid.spec.ts": {
   "the in-place editor wraps a long unbroken text value": "stale-expectation"
  },
- "embeddings-alert.spec.ts": {
-  "a blocked embedding alert shows a Refresh link that refreshes the index": "stale-expectation"
- },
- "embeddings-create-flow.spec.ts": {
-  "remote index creation separates source, egress, cost, and summary review": "stale-expectation"
- },
- "embeddings-lens-grid.spec.ts": {
-  "NER initialized from a lens submits complete exact membership, not its grid window": "stale-expectation",
-  "a stale/incomplete resolve blocks the grid open with refresh-needed, no partial grid": "stale-expectation",
-  "distance and score are visible in the grid path (result columns)": "stale-expectation",
-  "exiting the lens view restores the full sheet in the grid": "stale-expectation",
-  "opening a lens shows ONLY the lens row_ids in the grid, in score order": "stale-expectation",
-  "the banner honestly shows \"showing N of M\" when the window is smaller than the total": "stale-expectation"
- },
- "embeddings-lens.spec.ts": {
-  "a stale-anchor resolve shows a refresh-needed message rather than a crash": "stale-expectation",
-  "an incomplete-index resolve shows refresh-needed, not a raw error": "stale-expectation",
-  "opening a lens resolves it and renders the ranked rows with distance/score": "stale-expectation"
- },
- "embeddings-queue-progress.spec.ts": {
-  "create embeddings enqueues the build, the jobs panel shows it running, and the embeddings panel refreshes to ready on completion without a manual reload": "stale-expectation"
- },
  "engine-selection-layout.spec.ts": {
   "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
  },
@@ -178,11 +156,6 @@
   "4 — a view keeps its entity_eq mention filter through leave and restore": "stale-expectation",
   "5 — a legacy entity column offers Rebuild and shows none of its old items": "stale-expectation",
   "6 — filtering by a group that only exists on page 2 keeps both pages loaded": "stale-expectation"
- },
- "native-embeddings-ui.spec.ts": {
-  "provider picker shows available + disabled-remote and creates a local index": "stale-expectation",
-  "refresh clears refresh-needed": "stale-expectation",
-  "remote provider requires privacy confirmation before automatic refresh": "stale-expectation"
  },
  "new-columns-scroll-annotation.spec.ts": {
   "a grouped annotation clears the group header and keeps dismiss in the top-right": "stale-expectation",
