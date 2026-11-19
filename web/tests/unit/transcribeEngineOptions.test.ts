@@ -18,6 +18,7 @@ const INTRINSIC_FIXTURE: EngineOption = {
     language: true,
     vad: false,
     model_size: false,
+    context: false,
   },
   diarization: {
     supported: true,
@@ -29,7 +30,7 @@ const INTRINSIC_FIXTURE: EngineOption = {
     target: 'fixture-sidecar',
     target_id: 'fixture-sidecar',
     available: true,
-    transcription_options: { language: true, vad: false, model_size: false },
+    transcription_options: { language: true, vad: false, model_size: false, context: false },
     diarization: { supported: true, mode: 'intrinsic', speaker_hint: 'none' },
   }],
 };
@@ -41,6 +42,7 @@ describe('transcription engine option declarations', () => {
       language: true,
       vad: false,
       model_size: false,
+      context: false,
     });
   });
 
@@ -86,7 +88,7 @@ describe('transcription engine option declarations', () => {
     const catalog = {
       actions: [{ kind: 'media.transcribe', ui_hints: { engines: [{
         id: 'faster_whisper', label: 'Whisper', tier: 'local', available: true,
-        transcription_options: { language: true, vad: true, model_size: true },
+        transcription_options: { language: true, vad: true, model_size: true, context: false },
       }] } }],
     } as Parameters<typeof transcribeEnginesFromCatalog>[0];
     expect(transcribeEnginesFromCatalog(catalog)[0]).toMatchObject({
@@ -102,7 +104,7 @@ describe('transcription engine option declarations', () => {
       targets: [{
         target: 'offline-target', target_id: 'offline-target', available: false,
         error: 'Download model weights before retrying.',
-        transcription_options: { language: false, vad: false, model_size: false },
+        transcription_options: { language: false, vad: false, model_size: false, context: false },
         diarization: { supported: false, mode: 'none' },
       }],
     })).toBe('This option is not available with this setup.');
