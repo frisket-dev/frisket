@@ -19,7 +19,7 @@ from frisket.engine.store.schema import (
 )
 from frisket.upgrades.project._step import execute_ddl, schema_digest, schema_step
 from frisket.upgrades.project.edit_precedence_migration import (
-    EDIT_PRECEDENCE_TO_DIGEST,
+    COPY_PRECEDENCE_TO_DIGEST,
 )
 
 
@@ -372,9 +372,9 @@ def migrate_domain(db: sqlite3.Connection) -> None:
 
     if schema_digest(db) != DOMAIN_FROM_DIGEST:
         return
-    # The cutover installs runtime DDL; only the edit-precedence step, which
-    # reinstalls the same change views, may separate it from this build.
-    if SCHEMA_DIGEST != EDIT_PRECEDENCE_TO_DIGEST:
+    # The cutover installs runtime DDL; only the edit-precedence steps, which
+    # reinstall the same change views, may separate it from this build.
+    if SCHEMA_DIGEST != COPY_PRECEDENCE_TO_DIGEST:
         raise BundleSchemaMismatch(
             "Domain migration endpoint needs updating for this build"
         )

@@ -310,7 +310,7 @@ def test_reapply_refuses_colliding_output_roles_without_writes(work, names):
     assert len(calls) == 2
 
 
-def test_reapply_replaces_original_generated_output_with_saved_provenance(work):
+def test_reapply_replaces_original_generated_output_and_keeps_hand_edits(work):
     project, sheet, source, rows, calls, adapter, run = work
     original = start(run)
     column = next(c["id"] for c in project.columns(sheet) if c["name"] == "Answer")
@@ -325,9 +325,14 @@ def test_reapply_replaces_original_generated_output_with_saved_provenance(work):
         expected_output_columns={"Answer": column},
     )
     assert reapplied.status == "completed", reapplied.errors
-    assert dict(project.get_values(sheet, column)) == saved
-    _, refs = project.get_values_with_refs(sheet, column, row_ids=[rows[0]])
-    assert refs[rows[0]]["retained_result"]["run_id"] == original.run_id
+    assert dict(project.get_values(sheet, column)) == {
+        **saved,
+        rows[0]: "manual edit",
+    }
+    _, refs = project.get_values_with_refs(sheet, column, row_ids=rows[:2])
+    assert refs[rows[0]]["kind"] == "manual_edit"
+    assert refs[rows[1]]["kind"] == "copied_result"
+    assert refs[rows[1]]["retained_result"]["run_id"] == original.run_id
     assert len(calls) == 2
     assert project.undo() is not None
     assert project.get_values(sheet, column)[rows[0]] == "manual edit"

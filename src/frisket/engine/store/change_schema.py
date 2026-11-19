@@ -2,22 +2,28 @@
 
 # A reject-clear edit yields to any later replacement of its cell; every other
 # edit yields only to a later replacement that changed the column descriptor.
+# Run results and Reapply copies are replacements alike.
 _REJECT_CLEAR_EDIT_SQL = (
     "{op}.kind='review.decision' "
     "AND json_extract({op}.spec,'$.params.decision')='reject_clear'"
 )
-_DESCRIPTOR_CHANGE_SQL = " OR ".join(
-    f"json_type(op.undo_info,'$.{key}.\"'||generation.column_id||'\"') IS NOT NULL"
-    for key in (
-        "column_types_after",
-        "column_formats_after",
-        "column_semantic_types_after",
-    )
-)
 
-# edit_supersession: on a run result, which earlier edits it supersedes (2 every
-# edit, 1 reject-clear edits, 0 none); on an edit, the strength that supersedes
-# it. Other contributions carry 0.
+
+def _descriptor_change_sql(column_id: str) -> str:
+    return " OR ".join(
+        f"json_type(op.undo_info,'$.{key}.\"'||{column_id}||'\"') IS NOT NULL"
+        for key in (
+            "column_types_after",
+            "column_formats_after",
+            "column_semantic_types_after",
+        )
+    )
+
+
+# edit_supersession: on a run result or copied result, which earlier edits it
+# supersedes (2 every edit, 1 reject-clear edits, 0 none); on an edit, the
+# strength that supersedes it. Other contributions carry 0. Reapply copies every
+# selected row, so a copy is always a replacement.
 CELL_CONTRIBUTION_ARMS = (
     """SELECT cell.row_id,cell.column_id,'source_cell' AS origin_kind,
        NULL AS origin_op_id,NULL AS origin_run_id,cell.producer_id AS base_producer_id,
@@ -29,7 +35,7 @@ WHERE op.status='applied' AND op.change_order IS NOT NULL""",
        op.change_order,op.publication_closed,
        CASE WHEN generation.write_mode!='replace_scope' THEN 0
             WHEN """
-    + _DESCRIPTOR_CHANGE_SQL
+    + _descriptor_change_sql("generation.column_id")
     + """ THEN 2 ELSE 1 END
 FROM run_output_generations generation JOIN runs run ON run.id=generation.run_id
 JOIN ops op ON op.id=run.op_id JOIN run_rows scope ON scope.run_id=run.id
@@ -48,7 +54,9 @@ AND NOT EXISTS (SELECT 1 FROM results retained WHERE retained.run_id=run.id
 FROM edits edit JOIN ops op ON op.id=edit.op_id
 WHERE op.status='applied' AND op.change_order IS NOT NULL""",
     """SELECT copy.row_id,copy.column_id,'copied_result',copy.op_id,copy.source_run_id,NULL,
-       op.change_order,1,0
+       op.change_order,1,CASE WHEN """
+    + _descriptor_change_sql("copy.column_id")
+    + """ THEN 2 ELSE 1 END
 FROM copied_result_outcomes copy JOIN ops op ON op.id=copy.op_id
 WHERE op.status='applied' AND op.change_order IS NOT NULL""",
     """SELECT baseline.row_id,baseline.column_id,baseline.origin_kind,baseline.origin_op_id,
@@ -67,11 +75,11 @@ def canonical_heads_sql(
     """Resolve ordered winners from an internally scoped contribution relation.
 
     Later changes win, except that a human edit outranks every later run
-    result on its cell: the run's value is offered for replay review instead.
-    A later replacement that changes the column descriptor supersedes the
-    edit, and any later replacement supersedes a reject-clear edit. A later
-    source write or copied result supersedes the edit as well, so a run after
-    it is again ordered by change alone.
+    result or copied result on its cell: a run's value is offered for replay
+    review instead. A later replacement that changes the column descriptor
+    supersedes the edit, and any later replacement supersedes a reject-clear
+    edit. A later source write supersedes the edit as well, so a run after it
+    is again ordered by change alone.
     """
     return f"""
 SELECT payload.column_id,payload.row_id,
@@ -119,20 +127,22 @@ FROM (
             AND COALESCE(ordered.last_descriptor_replacement,-1)<ordered.change_order
             AND (ordered.edit_supersession=2
               OR COALESCE(ordered.last_replacement,-1)<ordered.change_order)
-          THEN MAX(ordered.change_order,COALESCE(ordered.last_run,-1))
+          THEN MAX(ordered.change_order,COALESCE(ordered.last_generated,-1))
           ELSE ordered.change_order END DESC,
         CASE ordered.origin_kind WHEN 'manual_edit' THEN 2 WHEN 'run_result' THEN 1 ELSE 0 END DESC,
         ordered.change_order DESC,
         ordered.base_producer_id DESC
     ) AS winner FROM (
       SELECT contribution.*,
-        MAX(CASE WHEN contribution.origin_kind='run_result'
-          THEN contribution.change_order END) OVER cell AS last_run,
-        MAX(CASE WHEN contribution.origin_kind IN ('source_cell','copied_result')
+        MAX(CASE WHEN contribution.origin_kind IN ('run_result','copied_result')
+          THEN contribution.change_order END) OVER cell AS last_generated,
+        MAX(CASE WHEN contribution.origin_kind='source_cell'
           THEN contribution.change_order END) OVER cell AS last_overwrite,
-        MAX(CASE WHEN contribution.origin_kind='run_result' AND contribution.edit_supersession>=1
+        MAX(CASE WHEN contribution.origin_kind IN ('run_result','copied_result')
+          AND contribution.edit_supersession>=1
           THEN contribution.change_order END) OVER cell AS last_replacement,
-        MAX(CASE WHEN contribution.origin_kind='run_result' AND contribution.edit_supersession=2
+        MAX(CASE WHEN contribution.origin_kind IN ('run_result','copied_result')
+          AND contribution.edit_supersession=2
           THEN contribution.change_order END) OVER cell AS last_descriptor_replacement
       FROM {contributions_from}
       WINDOW cell AS (PARTITION BY contribution.column_id,contribution.row_id)

@@ -51,6 +51,7 @@ from frisket.upgrades.project.action_submissions_migration import (
 )
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST, migrate_domain
 from frisket.upgrades.project.edit_precedence_migration import (
+    COPY_PRECEDENCE_TO_DIGEST,
     EDIT_PRECEDENCE_TO_DIGEST,
     apply_edit_precedence,
 )
@@ -151,6 +152,9 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
         run_step(db, *step)
     migrate_domain(db)
     run_step(db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
+    run_step(
+        db, EDIT_PRECEDENCE_TO_DIGEST, COPY_PRECEDENCE_TO_DIGEST, apply_edit_precedence
+    )
 
 
 def _apply_ocr_review_roles(db: sqlite3.Connection) -> None:

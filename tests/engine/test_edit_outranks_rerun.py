@@ -1,8 +1,9 @@
-"""A hand edit stays current when a later re-run replaces its cell.
+"""A hand edit stays current when a later re-run or Reapply replaces its cell.
 
-The re-run's value is offered for replay review instead. A reject-clear edit
-yields to a later replacement, and a replacement that changes the column
-descriptor supersedes every earlier edit.
+A re-run's value is offered for replay review instead; a copied value is not
+offered. A reject-clear edit yields to a later replacement, a replacement that
+changes the column descriptor supersedes every earlier edit, and a later
+source write supersedes an edit.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from frisket.actions.imports import UpdateRowsParams
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.change_schema import canonical_heads_sql
@@ -20,6 +22,7 @@ from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.server.services.sheet_grid import SheetGridService, sheet_columns_payload
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
+from helpers import make_client
 
 _PROJECT_ID = "proj-edit-precedence"
 
@@ -33,7 +36,7 @@ class _Sheet:
             self.sheet, [{"n": str(i)} for i in range(6)], {"n": source}
         )
         self._keys = 0
-        self.run("A", replace=False)
+        self.first_run = self.run_id(self.run("A", replace=False))
         self.out = int(
             project.db.execute(
                 "SELECT id FROM columns WHERE sheet_id=? AND name='out'",
@@ -91,6 +94,29 @@ class _Sheet:
             }
         )
         return int(self.project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0])
+
+    def run_id(self, op_id: int) -> int:
+        return int(
+            self.project.db.execute(
+                "SELECT id FROM runs WHERE op_id=?", (op_id,)
+            ).fetchone()[0]
+        )
+
+    def reapply(self, source_run_id: int, *, row_ids: list[int] | None = None) -> None:
+        self.act(
+            {
+                "action_id": "run.reapply",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": self.sheet,
+                    **({"row_ids": row_ids} if row_ids else {}),
+                },
+                "params": {"source_run_id": source_run_id},
+                "output_names": {"out": "out"},
+                "replace_existing": True,
+                "expected_output_columns": {"out": self.out},
+            }
+        )
 
     def edit_first_three(self) -> None:
         self.act(
@@ -236,28 +262,161 @@ def test_accepted_value_is_an_edit_that_a_later_rerun_keeps(make_project):
     assert sheet.pending_fresh()[sheet.rows[0]] == "C0"
 
 
-def test_copy_after_an_edit_supersedes_it_for_later_reruns(make_project):
+def test_reapply_after_an_edit_keeps_it_and_a_later_rerun_offers_values(
+    make_project,
+):
     sheet = _Sheet(make_project("p"))
-    original = int(
-        sheet.project.db.execute(
-            "SELECT run_id FROM results WHERE column_id=? LIMIT 1", (sheet.out,)
-        ).fetchone()[0]
-    )
     sheet.edit_first_three()
+    sheet.reapply(sheet.first_run)
+    assert sheet.values() == [*_EDITED, "A3", "A4", "A5"]
+    assert sheet.origins() == ["manual_edit"] * 3 + ["copied_result"] * 3
+    assert sheet.pending() == {}
+    sheet.run("B")
+    assert sheet.values() == [*_EDITED, "B3", "B4", "B5"]
+    assert sheet.pending_fresh() == dict(zip(sheet.rows[:3], ["B0", "B1", "B2"]))
+
+
+def test_reapply_after_a_rerun_keeps_edits_and_offers_no_copied_value(
+    make_project,
+):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    sheet.reapply(sheet.first_run)
+    assert sheet.values() == [*_EDITED, "A3", "A4", "A5"]
+    assert sheet.pending() == {}
+
+
+def test_edit_after_reapply_is_current(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.run("B")
+    sheet.reapply(sheet.first_run)
+    sheet.edit_first_three()
+    assert sheet.values() == [*_EDITED, "A3", "A4", "A5"]
+    assert sheet.origins() == ["manual_edit"] * 3 + ["copied_result"] * 3
+
+
+def _reject_clear(sheet: _Sheet, row_id: int) -> None:
     sheet.act(
         {
-            "action_id": "run.reapply",
-            "scope": {"kind": "sheet_rows", "sheet_id": sheet.sheet},
-            "params": {"source_run_id": original},
-            "output_names": {"out": "out"},
-            "replace_existing": True,
-            "expected_output_columns": {"out": sheet.out},
+            "action_id": "review.decision",
+            "scope": {"kind": "project"},
+            "params": {
+                "run_id": sheet.first_run,
+                "row_id": row_id,
+                "column_id": sheet.out,
+                "decision": "reject_clear",
+            },
         }
     )
-    assert sheet.values() == ["A0", "A1", "A2", "A3", "A4", "A5"]
+
+
+def test_reject_clear_yields_to_a_later_reapply_but_an_edit_does_not(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.act(
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {"row_id": sheet.rows[0], "column_id": sheet.out, "value": "E"}
+                ]
+            },
+        }
+    )
+    _reject_clear(sheet, sheet.rows[1])
+    assert sheet.values()[1] is None
+    sheet.reapply(sheet.first_run)
+    assert sheet.values()[:2] == ["E", "A1"]
+    assert sheet.origins()[:2] == ["manual_edit", "copied_result"]
+
+
+def test_descriptor_changing_reapply_supersedes_edits(make_project):
+    sheet = _Sheet(make_project("p"))
+    retyped = sheet.run_id(sheet.run("", column_type="integer"))
     sheet.run("B")
-    assert sheet.values() == ["B0", "B1", "B2", "B3", "B4", "B5"]
-    assert sheet.origins() == ["run_result"] * 6
+    sheet.edit_first_three()
+    sheet.reapply(retyped)
+    assert sheet.values() == [1] * 6
+    assert sheet.origins() == ["copied_result"] * 6
+
+
+def test_source_write_after_an_edit_still_supersedes_it(make_project):
+    project = make_project("p")
+    sheet = project.add_sheet("People")
+    columns = {
+        "id": project.add_column(sheet, "id", "text"),
+        "name": project.add_column(sheet, "name", "text"),
+    }
+    rows = project.add_rows(
+        sheet, [{"id": "a", "name": "Alice"}, {"id": "b", "name": "Bob"}], columns
+    )
+    edited = run_action_spec(
+        project,
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {"row_id": rows[1], "column_id": columns["name"], "value": "E"}
+                ]
+            },
+            "idempotency_key": "edit",
+        },
+        project_id=_PROJECT_ID,
+    )
+    assert edited.status == "completed", edited.errors
+    params = UpdateRowsParams(
+        columns=[{"name": "id", "type": "text"}, {"name": "name", "type": "text"}],
+        key_columns=["id"],
+        update_policy="incoming_wins",
+        keep_existing_on_blank=False,
+        rows=[{"id": "b", "name": "Robert"}],
+        source={"kind": "inline", "label": "paste", "fingerprint": "sha256:test"},
+    )
+    refreshed = run_action_spec(
+        project,
+        {
+            "action_id": "import.update_rows",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": params.model_dump(mode="json"),
+            "idempotency_key": "refresh",
+        },
+        project_id=_PROJECT_ID,
+    )
+    assert refreshed.status == "completed", refreshed.errors
+    refs = project.get_values_with_refs(sheet, columns["name"], row_ids=rows)[1]
+    assert project.get_values(sheet, columns["name"])[rows[1]] == "Robert"
+    assert refs[rows[1]]["kind"] == "source_cell"
+
+
+def test_sheet_endpoint_reads_reapplied_copies_beneath_edits(tmp_path):
+    client = make_client(tmp_path)
+    project_id = client.post("/api/projects", json={"name": "Copies"}).json()["id"]
+    sheet = _Sheet(client.app.state.workspace.get(project_id))
+
+    def read() -> tuple[list[Any], list[int]]:
+        response = client.get(f"/api/projects/{project_id}/sheets/{sheet.sheet}/data")
+        assert response.status_code == 200, response.text
+        data = response.json()
+        [column] = [c for c in data["columns"] if c["id"] == sheet.out]
+        assert column["mixed_origins"] is False
+        rows = {row["id"]: row for row in data["rows"]}
+        pending = [
+            index
+            for index, row in enumerate(sheet.rows)
+            if "pending_value" in rows[row]["meta"].get(str(sheet.out), {})
+        ]
+        assert column["replay_pending_count"] == len(pending)
+        return [rows[row]["cells"][str(sheet.out)] for row in sheet.rows], pending
+
+    # A copy beneath an edit is not offered; the original run still is.
+    sheet.edit_first_three()
+    sheet.reapply(sheet.first_run, row_ids=[sheet.rows[0]])
+    assert read() == ([*_EDITED, "A3", "A4", "A5"], [1, 2])
+    sheet.run("B")
+    sheet.reapply(sheet.first_run)
+    assert read() == ([*_EDITED, "A3", "A4", "A5"], [])
 
 
 def test_accept_makes_the_run_value_current(make_project):
@@ -338,10 +497,13 @@ def test_descriptor_changing_rerun_supersedes_edits(make_project):
     assert sheet.origins() == ["run_result"] * 6
 
 
-def test_projection_rebuild_resolves_the_same_heads(make_project):
+@pytest.mark.parametrize("reapply", [False, True], ids=["rerun", "reapply"])
+def test_projection_rebuild_resolves_the_same_heads(make_project, reapply):
     sheet = _Sheet(make_project("p"))
     sheet.edit_first_three()
     sheet.run("B")
+    if reapply:
+        sheet.reapply(sheet.first_run)
     db = sheet.project.db
     columns = "column_id,row_id,origin_kind,origin_op_id,origin_run_id"
     cached = db.execute(
@@ -362,7 +524,10 @@ def test_projection_rebuild_resolves_the_same_heads(make_project):
     ).fetchall()
     assert [tuple(row) for row in cached] == [tuple(row) for row in canonical]
     assert [tuple(row) for row in rebuilt] == [tuple(row) for row in canonical]
-    assert sheet.values() == [*_EDITED, "B3", "B4", "B5"]
+    assert sheet.values() == [
+        *_EDITED,
+        *(["A3", "A4", "A5"] if reapply else ["B3", "B4", "B5"]),
+    ]
 
 
 def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
