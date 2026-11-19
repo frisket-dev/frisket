@@ -1,4 +1,7 @@
 from __future__ import annotations
+from functools import partial
+
+from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from quick_search_helpers import patch_quick_search_model
@@ -518,27 +521,6 @@ class _FakeDDGS:
         ]
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, object] | None = None) -> None:
-        self.reply = reply or {
-            "beat": "accountability",
-            "beat_confidence": 0.91,
-            "beat_justification": "mentions a public decision",
-        }
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=37,
-            tokens_out=11,
-            cost=0.002,
-            model=req.model,
-        )
-
-
 class _SequenceAdapter:
     def __init__(self, replies: list[dict[str, object]]) -> None:
         self.replies = replies
@@ -557,18 +539,13 @@ class _SequenceAdapter:
         )
 
 
-def _stub_router(
-    reply: dict[str, object] | None = None,
-) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_CLASSIFY_REPLY = {
+    "beat": "accountability",
+    "beat_confidence": 0.91,
+    "beat_justification": "mentions a public decision",
+}
+
+_stub_router = partial(canned_reply_router, tokens_in=37, tokens_out=11, cost=0.002)
 
 
 def _judge_router() -> tuple[ModelRouter, _SequenceAdapter]:
@@ -1359,7 +1336,7 @@ def test_v1_action_run_queues_maprunner_action_and_status_cancel_use_same_job(
 def test_v1_action_run_queues_map_classify_and_worker_finalizes_receipt(
     tmp_path,
 ) -> None:
-    router, adapter = _stub_router()
+    router, adapter = _stub_router(_CLASSIFY_REPLY)
     client = TestClient(
         create_app(tmp_path / "ws", router=router, run_status_grace_seconds=3600.0)
     )
@@ -1464,7 +1441,7 @@ def test_v1_action_run_worker_exception_fails_reserved_receipt(
     tmp_path,
     monkeypatch,
 ) -> None:
-    router, adapter = _stub_router()
+    router, adapter = _stub_router(_CLASSIFY_REPLY)
     client = TestClient(
         create_app(tmp_path / "ws", router=router, run_status_grace_seconds=3600.0)
     )

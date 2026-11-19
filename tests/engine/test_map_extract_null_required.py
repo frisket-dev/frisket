@@ -10,16 +10,16 @@ never silently empty and never a row hard-failure.
 """
 
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
-import json
+from model_doubles import CannedReplyAdapter, canned_reply_router
+
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from executor_harness import run_action_with_confirmation
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.actions.extract import ExtractParams
@@ -29,35 +29,14 @@ from frisket.ops.extraction import normalize_extracted_value
 PROJECT_ID = "project-null-required"
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = {
-            name: {"value": value, "evidence": []} for name, value in reply.items()
-        }
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=11,
-            tokens_out=7,
-            cost=0.001,
-            model=req.model,
-        )
-
-
-def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
+def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, CannedReplyAdapter]:
+    """Answer with each field of ``reply`` as an evidence-free extracted value."""
+    return canned_reply_router(
+        {name: {"value": value, "evidence": []} for name, value in reply.items()},
+        tokens_in=11,
+        tokens_out=7,
+        cost=0.001,
     )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
 
 
 def _seed(tmp_path: Path) -> tuple[Path, int]:

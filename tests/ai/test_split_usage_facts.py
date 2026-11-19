@@ -1,5 +1,6 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from model_doubles import canned_reply_router
 
 import asyncio
 import importlib
@@ -40,26 +41,7 @@ LONG_OPAQUE_VALUE = re.compile(r"^[A-Za-z0-9+/=_\-]{65,}$")
 # --------------------------------------------------------------------------
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-
-    async def complete(self, req, client):  # noqa: ANN001
-        from frisket.ai.llm import LLMResponse
-
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=61,
-            tokens_out=23,
-            cost=0.004,
-            model=req.model,
-        )
-
-
 def _stub_router():
-    from frisket.ai.llm import ModelRouter
-
     reply = {
         "beat": "accountability",
         "beat_justification": "The story involves a no-bid contract.",
@@ -67,13 +49,7 @@ def _stub_router():
         "risk_score_justification": "Public spending deserves scrutiny.",
         "beat_confidence": 0.91,
     }
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    router._adapters["anthropic"] = _StubAdapter(reply)  # noqa: SLF001
+    router, _ = canned_reply_router(reply, tokens_in=61, tokens_out=23, cost=0.004)
     return router
 
 

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from model_doubles import CannedReplyAdapter
 from executor_harness import (
     CatalogEntry,
     ExecutorCase,
@@ -16,23 +17,6 @@ from executor_harness import (
 )
 from frisket.ai.llm import LLMError, LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
-
-
-class _TranslateAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=54,
-            tokens_out=18,
-            cost=0.003,
-            model=req.model,
-        )
 
 
 class _FailingTranslateAdapter:
@@ -46,7 +30,7 @@ class _FailingTranslateAdapter:
 
 # Replaced by _patch_translate at the start of every harness test for this
 # case; asserts on .requests are only meaningful behind that patch.
-_ADAPTER = _TranslateAdapter({})
+_ADAPTER = CannedReplyAdapter({})
 
 
 def _translate_router(adapter: Any, *, max_retries: int | None = None) -> ModelRouter:
@@ -65,11 +49,14 @@ def _translate_router(adapter: Any, *, max_retries: int | None = None) -> ModelR
 def _patch_translate(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     del monkeypatch
     global _ADAPTER
-    _ADAPTER = _TranslateAdapter(
+    _ADAPTER = CannedReplyAdapter(
         {
             "translation": "Hello world",
             "detected_language": "fr",
-        }
+        },
+        tokens_in=54,
+        tokens_out=18,
+        cost=0.003,
     )
     return {"router": _translate_router(_ADAPTER)}
 

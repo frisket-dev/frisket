@@ -1,5 +1,7 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from functools import partial
+
+from model_doubles import canned_reply_router
 
 import hashlib
 import json
@@ -7,7 +9,6 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
@@ -17,33 +18,7 @@ PROJECT_ID = "project-vision-extract-chain"
 WORKFLOW_ID = "vision-image-extract-chain"
 
 
-class _VisionAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=96,
-            tokens_out=44,
-            cost=0.008,
-            model=req.model,
-        )
-
-
-def _router(reply: dict[str, Any]) -> tuple[ModelRouter, _VisionAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _VisionAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_router = partial(canned_reply_router, tokens_in=96, tokens_out=44, cost=0.008)
 
 
 def _png_header(width: int, height: int) -> bytes:

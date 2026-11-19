@@ -1,5 +1,7 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from functools import partial
+
+from model_doubles import canned_reply_router
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -11,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
@@ -27,33 +28,7 @@ PROJECT_ID = "project-extract-scalar-temporal-anchors"
 # --------------------------------------------------------------------------- #
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=json.loads(json.dumps(self.reply)),
-            tokens_in=91,
-            tokens_out=37,
-            cost=0.006,
-            model=req.model,
-        )
-
-
-def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_stub_router = partial(canned_reply_router, tokens_in=91, tokens_out=37, cost=0.006)
 
 
 def _verdict_field() -> dict[str, Any]:

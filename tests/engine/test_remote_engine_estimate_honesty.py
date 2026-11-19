@@ -1,12 +1,13 @@
 from __future__ import annotations
+
+from model_doubles import CannedReplyAdapter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-import json
 
 import pytest
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.engine.runner.validation import ExecutionResolutionRefused
 from frisket.engine.store import Project
@@ -73,27 +74,6 @@ def _program(spec):
     return _typed_map_rows_plan(
         bound_typed_program_request_from_runner_spec(spec)
     ).program
-
-
-class _StubAdapter:
-    """Records every call; returns a canned structured response — the
-    per-row TracingRouter proxy calls this with ``trace=events`` like the
-    real router does (frisket.llm.router.ModelRouter.complete)."""
-
-    def __init__(self, reply: dict):
-        self._reply = reply
-        self.calls = 0
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.calls += 1
-        return LLMResponse(
-            content=json.dumps(self._reply),
-            data=dict(self._reply),
-            tokens_in=42,
-            tokens_out=7,
-            cost=0.0001,
-            model=req.model,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -443,8 +423,11 @@ class TestVlmOcrTraceCapturesModelCalls:
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
         )
-        adapter = _StubAdapter(
-            {"lines": [{"text": "VLM READ 4271", "box_2d": [100, 100, 900, 900]}]}
+        adapter = CannedReplyAdapter(
+            {"lines": [{"text": "VLM READ 4271", "box_2d": [100, 100, 900, 900]}]},
+            tokens_in=42,
+            tokens_out=7,
+            cost=0.0001,
         )
         router._adapters["gemini"] = adapter  # noqa: SLF001 — stub injection, test-only
 
@@ -464,7 +447,7 @@ class TestVlmOcrTraceCapturesModelCalls:
                 asyncio.run(runner.run(spec, program=_program(spec), confirmed=True))
             confirmation = challenge.value.promise_set_hash
             assert confirmation is not None
-            assert adapter.calls == 0
+            assert len(adapter.requests) == 0
         from frisket.actions.system import BoundTypedActionRequest
         from frisket.engine.executor.map_rows_action import (
             bound_typed_program_request_from_runner_spec,
@@ -492,7 +475,7 @@ class TestVlmOcrTraceCapturesModelCalls:
             ],
         )
         run_id = project.db.execute("SELECT MAX(id) FROM runs").fetchone()[0]
-        assert adapter.calls == 1, "the stub adapter never saw the VLM call"
+        assert len(adapter.requests) == 1, "the stub adapter never saw the VLM call"
 
         trace = read_trace(project.path, run_id)
         assert trace is not None, "debug run recorded no trace sidecar"

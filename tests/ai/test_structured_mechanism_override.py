@@ -1,9 +1,10 @@
 from __future__ import annotations
+
+from model_doubles import ScriptedAdapter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
 import json
-from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -25,32 +26,6 @@ from frisket.ai.llm.structured_capabilities import (
     PROSE_JSON,
 )
 from frisket.ai.llm.types import LLMResponse, SchemaViolation
-
-# ---------------------------------------------------------------------------
-# A scripted adapter installed into a real ModelRouter under an arbitrary
-# provider name -- same technique as tests/test_structured_completer.py's
-# ScriptedAdapter, duplicated here (house convention: each structured test
-# file is self-contained) so cache/chaos/retry/receipts are the ACTUAL
-# llm/router.py code and only the wire is scripted.
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ScriptedAdapter:
-    outcomes: list[Any]
-    base_url: str = "http://mock"
-    seen: list[Any] = field(default_factory=list)
-    _i: int = 0
-
-    async def complete(self, req: Any, client: Any) -> LLMResponse:
-        self.seen.append(req)
-        outcome = self.outcomes[min(self._i, len(self.outcomes) - 1)]
-        self._i += 1
-        if isinstance(outcome, Exception):
-            raise outcome
-        if callable(outcome):
-            return outcome(req)
-        return outcome
 
 
 def _resp(data: dict, *, tokens_in=10, tokens_out=5, cost=0.0001):

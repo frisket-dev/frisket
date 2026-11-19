@@ -1,13 +1,12 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from model_doubles import canned_reply_router
 
 import asyncio
-import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.jobs import Worker
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.runner.map_runner import MapRunner
@@ -21,32 +20,6 @@ from frisket.engine.store import Project
 from http_test_helpers import post_v1_action_with_exact_confirmation
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import model_request, run_with_exact_confirmation
-
-
-class StubAdapter:
-    def __init__(self, reply: dict):
-        self.reply = reply
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=10,
-            tokens_out=10,
-            cost=0.0,
-            model=req.model,
-        )
-
-
-def stub_router(reply: dict) -> ModelRouter:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    router._adapters["anthropic"] = StubAdapter(reply)  # noqa: SLF001
-    return router
 
 
 def multi_output_spec(sheet_id: int) -> dict:
@@ -95,7 +68,7 @@ def run_multi_output(project: Project, sheet_id: int) -> None:
         "beat_confidence": 0.41,
     }
     runner = MapRunner(
-        project, stub_router(reply), authority=UnroutedOnlyAuthority(project)
+        project, canned_reply_router(reply)[0], authority=UnroutedOnlyAuthority(project)
     )
     asyncio.run(run_with_exact_confirmation(runner, multi_output_spec(sheet_id)))
 
@@ -206,7 +179,7 @@ def test_review_bundles_endpoint_returns_row_run_bundles(tmp_path):
     client = TestClient(
         create_app(
             tmp_path / "ws",
-            router=stub_router(
+            router=canned_reply_router(
                 {
                     "beat": "civic",
                     "tone": "high",
@@ -214,7 +187,7 @@ def test_review_bundles_endpoint_returns_row_run_bundles(tmp_path):
                     "tone_justification": "the event affects public decisions",
                     "beat_confidence": 0.41,
                 }
-            ),
+            )[0],
         )
     )
     pid = client.post("/api/projects", json={"name": "Review"}).json()["id"]

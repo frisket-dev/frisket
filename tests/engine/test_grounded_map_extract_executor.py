@@ -1,4 +1,7 @@
 from __future__ import annotations
+from functools import partial
+
+from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -24,23 +27,6 @@ from tests.engine.extract_typed_chain_helpers import typed_extract_request
 PROJECT_ID = "project-grounded-map-extract"
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=json.loads(json.dumps(self.reply)),
-            tokens_in=97,
-            tokens_out=43,
-            cost=0.008,
-            model=req.model,
-        )
-
-
 class _PreviewAdapter:
     async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
         field_schema = (
@@ -60,16 +46,7 @@ class _PreviewAdapter:
         )
 
 
-def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_stub_router = partial(canned_reply_router, tokens_in=97, tokens_out=43, cost=0.008)
 
 
 def _preview_client(tmp_path: Path) -> TestClient:

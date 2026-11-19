@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from model_doubles import CannedReplyAdapter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import io
@@ -13,7 +15,7 @@ from pypdf import PdfReader, PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm import ModelRouter
 from frisket.engine.executor import actions, run_action_spec
 from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.engine.runner.review import review_queue
@@ -35,23 +37,6 @@ PROJECT_ID = "pdf-page-content-flow"
 
 class InterruptedAfterOcrReturn(BaseException):
     pass
-
-
-class _ExtractAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, request: LLMRequest, client: Any) -> LLMResponse:
-        self.requests.append(request)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=json.loads(json.dumps(self.reply)),
-            tokens_in=30,
-            tokens_out=12,
-            cost=0.001,
-            model=request.model,
-        )
 
 
 def _text_pdf() -> bytes:
@@ -252,7 +237,7 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
         assert "ALPHAONE boundary-left" in csv_text
         assert "boundary-right OMEGATWO" in csv_text
 
-        adapter = _ExtractAdapter(
+        adapter = CannedReplyAdapter(
             {
                 "finding": {
                     "value": "OMEGATWO",
@@ -264,7 +249,10 @@ def test_native_pages_real_conversion_and_ordinary_consumers(tmp_path: Path) -> 
                     ],
                     "warnings": [],
                 }
-            }
+            },
+            tokens_in=30,
+            tokens_out=12,
+            cost=0.001,
         )
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY,
