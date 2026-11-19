@@ -12109,6 +12109,7 @@ type HttpProjectSearchResponse_ProjectSearchCoverage = ({
   "effective_modes": (Array<("lexical" | "semantic") & (string)>);
   "is_top_k": (boolean);
   "requested_mode": ("lexical" | "semantic" | "hybrid") & (string);
+  "rerank_unavailable_reason"?: (((string)) | ((null)));
   "searched_channels": (Array<(string)>);
   "state": ("complete" | "partial" | "preparing" | "unavailable" | "failed") & (string);
   "truncated": (boolean);

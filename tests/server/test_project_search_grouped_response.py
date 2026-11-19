@@ -8,7 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.contracts.http.project_search import ProjectSearchRequest
+from frisket.contracts.http.project_search import (
+    ProjectSearchRequest,
+    ProjectSearchResponse,
+)
 from frisket.retrieval.contracts import (
     BindingRevision,
     CellAnchor,
@@ -234,11 +237,19 @@ def test_grouped_response_preserves_supporting_hits_and_real_navigation(
 
     monkeypatch.setattr(project_search, "search_with_encoding", search)
 
+    monkeypatch.setenv("FRISKET_DISABLE_RERANK", "1")
+
     payload = ProjectSearchService(_Workspace(project)).search(
         "project", request=_request()
     )
 
     assert len(calls) == 1
+    assert payload["coverage"]["rerank_unavailable_reason"] == (
+        "Rerank is turned off on this server."
+    )
+    assert ProjectSearchResponse.model_validate(
+        payload
+    ).coverage.rerank_unavailable_reason == ("Rerank is turned off on this server.")
     assert payload["groups"][0]["additional_count"] == 2
     assert payload["groups"][0]["primary"]["navigation"] == {
         "kind": "evidence",

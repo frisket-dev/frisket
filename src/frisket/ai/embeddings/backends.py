@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
+import tempfile
 import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -276,6 +278,42 @@ def embedder_is_remote(model_id: str) -> bool:
     return not model_id.startswith("fastembed/")
 
 
+def local_reranker_unavailable_reason(
+    *, env: Mapping[str, str] | None = None
+) -> str | None:
+    """Why ``local_reranker`` cannot score here, or None when it can.
+
+    Reads the environment, the installed packages and FastEmbed's cache
+    directory only; it never loads or downloads the model.
+    """
+
+    runtime_env = os.environ if env is None else env
+    if (
+        runtime_env.get("FRISKET_DISABLE_RERANK") == "1"
+        or runtime_env.get("FRISKET_DISABLE_LOCAL_EMBED") == "1"
+    ):
+        return "Rerank is turned off on this server."
+    if importlib.util.find_spec("fastembed") is None:
+        return "Rerank needs FastEmbed, which this install does not include."
+    cache_dir = Path(
+        runtime_env.get("FASTEMBED_CACHE_PATH")
+        or Path(tempfile.gettempdir()) / "fastembed_cache"
+    )
+    snapshots = cache_dir / f"models--{RERANK_MODEL.replace('/', '--')}" / "snapshots"
+    try:
+        if any(
+            (snapshot / "onnx" / "model.onnx").is_file()
+            for snapshot in snapshots.iterdir()
+        ):
+            return None
+    except OSError:
+        pass
+    return (
+        f"Rerank needs the {RERANK_MODEL} model in FastEmbed's cache; "
+        "run 'frisket doctor embeddings' to check it."
+    )
+
+
 def local_reranker(
     *, env: Mapping[str, str] | None = None
 ) -> Callable[[str, list[str]], list[float]] | None:
@@ -393,5 +431,6 @@ __all__ = [
     "local_embedder",
     "local_image_embedder",
     "local_reranker",
+    "local_reranker_unavailable_reason",
     "resolve_embedder",
 ]

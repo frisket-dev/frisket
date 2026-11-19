@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from importlib.machinery import ModuleSpec
 from types import ModuleType
 
 import pytest
@@ -167,3 +168,37 @@ def test_remote_gateway_preserves_missing_execution_keyword_type_error():
             model="text-embedding-3-small",
             modality="text",
         )
+
+
+def _fastembed_installed(monkeypatch) -> None:
+    fastembed = ModuleType("fastembed")
+    fastembed.__spec__ = ModuleSpec("fastembed", None)
+    monkeypatch.setitem(sys.modules, "fastembed", fastembed)
+
+
+def test_reranker_readiness_names_the_model_until_it_is_cached(monkeypatch, tmp_path):
+    _fastembed_installed(monkeypatch)
+    env = {"FASTEMBED_CACHE_PATH": str(tmp_path)}
+
+    reason = backends.local_reranker_unavailable_reason(env=env)
+
+    assert reason is not None
+    assert backends.RERANK_MODEL in reason
+    model = (
+        tmp_path
+        / f"models--{backends.RERANK_MODEL.replace('/', '--')}"
+        / "snapshots"
+        / "rev"
+        / "onnx"
+        / "model.onnx"
+    )
+    model.parent.mkdir(parents=True)
+    model.write_bytes(b"onnx")
+    assert backends.local_reranker_unavailable_reason(env=env) is None
+
+
+def test_reranker_readiness_reports_a_disabled_reranker():
+    assert (
+        backends.local_reranker_unavailable_reason(env={"FRISKET_DISABLE_RERANK": "1"})
+        == "Rerank is turned off on this server."
+    )

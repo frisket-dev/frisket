@@ -37,6 +37,7 @@ interface PaletteSearch {
   setMode(mode: 'lexical' | 'semantic' | 'hybrid'): void;
   rerank: boolean;
   setRerank(rerank: boolean): void;
+  rerankUnavailableReason: string | null;
   groups: ProjectSearchGroupWire[] | null;
   coverage: ProjectSearchResponseWire['coverage'] | null;
   searchError: string | null;
@@ -176,9 +177,14 @@ export function usePaletteSearch(
   const [searchRevision, setSearchRevision] = useState(0);
   const seq = useRef(0);
   const trimmedQuery = query.trim();
+  // The latest answer from the server decides whether Rerank can run; until
+  // one arrives the server's refusal of a rerank request is the answer.
+  const rerankUnavailableReason =
+    searchResult?.response.coverage.rerank_unavailable_reason ?? null;
+  const effectiveRerank = rerank && rerankUnavailableReason === null;
   const request = useMemo(
-    () => searchRequest(trimmedQuery, mode, rerank, anchor, namedIndexId),
-    [anchor, mode, namedIndexId, rerank, trimmedQuery],
+    () => searchRequest(trimmedQuery, mode, effectiveRerank, anchor, namedIndexId),
+    [anchor, mode, namedIndexId, effectiveRerank, trimmedQuery],
   );
   const requestKey = request ? JSON.stringify(request) : '';
 
@@ -443,8 +449,9 @@ export function usePaletteSearch(
   return {
     mode,
     setMode,
-    rerank,
+    rerank: effectiveRerank,
     setRerank,
+    rerankUnavailableReason,
     groups,
     coverage,
     searchError,

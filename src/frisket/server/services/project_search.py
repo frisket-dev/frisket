@@ -7,6 +7,7 @@ import re
 from html import unescape
 from typing import Any, Literal
 
+from frisket.ai.embeddings.backends import local_reranker_unavailable_reason
 from frisket.contracts.http.project_search import (
     ProjectSearchCellAnchor,
     ProjectSearchLocatedAnchor,
@@ -544,10 +545,10 @@ class ProjectSearchService:
             elif edition == "team":
                 setup_scope = "organization"
 
-        coverage = _coverage_payload(
-            response.coverage,
-            setup_scope=setup_scope,
-        )
+        coverage = {
+            **_coverage_payload(response.coverage, setup_scope=setup_scope),
+            "rerank_unavailable_reason": local_reranker_unavailable_reason(),
+        }
         return {
             "response_anchor": (
                 {
