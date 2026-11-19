@@ -11,9 +11,6 @@
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
  },
- "local-model-walkthrough.spec.ts": {
-  "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
- },
  "markdown.spec.ts": {
   "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
