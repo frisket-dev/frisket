@@ -398,13 +398,12 @@ class Project:
         return row["value"] if row else default
 
     def set_meta(self, key: str, value: str, *, commit: bool = True) -> None:
-        self.db.execute(
-            "INSERT INTO meta (key, value) VALUES (?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            (key, value),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="project meta"):
+            self.db.execute(
+                "INSERT INTO meta (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
 
     @contextmanager
     def transaction_scope(self) -> Iterator[None]:
