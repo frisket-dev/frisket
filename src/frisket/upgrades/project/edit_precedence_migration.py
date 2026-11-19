@@ -1,8 +1,10 @@
-"""Let human edits outrank later run results in an ordered-Change project.
+"""Let human edits outrank later run results and Reapply copies.
 
 Only read views and the rebuildable current-cell cache change. Edits, results
 and history stay exactly as saved; cells whose cached head hid a surviving
-edit are invalidated so the bounded repair resolves them again.
+edit are invalidated so the bounded repair resolves them again. Both steps
+apply the same payload: a project at either earlier stamp reinstalls the
+runtime change views and repairs the cells they now resolve differently.
 """
 
 from __future__ import annotations
@@ -12,9 +14,12 @@ from frisket.engine.store.schema import BundleSchemaMismatch, SCHEMA_DIGEST
 from frisket.upgrades.project._step import execute_ddl
 
 
-# Pinned endpoint: the payload installs the runtime change-schema views, so a
-# later schema change must extend this step explicitly.
+# Edits outrank later run results.
 EDIT_PRECEDENCE_TO_DIGEST = "frisket.schema.v1:bd2b8aa51fcac3d5a7ba3753630a4fcd"
+# Edits also outrank later Reapply copies. Pinned endpoint: the payload
+# installs the runtime change-schema views, so a later schema change must
+# extend these steps explicitly.
+COPY_PRECEDENCE_TO_DIGEST = "frisket.schema.v1:6a94206a03cff0c69e0188ff74317800"
 
 _CHANGE_VIEWS = (
     "generated_result_candidates",
@@ -73,7 +78,7 @@ def _invalidate_hidden_edits(db: sqlite3.Connection) -> None:
 
 
 def apply_edit_precedence(db: sqlite3.Connection) -> None:
-    if SCHEMA_DIGEST != EDIT_PRECEDENCE_TO_DIGEST:
+    if SCHEMA_DIGEST != COPY_PRECEDENCE_TO_DIGEST:
         raise BundleSchemaMismatch(
             "Edit precedence migration endpoint needs updating for this build"
         )
