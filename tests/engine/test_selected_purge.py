@@ -26,6 +26,41 @@ def add(project, name, value):
     return sheet, column, row
 
 
+def publish_bindings(project, store, revision, locations):
+    """Publish one retrieval source bound to (binding_id, sheet, column, row) cells."""
+    from frisket.retrieval.store import (
+        BindingDependency,
+        SourcePublication,
+        StoredBinding,
+    )
+
+    def binding(binding_id, sheet, column, row):
+        cell_revision = project.db.execute(
+            "SELECT retrieval_revision FROM current_cells WHERE row_id=? AND column_id=?",
+            (row, column),
+        ).fetchone()[0]
+        return StoredBinding(
+            binding_id,
+            sheet_id=sheet,
+            row_id=row,
+            column_id=column,
+            dependencies=(BindingDependency(row, column, cell_revision),),
+        )
+
+    store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+    assert store.publish_source(
+        SourcePublication(
+            source_revision=revision,
+            recipe_id="passages:v1",
+            channel="text",
+            parts=(),
+            bindings=tuple(
+                binding(binding_id, *location) for binding_id, location in locations
+            ),
+        )
+    )
+
+
 def test_source_erasure_removes_shared_bytes_and_blocks_stale_publication(project):
     blob = project.add_blob(b"original")
     first = add(project, "first", {"blob": blob})
@@ -277,6 +312,8 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         {"saved": output},
     )
     copy_op = project.append_change("reapply.results")
+    # Reapply only copies onto the source row; a copy owned by a row in
+    # another sheet isolates the independent-owner rule from the source row.
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
@@ -376,6 +413,8 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     from frisket.engine.store.current_cells import refresh_current_cells
 
     saved_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
+    # Reapply only copies onto the source row; a copy owned by a row in
+    # another sheet isolates the independent-owner rule from the source row.
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, saved_op)
@@ -497,6 +536,8 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
     )
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
     copy_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
+    # Reapply only copies onto the source row; a copy owned by a row in
+    # another sheet isolates the independent-owner rule from the source row.
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
         start_change(project.db, copy_op)
@@ -609,7 +650,11 @@ def test_interrupted_content_cleanup_resumes(project, monkeypatch):
 
 
 def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
+    import json
+
+    from frisket.engine.store.notifications import insert_notification_item
     from frisket.engine.store.runs import RunResultStore
+    from tests.alert_helpers import add_alert
 
     first = add(project, "first", "secret")
     second = add(project, "second", "public")
@@ -623,49 +668,46 @@ def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
     traces.mkdir()
     (traces / f"run-{run}.jsonl.gz").write_bytes(b"secret")
     (traces / f"run-{other_run}.jsonl.gz").write_bytes(b"public")
-    with project.db:
-        view = project.db.execute(
-            "INSERT INTO views(name,spec) VALUES ('w','{}')"
-        ).lastrowid
-        alert = project.db.execute(
-            "INSERT INTO watches(name,view_id) VALUES ('w',?)", (view,)
-        ).lastrowid
-        wr = project.db.execute(
-            "INSERT INTO watch_runs(watch_id,op_cursor_before,op_cursor_after) VALUES (?,0,0)",
-            (alert,),
-        ).lastrowid
-        project.db.execute(
-            "INSERT INTO watch_run_hits(run_id,sheet_id,row_id,rank,snippet) VALUES (?,?,?,1,?)",
-            (wr, first[0], first[2], "secret"),
-        )
-        project.db.execute(
-            "INSERT INTO watch_run_hits(run_id,sheet_id,row_id,rank,snippet) VALUES (?,?,?,2,?)",
-            (wr, second[0], second[2], "public"),
-        )
-        project.db.execute(
-            "UPDATE watches SET baseline_run_id=?,last_run_id=? WHERE id=?",
-            (wr, wr, alert),
-        )
-        project.db.executemany(
-            "INSERT INTO watch_seen_rows(watch_id,sheet_id,row_id,first_seen_run_id,last_seen_run_id) VALUES (?,?,?,?,?)",
-            [
-                (alert, first[0], first[2], wr, wr),
-                (alert, second[0], second[2], wr, wr),
+    alert = add_alert(
+        project,
+        "w",
+        scope="project",
+        query={"kind": "fts", "q": "secret"},
+        detection_policy={
+            "kind": "conditions",
+            "fields": [
+                {"sheet_id": first[0], "column_id": first[1]},
+                {"sheet_id": second[0], "column_id": second[1]},
             ],
-        )
-        project.db.executemany(
-            "INSERT INTO watch_row_field_state(watch_id,sheet_id,row_id,column_id,value_hash,value_json,last_observed_run_id) VALUES (?,?,?,?,?,?,?)",
-            [
-                (alert, first[0], first[2], first[1], "secret", '"secret"', wr),
-                (alert, second[0], second[2], second[1], "public", '"public"', wr),
-            ],
-        )
-        project.db.execute(
-            "INSERT INTO notification_items(source_kind,source_ref,dedupe_key,title,summary) VALUES ('watch',json_object('watch_id',?,'run_id',?),'private','private','secret')",
-            (alert, wr),
-        )
-        project.db.execute(
-            "INSERT INTO notification_items(source_kind,source_ref,dedupe_key,title,summary) VALUES ('other','{}','public','public','unrelated')"
+        },
+    )
+    wr = project.record_alert_check(
+        alert,
+        hits=[
+            {"sheet_id": first[0], "row_id": first[2], "snippet": "secret"},
+            {"sheet_id": second[0], "row_id": second[2], "snippet": "public"},
+        ],
+        op_cursor_before=project.op_cursor,
+        op_cursor_after=project.op_cursor,
+        resolved_query_hash="purge-alert",
+    )
+    for source_kind, source_ref, dedupe_key, summary in (
+        ("watch", json.dumps({"watch_id": alert, "run_id": wr}), "private", "secret"),
+        ("other", "{}", "public", "unrelated"),
+    ):
+        insert_notification_item(
+            project,
+            source_kind=source_kind,
+            source_ref=source_ref,
+            dedupe_key=dedupe_key,
+            source_event_ids="[]",
+            event_count=0,
+            event_kinds="[]",
+            title=dedupe_key,
+            summary=summary,
+            severity="info",
+            deep_link="",
+            payload="{}",
         )
     purge = begin_purge(project, sheet_ids=[first[0]])
     finish_purge(project, purge)
@@ -701,6 +743,7 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
         result_key,
     )
     from frisket.engine.store.runs import RunResultStore
+    from helpers import write_claimed_test_results
 
     sheet, column, row = add(project, "review", "source")
     other_row = project.add_rows(sheet, [{"value": "other source"}], {"value": column})[
@@ -709,19 +752,17 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
     run_op = project.append_change("test.run")
     runs = RunResultStore(project)
     run_id = runs.start_run(run_op, sheet, "test.run")
+    write_claimed_test_results(
+        project,
+        run_id,
+        [
+            {"row_id": row, "column_id": column, "value": "answer"},
+            {"row_id": other_row, "column_id": column, "value": "other answer"},
+        ],
+    )
     runs.finish_run(run_id)
-    with project.db:
-        project.db.execute(
-            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','answer',1)",
-            (run_id, row, column),
-        )
     target = result_key(run_id, None, row, column)
     retained_target = result_key(run_id, None, other_row, column)
-    with project.db:
-        project.db.execute(
-            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','other answer',1)",
-            (run_id, other_row, column),
-        )
     review_op = project.append_change("review.verify")
     info = {
         "review_states": {target: "unreviewed", retained_target: "unreviewed"},
@@ -765,10 +806,6 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
         ).fetchone()[0]
         > 0
     )
-    with project.db:
-        project.db.execute(
-            "UPDATE meta SET value=? WHERE key='op_cursor'", (str(review_op),)
-        )
     assert project.undo() == review_op
 
 
@@ -776,10 +813,14 @@ def test_purged_receipt_replays_as_valid_refusal(project):
     from frisket.contracts.action import Receipt
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.runs import RunResultStore
+    from helpers import write_claimed_test_results
 
-    sheet, _column, row = add(project, "receipt", "secret")
+    sheet, column, row = add(project, "receipt", "secret")
     op_id = project.append_change("test.receipted")
     run_id = RunResultStore(project).start_run(op_id, sheet, "test.receipted")
+    write_claimed_test_results(
+        project, run_id, [{"row_id": row, "column_id": column, "value": "answer"}]
+    )
     RunResultStore(project).finish_run(run_id)
     receipt_id = "receipt-purged-material-test"
     ReceiptStore(project).insert(
@@ -796,11 +837,6 @@ def test_purged_receipt_replays_as_valid_refusal(project):
             outputs=[{"name": "value", "ref": {"kind": "cell", "row_id": row}}],
         )
     )
-    with project.db:
-        project.db.execute(
-            "INSERT INTO results(run_id,row_id,column_id,value_kind,value,published) VALUES (?,?,?,'text','answer',1)",
-            (run_id, row, _column),
-        )
     finish_purge(project, begin_purge(project, row_ids=[row]))
     replay = ReceiptStore(project).find_by_idempotency_key("purged-material-key")
     assert replay is not None
@@ -843,7 +879,10 @@ def test_late_result_refusal_keeps_paid_usage(project):
         claim_token=token,
         defer_publication=True,
     )
+    # begin_purge refuses while this run is active; a purge recorded under the
+    # open generation stands in for the provider response that outlives it.
     with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
         purge_id = int(
             project.db.execute(
                 "INSERT INTO project_purges(phase) VALUES ('complete')"
@@ -923,19 +962,24 @@ def test_removed_notification_does_not_become_route_test(project):
 
 def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
     from frisket.engine.store.runs import RunResultStore
+    from helpers import write_claimed_test_results
 
     first = add(project, "first", "input")
     second = add(project, "independent", "seed")
     blob = project.add_blob(b"independent saved output")
     op = project.append_change("test.run")
     run = RunResultStore(project).start_run(op, first[0], "test.run")
+    write_claimed_test_results(
+        project,
+        run,
+        [{"row_id": first[2], "column_id": first[1], "value": {"blob": blob}}],
+    )
     RunResultStore(project).finish_run(run)
     copy_op = project.append_change("test.reapply")
+    # Reapply only copies onto the source row; a copy owned by a row in
+    # another sheet isolates the independent-owner rule from the source row.
     with project.db:
-        project.db.execute(
-            "INSERT INTO results(run_id,row_id,column_id,value_kind,value) VALUES (?,?,?,'json',json_object('blob',?))",
-            (run, first[2], first[1], blob),
-        )
+        project.db.execute("BEGIN IMMEDIATE")
         project.db.execute(
             "INSERT INTO copied_result_outcomes(op_id,row_id,column_id,source_run_id,source_row_id,source_column_id) VALUES (?,?,?,?,?,?)",
             (copy_op, second[2], second[1], run, first[2], first[1]),
@@ -954,21 +998,19 @@ def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
 
 
 def test_retrieval_purge_drops_only_selected_binding_and_unowned_text(project):
+    from frisket.retrieval.contracts import SourceRevision
     from frisket.retrieval.store import RetrievalStore
 
     first = add(project, "first", "private")
     other = add(project, "other", "public")
     with RetrievalStore(project.path) as store:
         for num, coordinates in enumerate((first, other), 1):
-            store.db.execute(
-                "INSERT INTO sources(source_key,source_id,source_kind,version_kind,version_value,version_type) VALUES (?,?,'cell','hash',?,'text')",
-                (num, str(num), str(num)),
+            publish_bindings(
+                project,
+                store,
+                SourceRevision(str(num), "cell", "hash", str(num)),
+                [(str(num), coordinates)],
             )
-            store.db.execute(
-                "INSERT INTO bindings(binding_id,source_key,sheet_id,row_id,column_id) VALUES (?,?,?,?,?)",
-                (str(num), num, coordinates[0], coordinates[2], coordinates[1]),
-            )
-        store.db.commit()
     finish_purge(project, begin_purge(project, row_ids=[first[2]]))
     with RetrievalStore(project.path) as store:
         assert [r[0] for r in store.db.execute("SELECT binding_id FROM bindings")] == [
@@ -1016,21 +1058,24 @@ def test_partial_content_batch_failure_resumes_without_touching_other_sheet(
 def test_column_purge_preserves_unselected_source_baseline_fields(project):
     import json
 
+    from frisket.engine.store.keyed_updates import observe, require_relationship
+
     sheet, name, row = add(project, "incoming", "name")
     key = project.add_column(sheet, "key", type="text")
     with project.db:
-        project.db.execute(
-            "INSERT INTO keyed_relationships VALUES (?,?,?)",
-            ("source", sheet, json.dumps([[key, "text"]])),
+        project.db.execute("BEGIN IMMEDIATE")
+        require_relationship(
+            project.db,
+            relationship_id="source",
+            sheet_id=sheet,
+            key_definition=[[key, "text"]],
         )
-        project.db.execute(
-            "INSERT INTO keyed_observations(relationship_id,row_id,key,record) VALUES (?,?,?,?)",
-            (
-                "source",
-                row,
-                "identity",
-                json.dumps({str(key): "id-1", str(name): "secret"}),
-            ),
+        observe(
+            project.db,
+            relationship_id="source",
+            row_id=row,
+            key="identity",
+            incoming={str(key): "id-1", str(name): "secret"},
         )
     finish_purge(project, begin_purge(project, column_ids=[name]))
     assert json.loads(
@@ -1046,6 +1091,7 @@ def test_column_purge_preserves_unselected_source_baseline_fields(project):
 def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(project):
     from frisket.engine.store.evidence import (
         record_source_artifact,
+        record_source_span,
         record_text_surface,
     )
 
@@ -1076,11 +1122,15 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
         text_column_id=source[1],
         surface_ref={"private": "copied diagnostic"},
     )
-    with project.db:
-        project.db.execute(
-            "INSERT INTO source_spans(stable_id,artifact_id,span_kind,quote,snippet,text_surface_id,metadata) VALUES ('test-span',?,'page','secret quote','secret snippet',?,'{}')",
-            (artifact["id"], surface["id"]),
-        )
+    record_source_span(
+        project,
+        artifact_id=artifact["id"],
+        span_kind="page",
+        stable_id="test-span",
+        quote="secret quote",
+        snippet="secret snippet",
+        text_surface_id=surface["id"],
+    )
     result = finish_purge(project, begin_purge(project, sheet_ids=[source[0]]))
     assert result["blobs_removed"] == 1
     span = project.db.execute("SELECT quote,snippet FROM source_spans").fetchone()
@@ -1098,6 +1148,7 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
 
 
 def test_active_or_unaccounted_work_must_resolve_before_purge(project):
+    from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
     from frisket.engine.store.runs import RunResultStore
 
     first = add(project, "first", "private")
@@ -1107,17 +1158,21 @@ def test_active_or_unaccounted_work_must_resolve_before_purge(project):
         begin_purge(project, sheet_ids=[first[0]])
     assert project.db.execute("SELECT count(*) FROM project_purges").fetchone()[0] == 0
     RunResultStore(project).finish_run(run)
-    with project.db:
-        project.db.execute(
-            "INSERT INTO effect_checkpoints(id,family,group_key,unit_key,action_kind,identity,state,payload) VALUES ('checkpoint','row_effect',?,'1','test.run','fingerprint','returned','{}')",
-            (str(run),),
-        )
+    checkpoints = EffectCheckpointStore(project.db)
+    unit = {
+        "family": "row_effect",
+        "group_key": str(run),
+        "unit_key": "1",
+        "action_kind": "test.run",
+        "identity": "fingerprint",
+    }
+    assert checkpoints.reserve("checkpoint", **unit)
+    checkpoints.complete("checkpoint", **unit, payload={})
     with pytest.raises(ValueError, match="unrecorded usage"):
         begin_purge(project, sheet_ids=[first[0]])
-    with project.db:
-        project.db.execute(
-            "UPDATE effect_checkpoints SET accounting_persisted=1,payload='{\"secret\":42}'"
-        )
+    checkpoints.account_returned(
+        "checkpoint", **unit, payload={"secret": 42}, accrue=lambda _: 0.0
+    )
     finish_purge(project, begin_purge(project, sheet_ids=[first[0]]))
     checkpoint = project.db.execute(
         "SELECT id,state,accounting_persisted,payload FROM effect_checkpoints"
@@ -1210,6 +1265,7 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
     from frisket.engine.store.blob_backend import BlobNotFoundError
     from frisket.engine.store.evidence import record_source_artifact
     from frisket.engine.store.project_blobs import reclaim_local_blobs
+    from frisket.retrieval.contracts import SourceRevision
     from frisket.retrieval.store import RetrievalStore
 
     original = project.add_blob(b"original source")
@@ -1233,23 +1289,16 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
             },
         )
     with RetrievalStore(project.path) as store:
-        for number, location, digest in (
-            (1, first, original),
-            (2, alias, original),
-            (3, retained, output),
+        for digest, locations in (
+            (original, [("1", first), ("2", alias)]),
+            (output, [("3", retained)]),
         ):
-            store.db.execute(
-                "INSERT OR IGNORE INTO sources(source_key,source_id,source_kind,version_kind,version_value,version_type) VALUES (?,?, 'blob','blob_digest',?,'text')",
-                (number, f"blob:{digest}", digest),
+            publish_bindings(
+                project,
+                store,
+                SourceRevision(f"blob:{digest}", "blob", "blob_digest", digest),
+                locations,
             )
-            source_key = store.db.execute(
-                "SELECT source_key FROM sources WHERE version_value=?", (digest,)
-            ).fetchone()[0]
-            store.db.execute(
-                "INSERT INTO bindings(binding_id,source_key,sheet_id,row_id,column_id) VALUES (?,?,?,?,?)",
-                (str(number), source_key, location[0], location[2], location[1]),
-            )
-        store.db.commit()
     purge = begin_purge(project, row_ids=[first[2]])
     unlink = Path.unlink
 
