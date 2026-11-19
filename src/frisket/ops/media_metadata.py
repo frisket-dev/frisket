@@ -1222,23 +1222,23 @@ def _run_bounded(
             if stdin_path is not None
             else None
         )
-        popen_kwargs: dict[str, Any] = {
-            "cwd": scratch,
-            "env": _adapter_env(scratch),
+        proc = subprocess.Popen(  # noqa: S603
+            supervised_argv,
+            cwd=scratch,
+            env=_adapter_env(scratch),
             # A regular inherited descriptor remains seekable. This lets
             # ffprobe use its fd-only protocol without learning the blob path
             # or gaining access to file/network protocols.
-            "stdin": input_source if input_source is not None else subprocess.DEVNULL,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "shell": False,
-            "close_fds": True,
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_kwargs["start_new_session"] = True
-        proc = subprocess.Popen(supervised_argv, **popen_kwargs)  # noqa: S603
+            stdin=input_source if input_source is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            close_fds=True,
+            creationflags=(
+                subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            ),
+            start_new_session=os.name != "nt",
+        )
         try:
             # The shared controller gives native Windows a fail-closed Job
             # Object and gives every POSIX host a process-group identity that
