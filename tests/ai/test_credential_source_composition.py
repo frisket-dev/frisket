@@ -76,14 +76,11 @@ def test_workspace_preserves_mixed_organization_and_platform_sources(
         keys={"openai": "org-value", "anthropic": "platform-value"},
         key_sources={"openai": "org_byok", "anthropic": "platform_key"},
     )
-    try:
-        composed = Workspace(tmp_path / "hosted", router=base).router_for(project)
-        assert composed.configured_key_sources() == {
-            "openai": "org_byok",
-            "anthropic": "platform_key",
-        }
-    finally:
-        project.close()
+    composed = Workspace(tmp_path / "hosted", router=base).router_for(project)
+    assert composed.configured_key_sources() == {
+        "openai": "org_byok",
+        "anthropic": "platform_key",
+    }
 
 
 def test_injected_router_without_a_declared_source_refuses(make_project) -> None:
@@ -154,29 +151,26 @@ def test_router_for_composed_branch_carries_local_endpoints(
         edge_auth=True,
         source="env",
     )
-    try:
-        base = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            local_endpoints=(endpoint,),
-            use_env_keys=False,
-        )
-        # provider_keys_resolver forces the composed-router reconstruction
-        # branch (resolved_organization_keys is not None) rather than the fast path
-        # that just returns self._router unchanged.
-        ws = Workspace(
-            tmp_path / "org",
-            router=base,
-            provider_keys_resolver=lambda: {"openai": "org-value"},
-        )
-        composed = ws.router_for(project)
-        assert composed is not base
-        assert composed.local_endpoints == (endpoint,)
-        assert composed.local_endpoints[0].endpoint_id == "heavy"
-        assert composed.local_endpoints[0].origin == "https://llm.heavy.internal"
-        assert composed.local_endpoints[0].inference_token == "secret-bearer"
-        assert composed.local_endpoints[0].edge_auth is True
-    finally:
-        project.close()
+    base = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        local_endpoints=(endpoint,),
+        use_env_keys=False,
+    )
+    # provider_keys_resolver forces the composed-router reconstruction
+    # branch (resolved_organization_keys is not None) rather than the fast path
+    # that just returns self._router unchanged.
+    ws = Workspace(
+        tmp_path / "org",
+        router=base,
+        provider_keys_resolver=lambda: {"openai": "org-value"},
+    )
+    composed = ws.router_for(project)
+    assert composed is not base
+    assert composed.local_endpoints == (endpoint,)
+    assert composed.local_endpoints[0].endpoint_id == "heavy"
+    assert composed.local_endpoints[0].origin == "https://llm.heavy.internal"
+    assert composed.local_endpoints[0].inference_token == "secret-bearer"
+    assert composed.local_endpoints[0].edge_auth is True
 
 
 def test_diagnostic_router_organization_resolver_branch_carries_local_endpoints(

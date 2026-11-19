@@ -243,25 +243,22 @@ def test_receipt_insertion_failure_rolls_back_without_activation(
     manifest = _write_manifest(tmp_path)
     project = make_project("project")
     before = default_registry().plugin_manifests()
-    try:
-        insert = ReceiptStore.insert_completed
+    insert = ReceiptStore.insert_completed
 
-        def fail_after_insert(self, receipt):
-            assert project.db.in_transaction
-            insert(self, receipt)
-            raise RuntimeError("private fault details")
+    def fail_after_insert(self, receipt):
+        assert project.db.in_transaction
+        insert(self, receipt)
+        raise RuntimeError("private fault details")
 
-        monkeypatch.setattr(ReceiptStore, "insert_completed", fail_after_insert)
-        result = run_action_spec(project, _plugin_load_action(manifest), project_id="p")
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert "private fault" not in result.errors[0].message
-        assert result.receipt_id is None
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
-        assert default_registry().plugin_manifests() == before
-        assert not project.db.in_transaction
-    finally:
-        project.close()
+    monkeypatch.setattr(ReceiptStore, "insert_completed", fail_after_insert)
+    result = run_action_spec(project, _plugin_load_action(manifest), project_id="p")
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert "private fault" not in result.errors[0].message
+    assert result.receipt_id is None
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    assert default_registry().plugin_manifests() == before
+    assert not project.db.in_transaction
 
 
 @pytest.mark.parametrize("transport", ["cli", "mcp", "http"])

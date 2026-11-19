@@ -111,10 +111,7 @@ def sheet(make_project):
         {"source": source_column_id},
     )
     row_ids = project.visible_row_ids(sheet_id)
-    try:
-        yield project, sheet_id, source_column_id, row_ids
-    finally:
-        project.close()
+    yield project, sheet_id, source_column_id, row_ids
 
 
 def _start_run(

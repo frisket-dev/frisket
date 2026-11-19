@@ -87,10 +87,7 @@ def source(make_project):
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "body", type="text")
     rows = project.add_rows(sheet, [{"body": "Ada"}], {"body": column})
-    try:
-        yield project, sheet, column, rows[0]
-    finally:
-        project.close()
+    yield project, sheet, column, rows[0]
 
 
 def plan_for(source, registered, *, model=None):

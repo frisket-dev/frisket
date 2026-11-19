@@ -195,38 +195,33 @@ def test_project_add_blob_from_path_streams_and_records_metadata(
         return original_read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", reject_whole_file_read)
-    try:
-        digest = project.add_blob_from_path(
-            source,
-            filename="clip.mp4",
-            mime="video/mp4",
-            source_url="https://example.test/source",
-            metadata=owned_media_metadata_document(
-                probe={"kind": "video", "duration_seconds": 2.5}
-            ),
-        )
-        assert digest == expected
-        row = project.db.execute(
-            "SELECT filename, mime, size, source_url, metadata FROM blobs WHERE hash=?",
-            (digest,),
-        ).fetchone()
-        assert row is not None
-        assert {
-            key: row[key] for key in ("filename", "mime", "size", "source_url")
-        } == {
-            "filename": "clip.mp4",
-            "mime": "video/mp4",
-            "size": len(payload),
-            "source_url": "https://example.test/source",
-        }
-        assert json.loads(row["metadata"]) == owned_media_metadata_document(
+    digest = project.add_blob_from_path(
+        source,
+        filename="clip.mp4",
+        mime="video/mp4",
+        source_url="https://example.test/source",
+        metadata=owned_media_metadata_document(
             probe={"kind": "video", "duration_seconds": 2.5}
-        )
-        with project.materialize_blob(digest) as canonical:
-            with Path(canonical).open("rb") as stored:
-                assert hashlib.sha256(stored.read()).hexdigest() == digest
-    finally:
-        project.close()
+        ),
+    )
+    assert digest == expected
+    row = project.db.execute(
+        "SELECT filename, mime, size, source_url, metadata FROM blobs WHERE hash=?",
+        (digest,),
+    ).fetchone()
+    assert row is not None
+    assert {key: row[key] for key in ("filename", "mime", "size", "source_url")} == {
+        "filename": "clip.mp4",
+        "mime": "video/mp4",
+        "size": len(payload),
+        "source_url": "https://example.test/source",
+    }
+    assert json.loads(row["metadata"]) == owned_media_metadata_document(
+        probe={"kind": "video", "duration_seconds": 2.5}
+    )
+    with project.materialize_blob(digest) as canonical:
+        with Path(canonical).open("rb") as stored:
+            assert hashlib.sha256(stored.read()).hexdigest() == digest
 
 
 def test_filesystem_path_ingest_is_atomic_and_fails_closed_on_corruption(
@@ -265,29 +260,26 @@ def test_add_blob_from_path_commit_false_obeys_caller_transaction(
     source = tmp_path / "clip.bin"
     source.write_bytes(b"transactional metadata, durable canonical bytes")
     expected = hashlib.sha256(source.read_bytes()).hexdigest()
-    try:
-        project.db.execute("BEGIN")
-        digest = project.add_blob_from_path(
-            source,
-            filename="clip.bin",
-            metadata={"renderer": "exact"},
-            commit=False,
-        )
-        assert digest == expected
-        assert project.db.in_transaction
-        stored_metadata = project.db.execute(
-            "SELECT metadata FROM blobs WHERE hash=?", (digest,)
-        ).fetchone()["metadata"]
-        assert json.loads(stored_metadata) == {"renderer": "exact"}
-        project.db.rollback()
-        assert (
-            project.db.execute("SELECT 1 FROM blobs WHERE hash=?", (digest,)).fetchone()
-            is None
-        )
-        with project.materialize_blob(digest) as canonical:
-            assert Path(canonical).read_bytes() == source.read_bytes()
-    finally:
-        project.close()
+    project.db.execute("BEGIN")
+    digest = project.add_blob_from_path(
+        source,
+        filename="clip.bin",
+        metadata={"renderer": "exact"},
+        commit=False,
+    )
+    assert digest == expected
+    assert project.db.in_transaction
+    stored_metadata = project.db.execute(
+        "SELECT metadata FROM blobs WHERE hash=?", (digest,)
+    ).fetchone()["metadata"]
+    assert json.loads(stored_metadata) == {"renderer": "exact"}
+    project.db.rollback()
+    assert (
+        project.db.execute("SELECT 1 FROM blobs WHERE hash=?", (digest,)).fetchone()
+        is None
+    )
+    with project.materialize_blob(digest) as canonical:
+        assert Path(canonical).read_bytes() == source.read_bytes()
 
 
 def test_s3_path_ingest_streams_verifies_and_does_not_reupload_duplicate(

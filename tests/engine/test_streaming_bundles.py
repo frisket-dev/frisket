@@ -156,13 +156,10 @@ def test_failed_export_preserves_destination_and_cleans_temporary_files(
         raise OSError("disk full")
 
     monkeypatch.setattr(tarfile.TarFile, "addfile", fail)
-    try:
-        with pytest.raises(OSError, match="disk full"):
-            project.export(target)
-        assert target.read_bytes() == b"existing backup"
-        assert not list(tmp_path.glob(".backup.tar.gz.*"))
-    finally:
-        project.close()
+    with pytest.raises(OSError, match="disk full"):
+        project.export(target)
+    assert target.read_bytes() == b"existing backup"
+    assert not list(tmp_path.glob(".backup.tar.gz.*"))
 
 
 def test_large_tar_metadata_is_rejected_before_loading_json(tmp_path):

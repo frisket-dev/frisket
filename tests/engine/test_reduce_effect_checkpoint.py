@@ -83,10 +83,7 @@ def project(make_project):
         columns,
     )
     p._sheet_id = sheet_id  # type: ignore[attr-defined]
-    try:
-        yield p
-    finally:
-        p.close()
+    yield p
 
 
 def _action(

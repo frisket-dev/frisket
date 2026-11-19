@@ -279,23 +279,20 @@ def test_receipt_evidence_skips_rows_whose_pdf_cell_failed_to_compose(
         ],
         cols,
     )
-    try:
-        result = run_action_spec(
-            project,
-            _ocr_action(
-                sheet_id,
-                row_ids,
-                idempotency_key="media_ocr_searchable@sha256:mixed-evidence",
-            ),
-            project_id="proj-ocr-pdf-mixed",
-        )
-        assert result.status == "partial"
-        refs = _refs(project, result.receipt_id)
-        evidence_refs = [ref for ref in refs if ref["kind"] == "row_file_output"]
-        assert len(evidence_refs) == 1
-        assert evidence_refs[0]["row_id"] == row_ids[0]
-    finally:
-        project.close()
+    result = run_action_spec(
+        project,
+        _ocr_action(
+            sheet_id,
+            row_ids,
+            idempotency_key="media_ocr_searchable@sha256:mixed-evidence",
+        ),
+        project_id="proj-ocr-pdf-mixed",
+    )
+    assert result.status == "partial"
+    refs = _refs(project, result.receipt_id)
+    evidence_refs = [ref for ref in refs if ref["kind"] == "row_file_output"]
+    assert len(evidence_refs) == 1
+    assert evidence_refs[0]["row_id"] == row_ids[0]
 
 
 # --------------------------------------------------------------------------

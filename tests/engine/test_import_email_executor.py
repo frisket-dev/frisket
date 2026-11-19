@@ -413,44 +413,39 @@ def test_import_email_storage_failure_rolls_back_all_visible_database_state(
         return original_put_path(path, expected_digest=expected_digest)
 
     monkeypatch.setattr(project.blob_store, "put_path", fail_second_put_path)
-    try:
-        result = run_action_spec(
-            project,
-            _import_email_action(
-                [
-                    (first, "first.eml", "eml"),
-                    (second, "second.eml", "eml"),
-                ],
-                key="import_email@sha256:storage-failure",
-            ),
-            project_id="project-atomic-email",
-            deps=_trusted_deps(
-                [(first, "first.eml", "eml"), (second, "second.eml", "eml")]
-            ),
-        )
+    result = run_action_spec(
+        project,
+        _import_email_action(
+            [
+                (first, "first.eml", "eml"),
+                (second, "second.eml", "eml"),
+            ],
+            key="import_email@sha256:storage-failure",
+        ),
+        project_id="project-atomic-email",
+        deps=_trusted_deps(
+            [(first, "first.eml", "eml"), (second, "second.eml", "eml")]
+        ),
+    )
 
-        assert calls == 2
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        # Blob metadata rolls back atomically. Canonical bytes may be shared
-        # with a winner and are left for reference-aware object cleanup.
-        assert _visible_counts(project) == {
-            "sheets": 0,
-            "columns": 0,
-            "rows": 0,
-            "cells": 0,
-            "blobs": 0,
-            "ops": 0,
-            "receipts": 0,
-        }
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=1").fetchone()[
-                0
-            ]
-            == 0
-        )
-    finally:
-        project.close()
+    assert calls == 2
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    # Blob metadata rolls back atomically. Canonical bytes may be shared
+    # with a winner and are left for reference-aware object cleanup.
+    assert _visible_counts(project) == {
+        "sheets": 0,
+        "columns": 0,
+        "rows": 0,
+        "cells": 0,
+        "blobs": 0,
+        "ops": 0,
+        "receipts": 0,
+    }
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM sheets WHERE hidden=1").fetchone()[0]
+        == 0
+    )
 
 
 def test_email_temp_cleanup_failure_aborts_hidden_stage(
@@ -588,37 +583,34 @@ def test_concurrent_same_key_same_attachment_keeps_winner_blob_reference(
 
     # realtime: Barrier-rendezvoused concurrency is under test; joins are liveness bounds.
     threads = [threading.Thread(target=run) for _ in range(2)]
-    try:
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=20)
-        assert not any(thread.is_alive() for thread in threads)
-        assert not failures
-        assert len(results) == 2
-        assert all(result.status == "completed" for result in results)
-        assert {result.receipt_id for result in results} == {results[0].receipt_id}
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=20)
+    assert not any(thread.is_alive() for thread in threads)
+    assert not failures
+    assert len(results) == 2
+    assert all(result.status == "completed" for result in results)
+    assert {result.receipt_id for result in results} == {results[0].receipt_id}
 
-        sheet = project.db.execute("SELECT id FROM sheets WHERE hidden=0").fetchone()
-        assert sheet is not None
-        column = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='attachments'",
-            (sheet["id"],),
-        ).fetchone()
-        assert column is not None
-        assert _values(project, int(sheet["id"]), column) == [
-            [
-                {
-                    "blob": hashlib.sha256(attachment).hexdigest(),
-                    "mime": "text/plain",
-                    "filename": "shared.txt",
-                }
-            ]
+    sheet = project.db.execute("SELECT id FROM sheets WHERE hidden=0").fetchone()
+    assert sheet is not None
+    column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='attachments'",
+        (sheet["id"],),
+    ).fetchone()
+    assert column is not None
+    assert _values(project, int(sheet["id"]), column) == [
+        [
+            {
+                "blob": hashlib.sha256(attachment).hexdigest(),
+                "mime": "text/plain",
+                "filename": "shared.txt",
+            }
         ]
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
-        assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
-        with project.materialize_blob(hashlib.sha256(attachment).hexdigest()) as stored:
-            assert stored.read_bytes() == attachment
-    finally:
-        project.close()
+    ]
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM sheets").fetchone()[0] == 1
+    assert project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
+    with project.materialize_blob(hashlib.sha256(attachment).hexdigest()) as stored:
+        assert stored.read_bytes() == attachment

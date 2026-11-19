@@ -355,48 +355,41 @@ def test_evidence_failure_rolls_back_result_head_and_evidence(
 
     monkeypatch.setattr(LocalNerExtractor, "extract", execute)
     monkeypatch.setattr(ner_module, "_write_ner_result_citations", fail_after_evidence)
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _action(sheet_id, ["body"]),
-            project_id=PROJECT_ID,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-        assert result.status == "failed"
-        assert result.run_id is not None and result.receipt_id is not None
-        assert [error.code for error in result.errors] == ["project_write_failed"]
-        assert result.errors[0].message == "project write failed"
-        assert len(calls) == 1
-        assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM generated_result_candidates"
-            ).fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
-        )
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 0
-        )
-        monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
-        before = tuple(project.db.iterdump())
-        replay = executor_actions.run_action_spec(
-            project,
-            _action(sheet_id, ["body"]),
-            project_id=PROJECT_ID,
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
-            ),
-        )
-        assert replay.model_dump() == result.model_dump()
-        assert len(calls) == 1
-        assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
+    result = executor_actions.run_action_spec(
+        project,
+        _action(sheet_id, ["body"]),
+        project_id=PROJECT_ID,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
+    assert result.status == "failed"
+    assert result.run_id is not None and result.receipt_id is not None
+    assert [error.code for error in result.errors] == ["project_write_failed"]
+    assert result.errors[0].message == "project write failed"
+    assert len(calls) == 1
+    assert project.db.execute("SELECT COUNT(*) FROM results").fetchone()[0] == 0
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM generated_result_candidates"
+        ).fetchone()[0]
+        == 0
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
+    assert project.db.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0] == 0
+    monkeypatch.setattr(ner_module, "_write_ner_result_citations", original)
+    before = tuple(project.db.iterdump())
+    replay = executor_actions.run_action_spec(
+        project,
+        _action(sheet_id, ["body"]),
+        project_id=PROJECT_ID,
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, cache=None, cache_mode="off"
+        ),
+    )
+    assert replay.model_dump() == result.model_dump()
+    assert len(calls) == 1
+    assert tuple(project.db.iterdump()) == before
 
 
 def test_multi_column_degrades_to_quote_only(tmp_path, monkeypatch):

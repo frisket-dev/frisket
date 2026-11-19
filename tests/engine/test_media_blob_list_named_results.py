@@ -89,57 +89,52 @@ def test_media_extract_faces_named_result_feeds_typed_image_derive(
     monkeypatch.setattr(
         "frisket.engine.executor.row_media_read.run_sandboxed", fake_sandboxed
     )
-    try:
-        faces = run_action_spec(
-            project,
-            _extract_faces_action(sheet_id=sheet_id),
-            project_id=PROJECT_ID,
-        )
-        assert faces.status == "completed", faces.errors
-        assert faces.run_id is not None
-        named = next(
-            output for output in faces.outputs if output.kind == "named_result"
-        )
-        assert named.ref["source_action_kind"] == "media.extract_faces"
-        assert named.ref["row_ids"] == row_ids
+    faces = run_action_spec(
+        project,
+        _extract_faces_action(sheet_id=sheet_id),
+        project_id=PROJECT_ID,
+    )
+    assert faces.status == "completed", faces.errors
+    assert faces.run_id is not None
+    named = next(output for output in faces.outputs if output.kind == "named_result")
+    assert named.ref["source_action_kind"] == "media.extract_faces"
+    assert named.ref["row_ids"] == row_ids
 
-        derived = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id,
-                column_id=int(named.column_id or named.ref["column_id"]),
-                run_id=faces.run_id,
-                route="faces",
-                schema="faces",
-                target_sheet_name="Face Rows",
-                item_schema=named.ref["item_schema"],
-                columns=[
-                    {"name": "x", "path": "$.x", "type": "number"},
-                    {"name": "y", "path": "$.y", "type": "number"},
-                    {"name": "w", "path": "$.w", "type": "number"},
-                    {"name": "h", "path": "$.h", "type": "number"},
-                    {"name": "face", "path": "$.face", "type": "image"},
-                ],
-                key="media_blob_lists@sha256:derive-faces",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        child_sheet_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        assert child_sheet_id is not None
-        child_rows = project.db.execute(
-            "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
-            (child_sheet_id,),
-        ).fetchall()
-        assert [int(row["parent_row_id"]) for row in child_rows] == row_ids
-        columns = _columns(project, child_sheet_id)
-        assert columns["face"]["type"] == "image"
-        face_values = project.get_values(child_sheet_id, int(columns["face"]["id"]))
-        assert all(value["blob"] for value in face_values.values())
-    finally:
-        project.close()
+    derived = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=sheet_id,
+            column_id=int(named.column_id or named.ref["column_id"]),
+            run_id=faces.run_id,
+            route="faces",
+            schema="faces",
+            target_sheet_name="Face Rows",
+            item_schema=named.ref["item_schema"],
+            columns=[
+                {"name": "x", "path": "$.x", "type": "number"},
+                {"name": "y", "path": "$.y", "type": "number"},
+                {"name": "w", "path": "$.w", "type": "number"},
+                {"name": "h", "path": "$.h", "type": "number"},
+                {"name": "face", "path": "$.face", "type": "image"},
+            ],
+            key="media_blob_lists@sha256:derive-faces",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    child_sheet_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    assert child_sheet_id is not None
+    child_rows = project.db.execute(
+        "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["parent_row_id"]) for row in child_rows] == row_ids
+    columns = _columns(project, child_sheet_id)
+    assert columns["face"]["type"] == "image"
+    face_values = project.get_values(child_sheet_id, int(columns["face"]["id"]))
+    assert all(value["blob"] for value in face_values.values())
 
 
 def test_media_video_frames_named_result_feeds_typed_image_derive(
@@ -165,56 +160,51 @@ def test_media_video_frames_named_result_feeds_typed_image_derive(
     monkeypatch.setattr(
         "frisket.engine.executor.row_media_read.run_sandboxed", fake_sandboxed
     )
-    try:
-        frames = run_action_spec(
-            project,
-            _video_frames_action(sheet_id=sheet_id, frame_count=1),
-            project_id=PROJECT_ID,
-        )
-        assert frames.status == "completed", frames.errors
-        assert frames.run_id is not None
-        named = next(
-            output for output in frames.outputs if output.kind == "named_result"
-        )
-        assert named.ref["source_action_kind"] == "media.video_frames"
-        assert named.ref["row_ids"] == row_ids
+    frames = run_action_spec(
+        project,
+        _video_frames_action(sheet_id=sheet_id, frame_count=1),
+        project_id=PROJECT_ID,
+    )
+    assert frames.status == "completed", frames.errors
+    assert frames.run_id is not None
+    named = next(output for output in frames.outputs if output.kind == "named_result")
+    assert named.ref["source_action_kind"] == "media.video_frames"
+    assert named.ref["row_ids"] == row_ids
 
-        derived = run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id,
-                column_id=int(named.column_id or named.ref["column_id"]),
-                run_id=frames.run_id,
-                route="frames",
-                schema="frames",
-                target_sheet_name="Frame Rows",
-                item_schema=named.ref["item_schema"],
-                columns=[
-                    {"name": "frame", "path": "$.image", "type": "image"},
-                    {"name": "timestamp", "path": "$.t", "type": "number"},
-                ],
-                key="media_blob_lists@sha256:derive-frames",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        child_sheet_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        assert child_sheet_id is not None
-        child_rows = project.db.execute(
-            "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
-            (child_sheet_id,),
-        ).fetchall()
-        assert [int(row["parent_row_id"]) for row in child_rows] == row_ids
-        columns = _columns(project, child_sheet_id)
-        assert columns["frame"]["type"] == "image"
-        frame_values = project.get_values(child_sheet_id, int(columns["frame"]["id"]))
-        assert all(value["blob"] for value in frame_values.values())
-        timestamps = project.get_values(child_sheet_id, int(columns["timestamp"]["id"]))
-        assert list(timestamps.values()) == [6.0, 6.0]
-    finally:
-        project.close()
+    derived = run_action_spec(
+        project,
+        _derive_action(
+            sheet_id=sheet_id,
+            column_id=int(named.column_id or named.ref["column_id"]),
+            run_id=frames.run_id,
+            route="frames",
+            schema="frames",
+            target_sheet_name="Frame Rows",
+            item_schema=named.ref["item_schema"],
+            columns=[
+                {"name": "frame", "path": "$.image", "type": "image"},
+                {"name": "timestamp", "path": "$.t", "type": "number"},
+            ],
+            key="media_blob_lists@sha256:derive-frames",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    child_sheet_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    assert child_sheet_id is not None
+    child_rows = project.db.execute(
+        "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["parent_row_id"]) for row in child_rows] == row_ids
+    columns = _columns(project, child_sheet_id)
+    assert columns["frame"]["type"] == "image"
+    frame_values = project.get_values(child_sheet_id, int(columns["frame"]["id"]))
+    assert all(value["blob"] for value in frame_values.values())
+    timestamps = project.get_values(child_sheet_id, int(columns["timestamp"]["id"]))
+    assert list(timestamps.values()) == [6.0, 6.0]
 
 
 def _columns(project, sheet_id: int) -> dict[str, Any]:

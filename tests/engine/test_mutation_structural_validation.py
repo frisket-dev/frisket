@@ -128,18 +128,15 @@ def test_malformed_mutations_stop_before_executor_and_database(
         }
 
     before = counts()
-    try:
-        for label, kind, path, value in MALFORMED:
-            result = executor_actions.run_action_spec(
-                project,
-                _action(kind, _malformed(kind, path, value)),
-                project_id="malformed",
-            )
-            assert result.status == "failed", label
-            assert result.errors, label
-        assert counts() == before
-    finally:
-        project.close()
+    for label, kind, path, value in MALFORMED:
+        result = executor_actions.run_action_spec(
+            project,
+            _action(kind, _malformed(kind, path, value)),
+            project_id="malformed",
+        )
+        assert result.status == "failed", label
+        assert result.errors, label
+    assert counts() == before
 
 
 @pytest.mark.parametrize(

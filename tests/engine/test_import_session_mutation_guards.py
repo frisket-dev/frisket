@@ -173,46 +173,43 @@ def test_bundle_export_refuses_unresolved_import_in_captured_snapshot(
 ) -> None:
     project = make_project("source")
     target = tmp_path / "export.zip"
-    try:
-        writer = _session(project)
-        if state == "paused":
-            writer.pause(expected_cursor=0)
-        elif state == "cancelled":
-            writer.cancel(expected_cursor=0)
-        guard_databases = []
-        connect = sqlite3.connect
+    writer = _session(project)
+    if state == "paused":
+        writer.pause(expected_cursor=0)
+    elif state == "cancelled":
+        writer.cancel(expected_cursor=0)
+    guard_databases = []
+    connect = sqlite3.connect
 
-        def capture_connect(path, *args, **kwargs):
-            connection = connect(path, *args, **kwargs)
-            connection.set_trace_callback(
-                lambda sql: (
-                    guard_databases.append(Path(path))
-                    if sql.startswith("SELECT 1 FROM import_sessions")
-                    else None
-                )
+    def capture_connect(path, *args, **kwargs):
+        connection = connect(path, *args, **kwargs)
+        connection.set_trace_callback(
+            lambda sql: (
+                guard_databases.append(Path(path))
+                if sql.startswith("SELECT 1 FROM import_sessions")
+                else None
             )
-            return connection
+        )
+        return connection
 
-        monkeypatch.setattr(sqlite3, "connect", capture_connect)
-        with pytest.raises(ValueError, match="before exporting a project bundle"):
-            project.export(target)
-        assert len(guard_databases) == 1
-        assert guard_databases[0] != project.db_path
-        assert guard_databases[0].parent.parent == target.parent
-        assert not project.db.in_transaction
-        assert not target.exists()
-        assert not list(tmp_path.glob(".export.zip.*"))
-        service = ProjectExportService(SimpleNamespace(get=lambda _id: project))
-        with pytest.raises(ProjectExportError) as conflict:
-            service.export_bundle("source", include_media=True)
-        assert conflict.value.status_code == 409
-        assert "Finish imports" in conflict.value.detail
-        # Raw SQLite download remains an inspection snapshot, not a restorable
-        # bundle; it deliberately excludes original media and import inventory.
-        project.export_database(tmp_path / "inspection.db")
-        assert (tmp_path / "inspection.db").is_file()
-    finally:
-        project.close()
+    monkeypatch.setattr(sqlite3, "connect", capture_connect)
+    with pytest.raises(ValueError, match="before exporting a project bundle"):
+        project.export(target)
+    assert len(guard_databases) == 1
+    assert guard_databases[0] != project.db_path
+    assert guard_databases[0].parent.parent == target.parent
+    assert not project.db.in_transaction
+    assert not target.exists()
+    assert not list(tmp_path.glob(".export.zip.*"))
+    service = ProjectExportService(SimpleNamespace(get=lambda _id: project))
+    with pytest.raises(ProjectExportError) as conflict:
+        service.export_bundle("source", include_media=True)
+    assert conflict.value.status_code == 409
+    assert "Finish imports" in conflict.value.detail
+    # Raw SQLite download remains an inspection snapshot, not a restorable
+    # bundle; it deliberately excludes original media and import inventory.
+    project.export_database(tmp_path / "inspection.db")
+    assert (tmp_path / "inspection.db").is_file()
 
 
 @pytest.mark.parametrize("mode", ["bundle", "database"])

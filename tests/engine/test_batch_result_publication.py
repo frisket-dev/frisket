@@ -254,19 +254,16 @@ def test_empty_batch_executes_but_unavailable_batch_does_not(make_project, inval
         project.add_rows(sheet, [{"source": "not an integer"}], {"source": source})
     program = _EvidenceBatchProgram()
     program.allow_all_empty_input = True
-    try:
-        progress = asyncio.run(
-            run_with_output_claim(
-                _runner(project), _spec(sheet), program=program, confirmed=True
-            )
+    progress = asyncio.run(
+        run_with_output_claim(
+            _runner(project), _spec(sheet), program=program, confirmed=True
         )
-        assert program.executed_batches == ([] if invalid_row else [[]])
-        outcomes = project.db.execute(
-            "SELECT outcome,error_code FROM results WHERE run_id=?",
-            (progress.run_id,),
-        ).fetchall()
-        assert [tuple(row) for row in outcomes] == (
-            [("not_completed", "input_invalid")] if invalid_row else []
-        )
-    finally:
-        project.close()
+    )
+    assert program.executed_batches == ([] if invalid_row else [[]])
+    outcomes = project.db.execute(
+        "SELECT outcome,error_code FROM results WHERE run_id=?",
+        (progress.run_id,),
+    ).fetchall()
+    assert [tuple(row) for row in outcomes] == (
+        [("not_completed", "input_invalid")] if invalid_row else []
+    )

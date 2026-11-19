@@ -236,57 +236,50 @@ def test_large_email_import_stages_bounded_batches_then_publishes_atomically(
         return row_ids
 
     monkeypatch.setattr(StreamingSheetWriter, "append_rows", append_rows)
-    try:
-        with source_path.open("rb") as stream:
-            result = run_action_spec(
-                project,
-                _action(key="import_email@sha256:large"),
-                project_id="project-large-email",
-                deps=_deps(stream),
-            )
-            assert not stream.closed
-
-        assert result.status == "completed", result.errors
-        assert checkpoints == [batch_size, MESSAGE_COUNT]
-        sheet = project.db.execute(
-            "SELECT id FROM sheets WHERE name='Emails'"
-        ).fetchone()
-        assert sheet is not None
-        sheet_id = int(sheet["id"])
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
-            ).fetchone()[0]
-            == MESSAGE_COUNT
+    with source_path.open("rb") as stream:
+        result = run_action_spec(
+            project,
+            _action(key="import_email@sha256:large"),
+            project_id="project-large-email",
+            deps=_deps(stream),
         )
-        subject_column = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='subject'", (sheet_id,)
-        ).fetchone()
-        assert subject_column is not None
-        subjects = list(
-            project.get_values(sheet_id, int(subject_column["id"])).values()
-        )
-        assert subjects[0] == "Message 00000"
-        assert subjects[-1] == "Message 10000"
+        assert not stream.closed
 
-        blob = project.db.execute(
-            "SELECT hash, filename, mime, size FROM blobs WHERE filename='evidence.bin'"
-        ).fetchone()
-        assert blob is not None
-        assert blob["size"] == len(attachment_bytes)
-        with project.blob_store.materialize(blob["hash"]) as stored:
-            assert stored.read_bytes() == attachment_bytes
+    assert result.status == "completed", result.errors
+    assert checkpoints == [batch_size, MESSAGE_COUNT]
+    sheet = project.db.execute("SELECT id FROM sheets WHERE name='Emails'").fetchone()
+    assert sheet is not None
+    sheet_id = int(sheet["id"])
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM rows WHERE sheet_id=?", (sheet_id,)
+        ).fetchone()[0]
+        == MESSAGE_COUNT
+    )
+    subject_column = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='subject'", (sheet_id,)
+    ).fetchone()
+    assert subject_column is not None
+    subjects = list(project.get_values(sheet_id, int(subject_column["id"])).values())
+    assert subjects[0] == "Message 00000"
+    assert subjects[-1] == "Message 10000"
 
-        op = project.db.execute("SELECT undo_info FROM ops").fetchone()
-        receipt = project.db.execute("SELECT body FROM receipts").fetchone()
-        assert op is not None and receipt is not None
-        assert len(op["undo_info"]) < 8_192
-        assert len(receipt["body"]) < 32_768
-        assert "Message 00000" not in op["undo_info"]
-        assert "Message 10000" not in receipt["body"]
-        assert json.loads(receipt["body"])["status"] == "completed"
-    finally:
-        project.close()
+    blob = project.db.execute(
+        "SELECT hash, filename, mime, size FROM blobs WHERE filename='evidence.bin'"
+    ).fetchone()
+    assert blob is not None
+    assert blob["size"] == len(attachment_bytes)
+    with project.blob_store.materialize(blob["hash"]) as stored:
+        assert stored.read_bytes() == attachment_bytes
+
+    op = project.db.execute("SELECT undo_info FROM ops").fetchone()
+    receipt = project.db.execute("SELECT body FROM receipts").fetchone()
+    assert op is not None and receipt is not None
+    assert len(op["undo_info"]) < 8_192
+    assert len(receipt["body"]) < 32_768
+    assert "Message 00000" not in op["undo_info"]
+    assert "Message 10000" not in receipt["body"]
+    assert json.loads(receipt["body"])["status"] == "completed"
 
 
 def test_many_eml_sources_keep_compact_identity_and_full_replay_authority(

@@ -85,10 +85,7 @@ def warning_run(make_project, request):
             claim_token=authority.claim_token,
         )
         store.point_column_at_run(op_id, output_id, run_id)
-    try:
-        yield project, sheet_id, source_id, output_id, row_ids, run_id
-    finally:
-        project.close()
+    yield project, sheet_id, source_id, output_id, row_ids, run_id
 
 
 def _facts(project, sheet_id, source_id, run_id):

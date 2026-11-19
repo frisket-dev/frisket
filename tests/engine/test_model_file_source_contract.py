@@ -199,43 +199,38 @@ def test_non_pdf_file_rows_refuse_without_sending_metadata_to_model(
 ):
     project = make_project("non-pdf")
     router, adapter = router_and_adapter()
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "document", type="file")
-        digest = project.add_blob(
-            b"File content", filename="note.txt", mime="text/plain"
-        )
-        rows = project.add_rows(
-            sheet_id,
-            [
-                {
-                    "document": {
-                        "blob": digest,
-                        "filename": "note.txt",
-                        "mime": "text/plain",
-                    }
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "document", type="file")
+    digest = project.add_blob(b"File content", filename="note.txt", mime="text/plain")
+    rows = project.add_rows(
+        sheet_id,
+        [
+            {
+                "document": {
+                    "blob": digest,
+                    "filename": "note.txt",
+                    "mime": "text/plain",
                 }
-            ],
+            }
+        ],
+        {"document": column_id},
+    )
+    bound = typed_action_for_request(request(kind, sheet_id, source))
+    # Form/project-reference validation is metadata-only. File-content
+    # failures remain expected row errors at the actual resolution boundary.
+    plan = build_typed_map_rows_plan(project, bound)
+    with pytest.raises(RowError, match="not a PDF") as error:
+        row_values(
+            project,
+            plan.program,
+            plan.spec_dict(),
             {"document": column_id},
+            rows[0],
         )
-        bound = typed_action_for_request(request(kind, sheet_id, source))
-        # Form/project-reference validation is metadata-only. File-content
-        # failures remain expected row errors at the actual resolution boundary.
-        plan = build_typed_map_rows_plan(project, bound)
-        with pytest.raises(RowError, match="not a PDF") as error:
-            row_values(
-                project,
-                plan.program,
-                plan.spec_dict(),
-                {"document": column_id},
-                rows[0],
-            )
-        assert error.value.code == "pdf_input_invalid"
-        assert adapter.requests == []
-        assert len(project.columns(sheet_id)) == 1
-        assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
-    finally:
-        project.close()
+    assert error.value.code == "pdf_input_invalid"
+    assert adapter.requests == []
+    assert len(project.columns(sheet_id)) == 1
+    assert project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("kind", ["map.ask", "map.summarize"])
@@ -358,25 +353,22 @@ def test_translation_templates_keep_supported_rich_references(make_project, type
 def test_group_summary_file_source_refuses_before_provider(make_project):
     project = make_project("group-file")
     router, adapter = router_and_adapter()
-    try:
-        sheet_id = project.add_sheet("Rows")
-        column_id = project.add_column(sheet_id, "document", type="file")
-        digest = project.add_blob(b"Actual document text", mime="text/plain")
-        project.add_rows(
-            sheet_id, [{"document": {"blob": digest}}], {"document": column_id}
-        )
-        body = request("reduce.group_summary", sheet_id, ["document"])
-        body["sheet_name"] = "Summary"
-        body["params"]["instruction"] = "Summarize the document"
-        result = run_action_spec(project, body, project_id="test", router=router)
-        assert result.status == "failed", result
-        assert result.errors[0].code == "invalid_input_ref"
-        assert result.errors[0].message == FILE_SOURCE_CONVERSION_HINT
-        assert result.run_id is None
-        assert adapter.requests == []
-        assert len(project.sheets()) == 1
-    finally:
-        project.close()
+    sheet_id = project.add_sheet("Rows")
+    column_id = project.add_column(sheet_id, "document", type="file")
+    digest = project.add_blob(b"Actual document text", mime="text/plain")
+    project.add_rows(
+        sheet_id, [{"document": {"blob": digest}}], {"document": column_id}
+    )
+    body = request("reduce.group_summary", sheet_id, ["document"])
+    body["sheet_name"] = "Summary"
+    body["params"]["instruction"] = "Summarize the document"
+    result = run_action_spec(project, body, project_id="test", router=router)
+    assert result.status == "failed", result
+    assert result.errors[0].code == "invalid_input_ref"
+    assert result.errors[0].message == FILE_SOURCE_CONVERSION_HINT
+    assert result.run_id is None
+    assert adapter.requests == []
+    assert len(project.sheets()) == 1
 
 
 def test_file_excluding_refs_keep_late_plugin_types_and_file_group_keys(make_project):

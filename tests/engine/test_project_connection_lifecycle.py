@@ -26,26 +26,23 @@ def test_retired_threads_release_their_project_connections(make_project) -> None
         except BaseException as exc:
             errors.append(exc)
 
-    try:
-        # A server with a 1024-descriptor limit used to exhaust it after roughly
-        # this many connections because SQLite holds both DB and WAL files open.
-        for _ in range(600):
-            # realtime: threads ARE the subject here — connections are
-            # thread-owned, so retirement cannot be exercised without one.
-            # Started and joined immediately; no clock is raced.
-            thread = threading.Thread(target=query_project)  # realtime: see above
-            thread.start()
-            thread.join()
+    # A server with a 1024-descriptor limit used to exhaust it after roughly
+    # this many connections because SQLite holds both DB and WAL files open.
+    for _ in range(600):
+        # realtime: threads ARE the subject here — connections are
+        # thread-owned, so retirement cannot be exercised without one.
+        # Started and joined immediately; no clock is raced.
+        thread = threading.Thread(target=query_project)  # realtime: see above
+        thread.start()
+        thread.join()
 
-        gc.collect()
+    gc.collect()
 
-        assert errors == []
-        assert len(project._connections) == 1
-        for connection in retired_connections:
-            with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
-                connection.execute("SELECT 1")
-    finally:
-        project.close()
+    assert errors == []
+    assert len(project._connections) == 1
+    for connection in retired_connections:
+        with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+            connection.execute("SELECT 1")
 
 
 def test_live_threads_keep_distinct_project_connections(make_project) -> None:

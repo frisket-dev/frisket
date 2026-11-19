@@ -108,20 +108,17 @@ def case(make_project, monkeypatch):
     def run(**changes):
         return run_action_spec(project, {**request, **changes}, project_id="review")
 
-    try:
-        yield SimpleNamespace(
-            project=project,
-            run=run,
-            left=left,
-            donor=donor,
-            left_row=left_row,
-            right=right,
-            company=company,
-            right_row=right_row,
-            calls=calls,
-        )
-    finally:
-        project.close()
+    yield SimpleNamespace(
+        project=project,
+        run=run,
+        left=left,
+        donor=donor,
+        left_row=left_row,
+        right=right,
+        company=company,
+        right_row=right_row,
+        calls=calls,
+    )
 
 
 def test_actual_receipt_can_feed_match_reader(case):
