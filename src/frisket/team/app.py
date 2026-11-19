@@ -52,6 +52,7 @@ from frisket.engine.jobs.queue import inserted_id
 from frisket.server.app import create_app
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
+from frisket.server.unit_of_work import UnitOfWorkRoute
 from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
@@ -1162,6 +1163,7 @@ def create_team_app(
         organization_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
     )
     app = FastAPI(title="frisket team", version="0.1.0")
+    app.router.route_class = UnitOfWorkRoute
     app.state.control_engine = engine
     app.state.team_organization_id = org_id
     app.state.workspace = core.state.workspace

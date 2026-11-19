@@ -63,7 +63,11 @@ from .blob_backend import (
     FilesystemProjectBlobStore,
     ProjectBlobStore,
 )
-from .transactions import StatementScopedConnection, write_transaction
+from .transactions import (
+    StatementScopedConnection,
+    track_for_unit_of_work,
+    write_transaction,
+)
 
 
 class _ThreadConnection:
@@ -269,6 +273,7 @@ class Project:
                 "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; "
                 "PRAGMA busy_timeout=10000;"
             )
+            track_for_unit_of_work(conn)
             thread_connection = _ThreadConnection(conn)
             self._local.connection = thread_connection
             with self._connections_lock:

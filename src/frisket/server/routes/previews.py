@@ -44,6 +44,7 @@ from frisket.contracts.http.resolve_previews import (
 from frisket.preview.common import ComparePreviewError
 from frisket.server import schemas
 from frisket.server.route_errors import http_error_responses, register_typed_error
+from frisket.server.unit_of_work import ends_unit_of_work
 from frisket.server.services.previews import PreviewRequestError, PreviewService
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
 
@@ -175,7 +176,10 @@ def register_preview_routes(
                 field="confirmation",
             )
         prepared = await run_in_threadpool(
-            getattr(action_preview_service, kind.prepare_method),
+            ends_unit_of_work(
+                getattr(action_preview_service, kind.prepare_method),
+                unit=f"prepare {kind.prepare_method}",
+            ),
             pid,
             media_bytes,
             parsed,
@@ -209,7 +213,10 @@ def register_preview_routes(
             )
             plan, _source, router, composition, execution_context = prepared
             response = await run_in_threadpool(
-                action_preview_service.start_scratch_preview,
+                ends_unit_of_work(
+                    action_preview_service.start_scratch_preview,
+                    unit="start scratch preview",
+                ),
                 pid,
                 plan,
                 confirmation=confirmation,

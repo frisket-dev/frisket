@@ -1,12 +1,15 @@
 """The one owner of SQLite transaction boundaries for project stores."""
 
 import logging
+import threading
+import weakref
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from sqlite3 import Connection, Cursor, Error
+from sqlite3 import Connection, Cursor, Error, ProgrammingError
 from typing import TypeAlias
 
 _log = logging.getLogger(__name__)
+_this_thread = threading.local()
 
 SQLParameters: TypeAlias = Sequence[object] | Mapping[str, object]
 
@@ -83,6 +86,49 @@ def roll_back_failed_work(db: Connection, *, before: str) -> None:
             extra={"event": "failed_work_rolled_back", "before": before},
         )
         db.rollback()
+
+
+def track_for_unit_of_work(connection: Connection) -> None:
+    """Have ``roll_back_unfinished_work`` on this thread cover ``connection``."""
+    tracked: weakref.WeakSet[Connection] | None = getattr(
+        _this_thread, "connections", None
+    )
+    if tracked is None:
+        tracked = weakref.WeakSet()
+        _this_thread.connections = tracked
+    tracked.add(connection)
+
+
+def roll_back_unfinished_work(*, unit: str) -> None:
+    """End, by ROLLBACK, every transaction this thread's connections still hold.
+
+    Called where one unit of work on this thread (an HTTP request) ends. A
+    transaction still open there belongs to work that never committed: a
+    write that succeeded before an exception, or a success path that forgot
+    its commit. Rolling it back keeps a later unit's commit from publishing
+    it and releases the write lock it holds. A failed rollback is logged and
+    not raised, so the unit's own result or exception stands.
+    """
+    connections: weakref.WeakSet[Connection] = getattr(
+        _this_thread, "connections", weakref.WeakSet()
+    )
+    for connection in list(connections):
+        try:
+            if not connection.in_transaction:
+                continue
+        except ProgrammingError:
+            continue  # closed: closing already discarded its transaction
+        _log.warning(
+            "unfinished_work_rolled_back",
+            extra={"event": "unfinished_work_rolled_back", "unit": unit},
+        )
+        try:
+            connection.rollback()
+        except Error:
+            _log.exception(
+                "unfinished_work_rollback_failed",
+                extra={"event": "unfinished_work_rollback_failed", "unit": unit},
+            )
 
 
 def _end_transaction_the_failure_opened(connection: Connection, was_open: bool) -> None:

@@ -119,6 +119,13 @@ guards a write that must land inside its caller's transaction.
 `scripts/ci/check_cell_write_ownership.py` refuses a new `"BEGIN IMMEDIATE"`
 literal there; its `HAND_WRITTEN_TRANSACTIONS` list only shrinks.
 
+Every HTTP endpoint call is one unit of work (`server/unit_of_work.py`):
+when it returns or raises, a transaction still open on that thread's project
+connections is rolled back and logged as `unfinished_work_rolled_back`, so
+work that never committed is not published by a later request. Sync work an
+`async def` endpoint hands to `run_in_threadpool` is wrapped with
+`ends_unit_of_work`; keep project transactions from spanning an `await`.
+
 ### Shared UI controls
 
 Use shared controls for ordinary inputs, segmented choices, icon buttons,

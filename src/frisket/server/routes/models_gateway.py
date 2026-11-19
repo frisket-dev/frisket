@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.routing import APIRoute
 
 from frisket.contracts.http.models_gateway import (
     ModelsGatewayCandidateRequest,
@@ -13,6 +12,7 @@ from frisket.contracts.http.models_gateway import (
     ModelsGatewayValidationResponse,
 )
 from frisket.server.route_errors import http_error_responses
+from frisket.server.unit_of_work import UnitOfWorkRoute
 from frisket.server.services.models_gateway import ModelsGatewayService
 from frisket.server.services.project_model_routes import (
     ProjectModelRouteError,
@@ -20,7 +20,7 @@ from frisket.server.services.project_model_routes import (
 )
 
 
-class ModelsGatewayAPIRoute(APIRoute):
+class ModelsGatewayAPIRoute(UnitOfWorkRoute):
     """Keep candidate tokens out of FastAPI's request-validation errors."""
 
     def get_route_handler(self):

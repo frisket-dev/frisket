@@ -49,6 +49,7 @@ from frisket.server.notifications.delivery import NotificationDeliveryRuntime
 from frisket.server.notifications.secrets import NotificationSecretResolver
 from frisket.server import workspace as server_workspace
 from frisket.server.route_errors import register_route_error_handler
+from frisket.server.unit_of_work import UnitOfWorkRoute
 from frisket.server.import_admission import (
     IMPORT_ADMISSION_LEASE_STATE_KEY,
     ImportAdmission,
@@ -433,6 +434,7 @@ def create_app(
     if plugin_composition_policy is not None:
         install_plugin_composition_policy(plugin_composition_policy)
     app = FastAPI(title="frisket", version="0.1.0")
+    app.router.route_class = UnitOfWorkRoute
     install_fastapi_logging(app)
     register_route_error_handler(app)
     managed_models_catalog = (
