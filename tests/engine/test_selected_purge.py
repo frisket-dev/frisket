@@ -1,6 +1,18 @@
+import json
 from contextlib import closing
 import pytest
 from frisket.engine.store import Project
+from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
+from frisket.engine.store.keyed_updates import observe, require_relationship
+from frisket.engine.store.notifications import insert_notification_item
+from frisket.retrieval.contracts import SourceRevision
+from frisket.retrieval.store import (
+    BindingDependency,
+    SourcePublication,
+    StoredBinding,
+)
+from helpers import write_claimed_test_results
+from tests.alert_helpers import add_alert
 from frisket.engine.store.purge import (
     PurgedMaterialUnavailable,
     begin_purge,
@@ -28,11 +40,6 @@ def add(project, name, value):
 
 def publish_bindings(project, store, revision, locations):
     """Publish one retrieval source bound to (binding_id, sheet, column, row) cells."""
-    from frisket.retrieval.store import (
-        BindingDependency,
-        SourcePublication,
-        StoredBinding,
-    )
 
     def binding(binding_id, sheet, column, row):
         cell_revision = project.db.execute(
@@ -650,11 +657,7 @@ def test_interrupted_content_cleanup_resumes(project, monkeypatch):
 
 
 def test_purge_cleans_copied_alert_text_and_only_related_trace(project):
-    import json
-
-    from frisket.engine.store.notifications import insert_notification_item
     from frisket.engine.store.runs import RunResultStore
-    from tests.alert_helpers import add_alert
 
     first = add(project, "first", "secret")
     second = add(project, "second", "public")
@@ -743,7 +746,6 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
         result_key,
     )
     from frisket.engine.store.runs import RunResultStore
-    from helpers import write_claimed_test_results
 
     sheet, column, row = add(project, "review", "source")
     other_row = project.add_rows(sheet, [{"value": "other source"}], {"value": column})[
@@ -813,7 +815,6 @@ def test_purged_receipt_replays_as_valid_refusal(project):
     from frisket.contracts.action import Receipt
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.runs import RunResultStore
-    from helpers import write_claimed_test_results
 
     sheet, column, row = add(project, "receipt", "secret")
     op_id = project.append_change("test.receipted")
@@ -962,7 +963,6 @@ def test_removed_notification_does_not_become_route_test(project):
 
 def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
     from frisket.engine.store.runs import RunResultStore
-    from helpers import write_claimed_test_results
 
     first = add(project, "first", "input")
     second = add(project, "independent", "seed")
@@ -998,7 +998,6 @@ def test_independent_saved_result_copy_keeps_payload_until_last_owner(project):
 
 
 def test_retrieval_purge_drops_only_selected_binding_and_unowned_text(project):
-    from frisket.retrieval.contracts import SourceRevision
     from frisket.retrieval.store import RetrievalStore
 
     first = add(project, "first", "private")
@@ -1057,8 +1056,6 @@ def test_partial_content_batch_failure_resumes_without_touching_other_sheet(
 
 def test_column_purge_preserves_unselected_source_baseline_fields(project):
     import json
-
-    from frisket.engine.store.keyed_updates import observe, require_relationship
 
     sheet, name, row = add(project, "incoming", "name")
     key = project.add_column(sheet, "key", type="text")
@@ -1148,7 +1145,6 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
 
 
 def test_active_or_unaccounted_work_must_resolve_before_purge(project):
-    from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
     from frisket.engine.store.runs import RunResultStore
 
     first = add(project, "first", "private")
@@ -1265,7 +1261,6 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
     from frisket.engine.store.blob_backend import BlobNotFoundError
     from frisket.engine.store.evidence import record_source_artifact
     from frisket.engine.store.project_blobs import reclaim_local_blobs
-    from frisket.retrieval.contracts import SourceRevision
     from frisket.retrieval.store import RetrievalStore
 
     original = project.add_blob(b"original source")
