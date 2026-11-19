@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 
-import type { EngineOption } from '../../src/api/types';
+import type { EngineOption, ParamValidationResult } from '../../src/api/types';
 import type { GeneratedActionParams } from '../../src/generated/actionTypes';
 import { TranslateParamsBody } from '../../src/components/action-panel/TranslateParamsBody';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -21,12 +21,14 @@ const engine: EngineOption = {
     { pair: 'es-en', display_name: 'Spanish → English', size: 100, license: 'CC-BY-4.0' },
   ],
 };
-function Harness({ initial, onChange }: { initial: Params; onChange(params: Params): void }) {
+function Harness({ initial, onChange, errors = {} }: {
+  initial: Params; onChange(params: Params): void; errors?: ParamValidationResult;
+}) {
   const [params, setParams] = useState(initial);
   const update = (next: Params) => { setParams(next); onChange(next); };
   return <TranslateParamsBody sheet={sheetMeta([])} request={{
     scope: { kind: 'sheet_rows', sheet_id: 1 },
-  }} params={params} setParams={update} engine={engine} errors={{}}
+  }} params={params} setParams={update} engine={engine} errors={errors}
   Field={({ name }) => name === 'engine'
     ? <button type="button" data-testid="field-engine" onClick={() => update({ ...params, engine: 'hy_mt2' })}>Choose Hy-MT2</button>
     : <div data-testid={`field-${name}`} />} />;
@@ -63,4 +65,10 @@ it('swaps both languages atomically without dropping either edit', () => {
   expect(onChange.mock.lastCall?.[0]).toMatchObject({ language: ['es'], target_language: 'en' });
   expect(screen.getByTestId('translate-pair-source')).toHaveValue('es');
   expect(screen.getByTestId('translate-pair-target')).toHaveValue('en');
+});
+
+it('exposes a language validation error with the alert role', () => {
+  render(<Harness initial={{ source: ['text'], engine: 'opus_mt', language: ['en'], target_language: 'es' }}
+    onChange={vi.fn()} errors={{ language: { ok: false, message: 'Pick a supported language.' } }} />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Pick a supported language.');
 });

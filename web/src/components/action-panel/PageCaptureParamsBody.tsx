@@ -45,13 +45,13 @@ export function PageCaptureParamsBody({ params, setParams, errors, Field }:
             { value: 'B', multiplier: 1 }, { value: 'KB', multiplier: 1000 },
             { value: 'MB', multiplier: 1_000_000 }, { value: 'GB', multiplier: 1_000_000_000 },
           ] }} />
-        {errors.max_bytes?.message && <span className="panel-error">{errors.max_bytes.message}</span>}
+        {errors.max_bytes?.message && <span className="panel-error" role="alert">{errors.max_bytes.message}</span>}
       </label>
       <label className="field-group"><span className="field-labels">Timeout</span>
         <UnitInput id="capture-timeout" testid="field-timeout_ms" value={String(params.timeout_ms ?? 30_000)}
           onChange={(value) => setParams({ ...params, timeout_ms: Number(value) })}
           unit={{ defaultUnit: 's', units: [{ value: 'ms', multiplier: 1 }, { value: 's', multiplier: 1000 }] }} />
-        {errors.timeout_ms?.message && <span className="panel-error">{errors.timeout_ms.message}</span>}
+        {errors.timeout_ms?.message && <span className="panel-error" role="alert">{errors.timeout_ms.message}</span>}
       </label>
     </details>
   </>;
