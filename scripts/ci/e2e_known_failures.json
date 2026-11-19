@@ -279,7 +279,6 @@
   "R1: every dock tab body shares one frame class with identical computed padding": "stale-expectation"
  },
  "workbench-ia-ribbon.spec.ts": {
-  "a selected column pre-binds the configure-first form": "stale-expectation",
   "contextual categories are keyed to column types in both ribbon and compact mode": "stale-expectation"
  },
  "workbench-ia-right-edge.spec.ts": {

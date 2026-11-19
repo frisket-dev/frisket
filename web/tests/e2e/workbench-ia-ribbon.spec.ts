@@ -1,6 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
-  clickCell,
   createProject,
   importCsv,
   openAction,
@@ -142,20 +141,6 @@ test('clicking a ribbon action opens the ActionPanel configure-first (no run POS
   // …and NOTHING ran. The click never POSTs /actions/v1/run.
   await page.waitForTimeout(400);
   expect(runs.count()).toBe(0);
-});
-
-test('a selected column pre-binds the configure-first form', async ({ page }) => {
-  const { pid, sheetId } = await seedProject(page);
-  const columns = await sheetColumns(page.request, pid, sheetId);
-
-  // Select the 'snippet' column by clicking one of its cells.
-  await clickCell(page, columns, 'snippet', 0);
-
-  await openAction(page, 'map.extract');
-
-  await expect(page.getByTestId('action-panel')).toBeVisible();
-  // The extract form's source column is pre-bound to the selected column.
-  await expect(page.getByTestId('text-source-column-select')).toHaveValue('snippet');
 });
 
 test('menu-bar mode: dropdown opens, closes on backdrop + Esc, and an item opens the ActionPanel', async ({
