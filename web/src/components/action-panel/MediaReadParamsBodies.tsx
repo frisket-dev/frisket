@@ -9,6 +9,7 @@ import {
 } from '../../actions/transcribeEngineCatalog';
 import { EngineLanguageControl } from './EngineLanguageControl';
 import { TranscribeDiarizationControl } from './TranscribeDiarizationControl';
+import { useEditorProblem } from './useEditorProblem';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { PanelSelect } from '../PanelSelect';
 
@@ -102,10 +103,7 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
     ?? (unsupportedSavedKeys.length
       ? 'Some saved settings are unavailable with this setup. Clear them to continue.'
       : null);
-  useEffect(() => {
-    setEditorProblem?.(unsupportedSavedOption);
-    return () => setEditorProblem?.(null);
-  }, [setEditorProblem, unsupportedSavedOption]);
+  useEditorProblem(setEditorProblem, unsupportedSavedOption);
   return <>
     <Field name="source" label={FORM_LABELS.media} />
     <Field name="engine" />

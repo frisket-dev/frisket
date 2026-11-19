@@ -7,6 +7,7 @@ import { useEffect } from 'react';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
 import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
+import { useEditorProblem } from './useEditorProblem';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
 export const SemanticJoinParamsBody = sheetRequired(SemanticJoinParamsBodyForSheet);
@@ -32,11 +33,8 @@ function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, s
       column: names.get('target') ?? params.target.column } }),
     ...(params.carry == null ? {} : { carry: carry.map((name, index) => names.get(`carry-${index}`) ?? name) }),
   }));
-  useEffect(() => {
-    setEditorProblem?.(loading ? 'Loading join source sheets…' : error
-      ?? (!target ? 'Choose an available target sheet.' : missing.length ? 'Repair missing join sources.' : null));
-    return () => setEditorProblem?.(null);
-  }, [loading, error, target, missing.length, setEditorProblem]);
+  useEditorProblem(setEditorProblem, loading ? 'Loading join source sheets…' : error
+    ?? (!target ? 'Choose an available target sheet.' : missing.length ? 'Repair missing join sources.' : null));
   return <div className="action-io-summary" data-testid="semantic-join-form">
     <Button type="button" className="btn-ghost" data-testid="semantic-join-refresh-sheets"
       onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>

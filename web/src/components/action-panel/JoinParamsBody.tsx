@@ -10,6 +10,7 @@ import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
 import { ToggleRow } from '../PanelPrimitives';
 import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
+import { useEditorProblem } from './useEditorProblem';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
 export const JoinParamsBody = sheetRequired(JoinParamsBodyForSheet);
@@ -55,11 +56,8 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
     [next[index], next[index + delta]] = [next[index + delta], next[index]];
     setParams({ ...params, columns: next });
   };
-  useEffect(() => {
-    setEditorProblem?.(loading ? 'Loading join source sheets…' : error
-      ?? (!right ? 'Choose an available right sheet.' : missing.length ? 'Repair missing join sources.' : null));
-    return () => setEditorProblem?.(null);
-  }, [loading, error, right, missing.length, setEditorProblem]);
+  useEditorProblem(setEditorProblem, loading ? 'Loading join source sheets…' : error
+    ?? (!right ? 'Choose an available right sheet.' : missing.length ? 'Repair missing join sources.' : null));
   return <div className="form-stack" data-testid="tabular-join-form">
     <Button type="button" className="btn-ghost" data-testid="tabular-join-refresh-sheets"
       onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>
