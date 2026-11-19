@@ -62,7 +62,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
               job.dismissCompletedClusterResult();
             }
           }}>
-          Create entity table
+          Create entity sheet
         </Button>}
       {/* Allowlisted, not migrated to PanelLoading —
           icon (Loader2) + flex-row layout is a different genus from the

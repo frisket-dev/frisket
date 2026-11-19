@@ -44,7 +44,7 @@ describe('served action ribbon organization', () => {
 
   it('keeps six broad tabs with focused groups of at most five choices', () => {
     expect(tabs.map((tab) => tab.label)).toEqual([
-      'Data', 'Media', 'Analyze', 'Transform', 'Tables', 'Research',
+      'Data', 'Media', 'Analyze', 'Transform', 'Sheets', 'Research',
     ]);
     const items = tabs.flatMap((tab) => {
       for (const group of tab.groups) {
@@ -62,8 +62,8 @@ describe('served action ribbon organization', () => {
   it('places actions with related work and keeps Formula beside Template', () => {
     expect(placements).toEqual(expect.arrayContaining([
       { kind: 'map.regex_extract', tab: 'analyze', group: 'EXTRACT' },
-      { kind: 'map.columns_from_json', tab: 'tables', group: 'TABLES' },
-      { kind: 'derive.link_table', tab: 'tables', group: 'TABLES' },
+      { kind: 'map.columns_from_json', tab: 'tables', group: 'SHEETS' },
+      { kind: 'derive.link_table', tab: 'tables', group: 'SHEETS' },
       { kind: 'media.enclosure_materialize', tab: 'data', group: 'WEB' },
     ]));
     expect(placements.filter(({ tab, group }) => tab === 'transform' && group === 'TRANSFORM')

@@ -129,10 +129,10 @@ export const REGEX_EXTRACT_WALKTHROUGH: WalkthroughDefinition = {
     },
     {
       id: 'open-analyze',
-      title: 'Open Tables',
-      instruction: 'Click Tables to find actions that reshape and join sheets.',
+      title: 'Open Sheets',
+      instruction: 'Click Sheets to find actions that reshape and join sheets.',
       target: { kind: 'action-tab', id: 'tables' },
-      expected: 'The Tables actions appear.',
+      expected: 'The Sheets actions appear.',
       advance: 'click-target',
     },
     {

@@ -228,7 +228,7 @@ const RIBBON_LAYOUT: readonly RibbonTabLayout[] = [
       ] },
     ],
   },
-  { id: 'tables', label: 'Tables', groups: [{ caption: 'TABLES' }, { caption: 'JOIN', commands: [{ command: 'join-expected', label: 'Join expected answers', icon: Link }] }] },
+  { id: 'tables', label: 'Sheets', groups: [{ caption: 'SHEETS' }, { caption: 'JOIN', commands: [{ command: 'join-expected', label: 'Join expected answers', icon: Link }] }] },
   {
     id: 'research', label: 'Research', groups: [
       { caption: 'RESEARCH' },

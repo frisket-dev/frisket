@@ -13,7 +13,7 @@ export function CompletedClusterResult({ onCreate }: { onCreate(receiptId: strin
     <Button type="button" className="btn-primary" onClick={() => {
       onCreate(receiptId);
       jobs.dismissCompletedClusterResult();
-    }}>Create entity table</Button>
+    }}>Create entity sheet</Button>
     <Button type="button" onClick={jobs.dismissCompletedClusterResult}
       aria-label="Dismiss clustering result">Dismiss</Button>
   </aside>;

@@ -127,11 +127,11 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
     const clusterPreview = vi.spyOn(stores.projectApi, 'clusterPreview');
     render(<Workflow history={origin === 'history'} />);
     if (origin === 'completion') {
-      expect(screen.queryByRole('button', { name: 'Create entity table' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Create entity sheet' })).not.toBeInTheDocument();
       run.mockResolvedValueOnce({ runId: null, status: 'completed', receiptId: 'receipt:clusters' });
       await act(async () => { stores.job.startRun(clusterRequest(), SHEET); });
     }
-    fireEvent.click(await screen.findByRole('button', { name: 'Create entity table' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Create entity sheet' }));
     expect(await screen.findByTestId('entity-table-source')).toHaveTextContent('receipt:clusters');
     expect(screen.getByTestId('field-sheet_name')).toHaveValue('Entities');
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
@@ -173,7 +173,7 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
     await act(async () => { stores.job.startRun(clusterRequest(), SHEET); });
     expect(screen.getByTestId('completed-cluster-result')).toBeInTheDocument();
     const history = within(screen.getByTestId('receipt-inspector'));
-    fireEvent.click(await history.findByRole('button', { name: 'Create entity table' }));
+    fireEvent.click(await history.findByRole('button', { name: 'Create entity sheet' }));
     expect(await screen.findByTestId('entity-table-source')).toHaveTextContent('receipt:clusters');
     expect(screen.getByTestId('field-sheet_name')).toHaveValue('Entities');
     if (bannerReceiptId === 'receipt:clusters') {
@@ -211,7 +211,7 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
       receiptId: outcome === 'receipt-free' ? null : 'receipt:failed' });
     render(<Workflow />);
     await act(async () => { stores.job.startRun(clusterRequest(), SHEET); });
-    expect(screen.queryByRole('button', { name: 'Create entity table' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create entity sheet' })).not.toBeInTheDocument();
   });
 
   it('refuses a source-free form and exposes receipt-history recovery', async () => {
@@ -240,12 +240,12 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
     const view = render(<WorkspaceStoresContext.Provider value={stores}>
       <ReceiptInspector receiptId="receipt:clusters" onCreateEntityTable={create} />
     </WorkspaceStoresContext.Provider>);
-    await screen.findByRole('button', { name: 'Create entity table' });
+    await screen.findByRole('button', { name: 'Create entity sheet' });
     vi.mocked(stores.projectApi.getReceipt).mockRejectedValueOnce(new Error('Receipt not found.'));
     view.rerender(<WorkspaceStoresContext.Provider value={stores}>
       <ReceiptInspector receiptId="receipt:missing" onCreateEntityTable={create} />
     </WorkspaceStoresContext.Provider>);
-    expect(screen.queryByRole('button', { name: 'Create entity table' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create entity sheet' })).not.toBeInTheDocument();
     expect(await screen.findByTestId('receipt-error')).toHaveTextContent('Receipt not found');
     expect(create).not.toHaveBeenCalled();
   });
@@ -257,6 +257,6 @@ describe.skipIf(!hasTestPython() && !process.env.CI)('entity table workflow', ()
     vi.mocked(stores.projectApi.getReceipt).mockResolvedValue(receipt('receipt:other', overrides));
     render(<Workflow history />);
     await screen.findByText(overrides.actionKind);
-    expect(screen.queryByRole('button', { name: 'Create entity table' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create entity sheet' })).not.toBeInTheDocument();
   });
 });
