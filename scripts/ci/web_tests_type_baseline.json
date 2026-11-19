@@ -139,7 +139,6 @@
  "web/tests/e2e/docs/recipes.spec.ts": 1,
  "web/tests/e2e/document-browsing-real-composition.spec.ts": 1,
  "web/tests/e2e/feeds.spec.ts": 1,
- "web/tests/e2e/pdfTableFixtures.ts": 1,
  "web/tests/e2e/plugin-image-gallery-view-host.spec.ts": 1,
  "web/tests/e2e/project-ask.spec.ts": 1,
  "web/tests/e2e/row-drawer-smooth-focus.spec.ts": 5,
