@@ -16,7 +16,8 @@ from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, request_key
 from frisket.server.app import create_app
 from frisket.engine.jobs import RUN_PROJECT_KIND, Worker
 from frisket.operability.trace import trace_path
-from frisket.engine.store.value_codec import encode_stored_value
+from frisket.engine.store.runs import RunResultStore
+from helpers import write_claimed_test_results
 from http_test_helpers import (
     post_canonical_run_spec_as_v1_action as _post_canonical_run_spec,
     post_operation_redo_as_v1_action,
@@ -1208,57 +1209,47 @@ class TestCancelRun:
         ).fetchall()
         out_col = p.add_column(sheet_id, "beat", ai_generated=True)
         note_col = p.add_column(sheet_id, "beat_note", ai_generated=True)
-        p.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'seed inspector')")
-        op_id = p.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
-        cur = p.db.execute(
-            "INSERT INTO runs (op_id, sheet_id, action_kind, model, params, status, "
-            "total_rows, completed_rows, failed_rows, cost_actual) "
-            "VALUES (?, ?, 'map.classify', 'anthropic/test', ?, 'completed', 2, 2, 1, 0.01)",
-            (
-                op_id,
-                sheet_id,
-                json.dumps({"row_ids": [rows[0]["id"], rows[1]["id"]]}),
-            ),
+        row_ids = [rows[0]["id"], rows[1]["id"]]
+        runs = RunResultStore(p)
+        run_id = runs.start_run(
+            p.append_change("map.classify", label="seed inspector"),
+            sheet_id,
+            "map.classify",
+            model="anthropic/test",
+            params={"row_ids": row_ids},
+            row_ids=row_ids,
+            total_rows=2,
         )
-        run_id = cur.lastrowid
-        p.db.executemany(
-            "INSERT INTO results "
-            "(run_id,row_id,column_id,value_kind,value,tokens_in,tokens_out,error,outcome) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        write_claimed_test_results(
+            p,
+            run_id,
             [
-                (
-                    run_id,
-                    rows[0]["id"],
-                    out_col,
-                    *encode_stored_value("transit"),
-                    10,
-                    4,
-                    None,
-                    "success",
-                ),
-                (
-                    run_id,
-                    rows[0]["id"],
-                    note_col,
-                    *encode_stored_value("ok"),
-                    3,
-                    2,
-                    None,
-                    "success",
-                ),
-                (
-                    run_id,
-                    rows[1]["id"],
-                    out_col,
-                    None,
-                    None,
-                    8,
-                    0,
-                    "provider 429: retry budget exhausted",
-                    "model_error",
-                ),
+                {
+                    "row_id": row_ids[0],
+                    "column_id": out_col,
+                    "value": "transit",
+                    "tokens_in": 10,
+                    "tokens_out": 4,
+                },
+                {
+                    "row_id": row_ids[0],
+                    "column_id": note_col,
+                    "value": "ok",
+                    "tokens_in": 3,
+                    "tokens_out": 2,
+                },
+                {
+                    "row_id": row_ids[1],
+                    "column_id": out_col,
+                    "value": None,
+                    "tokens_in": 8,
+                    "tokens_out": 0,
+                    "error": "provider 429: retry budget exhausted",
+                    "outcome": "model_error",
+                },
             ],
         )
+        runs.finish_run(run_id)
         sidecar = trace_path(p.path, run_id)
         sidecar.parent.mkdir(parents=True, exist_ok=True)
         with gzip.open(sidecar, "wt", encoding="utf-8") as stream:
@@ -1294,7 +1285,6 @@ class TestCancelRun:
                 )
                 + "\n"
             )
-        p.db.commit()
 
         body = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/rows").json()
 
@@ -1342,7 +1332,7 @@ class TestCrossProjectRunIsolation:
     def test_cancel_does_not_cross_projects(self, client, tmp_path):
         from frisket.engine.runner import RunProgress
 
-        pid_a, _ = make_project_with_data(client)
+        pid_a, sheet_a = make_project_with_data(client)
         pid_b = client.post("/api/projects", json={"name": "Other"}).json()["id"]
         ws = client.app.state.workspace
         # project B has a live run with id 1 (every project's first run is 1)
@@ -1350,14 +1340,13 @@ class TestCrossProjectRunIsolation:
         ws.active_runs[(pid_b, 1)] = prog_b
         # project A's db has a 'running' run with the SAME id
         p_a = ws.get(pid_a)
-        p_a.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'x')")
-        op_id = p_a.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
-        p_a.db.execute(
-            "INSERT INTO runs (id, op_id, sheet_id, action_kind, status, total_rows)"
-            " VALUES (1, ?, 1, 'map.classify', 'running', 5)",
-            (op_id,),
+        run_a = RunResultStore(p_a).start_run(
+            p_a.append_change("map.classify", label="x"),
+            sheet_a,
+            "map.classify",
+            total_rows=5,
         )
-        p_a.db.commit()
+        assert run_a == 1
         r = client.post(f"/api/projects/{pid_a}/actions/runs/1/cancel")
         assert r.status_code in (200, 409)
         assert prog_b.cancelled is False, (
@@ -1369,14 +1358,12 @@ class TestCrossProjectRunIsolation:
         pid_b = client.post("/api/projects", json={"name": "Other"}).json()["id"]
         p_b = client.app.state.workspace.get(pid_b)
         sheet_b = p_b.add_sheet("data")
-        p_b.db.execute("INSERT INTO ops (kind, label) VALUES ('run', 'b')")
-        op_id = p_b.db.execute("SELECT MAX(id) AS m FROM ops").fetchone()["m"]
-        p_b.db.execute(
-            "INSERT INTO runs (id, op_id, sheet_id, action_kind, status, total_rows) "
-            "VALUES (1, ?, ?, 'map.classify', 'completed', 0)",
-            (op_id, sheet_b),
+        runs_b = RunResultStore(p_b)
+        run_b = runs_b.start_run(
+            p_b.append_change("map.classify", label="b"), sheet_b, "map.classify"
         )
-        p_b.db.commit()
+        runs_b.finish_run(run_b)
+        assert run_b == 1
 
         r = client.get(f"/api/projects/{pid_a}/actions/runs/1/rows")
 
