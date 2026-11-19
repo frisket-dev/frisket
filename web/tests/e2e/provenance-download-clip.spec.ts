@@ -176,6 +176,8 @@ test('temporal span: the download-clip affordance streams a real ffmpeg-cut clip
   const downloadButton = viewer.getByTestId('evidence-temporal-download-clip').first();
   await expect(downloadButton).toBeVisible();
 
+  // The clip download is revealed on hover of its transcript line.
+  await viewer.getByTestId('evidence-transcript-line').first().hover();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     downloadButton.click(),

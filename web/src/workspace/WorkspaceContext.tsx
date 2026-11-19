@@ -14,19 +14,6 @@ export type WorkspaceProps = Parameters<typeof useWorkspaceModel>[0];
 
 export type WorkspaceViewModel = ReturnType<typeof useWorkspaceModel>;
 
-declare global {
-  interface Window {
-    __renderCounts?: Record<string, number>;
-  }
-}
-
-export function useRenderCount(region: string): void {
-  if (import.meta.env.DEV) {
-    window.__renderCounts = window.__renderCounts ?? {};
-    window.__renderCounts[region] = (window.__renderCounts[region] ?? 0) + 1;
-  }
-}
-
 export interface WorkspaceShellHandle {
   askNavigation: WorkspaceViewModel['askNavigation'];
   project: WorkspaceViewModel['project'];

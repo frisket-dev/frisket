@@ -12,7 +12,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelector } from '../bind/useSelector';
-import { useWorkspaceShell, useWorkspacePluginDetailRender, useWorkbenchHostContext, useResolvedWorkbenchLayout, useCurrentSheet, useMainViewModel, resolveRegionContributions, useRenderCount } from './WorkspaceContext';
+import { useWorkspaceShell, useWorkspacePluginDetailRender, useWorkbenchHostContext, useResolvedWorkbenchLayout, useCurrentSheet, useMainViewModel, resolveRegionContributions } from './WorkspaceContext';
 import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 function SidebarContributionBody({ contribution }: { contribution: WorkbenchResolvedLayoutContribution }) {
@@ -272,7 +272,6 @@ function DiscoverTabBody({ tabId }: { tabId: string }) {
 }
 
 export const WorkspaceDiscoverRegion = memo(function WorkspaceDiscoverRegion() {
-  useRenderCount('discover');
   const { project, setDiscoverTab, setDiscoverOpen, openDiscover, actionPanelVisible, closeActionRoute } =
     useWorkspaceShell();
   const resolvedWorkbenchLayout = useResolvedWorkbenchLayout();

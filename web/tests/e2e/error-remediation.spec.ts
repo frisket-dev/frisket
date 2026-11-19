@@ -90,6 +90,8 @@ test('missing provider key at run-confirm time shows named remediation and Diagn
   await openAction(page, 'map.classify');
   await selectActionSourceColumns(page, 'headline');
   await expect(page.getByTestId('generated-action-form')).toBeVisible();
+  // Classification is estimated only once it has labels.
+  await page.getByLabel('Field 1 labels').fill('policy, other');
   await expect(page.getByTestId('cost-estimate')).toContainText('$0.01');
 
   await page.getByTestId('generated-action-run').click();

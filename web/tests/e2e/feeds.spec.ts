@@ -91,7 +91,7 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
     if (payload.action_id === 'source.create') sourceCreateActions.push(payload);
     if (payload.action_id === 'source.update') sourceUpdateActions.push(payload);
     if (payload.action_id === 'source.delete') sourceDeleteActions.push(payload);
-    if (payload.kind === 'source.poll') sourceFetchActions.push(payload);
+    if (payload.action_id === 'source.poll') sourceFetchActions.push(payload);
     await route.continue();
   });
 
@@ -178,10 +178,9 @@ test('an RSS feed can be added, checked, edited, and deleted from the UI', async
   await page.getByTestId(`feed-check-now-${id}`).click();
   await expect.poll(() => sourceFetchActions.length).toBe(1);
   expect(sourceFetchActions[0]).toMatchObject({
-    schema_version: 'frisket.action.v2',
-    kind: 'source.poll',
-    capabilities: ['project:write', 'external:source_poll'],
-    params: { source_id: id },
+    action_id: 'source.poll',
+    scope: { kind: 'project' },
+    params: { source: id },
   });
   expect(String(sourceFetchActions[0].idempotency_key)).toMatch(/^web-source\.poll:/);
   await expect(page.getByTestId(`feed-checks-${id}`)).toBeVisible();

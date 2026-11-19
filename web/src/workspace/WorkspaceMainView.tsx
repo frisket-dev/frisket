@@ -16,7 +16,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useMainViewModel } from './WorkspaceContext';
+import { useMainViewModel } from './WorkspaceContext';
 import { WorkspaceMainViewTabs } from './WorkspaceSheetTabs';
 import { WorkspacePromotedView, WorkspacePrimarySurface } from './WorkspaceSurface';
 import { WorkspaceSheetToolbar, WorkspaceGridControls, WorkspaceInlineFilterRow, WorkspaceGridBanners } from './WorkspaceToolbar';
@@ -24,7 +24,6 @@ import { WorkspaceHeaderMenuSlot } from './WorkspaceHeaderMenu';
 import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryView } from '../telemetry/navigationTelemetry';
 
 export const WorkspaceNavigateRegion = memo(function WorkspaceNavigateRegion() {
-  useRenderCount('navigate');
   return (
     <section
       className="workbench-region workbench-navigate"
@@ -37,7 +36,6 @@ export const WorkspaceNavigateRegion = memo(function WorkspaceNavigateRegion() {
 });
 
 export const WorkspaceMainViewRegion = memo(function WorkspaceMainViewRegion() {
-  useRenderCount('mainView');
   const {
     citationMainViewHidden,
     citationViewerState,

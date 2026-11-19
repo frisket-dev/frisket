@@ -9,7 +9,7 @@ import { useRouteHandle } from '../bind/useRouteHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
+import { useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
 import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 const LazyActionPanel = lazy(() => (
@@ -17,7 +17,6 @@ const LazyActionPanel = lazy(() => (
 ));
 
 export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() {
-  useRenderCount('actionDrawer');
   const {
     actionPanelVisible,
     closeActionRoute,
@@ -87,7 +86,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   if (!actionPanelVisible) return null;
   if (!routeActionKind && !proposalInspect) return null;
   const hasExactRowScopeInitializer = selectedRowIdsForSheet.length > 0 || viewSelection !== null;
-  const rowScopeInitializerKey = selectedRowIdsForSheet.length > 0 ? 'selection' : viewSelection ? `view:${JSON.stringify(viewSelection)}` : 'all';
 
   return (
     <ActionDrawer onClose={closeDrawer}>
@@ -107,7 +105,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           selectedRowIds={selectedRowIdsForSheet}
           viewSelection={viewSelection}
           hasExactRowScopeInitializer={hasExactRowScopeInitializer}
-          rowScopeInitializerKey={rowScopeInitializerKey}
           activeRowId={activeDetailRowId ?? undefined}
           inspectProposal={proposalInspect}
           routeActionKind={routeActionKind ?? undefined}

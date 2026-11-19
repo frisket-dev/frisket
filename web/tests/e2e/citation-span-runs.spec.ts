@@ -274,6 +274,8 @@ test('a disjoint 2-run citation offers TWO run-clips, each a real ffmpeg cut of 
   // Downloading run 0's clip streams a real ffmpeg cut spanning its own
   // range (start of its first span [0ms] -> end of its last [2900ms], +
   // default 500ms padding on each open side -> ~3.4s).
+  // Run downloads are contextual: hovering a run's header reveals its clip.
+  await runs.nth(0).locator('.evidence-temporal-run-header').hover();
   const [download0] = await Promise.all([page.waitForEvent('download'), runClips.nth(0).click()]);
   const path0 = await download0.path();
   expect(path0).toBeTruthy();
@@ -283,6 +285,7 @@ test('a disjoint 2-run citation offers TWO run-clips, each a real ffmpeg cut of 
 
   // Run 1's clip is a DIFFERENT cut (its own, later range) -- not the same
   // bytes served twice.
+  await runs.nth(1).locator('.evidence-temporal-run-header').hover();
   const [download1] = await Promise.all([page.waitForEvent('download'), runClips.nth(1).click()]);
   const path1 = await download1.path();
   const bytes1 = readFileSync(path1 as string);

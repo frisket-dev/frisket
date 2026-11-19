@@ -1160,66 +1160,6 @@ export function textPdf(
 }
 
 // ---------------------------------------------------------------------------
-// simplePdf — collapses the seven byte-identical-shape single-page PDF
-// builders (workbench-ocr-compare-v2-polish.spec.ts,
-// media-to-markdown-v1-execution.spec.ts, workbench-ocr-compare-v2.spec.ts,
-// workbench-ocr-compare-v2-screenshots.spec.ts,
-// workbench-ocr-compare.spec.ts, ocr-compare-screenshots.spec.ts). Distinct
-// shape from textPdf above: single flat `lines: string[]` page, not
-// `pages: string[][]`. Six of the seven copies were byte-identical; defaults
-// here match those six. ocr-compare-screenshots.spec.ts's copy differed
-// (font size / start position / leading) and passes its original
-// {12, 54, 726, 16} explicitly so its rendered PDF layout does not change.
-export function simplePdf(
-  lines: string[],
-  opts: { fontSize?: number; startX?: number; startY?: number; leading?: number } = {},
-): Buffer {
-  const fontSize = opts.fontSize ?? 10;
-  const startX = opts.startX ?? 50;
-  const startY = opts.startY ?? 742;
-  const leading = opts.leading ?? 14;
-  const contentParts = ['BT', `/F1 ${fontSize} Tf`, `${startX} ${startY} Td`, `${leading} TL`];
-  for (const line of lines) {
-    contentParts.push(`(${line.replace(/[\\()]/g, (char) => `\\${char}`)}) Tj`);
-    contentParts.push('T*');
-  }
-  contentParts.push('ET');
-  const content = Buffer.from(contentParts.join('\n'), 'latin1');
-  const objects = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [4 0 R] /Count 1 >>',
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>',
-    Buffer.concat([
-      Buffer.from(`<< /Length ${content.length} >>\nstream\n`, 'latin1'),
-      content,
-      Buffer.from('\nendstream', 'latin1'),
-    ]),
-  ];
-  const chunks = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')];
-  const offsets: number[] = [];
-  for (const [index, object] of objects.entries()) {
-    offsets.push(Buffer.concat(chunks).length);
-    chunks.push(Buffer.from(`${index + 1} 0 obj\n`, 'latin1'));
-    chunks.push(typeof object === 'string' ? Buffer.from(object, 'latin1') : object);
-    chunks.push(Buffer.from('\nendobj\n', 'latin1'));
-  }
-  const xrefOffset = Buffer.concat(chunks).length;
-  chunks.push(Buffer.from(`xref\n0 ${objects.length + 1}\n`, 'latin1'));
-  chunks.push(Buffer.from('0000000000 65535 f \n', 'latin1'));
-  for (const offset of offsets) {
-    chunks.push(Buffer.from(`${String(offset).padStart(10, '0')} 00000 n \n`, 'latin1'));
-  }
-  chunks.push(
-    Buffer.from(
-      `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
-      'latin1',
-    ),
-  );
-  return Buffer.concat(chunks);
-}
-
-// ---------------------------------------------------------------------------
 // openPalette — the ⌘K command palette open, hand-rolled at ~10 call sites
 // as `press('ControlOrMeta+k')` + declare the region locator + assert
 // visible. Returns the palette locator for the (common) case a spec then

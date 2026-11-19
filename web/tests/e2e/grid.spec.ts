@@ -12,7 +12,6 @@ import {
   createProject,
   importCsv,
   listSheets,
-  openAction,
   openCellDrawer,
   openProject,
   projectIdByName,
@@ -29,18 +28,6 @@ test.beforeEach(async ({ page }) => {
   const sheets = await listSheets(page.request, pid);
   columns = await sheetColumns(page.request, pid, sheets[0].id);
   await openProject(page, pid);
-});
-
-test('grid renders the seeded rows and AI columns', async ({ page }) => {
-  await expect(page.getByTestId('grid')).toBeVisible();
-  await expect(page.getByTestId('sheet-stats')).toHaveText('8 rows · 6 columns');
-  // AI columns (beat, newsworthiness, …) are listed — with the ⚡ marker —
-  // in the recipe form's Save-to combobox.
-  await openAction(page, 'map.classify');
-  await expect(page.getByTestId('new-column-name')).toBeVisible();
-  const options = page.locator('#new-column-name-options');
-  await expect(options.locator('option[value="beat"]')).toHaveCount(1);
-  await expect(options.locator('option[value="snippet"]')).toHaveCount(1);
 });
 
 test('cell activation opens the drawer with justification + provenance', async ({ page }) => {

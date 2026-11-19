@@ -218,10 +218,11 @@ test('the » overflow menu OPENS and switches to a hidden tab (regression: clipp
   const menu = page.getByTestId('discover-tab-overflow-menu');
   await expect(menu).toBeVisible();
   const firstItem = menu.locator('.discover-overflow-item').first();
-  const label = (await firstItem.textContent())?.trim() ?? '';
+  const slug = ((await firstItem.getAttribute('data-testid')) ?? '').replace('discover-tab-menu-', '');
+  expect(slug).not.toBe('');
   await firstItem.click();
-  await expect(page.getByTestId('discover-body')).toHaveAttribute('data-active-tab', label);
   await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId(`discover-tab-${slug}`)).toHaveAttribute('aria-selected', 'true');
 });
 
 test('a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable', async ({

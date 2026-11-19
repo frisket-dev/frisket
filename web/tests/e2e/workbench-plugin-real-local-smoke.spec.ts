@@ -65,13 +65,14 @@ test('real local plugin load activates visible Map contribution and backend proj
   // its OWN non-colliding plugin id (frisket.geosmoke) so activating it never
   // shadows the workspace-resident bundled frisket.geo
   // (plugin_activation_registry_conflict — a same-id/different-evidence package
-  // is refused by design). We still retire the bundled frisket.geo first —
-  // disable, then uninstall — so exactly one map view resolves from the runtime
-  // index. frisket.media, frisket.ftm, and frisket.transliterate are left
+  // is refused by design). We still disable the bundled frisket.geo for this
+  // project first so exactly one map view resolves from the runtime index;
+  // uninstalling it would remove it from every project in the shared e2e
+  // workspace. frisket.media, frisket.ftm, and frisket.transliterate are left
   // untouched throughout; the bundled row is targeted by frisket.geo, the twin
   // below by frisket.geosmoke.
   await expect(manager).toHaveAttribute('data-plugin-count', '4');
-  let bundledRow = pluginManagerRow(page);
+  const bundledRow = pluginManagerRow(page);
   // Normally 'enabled'; a prior in-process registry swap (this shared e2e
   // server hosts every spec) can leave bootstrap at 'installed'.
   if ((await bundledRow.getAttribute('data-install-state')) === 'enabled') {
@@ -80,15 +81,7 @@ test('real local plugin load activates visible Map contribution and backend proj
       'disable:frisket.geo',
     );
   }
-  bundledRow = pluginManagerRow(page);
-  await bundledRow.getByTestId('plugin-manager-uninstall').click();
-  await expect(manager.getByTestId('plugin-manager-status')).toHaveText(
-    'uninstall:frisket.geo',
-  );
-  await expect(pluginManagerRow(page)).toHaveAttribute(
-    'data-install-state',
-    'uninstalled',
-  );
+  await expect(bundledRow).not.toHaveAttribute('data-install-state', 'enabled');
   await manager.getByTestId('plugin-manager-install-plugin-id').fill(smokePluginId);
   await manager.getByTestId('plugin-manager-install-source').fill(pluginRootPath);
   await manager.getByTestId('plugin-manager-install-local').click();
@@ -275,12 +268,7 @@ test('real local plugin load activates visible Map contribution and backend proj
   await expect(page.getByTestId('plugin-manager').getByTestId('plugin-manager-status')).toHaveText(
     `uninstall:${smokePluginId}`,
   );
-  plugin = await readRuntimePlugin();
-  expect(plugin).toBeTruthy();
-  expect(plugin!.installState).toBe('uninstalled');
-  expect(plugin!.activation).toBe('removed');
-  expect(plugin!.registryActivated).toBe(false);
-  managerRow = pluginManagerRow(page, smokePluginId);
-  await expect(managerRow).toHaveAttribute('data-install-state', 'uninstalled');
-  await expect(managerRow.getByTestId('plugin-manager-uninstall')).toBeDisabled();
+  // An uninstalled plugin leaves the runtime index and the manager's list.
+  expect(await readRuntimePlugin()).toBeUndefined();
+  await expect(pluginManagerRow(page, smokePluginId)).toHaveCount(0);
 });

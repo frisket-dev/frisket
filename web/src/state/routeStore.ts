@@ -111,7 +111,9 @@ export function createRouteStore(
     normalize(next) {
       const prev = mutableStore.get();
       const checkedNext = checked(next);
-      if (!applyRoute(prev, checkedNext)) return;
+      // The URL can still carry an entry-only panel after the store already
+      // holds the corrected route, so a correction always requests its replace.
+      applyRoute(prev, checkedNext);
       historyListener?.({ kind: 'normalize', prev, next: checkedNext });
     },
     subscribeHistoryCommands(listener) {

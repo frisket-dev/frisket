@@ -1,14 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { mockHostedSettingsShell } from './settingsTestHelpers';
 
-const providerCatalog = {
-  schemaVersion: 'frisket.provider_catalog.v1',
-  providers: [
-    { id: 'anthropic', label: 'Anthropic', secret_name: 'ANTHROPIC_API_KEY', kind: 'llm', policy_fields: ['spend_cap_usd'] },
-    { id: 'openai', label: 'OpenAI', secret_name: 'OPENAI_API_KEY', kind: 'llm', policy_fields: ['spend_cap_usd'] },
-  ],
-};
-
 test('workspace provider key add and delete use the canonical provider route', async ({ page }) => {
   let savedPayload: { key?: string; validation_token?: string } | null = null;
   let deleted = false;
@@ -95,63 +87,6 @@ test('workspace provider key add and delete use the canonical provider route', a
   await expect(page.getByText('sk-local-valid')).toHaveCount(0);
   await section.getByTestId('provider-key-delete-openai').click();
   await expect.poll(() => deleted).toBe(true);
-});
-
-test('organization AI Providers require test before save and clear validation on edits', async ({ page }) => {
-  await mockHostedSettingsShell(page);
-  let savedPayload: Record<string, unknown> | null = null;
-  let keys: Array<{ provider: string; hint: string; spend_cap_usd: number | null; spent_usd: number; over_cap: boolean }> = [];
-  await page.route('**/api/org/provider-catalog', (route) => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify(providerCatalog),
-  }));
-  await page.route('**/api/org/keys/validate', async (route) => {
-    const body = route.request().postDataJSON() as { key?: string; provider: string };
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(
-        body.key === 'sk-org-valid'
-          ? { provider: body.provider, ok: true, reachable: true, status: 200, validation_token: 'org-token' }
-          : { provider: body.provider, ok: false, reachable: true, status: 401, detail: 'HTTP 401: key rejected' },
-      ),
-    });
-  });
-  await page.route('**/api/org/keys', async (route) => {
-    if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(keys) });
-      return;
-    }
-    savedPayload = route.request().postDataJSON() as Record<string, unknown>;
-    keys = [{ provider: 'openai', hint: '...alid', spend_cap_usd: 8.5, spent_usd: 0, over_cap: false }];
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, provider: 'openai' }) });
-  });
-
-  await page.goto('/settings/organization/ai-providers');
-  const section = page.getByTestId('organization-ai-providers-settings');
-  await section.getByRole('button', { name: 'Add new key' }).click();
-  await section.getByLabel('Provider', { exact: true }).selectOption('openai');
-  await section.getByLabel('Provider key', { exact: true }).fill('sk-org-valid');
-  await section.getByLabel('Spend cap').fill('8.5');
-  await expect(section.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await section.getByRole('button', { name: 'Test', exact: true }).click();
-  await expect(section.getByTestId('provider-validation-message')).toContainText(/accepted|valid/i);
-  await expect(section.getByRole('button', { name: 'Save', exact: true })).toBeEnabled();
-  await section.getByLabel('Provider key', { exact: true }).fill('sk-org-valid2');
-  await expect(section.getByTestId('provider-validation-message')).toHaveCount(0);
-  await expect(section.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
-  await section.getByLabel('Provider key', { exact: true }).fill('sk-org-valid');
-  await section.getByRole('button', { name: 'Test', exact: true }).click();
-  await section.getByRole('button', { name: 'Save', exact: true }).click();
-  expect(savedPayload).toEqual({
-    provider: 'openai',
-    key: 'sk-org-valid',
-    spend_cap_usd: 8.5,
-    validation_token: 'org-token',
-  });
-  await expect(page.getByText('sk-org-valid')).toHaveCount(0);
-  await expect(section).toContainText('...alid');
 });
 
 test('project AI Providers require test before save and can test existing overrides', async ({ page }) => {

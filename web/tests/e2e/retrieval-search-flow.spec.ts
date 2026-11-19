@@ -103,8 +103,10 @@ test('live lexical search returns grouped results and navigates to the exact cel
 
   await hit.click();
   await expect(palette).toBeHidden();
-  await expect(page.getByTestId('grid')).toBeVisible();
-  await expect(page.locator('[data-testid="grid"] canvas').first()).toBeFocused();
+  // A text hit opens its row detail on the matched cell.
+  const drawer = page.getByTestId('row-drawer');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByTestId('row-field-body')).toContainText('harbor repair contract');
 });
 
 test('a real PDF page launches Find similar with an exact page anchor', async ({ page }) => {

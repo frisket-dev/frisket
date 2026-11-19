@@ -14,30 +14,21 @@ import {
 const PLUGIN_ID = 'demo.case_files';
 const PLUGIN_CAPABILITY = 'plugin:trusted_local_backend';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const PLUGIN_MANIFEST = resolve(ROOT, 'tests/fixtures/local_plugins/demo_case_files/plugin.json');
+const PLUGIN_ROOT = resolve(ROOT, 'tests/fixtures/local_plugins/demo_case_files');
 
 async function activateCaseFilesPlugin(request: APIRequestContext, pid: string): Promise<void> {
-  const load = await request.post(`/api/projects/${pid}/actions/v1/run`, {
+  const installed = await request.post(`/api/projects/${pid}/workbench/plugins/${PLUGIN_ID}/install-local`, {
     data: {
-      action_id: 'plugin.load',
-      scope: { kind: 'project' },
-      params: {
-        manifest: {
-          kind: 'local_file',
-          path: PLUGIN_MANIFEST,
-        },
-      },
-      idempotency_key: `plugin-case-files-e2e@sha256:${Date.now()}`,
+      source: { kind: 'localPath', value: PLUGIN_ROOT },
+      arbitraryPackageLoadAllowed: false,
     },
   });
-  expect(load.ok()).toBeTruthy();
-  const loadResult = await load.json() as { status: string; receipt_id?: string };
-  expect(loadResult.status).toBe('completed');
-  expect(loadResult.receipt_id).toBeTruthy();
+  expect(installed.ok(), await installed.text()).toBeTruthy();
+  const installBody = await installed.json() as { receiptId: string };
 
   const enabled = await request.post(`/api/projects/${pid}/workbench/plugins/${PLUGIN_ID}/activate`, {
     data: {
-      receiptId: loadResult.receipt_id,
+      receiptId: installBody.receiptId,
       trustAcknowledged: true,
       permissionsAccepted: [PLUGIN_CAPABILITY],
       arbitraryPackageLoadAllowed: false,

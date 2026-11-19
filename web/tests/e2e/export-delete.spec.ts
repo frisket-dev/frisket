@@ -27,7 +27,7 @@ test('project settings downloads exports with and without media', async ({ page 
   const withMediaDownload = page.waitForEvent('download');
   await page.getByTestId('export-project-with-media').click();
   const withMedia = await withMediaDownload;
-  expect(withMedia.suggestedFilename()).toMatch(/\.frisket\.zip$/);
+  expect(withMedia.suggestedFilename()).toMatch(/\.frisket\.tar\.gz$/);
   expect(await withMedia.path()).toBeTruthy();
 
   await page.goto(`/p/${pid}/settings/project/data-management`);
@@ -35,7 +35,7 @@ test('project settings downloads exports with and without media', async ({ page 
     const downloadPromise = page.waitForEvent('download');
     await page.getByTestId(testId).click();
     const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/\.frisket\.zip$/);
+    expect(download.suggestedFilename()).toMatch(/\.frisket\.tar\.gz$/);
     expect(await download.path()).toBeTruthy();
   }
 });

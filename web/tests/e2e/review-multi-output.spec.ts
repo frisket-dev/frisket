@@ -84,18 +84,13 @@ test('review queue groups sibling outputs and resolves fields independently', as
   const tone = page.getByTestId('review-field-tone');
   await expect(beat).toBeVisible();
   await expect(tone).toBeVisible();
-  await queue.getByRole('button', { name: /^Inputs/ }).click();
-  await expect(queue.getByTestId('review-row-fields-drawer')).toContainText('Mayor met a lobbyist');
-  await queue.getByRole('button', { name: 'Close row fields' }).click();
 
+  // Category outputs are accepted or rejected in review; only plain text is
+  // edited there.
   await queue.getByRole('button', { name: 'Select beat review field' }).click();
-  await queue.getByRole('button', { name: 'Edit beat', exact: true }).click();
-  await page.getByTestId('review-edit-input').fill('accountability');
-  await queue.getByRole('button', { name: 'Save edit' }).click();
+  await queue.getByRole('button', { name: 'Accept beat', exact: true }).click();
 
   await expect(beat).toHaveAttribute('data-review-state', 'verified');
-  await expect(beat).toHaveAttribute('data-review-changed', 'true');
-  await expect(beat).toContainText('Corrected');
   await expect(tone).toHaveAttribute('data-review-state', 'unreviewed');
   await expect(queue).toContainText('1 of 2 decided');
 
@@ -105,8 +100,7 @@ test('review queue groups sibling outputs and resolves fields independently', as
     action_id: 'review.decision',
     scope: { kind: 'project' },
     params: {
-      decision: 'edit',
-      value: 'accountability',
+      decision: 'accept',
     },
   });
   expect(String(reviewDecisions[0].idempotency_key)).toContain('web-review.decision:');
@@ -146,18 +140,18 @@ test('review queue groups sibling outputs and resolves fields independently', as
   const toneColumn = columns.find((column) => column.name === 'tone');
   expect(beatColumn).toBeTruthy();
   expect(toneColumn).toBeTruthy();
-  expect(data.rows[0].cells[String(beatColumn!.id)]).toBe('accountability');
+  expect(data.rows[0].cells[String(beatColumn!.id)]).toBe('civic');
   // Reject keeps the generated value visible.
   expect(data.rows[0].cells[String(toneColumn!.id)]).toBe('high');
   await queue.getByRole('button', { name: 'Close review queue' }).click();
   await page.getByTestId('review-queue-button').click();
-  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+  await expect(page.getByTestId('review-field-beat')).toContainText('civic');
   await queue.getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(page.getByTestId('review-field-beat')).toHaveAttribute('data-review-state', 'unreviewed');
-  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+  await expect(page.getByTestId('review-field-beat')).toContainText('civic');
   await queue.getByRole('button', { name: 'Close review queue' }).click();
   await page.getByTestId('review-queue-button').click();
-  await expect(page.getByTestId('review-field-beat')).toContainText('accountability');
+  await expect(page.getByTestId('review-field-beat')).toContainText('civic');
 
 });
 

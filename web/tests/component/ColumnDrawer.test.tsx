@@ -93,3 +93,26 @@ describe('ColumnDrawer map.find recovery controls', () => {
     expect(screen.getByRole('button', { name: 'Revise 1 reviewed' })).toBeInTheDocument();
   });
 });
+
+describe('ColumnDrawer run settings', () => {
+  it('shows the prompt and fields recorded under the stored run params', async () => {
+    projectApi.getColumnRuns.mockResolvedValue(columnRuns({
+      ...genericRun,
+      spec: {
+        action_kind: 'map.classify',
+        input_columns: ['snippet'],
+        params: {
+          context: 'Each row is a one-sentence local news story summary.',
+          fields: [{ name: 'beat', type: 'category', labels: ['transit', 'other'] }],
+        },
+      },
+    }));
+    drawer();
+
+    expect(await screen.findByTestId('column-prompt')).toHaveTextContent(
+      'Each row is a one-sentence local news story summary.',
+    );
+    expect(screen.getByTestId('column-fields')).toHaveTextContent('beat');
+    expect(screen.queryByText('no prompt recorded for this column')).not.toBeInTheDocument();
+  });
+});

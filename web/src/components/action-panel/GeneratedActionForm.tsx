@@ -635,7 +635,14 @@ function GeneratedActionFormContents({
     ? 'all'
     : ((hasExactRowScopeInitializer || viewSelection !== null || scopeSelectedRowIds.length > 0)
       && allowedScopes.includes('exact_membership') ? 'selected' : 'all');
-  const [runScope, setRunScope] = useState<'all' | 'selected'>(defaultScope);
+  // A selection that appears or clears under an open launch moves the scope
+  // to its new default without remounting the form, so edits survive.
+  const [scopeChoice, setScopeChoice] = useState<{ forDefault: 'all' | 'selected'; scope: 'all' | 'selected' }>(
+    { forDefault: defaultScope, scope: defaultScope });
+  const runScope = scopeChoice.forDefault === defaultScope ? scopeChoice.scope : defaultScope;
+  const setRunScope = useCallback((scope: 'all' | 'selected') => {
+    setScopeChoice({ forDefault: defaultScope, scope });
+  }, [defaultScope]);
   const effectiveRunScope = runScope === 'selected'
     && allowedScopes.includes('exact_membership')
     && (scopeSelectedRowIds.length > 0 || viewSelection !== null || hasExactRowScopeInitializer)

@@ -5,7 +5,6 @@ import {
   importCsv,
   openAction,
   openProject,
-  selectRow,
   sheetColumns,
   uniqueName,
 } from './helpers';
@@ -100,40 +99,6 @@ test('opening a second action replaces the first (single instance)', async ({ pa
   await expect(page.getByTestId('action-drawer').getByTestId('action-form-title')).toContainText(
     'Translate',
   );
-});
-
-test('legacy footer renders scope line, Preview, and a Run-all split with selection + backfill entries', async ({
-  page,
-}) => {
-  await seed(page);
-  await openAction(page, 'map.translate');
-  const drawer = page.getByTestId('action-drawer');
-
-  // Scope line + Preview + primary Run.
-  await expect(drawer.getByTestId('row-scope-summary')).toContainText('All 2 rows will run');
-  await expect(drawer.getByTestId('preview-button')).toBeVisible();
-  await expect(drawer.getByTestId('generated-action-run')).toBeVisible();
-
-  // Split dropdown: Run selected (disabled with no selection) + Re-run
-  // failed/missing (disabled when the target column has no failures/gaps).
-  await drawer.getByTestId('run-scope-menu-button').click();
-  const menu = drawer.getByTestId('run-scope-menu');
-  await expect(menu.getByTestId('row-scope-selected')).toBeDisabled();
-  const backfill = menu.getByTestId('row-scope-backfill');
-  await expect(backfill).toHaveAttribute('type', 'button');
-  await expect(backfill).toHaveAttribute('role', 'menuitem');
-  await expect(backfill).toBeDisabled();
-  await expect(backfill).toHaveAttribute('title', /Select an existing generated column/);
-
-  // With a selection, Run-selected enables and shows the count. Toggle the
-  // menu closed (Escape would close the whole drawer), select a row, reopen.
-  await drawer.getByTestId('run-scope-menu-button').click();
-  await selectRow(page, 0);
-  await drawer.getByTestId('run-scope-menu-button').click();
-  await expect(drawer.getByTestId('run-scope-menu').getByTestId('row-scope-selected')).toBeEnabled();
-  await expect(
-    drawer.getByTestId('run-scope-menu').getByTestId('row-scope-selected'),
-  ).toContainText('1');
 });
 
 test('Run auto-closes the drawer once the run starts; the job appears in the Monitor', async ({

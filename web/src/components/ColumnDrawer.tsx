@@ -120,6 +120,16 @@ interface ColumnDrawerProps {
 }
 
 /** Pull the human-readable prompt out of a run spec (current backend run specs name it differently). */
+/** A stored run records the invocation envelope, with the action's own params
+ *  (prompt, fields, target language) under its `params` key; a run recorded
+ *  without the envelope carries them at the top level. */
+function runParams(spec: Record<string, unknown>): Record<string, unknown> {
+  const params = spec.params;
+  return params !== null && typeof params === 'object' && !Array.isArray(params)
+    ? params as Record<string, unknown>
+    : spec;
+}
+
 function specPrompt(spec: Record<string, unknown>): string {
   for (const key of ['context', 'instruction', 'query', 'prompt']) {
     const v = spec[key];
@@ -793,9 +803,10 @@ function GeneratedColumnDetails({
   const runs = info?.runs ?? [];
   const current = info?.latestRun ?? info?.currentRun ?? runs.find((r) => r.current) ?? runs[0];
   const canBackfill = current != null && supportsColumnRunRecovery(current);
-  const prompt = current ? specPrompt(current.spec) : ai.prompt ?? '';
-  const fields = current ? specFields(current.spec) : [];
-  const targetLanguage = current?.spec.target_language;
+  const params = current ? runParams(current.spec) : null;
+  const prompt = params ? specPrompt(params) : ai.prompt ?? '';
+  const fields = params ? specFields(params) : [];
+  const targetLanguage = params?.target_language;
   const pageLimit = COLUMN_RUN_HISTORY_PAGE_SIZE;
   const olderOffset = info?.nextOffset ?? null;
   const newerOffset = info && info.offset > 0 ? Math.max(0, info.offset - pageLimit) : null;

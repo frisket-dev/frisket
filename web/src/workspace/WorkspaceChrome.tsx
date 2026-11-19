@@ -20,7 +20,7 @@ import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
 import { useSelector } from '../bind/useSelector';
 import { openAskProposalTransition } from '../state/workspaceTransitions';
-import { useCurrentSheet, useWorkspaceShell, useWorkspaceAct, useRenderCount } from './WorkspaceContext';
+import { useCurrentSheet, useWorkspaceShell, useWorkspaceAct } from './WorkspaceContext';
 import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 export function WorkspaceAskRegion() {
@@ -45,7 +45,6 @@ export function WorkspaceAskRegion() {
 }
 
 export const WorkspaceChromeBarRegion = memo(function WorkspaceChromeBarRegion() {
-  useRenderCount('chromeBar');
   const { project } = useWorkspaceShell();
   const chromeHandle = useChromeHandle();
   const askOpen = useSelector(chromeHandle.store, (state) => state.askOpen);
@@ -105,7 +104,6 @@ function WorkspaceProjectExportModals() {
 }
 
 export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
-  useRenderCount('act');
   const {
     runActCommand,
     revealPluginLauncher,

@@ -133,34 +133,21 @@ test('column drawer retypes columns and edits display formats', async ({ page })
   ).toHaveCount(0);
   await expect(page.getByTestId('column-format-help')).toHaveCount(0);
   await expect(page.getByTestId('column-type-help')).toHaveCount(0);
-  await page.getByTestId('column-save-button').click();
-  await expect(page.getByTestId('column-update-error')).toContainText(
-    'Existing values in this column cannot be saved as date',
-  );
-  await expect(page.getByTestId('column-update-error')).toContainText(
-    'Edit the values or choose another type',
-  );
-
-  await page.getByTestId('column-type-select').selectOption('text');
-  const clearPatchRequest = page.waitForRequest((request) => {
-    if (request.method() !== 'POST') return false;
-    if (new URL(request.url()).pathname !== `/api/projects/${pid}/actions/v1/run`) {
-      return false;
-    }
-    const body = request.postDataJSON() as {
-      action_id?: string;
-      params?: { column_id?: number; format?: string | null };
-    };
-    return (
-      body.action_id === 'column.patch' &&
-      body.params?.column_id === noteColumn!.id &&
-      body.params?.format === null
-    );
-  });
-  await page.getByTestId('column-format-select').selectOption('');
+  // Retyping keeps values that do not parse as the new type; they stay
+  // visible and are counted as invalid rather than blocking the save.
   await page.getByTestId('column-save-button').click();
   await expect(page.getByTestId('column-update-result')).toContainText('Column updated');
-  await expect(clearPatchRequest).resolves.toBeTruthy();
+  await expect
+    .poll(async () => (await sheetColumns(page.request, pid, sheetId)).find((c) => c.name === 'note')?.type)
+    .toBe('date');
+
+  // The date retype already dropped the text-only markdown format.
+  await page.getByTestId('column-type-select').selectOption('text');
+  await expect(page.getByTestId('column-format-select')).toHaveValue('');
+  await page.getByTestId('column-save-button').click();
+  await expect
+    .poll(async () => (await sheetColumns(page.request, pid, sheetId)).find((c) => c.name === 'note')?.type)
+    .toBe('text');
   columns = await sheetColumns(page.request, pid, sheetId);
   expect(columns.find((c) => c.name === 'note')?.format ?? null).toBeNull();
   await page.keyboard.press('Escape');
