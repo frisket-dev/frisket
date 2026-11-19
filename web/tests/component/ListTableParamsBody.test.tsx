@@ -108,3 +108,10 @@ it('keeps a missing saved parent visible while other selections change', async (
     { column_id: 45, output_name: 'case title' },
   ]);
 });
+
+it('announces a missing parent column as an alert and leaves present parents neutral', async () => {
+  render(<Harness />);
+  expect(screen.queryByRole('alert')).toBeNull();
+  await userEvent.click(screen.getByText('Load missing parent'));
+  expect(screen.getByRole('alert')).toHaveTextContent('Missing column #999');
+});
