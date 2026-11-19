@@ -11,12 +11,12 @@ from helpers import make_client
 from http_test_helpers import drain_queue
 from frisket.engine.jobs import Worker
 from frisket.search_index import drain_index
-from frisket.server.notifications.delivery import NotificationDeliveryRuntime
-from frisket.server.notifications.providers import (
+from frisket.notifications.delivery import NotificationDeliveryRuntime
+from frisket.notifications.providers import (
     ProviderHttpResponse,
     SlackIncomingWebhookNotificationProvider,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 
 
 CSV = (

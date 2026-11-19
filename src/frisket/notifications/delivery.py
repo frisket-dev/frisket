@@ -8,7 +8,7 @@ import re
 from typing import Any, Literal, Protocol
 from urllib.parse import urlsplit, urlunsplit
 
-from frisket.server.notifications.secrets import (
+from frisket.notifications.secrets import (
     EnvNotificationSecretResolver,
     NotificationSecretResolver,
 )
@@ -134,7 +134,7 @@ def default_delivery_runtime(
     *,
     secret_resolver: NotificationSecretResolver | None = None,
 ) -> NotificationDeliveryRuntime:
-    from frisket.server.notifications.providers import notification_provider_for_channel
+    from frisket.notifications.providers import notification_provider_for_channel
 
     return NotificationDeliveryRuntime(
         provider_factory=notification_provider_for_channel,

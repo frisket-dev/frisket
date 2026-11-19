@@ -10,7 +10,7 @@ from frisket.engine.jobs.notifications_delivery import enqueue_notification_deli
 from frisket.engine.jobs.queue import JobQueue, claimed_project_location
 from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.jobs.worker import HandlerRegistration, HandlerRegistry
-from frisket.server.notifications.digests import (
+from frisket.notifications.digests import (
     NotificationDigestWindow,
     compose_notification_digest,
     due_digest_window_for_route,

@@ -404,7 +404,7 @@ def register_production_handlers(
     from frisket.engine.executor.queue_terminalization import (
         register_queue_terminalization,
     )
-    from frisket.server.notifications.delivery import default_delivery_runtime
+    from frisket.notifications.delivery import default_delivery_runtime
 
     from .blob_metadata import register_blob_metadata_handler
     from .search_index import register_search_index_handler

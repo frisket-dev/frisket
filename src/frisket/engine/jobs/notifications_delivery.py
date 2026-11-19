@@ -13,7 +13,7 @@ from typing import Any
 from frisket.engine.jobs.queue import JobQueue, claimed_project_location
 from frisket.engine.jobs.ports import JobHandlerContext
 from frisket.engine.jobs.worker import HandlerRegistration, HandlerRegistry
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryEffect,
     NotificationDeliveryEffectDecision,
@@ -880,7 +880,7 @@ def reconcile_notification_delivery_requests(
             LOG.warning("notification_recovery_open_failed", exc_info=True)
             continue
         try:
-            from frisket.server.notifications.projections import (
+            from frisket.notifications.projections import (
                 emit_alert_check_notification,
             )
 
@@ -1062,7 +1062,7 @@ def _render_message(
     provider_idempotency_key: str | None = None,
 ) -> NotificationRenderedMessage:
     if request["digest_run_id"] is not None:
-        from frisket.server.notifications.digests import (
+        from frisket.notifications.digests import (
             render_notification_digest_message,
         )
 

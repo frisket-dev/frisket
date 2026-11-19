@@ -6,7 +6,7 @@ from typing import Any
 
 from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs.notifications_delivery import deliver_notification_request
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
@@ -17,7 +17,7 @@ from frisket.notifications.producers import (
     export_notification_candidate,
     feed_health_notification_candidate,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     emit_notification_candidate,

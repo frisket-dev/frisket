@@ -8,15 +8,15 @@ from typing import Any
 import pytest
 
 from frisket.engine.jobs.notifications_delivery import deliver_notification_request
-from frisket.server.notifications.delivery import NotificationDeliveryRuntime
-from frisket.server.notifications.providers import (
+from frisket.notifications.delivery import NotificationDeliveryRuntime
+from frisket.notifications.providers import (
     DEFAULT_RESEND_ENDPOINT,
     ProviderHttpResponse,
     ResendEmailNotificationProvider,
     SlackIncomingWebhookNotificationProvider,
     notification_provider_for_channel,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.server.notifications.service import (
     create_notification_test_request,
@@ -403,7 +403,7 @@ def test_live_slack_provider_is_opt_in() -> None:
 
 
 def _live_message():
-    from frisket.server.notifications.delivery import NotificationRenderedMessage
+    from frisket.notifications.delivery import NotificationRenderedMessage
 
     return NotificationRenderedMessage(
         project_id="live-provider-test",

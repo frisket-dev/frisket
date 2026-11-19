@@ -9,15 +9,15 @@ from typing import Any
 import pytest
 
 from frisket.engine.jobs.notifications_delivery import deliver_notification_request
-from frisket.server.notifications.delivery import NotificationDeliveryRuntime
-from frisket.server.notifications.providers import (
+from frisket.notifications.delivery import NotificationDeliveryRuntime
+from frisket.notifications.providers import (
     GenericWebhookNotificationProvider,
     ProviderHttpResponse,
     WEBHOOK_TIMESTAMP_HEADER,
     WebhookDeliverySecurityError,
     _guarded_webhook_post_json,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.engine.store import Project
 
@@ -426,7 +426,7 @@ def test_webhook_missing_signing_secret_fails_closed_without_provider_call(
 
 
 def _message(*, summary: str) -> Any:
-    from frisket.server.notifications.delivery import NotificationRenderedMessage
+    from frisket.notifications.delivery import NotificationRenderedMessage
 
     return NotificationRenderedMessage(
         project_id="project",

@@ -17,14 +17,14 @@ from frisket.engine.jobs.worker import HandlerRegistry
 from frisket.engine.store import Project
 from frisket.project_identity import ProjectStorageKey
 from frisket.contracts.http.notifications import NotificationDeliveryRequest
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryEffect,
     NotificationDeliveryEffectDecision,
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 
 
 class _RecordingProvider:

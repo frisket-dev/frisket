@@ -93,7 +93,7 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.notifications/server.services.table_imports/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.services.table_imports/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
@@ -103,8 +103,6 @@
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",
-        "frisket.engine.jobs.notifications_digest",
-        "frisket.engine.jobs.notifications_delivery",
         "frisket.engine.jobs.runs",
         "frisket.engine.store.credentials"
       ],
@@ -118,7 +116,7 @@
     },
     {
       "id": "notifications-core-does-not-import-server",
-      "comment": "frisket.notifications holds the candidate builders and the emit/route-planning core that engine producers and server routes share. It must not depend on the server or team layers, or engine producers would need a layer exception to emit.",
+      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server or team layers, or engine producers and delivery jobs would need a layer exception.",
       "modules": [
         "frisket.notifications",
         "frisket.notifications.*"
