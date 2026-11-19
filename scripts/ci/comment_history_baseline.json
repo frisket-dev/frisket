@@ -61,7 +61,7 @@
  "tests/server/test_model_pull_routes.py": 1,
  "tests/server/test_provider_key_config.py": 1,
  "tests/server/test_r70_behavioral_pin.py": 1,
- "tests/server/test_recipe_kind_cutover.py": 1,
+ "tests/server/test_action_kind_identity.py": 1,
  "tests/server/test_run_action_kind_projections.py": 1,
  "tests/server/test_server_project_lifecycle_routes.py": 1,
  "tests/server/test_server_project_provider_key_store_seam.py": 1,
