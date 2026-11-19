@@ -27,6 +27,7 @@ from frisket.server.route_errors import RouteError
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.sheet_grid import SheetGridService
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 _BLOB = "sha256:" + "1" * 64
@@ -70,16 +71,17 @@ def _prepared_ref(
     blob_hash: str,
     text: str,
 ) -> PreparedContentRef:
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob_hash,
-        page_count=1,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob_hash,
+            page_count=1,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=source_column_id,
+        )
     with project.transaction_scope():
         return PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),

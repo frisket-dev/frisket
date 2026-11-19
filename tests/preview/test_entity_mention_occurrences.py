@@ -30,6 +30,7 @@ from frisket.preview.entity_mention_detail import (
     resolve_entity_mention_documents,
     resolve_entity_mention_occurrences,
 )
+from frisket.engine.store.transactions import write_transaction
 
 BODY = (
     "The committee convened by Ada Lovelace reviewed the motion. "
@@ -52,32 +53,35 @@ def _write_layer(
     writers directly — the same construction tests/engine/test_text_annotations_
     query.py uses, so this exercises the real join rather than a fixture."""
     surface_hash = content_hash or _text_hash(text)
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=surface_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet,
-        text_row_id=row_id,
-        text_column_id=body_col,
-    )
-    artifact = record_source_artifact(
-        project, artifact_kind="text", media_type="text/plain"
-    )
-    spans = [
-        record_source_span(
+    with write_transaction(project.db):
+        surface = record_text_surface(
             project,
-            artifact_id=artifact["id"],
-            span_kind="text",
-            char_start=start,
-            char_end=end,
-            quote=text[start:end],
-            text_layer_hash=surface_hash,
-            text_surface_id=surface["id"],
-            metadata={"entity_type": entity_type},
+            surface_kind="cell",
+            content_hash=surface_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet,
+            text_row_id=row_id,
+            text_column_id=body_col,
         )
-        for start, end, entity_type in spans_in
-    ]
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="text", media_type="text/plain"
+        )
+    with write_transaction(project.db):
+        spans = [
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="text",
+                char_start=start,
+                char_end=end,
+                quote=text[start:end],
+                text_layer_hash=surface_hash,
+                text_surface_id=surface["id"],
+                metadata={"entity_type": entity_type},
+            )
+            for start, end, entity_type in spans_in
+        ]
     _values, refs = project.get_values_with_refs(sheet, ents_col, row_ids=[row_id])
     return record_citation(
         project,

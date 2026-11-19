@@ -39,6 +39,7 @@ from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
 from http_test_helpers import drain_queue
+from frisket.engine.store.transactions import write_transaction
 
 
 def _project(client: TestClient, name: str) -> tuple[str, Project]:
@@ -712,18 +713,19 @@ def _seed_timestamped_transcripts(
     for rank, (start_ms, end_ms, quote) in enumerate(
         [(0, 2_000, "First subject."), (2_000, 4_000, "Second subject.")]
     ):
-        span = record_source_span(
-            project,
-            artifact_id=leases[0].anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=start_ms,
-            end_ms=end_ms,
-            quote=quote,
-            selector={
-                "segment_index": rank,
-                **({"speaker": "S1"} if rank == 0 else {}),
-            },
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=leases[0].anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=start_ms,
+                end_ms=end_ms,
+                quote=quote,
+                selector={
+                    "segment_index": rank,
+                    **({"speaker": "S1"} if rank == 0 else {}),
+                },
+            )
         span_refs.append({"span_id": span["id"], "rank": rank})
     _values, refs = project.get_values_with_refs(
         sheet_id,

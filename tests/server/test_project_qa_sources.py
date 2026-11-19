@@ -9,6 +9,7 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_sources import read_source_text
 from frisket.server.services.project_qa_tools import ProjectQAScopeError, ProjectQATools
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -528,17 +529,19 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
 
     project, store, _, turn, sheet, column, row = source
     _, refs = project.get_values_with_refs(sheet, column, [row])
-    artifact = record_source_artifact(
-        project, artifact_kind="audio", media_type="audio/wav", title="Interview"
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="audio",
-        quote="NEEDLE decisive passage",
-        start_ms=12000,
-        end_ms=15000,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="audio", media_type="audio/wav", title="Interview"
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="audio",
+            quote="NEEDLE decisive passage",
+            start_ms=12000,
+            end_ms=15000,
+        )
     record_citation(
         project,
         subject_kind="cell_value",
@@ -594,24 +597,26 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
         ]
     )
     _, refs = project.get_values_with_refs(sheet, text_column, [row])
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="ocr_document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=source_column,
-        title="document.pdf",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page",
-        quote="A grounded page quote outside this search passage.",
-        page_start=1,
-        page_end=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="ocr_document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=source_column,
+            title="document.pdf",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            quote="A grounded page quote outside this search passage.",
+            page_start=1,
+            page_end=1,
+        )
     record_citation(
         project,
         subject_kind="cell_value",

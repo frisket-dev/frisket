@@ -3,6 +3,7 @@ from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.document_extraction_read import load_positioned_document
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
 from frisket.engine.store.evidence import record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_extraction_adds_page_scoped_source_file_with_collision_free_name(
@@ -16,35 +17,37 @@ def test_extraction_adds_page_scoped_source_file_with_collision_free_name(
         filename="report.pdf",
         mime="application/pdf",
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        blob_hash=blob_id,
-        media_type="application/pdf",
-        page_count=3,
-        metadata={
-            "engine": "tesseract",
-            "page_images": {"2": {"source_width": 100, "source_height": 100}},
-        },
-    )
-    for text, x0, x1 in (("VALUE", 0.1, 0.3), ("SECOND PAGE", 0.4, 0.7)):
-        record_source_span(
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
             project,
-            artifact_id=artifact["id"],
-            span_kind="region",
-            page_start=2,
-            page_end=2,
-            bbox=[
-                {
-                    "x0": x0,
-                    "y0": 0.1,
-                    "x1": x1,
-                    "y1": 0.15,
-                    "space": "page_normalized",
-                }
-            ],
-            quote=text,
+            artifact_kind="file",
+            blob_hash=blob_id,
+            media_type="application/pdf",
+            page_count=3,
+            metadata={
+                "engine": "tesseract",
+                "page_images": {"2": {"source_width": 100, "source_height": 100}},
+            },
         )
+    for text, x0, x1 in (("VALUE", 0.1, 0.3), ("SECOND PAGE", 0.4, 0.7)):
+        with write_transaction(project.db):
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="region",
+                page_start=2,
+                page_end=2,
+                bbox=[
+                    {
+                        "x0": x0,
+                        "y0": 0.1,
+                        "x1": x1,
+                        "y1": 0.15,
+                        "space": "page_normalized",
+                    }
+                ],
+                quote=text,
+            )
     [source_row_id] = project.add_rows(
         sheet_id,
         [

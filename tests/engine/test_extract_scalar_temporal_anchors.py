@@ -19,6 +19,7 @@ from frisket.engine.store.evidence import list_cell_citations, resolve_citation_
 from runner_test_helpers import run_action_with_exact_confirmation
 from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS, fake_faster_whisper
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-extract-scalar-temporal-anchors"
@@ -179,24 +180,26 @@ def test_grounded_extract_ignores_unselected_later_row_artifact(
         monkeypatch.setitem(TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="av",
-            media_type="audio/wav",
-            blob_hash=seeded["blob"],
-            source_sheet_id=seeded["sheet_id"],
-            source_row_id=row_id,
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="av",
+                media_type="audio/wav",
+                blob_hash=seeded["blob"],
+                source_sheet_id=seeded["sheet_id"],
+                source_row_id=row_id,
+            )
         unrelated = "UNSELECTED LATER ARTIFACT MUST NOT ENTER THE MODEL"
-        record_source_span(
-            project,
-            artifact_id=artifact["id"],
-            span_kind="temporal",
-            start_ms=0,
-            end_ms=1000,
-            quote=unrelated,
-            selector={"segment_index": 0},
-        )
+        with write_transaction(project.db):
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="temporal",
+                start_ms=0,
+                end_ms=1000,
+                quote=unrelated,
+                selector={"segment_index": 0},
+            )
         router, adapter = _stub_router({"verdict": {"value": "claim", "evidence": []}})
         action = _transcript_scalar_extract_action(seeded["sheet_id"])
         action["params"]["source"] = sources

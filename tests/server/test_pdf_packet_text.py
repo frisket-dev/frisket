@@ -6,6 +6,7 @@ from frisket.server.services.pdf_packet_text import (
     inspect_packet_source,
     refresh_packet_source,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_quality_distinguishes_missing_suspicious_and_completed_empty_ocr():
@@ -29,13 +30,14 @@ def test_stored_pages_reused_without_native_sampling(tmp_path, monkeypatch):
     project = workspace.get(project_id)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
     op_id = project.append_change("media.read_pdf_text")
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        page_count=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            page_count=1,
+        )
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
@@ -87,13 +89,14 @@ def test_empty_ocr_page_is_retained_without_resampling(tmp_path, monkeypatch):
     RunResultStore(project).start_run(
         op_id, sheet, "media.ocr", row_ids=[], total_rows=0
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        page_count=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            page_count=1,
+        )
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
@@ -150,16 +153,17 @@ def test_actual_manual_edit_is_not_reused_as_a_page(tmp_path, monkeypatch):
             commit=False,
         )
     op = project.append_change("media.read_pdf_text")
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        page_count=1,
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=file_column,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            page_count=1,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=file_column,
+        )
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),
@@ -257,13 +261,14 @@ def test_retained_ocr_from_import_keeps_ocr_provenance(tmp_path):
     project = workspace.get(project_id)
     blob = project.add_blob(b"%PDF-fake", filename="a.pdf", mime="application/pdf")
     op = project.append_change("import.packet_split")
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        page_count=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            page_count=1,
+        )
     with project.transaction_scope():
         ref = PreparedContentStore(project).stage_reference(
             source_artifact_id=int(artifact["id"]),

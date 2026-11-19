@@ -18,6 +18,7 @@ from frisket.engine.store.evidence import list_cell_citations, resolve_citation_
 from frisket.engine.store.receipts import ReceiptStore
 from test_model_rows_actions import _DataAdapter, _run_third_party
 from frisket.ai.llm import ModelRouter
+from frisket.engine.store.transactions import write_transaction
 
 
 REGISTERED = RegisteredAction("map.extract", EXTRACT)
@@ -279,26 +280,28 @@ def test_capture_repairs_malformed_model_quote_before_alignment(source):
         "captured_text": "before \ud800 after",
         "composite": True,
     }
-    artifact = _source_artifact(
-        project,
-        sheet_id=sheet,
-        row_id=row,
-        source_columns=["body"],
-        input_column_ids={"body": column},
-        artifact_cache={},
-        captured_sources={"body": captured},
-    )
+    with write_transaction(project.db):
+        artifact = _source_artifact(
+            project,
+            sheet_id=sheet,
+            row_id=row,
+            source_columns=["body"],
+            input_column_ids={"body": column},
+            artifact_cache={},
+            captured_sources={"body": captured},
+        )
 
-    spans = _captured_text_spans(
-        project,
-        artifact=artifact,
-        source=captured,
-        source_label="body",
-        sheet_id=sheet,
-        row_id=row,
-        entry={"quote": "before \ud800"},
-        rank=0,
-    )
+    with write_transaction(project.db):
+        spans = _captured_text_spans(
+            project,
+            artifact=artifact,
+            source=captured,
+            source_label="body",
+            sheet_id=sheet,
+            row_id=row,
+            entry={"quote": "before \ud800"},
+            rank=0,
+        )
 
     assert spans is not None
     assert [span["quote"] for span in spans] == ["before \ufffd"]
@@ -630,15 +633,16 @@ def test_extraction_source_capture_freezes_values_before_grounding(source, monke
         "get_values",
         lambda *args, **kwargs: pytest.fail("must not reread mutable source cells"),
     )
-    artifact = _source_artifact(
-        project,
-        sheet_id=sheet,
-        row_id=row,
-        source_columns=["body"],
-        input_column_ids={"body": column},
-        artifact_cache={},
-        captured_sources=results["answer"]["extraction_sources"],
-    )
+    with write_transaction(project.db):
+        artifact = _source_artifact(
+            project,
+            sheet_id=sheet,
+            row_id=row,
+            source_columns=["body"],
+            input_column_ids={"body": column},
+            artifact_cache={},
+            captured_sources=results["answer"]["extraction_sources"],
+        )
     assert artifact["metadata"]["captured_sources"]["body"]["value"] == {
         "nested": ["original"]
     }
@@ -709,22 +713,24 @@ def test_transcript_prompt_and_evidence_use_captured_version(
         }
         pinned = _captured_transcript(project, captured, sheet_id=sheet, row_id=row)
         assert pinned is not None
-        unrelated = record_source_artifact(
-            project,
-            artifact_kind="av",
-            media_type="audio/wav",
-            source_sheet_id=sheet,
-            source_row_id=row,
-        )
-        record_source_span(
-            project,
-            artifact_id=unrelated["id"],
-            span_kind="temporal",
-            start_ms=1000,
-            end_ms=2000,
-            quote="Unrelated newer transcript",
-            selector={"segment_index": 2},
-        )
+        with write_transaction(project.db):
+            unrelated = record_source_artifact(
+                project,
+                artifact_kind="av",
+                media_type="audio/wav",
+                source_sheet_id=sheet,
+                source_row_id=row,
+            )
+        with write_transaction(project.db):
+            record_source_span(
+                project,
+                artifact_id=unrelated["id"],
+                span_kind="temporal",
+                start_ms=1000,
+                end_ms=2000,
+                quote="Unrelated newer transcript",
+                selector={"segment_index": 2},
+            )
         result, requests = run_extract(
             source,
             [{"name": "claim", "type": "text"}],

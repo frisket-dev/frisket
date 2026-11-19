@@ -4,6 +4,7 @@ from frisket.engine.store.evidence import (
     record_source_span,
 )
 from frisket.server.services.sheet_grid import _sheet_data_payload
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_grid_source_labels_use_retained_metadata_for_loaded_cells(make_project):
@@ -21,20 +22,22 @@ def test_grid_source_labels_use_retained_metadata_for_loaded_cells(make_project)
         ],
         {"source": source, "website": external},
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        filename="Original.pdf",
-        page_count=8,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page_range",
-        page_start=3,
-        page_end=5,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            filename="Original.pdf",
+            page_count=8,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page_range",
+            page_start=3,
+            page_end=5,
+        )
     record_citation(
         project,
         stable_id="split:one",

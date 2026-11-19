@@ -26,6 +26,7 @@ from frisket.features.followthemoney import (
     validate_entity,
 )
 from frisket.features.investigations.rowsets import resolve_investigative_rowset
+from frisket.engine.store.transactions import write_transaction
 
 
 def _diagnostic_codes(result: dict[str, Any]) -> set[str]:
@@ -90,23 +91,25 @@ def test_row_ref_mapping_normalizes_typed_values_and_preserves_refs(
     _values, refs = project.get_values_with_refs(
         sheet_id, columns["name"], row_ids=[row_id]
     )
-    artifact = record_source_artifact(
-        project,
-        stable_id="source_artifact:profile",
-        artifact_kind="html",
-        media_type="text/html",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=columns["source_url"],
-        title="Profile",
-    )
-    span = record_source_span(
-        project,
-        stable_id="source_span:profile-name",
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="Jane Smith",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            stable_id="source_artifact:profile",
+            artifact_kind="html",
+            media_type="text/html",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=columns["source_url"],
+            title="Profile",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            stable_id="source_span:profile-name",
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="Jane Smith",
+        )
     evidence = record_citation(
         project,
         stable_id="evidence_link:profile-name",

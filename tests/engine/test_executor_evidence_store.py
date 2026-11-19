@@ -12,6 +12,7 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
@@ -48,21 +49,23 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
         filename="contract.pdf",
         mime="application/pdf",
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=blob_hash,
-        filename="contract.pdf",
-        page_count=3,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        page_start=2,
-        quote="$1,250,000",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=blob_hash,
+            filename="contract.pdf",
+            page_count=3,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            page_start=2,
+            quote="$1,250,000",
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",

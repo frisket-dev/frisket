@@ -23,6 +23,7 @@ from frisket.server.routes.document_extraction import (
 from frisket.server.services.document_extraction import DocumentExtractionService
 from frisket.server.workspace import Workspace
 from http_test_helpers import run_worker_until_job_terminal
+from frisket.engine.store.transactions import write_transaction
 
 
 def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=None):
@@ -34,21 +35,22 @@ def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=Non
             f"image {index}".encode(), filename=f"form-{index}.png", mime="image/png"
         )
         blobs.append(blob)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            blob_hash=blob,
-            media_type="image/png",
-            metadata={
-                "engine": engine,
-                **(
-                    {"ocr_token_granularity": granularity}
-                    if granularity is not None
-                    else {}
-                ),
-                "page_images": {"1": {"source_width": 100, "source_height": 100}},
-            },
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                blob_hash=blob,
+                media_type="image/png",
+                metadata={
+                    "engine": engine,
+                    **(
+                        {"ocr_token_granularity": granularity}
+                        if granularity is not None
+                        else {}
+                    ),
+                    "page_images": {"1": {"source_width": 100, "source_height": 100}},
+                },
+            )
         words = [
             ("NAME", 0.1, 0.1, 0.2),
             (f"Person{index}", 0.1, 0.35, 0.55),
@@ -65,23 +67,24 @@ def seed(project, count=2, *, repeats=False, engine="tesseract", granularity=Non
                 ]
             )
         for text, y, x0, x1 in words:
-            record_source_span(
-                project,
-                artifact_id=artifact["id"],
-                span_kind="region",
-                page_start=1,
-                page_end=1,
-                bbox=[
-                    {
-                        "x0": x0,
-                        "y0": y,
-                        "x1": x1,
-                        "y1": y + 0.03,
-                        "space": "page_normalized",
-                    }
-                ],
-                quote=text,
-            )
+            with write_transaction(project.db):
+                record_source_span(
+                    project,
+                    artifact_id=artifact["id"],
+                    span_kind="region",
+                    page_start=1,
+                    page_end=1,
+                    bbox=[
+                        {
+                            "x0": x0,
+                            "y0": y,
+                            "x1": x1,
+                            "y1": y + 0.03,
+                            "space": "page_normalized",
+                        }
+                    ],
+                    quote=text,
+                )
     rows = project.add_rows(
         sheet,
         [
@@ -159,39 +162,41 @@ def seed_page_scoped_pdf(project):
     blob = project.add_blob(
         b"page-scoped fixture", filename="report.pdf", mime="application/pdf"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        blob_hash=blob,
-        media_type="application/pdf",
-        page_count=10,
-        metadata={
-            "engine": "tesseract",
-            "page_images": {
-                "1": {"source_width": 100, "source_height": 100},
-                "2": {"source_width": 100, "source_height": 100},
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="application/pdf",
+            page_count=10,
+            metadata={
+                "engine": "tesseract",
+                "page_images": {
+                    "1": {"source_width": 100, "source_height": 100},
+                    "2": {"source_width": 100, "source_height": 100},
+                },
             },
-        },
-    )
+        )
     for page, value in ((1, "FIRST-PAGE"), (2, "SECOND-PAGE")):
         for text, x0 in (("VALUE", 0.1), (value, 0.4)):
-            record_source_span(
-                project,
-                artifact_id=artifact["id"],
-                span_kind="region",
-                page_start=page,
-                page_end=page,
-                bbox=[
-                    {
-                        "x0": x0,
-                        "y0": 0.1,
-                        "x1": x0 + 0.2,
-                        "y1": 0.15,
-                        "space": "page_normalized",
-                    }
-                ],
-                quote=text,
-            )
+            with write_transaction(project.db):
+                record_source_span(
+                    project,
+                    artifact_id=artifact["id"],
+                    span_kind="region",
+                    page_start=page,
+                    page_end=page,
+                    bbox=[
+                        {
+                            "x0": x0,
+                            "y0": 0.1,
+                            "x1": x0 + 0.2,
+                            "y1": 0.15,
+                            "space": "page_normalized",
+                        }
+                    ],
+                    quote=text,
+                )
     rows = project.add_rows(
         sheet,
         [
@@ -491,34 +496,36 @@ def test_page_scoped_ocr_only_suppresses_native_fallback_for_its_page(
     blob = project.add_blob(
         raw.getvalue(), filename="mixed.pdf", mime="application/pdf"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        blob_hash=blob,
-        media_type="application/pdf",
-        page_count=2,
-        metadata={
-            "engine": "tesseract",
-            "page_images": {"2": {"source_width": 333, "source_height": 444}},
-        },
-    )
-    record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=2,
-        page_end=2,
-        bbox=[
-            {
-                "x0": 0.1,
-                "y0": 0.1,
-                "x1": 0.5,
-                "y1": 0.2,
-                "space": "page_normalized",
-            }
-        ],
-        quote="OCR-PAGE2",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="application/pdf",
+            page_count=2,
+            metadata={
+                "engine": "tesseract",
+                "page_images": {"2": {"source_width": 333, "source_height": 444}},
+            },
+        )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            bbox=[
+                {
+                    "x0": 0.1,
+                    "y0": 0.1,
+                    "x1": 0.5,
+                    "y1": 0.2,
+                    "space": "page_normalized",
+                }
+            ],
+            quote="OCR-PAGE2",
+        )
 
     ocr = load_positioned_document(project, blob, page=2)
     native = load_positioned_document(project, blob, page=1)
@@ -1231,23 +1238,25 @@ def test_newer_unusable_ocr_artifact_does_not_permanently_invalidate_template(
     }
     if defect == "missing_dimensions":
         metadata["page_images"]["1"]["width"] = None
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        blob_hash=template.reference_blob_id,
-        media_type="image/png",
-        metadata=metadata,
-    )
-    record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=None if defect == "null_page" else 1,
-        bbox=[42]
-        if defect == "nonobject_box"
-        else [{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
-        quote=None if defect == "empty_text" else "NAME",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=template.reference_blob_id,
+            media_type="image/png",
+            metadata=metadata,
+        )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=None if defect == "null_page" else 1,
+            bbox=[42]
+            if defect == "nonobject_box"
+            else [{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
+            quote=None if defect == "empty_text" else "NAME",
+        )
     if defect == "malformed_json":
         project.db.execute(
             "UPDATE source_artifacts SET metadata='{' WHERE id=?", (artifact["id"],)
@@ -1513,25 +1522,27 @@ def test_zero_repeats_yield_no_fabricated_rows_but_document_outcome(make_project
     sheet, column, rows, template = seed(project, repeats=True)
     # A legitimate different document with positioned text but no records.
     blob = project.add_blob(b"no records", filename="none.png", mime="image/png")
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        blob_hash=blob,
-        media_type="image/png",
-        metadata={
-            "engine": "tesseract",
-            "page_images": {"1": {"source_width": 100, "source_height": 100}},
-        },
-    )
-    record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
-        quote="EMPTY",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            blob_hash=blob,
+            media_type="image/png",
+            metadata={
+                "engine": "tesseract",
+                "page_images": {"1": {"source_width": 100, "source_height": 100}},
+            },
+        )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.2, "y1": 0.13}],
+            quote="EMPTY",
+        )
     zero_row = project.add_rows(
         sheet,
         [{"document": {"blob": blob, "filename": "none.png", "mime": "image/png"}}],

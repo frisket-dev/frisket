@@ -18,6 +18,7 @@ from frisket.engine.store.evidence import (
     record_text_surface,
     resolve_citation_viewer,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _hash(text: str) -> str:
@@ -29,36 +30,39 @@ def _native_citation(
 ) -> tuple[dict, dict]:
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
     content_hash = _hash(text)
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=content_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=row_id,
-        text_column_id=column_id,
-        value_ref=refs[row_id],
-    )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-        captured_text_native=True,
-        metadata={"captured_text": text},
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=len(text),
-        quote=text,
-        text_layer_hash=content_hash,
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=column_id,
+            value_ref=refs[row_id],
+        )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+            captured_text_native=True,
+            metadata={"captured_text": text},
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=len(text),
+            quote=text,
+            text_layer_hash=content_hash,
+            text_surface_id=surface["id"],
+        )
     return artifact, span
 
 
@@ -115,35 +119,38 @@ def test_synthesized_context_is_saved_once_and_remains_viewable(make_project) ->
     project = make_project("composite-citation")
     text = "Subject: Ada 🚀"
     content_hash = _hash(text)
-    surface = record_text_surface(
-        project,
-        surface_kind="composite",
-        content_hash=content_hash,
-        offset_unit="unicode_codepoint",
-        surface_ref={"identity": {"kind": "test-template", "id": 1}},
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="composite",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            surface_ref={"identity": {"kind": "test-template", "id": 1}},
+        )
     artifacts = []
     spans = []
     for index in range(2):
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="text",
-            media_type="text/plain",
-            metadata={"captured_text": text, "index": index},
-        )
-        artifacts.append(artifact)
-        spans.append(
-            record_source_span(
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
                 project,
-                artifact_id=artifact["id"],
-                span_kind="text",
-                char_start=9,
-                char_end=12,
-                quote="Ada",
-                text_layer_hash=content_hash,
-                text_surface_id=surface["id"],
+                artifact_kind="text",
+                media_type="text/plain",
+                metadata={"captured_text": text, "index": index},
             )
-        )
+        artifacts.append(artifact)
+        with write_transaction(project.db):
+            spans.append(
+                record_source_span(
+                    project,
+                    artifact_id=artifact["id"],
+                    span_kind="text",
+                    char_start=9,
+                    char_end=12,
+                    quote="Ada",
+                    text_layer_hash=content_hash,
+                    text_surface_id=surface["id"],
+                )
+            )
     link = _link(project, spans)
 
     assert project.db.execute("SELECT COUNT(*) FROM citation_texts").fetchone()[0] == 1
@@ -167,32 +174,35 @@ def test_snapshot_repairs_malformed_unicode_before_hashing_and_keeps_anchors(
     raw_text = "before \ud800 after 🚀"
     text = "before \ufffd after 🚀"
     content_hash = _hash(text)
-    surface = record_text_surface(
-        project,
-        surface_kind="composite",
-        content_hash=content_hash,
-        offset_unit="unicode_codepoint",
-        surface_ref={"identity": {"kind": "test-unicode"}},
-    )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        metadata={"captured_text": raw_text},
-    )
-    spans = [
-        record_source_span(
+    with write_transaction(project.db):
+        surface = record_text_surface(
             project,
-            artifact_id=artifact["id"],
-            span_kind="text",
-            char_start=start,
-            char_end=end,
-            quote=text[start:end],
-            text_layer_hash=content_hash,
-            text_surface_id=surface["id"],
+            surface_kind="composite",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            surface_ref={"identity": {"kind": "test-unicode"}},
         )
-        for start, end in ((0, 6), (9, 14))
-    ]
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            metadata={"captured_text": raw_text},
+        )
+    with write_transaction(project.db):
+        spans = [
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="text",
+                char_start=start,
+                char_end=end,
+                quote=text[start:end],
+                text_layer_hash=content_hash,
+                text_surface_id=surface["id"],
+            )
+            for start, end in ((0, 6), (9, 14))
+        ]
 
     viewer = resolve_citation_viewer(project, _link(project, spans)["id"])
     context = viewer["artifacts"][0]["text_context"]
@@ -220,38 +230,41 @@ def test_rendered_json_cell_surface_is_not_compared_as_native_text(
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
     rendered = "1. Ada"
     content_hash = _hash(rendered)
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=content_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=row_id,
-        text_column_id=column_id,
-        value_ref=refs[row_id],
-    )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-        metadata={
-            "captured_text": rendered,
-            "captured_source": {"column_type": "json", "value_ref": refs[row_id]},
-        },
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        char_start=3,
-        char_end=6,
-        quote="Ada",
-        text_layer_hash=content_hash,
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=column_id,
+            value_ref=refs[row_id],
+        )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+            metadata={
+                "captured_text": rendered,
+                "captured_source": {"column_type": "json", "value_ref": refs[row_id]},
+            },
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=3,
+            char_end=6,
+            quote="Ada",
+            text_layer_hash=content_hash,
+            text_surface_id=surface["id"],
+        )
     link = _link(project, [span])
 
     viewer = resolve_citation_viewer(project, link["id"])

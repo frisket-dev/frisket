@@ -14,6 +14,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _attach_whole_cell_evidence(
@@ -26,19 +27,21 @@ def _attach_whole_cell_evidence(
     op_id: int,
     run_id: int,
 ) -> dict:
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="row",
-        media_type="application/vnd.frisket.row+json",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="whole",
-        snippet="cell evidence",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="row",
+            media_type="application/vnd.frisket.row+json",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="whole",
+            snippet="cell evidence",
+        )
     return record_citation(
         project,
         subject_kind="cell_value",
@@ -147,149 +150,155 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
         b"unused temporary preview", "unused.txt", "text/plain"
     )
 
-    pdf_artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=pdf_hash,
-        title="Contract",
-        filename="contract.pdf",
-        page_count=9,
-        metadata={
-            "page_images": {
-                "3": {
-                    "blob_hash": page_image_hash,
-                    "width": 1700,
-                    "height": 2200,
-                }
-            },
-            "text_pages": {
-                "3": "The total contract value is $1,250,000 payable in March."
-            },
-        },
-    )
-    html_artifact = record_source_artifact(
-        project,
-        artifact_kind="capture",
-        media_type="text/html",
-        blob_hash=html_hash,
-        source_url="https://example.test/minutes",
-        canonical_url="https://example.test/minutes",
-        title="Board minutes",
-        filename="minutes.html",
-    )
-    audio_artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="audio/mpeg",
-        blob_hash=audio_hash,
-        filename="hearing.mp3",
-        duration_ms=180_000,
-    )
-    video_artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="video/mp4",
-        blob_hash=video_hash,
-        filename="hearing.mp4",
-        duration_ms=300_000,
-    )
-    table_artifact = record_source_artifact(
-        project,
-        artifact_kind="external_record",
-        media_type="application/vnd.frisket.table+json",
-        title="Extracted bid table",
-        external_ref={"system": "fixture", "record_id": "bid-table-7"},
-    )
-
-    spans = [
-        record_source_span(
+    with write_transaction(project.db):
+        pdf_artifact = record_source_artifact(
             project,
-            artifact_id=pdf_artifact["id"],
-            span_kind="whole",
-            snippet="Contract document",
-        ),
-        record_source_span(
-            project,
-            artifact_id=pdf_artifact["id"],
-            span_kind="region",
-            page_start=3,
-            page_end=3,
-            bbox=[
-                {
-                    "space": "page_normalized",
-                    "x0": 0.57,
-                    "y0": 0.40,
-                    "x1": 0.73,
-                    "y1": 0.45,
-                }
-            ],
-            quote="$1,250,000",
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            title="Contract",
+            filename="contract.pdf",
+            page_count=9,
             metadata={
-                "raw": {
-                    "provider_space": "pixels",
-                    "x0": 969,
-                    "y0": 880,
-                    "x1": 1241,
-                    "y1": 990,
-                }
+                "page_images": {
+                    "3": {
+                        "blob_hash": page_image_hash,
+                        "width": 1700,
+                        "height": 2200,
+                    }
+                },
+                "text_pages": {
+                    "3": "The total contract value is $1,250,000 payable in March."
+                },
             },
-        ),
-        record_source_span(
+        )
+    with write_transaction(project.db):
+        html_artifact = record_source_artifact(
             project,
-            artifact_id=pdf_artifact["id"],
-            span_kind="text",
-            page_start=3,
-            page_end=3,
-            quote="$1,250,000",
-            snippet="total contract value is $1,250,000",
-        ),
-        record_source_span(
+            artifact_kind="capture",
+            media_type="text/html",
+            blob_hash=html_hash,
+            source_url="https://example.test/minutes",
+            canonical_url="https://example.test/minutes",
+            title="Board minutes",
+            filename="minutes.html",
+        )
+    with write_transaction(project.db):
+        audio_artifact = record_source_artifact(
             project,
-            artifact_id=html_artifact["id"],
-            span_kind="html",
-            selector={"css": "#award", "quote_context": "p#award"},
-            quote="Award value was $1,250,000.",
-        ),
-        record_source_span(
+            artifact_kind="file",
+            media_type="audio/mpeg",
+            blob_hash=audio_hash,
+            filename="hearing.mp3",
+            duration_ms=180_000,
+        )
+    with write_transaction(project.db):
+        video_artifact = record_source_artifact(
             project,
-            artifact_id=audio_artifact["id"],
-            span_kind="temporal",
-            start_ms=81_234,
-            end_ms=93_410,
-            quote="the contract value was one point two five million",
-        ),
-        record_source_span(
+            artifact_kind="file",
+            media_type="video/mp4",
+            blob_hash=video_hash,
+            filename="hearing.mp4",
+            duration_ms=300_000,
+        )
+    with write_transaction(project.db):
+        table_artifact = record_source_artifact(
             project,
-            artifact_id=video_artifact["id"],
-            span_kind="temporal",
-            start_ms=120_000,
-            end_ms=132_000,
-            bbox=[
-                {
-                    "space": "frame_normalized",
-                    "x0": 0.12,
-                    "y0": 0.22,
-                    "x1": 0.48,
-                    "y1": 0.66,
-                }
-            ],
-            selector={"representative_frame_ms": 124_500},
-            quote="slide showing $1.25M",
-        ),
-        record_source_span(
-            project,
-            artifact_id=table_artifact["id"],
-            span_kind="table",
-            selector={
-                "table_index": 0,
-                "row_index": 2,
-                "column_name": "amount",
-                "cell": "C3",
-            },
-            snippet="amount=$1,250,000",
-        ),
-    ]
+            artifact_kind="external_record",
+            media_type="application/vnd.frisket.table+json",
+            title="Extracted bid table",
+            external_ref={"system": "fixture", "record_id": "bid-table-7"},
+        )
+
+    with write_transaction(project.db):
+        spans = [
+            record_source_span(
+                project,
+                artifact_id=pdf_artifact["id"],
+                span_kind="whole",
+                snippet="Contract document",
+            ),
+            record_source_span(
+                project,
+                artifact_id=pdf_artifact["id"],
+                span_kind="region",
+                page_start=3,
+                page_end=3,
+                bbox=[
+                    {
+                        "space": "page_normalized",
+                        "x0": 0.57,
+                        "y0": 0.40,
+                        "x1": 0.73,
+                        "y1": 0.45,
+                    }
+                ],
+                quote="$1,250,000",
+                metadata={
+                    "raw": {
+                        "provider_space": "pixels",
+                        "x0": 969,
+                        "y0": 880,
+                        "x1": 1241,
+                        "y1": 990,
+                    }
+                },
+            ),
+            record_source_span(
+                project,
+                artifact_id=pdf_artifact["id"],
+                span_kind="text",
+                page_start=3,
+                page_end=3,
+                quote="$1,250,000",
+                snippet="total contract value is $1,250,000",
+            ),
+            record_source_span(
+                project,
+                artifact_id=html_artifact["id"],
+                span_kind="html",
+                selector={"css": "#award", "quote_context": "p#award"},
+                quote="Award value was $1,250,000.",
+            ),
+            record_source_span(
+                project,
+                artifact_id=audio_artifact["id"],
+                span_kind="temporal",
+                start_ms=81_234,
+                end_ms=93_410,
+                quote="the contract value was one point two five million",
+            ),
+            record_source_span(
+                project,
+                artifact_id=video_artifact["id"],
+                span_kind="temporal",
+                start_ms=120_000,
+                end_ms=132_000,
+                bbox=[
+                    {
+                        "space": "frame_normalized",
+                        "x0": 0.12,
+                        "y0": 0.22,
+                        "x1": 0.48,
+                        "y1": 0.66,
+                    }
+                ],
+                selector={"representative_frame_ms": 124_500},
+                quote="slide showing $1.25M",
+            ),
+            record_source_span(
+                project,
+                artifact_id=table_artifact["id"],
+                span_kind="table",
+                selector={
+                    "table_index": 0,
+                    "row_index": 2,
+                    "column_name": "amount",
+                    "cell": "C3",
+                },
+                snippet="amount=$1,250,000",
+            ),
+        ]
 
     link = record_citation(
         project,

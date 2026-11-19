@@ -27,6 +27,7 @@ from frisket.engine.store.evidence import (
     record_text_surface,
 )
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "annotations"
@@ -49,32 +50,35 @@ def _seed(ws: Path) -> dict[str, Any]:
         row_id = row_ids[0]
 
         surface_hash = _text_hash(BODY_TEXT)
-        surface = record_text_surface(
-            project,
-            surface_kind="cell",
-            content_hash=surface_hash,
-            offset_unit="unicode_codepoint",
-            text_sheet_id=sheet_id,
-            text_row_id=row_id,
-            text_column_id=body,
-        )
-        artifact = record_source_artifact(
-            project, artifact_kind="text", media_type="text/plain"
-        )
-        spans = [
-            record_source_span(
+        with write_transaction(project.db):
+            surface = record_text_surface(
                 project,
-                artifact_id=artifact["id"],
-                span_kind="text",
-                char_start=start,
-                char_end=end,
-                quote=BODY_TEXT[start:end],
-                text_layer_hash=surface_hash,
-                text_surface_id=surface["id"],
-                metadata={"entity_type": entity_type},
+                surface_kind="cell",
+                content_hash=surface_hash,
+                offset_unit="unicode_codepoint",
+                text_sheet_id=sheet_id,
+                text_row_id=row_id,
+                text_column_id=body,
             )
-            for start, end, entity_type in [(0, 12, "person"), (17, 32, "person")]
-        ]
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project, artifact_kind="text", media_type="text/plain"
+            )
+        with write_transaction(project.db):
+            spans = [
+                record_source_span(
+                    project,
+                    artifact_id=artifact["id"],
+                    span_kind="text",
+                    char_start=start,
+                    char_end=end,
+                    quote=BODY_TEXT[start:end],
+                    text_layer_hash=surface_hash,
+                    text_surface_id=surface["id"],
+                    metadata={"entity_type": entity_type},
+                )
+                for start, end, entity_type in [(0, 12, "person"), (17, 32, "person")]
+            ]
         _values, refs = project.get_values_with_refs(sheet_id, ents, row_ids=[row_id])
         record_citation(
             project,

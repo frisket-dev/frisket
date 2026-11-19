@@ -44,6 +44,7 @@ from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-temporal-split-test"
@@ -1201,15 +1202,16 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
             (4_000, 5_300, "w4"),
         ]
     ):
-        span = record_source_span(
-            project,
-            artifact_id=lease.anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=start_ms,
-            end_ms=end_ms,
-            quote=text,
-            selector={"segment_index": rank},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=lease.anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=start_ms,
+                end_ms=end_ms,
+                quote=text,
+                selector={"segment_index": rank},
+            )
         span_refs.append({"span_id": span["id"], "rank": rank})
         primary_span_ids.append(str(span["stable_id"]))
     _values, refs = project.get_values_with_refs(
@@ -1274,15 +1276,16 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         alternate_column_id,
         alternate_run_id,
     )
-    alternate_span = record_source_span(
-        project,
-        artifact_id=lease.anchor.artifact_id,
-        span_kind="temporal",
-        start_ms=2_000,
-        end_ms=5_000,
-        quote="Alternate wording.",
-        selector={"segment_index": 0},
-    )
+    with write_transaction(project.db):
+        alternate_span = record_source_span(
+            project,
+            artifact_id=lease.anchor.artifact_id,
+            span_kind="temporal",
+            start_ms=2_000,
+            end_ms=5_000,
+            quote="Alternate wording.",
+            selector={"segment_index": 0},
+        )
     _values, alternate_refs = project.get_values_with_refs(
         seeded["sheet_id"],
         alternate_column_id,

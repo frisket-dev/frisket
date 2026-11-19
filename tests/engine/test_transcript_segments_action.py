@@ -32,6 +32,7 @@ from frisket.features.topic_segmentation.contracts import (
 )
 from helpers import write_claimed_test_results
 from http_test_helpers import drain_queue, run_worker_until_job_terminal
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_timestamped_transcript(
@@ -105,15 +106,16 @@ def _seed_timestamped_transcript(
     runs.point_column_at_run(op_id, transcript_column_id, run_id)
     spans = []
     for index, (start_ms, end_ms, quote) in enumerate(span_values):
-        span = record_source_span(
-            project,
-            artifact_id=lease.anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=start_ms,
-            end_ms=end_ms,
-            quote=quote,
-            selector={"segment_index": index},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=lease.anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=start_ms,
+                end_ms=end_ms,
+                quote=quote,
+                selector={"segment_index": index},
+            )
         spans.append({"span_id": span["id"], "rank": index})
     _values, refs = project.get_values_with_refs(
         sheet_id,

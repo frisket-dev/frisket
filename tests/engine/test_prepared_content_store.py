@@ -15,18 +15,20 @@ from frisket.engine.store.value_codec import (
     decode_stored_value,
     encode_stored_value,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _artifact(project: Project, *, pages: int = 3) -> int:
-    return int(
-        record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            filename="source.pdf",
-            page_count=pages,
-        )["id"]
-    )
+    with write_transaction(project.db):
+        return int(
+            record_source_artifact(
+                project,
+                artifact_kind="document",
+                media_type="application/pdf",
+                filename="source.pdf",
+                page_count=pages,
+            )["id"]
+        )
 
 
 def _pages(middle: str = "") -> list[PreparedPageDraft]:

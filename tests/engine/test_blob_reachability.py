@@ -16,6 +16,7 @@ from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -50,15 +51,16 @@ def test_prepared_text_and_citation_positions_do_not_own_mentioned_blobs(project
     text_blob = project.add_blob(b"linked from prepared text")
     positions_blob = project.add_blob(b"linked from prepared positions")
     orphan = project.add_blob(b"unrelated orphan")
-    artifact_id = int(
-        record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            filename="source.pdf",
-            page_count=1,
-        )["id"]
-    )
+    with write_transaction(project.db):
+        artifact_id = int(
+            record_source_artifact(
+                project,
+                artifact_kind="document",
+                media_type="application/pdf",
+                filename="source.pdf",
+                page_count=1,
+            )["id"]
+        )
     sheet = project.add_sheet("prepared")
     column = project.add_column(sheet, "text", type="text")
 

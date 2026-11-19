@@ -24,6 +24,7 @@ from frisket.engine.store.evidence import (
 )
 
 from helpers import stub_rapidocr_run_scope
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-extract-quote-alignment"
@@ -189,16 +190,17 @@ def _extract_artifact(seeded: dict[str, Any]) -> dict[str, Any]:
     the empty blob metadata an imported PDF carries (no page_images)."""
 
     project: Project = seeded["project"]
-    return record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=seeded["blob"],
-        filename="doc.pdf",
-        source_sheet_id=seeded["sheet_id"],
-        source_row_id=seeded["row_ids"][0],
-        metadata={},
-    )
+    with write_transaction(project.db):
+        return record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=seeded["blob"],
+            filename="doc.pdf",
+            source_sheet_id=seeded["sheet_id"],
+            source_row_id=seeded["row_ids"][0],
+            metadata={},
+        )
 
 
 def _link_and_resolve(
@@ -230,12 +232,13 @@ def test_hyphenated_two_line_quote_aligns_to_region_spans(
         artifact = _extract_artifact(seeded)
 
         # A split-across-lines quote de-hyphenates "infor-"+"mation".
-        spans = _source_spans(
-            project,
-            artifact=artifact,
-            item={"quote": "information flows", "grounding_method": "quote"},
-            rank=0,
-        )
+        with write_transaction(project.db):
+            spans = _source_spans(
+                project,
+                artifact=artifact,
+                item={"quote": "information flows", "grounding_method": "quote"},
+                rank=0,
+            )
         # The two lines are both covered -> per-line region spans (not one whole
         # page span, not the positionless text span).
         kinds = [s["span_kind"] for s in spans]
@@ -274,12 +277,13 @@ def test_no_word_stream_degrades_to_text_span_with_reason(
     project: Project = seeded["project"]
     try:
         artifact = _extract_artifact(seeded)  # no OCR run -> no sibling stream
-        spans = _source_spans(
-            project,
-            artifact=artifact,
-            item={"quote": "information flows", "grounding_method": "quote"},
-            rank=0,
-        )
+        with write_transaction(project.db):
+            spans = _source_spans(
+                project,
+                artifact=artifact,
+                item={"quote": "information flows", "grounding_method": "quote"},
+                rank=0,
+            )
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "no_word_stream"
@@ -322,12 +326,13 @@ def test_repeated_quote_without_scope_degrades_ambiguous(
             ],
         )
         artifact = _extract_artifact(seeded)
-        spans = _source_spans(
-            project,
-            artifact=artifact,
-            item={"quote": "the budget passed", "grounding_method": "quote"},
-            rank=0,
-        )
+        with write_transaction(project.db):
+            spans = _source_spans(
+                project,
+                artifact=artifact,
+                item={"quote": "the budget passed", "grounding_method": "quote"},
+                rank=0,
+            )
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "repeated_quote_ambiguous"
@@ -357,16 +362,17 @@ def test_page_scoped_repeated_quote_picks_the_right_occurrence(
             ],
         )
         artifact = _extract_artifact(seeded)
-        spans = _source_spans(
-            project,
-            artifact=artifact,
-            item={
-                "quote": "the budget passed",
-                "grounding_method": "quote",
-                "page": 2,
-            },
-            rank=0,
-        )
+        with write_transaction(project.db):
+            spans = _source_spans(
+                project,
+                artifact=artifact,
+                item={
+                    "quote": "the budget passed",
+                    "grounding_method": "quote",
+                    "page": 2,
+                },
+                rank=0,
+            )
         assert spans, spans
         assert all(s["span_kind"] == "region" for s in spans), spans
         assert all(s["page_start"] == 2 for s in spans), spans
@@ -382,15 +388,16 @@ def test_below_threshold_quote_degrades_not_fabricates(
     try:
         _run_ocr(seeded, monkeypatch)
         artifact = _extract_artifact(seeded)
-        spans = _source_spans(
-            project,
-            artifact=artifact,
-            item={
-                "quote": "zzzz totally absent phrase qqqq",
-                "grounding_method": "quote",
-            },
-            rank=0,
-        )
+        with write_transaction(project.db):
+            spans = _source_spans(
+                project,
+                artifact=artifact,
+                item={
+                    "quote": "zzzz totally absent phrase qqqq",
+                    "grounding_method": "quote",
+                },
+                rank=0,
+            )
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "text"
         assert spans[0]["metadata"]["alignment"] == "below_threshold"
@@ -463,17 +470,18 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
     try:
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=seeded["blob"],
-            filename="doc.pdf",
-            page_count=2,
-            source_sheet_id=seeded["sheet_id"],
-            source_row_id=seeded["row_ids"][0],
-            source_column_id=2,
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=seeded["blob"],
+                filename="doc.pdf",
+                page_count=2,
+                source_sheet_id=seeded["sheet_id"],
+                source_row_id=seeded["row_ids"][0],
+                source_column_id=2,
+            )
         repeated = "the budget passed"
         selected_ref_id = _stage_prepared_reference(
             project,
@@ -513,27 +521,29 @@ def test_prepared_quote_uses_exact_ref_and_retains_all_exact_repeats(
             "\n\nunrelated second page",
             column_id=2,
         )
-        selected_artifact = _source_artifact(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            source_columns=["prepared"],
-            input_column_ids={"prepared": 2},
-            artifact_cache={},
-            captured_sources={"prepared": source},
-            source_label="prepared",
-        )
+        with write_transaction(project.db):
+            selected_artifact = _source_artifact(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                source_columns=["prepared"],
+                input_column_ids={"prepared": 2},
+                artifact_cache={},
+                captured_sources={"prepared": source},
+                source_label="prepared",
+            )
 
-        spans = _resolve_citation_entry_spans(
-            project,
-            artifact=selected_artifact,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            entry={"quote": repeated, "grounding_method": "quote"},
-            rank=0,
-            captured_source=source,
-            source_label="prepared",
-        )
+        with write_transaction(project.db):
+            spans = _resolve_citation_entry_spans(
+                project,
+                artifact=selected_artifact,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                entry={"quote": repeated, "grounding_method": "quote"},
+                rank=0,
+                captured_source=source,
+                source_label="prepared",
+            )
 
         assert selected_artifact["id"] != artifact["id"]
         assert "captured_text" not in selected_artifact["metadata"]
@@ -577,14 +587,15 @@ def test_prepared_cross_page_quote_pins_each_page_version(
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
     try:
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=seeded["blob"],
-            filename="doc.pdf",
-            page_count=2,
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=seeded["blob"],
+                filename="doc.pdf",
+                page_count=2,
+            )
         ref_id = _stage_prepared_reference(
             project,
             artifact_id=artifact["id"],
@@ -608,16 +619,17 @@ def test_prepared_cross_page_quote_pins_each_page_version(
             "sentence crosses\n\nthe page boundary",
             column_id=2,
         )
-        spans = _resolve_citation_entry_spans(
-            project,
-            artifact=artifact,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            entry={"quote": "crosses the page", "grounding_method": "quote"},
-            rank=0,
-            captured_source=source,
-            source_label="prepared",
-        )
+        with write_transaction(project.db):
+            spans = _resolve_citation_entry_spans(
+                project,
+                artifact=artifact,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                entry={"quote": "crosses the page", "grounding_method": "quote"},
+                rank=0,
+                captured_source=source,
+                source_label="prepared",
+            )
 
         regions = [span for span in spans or [] if span["span_kind"] == "region"]
         assert {span["page_start"] for span in regions} == {1, 2}
@@ -639,14 +651,15 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
     try:
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=seeded["blob"],
-            filename="doc.pdf",
-            page_count=1,
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=seeded["blob"],
+                filename="doc.pdf",
+                page_count=1,
+            )
         text = "citation survives its original source deletion"
         ref_id = _stage_prepared_reference(
             project,
@@ -660,26 +673,28 @@ def test_deleted_prepared_source_keeps_text_citation_without_copying_full_body(
         assert prepared.text == text
         assert prepared.source_artifact_id is None
         source = _prepared_source(ref_id, text, column_id=2)
-        fallback_artifact = _source_artifact(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            source_columns=["prepared"],
-            input_column_ids={"prepared": 2},
-            artifact_cache={},
-            captured_sources={"prepared": source},
-            source_label="prepared",
-        )
-        spans = _resolve_citation_entry_spans(
-            project,
-            artifact=fallback_artifact,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            entry={"quote": "original source deletion"},
-            rank=0,
-            captured_source=source,
-            source_label="prepared",
-        )
+        with write_transaction(project.db):
+            fallback_artifact = _source_artifact(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                source_columns=["prepared"],
+                input_column_ids={"prepared": 2},
+                artifact_cache={},
+                captured_sources={"prepared": source},
+                source_label="prepared",
+            )
+        with write_transaction(project.db):
+            spans = _resolve_citation_entry_spans(
+                project,
+                artifact=fallback_artifact,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                entry={"quote": "original source deletion"},
+                rank=0,
+                captured_source=source,
+                source_label="prepared",
+            )
 
         assert fallback_artifact["artifact_kind"] == "text"
         assert "captured_text_hash" not in fallback_artifact["metadata"]
@@ -699,13 +714,14 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
     seeded = _seed_pdf_project(tmp_path)
     project = seeded["project"]
     try:
-        original = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=seeded["blob"],
-            page_count=1,
-        )
+        with write_transaction(project.db):
+            original = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=seeded["blob"],
+                page_count=1,
+            )
         refs = [
             _stage_prepared_reference(
                 project, artifact_id=original["id"], pages=[(text, None)]
@@ -720,27 +736,29 @@ def test_two_prepared_outputs_keep_distinct_text_contexts_for_one_pdf(tmp_path):
             strict=True,
         ):
             source = _prepared_source(ref_id, text, column_id=2)
-            artifact = _source_artifact(
-                project,
-                sheet_id=seeded["sheet_id"],
-                row_id=seeded["row_ids"][0],
-                source_columns=["prepared"],
-                input_column_ids={"prepared": 2},
-                artifact_cache=cache,
-                captured_sources={"prepared": source},
-            )
-            spans.extend(
-                _resolve_citation_entry_spans(
+            with write_transaction(project.db):
+                artifact = _source_artifact(
                     project,
-                    artifact=artifact,
                     sheet_id=seeded["sheet_id"],
                     row_id=seeded["row_ids"][0],
-                    entry={"quote": text},
-                    rank=0,
-                    captured_source=source,
-                    source_label="prepared",
+                    source_columns=["prepared"],
+                    input_column_ids={"prepared": 2},
+                    artifact_cache=cache,
+                    captured_sources={"prepared": source},
                 )
-            )
+            with write_transaction(project.db):
+                spans.extend(
+                    _resolve_citation_entry_spans(
+                        project,
+                        artifact=artifact,
+                        sheet_id=seeded["sheet_id"],
+                        row_id=seeded["row_ids"][0],
+                        entry={"quote": text},
+                        rank=0,
+                        captured_source=source,
+                        source_label="prepared",
+                    )
+                )
         viewer = _link_and_resolve(seeded, spans)
         assert {
             artifact["text_context"]["text"] for artifact in viewer["artifacts"]
@@ -768,38 +786,41 @@ def test_prepared_page_and_region_claims_do_not_require_a_quote(tmp_path, claim,
     seeded = _seed_pdf_project(tmp_path)
     project = seeded["project"]
     try:
-        original = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=seeded["blob"],
-            page_count=1,
-        )
+        with write_transaction(project.db):
+            original = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=seeded["blob"],
+                page_count=1,
+            )
         ref_id = _stage_prepared_reference(
             project,
             artifact_id=original["id"],
             pages=[("Prepared page", None)],
         )
         source = _prepared_source(ref_id, "Prepared page", column_id=2)
-        artifact = _source_artifact(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            source_columns=["prepared"],
-            input_column_ids={"prepared": 2},
-            artifact_cache={},
-            captured_sources={"prepared": source},
-        )
-        spans = _resolve_citation_entry_spans(
-            project,
-            artifact=artifact,
-            sheet_id=seeded["sheet_id"],
-            row_id=seeded["row_ids"][0],
-            entry=EvidenceClaim.model_validate(claim).model_dump(exclude_none=True),
-            rank=0,
-            captured_source=source,
-            source_label="prepared",
-        )
+        with write_transaction(project.db):
+            artifact = _source_artifact(
+                project,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                source_columns=["prepared"],
+                input_column_ids={"prepared": 2},
+                artifact_cache={},
+                captured_sources={"prepared": source},
+            )
+        with write_transaction(project.db):
+            spans = _resolve_citation_entry_spans(
+                project,
+                artifact=artifact,
+                sheet_id=seeded["sheet_id"],
+                row_id=seeded["row_ids"][0],
+                entry=EvidenceClaim.model_validate(claim).model_dump(exclude_none=True),
+                rank=0,
+                captured_source=source,
+                source_label="prepared",
+            )
         assert len(spans) == 1
         assert spans[0]["artifact_id"] == original["id"]
         assert spans[0]["span_kind"] == kind

@@ -13,29 +13,32 @@ from frisket.engine.store.evidence import (
     record_source_span,
     record_text_surface,
 )
+from frisket.engine.store.transactions import write_transaction
 
 _HASH = _text_hash("hello world")
 _HASH2 = _text_hash("something else")
 
 
 def _artifact(p):
-    return record_source_artifact(p, artifact_kind="text", media_type="text/plain")
+    with write_transaction(p.db):
+        return record_source_artifact(p, artifact_kind="text", media_type="text/plain")
 
 
 class TestRecordTextSurface:
     def test_cell_surface_round_trips(self, make_project):
         p = make_project("s")
         try:
-            s = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-                value_ref={"kind": "source_cell", "row_id": 2, "column_id": 3},
-            )
+            with write_transaction(p.db):
+                s = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                    value_ref={"kind": "source_cell", "row_id": 2, "column_id": 3},
+                )
             assert s["surface_kind"] == "cell"
             assert (s["text_sheet_id"], s["text_row_id"], s["text_column_id"]) == (
                 1,
@@ -50,24 +53,26 @@ class TestRecordTextSurface:
     def test_dedup_same_identity_returns_same_row(self, make_project):
         p = make_project("s")
         try:
-            a = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
-            b = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
+            with write_transaction(p.db):
+                a = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
+            with write_transaction(p.db):
+                b = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
             assert a["id"] == b["id"] == a["id"]
             assert (
                 p.db.execute("SELECT COUNT(*) c FROM text_surfaces").fetchone()["c"]
@@ -79,24 +84,26 @@ class TestRecordTextSurface:
     def test_different_content_hash_is_a_new_surface(self, make_project):
         p = make_project("s")
         try:
-            a = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
-            b = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH2,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
+            with write_transaction(p.db):
+                a = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
+            with write_transaction(p.db):
+                b = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH2,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
             assert a["id"] != b["id"]
         finally:
             p.close()
@@ -104,13 +111,16 @@ class TestRecordTextSurface:
     def test_composite_surface_and_identity(self, make_project):
         p = make_project("s")
         try:
-            s = record_text_surface(
-                p,
-                surface_kind="composite",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                surface_ref={"identity": {"renderer": "ner._text", "columns": [3, 4]}},
-            )
+            with write_transaction(p.db):
+                s = record_text_surface(
+                    p,
+                    surface_kind="composite",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    surface_ref={
+                        "identity": {"renderer": "ner._text", "columns": [3, 4]}
+                    },
+                )
             assert s["surface_kind"] == "composite"
             assert s["text_column_id"] is None
             assert s["surface_ref"]["identity"]["columns"] == [3, 4]
@@ -122,26 +132,28 @@ class TestRecordTextSurface:
         must not fork the surface."""
         p = make_project("s")
         try:
-            a = record_text_surface(
-                p,
-                surface_kind="composite",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                surface_ref={
-                    "identity": {"renderer": "x"},
-                    "diagnostics": {"note": "one"},
-                },
-            )
-            b = record_text_surface(
-                p,
-                surface_kind="composite",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                surface_ref={
-                    "identity": {"renderer": "x"},
-                    "diagnostics": {"note": "two"},
-                },
-            )
+            with write_transaction(p.db):
+                a = record_text_surface(
+                    p,
+                    surface_kind="composite",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    surface_ref={
+                        "identity": {"renderer": "x"},
+                        "diagnostics": {"note": "one"},
+                    },
+                )
+            with write_transaction(p.db):
+                b = record_text_surface(
+                    p,
+                    surface_kind="composite",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    surface_ref={
+                        "identity": {"renderer": "x"},
+                        "diagnostics": {"note": "two"},
+                    },
+                )
             assert a["id"] == b["id"]
         finally:
             p.close()
@@ -150,14 +162,15 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="cell",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                    text_sheet_id=1,
-                    text_row_id=2,
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="cell",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                        text_sheet_id=1,
+                        text_row_id=2,
+                    )
         finally:
             p.close()
 
@@ -165,13 +178,14 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="composite",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                    text_column_id=3,
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="composite",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                        text_column_id=3,
+                    )
         finally:
             p.close()
 
@@ -179,14 +193,15 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="composite",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                    value_ref={"kind": "source_cell"},
-                    surface_ref={"identity": {"renderer": "x"}},
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="composite",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                        value_ref={"kind": "source_cell"},
+                        surface_ref={"identity": {"renderer": "x"}},
+                    )
         finally:
             p.close()
 
@@ -194,12 +209,13 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="page",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="page",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                    )
         finally:
             p.close()
 
@@ -209,20 +225,22 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="composite",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="composite",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                    )
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="composite",
-                    content_hash=_HASH,
-                    offset_unit="unicode_codepoint",
-                    surface_ref={"identity": {}},
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="composite",
+                        content_hash=_HASH,
+                        offset_unit="unicode_codepoint",
+                        surface_ref={"identity": {}},
+                    )
         finally:
             p.close()
 
@@ -230,15 +248,16 @@ class TestRecordTextSurface:
         p = make_project("s")
         try:
             with pytest.raises(ValueError):
-                record_text_surface(
-                    p,
-                    surface_kind="cell",
-                    content_hash=_HASH,
-                    offset_unit="bytes",
-                    text_sheet_id=1,
-                    text_row_id=2,
-                    text_column_id=3,
-                )
+                with write_transaction(p.db):
+                    record_text_surface(
+                        p,
+                        surface_kind="cell",
+                        content_hash=_HASH,
+                        offset_unit="bytes",
+                        text_sheet_id=1,
+                        text_row_id=2,
+                        text_column_id=3,
+                    )
         finally:
             p.close()
 
@@ -249,15 +268,16 @@ class TestRecordTextSurface:
         try:
             for bad in ("deadbeef", "sha256:NOTHEX", "sha256:" + "A" * 64):
                 with pytest.raises(ValueError):
-                    record_text_surface(
-                        p,
-                        surface_kind="cell",
-                        content_hash=bad,
-                        offset_unit="unicode_codepoint",
-                        text_sheet_id=1,
-                        text_row_id=2,
-                        text_column_id=3,
-                    )
+                    with write_transaction(p.db):
+                        record_text_surface(
+                            p,
+                            surface_kind="cell",
+                            content_hash=bad,
+                            offset_unit="unicode_codepoint",
+                            text_sheet_id=1,
+                            text_row_id=2,
+                            text_column_id=3,
+                        )
         finally:
             p.close()
 
@@ -267,26 +287,28 @@ class TestRecordTextSurface:
         refs is ONE surface. value_ref must not fork the append-only row."""
         p = make_project("s")
         try:
-            a = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-                value_ref=None,
-            )
-            b = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-                value_ref={"kind": "run_result", "run_id": 7},
-            )
+            with write_transaction(p.db):
+                a = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                    value_ref=None,
+                )
+            with write_transaction(p.db):
+                b = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                    value_ref={"kind": "run_result", "run_id": 7},
+                )
             assert a["id"] == b["id"]
         finally:
             p.close()
@@ -294,24 +316,26 @@ class TestRecordTextSurface:
     def test_different_locator_is_new_surface(self, make_project):
         p = make_project("s")
         try:
-            a = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
-            b = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=4,
-            )
+            with write_transaction(p.db):
+                a = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
+            with write_transaction(p.db):
+                b = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=4,
+                )
             assert a["id"] != b["id"]
         finally:
             p.close()
@@ -347,25 +371,27 @@ class TestSpanAndLinkThreading:
         p = make_project("s")
         try:
             art = _artifact(p)
-            surf = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
-            span = record_source_span(
-                p,
-                artifact_id=art["id"],
-                span_kind="text",
-                char_start=0,
-                char_end=5,
-                quote="hello",
-                text_layer_hash=_HASH,
-                text_surface_id=surf["id"],
-            )
+            with write_transaction(p.db):
+                surf = record_text_surface(
+                    p,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
+                )
+            with write_transaction(p.db):
+                span = record_source_span(
+                    p,
+                    artifact_id=art["id"],
+                    span_kind="text",
+                    char_start=0,
+                    char_end=5,
+                    quote="hello",
+                    text_layer_hash=_HASH,
+                    text_surface_id=surf["id"],
+                )
             assert span["text_surface_id"] == surf["id"]
         finally:
             p.close()
@@ -388,16 +414,17 @@ class TestSpanAndLinkThreading:
         try:
             art = _artifact(p)
             with pytest.raises(ValueError):
-                record_source_span(
-                    p,
-                    artifact_id=art["id"],
-                    span_kind="region",
-                    page_start=1,
-                    char_start=start,
-                    char_end=end,
-                    text_surface_id=surface,
-                    text_layer_hash=layer_hash,
-                )
+                with write_transaction(p.db):
+                    record_source_span(
+                        p,
+                        artifact_id=art["id"],
+                        span_kind="region",
+                        page_start=1,
+                        char_start=start,
+                        char_end=end,
+                        text_surface_id=surface,
+                        text_layer_hash=layer_hash,
+                    )
         finally:
             p.close()
 
@@ -405,25 +432,27 @@ class TestSpanAndLinkThreading:
         p = make_project("s")
         try:
             art = _artifact(p)
-            surf = record_text_surface(
-                p,
-                surface_kind="cell",
-                content_hash=_HASH,
-                offset_unit="unicode_codepoint",
-                text_sheet_id=1,
-                text_row_id=2,
-                text_column_id=3,
-            )
-            with pytest.raises(ValueError, match="must match"):
-                record_source_span(
+            with write_transaction(p.db):
+                surf = record_text_surface(
                     p,
-                    artifact_id=art["id"],
-                    span_kind="text",
-                    char_start=0,
-                    char_end=2,
-                    text_surface_id=surf["id"],
-                    text_layer_hash=_HASH2,
+                    surface_kind="cell",
+                    content_hash=_HASH,
+                    offset_unit="unicode_codepoint",
+                    text_sheet_id=1,
+                    text_row_id=2,
+                    text_column_id=3,
                 )
+            with pytest.raises(ValueError, match="must match"):
+                with write_transaction(p.db):
+                    record_source_span(
+                        p,
+                        artifact_id=art["id"],
+                        span_kind="text",
+                        char_start=0,
+                        char_end=2,
+                        text_surface_id=surf["id"],
+                        text_layer_hash=_HASH2,
+                    )
         finally:
             p.close()
 
@@ -431,12 +460,13 @@ class TestSpanAndLinkThreading:
         p = make_project("s")
         try:
             art = _artifact(p)
-            span = record_source_span(
-                p,
-                artifact_id=art["id"],
-                span_kind="text",
-                quote="hello",
-            )
+            with write_transaction(p.db):
+                span = record_source_span(
+                    p,
+                    artifact_id=art["id"],
+                    span_kind="text",
+                    quote="hello",
+                )
             link = record_citation(
                 p,
                 subject_kind="cell",
@@ -463,12 +493,13 @@ class TestSpanAndLinkThreading:
         p = make_project("s")
         try:
             art = _artifact(p)
-            span = record_source_span(
-                p,
-                artifact_id=art["id"],
-                span_kind="text",
-                quote="hello",
-            )
+            with write_transaction(p.db):
+                span = record_source_span(
+                    p,
+                    artifact_id=art["id"],
+                    span_kind="text",
+                    quote="hello",
+                )
             with pytest.raises(ValueError):
                 record_citation(
                     p,
@@ -484,12 +515,13 @@ class TestSpanAndLinkThreading:
         p = make_project("s")
         try:
             art = _artifact(p)
-            span = record_source_span(
-                p,
-                artifact_id=art["id"],
-                span_kind="text",
-                quote="hello",
-            )
+            with write_transaction(p.db):
+                span = record_source_span(
+                    p,
+                    artifact_id=art["id"],
+                    span_kind="text",
+                    quote="hello",
+                )
             link = record_citation(
                 p,
                 subject_kind="cell",

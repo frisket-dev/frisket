@@ -25,6 +25,7 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.server.services.pdf_split_preparation import PdfSplitChildBinding
 from tests.server.test_pdf_split_preparation import _runtime
+from frisket.engine.store.transactions import write_transaction
 
 
 def _child(tmp_path, monkeypatch, *, child_count=1):
@@ -60,17 +61,18 @@ def _child(tmp_path, monkeypatch, *, child_count=1):
     }
     session = writer.session
     writer.finalize(expected_cursor=1)
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=digest,
-        filename="child.pdf",
-        page_count=2,
-        source_sheet_id=session.sheet_id,
-        source_row_id=rows[0],
-        source_column_id=columns["media"],
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=digest,
+            filename="child.pdf",
+            page_count=2,
+            source_sheet_id=session.sheet_id,
+            source_row_id=rows[0],
+            source_column_id=columns["media"],
+        )
     ensure_document_text_role(
         project,
         source_column_id=columns["media"],
@@ -378,17 +380,18 @@ def test_page_fanout_has_one_separate_preparation_change(tmp_path, monkeypatch):
             "SELECT * FROM source_artifacts WHERE id=?",
             (binding.artifact_id,),
         ).fetchone()
-        second_artifact = record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=first_artifact["blob_hash"],
-            filename="second.pdf",
-            page_count=2,
-            source_sheet_id=first_artifact["source_sheet_id"],
-            source_row_id=second_row,
-            source_column_id=binding.source_column_id,
-        )
+        with write_transaction(project.db):
+            second_artifact = record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=first_artifact["blob_hash"],
+                filename="second.pdf",
+                page_count=2,
+                source_sheet_id=first_artifact["source_sheet_id"],
+                source_row_id=second_row,
+                source_column_id=binding.source_column_id,
+            )
         source, text = capture_pdf_split_text_identities(
             project,
             row_id=second_row,

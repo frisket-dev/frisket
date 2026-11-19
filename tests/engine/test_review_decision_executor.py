@@ -26,6 +26,7 @@ from frisket.engine.store.evidence import (
     record_source_span,
     resolve_citation_viewer,
 )
+from frisket.engine.store.transactions import write_transaction
 
 _UNSET = object()
 
@@ -1147,19 +1148,21 @@ def _attach_cell_evidence(
     _values, refs = project.get_values_with_refs(
         seeded["sheet_id"], seeded["risk_column_id"], row_ids=[row_id]
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="row",
-        media_type="application/vnd.frisket.row+json",
-        source_sheet_id=seeded["sheet_id"],
-        source_row_id=row_id,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="whole",
-        snippet="reviewable map result evidence",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="row",
+            media_type="application/vnd.frisket.row+json",
+            source_sheet_id=seeded["sheet_id"],
+            source_row_id=row_id,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="whole",
+            snippet="reviewable map result evidence",
+        )
     return record_citation(
         project,
         subject_kind="cell_value",

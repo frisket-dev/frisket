@@ -28,6 +28,7 @@ from frisket.engine.store.artifact_timeline import (
 )
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.media_blobs import owned_media_metadata_document
+from frisket.engine.store.transactions import write_transaction
 
 
 def _artifact(
@@ -47,17 +48,18 @@ def _artifact(
             probe={"kind": "video", "duration_seconds": duration_ms / 1000}
         ),
     )
-    return record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=blob_hash,
-        filename=f"{name}.mp4",
-        duration_ms=duration_ms,
-        source_sheet_id=source_sheet_id,
-        source_row_id=source_row_id,
-        source_column_id=source_column_id,
-    )
+    with write_transaction(project.db):
+        return record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=blob_hash,
+            filename=f"{name}.mp4",
+            duration_ms=duration_ms,
+            source_sheet_id=source_sheet_id,
+            source_row_id=source_row_id,
+            source_column_id=source_column_id,
+        )
 
 
 def _assert_code(exc: pytest.ExceptionInfo[TimelineError], code: str) -> None:
@@ -74,9 +76,10 @@ def test_timeline_interruption_preserves_transaction_ownership(
 ) -> None:
     project = make_project("timeline-interruption")
     if helper == "transcript":
-        artifact = record_source_artifact(
-            project, artifact_kind="text", media_type="text/plain"
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project, artifact_kind="text", media_type="text/plain"
+            )
         perform = ensure_transcript_timeline
         kwargs = {
             "artifact_id": artifact["id"],
@@ -212,18 +215,19 @@ def test_resolve_timeline_adopts_legacy_artifact_and_reuses_identity(
         ],
         {"video": column_id},
     )[0]
-    legacy = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=blob_hash,
-        filename="source.mp4",
-        duration_ms=12_500,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-        metadata={"producer": "pre-timeline-transcribe"},
-    )
+    with write_transaction(project.db):
+        legacy = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=blob_hash,
+            filename="source.mp4",
+            duration_ms=12_500,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+            metadata={"producer": "pre-timeline-transcribe"},
+        )
 
     first = resolve_timeline(
         project, sheet_id=sheet_id, row_id=row_id, column_id=column_id
@@ -515,14 +519,15 @@ def test_media_ensure_rejects_duplicate_stable_id_without_partial_commit(
     first_blob = project.add_blob(b"first", "first.mp4", "video/mp4")
     second_blob = project.add_blob(b"second", "second.mp4", "video/mp4")
     stable_id = "source_artifact:00000000-0000-4000-8000-000000000001"
-    claimed = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        stable_id=stable_id,
-        blob_hash=first_blob,
-        duration_ms=1_000,
-    )
+    with write_transaction(project.db):
+        claimed = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            stable_id=stable_id,
+            blob_hash=first_blob,
+            duration_ms=1_000,
+        )
 
     with pytest.raises(TimelineError) as exc:
         ensure_media_timeline(
@@ -565,16 +570,18 @@ def test_generic_artifact_metadata_merge_cannot_replace_timeline_identity(
     artifact = _artifact(project, "source", 10_000)
     anchor = ensure_artifact_timeline(project, artifact["id"])
     with pytest.raises(ValueError, match="reserved"):
-        merge_artifact_metadata(
-            project,
-            artifact["id"],
-            {"timeline": {"fingerprint": "sha256:" + "0" * 64}},
-        )
+        with write_transaction(project.db):
+            merge_artifact_metadata(
+                project,
+                artifact["id"],
+                {"timeline": {"fingerprint": "sha256:" + "0" * 64}},
+            )
     assert resolve_artifact_timeline(project, artifact["id"]) == anchor
 
-    merged = merge_artifact_metadata(
-        project, artifact["id"], {"description": "safe descriptive change"}
-    )
+    with write_transaction(project.db):
+        merged = merge_artifact_metadata(
+            project, artifact["id"], {"description": "safe descriptive change"}
+        )
     assert merged["metadata"]["description"] == "safe descriptive change"
     assert resolve_artifact_timeline(project, artifact["id"]) == anchor
 
@@ -728,17 +735,18 @@ def _equivalent_root_clips(
             probe={"kind": "video", "duration_seconds": 10.0}
         ),
     )
-    roots = [
-        record_source_artifact(
-            project,
-            artifact_kind="av",
-            media_type="video/mp4",
-            blob_hash=root_blob,
-            filename=f"root-{index}.mp4",
-            duration_ms=10_000,
-        )
-        for index in range(2)
-    ]
+    with write_transaction(project.db):
+        roots = [
+            record_source_artifact(
+                project,
+                artifact_kind="av",
+                media_type="video/mp4",
+                blob_hash=root_blob,
+                filename=f"root-{index}.mp4",
+                duration_ms=10_000,
+            )
+            for index in range(2)
+        ]
     clips = [_artifact(project, f"clip-{index}", 4_000) for index in range(2)]
     for root, clip in zip(roots, clips, strict=True):
         write_rate1_timeline_segment(
@@ -904,12 +912,13 @@ def test_sql_constraints_reject_self_links_and_unknown_precision(
 
 def test_standalone_transcript_identity_is_finalized_once(make_project) -> None:
     project = make_project("timeline-transcript")
-    transcript = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        title="Transcript",
-    )
+    with write_transaction(project.db):
+        transcript = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            title="Transcript",
+        )
     segments = [
         {"segment_index": 0, "start_ms": 0, "end_ms": 1_000, "text": "One"},
         {

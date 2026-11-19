@@ -32,6 +32,7 @@ from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.engine.store.search_index_work import latest_revision
 from frisket.engine.store.value_codec import encode_stored_value
 from tests.engine.test_bundle_schema_fence import _remove_document_text_authority
+from frisket.engine.store.transactions import write_transaction
 
 
 def _current_cell_project(tmp_path: Path) -> tuple[Project, int, int, int]:
@@ -162,22 +163,24 @@ def test_binding_revision_read_requires_positive_ids(tmp_path) -> None:
 
 def test_retrieval_evidence_publication_touches_its_current_binding(tmp_path) -> None:
     project, sheet_id, row_id, column_id = _current_cell_project(tmp_path)
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash="sha256:" + "1" * 64,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="temporal",
-        start_ms=0,
-        end_ms=1000,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash="sha256:" + "1" * 64,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="temporal",
+            start_ms=0,
+            end_ms=1000,
+        )
     before = read_binding_revision(project.db, row_id=row_id, column_id=column_id)
 
     record_citation(

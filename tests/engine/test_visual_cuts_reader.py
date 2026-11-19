@@ -46,6 +46,7 @@ from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_do
 from frisket.execution.provider import ExecutionLimitExceeded, ExecutionLimits
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.contracts.temporal_values import TimelinePointsValue
+from frisket.engine.store.transactions import write_transaction
 
 
 class AlternateVisualParams(ActionParams):
@@ -236,16 +237,17 @@ def _mapped_clip(source):
     resolve_timeline(
         project, sheet_id=sheet, row_id=rows[0], column_id=columns["video"]
     )
-    clip = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=digest,
-        duration_ms=10_000,
-        source_sheet_id=sheet,
-        source_row_id=rows[0],
-        source_column_id=columns["video"],
-    )
+    with write_transaction(project.db):
+        clip = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=digest,
+            duration_ms=10_000,
+            source_sheet_id=sheet,
+            source_row_id=rows[0],
+            source_column_id=columns["video"],
+        )
     write_rate1_timeline_segment(
         project,
         derived_artifact_id=clip["id"],
@@ -293,16 +295,17 @@ def test_preview_refuses_invalid_derived_lineage_before_fallback(
     project, sheet, columns, rows, digest = source
     root, clip = _mapped_clip(source)
     if corruption == "ambiguous":
-        other = record_source_artifact(
-            project,
-            artifact_kind="av",
-            media_type="video/mp4",
-            blob_hash=digest,
-            duration_ms=10_000,
-            source_sheet_id=sheet,
-            source_row_id=rows[0],
-            source_column_id=columns["video"],
-        )
+        with write_transaction(project.db):
+            other = record_source_artifact(
+                project,
+                artifact_kind="av",
+                media_type="video/mp4",
+                blob_hash=digest,
+                duration_ms=10_000,
+                source_sheet_id=sheet,
+                source_row_id=rows[0],
+                source_column_id=columns["video"],
+            )
         write_rate1_timeline_segment(
             project,
             derived_artifact_id=other["id"],

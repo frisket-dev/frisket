@@ -32,6 +32,7 @@ from frisket.server.services.project_qa_sources import (
     read_source_text,
 )
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 # These bounds exercise the real Ask deadline and SQLite streaming latency.
 pytestmark = pytest.mark.realtime
@@ -155,12 +156,13 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
     try:
         sheet = project.add_sheet("documents")
         column = project.add_column(sheet, "body", type="text")
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            page_count=200,
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="document",
+                media_type="application/pdf",
+                page_count=200,
+            )
         op = project.append_change("media.ocr")
         pages = [
             PreparedPageDraft(
@@ -183,15 +185,16 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             sheet, [{"body": PreparedContentRef(ref.ref_id)}], {"body": column}
         )
         cell = (sheet, row, column)
-        span = record_source_span(
-            project,
-            artifact_id=artifact["id"],
-            span_kind="page",
-            page_start=200,
-            page_end=200,
-            quote="TAIL-NEEDLE",
-            text_layer_hash=expected_hash,
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="page",
+                page_start=200,
+                page_end=200,
+                quote="TAIL-NEEDLE",
+                text_layer_hash=expected_hash,
+            )
         # Obtain the immutable identity without loading/caching the 8MB text
         # before the measured bounded reader below.
         head = project.db.execute(

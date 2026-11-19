@@ -21,6 +21,7 @@ from frisket.engine.store.purge import (
     require_publication_targets,
     require_restore_available,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -1099,35 +1100,36 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
     project.record_blob_derivation(
         derived_hash=child, source_hash=original, op="render"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=original,
-        source_sheet_id=source[0],
-        source_row_id=source[2],
-        source_column_id=source[1],
-        title="secret title",
-    )
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash="sha256:" + "a" * 64,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=source[0],
-        text_row_id=source[2],
-        text_column_id=source[1],
-        surface_ref={"private": "copied diagnostic"},
-    )
-    record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page",
-        stable_id="test-span",
-        quote="secret quote",
-        snippet="secret snippet",
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=original,
+            source_sheet_id=source[0],
+            source_row_id=source[2],
+            source_column_id=source[1],
+            title="secret title",
+        )
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash="sha256:" + "a" * 64,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=source[0],
+            text_row_id=source[2],
+            text_column_id=source[1],
+            surface_ref={"private": "copied diagnostic"},
+        )
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            stable_id="test-span",
+            quote="secret quote",
+            snippet="secret snippet",
+            text_surface_id=surface["id"],
+        )
     result = finish_purge(project, begin_purge(project, sheet_ids=[source[0]]))
     assert result["blobs_removed"] == 1
     span = project.db.execute("SELECT quote,snippet FROM source_spans").fetchone()
@@ -1270,19 +1272,20 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
     alias = add(project, "same bytes", {"blob": original})
     retained = add(project, "independent output", {"blob": output})
     for location in (first, alias):
-        record_source_artifact(
-            project,
-            artifact_kind="file",
-            media_type="application/pdf",
-            blob_hash=original,
-            source_sheet_id=location[0],
-            source_row_id=location[2],
-            source_column_id=location[1],
-            metadata={
-                "page_images": {"1": {"blob_hash": preview}},
-                "captured_text": "original searchable text",
-            },
-        )
+        with write_transaction(project.db):
+            record_source_artifact(
+                project,
+                artifact_kind="file",
+                media_type="application/pdf",
+                blob_hash=original,
+                source_sheet_id=location[0],
+                source_row_id=location[2],
+                source_column_id=location[1],
+                metadata={
+                    "page_images": {"1": {"blob_hash": preview}},
+                    "captured_text": "original searchable text",
+                },
+            )
     with RetrievalStore(project.path) as store:
         for digest, locations in (
             (original, [("1", first), ("2", alias)]),
@@ -1347,15 +1350,16 @@ def test_citation_snapshot_failure_restores_immutability_and_reruns(project):
     from frisket.engine.store.evidence import record_source_artifact
 
     source = add(project, "source", "original text")
-    record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=source[0],
-        source_row_id=source[2],
-        source_column_id=source[1],
-        metadata={"captured_text": "original text"},
-    )
+    with write_transaction(project.db):
+        record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=source[0],
+            source_row_id=source[2],
+            source_column_id=source[1],
+            metadata={"captured_text": "original text"},
+        )
     with project.db:
         project.db.execute(
             "CREATE TRIGGER fail_citation_delete BEFORE DELETE ON citation_texts BEGIN SELECT RAISE(ABORT,'interrupted citation cleanup'); END"

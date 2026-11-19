@@ -23,6 +23,7 @@ from frisket.retrieval.contracts import (
 )
 from frisket.server.services.project_qa_citations import resolve_citation
 from frisket.server.services.project_qa_tools import ProjectQATools
+from frisket.engine.store.transactions import write_transaction
 
 
 def _response(
@@ -203,23 +204,25 @@ def test_located_media_hit_mints_navigable_evidence_citation(tmp_path, monkeypat
 
     project, store, turn, sheet, row, column, _revision = _ask_project(tmp_path)
     _, refs = project.get_values_with_refs(sheet, column, [row])
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="video",
-        media_type="video/mp4",
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=column,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="video_clip",
-        page_start=2,
-        page_end=2,
-        start_ms=4250,
-        end_ms=9500,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="video",
+            media_type="video/mp4",
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=column,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="video_clip",
+            page_start=2,
+            page_end=2,
+            start_ms=4250,
+            end_ms=9500,
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",

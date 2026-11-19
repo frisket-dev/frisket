@@ -9,6 +9,7 @@ import frisket.querysets as querysets
 import frisket.server.services.document_browse as browse
 from frisket.server.services.document_browse import document_browse
 from frisket.server.services.document_browse import _descriptor_sql
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -331,20 +332,22 @@ def test_split_source_range_is_bounded_to_current_cell(docs):
     )
 
     project, sheet, source, _, rows = docs
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        filename="original.pdf",
-        metadata={},
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page_range",
-        page_start=3,
-        page_end=3,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            filename="original.pdf",
+            metadata={},
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page_range",
+            page_start=3,
+            page_end=3,
+        )
     _, refs = project.get_values_with_refs(sheet, source, [rows[0]])
     record_citation(
         project,

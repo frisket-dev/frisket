@@ -168,12 +168,13 @@ def test_review_bundle_hydrates_prepared_result_to_ordinary_text(
     [row_id] = project.add_rows(
         sheet_id, [{"document": "source.pdf"}], {"document": source_col}
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        page_count=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            page_count=1,
+        )
     op_id = project.append_change(
         "map", {"action_kind": "media.ocr"}, label="Prepare document"
     )

@@ -34,6 +34,7 @@ from frisket.server.workspace import Workspace
 from frisket.server.services.import_sessions import ImportSessionService
 from frisket.server.routes.import_sessions import register_import_session_routes
 from frisket.server.route_errors import register_route_error_handler
+from frisket.engine.store.transactions import write_transaction
 
 
 def _pdf(pages: int) -> bytes:
@@ -335,22 +336,23 @@ def test_prepared_pages_rebase_without_native_reread_and_keep_original_facts(
     project_id = str(workspace.create("Apply", project_id="apply")["id"])
     project, sheet, rows, _, sources, _ = _scope(workspace, project_id)
     source = sources[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=source.sha256,
-        filename=source.filename,
-        page_count=3,
-        source_sheet_id=sheet,
-        source_row_id=rows[0],
-        source_column_id=source.source_column_id,
-        metadata={
-            "engine": "test-ocr",
-            "ocr_token_granularity": "block",
-            "page_images": {},
-        },
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=source.sha256,
+            filename=source.filename,
+            page_count=3,
+            source_sheet_id=sheet,
+            source_row_id=rows[0],
+            source_column_id=source.source_column_id,
+            metadata={
+                "engine": "test-ocr",
+                "ocr_token_granularity": "block",
+                "page_images": {},
+            },
+        )
     operation = project.db.execute(
         "SELECT op_id FROM base_cell_producers WHERE id=(SELECT producer_id FROM cells WHERE row_id=? LIMIT 1)",
         (rows[0],),

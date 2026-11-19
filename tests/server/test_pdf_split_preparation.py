@@ -8,6 +8,7 @@ from frisket.server.services.pdf_split_preparation import (
     PdfSplitPageTarget,
     PdfSplitPreparationStore,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def target(occurrence="first", *, page=2, engine="tesseract"):
@@ -117,14 +118,15 @@ def _runtime(tmp_path, monkeypatch):
     output = io.BytesIO()
     writer.write(output)
     digest = project.blob_store.put(output.getvalue())
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=digest,
-        filename="original.pdf",
-        page_count=3,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=digest,
+            filename="original.pdf",
+            page_count=3,
+        )
     operation_id = append_change(project, "media.ocr", label="Sample OCR")
     preview = ActionPreviewRunService(workspace)
     adapter = PdfSplitPreparationAdapter(

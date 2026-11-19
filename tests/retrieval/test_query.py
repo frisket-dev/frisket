@@ -54,6 +54,7 @@ from frisket.retrieval.store import (
     StoredPart,
 )
 from tests.helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -583,12 +584,13 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
     op_id = project.append_change(
         "media.ocr", {"output_names": output_names}, label="OCR fixture"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        page_count=1,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=1,
+        )
     project.db.execute("BEGIN IMMEDIATE")
     prepared = PreparedContentStore(project).stage_reference(
         source_artifact_id=int(artifact["id"]),
@@ -641,15 +643,16 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
     )
     assert before_prepared.primary.part.locator.source_span_ids == ()
 
-    region = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        quote=phrase,
-        bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
-    )
+    with write_transaction(project.db):
+        region = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote=phrase,
+            bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
+        )
     _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
     record_citation(
         project,
@@ -1781,21 +1784,23 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
             "other image": unrelated_image,
         },
     )[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=pdf_hash,
-        page_count=1,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="page",
-        page_start=1,
-        page_end=1,
-        preview={"blob_hash": page_hash, "mime": "image/png"},
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            page_count=1,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page",
+            page_start=1,
+            page_end=1,
+            preview={"blob_hash": page_hash, "mime": "image/png"},
+        )
     record_citation(
         project,
         subject_kind="cell_value",

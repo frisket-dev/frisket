@@ -50,6 +50,7 @@ from frisket.engine.store.media_blobs import owned_media_metadata_document
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import replace_test_source_cell, write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _operation_for_request(request):
@@ -338,15 +339,16 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
             (7_000, 10_000, "Closing."),
         ]
     ):
-        span = record_source_span(
-            project,
-            artifact_id=timeline.anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=start_ms,
-            end_ms=end_ms,
-            quote=quote,
-            selector={"segment_index": index},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=timeline.anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=start_ms,
+                end_ms=end_ms,
+                quote=quote,
+                selector={"segment_index": index},
+            )
         spans.append({"span_id": span["id"], "rank": index})
     _values, refs = project.get_values_with_refs(
         sheet_id, transcript_column_id, row_ids=[row_id]
@@ -1470,26 +1472,28 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
         ],
         {"scan": file_column_id, "ocr_text": text_column_id},
     )[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="image/png",
-        blob_hash=blob_hash,
-        filename="scan.png",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=file_column_id,
-        metadata={"engine": "fixture", "page_images": {}},
-    )
-    region = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        quote="China trade policy",
-        bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="image/png",
+            blob_hash=blob_hash,
+            filename="scan.png",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=file_column_id,
+            metadata={"engine": "fixture", "page_images": {}},
+        )
+    with write_transaction(project.db):
+        region = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote="China trade policy",
+            bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
+        )
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
@@ -1565,25 +1569,27 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
         ],
         {"document": file_column_id, "ocr_text": text_column_id},
     )[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=blob_hash,
-        filename="legacy.pdf",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=file_column_id,
-        metadata={"engine": "legacy-ocr", "page_images": {"1": {}}},
-    )
-    summary = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page_range",
-        page_start=1,
-        page_end=1,
-        snippet="China trade policy",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=blob_hash,
+            filename="legacy.pdf",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=file_column_id,
+            metadata={"engine": "legacy-ocr", "page_images": {"1": {}}},
+        )
+    with write_transaction(project.db):
+        summary = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page_range",
+            page_start=1,
+            page_end=1,
+            snippet="China trade policy",
+        )
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )

@@ -27,6 +27,7 @@ from frisket.ops.base import ActionContext, ActionProgram
 from frisket.server.services.sheet_grid import _sheet_data_payload
 from runner_test_helpers import run_with_output_claim
 from tests.action_test_helpers import run_typed_map_request, typed_map_request
+from frisket.engine.store.transactions import write_transaction
 
 
 def _deterministic_extract_spec(
@@ -675,19 +676,21 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
     }
 
     prior_error_ref = before["generated_text"][1][error_row]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="image/png",
-        blob_hash=evidence_blob,
-        filename="evidence.png",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="text",
-        quote="first generation evidence",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="image/png",
+            blob_hash=evidence_blob,
+            filename="evidence.png",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="text",
+            quote="first generation evidence",
+        )
     evidence_link = record_citation(
         project,
         subject_kind="cell_value",

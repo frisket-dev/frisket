@@ -13,6 +13,7 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
@@ -66,21 +67,23 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
     RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=row_ids)
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        title="Contract",
-        filename="a.pdf",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        quote="$1,250,000",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            title="Contract",
+            filename="a.pdf",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote="$1,250,000",
+        )
 
     links = {}
     for row_id in row_ids:

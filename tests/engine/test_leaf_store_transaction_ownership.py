@@ -18,6 +18,7 @@ from frisket.engine.store import cells, evidence, notifications, op_log
 from frisket.engine.store.credentials import replace_secret_consumers
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.transactions import write_transaction
 
 CALLER_SHEET_NAME = "Caller edit"
 
@@ -154,10 +155,9 @@ JOINING_WRITES = {
         encrypted="ciphertext",
         hint="…key",
         spend_cap_micro=None,
-        commit=False,
     ),
     "bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
-        claim_token="claim:none", run_id=1, commit=False
+        claim_token="claim:none", run_id=1
     ),
 }
 
@@ -243,7 +243,7 @@ def test_interrupted_source_artifact_leaves_no_captured_text(project, monkeypatc
 
     monkeypatch.setattr(evidence, "_json_dumps", interrupt)
 
-    with pytest.raises(_Interrupted):
+    with pytest.raises(_Interrupted), write_transaction(project.db):
         evidence.record_source_artifact(
             project,
             artifact_kind="web_page",
