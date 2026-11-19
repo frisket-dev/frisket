@@ -20,6 +20,7 @@ from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.retrieval.store import RetrievalStore
 from frisket.team.security.secrets import encrypt_secret
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-embedding-effects"
 
@@ -138,12 +139,13 @@ def test_returned_embedding_checkpoint_accounts_spend_before_result_commit(
     replayable vectors are already durable under the authorizing attempt, and
     the retry finalizes the index without calling the provider again."""
 
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint="sk-p***",
-        spend_cap_micro=50_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint="sk-p***",
+            spend_cap_micro=50_000,
+        )
     gateway = PaidRemoteGateway()
     index_id = _create_remote_index(project, gateway=gateway)
 

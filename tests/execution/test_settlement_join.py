@@ -236,11 +236,12 @@ def consented_run(project):
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-        expected_output_names=["transcript"],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            expected_output_names=["transcript"],
+        )
 
     store = RouteStore.for_run(project, run_id)
     promise_set = store.append_promise_set(promises=PROMISES, predecessor_id=None)
@@ -1743,11 +1744,12 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-        expected_output_names=["transcript"],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            expected_output_names=["transcript"],
+        )
 
     promises = json.loads(json.dumps(PROMISES))
     cost_promise = next(promise for promise in promises if promise["field"] == "cost")

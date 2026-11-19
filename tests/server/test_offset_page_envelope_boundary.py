@@ -75,6 +75,7 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
             ),
         )
         run_ids.append(run_id)
+    project.db.commit()
     source_id = FeedStore(project).add_feed(
         "Offset feed",
         kind="rss",

@@ -42,6 +42,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionContext, ActionProgram
 from frisket.server.app import create_app
 from runner_test_helpers import run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_compatibility_key_allows_cross_producer_readable_shape() -> None:
@@ -228,14 +229,15 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         details={},
     )
     assert len(created) == 1 and conflict is None
-    assert (
-        claims.bind_to_run(
-            claim_token="old-claim-without-output-fields",
-            run_id=run_id,
-            expected_output_names=["cleaned"],
+    with write_transaction(claims.db):
+        assert (
+            claims.bind_to_run(
+                claim_token="old-claim-without-output-fields",
+                run_id=run_id,
+                expected_output_names=["cleaned"],
+            )
+            == 1
         )
-        == 1
-    )
 
     assert claims.active_output_fields(
         claim_token="old-claim-without-output-fields",

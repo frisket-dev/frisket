@@ -48,6 +48,7 @@ from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from helpers import run_writer_authority_fixture, write_claimless_test_model_calls
 from typed_model_fixtures import prepare_model_run
+from frisket.engine.store.transactions import write_transaction
 
 CAP_USD = 25.0
 CAP_MICRO = 25_000_000
@@ -55,12 +56,13 @@ CAP_MICRO = 25_000_000
 
 def _project(tmp_path, *, cap_micro: int | None = CAP_MICRO) -> Project:
     project = Project.create(tmp_path / "cap.frisket", name="Cap")
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=cap_micro,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=cap_micro,
+        )
     return project
 
 
@@ -538,12 +540,13 @@ def test_a_new_key_value_starts_a_fresh_spend_period(tmp_path) -> None:
         assert _spend(project).spent_micro == 5_000_000
         assert _spend(project).unmetered_calls == 1
 
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("sk-ant-rotated"),
-            hint=key_hint("sk-ant-rotated"),
-            spend_cap_micro=CAP_MICRO,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("sk-ant-rotated"),
+                hint=key_hint("sk-ant-rotated"),
+                spend_cap_micro=CAP_MICRO,
+            )
         spend = _spend(project)
         assert spend.spent_micro == 0
         assert spend.unmetered_calls == 0
@@ -568,12 +571,13 @@ def test_editing_the_cap_does_not_forgive_accrued_spend(tmp_path) -> None:
         assert _spend(project).unmetered_calls == 1
 
         # the journalist TIGHTENS the cap, re-entering the same key
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("sk-ant-test"),
-            hint=key_hint("sk-ant-test"),
-            spend_cap_micro=1_000_000,  # $25 -> $1
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("sk-ant-test"),
+                hint=key_hint("sk-ant-test"),
+                spend_cap_micro=1_000_000,  # $25 -> $1
+            )
 
         spend = _spend(project)
         assert spend.spent_micro == 5_000_000
@@ -602,12 +606,13 @@ def test_ciphertext_alone_never_decides_the_reset(tmp_path) -> None:
         second = encrypt_secret("sk-ant-test")
         assert first != second, "ciphertext is expected to differ per encryption"
 
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=second,
-            hint=key_hint("sk-ant-test"),
-            spend_cap_micro=CAP_MICRO,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=second,
+                hint=key_hint("sk-ant-test"),
+                spend_cap_micro=CAP_MICRO,
+            )
         assert _spend(project).spent_micro == 5_000_000
     finally:
         project.close()

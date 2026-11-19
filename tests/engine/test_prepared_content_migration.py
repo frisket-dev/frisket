@@ -13,6 +13,7 @@ from frisket.upgrades.project._step import run_rebuild_step, run_step
 from frisket.upgrades.project import extraction_layouts_migration
 from frisket.upgrades.project import prepared_content_migration
 from frisket.engine.store import schema as live_schema
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.extraction_layouts import (
     get_layout,
     remember_success,
@@ -59,7 +60,8 @@ def _seed_extraction_layout(
         repeat_group_id="line_items",
     )
     layout_id = int(layout["id"])
-    remember_success(project, layout_id, [row_id], commit=True)
+    with write_transaction(project.db):
+        remember_success(project, layout_id, [row_id])
     project.close()
     return source_column_id, layout_id
 

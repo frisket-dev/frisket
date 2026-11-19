@@ -10,6 +10,7 @@ from frisket.engine.store.evidence import (
     record_text_surface,
 )
 from frisket.server.services import project_evidence as project_evidence_service
+from frisket.engine.store.transactions import write_transaction
 
 
 def _hash(text: str) -> str:
@@ -38,61 +39,66 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
     original = "Ada wrote this."
     row_id = project.add_rows(sheet_id, [{"body": original}], {"body": column_id})[0]
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=_hash(original),
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=row_id,
-        text_column_id=column_id,
-        value_ref=refs[row_id],
-    )
-    text_artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-        captured_text_native=True,
-        metadata={"captured_text": original},
-    )
-    text_span = record_source_span(
-        project,
-        artifact_id=text_artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=3,
-        quote="Ada",
-        text_layer_hash=_hash(original),
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=_hash(original),
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=column_id,
+            value_ref=refs[row_id],
+        )
+    with write_transaction(project.db):
+        text_artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+            captured_text_native=True,
+            metadata={"captured_text": original},
+        )
+    with write_transaction(project.db):
+        text_span = record_source_span(
+            project,
+            artifact_id=text_artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=3,
+            quote="Ada",
+            text_layer_hash=_hash(original),
+            text_surface_id=surface["id"],
+        )
     pdf_hash = project.add_blob(b"%PDF-1.4", "source.pdf", "application/pdf")
-    media_artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=pdf_hash,
-        page_count=1,
-    )
-    media_span = record_source_span(
-        project,
-        artifact_id=media_artifact["id"],
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        bbox=[
-            {
-                "space": "page_normalized",
-                "x0": 0.1,
-                "y0": 0.2,
-                "x1": 0.3,
-                "y1": 0.4,
-            }
-        ],
-        quote="Ada",
-    )
+    with write_transaction(project.db):
+        media_artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            page_count=1,
+        )
+    with write_transaction(project.db):
+        media_span = record_source_span(
+            project,
+            artifact_id=media_artifact["id"],
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            bbox=[
+                {
+                    "space": "page_normalized",
+                    "x0": 0.1,
+                    "y0": 0.2,
+                    "x1": 0.3,
+                    "y1": 0.4,
+                }
+            ],
+            quote="Ada",
+        )
     link = record_citation(
         project,
         subject_kind="test",

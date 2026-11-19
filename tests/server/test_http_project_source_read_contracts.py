@@ -18,6 +18,7 @@ from pydantic import BaseModel, JsonValue, RootModel, ValidationError
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.server.app import create_app
 
 
@@ -1104,6 +1105,7 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
             "UPDATE sources SET config=? WHERE id=?",
             (json.dumps(config), source_id),
         )
+        project.db.commit()
         source_ids.append(source_id)
 
     detailed_source_id = source_ids[0]
@@ -1112,7 +1114,8 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
         ("raw-source-cursor", None, None, detailed_source_id),
     )
     project.db.commit()
-    run_id = store.start_feed_check(detailed_source_id, cursor_before="raw-before")
+    with write_transaction(project.db):
+        run_id = store.start_feed_check(detailed_source_id, cursor_before="raw-before")
     job_id = workspace.queue.enqueue(
         "source.poll",
         {"project_id": project_id, "source_id": detailed_source_id},

@@ -13,6 +13,7 @@ from test_reduce_effect_checkpoint import (
     _project_key_router,
     _run,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
@@ -20,12 +21,13 @@ def test_group_replay_keeps_original_consumed_capture_after_equal_text_edit(
     monkeypatch,
 ):
     provider = _CountingSummaryAdapter()
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=50_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=50_000,
+        )
     router = _project_key_router(provider)
     action = _action(project._sheet_id, key="group-capture-recovery")
     write = RunResultStore.publish_result_batch

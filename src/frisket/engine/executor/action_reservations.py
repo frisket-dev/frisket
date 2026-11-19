@@ -1310,7 +1310,6 @@ def _bind_receipt_to_prepared_run(
             claim_token=_output_claim_token(receipt_id),
             run_id=run_id,
             expected_output_names=[str(field["name"]) for field in output_fields],
-            commit=False,
         )
         declare_bound_run_outputs(
             project,
@@ -1376,7 +1375,6 @@ def _mark_queued_action_enqueued(
                 claim_token=_output_claim_token(receipt_id),
                 run_id=run_id,
                 job_id=job_id,
-                commit=False,
             )
         else:
             _release_queued_output_claim_if_terminal(project, receipt_id=receipt_id)

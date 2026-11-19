@@ -21,6 +21,7 @@ from frisket.engine.store.text_annotations import (
     annotated_text_column_ids,
     resolve_text_annotations,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed(project, *, body_text: str = "Ada Lovelace"):
@@ -58,29 +59,34 @@ def _write_layer(
     """Write one NER-shaped annotation layer: a cell surface + spans + an
     annotation link whose subject is the (current, by default) entities cell."""
     surface_hash = content_hash or _text_hash(text)
-    surf = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=surface_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet,
-        text_row_id=row_id,
-        text_column_id=body,
-    )
-    art = record_source_artifact(project, artifact_kind="text", media_type="text/plain")
+    with write_transaction(project.db):
+        surf = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=surface_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet,
+            text_row_id=row_id,
+            text_column_id=body,
+        )
+    with write_transaction(project.db):
+        art = record_source_artifact(
+            project, artifact_kind="text", media_type="text/plain"
+        )
     spans = []
     for start, end, etype in entities:
-        s = record_source_span(
-            project,
-            artifact_id=art["id"],
-            span_kind="text",
-            char_start=start,
-            char_end=end,
-            quote=text[start:end],
-            text_layer_hash=surface_hash,
-            text_surface_id=surf["id"],
-            metadata={"entity_type": etype},
-        )
+        with write_transaction(project.db):
+            s = record_source_span(
+                project,
+                artifact_id=art["id"],
+                span_kind="text",
+                char_start=start,
+                char_end=end,
+                quote=text[start:end],
+                text_layer_hash=surface_hash,
+                text_surface_id=surf["id"],
+                metadata={"entity_type": etype},
+            )
         spans.append(s)
     return record_citation(
         project,
@@ -231,29 +237,32 @@ def test_hidden_sheet_or_column_returns_empty(make_project):
 def test_surfaceless_and_non_annotation_spans_excluded(make_project):
     p = make_project("x")
     sheet, body, ents, row_id = _seed(p, body_text="Ada Lovelace")
-    art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
+    with write_transaction(p.db):
+        art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
     # A span WITH a surface at the cell but reached through a SUPPORT link (no
     # annotation role, no family) must NOT appear — the reader gates on
     # span_role='annotation' AND a non-null layer_family.
-    surf = record_text_surface(
-        p,
-        surface_kind="cell",
-        content_hash=_text_hash("Ada Lovelace"),
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet,
-        text_row_id=row_id,
-        text_column_id=body,
-    )
-    span = record_source_span(
-        p,
-        artifact_id=art["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=12,
-        quote="Ada Lovelace",
-        text_layer_hash=_text_hash("Ada Lovelace"),
-        text_surface_id=surf["id"],
-    )
+    with write_transaction(p.db):
+        surf = record_text_surface(
+            p,
+            surface_kind="cell",
+            content_hash=_text_hash("Ada Lovelace"),
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet,
+            text_row_id=row_id,
+            text_column_id=body,
+        )
+    with write_transaction(p.db):
+        span = record_source_span(
+            p,
+            artifact_id=art["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=12,
+            quote="Ada Lovelace",
+            text_layer_hash=_text_hash("Ada Lovelace"),
+            text_surface_id=surf["id"],
+        )
     record_citation(
         p,
         subject_kind="cell",
@@ -270,27 +279,30 @@ def test_surfaceless_and_non_annotation_spans_excluded(make_project):
 def test_unsupported_offset_unit_is_unpositioned(make_project):
     p = make_project("u")
     sheet, body, ents, row_id = _seed(p, body_text="Ada Lovelace")
-    surf = record_text_surface(
-        p,
-        surface_kind="cell",
-        content_hash=_text_hash("Ada Lovelace"),
-        offset_unit="utf16_code_unit",  # no v1 producer writes this
-        text_sheet_id=sheet,
-        text_row_id=row_id,
-        text_column_id=body,
-    )
-    art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
-    span = record_source_span(
-        p,
-        artifact_id=art["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=12,
-        quote="Ada Lovelace",
-        text_layer_hash=_text_hash("Ada Lovelace"),
-        text_surface_id=surf["id"],
-        metadata={"entity_type": "person"},
-    )
+    with write_transaction(p.db):
+        surf = record_text_surface(
+            p,
+            surface_kind="cell",
+            content_hash=_text_hash("Ada Lovelace"),
+            offset_unit="utf16_code_unit",  # no v1 producer writes this
+            text_sheet_id=sheet,
+            text_row_id=row_id,
+            text_column_id=body,
+        )
+    with write_transaction(p.db):
+        art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
+    with write_transaction(p.db):
+        span = record_source_span(
+            p,
+            artifact_id=art["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=12,
+            quote="Ada Lovelace",
+            text_layer_hash=_text_hash("Ada Lovelace"),
+            text_surface_id=surf["id"],
+            metadata={"entity_type": "person"},
+        )
     record_citation(
         p,
         subject_kind="cell",
@@ -312,38 +324,42 @@ def test_corrupt_geometry_with_matching_hash_is_counted_not_drawn(make_project):
     p = make_project("c")
     sheet, body, ents, row_id = _seed(p, body_text="Ada Lovelace")
     text = "Ada Lovelace"
-    surf = record_text_surface(
-        p,
-        surface_kind="cell",
-        content_hash=_text_hash(text),
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet,
-        text_row_id=row_id,
-        text_column_id=body,
-    )
-    art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
-    good = record_source_span(
-        p,
-        artifact_id=art["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=3,
-        quote="Ada",
-        text_layer_hash=_text_hash(text),
-        text_surface_id=surf["id"],
-        metadata={"entity_type": "person"},
-    )
-    bad = record_source_span(
-        p,
-        artifact_id=art["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=999,
-        quote="Ada",
-        text_layer_hash=_text_hash(text),
-        text_surface_id=surf["id"],
-        metadata={"entity_type": "person"},
-    )
+    with write_transaction(p.db):
+        surf = record_text_surface(
+            p,
+            surface_kind="cell",
+            content_hash=_text_hash(text),
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet,
+            text_row_id=row_id,
+            text_column_id=body,
+        )
+    with write_transaction(p.db):
+        art = record_source_artifact(p, artifact_kind="text", media_type="text/plain")
+    with write_transaction(p.db):
+        good = record_source_span(
+            p,
+            artifact_id=art["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=3,
+            quote="Ada",
+            text_layer_hash=_text_hash(text),
+            text_surface_id=surf["id"],
+            metadata={"entity_type": "person"},
+        )
+    with write_transaction(p.db):
+        bad = record_source_span(
+            p,
+            artifact_id=art["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=999,
+            quote="Ada",
+            text_layer_hash=_text_hash(text),
+            text_surface_id=surf["id"],
+            metadata={"entity_type": "person"},
+        )
     record_citation(
         p,
         subject_kind="cell",

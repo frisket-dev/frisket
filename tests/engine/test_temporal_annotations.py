@@ -19,6 +19,7 @@ from frisket.engine.store.artifact_timeline import (
     write_rate1_timeline_segment,
 )
 from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.transactions import write_transaction
 
 
 def _temporal_value(
@@ -82,13 +83,14 @@ def test_resolver_keeps_only_same_row_compatible_typed_cells_and_maps_child_cloc
         mime="video/mp4",
         metadata=owned_media_metadata_document(probe={"duration_seconds": 2.0}),
     )
-    child_artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=child_blob,
-        duration_ms=2_000,
-    )
+    with write_transaction(project.db):
+        child_artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=child_blob,
+            duration_ms=2_000,
+        )
     write_rate1_timeline_segment(
         project,
         derived_artifact_id=int(child_artifact["id"]),
@@ -105,13 +107,14 @@ def test_resolver_keeps_only_same_row_compatible_typed_cells_and_maps_child_cloc
         mime="video/mp4",
         metadata=owned_media_metadata_document(probe={"duration_seconds": 10.0}),
     )
-    other_artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=other_blob,
-        duration_ms=10_000,
-    )
+    with write_transaction(project.db):
+        other_artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=other_blob,
+            duration_ms=10_000,
+        )
     other_anchor = ensure_artifact_timeline(project, int(other_artifact["id"]))
 
     project.apply_edits(

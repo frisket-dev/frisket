@@ -18,6 +18,7 @@ from frisket.server.services.project_evidence import (
     ProjectCitationsService,
 )
 from frisket.server.services.row_source_documents import resolve_row_source_documents
+from frisket.engine.store.transactions import write_transaction
 
 
 class _Workspace:
@@ -105,19 +106,21 @@ def _join_row(
 
 
 def _row_evidence(project: Project, sheet_id: int, row_id: int) -> str:
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        title="Left source",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="supported quote",
-        snippet="supported quote",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            title="Left source",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="supported quote",
+            snippet="supported quote",
+        )
     link = record_citation(
         project,
         subject_kind="row",
@@ -516,18 +519,20 @@ def test_row_evidence_summaries_are_capped_and_report_truncation(
     project = make_project("project")
     source = _document_row(project, "Documents", "source.pdf")
     child = _child_row(project, "Rows", source[0], source[1])
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        title="Source",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="supported quote",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            title="Source",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="supported quote",
+        )
     for _index in range(65):
         record_citation(
             project,

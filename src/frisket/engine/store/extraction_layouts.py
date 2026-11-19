@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 EXTRACTION_LAYOUTS_SCHEMA_SQL = """
 -- EXTRACTION_LAYOUTS_BEGIN
@@ -125,14 +125,15 @@ def selected_layout_id(project, sheet_id, source_column_id):
 
 
 def select_layout(project, *, sheet_id, source, layout_id, commit=True):
+    """Select a layout for its source column; ``commit=False`` joins the
+    caller's transaction."""
     layout = validate_layout_scope(project, layout_id, sheet_id, source)
-    project.db.execute(
-        "INSERT INTO extraction_layout_selection VALUES (?,?,?) "
-        "ON CONFLICT(sheet_id,source_column_id) DO UPDATE SET layout_id=excluded.layout_id",
-        (sheet_id, layout["source_column_id"], layout_id),
-    )
-    if commit:
-        project.db.commit()
+    with write_transaction(project.db, commit=commit, what="layout selection"):
+        project.db.execute(
+            "INSERT INTO extraction_layout_selection VALUES (?,?,?) "
+            "ON CONFLICT(sheet_id,source_column_id) DO UPDATE SET layout_id=excluded.layout_id",
+            (sheet_id, layout["source_column_id"], layout_id),
+        )
 
 
 def save_layout(
@@ -161,7 +162,6 @@ def save_layout(
                 (imported_recipe_id,),
             ).fetchone()
             if existing is not None:
-                db.commit()
                 return get_layout(project, existing["id"])
         if layout_id is None:
             ordinal = db.execute(
@@ -206,12 +206,13 @@ def save_layout(
     return get_layout(project, layout_id)
 
 
-def remember_success(project, layout_id, row_ids, *, commit=False):
+def remember_success(project, layout_id, row_ids):
     """Remember successful applications, including successful zero-record inputs.
 
-    Call within the ordinary result publication transaction. Preview and draft
+    Joins the ordinary result publication transaction. Preview and draft
     persistence never call this; an empty cohort still marks the layout applied.
     """
+    require_transaction(project.db, "layout success")
     layout = get_layout(project, layout_id)
     if layout is None:
         raise ValueError("Extraction layout not found")
@@ -226,8 +227,6 @@ def remember_success(project, layout_id, row_ids, *, commit=False):
     project.db.execute(
         "UPDATE extraction_layouts SET has_applied=1 WHERE id=?", (layout_id,)
     )
-    if commit:
-        project.db.commit()
 
 
 def _scope_query(project, *, sheet_id, source, scope, selection_read=None):

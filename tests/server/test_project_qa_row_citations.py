@@ -26,6 +26,7 @@ from frisket.server.services.project_qa_tools import ProjectQAScopeError, Projec
 from tests.server.test_project_qa_search_integrity import _response
 
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _turn(project: Project, *, scope: dict | None = None):
@@ -113,36 +114,39 @@ def _seed_grounded_ocr(project: Project) -> dict[str, object]:
     )
     runs.finish_run(run)
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="ocr_document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        filename="harbor.pdf",
-        page_count=2,
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=source_column,
-        metadata={"engine": "rapidocr", "page_images": {}},
-    )
-    heading_span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="region",
-        page_start=2,
-        page_end=2,
-        quote="CITYCOUNCIL MEMORANDUM",
-        bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.6, "y1": 0.2}],
-    )
-    phrase_span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="region",
-        page_start=2,
-        page_end=2,
-        quote=text,
-        bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="ocr_document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            filename="harbor.pdf",
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=source_column,
+            metadata={"engine": "rapidocr", "page_images": {}},
+        )
+    with write_transaction(project.db):
+        heading_span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            quote="CITYCOUNCIL MEMORANDUM",
+            bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.6, "y1": 0.2}],
+        )
+    with write_transaction(project.db):
+        phrase_span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            quote=text,
+            bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
+        )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
     link = record_citation(
         project,
@@ -349,25 +353,27 @@ def test_file_scope_attaches_prepared_search_source_only_to_its_file_cell(make_p
             "Note": note_column,
         },
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=blob,
-        filename="minutes.pdf",
-        page_count=2,
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=source_column,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="page",
-        page_start=2,
-        page_end=2,
-        quote="The council approved the bluewharf repair.",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=blob,
+            filename="minutes.pdf",
+            page_count=2,
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=source_column,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page",
+            page_start=2,
+            page_end=2,
+            quote="The council approved the bluewharf repair.",
+        )
     _values, refs = project.get_values_with_refs(sheet, text_column, row_ids=[row])
     record_citation(
         project,

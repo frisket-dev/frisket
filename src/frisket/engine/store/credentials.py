@@ -216,10 +216,9 @@ def set_provider_key(
     encrypted: str,
     hint: str,
     spend_cap_micro: int | None,
-    commit: bool = True,
 ) -> None:
-    """Upsert an already-encrypted provider key, PRESERVING accrued spend
-    unless the key value itself changes.
+    """Upsert an already-encrypted provider key in the caller's transaction,
+    PRESERVING accrued spend unless the key value itself changes.
 
     This used to zero ``spent_micro``/``unmetered_calls`` on every save, so
     the settings form that edits a cap also forgave every dollar accrued
@@ -236,37 +235,40 @@ def set_provider_key(
     the cap. Editing the cap, the hint, or re-saving the same key keeps
     every dollar.
     """
-    with write_transaction(project.db, commit=commit, what="provider key save"):
-        starts_fresh = _provider_key_value_changed(project, provider, encrypted)
+    require_transaction(project.db, "provider key save")
+    starts_fresh = _provider_key_value_changed(project, provider, encrypted)
+    project.db.execute(
+        "INSERT INTO project_provider_keys "
+        "(provider, encrypted, hint, spend_cap_micro, spent_micro, "
+        "unmetered_calls, updated_at) "
+        "VALUES (?, ?, ?, ?, 0, 0, datetime('now')) "
+        "ON CONFLICT(provider) DO UPDATE SET "
+        "encrypted=excluded.encrypted, hint=excluded.hint, "
+        "spend_cap_micro=excluded.spend_cap_micro, "
+        "spent_micro=CASE WHEN ? THEN 0 ELSE spent_micro END, "
+        "unmetered_calls=CASE WHEN ? THEN 0 ELSE unmetered_calls END, "
+        "updated_at=excluded.updated_at",
+        (
+            provider,
+            encrypted,
+            hint,
+            spend_cap_micro,
+            1 if starts_fresh else 0,
+            1 if starts_fresh else 0,
+        ),
+    )
+
+
+def delete_provider_key(project: Any, provider: str) -> bool:
+    """Delete a provider key in the caller's transaction; returns True iff a
+    row was removed."""
+    require_transaction(project.db, "provider key delete")
+    return (
         project.db.execute(
-            "INSERT INTO project_provider_keys "
-            "(provider, encrypted, hint, spend_cap_micro, spent_micro, "
-            "unmetered_calls, updated_at) "
-            "VALUES (?, ?, ?, ?, 0, 0, datetime('now')) "
-            "ON CONFLICT(provider) DO UPDATE SET "
-            "encrypted=excluded.encrypted, hint=excluded.hint, "
-            "spend_cap_micro=excluded.spend_cap_micro, "
-            "spent_micro=CASE WHEN ? THEN 0 ELSE spent_micro END, "
-            "unmetered_calls=CASE WHEN ? THEN 0 ELSE unmetered_calls END, "
-            "updated_at=excluded.updated_at",
-            (
-                provider,
-                encrypted,
-                hint,
-                spend_cap_micro,
-                1 if starts_fresh else 0,
-                1 if starts_fresh else 0,
-            ),
-        )
-
-
-def delete_provider_key(project: Any, provider: str, *, commit: bool = True) -> bool:
-    """Delete a provider key; returns True iff a row was removed."""
-    with write_transaction(project.db, commit=commit, what="provider key delete"):
-        cursor = project.db.execute(
             "DELETE FROM project_provider_keys WHERE provider=?", (provider,)
-        )
-    return cursor.rowcount > 0
+        ).rowcount
+        > 0
+    )
 
 
 def provider_model_keys(project: Any) -> dict[str, str]:

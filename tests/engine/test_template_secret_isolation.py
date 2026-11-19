@@ -13,6 +13,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.ops.integrations.mcp_project import project_mcp_launch_config
 from frisket.team.security.secrets import encrypt_secret
 from tests.ops.test_api_call import _allow_egress as _allow_egress
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -119,12 +120,13 @@ def test_other_project_secret_cannot_satisfy_request(request_project, make_proje
 
 def test_provider_setup_key_is_not_a_user_template_secret(request_project):
     project, sent, run = request_project
-    project.set_provider_key(
-        provider="datalab",
-        encrypted=encrypt_secret("fake-provider-key"),
-        hint="fake",
-        spend_cap_micro=None,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="datalab",
+            encrypted=encrypt_secret("fake-provider-key"),
+            hint="fake",
+            spend_cap_micro=None,
+        )
     result = run(
         {
             "url": "https://api.test.example/collect",

@@ -405,21 +405,23 @@ def test_imported_pdf_page_image_is_not_planned_beside_its_pdf_page(
             "other_image": unrelated_image,
         },
     )[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        blob_hash=pdf_hash,
-        page_count=1,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="page",
-        page_start=1,
-        page_end=1,
-        preview={"blob_hash": image_hash, "mime": "image/png"},
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            page_count=1,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="page",
+            page_start=1,
+            page_end=1,
+            preview={"blob_hash": image_hash, "mime": "image/png"},
+        )
     record_citation(
         project,
         subject_kind="cell_value",

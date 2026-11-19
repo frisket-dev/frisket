@@ -25,6 +25,7 @@ from frisket.server.services.sheet_grid import (
     sheet_columns_payload,
 )
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _project(tmp_path: Path):
@@ -163,12 +164,13 @@ def test_prepared_text_windows_preserve_page_separators_without_full_assembly(
     client, project_id, project, sheet_id, text_column, _json_column = _project(
         tmp_path
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="document",
-        media_type="application/pdf",
-        page_count=4,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=4,
+        )
     op_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(

@@ -16,6 +16,7 @@ from frisket.engine.store.evidence import (
     record_citation,
     list_cell_citations,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -102,19 +103,21 @@ def test_reapply_preserves_citation_span_and_saved_result_ref_and_undoes_new_col
     assert original.status == "completed"
     output = next(c for c in project.columns(sheet) if c["name"] == "Answer")
     _, refs = project.get_values_with_refs(sheet, output["id"], row_ids=[rows[0]])
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="web_page",
-        media_type="text/html",
-        source_url="https://example.invalid/source",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page",
-        page_start=1,
-        quote="original cited passage",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="web_page",
+            media_type="text/html",
+            source_url="https://example.invalid/source",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            page_start=1,
+            quote="original cited passage",
+        )
     record_citation(
         project,
         subject_kind="cell",

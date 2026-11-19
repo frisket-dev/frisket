@@ -46,6 +46,7 @@ from frisket.execution.provider import (
 from helpers import write_claimless_test_model_calls
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, prepare_model_run, run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 CAP_MICRO = 25_000_000
 REMOTE_MODEL = "anthropic/claude-haiku-4-5"
@@ -112,12 +113,13 @@ def _agent_spec(sheet_id: int) -> dict:
 
 def _project(tmp_path, name: str, *, cap_micro: int | None = CAP_MICRO) -> Project:
     project = Project.create(tmp_path / f"{name}.frisket", name=name)
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=cap_micro,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=cap_micro,
+        )
     return project
 
 

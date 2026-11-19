@@ -18,6 +18,7 @@ from frisket.features.investigations.rowsets import (
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _cell_by_name(record: dict[str, Any], name: str) -> dict[str, Any]:
@@ -84,23 +85,25 @@ def test_sheet_rowset_preserves_typed_values_refs_and_evidence(make_project) -> 
     _values, refs = project.get_values_with_refs(
         sheet_id, columns["risk"], row_ids=[row_ids[0]]
     )
-    artifact = record_source_artifact(
-        project,
-        stable_id="source_artifact:fixture-risk",
-        artifact_kind="file",
-        media_type="application/pdf",
-        source_sheet_id=sheet_id,
-        source_row_id=row_ids[0],
-        source_column_id=columns["name"],
-        title="Risk dossier",
-    )
-    span = record_source_span(
-        project,
-        stable_id="source_span:fixture-risk-page",
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="risk score 0.82",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            stable_id="source_artifact:fixture-risk",
+            artifact_kind="file",
+            media_type="application/pdf",
+            source_sheet_id=sheet_id,
+            source_row_id=row_ids[0],
+            source_column_id=columns["name"],
+            title="Risk dossier",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            stable_id="source_span:fixture-risk-page",
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="risk score 0.82",
+        )
     evidence = record_citation(
         project,
         stable_id="evidence_link:fixture-risk",

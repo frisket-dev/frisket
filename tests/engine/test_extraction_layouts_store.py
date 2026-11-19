@@ -18,6 +18,7 @@ from frisket.contracts.http.document_extraction import (
 from frisket.engine.store import Project
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.engine.store import extraction_layouts as layouts
+from frisket.engine.store.transactions import write_transaction
 from frisket.upgrades.project import chain
 from frisket.upgrades.project import extraction_layouts_migration as migration
 from frisket.upgrades.project._step import ddl_statements
@@ -115,19 +116,23 @@ def test_successful_document_assignments_transfer_without_losing_other_rows(
     sheet, column, rows, template = seed(project, count=3)
     first = save(project, sheet, template)
     second = save(project, sheet, template)
-    layouts.remember_success(project, first["id"], rows, commit=True)
-    layouts.remember_success(project, second["id"], [rows[1]], commit=True)
+    with write_transaction(project.db):
+        layouts.remember_success(project, first["id"], rows)
+    with write_transaction(project.db):
+        layouts.remember_success(project, second["id"], [rows[1]])
     assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
         rows[0],
         rows[2],
     ]
     assert resolve(project, sheet, kind="layout", layout_id=second["id"]) == [rows[1]]
-    layouts.remember_success(project, first["id"], [rows[0]], commit=True)
+    with write_transaction(project.db):
+        layouts.remember_success(project, first["id"], [rows[0]])
     assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == [
         rows[0],
         rows[2],
     ]
-    layouts.remember_success(project, second["id"], rows, commit=True)
+    with write_transaction(project.db):
+        layouts.remember_success(project, second["id"], rows)
     assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
     assert layouts.get_layout(project, first["id"])["has_applied"] is True
     # Successful zero-record inputs are remembered by source identity;
@@ -144,7 +149,7 @@ def test_membership_is_part_of_callers_publication_transaction(make_project):
     project.db.rollback()
     assert layouts.get_layout(project, first["id"])["has_applied"] is False
     assert resolve(project, sheet, kind="layout", layout_id=first["id"]) == []
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError), write_transaction(project.db):
         layouts.remember_success(project, first["id"], [99999])
 
 
@@ -162,7 +167,8 @@ def test_scopes_count_live_documents_and_obey_sheet_filter(tmp_path):
     )
     project.add_rows(sheet, [{"document": None}], {"document": column})
     first = save(project, sheet, template)
-    layouts.remember_success(project, first["id"], [rows[1]], commit=True)
+    with write_transaction(project.db):
+        layouts.remember_success(project, first["id"], [rows[1]])
     filter_ = {"format": {"eq": "A"}}
     assert resolve(project, sheet, kind="filter", filter=filter_) == [rows[0], rows[2]]
     assert resolve(

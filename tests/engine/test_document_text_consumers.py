@@ -55,14 +55,15 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
     _, refs = project.get_values_with_refs(
         source_cell[0], text_column, [source_cell[1]]
     )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page_range",
-        page_start=page or 1,
-        page_end=page or len(pages),
-        quote=pages[page - 1] if page else "\n\n".join(pages),
-    )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page_range",
+            page_start=page or 1,
+            page_end=page or len(pages),
+            quote=pages[page - 1] if page else "\n\n".join(pages),
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",
@@ -198,23 +199,24 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
     project = make_project("find-role")
     cell, text, _other, _blob, _chosen, _alternative = _document(project, page=2)
     if grounded:
-        span = record_source_span(
-            project,
-            artifact_id=_chosen[1],
-            span_kind="region",
-            page_start=2,
-            page_end=2,
-            quote="chosen second",
-            bbox=[
-                {
-                    "x0": 0.1,
-                    "y0": 0.1,
-                    "x1": 0.7,
-                    "y1": 0.2,
-                    "space": "page_normalized",
-                }
-            ],
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=_chosen[1],
+                span_kind="region",
+                page_start=2,
+                page_end=2,
+                quote="chosen second",
+                bbox=[
+                    {
+                        "x0": 0.1,
+                        "y0": 0.1,
+                        "x1": 0.7,
+                        "y1": 0.2,
+                        "space": "page_normalized",
+                    }
+                ],
+            )
         _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
         record_citation(
             project,
@@ -349,7 +351,8 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
                 "page_number": pin.page_number,
             },
         )
-        span = record_source_span(project, artifact_id=chosen[1], **descriptor)
+        with write_transaction(project.db):
+            span = record_source_span(project, artifact_id=chosen[1], **descriptor)
     request = ActionRequest(
         action_id="map.find",
         scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},
@@ -610,21 +613,25 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(make_pr
             "native_pdf_text",
             prepared_selector=selector,
         )
-        anchors[pin.page_number] = record_source_span(
-            project, artifact_id=chosen[1], **descriptor
-        )
+        with write_transaction(project.db):
+            anchors[pin.page_number] = record_source_span(
+                project, artifact_id=chosen[1], **descriptor
+            )
     # A later Extract citation correctly pins the same immutable page,
     # but its partial quote is not the producer's complete text surface.
-    partial = record_source_span(
-        project,
-        artifact_id=chosen[1],
-        span_kind="region",
-        page_start=2,
-        page_end=2,
-        quote="chosen second",
-        bbox=[{"x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.2, "space": "page_normalized"}],
-        selector=anchors[2]["selector"],
-    )
+    with write_transaction(project.db):
+        partial = record_source_span(
+            project,
+            artifact_id=chosen[1],
+            span_kind="region",
+            page_start=2,
+            page_end=2,
+            quote="chosen second",
+            bbox=[
+                {"x0": 0.1, "y0": 0.1, "x1": 0.5, "y1": 0.2, "space": "page_normalized"}
+            ],
+            selector=anchors[2]["selector"],
+        )
     _, refs = project.get_values_with_refs(cell[0], other, [cell[1]])
     record_citation(
         project,
@@ -680,13 +687,14 @@ def test_page_selection_requires_applied_owner_of_primary_support(make_project):
     with pytest.raises(DocumentTextUnavailable, match="selection stale or missing"):
         resolve_document_text_selection(project, cell)
     _, refs = project.get_values_with_refs(cell[0], cell[2], row_ids=[cell[1]])
-    span = record_source_span(
-        project,
-        artifact_id=chosen[1],
-        span_kind="page",
-        page_start=2,
-        page_end=2,
-    )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=chosen[1],
+            span_kind="page",
+            page_start=2,
+            page_end=2,
+        )
     with project.transaction_scope():
         op = project.append_change("evidence.attach", commit=False)
         ChangeStore(project).start(op)

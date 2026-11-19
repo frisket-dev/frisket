@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from helpers import make_client as _client
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _project(client: TestClient, name: str = "Source health") -> tuple[str, Project]:
@@ -64,24 +65,25 @@ def test_feed_health_route_summarizes_checks_jobs_costs_and_redacts(
             "cursor": "SECRET_RECEIPT_CURSOR",
         },
     )
-    success_run = FeedStore(project).start_feed_check(
-        source_id,
-        cursor_before=json.dumps({"cursor": "SECRET_RUN_CURSOR_BEFORE"}),
-    )
-    FeedStore(project).finish_feed_check(
-        success_run,
-        status="ok",
-        receipt_id="receipt_ok",
-        new_rows=4,
-        skipped_rows=3,
-        changed_rows=2,
-        revisions=1,
-        cursor_after=json.dumps({"cursor": "SECRET_RUN_CURSOR_AFTER"}),
-        duration_ms=345,
-        warning_count=1,
-        cost_micro=2300,
-        summary={"provider_body": "SECRET_SUMMARY_BODY"},
-    )
+    with write_transaction(project.db):
+        success_run = FeedStore(project).start_feed_check(
+            source_id,
+            cursor_before=json.dumps({"cursor": "SECRET_RUN_CURSOR_BEFORE"}),
+        )
+        FeedStore(project).finish_feed_check(
+            success_run,
+            status="ok",
+            receipt_id="receipt_ok",
+            new_rows=4,
+            skipped_rows=3,
+            changed_rows=2,
+            revisions=1,
+            cursor_after=json.dumps({"cursor": "SECRET_RUN_CURSOR_AFTER"}),
+            duration_ms=345,
+            warning_count=1,
+            cost_micro=2300,
+            summary={"provider_body": "SECRET_SUMMARY_BODY"},
+        )
     FeedStore(project).record_feed_check(
         source_id,
         status="error",

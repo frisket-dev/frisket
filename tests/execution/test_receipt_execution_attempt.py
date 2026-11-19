@@ -26,6 +26,7 @@ from tests.execution.test_settlement_join import (
     _execution_composition,
 )
 from tests.execution.test_resolve_for_action import audio_project as audio_project
+from frisket.engine.store.transactions import write_transaction
 
 
 def _reserve(project, receipt_id="preview"):
@@ -193,9 +194,13 @@ def test_receipt_writer_reuses_atomic_project_key_spend_and_replay(project):
     actual["credential_source"] = "project_key"
     actual[ROUTE_OBSERVATION_KEY]["observed"]["credential_source"] = "project_key"
     provider = batch[0]["model_calls"][0]["provider"]
-    project.set_provider_key(
-        provider=provider, encrypted="test-encrypted", hint="test", spend_cap_micro=None
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider=provider,
+            encrypted="test-encrypted",
+            hint="test",
+            spend_cap_micro=None,
+        )
     _write(project, attempt, batch)
     _write(project, attempt, batch)
     assert project.provider_spend_state(provider).spent_micro == 12_000

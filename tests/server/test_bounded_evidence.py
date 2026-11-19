@@ -15,6 +15,7 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.text_annotations import resolve_text_annotations
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 def _hash(text):
@@ -51,39 +52,42 @@ def _native(tmp_path, *, megabytes=1):
         ],
         {"body": body, "entities": entities},
     )
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=_hash(text),
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet,
-        text_row_id=row,
-        text_column_id=body,
-    )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=sheet,
-        source_row_id=row,
-        source_column_id=body,
-        captured_text_native=True,
-        metadata={"captured_text": text},
-    )
-    spans = [
-        record_source_span(
+    with write_transaction(project.db):
+        surface = record_text_surface(
             project,
-            artifact_id=artifact["id"],
-            span_kind="text",
-            char_start=left,
-            char_end=right,
-            quote=text[left:right],
-            text_layer_hash=_hash(text),
-            text_surface_id=surface["id"],
-            metadata={"entity_type": "person"},
+            surface_kind="cell",
+            content_hash=_hash(text),
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet,
+            text_row_id=row,
+            text_column_id=body,
         )
-        for left, right in ((start, start + 12), (start + 5, start + 24))
-    ]
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=sheet,
+            source_row_id=row,
+            source_column_id=body,
+            captured_text_native=True,
+            metadata={"captured_text": text},
+        )
+    with write_transaction(project.db):
+        spans = [
+            record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="text",
+                char_start=left,
+                char_end=right,
+                quote=text[left:right],
+                text_layer_hash=_hash(text),
+                text_surface_id=surface["id"],
+                metadata={"entity_type": "person"},
+            )
+            for left, right in ((start, start + 12), (start + 5, start + 24))
+        ]
     _, refs = project.get_values_with_refs(sheet, entities, [row])
     link = record_citation(
         project,
@@ -165,17 +169,18 @@ def test_annotation_tail_jump_clips_marks_and_keeps_fingerprint_without_large_va
 
 def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(tmp_path):
     fx = _native(tmp_path, megabytes=5)
-    entire = record_source_span(
-        fx.project,
-        artifact_id=fx.artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=len(fx.text),
-        quote=fx.text,
-        snippet=fx.text,
-        text_layer_hash=_hash(fx.text),
-        text_surface_id=fx.surface["id"],
-    )
+    with write_transaction(fx.project.db):
+        entire = record_source_span(
+            fx.project,
+            artifact_id=fx.artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=len(fx.text),
+            quote=fx.text,
+            snippet=fx.text,
+            text_layer_hash=_hash(fx.text),
+            text_surface_id=fx.surface["id"],
+        )
     link = record_citation(
         fx.project,
         subject_kind="test",
@@ -259,13 +264,14 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
     fx = _native(tmp_path)
     text = "a" * 100_000 + "😀 spoken words tail"
     start = text.index("spoken")
-    surface = record_text_surface(
-        fx.project,
-        surface_kind="composite",
-        content_hash=_hash(text),
-        offset_unit="unicode_codepoint",
-        surface_ref={"identity": {"kind": "frozen-transcript"}},
-    )
+    with write_transaction(fx.project.db):
+        surface = record_text_surface(
+            fx.project,
+            surface_kind="composite",
+            content_hash=_hash(text),
+            offset_unit="unicode_codepoint",
+            surface_ref={"identity": {"kind": "frozen-transcript"}},
+        )
     segments = [
         {"span_id": "offscreen", "start": 0, "end": 5, "start_ms": 0, "end_ms": 10},
         {
@@ -277,33 +283,35 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
             "speaker": "Reporter",
         },
     ]
-    artifact = record_source_artifact(
-        fx.project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        metadata={
-            "captured_text": text,
-            "timestamped_transcript": {
-                "schema_version": "frisket.timestamped_text_context.v1",
-                "offset_unit": "unicode_codepoint",
-                "evidence_link_stable_id": "link-test",
-                "artifact_stable_id": "artifact-test",
-                "segments": segments,
+    with write_transaction(fx.project.db):
+        artifact = record_source_artifact(
+            fx.project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            metadata={
+                "captured_text": text,
+                "timestamped_transcript": {
+                    "schema_version": "frisket.timestamped_text_context.v1",
+                    "offset_unit": "unicode_codepoint",
+                    "evidence_link_stable_id": "link-test",
+                    "artifact_stable_id": "artifact-test",
+                    "segments": segments,
+                },
             },
-        },
-    )
-    span = record_source_span(
-        fx.project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=100,
-        end_ms=200,
-        char_start=start,
-        char_end=start + 12,
-        quote=text[start : start + 12],
-        text_layer_hash=_hash(text),
-        text_surface_id=surface["id"],
-    )
+        )
+    with write_transaction(fx.project.db):
+        span = record_source_span(
+            fx.project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=100,
+            end_ms=200,
+            char_start=start,
+            char_end=start + 12,
+            quote=text[start : start + 12],
+            text_layer_hash=_hash(text),
+            text_surface_id=surface["id"],
+        )
     link = record_citation(
         fx.project,
         subject_kind="test",
@@ -348,42 +356,45 @@ def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_histo
         }
         for index in range(len(lines))
     ]
-    surface = record_text_surface(
-        fx.project,
-        surface_kind="composite",
-        content_hash=_hash(text),
-        offset_unit="unicode_codepoint",
-        surface_ref={"identity": {"kind": "long-transcript"}},
-    )
-    artifact = record_source_artifact(
-        fx.project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        metadata={
-            "captured_text": text,
-            "engine": "fixture",
-            "timestamped_transcript": {
-                "schema_version": "frisket.timestamped_text_context.v1",
-                "offset_unit": "unicode_codepoint",
-                "evidence_link_stable_id": "transcript-link",
-                "artifact_stable_id": "transcript-artifact",
-                "segments": segments,
+    with write_transaction(fx.project.db):
+        surface = record_text_surface(
+            fx.project,
+            surface_kind="composite",
+            content_hash=_hash(text),
+            offset_unit="unicode_codepoint",
+            surface_ref={"identity": {"kind": "long-transcript"}},
+        )
+    with write_transaction(fx.project.db):
+        artifact = record_source_artifact(
+            fx.project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            metadata={
+                "captured_text": text,
+                "engine": "fixture",
+                "timestamped_transcript": {
+                    "schema_version": "frisket.timestamped_text_context.v1",
+                    "offset_unit": "unicode_codepoint",
+                    "evidence_link_stable_id": "transcript-link",
+                    "artifact_stable_id": "transcript-artifact",
+                    "segments": segments,
+                },
             },
-        },
-    )
+        )
     target = segments[-2]
-    span = record_source_span(
-        fx.project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=target["start_ms"],
-        end_ms=target["end_ms"],
-        char_start=target["start"],
-        char_end=target["end"],
-        quote=text[target["start"] : target["end"]],
-        text_layer_hash=_hash(text),
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(fx.project.db):
+        span = record_source_span(
+            fx.project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=target["start_ms"],
+            end_ms=target["end_ms"],
+            char_start=target["start"],
+            char_end=target["end"],
+            quote=text[target["start"] : target["end"]],
+            text_layer_hash=_hash(text),
+            text_surface_id=surface["id"],
+        )
     link = record_citation(
         fx.project,
         subject_kind="test",
@@ -435,26 +446,28 @@ def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(tmp
         for page in range(1, 1001)
     }
     text_pages = {str(page): f"Page {page}: " + "x" * 1000 for page in range(1, 1001)}
-    artifact = record_source_artifact(
-        fx.project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=blob,
-        page_count=1000,
-        metadata={
-            "engine": "rapidocr",
-            "dpi": 200,
-            "page_images": page_images,
-            "text_pages": text_pages,
-        },
-    )
-    span = record_source_span(
-        fx.project,
-        artifact_id=artifact["id"],
-        span_kind="page",
-        page_start=3,
-        page_end=3,
-    )
+    with write_transaction(fx.project.db):
+        artifact = record_source_artifact(
+            fx.project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=blob,
+            page_count=1000,
+            metadata={
+                "engine": "rapidocr",
+                "dpi": 200,
+                "page_images": page_images,
+                "text_pages": text_pages,
+            },
+        )
+    with write_transaction(fx.project.db):
+        span = record_source_span(
+            fx.project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            page_start=3,
+            page_end=3,
+        )
     link = record_citation(
         fx.project,
         subject_kind="test",

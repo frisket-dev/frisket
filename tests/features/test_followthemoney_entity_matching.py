@@ -23,6 +23,7 @@ from frisket.features.followthemoney import (
 )
 from frisket.features.investigations.rowsets import resolve_investigative_rowset
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 
 def _diagnostic_codes(result: dict[str, Any]) -> set[str]:
@@ -69,23 +70,25 @@ def test_ftm_entity_matching_returns_read_only_candidate_groups_with_refs(
         leads_sheet, lead_columns["email"], row_ids=[lead_rows[0]]
     )
     assert values[lead_rows[0]] == "JANE@example.org"
-    artifact = record_source_artifact(
-        project,
-        stable_id="source_artifact:email-profile",
-        artifact_kind="html",
-        media_type="text/html",
-        source_sheet_id=leads_sheet,
-        source_row_id=lead_rows[0],
-        source_column_id=lead_columns["source_url"],
-        title="Profile",
-    )
-    span = record_source_span(
-        project,
-        stable_id="source_span:email-profile",
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="Jane@example.org",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            stable_id="source_artifact:email-profile",
+            artifact_kind="html",
+            media_type="text/html",
+            source_sheet_id=leads_sheet,
+            source_row_id=lead_rows[0],
+            source_column_id=lead_columns["source_url"],
+            title="Profile",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            stable_id="source_span:email-profile",
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="Jane@example.org",
+        )
     evidence = record_citation(
         project,
         stable_id="evidence_link:email-profile",

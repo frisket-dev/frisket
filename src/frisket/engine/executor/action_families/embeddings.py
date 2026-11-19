@@ -1703,7 +1703,6 @@ def _create_index(
             source_policy=params.source_policy or {"kind": "text_cell"},
             maintenance_policy=params.maintenance_policy or {"mode": "manual"},
             provider_policy=params.provider_policy or {"allow_remote": False},
-            commit=False,
         )
         output_ref = {
             "kind": "embedding_index",
@@ -3287,7 +3286,6 @@ class _IndexPolicyUpdater:
             index_id,
             maintenance_policy=maintenance_policy,
             provider_policy=provider_policy,
-            commit=False,
         )
         updated = store.get_index(index_id)
         self.result = EmbeddingIndexPolicy(

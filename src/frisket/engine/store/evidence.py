@@ -76,50 +76,45 @@ def record_source_artifact(
     metadata: dict[str, Any] | None = None,
     captured_text_native: bool = False,
 ) -> dict[str, Any]:
-    """Create a source artifact and return its public row shape."""
+    """Create a source artifact in the caller's transaction, with its captured
+    text, and return its public row shape."""
 
+    require_transaction(project.db, "source artifact")
     artifact_stable_id = stable_id or _stable_id("source_artifact")
     artifact_metadata = dict(metadata or {})
     captured_text = artifact_metadata.get("captured_text")
-    # Joins an open caller transaction; otherwise owns one, so captured text
-    # and its artifact row land together.
-    with write_transaction(
-        project.db,
-        commit=not project.db.in_transaction,
-        what="source artifact",
-    ):
-        if isinstance(captured_text, str):
-            artifact_metadata = store_captured_text(
-                project.db,
-                metadata=artifact_metadata,
-                text=captured_text,
-                native=captured_text_native,
-            )
-        cur = project.db.execute(
-            "INSERT INTO source_artifacts ("
-            "stable_id, artifact_kind, media_type, blob_hash, source_url, "
-            "canonical_url, title, filename, page_count, duration_ms, "
-            "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
-            "metadata"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                artifact_stable_id,
-                artifact_kind,
-                media_type,
-                blob_hash,
-                source_url,
-                canonical_url,
-                title,
-                filename,
-                page_count,
-                duration_ms,
-                source_sheet_id,
-                source_row_id,
-                source_column_id,
-                _json_dumps(external_ref or {}),
-                _json_dumps(artifact_metadata),
-            ),
+    if isinstance(captured_text, str):
+        artifact_metadata = store_captured_text(
+            project.db,
+            metadata=artifact_metadata,
+            text=captured_text,
+            native=captured_text_native,
         )
+    cur = project.db.execute(
+        "INSERT INTO source_artifacts ("
+        "stable_id, artifact_kind, media_type, blob_hash, source_url, "
+        "canonical_url, title, filename, page_count, duration_ms, "
+        "source_sheet_id, source_row_id, source_column_id, external_ref_json, "
+        "metadata"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            artifact_stable_id,
+            artifact_kind,
+            media_type,
+            blob_hash,
+            source_url,
+            canonical_url,
+            title,
+            filename,
+            page_count,
+            duration_ms,
+            source_sheet_id,
+            source_row_id,
+            source_column_id,
+            _json_dumps(external_ref or {}),
+            _json_dumps(artifact_metadata),
+        ),
+    )
     return _artifact_row(project, inserted_rowid(cur))
 
 
@@ -155,7 +150,8 @@ def record_source_span(
     preview: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Create a first-class source span inside an artifact.
+    """Create a first-class source span inside an artifact, in the caller's
+    transaction.
 
     ``text_surface_id`` is the exact string indexed by ``char_start``/
     ``char_end``. Character offsets are accepted only as a complete, ordered
@@ -163,6 +159,7 @@ def record_source_span(
     Page, bbox, and timestamp selectors are independent coordinate systems and
     do not exempt a character range from this rule."""
 
+    require_transaction(project.db, "source span")
     have_start = char_start is not None
     have_end = char_end is not None
     if have_start != have_end:
@@ -192,7 +189,6 @@ def record_source_span(
         if surface["content_hash"] != text_layer_hash:
             raise ValueError("text_layer_hash must match the referenced text surface")
     span_stable_id = stable_id or _stable_id("source_span")
-    owns_transaction = not project.db.in_transaction
     cur = project.db.execute(
         "INSERT INTO source_spans ("
         "stable_id, artifact_id, span_kind, page_start, page_end, start_ms, "
@@ -219,8 +215,6 @@ def record_source_span(
             _json_dumps(metadata or {}),
         ),
     )
-    if owns_transaction:
-        project.db.commit()
     return _span_row(project, inserted_rowid(cur))
 
 
@@ -236,8 +230,8 @@ def record_text_surface(
     value_ref: dict[str, Any] | None = None,
     surface_ref: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Ensure a ``text_surfaces`` row for a coordinate surface, returning its
-    public shape.
+    """Ensure a ``text_surfaces`` row for a coordinate surface in the caller's
+    transaction, returning its public shape.
 
     The surface is what a text span's char offsets actually index — distinct from
     the artifact (provenance). Ensure/dedup is deterministic: ``stable_id`` is a
@@ -253,6 +247,7 @@ def record_text_surface(
     can never change surface identity. ``offset_unit`` is the STORED, producer-
     native truth (``'unicode_codepoint'`` for Python), converted only at a reader
     boundary."""
+    require_transaction(project.db, "text surface")
     if surface_kind not in ("cell", "composite"):
         raise ValueError(f"invalid surface_kind: {surface_kind!r}")
     if offset_unit not in _OFFSET_UNITS:
@@ -309,7 +304,6 @@ def record_text_surface(
     if existing is not None:
         return _surface_row(project, int(existing["id"]))
 
-    owns_transaction = not project.db.in_transaction
     try:
         cur = project.db.execute(
             "INSERT INTO text_surfaces ("
@@ -330,17 +324,15 @@ def record_text_surface(
         )
     except sqlite3.IntegrityError:
         # A concurrent writer inserted the same deterministic surface first; the
-        # UNIQUE(stable_id) lost the race. Re-fetch rather than duplicate.
-        if owns_transaction:
-            project.db.rollback()
+        # UNIQUE(stable_id) lost the race. The failed INSERT is undone on its
+        # own and the caller's transaction stays open. Re-fetch rather than
+        # duplicate.
         row = project.db.execute(
             "SELECT id FROM text_surfaces WHERE stable_id=?", (surface_stable_id,)
         ).fetchone()
         if row is None:
             raise
         return _surface_row(project, int(row["id"]))
-    if owns_transaction:
-        project.db.commit()
     return _surface_row(project, inserted_rowid(cur))
 
 
@@ -359,8 +351,8 @@ def get_source_span(project: Project, span_id: int) -> dict[str, Any]:
 def merge_artifact_metadata(
     project: Project, artifact_id: int, extra: dict[str, Any]
 ) -> dict[str, Any]:
-    """Shallow-merge ``extra`` into an artifact's stored metadata and return the
-    refreshed row. Used by the extract aligner (W2.1) to borrow a sibling OCR
+    """Shallow-merge ``extra`` into an artifact's stored metadata in the
+    caller's transaction and return the refreshed row. Used by the extract aligner (W2.1) to borrow a sibling OCR
     artifact's ``page_images`` onto the extract artifact so its aligned region
     spans have an image to draw on."""
 
@@ -373,6 +365,7 @@ def merge_artifact_metadata(
     if "timeline" in extra:
         raise ValueError("metadata.timeline is reserved for artifact timeline identity")
 
+    require_transaction(project.db, "artifact metadata merge")
     row = project.db.execute(
         "SELECT metadata FROM source_artifacts WHERE id=?", (int(artifact_id),)
     ).fetchone()
@@ -382,13 +375,10 @@ def merge_artifact_metadata(
     if not isinstance(metadata, dict):
         metadata = {}
     metadata.update(extra)
-    owns_transaction = not project.db.in_transaction
     project.db.execute(
         "UPDATE source_artifacts SET metadata=? WHERE id=?",
         (_json_dumps(metadata), int(artifact_id)),
     )
-    if owns_transaction:
-        project.db.commit()
     return _artifact_row(project, int(artifact_id))
 
 

@@ -115,7 +115,7 @@ class _Updater(_CallOnce):
         values = patch.values()
         if values.get("config", object()) is None:
             values["config"] = {}
-        store.update_feed(source_id, commit=False, **values)
+        store.update_feed(source_id, **values)
         row = store.get_feed(source_id)
         if row is None:
             raise LookupError(source_id)

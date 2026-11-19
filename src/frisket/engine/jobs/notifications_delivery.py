@@ -1046,7 +1046,15 @@ def _emit_delivery_health_notification(
         return
     try:
         emit_notification_candidate(project, candidate)
-    except Exception:  # noqa: BLE001 - delivery status must remain terminal
+    except Exception as exc:  # noqa: BLE001 - delivery status must remain terminal
+        LOG.warning(
+            "notification_emit_failed",
+            extra={
+                "event": "notification_emit_failed",
+                "emitter": "_emit_delivery_health_notification",
+                "error_type": type(exc).__name__,
+            },
+        )
         return
 
 

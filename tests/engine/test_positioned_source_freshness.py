@@ -14,6 +14,7 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.staleness import sheet_freshness
 from test_visual_document_extraction_action import seed, request
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -68,12 +69,14 @@ def _artifact(project, blob):
 
 def test_selected_artifact_replacement_and_restoration_are_reversible(positioned):
     project, sheet, blob, original = positioned
-    newer = _artifact(project, blob)
+    with write_transaction(project.db):
+        newer = _artifact(project, blob)
     assert load_positioned_document(project, blob).artifact_id == newer["id"]
     assert sheet_freshness(project, sheet) == "stale"
     # The existing metadata API can make a candidate unavailable; selecting
     # the original immutable artifact again restores the consumed context.
-    merge_artifact_metadata(project, newer["id"], {"engine": None})
+    with write_transaction(project.db):
+        merge_artifact_metadata(project, newer["id"], {"engine": None})
     assert load_positioned_document(project, blob).artifact_id == original
     assert sheet_freshness(project, sheet) == "synced"
 
@@ -81,17 +84,24 @@ def test_selected_artifact_replacement_and_restoration_are_reversible(positioned
 def test_new_spans_on_same_artifact_change_consumed_version(positioned):
     project, sheet, blob, artifact = positioned
     before = load_positioned_document(project, blob).document.source_fingerprint
-    record_source_span(
-        project,
-        artifact_id=artifact,
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        bbox=[
-            {"x0": 0.7, "y0": 0.7, "x1": 0.8, "y1": 0.73, "space": "page_normalized"}
-        ],
-        quote="Added source word",
-    )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact,
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            bbox=[
+                {
+                    "x0": 0.7,
+                    "y0": 0.7,
+                    "x1": 0.8,
+                    "y1": 0.73,
+                    "space": "page_normalized",
+                }
+            ],
+            quote="Added source word",
+        )
     assert load_positioned_document(project, blob).artifact_id == artifact
     assert load_positioned_document(project, blob).document.source_fingerprint != before
     assert sheet_freshness(project, sheet) == "stale"
@@ -140,7 +150,8 @@ def test_unrelated_artifact_only_invalidates_negative_cache_guard(
     )
     before = positioned_source_revision(project)
     other = project.add_blob(b"unrelated image", filename="other.png", mime="image/png")
-    _artifact(project, other)
+    with write_transaction(project.db):
+        _artifact(project, other)
     assert positioned_source_revision(project) > before
     assert sheet_freshness(project, sheet) == "synced"
     assert calls == [True]
@@ -220,23 +231,24 @@ def test_costly_positioned_check_uses_existing_queue_and_new_asset_revision_key(
             output.sheet_id for output in result.outputs if output.kind == "sheet"
         )
         assert sheet_freshness(project, sheet) == "synced"
-        word = record_source_span(
-            project,
-            artifact_id=artifact,
-            span_kind="region",
-            page_start=1,
-            page_end=1,
-            bbox=[
-                {
-                    "x0": 0.8,
-                    "y0": 0.85,
-                    "x1": 0.9,
-                    "y1": 0.88,
-                    "space": "page_normalized",
-                }
-            ],
-            quote="new source word",
-        )
+        with write_transaction(project.db):
+            word = record_source_span(
+                project,
+                artifact_id=artifact,
+                span_kind="region",
+                page_start=1,
+                page_end=1,
+                bbox=[
+                    {
+                        "x0": 0.8,
+                        "y0": 0.85,
+                        "x1": 0.9,
+                        "y1": 0.88,
+                        "space": "page_normalized",
+                    }
+                ],
+                quote="new source word",
+            )
         assert not [
             job for job in workspace.queue.list_jobs() if job.kind == SOURCE_VERIFY_KIND
         ]

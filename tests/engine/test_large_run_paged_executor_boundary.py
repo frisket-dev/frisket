@@ -18,6 +18,7 @@ from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -112,14 +113,15 @@ def _bind_resume_claim(
     )
     assert conflict is None
     assert len(claims) == 1
-    assert (
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=claim_token,
-            run_id=run_id,
-            expected_output_names=[output_name],
+    with write_transaction(project.db):
+        assert (
+            OutputColumnClaimStore(project).bind_to_run(
+                claim_token=claim_token,
+                run_id=run_id,
+                expected_output_names=[output_name],
+            )
+            == 1
         )
-        == 1
-    )
     declare_bound_run_outputs(
         project,
         run_id=run_id,
@@ -274,14 +276,15 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
         assert conflict is None
         assert len(claims) == 1
         prepared = runner.prepare_run(_spec(sheet_id), confirmed=True)
-        assert (
-            OutputColumnClaimStore(project).bind_to_run(
-                claim_token=claim_token,
-                run_id=prepared.run_id,
-                expected_output_names=["out"],
+        with write_transaction(project.db):
+            assert (
+                OutputColumnClaimStore(project).bind_to_run(
+                    claim_token=claim_token,
+                    run_id=prepared.run_id,
+                    expected_output_names=["out"],
+                )
+                == 1
             )
-            == 1
-        )
 
         # run_row_scope (the full-scope loader) lives on RunResultStore, not
         # Project (moved by the 2026-06-24 executor architecture refactor,

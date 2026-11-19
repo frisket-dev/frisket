@@ -4,6 +4,7 @@ from __future__ import annotations
 
 
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_grounding_segment_token_and_anchor_carry_speaker():
@@ -37,28 +38,30 @@ def _speaker_artifact(project: Project) -> tuple[int, int, int]:
 
     sheet = project.add_sheet("data")
     (row_id,) = project.add_rows(sheet, [{}], {})
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash="deadbeef",
-        filename="a.wav",
-        duration_ms=5000,
-        source_sheet_id=sheet,
-        source_row_id=row_id,
-        source_column_id=None,
-        metadata={},
-    )
-    record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=0,
-        end_ms=1000,
-        quote="hi",
-        selector={"segment_index": 0, "speaker": "S1"},
-        metadata={},
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash="deadbeef",
+            filename="a.wav",
+            duration_ms=5000,
+            source_sheet_id=sheet,
+            source_row_id=row_id,
+            source_column_id=None,
+            metadata={},
+        )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=0,
+            end_ms=1000,
+            quote="hi",
+            selector={"segment_index": 0, "speaker": "S1"},
+            metadata={},
+        )
     return sheet, row_id, artifact["id"]
 
 
@@ -67,16 +70,17 @@ def test_segment_stream_reads_speaker_back(project: Project):
     from frisket.engine.store.transcript_segment_stream import _segments_for_artifact
 
     _sheet, _row_id, artifact_id = _speaker_artifact(project)
-    record_source_span(
-        project,
-        artifact_id=artifact_id,
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=2000,
-        quote="yo",
-        selector={"segment_index": 1},
-        metadata={},
-    )
+    with write_transaction(project.db):
+        record_source_span(
+            project,
+            artifact_id=artifact_id,
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=2000,
+            quote="yo",
+            selector={"segment_index": 1},
+            metadata={},
+        )
     units, tokens, _ = _segments_for_artifact(project, artifact_id)
     assert [token.speaker for token in tokens] == ["S1", None]
     assert [unit.speaker for unit in units] == ["S1", None]

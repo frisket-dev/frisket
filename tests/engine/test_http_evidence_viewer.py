@@ -15,6 +15,7 @@ from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _text_hash(text: str) -> str:
@@ -32,22 +33,24 @@ def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
         sheet_id, [{"url": "https://example.test"}], {"url": column_id}
     )
     blob_hash = project.add_blob(b"<html>captured</html>", "page.html", "text/html")
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="web_capture_html",
-        media_type="text/html",
-        blob_hash=blob_hash,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="html",
-        selector={"blob_hash": blob_hash},
-        text_layer_hash=blob_hash,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="web_capture_html",
+            media_type="text/html",
+            blob_hash=blob_hash,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="html",
+            selector={"blob_hash": blob_hash},
+            text_layer_hash=blob_hash,
+        )
     link = record_citation(
         project,
         subject_kind="test",
@@ -79,35 +82,38 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
     [row_id] = project.add_rows(sheet_id, [{"body": original}], {"body": column_id})
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
     content_hash = _text_hash(original)
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=content_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=row_id,
-        text_column_id=column_id,
-        value_ref=refs[row_id],
-    )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="text",
-        media_type="text/plain",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=column_id,
-        metadata={"captured_text": original},
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=len(original),
-        quote=original,
-        text_layer_hash=content_hash,
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=content_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=column_id,
+            value_ref=refs[row_id],
+        )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="text",
+            media_type="text/plain",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=column_id,
+            metadata={"captured_text": original},
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=len(original),
+            quote=original,
+            text_layer_hash=content_hash,
+            text_surface_id=surface["id"],
+        )
     link = record_citation(
         project,
         subject_kind="test",
@@ -220,53 +226,55 @@ def _seed_evidence(
     page_image_hash = project.add_blob(
         b"fake png bytes", "contract-p3.png", "image/png"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=pdf_hash,
-        title="Contract",
-        filename="contract.pdf",
-        page_count=9,
-        metadata={
-            "page_images": {
-                "3": {
-                    "blob_hash": page_image_hash,
-                    "width": 1700,
-                    "height": 2200,
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=pdf_hash,
+            title="Contract",
+            filename="contract.pdf",
+            page_count=9,
+            metadata={
+                "page_images": {
+                    "3": {
+                        "blob_hash": page_image_hash,
+                        "width": 1700,
+                        "height": 2200,
+                    }
+                },
+                "text_pages": {
+                    "3": "The total contract value is $1,250,000 payable in March."
+                },
+            },
+        )
+    with write_transaction(project.db):
+        region = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="region",
+            page_start=3,
+            page_end=3,
+            bbox=[
+                {
+                    "space": "page_normalized",
+                    "x0": 0.57,
+                    "y0": 0.40,
+                    "x1": 0.73,
+                    "y1": 0.45,
+                }
+            ],
+            quote="$1,250,000",
+            metadata={
+                "raw": {
+                    "provider_space": "pixels",
+                    "x0": 969,
+                    "y0": 880,
+                    "x1": 1241,
+                    "y1": 990,
                 }
             },
-            "text_pages": {
-                "3": "The total contract value is $1,250,000 payable in March."
-            },
-        },
-    )
-    region = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="region",
-        page_start=3,
-        page_end=3,
-        bbox=[
-            {
-                "space": "page_normalized",
-                "x0": 0.57,
-                "y0": 0.40,
-                "x1": 0.73,
-                "y1": 0.45,
-            }
-        ],
-        quote="$1,250,000",
-        metadata={
-            "raw": {
-                "provider_space": "pixels",
-                "x0": 969,
-                "y0": 880,
-                "x1": 1241,
-                "y1": 990,
-            }
-        },
-    )
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",

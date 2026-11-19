@@ -12,6 +12,7 @@ from frisket.engine.store.evidence import (
     record_text_surface,
 )
 from helpers import make_client
+from frisket.engine.store.transactions import write_transaction
 
 
 def _import_documents(
@@ -44,28 +45,31 @@ def _import_documents(
     first_row = project.visible_row_ids(sheet_id)[0]
     body_text = "B" * 4096
     surface_hash = _text_hash(body_text)
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=surface_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=first_row,
-        text_column_id=columns["body"],
-    )
-    artifact = record_source_artifact(
-        project, artifact_kind="text", media_type="text/plain"
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=1,
-        quote="B",
-        text_layer_hash=surface_hash,
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=surface_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=first_row,
+            text_column_id=columns["body"],
+        )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="text", media_type="text/plain"
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=1,
+            quote="B",
+            text_layer_hash=surface_hash,
+            text_surface_id=surface["id"],
+        )
     _values, refs = project.get_values_with_refs(
         sheet_id, columns["alongside"], row_ids=[first_row]
     )

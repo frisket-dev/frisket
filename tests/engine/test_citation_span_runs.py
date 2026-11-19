@@ -18,6 +18,7 @@ from frisket.engine.store.evidence import (
     record_source_span,
     resolve_citation_viewer,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _wav_bytes(seconds: float, *, sample_rate: int = 8000) -> bytes:
@@ -56,40 +57,44 @@ def _seed_two_run_link(
     so they merge). Run 1: one span starting ``gap_ms`` after run 0 ends --
     disjoint by construction (``gap_ms`` defaults to just over tolerance)."""
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash=blob_hash,
-        filename="hearing.wav",
-        title="Hearing",
-        duration_ms=duration_ms,
-    )
-    span_a = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=2000,
-        quote="first thing",
-    )
-    span_b = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=2500,
-        end_ms=3500,
-        quote="second thing, same thought",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=blob_hash,
+            filename="hearing.wav",
+            title="Hearing",
+            duration_ms=duration_ms,
+        )
+    with write_transaction(project.db):
+        span_a = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=2000,
+            quote="first thing",
+        )
+    with write_transaction(project.db):
+        span_b = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=2500,
+            end_ms=3500,
+            quote="second thing, same thought",
+        )
     run1_start = 3500 + gap_ms
-    span_c = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=run1_start,
-        end_ms=run1_start + 1000,
-        quote="a distinct, later thing",
-    )
+    with write_transaction(project.db):
+        span_c = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=run1_start,
+            end_ms=run1_start + 1000,
+            quote="a distinct, later thing",
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",
@@ -186,30 +191,33 @@ def test_citation_temporal_runs_ignores_uncited_spans(tmp_path: Path) -> None:
     blob_hash = project.add_blob(
         _wav_bytes(10.0), filename="hearing.wav", mime="audio/wav"
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash=blob_hash,
-        filename="hearing.wav",
-        duration_ms=10_000,
-    )
-    cited = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=2000,
-        quote="cited",
-    )
-    uncited = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=2100,
-        end_ms=2900,
-        quote="context, not cited",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=blob_hash,
+            filename="hearing.wav",
+            duration_ms=10_000,
+        )
+    with write_transaction(project.db):
+        cited = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=2000,
+            quote="cited",
+        )
+    with write_transaction(project.db):
+        uncited = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=2100,
+            end_ms=2900,
+            quote="context, not cited",
+        )
     link = record_citation(
         project,
         subject_kind="cell_value",

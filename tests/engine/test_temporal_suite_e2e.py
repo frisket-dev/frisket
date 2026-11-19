@@ -31,6 +31,7 @@ from frisket.engine.store.evidence import (
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 pytestmark = pytest.mark.skipif(
@@ -218,15 +219,16 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
             (2_000, 3_000, "Blue scene."),
         ]
     ):
-        span = record_source_span(
-            project,
-            artifact_id=lease.anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=start_ms,
-            end_ms=end_ms,
-            quote=quote,
-            selector={"segment_index": index},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=lease.anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=start_ms,
+                end_ms=end_ms,
+                quote=quote,
+                selector={"segment_index": index},
+            )
         span_refs.append({"span_id": int(span["id"]), "rank": index})
         span_stable_ids.append(str(span["stable_id"]))
 

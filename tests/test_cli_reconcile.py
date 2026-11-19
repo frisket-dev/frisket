@@ -26,6 +26,7 @@ from frisket.engine.store.effect_checkpoints import (
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import model_plan
+from frisket.engine.store.transactions import write_transaction
 
 # Planted in payloads and identities; must never appear in reconcile output.
 FAKE_SECRET = "sk-ant-api03-SHOULD-NEVER-PRINT"
@@ -368,14 +369,15 @@ def _ambiguous_run(
         confirmed=True,
         resume_run_id=None,
     )
-    assert (
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=claim_token,
-            run_id=prepared.run_id,
-            expected_output_names=["relevance"],
+    with write_transaction(project.db):
+        assert (
+            OutputColumnClaimStore(project).bind_to_run(
+                claim_token=claim_token,
+                run_id=prepared.run_id,
+                expected_output_names=["relevance"],
+            )
+            == 1
         )
-        == 1
-    )
     with pytest.raises(SimulatedProcessKill):
         asyncio.run(
             first.run(
@@ -445,14 +447,15 @@ def _fresh_successor(project: Project, provider, confirmed: dict):
         confirmed=True,
         resume_run_id=None,
     )
-    assert (
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=token,
-            run_id=prepared.run_id,
-            expected_output_names=["relevance"],
+    with write_transaction(project.db):
+        assert (
+            OutputColumnClaimStore(project).bind_to_run(
+                claim_token=token,
+                run_id=prepared.run_id,
+                expected_output_names=["relevance"],
+            )
+            == 1
         )
-        == 1
-    )
     return asyncio.run(
         runner.run(
             confirmed,

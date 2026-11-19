@@ -27,6 +27,7 @@ from frisket.engine.executor.page_capture_action import prepare_page_capture_act
 from frisket.engine.store import Project
 from action_test_helpers import counts as _counts
 from helpers import replace_test_source_cell
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-url-capture-static"
@@ -162,19 +163,21 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
         _values, refs = project.get_values_with_refs(
             sheet_id, output_column_id, row_ids=[row_id]
         )
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="row",
-            media_type="application/vnd.frisket.row+json",
-            source_sheet_id=sheet_id,
-            source_row_id=row_id,
-        )
-        span = record_source_span(
-            project,
-            artifact_id=int(artifact["id"]),
-            span_kind="whole",
-            snippet="first capture evidence",
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="row",
+                media_type="application/vnd.frisket.row+json",
+                source_sheet_id=sheet_id,
+                source_row_id=row_id,
+            )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=int(artifact["id"]),
+                span_kind="whole",
+                snippet="first capture evidence",
+            )
         attached = record_citation(
             project,
             subject_kind="cell_value",

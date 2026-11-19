@@ -20,6 +20,7 @@ from frisket.server.routes.project_research import register_project_search_route
 from frisket.server.services.project_search import ProjectSearchService
 from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
 from tests.engine.test_temporal_transcript_inheritance import _seed_source
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass
@@ -66,35 +67,38 @@ def _seed_ocr(project: Project) -> None:
         ],
         {"scan": file_column_id, "ocr_text": text_column_id},
     )[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="image/png",
-        blob_hash=blob_hash,
-        filename="scan.png",
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=file_column_id,
-        metadata={"engine": "fixture", "page_images": {}},
-    )
-    region = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        quote="China",
-        bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
-    )
-    trade_region = record_source_span(
-        project,
-        artifact_id=int(artifact["id"]),
-        span_kind="region",
-        page_start=1,
-        page_end=1,
-        quote="trade policy",
-        bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="image/png",
+            blob_hash=blob_hash,
+            filename="scan.png",
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=file_column_id,
+            metadata={"engine": "fixture", "page_images": {}},
+        )
+    with write_transaction(project.db):
+        region = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote="China",
+            bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.8, "y1": 0.3}],
+        )
+    with write_transaction(project.db):
+        trade_region = record_source_span(
+            project,
+            artifact_id=int(artifact["id"]),
+            span_kind="region",
+            page_start=1,
+            page_end=1,
+            quote="trade policy",
+            bbox=[{"x0": 0.1, "y0": 0.3, "x1": 0.8, "y1": 0.4}],
+        )
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )

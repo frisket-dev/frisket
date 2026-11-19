@@ -41,6 +41,7 @@ from frisket.operability.diagnostics import replay_mode_report
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
+from frisket.engine.store.transactions import write_transaction
 
 PROVIDER_ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -211,12 +212,13 @@ def _build(tmp_path: Path, composition: _Composition) -> tuple[Workspace, Projec
     if composition.project_key:
         from frisket.team.security.secrets import encrypt_secret, key_hint
 
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("sk-project"),
-            hint=key_hint("sk-project"),
-            spend_cap_micro=None,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("sk-project"),
+                hint=key_hint("sk-project"),
+                spend_cap_micro=None,
+            )
     return workspace, project
 
 

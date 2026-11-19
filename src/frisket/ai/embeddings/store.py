@@ -16,7 +16,7 @@ from typing import Any
 
 from frisket.engine.store import Project
 from frisket.engine.store.leases import acquire_lease, release_lease
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 from .spaces import (
     canonical_json,
@@ -57,40 +57,40 @@ class EmbeddingStore:
         """Mint (or return the existing) space for a strict descriptor. Idempotent
         on the descriptor hash — the same comparability contract is one row.
 
-        ``commit=False`` keeps the INSERT inside the caller's open transaction so
-        metadata and a receipt can commit (or roll back) together."""
+        ``commit=True`` owns the INSERT's transaction; ``commit=False`` joins the
+        caller's open transaction so metadata and a receipt can commit (or roll
+        back) together."""
         validate_descriptor(descriptor)
         sid = space_id_for(descriptor)
         dhash = descriptor_hash(descriptor)
-        self.db.execute(
-            "INSERT INTO embedding_spaces ("
-            "id, descriptor_json, descriptor_hash, provider_id, provider_kind, "
-            "requested_model, actual_model_id, model_revision, modality, dimension, "
-            "dtype, distance_metric, normalization, vector_options_hash, "
-            "source_payload_contract, contract_version) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(id) DO NOTHING",
-            (
-                sid,
-                canonical_json(descriptor),
-                dhash,
-                descriptor["provider_id"],
-                descriptor["provider_kind"],
-                descriptor.get("requested_model"),
-                descriptor["actual_model_id"],
-                descriptor.get("model_revision"),
-                descriptor["modality"],
-                descriptor["dimension"],
-                descriptor["dtype"],
-                descriptor["distance_metric"],
-                descriptor["normalization"],
-                descriptor["vector_options_hash"],
-                descriptor["source_payload_contract"],
-                descriptor["contract_version"],
-            ),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="embedding space"):
+            self.db.execute(
+                "INSERT INTO embedding_spaces ("
+                "id, descriptor_json, descriptor_hash, provider_id, provider_kind, "
+                "requested_model, actual_model_id, model_revision, modality, dimension, "
+                "dtype, distance_metric, normalization, vector_options_hash, "
+                "source_payload_contract, contract_version) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(id) DO NOTHING",
+                (
+                    sid,
+                    canonical_json(descriptor),
+                    dhash,
+                    descriptor["provider_id"],
+                    descriptor["provider_kind"],
+                    descriptor.get("requested_model"),
+                    descriptor["actual_model_id"],
+                    descriptor.get("model_revision"),
+                    descriptor["modality"],
+                    descriptor["dimension"],
+                    descriptor["dtype"],
+                    descriptor["distance_metric"],
+                    descriptor["normalization"],
+                    descriptor["vector_options_hash"],
+                    descriptor["source_payload_contract"],
+                    descriptor["contract_version"],
+                ),
+            )
         return sid
 
     def get_space(self, space_id: str) -> sqlite3.Row | None:
@@ -109,12 +109,11 @@ class EmbeddingStore:
         source_policy: dict[str, Any],
         maintenance_policy: dict[str, Any] | None = None,
         provider_policy: dict[str, Any] | None = None,
-        commit: bool = True,
     ) -> str:
-        """Create an index referencing an existing space. Fails loud if the space
-        is unknown (a vector with no comparability contract is meaningless).
-
-        ``commit=False`` keeps the INSERT inside the caller's transaction."""
+        """Create an index referencing an existing space, in the caller's
+        transaction. Fails loud if the space is unknown (a vector with no
+        comparability contract is meaningless)."""
+        require_transaction(self.db, "embedding index create")
         if self.get_space(space_id) is None:
             raise ValueError(f"unknown embedding space: {space_id!r}")
         idx_id = f"embidx_{uuid.uuid4().hex[:20]}"
@@ -138,8 +137,6 @@ class EmbeddingStore:
                 canonical_json(provider_policy),
             ),
         )
-        if commit:
-            self.db.commit()
         return idx_id
 
     def get_index(self, index_id: str) -> sqlite3.Row | None:
@@ -147,13 +144,12 @@ class EmbeddingStore:
             "SELECT * FROM embedding_indexes WHERE id=?", (index_id,)
         ).fetchone()
 
-    def delete_index(self, index_id: str, *, commit: bool = True) -> bool:
-        """Delete an index's metadata row. Returns False if it did not exist.
-        Unified named membership is removed by the admitted delete capability.
-        ``commit=False`` keeps the DELETE inside the caller's transaction."""
+    def delete_index(self, index_id: str) -> bool:
+        """Delete an index's metadata row in the caller's transaction. Returns
+        False if it did not exist. Unified named membership is removed by the
+        admitted delete capability."""
+        require_transaction(self.db, "embedding index delete")
         cur = self.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
-        if commit:
-            self.db.commit()
         return cur.rowcount > 0
 
     def update_index_policy(
@@ -162,11 +158,11 @@ class EmbeddingStore:
         *,
         maintenance_policy: dict[str, Any] | None = None,
         provider_policy: dict[str, Any] | None = None,
-        commit: bool = True,
     ) -> None:
-        """Replace the maintenance and/or provider policy JSON on an index. A None
-        policy is left unchanged. Metadata-only — never touches the space, source
-        scope, or vectors. ``commit=False`` keeps it in the caller's transaction."""
+        """Replace the maintenance and/or provider policy JSON on an index, in the
+        caller's transaction. A None policy is left unchanged. Metadata-only —
+        never touches the space, source scope, or vectors."""
+        require_transaction(self.db, "embedding index policy update")
         sets: list[str] = []
         values: list[Any] = []
         if maintenance_policy is not None:
@@ -182,8 +178,6 @@ class EmbeddingStore:
         self.db.execute(
             f"UPDATE embedding_indexes SET {', '.join(sets)} WHERE id=?", values
         )
-        if commit:
-            self.db.commit()
 
     def move_index_to_current_space(self, index_id: str) -> str | None:
         """Point an index whose space predates its provider's current encoding
@@ -226,16 +220,15 @@ class EmbeddingStore:
         ).fetchone()
         return int(rows["n"]) > 0
 
-    def delete_space_if_orphan(self, space_id: str, *, commit: bool = True) -> bool:
-        """Delete a space only when no index still references it. Returns True if
+    def delete_space_if_orphan(self, space_id: str) -> bool:
+        """Delete a space only when no index still references it, in the caller's
+        transaction (so it sees an already-deleted index row). Returns True if
         the space row was removed. A shared space survives (scope: do not delete
-        a space referenced by other indexes). ``commit=False`` keeps the DELETE in
-        the caller's transaction (so it sees an already-deleted index row)."""
+        a space referenced by other indexes)."""
+        require_transaction(self.db, "embedding space delete")
         if self.space_is_referenced(space_id):
             return False
         cur = self.db.execute("DELETE FROM embedding_spaces WHERE id=?", (space_id,))
-        if commit:
-            self.db.commit()
         return cur.rowcount > 0
 
     def acquire_refresh_claim(
@@ -302,8 +295,9 @@ class EmbeddingStore:
         commit: bool = True,
     ) -> None:
         """Best-effort count/status update (advisory — recomputable from the
-        sidecar). Only provided fields change. ``commit=False`` keeps the UPDATE
-        in the caller's transaction (e.g. the same BEGIN as a receipt insert)."""
+        sidecar). Only provided fields change. ``commit=True`` owns the UPDATE's
+        transaction; ``commit=False`` joins the caller's (e.g. the same BEGIN as
+        a receipt insert)."""
         sets: list[str] = ["updated_at=datetime('now')"]
         params: list[Any] = []
         for col, val in (
@@ -321,8 +315,7 @@ class EmbeddingStore:
         if touch_refreshed_at and (status is not None or total is not None):
             sets.append("last_refreshed_at=datetime('now')")
         params.append(index_id)
-        self.db.execute(
-            f"UPDATE embedding_indexes SET {', '.join(sets)} WHERE id=?", params
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="embedding index counts"):
+            self.db.execute(
+                f"UPDATE embedding_indexes SET {', '.join(sets)} WHERE id=?", params
+            )

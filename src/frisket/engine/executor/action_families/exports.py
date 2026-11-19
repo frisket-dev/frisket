@@ -595,7 +595,15 @@ def _emit_export_notification(project: Project, result: ActionResult) -> None:
         )
         if candidate is not None:
             emit_notification_candidate(project, candidate)
-    except Exception:  # noqa: BLE001 - export result must remain authoritative
+    except Exception as exc:  # noqa: BLE001 - export result must remain authoritative
+        logger.warning(
+            "notification_emit_failed",
+            extra={
+                "event": "notification_emit_failed",
+                "emitter": "_emit_export_notification",
+                "error_type": type(exc).__name__,
+            },
+        )
         return
 
 

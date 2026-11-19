@@ -140,13 +140,9 @@ def test_interrupted_early_repair_releases_claim_without_committing_counts(
 
     def interrupt_repair(project, index_id):
         # Leave a pending update to prove claim cleanup cannot commit it.
-        EmbeddingStore(project).update_index_counts(
-            index_id,
-            total=999,
-            ready=999,
-            stale=0,
-            error=0,
-            commit=False,
+        project.db.execute(
+            "UPDATE embedding_indexes SET total_items=999, ready_items=999 WHERE id=?",
+            (index_id,),
         )
         raise interruption("cancelled early repair")
 

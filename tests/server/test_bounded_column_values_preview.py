@@ -14,6 +14,7 @@ from frisket.engine.store.prepared_content import (
 from frisket.engine.store.project import ProjectReadSnapshot
 from frisket.engine.store.value_codec import PreparedContentRef
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 def _fixture(tmp_path, values, *, column_type="text"):
@@ -102,9 +103,13 @@ def test_automatic_facets_omit_large_cells_without_loading_exact_values(
 
 def test_prepared_large_text_uses_same_omission_contract(tmp_path):
     client, pid, project, sheet, column, _ = _fixture(tmp_path, ["ordinary"])
-    artifact = record_source_artifact(
-        project, artifact_kind="document", media_type="application/pdf", page_count=1
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=1,
+        )
     op_id = project.append_change("media.ocr")
     project.db.execute("BEGIN IMMEDIATE")
     ref = PreparedContentStore(project).stage_reference(

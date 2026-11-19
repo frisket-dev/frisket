@@ -402,7 +402,15 @@ def _emit_feed_health_notification(
         )
         if candidate is not None:
             emit_notification_candidate(project, candidate)
-    except Exception:  # noqa: BLE001 - source poll outcome must remain authoritative
+    except Exception as exc:  # noqa: BLE001 - source poll outcome must remain authoritative
+        LOG.warning(
+            "notification_emit_failed",
+            extra={
+                "event": "notification_emit_failed",
+                "emitter": "_emit_feed_health_notification",
+                "error_type": type(exc).__name__,
+            },
+        )
         return
 
 

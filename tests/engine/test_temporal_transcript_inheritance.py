@@ -29,6 +29,7 @@ from frisket.engine.store.evidence import (
 )
 from frisket.engine.store.runs import RunResultStore
 from helpers import initialize_test_source_cells, write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _add_timestamped_transcript(
@@ -69,15 +70,16 @@ def _add_timestamped_transcript(
 
     spans = []
     for index, (start, end, quote) in enumerate(span_values):
-        span = record_source_span(
-            project,
-            artifact_id=artifact_id,
-            span_kind="temporal",
-            start_ms=start,
-            end_ms=end,
-            quote=quote,
-            selector={"segment_index": index},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=artifact_id,
+                span_kind="temporal",
+                start_ms=start,
+                end_ms=end,
+                quote=quote,
+                selector={"segment_index": index},
+            )
         spans.append({"span_id": span["id"], "rank": index})
     _values, refs = project.get_values_with_refs(sheet_id, column_id, row_ids=[row_id])
     metadata = None
@@ -213,12 +215,13 @@ def test_timestamped_text_context_rejects_uncovered_non_whitespace(
     project = make_project("timestamped-text-context-gap")
     sheet_id = project.add_sheet("Media")
     row_id = project.add_rows(sheet_id, [{}], {})[0]
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/mpeg",
-        duration_ms=2000,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/mpeg",
+            duration_ms=2000,
+        )
     column_id, _link = _add_timestamped_transcript(
         project,
         sheet_id=sheet_id,
@@ -269,13 +272,14 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
     derived_blob = project.add_blob(
         b"derived video", filename="clip.mp4", mime="video/mp4"
     )
-    derived = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=derived_blob,
-        duration_ms=3000,
-    )
+    with write_transaction(project.db):
+        derived = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=derived_blob,
+            duration_ms=3000,
+        )
     write_rate1_timeline_segment(
         project,
         derived_artifact_id=int(derived["id"]),
@@ -365,13 +369,14 @@ def test_root_compatible_sibling_transcript_is_rebased_to_source_clock(
         filename="sibling.mp4",
         mime="video/mp4",
     )
-    sibling = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="video/mp4",
-        blob_hash=sibling_blob,
-        duration_ms=2_000,
-    )
+    with write_transaction(project.db):
+        sibling = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="video/mp4",
+            blob_hash=sibling_blob,
+            duration_ms=2_000,
+        )
     write_rate1_timeline_segment(
         project,
         derived_artifact_id=int(sibling["id"]),

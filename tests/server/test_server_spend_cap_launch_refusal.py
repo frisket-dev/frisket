@@ -23,6 +23,7 @@ from frisket.server.app import create_app
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from http_test_helpers import post_v1_action_with_exact_confirmation
 from helpers import write_claimless_test_model_calls
+from frisket.engine.store.transactions import write_transaction
 
 KEY = "sk-test-not-a-real-key"
 
@@ -60,12 +61,13 @@ def _seed_project(client: TestClient) -> tuple[str, int]:
 
 def _capped_key(client: TestClient, pid: str, *, cap_micro: int) -> None:
     project = client.app.state.workspace.get(pid)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret(KEY),
-        hint=key_hint(KEY),
-        spend_cap_micro=cap_micro,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret(KEY),
+            hint=key_hint(KEY),
+            spend_cap_micro=cap_micro,
+        )
 
 
 def _accrue(client: TestClient, pid: str, *, cost_usd: float | None) -> None:

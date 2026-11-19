@@ -19,6 +19,7 @@ from frisket.engine.store.prepared_content import (
 from frisket.engine.store.project_blobs import reclaim_local_blobs
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.purge import begin_purge, finish_purge
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -76,25 +77,28 @@ def test_only_real_source_artifact_container_owns_original(project):
     text_sheet, text_column, text_row = add_value(
         project, "text", "answer", type="text"
     )
-    record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=owned,
-        source_sheet_id=sheet,
-    )
-    record_source_artifact(
-        project, artifact_kind="file", media_type="application/pdf", blob_hash=cited
-    )
-    record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=old_cell,
-        source_sheet_id=text_sheet,
-        source_row_id=text_row,
-        source_column_id=text_column,
-    )
+    with write_transaction(project.db):
+        record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=owned,
+            source_sheet_id=sheet,
+        )
+    with write_transaction(project.db):
+        record_source_artifact(
+            project, artifact_kind="file", media_type="application/pdf", blob_hash=cited
+        )
+    with write_transaction(project.db):
+        record_source_artifact(
+            project,
+            artifact_kind="file",
+            media_type="application/pdf",
+            blob_hash=old_cell,
+            source_sheet_id=text_sheet,
+            source_row_id=text_row,
+            source_column_id=text_column,
+        )
     assert set(project.gc_blobs()["hashes"]) == {cited, old_cell}
     assert project.db.execute(
         "SELECT blob_hash FROM source_artifacts WHERE blob_hash=?", (cited,)
@@ -102,9 +106,13 @@ def test_only_real_source_artifact_container_owns_original(project):
 
 
 def prepared(project, text):
-    artifact = record_source_artifact(
-        project, artifact_kind="document", media_type="application/pdf", page_count=1
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="document",
+            media_type="application/pdf",
+            page_count=1,
+        )
     with project.db:
         project.db.execute("BEGIN")
         op = project.append_change("prepare.test", commit=False)

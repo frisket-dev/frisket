@@ -38,6 +38,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
 from http_test_helpers import drain_queue, run_worker_until_job_terminal
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass(frozen=True)
@@ -1527,15 +1528,16 @@ def test_extract_batch_projects_every_compatible_current_transcript(
             row_id=row_id,
             column_id=source_column_id,
         )
-        span = record_source_span(
-            project,
-            artifact_id=lease.anchor.artifact_id,
-            span_kind="temporal",
-            start_ms=2_000,
-            end_ms=5_000,
-            quote=quote,
-            selector={"segment_index": 0},
-        )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=lease.anchor.artifact_id,
+                span_kind="temporal",
+                start_ms=2_000,
+                end_ms=5_000,
+                quote=quote,
+                selector={"segment_index": 0},
+            )
         _values, refs = project.get_values_with_refs(
             sheet_id, column_id, row_ids=[row_id]
         )

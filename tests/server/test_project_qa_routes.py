@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm.router import ModelRouter
 from frisket.server.app import create_app
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_shared_history_revision_and_project_boundary(tmp_path):
@@ -156,18 +157,20 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(tmp_path):
             sheet, [{"Text": "Ada"}, {"Text": "Grace"}], {"Text": column}
         )
         _, refs = project.get_values_with_refs(sheet, column, row_ids=rows)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="text",
-            media_type="text/plain",
-            title="Original document",
-        )
-        span = record_source_span(
-            project,
-            artifact_id=artifact["id"],
-            span_kind="text",
-            quote="Ada signed the letter.",
-        )
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project,
+                artifact_kind="text",
+                media_type="text/plain",
+                title="Original document",
+            )
+        with write_transaction(project.db):
+            span = record_source_span(
+                project,
+                artifact_id=artifact["id"],
+                span_kind="text",
+                quote="Ada signed the letter.",
+            )
         link = record_citation(
             project,
             subject_kind="cell_value",

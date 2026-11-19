@@ -23,6 +23,7 @@ from frisket.execution.attempt import (
     StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_claimed_run(
@@ -73,10 +74,11 @@ def _seed_claimed_run(
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+        )
     return project, run_id, row_ids, output_column_id, claim_token
 
 

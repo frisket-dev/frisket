@@ -14,6 +14,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionContext, ActionProgram
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass
@@ -128,14 +129,15 @@ def test_explicit_program_drives_prepare_and_run_without_registry(
     def bind_prepared_run(progress: Any) -> None:
         nonlocal bound
         if not bound:
-            assert (
-                claim_store.bind_to_run(
-                    claim_token=claim_token,
-                    run_id=progress.run_id,
-                    expected_output_names=["upper"],
+            with write_transaction(claim_store.db):
+                assert (
+                    claim_store.bind_to_run(
+                        claim_token=claim_token,
+                        run_id=progress.run_id,
+                        expected_output_names=["upper"],
+                    )
+                    == 1
                 )
-                == 1
-            )
             bound = True
 
     runner = _runner(project, on_progress=bind_prepared_run)

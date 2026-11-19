@@ -23,6 +23,7 @@ from helpers import write_claimed_test_results
 
 from helpers import stub_rapidocr_run_scope
 from frisket.engine.executor import run_action_spec
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-evidence-stale-on-reprocess"
@@ -325,32 +326,35 @@ def _seed_text_layer_link(tmp_path: Path, *, initial_text: str) -> dict[str, Any
     run_store.point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=[row_id])
 
-    artifact = record_source_artifact(
-        project, artifact_kind="text", media_type="text/plain"
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="text", media_type="text/plain"
+        )
     text_hash = _text_hash(initial_text)
     # The offsets index the output markdown cell, so declare that coordinate
     # surface as media.to_markdown now does.
-    surface = record_text_surface(
-        project,
-        surface_kind="cell",
-        content_hash=text_hash,
-        offset_unit="unicode_codepoint",
-        text_sheet_id=sheet_id,
-        text_row_id=row_id,
-        text_column_id=output_col,
-        value_ref=refs[row_id],
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        char_start=0,
-        char_end=len(initial_text),
-        quote=initial_text,
-        text_layer_hash=text_hash,
-        text_surface_id=surface["id"],
-    )
+    with write_transaction(project.db):
+        surface = record_text_surface(
+            project,
+            surface_kind="cell",
+            content_hash=text_hash,
+            offset_unit="unicode_codepoint",
+            text_sheet_id=sheet_id,
+            text_row_id=row_id,
+            text_column_id=output_col,
+            value_ref=refs[row_id],
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            char_start=0,
+            char_end=len(initial_text),
+            quote=initial_text,
+            text_layer_hash=text_hash,
+            text_surface_id=surface["id"],
+        )
     link = record_citation(
         project,
         subject_kind="cell",

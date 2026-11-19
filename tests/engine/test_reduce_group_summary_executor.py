@@ -16,6 +16,7 @@ from frisket.authoring.actions import run_trace, run_trace_row
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.operability.trace import read_trace, read_trace_row, trace_path
+from frisket.engine.store.transactions import write_transaction
 
 
 class _SummaryAdapter:
@@ -805,12 +806,13 @@ def test_reduce_group_summary_refuses_an_exhausted_project_key_before_provider_c
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
-        env.project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("k"),
-            hint=key_hint("k"),
-            spend_cap_micro=0,
-        )
+        with write_transaction(env.project.db):
+            env.project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("k"),
+                hint=key_hint("k"),
+                spend_cap_micro=0,
+            )
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "k"},

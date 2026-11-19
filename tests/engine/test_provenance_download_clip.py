@@ -17,6 +17,7 @@ from frisket.engine.store.media_clip import (
     clip_filename,
     padded_range,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _wav_bytes(seconds: float, *, sample_rate: int = 8000) -> bytes:
@@ -52,14 +53,15 @@ def _seed_temporal_span(
     start_ms: int | None = 1000,
     end_ms: int | None = 2000,
 ) -> str:
-    artifact = record_source_artifact(
-        project,
-        artifact_kind=artifact_kind,
-        media_type=mime,
-        blob_hash=blob_hash,
-        filename=filename,
-        duration_ms=duration_ms,
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind=artifact_kind,
+            media_type=mime,
+            blob_hash=blob_hash,
+            filename=filename,
+            duration_ms=duration_ms,
+        )
     span_kwargs: dict = {"span_kind": span_kind}
     if span_kind == "temporal":
         span_kwargs["start_ms"] = start_ms
@@ -67,12 +69,13 @@ def _seed_temporal_span(
     else:
         span_kwargs["page_start"] = 1
         span_kwargs["page_end"] = 1
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        quote="excerpt",
-        **span_kwargs,
-    )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            quote="excerpt",
+            **span_kwargs,
+        )
     project.db.commit()
     return str(span["stable_id"])
 

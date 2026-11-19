@@ -113,8 +113,8 @@ class _IndexDeleter:
             )
         except OSError:
             deleted_export_artifacts = 0
-        store.delete_index(index_id, commit=False)
-        space_deleted = store.delete_space_if_orphan(space_id, commit=False)
+        store.delete_index(index_id)
+        space_deleted = store.delete_space_if_orphan(space_id)
         self._effects.index_id = index_id
         self.result = DeletedEmbeddingIndex(
             index_id=index_id,

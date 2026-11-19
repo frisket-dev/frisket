@@ -33,6 +33,7 @@ from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import ActionProgram
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, run_with_exact_confirmation
+from frisket.engine.store.transactions import write_transaction
 
 
 class _ReturnedProviderCall:
@@ -138,11 +139,12 @@ def _prepare_claimed_run(
     )
     assert conflict is None
     assert len(claims) == len(fields)
-    OutputColumnClaimStore(runner.project).bind_to_run(
-        claim_token=token,
-        run_id=progress.run_id,
-        expected_output_names=[str(field["name"]) for field in fields],
-    )
+    with write_transaction(runner.project.db):
+        OutputColumnClaimStore(runner.project).bind_to_run(
+            claim_token=token,
+            run_id=progress.run_id,
+            expected_output_names=[str(field["name"]) for field in fields],
+        )
     return progress.run_id, token
 
 
@@ -281,12 +283,13 @@ def test_returned_checkpoint_accounts_spend_before_result_commit(
     """The provider invoice becomes cap truth before the result crash window."""
 
     project = make_project("returned-row-cap")
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=50,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=50,
+        )
     sheet = project.add_sheet("data")
     columns = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": "cross the cap"}], columns)

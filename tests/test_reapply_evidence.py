@@ -11,6 +11,7 @@ from frisket.engine.store.evidence import (
     record_source_span,
     sheet_cited_column_ids,
 )
+from frisket.engine.store.transactions import write_transaction
 
 work = recovery.work
 
@@ -20,19 +21,21 @@ def _source(work, *, count=4):
     original = recovery.start(run)
     column = next(c["id"] for c in project.columns(sheet) if c["name"] == "Answer")
     _, refs = project.get_values_with_refs(sheet, column, row_ids=rows)
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="web_page",
-        media_type="text/html",
-        source_url="https://example.invalid/citation",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="page",
-        page_start=1,
-        quote="Retained supporting passage",
-    )
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="web_page",
+            media_type="text/html",
+            source_url="https://example.invalid/citation",
+        )
+    with write_transaction(project.db):
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="page",
+            page_start=1,
+            quote="Retained supporting passage",
+        )
     with project.transaction_scope():
         for i in range(count):
             stale = i % 2 == 1

@@ -5,6 +5,7 @@ import json
 import pytest
 
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_feed_store_preserves_feed_check_lifecycle(
@@ -25,23 +26,26 @@ def test_feed_store_preserves_feed_check_lifecycle(
     assert source["last_status"] == "never"
     assert json.loads(source["config"]) == {"title_field": "title"}
 
-    store.update_feed(source_id, enabled=False, config={"title_field": "headline"})
+    with write_transaction(project.db):
+        store.update_feed(source_id, enabled=False, config={"title_field": "headline"})
     source = store.get_feed(source_id)
     assert source is not None
     assert source["enabled"] == 0
     assert json.loads(source["config"]) == {"title_field": "headline"}
     with pytest.raises(ValueError, match="unknown feed field"):
-        store.update_feed(source_id, unknown=True)
+        with write_transaction(project.db):
+            store.update_feed(source_id, unknown=True)
 
-    source_run_id = store.start_feed_check(source_id, cursor_before="cursor-1")
-    store.finish_feed_check(
-        source_run_id,
-        status="ok",
-        new_rows=1,
-        revisions=1,
-        cursor_after="cursor-2",
-        summary={"seen": 2},
-    )
+    with write_transaction(project.db):
+        source_run_id = store.start_feed_check(source_id, cursor_before="cursor-1")
+        store.finish_feed_check(
+            source_run_id,
+            status="ok",
+            new_rows=1,
+            revisions=1,
+            cursor_after="cursor-2",
+            summary={"seen": 2},
+        )
     runs = store.feed_checks_page(source_id)
     assert len(runs) == 1
     assert runs[0]["status"] == "ok"
