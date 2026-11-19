@@ -42,9 +42,6 @@
  "workbench-ia-document-view.spec.ts": {
   "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio"
  },
- "workbench-ia-right-edge.spec.ts": {
-  "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment"
- },
  "workbench-ia-shell.spec.ts": {
   "Home renders real project cards with real meta counts and navigates into the workbench": "seed:Local stories,Tariff impacts",
   "the switcher menu recent-projects entry switches projects": "seed:Local stories,Tariff impacts"

@@ -239,11 +239,22 @@ test('a long unbreakable sheet name ellipsizes in the Detail header — one line
   const header = page.locator('.inspect-detail-header');
   await expect(header).toBeVisible();
 
-  // Single-line header: its height stays that of one row of chips (< 50px),
-  // and the sheet-name span truncates with the full name in its title.
-  const headerBox = await header.boundingBox();
-  expect(headerBox!.height).toBeLessThan(50);
+  // One line, measured by the text's own line boxes so the check holds under
+  // any font metrics: the ROW kicker, the row title and the sheet name each
+  // lay out as a single line, the row title keeps visible width, and the sheet
+  // name truncates with the full name in its title.
+  const lineCount = (el: Element) => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+  };
+  const kicker = page.getByTestId('inspect-detail-rownum');
+  const rowTitle = page.getByTestId('inspect-detail-row-title');
   const nameSpan = header.locator('.inspect-detail-sheet');
+  for (const part of [kicker, rowTitle, nameSpan]) {
+    expect(await part.evaluate(lineCount)).toBe(1);
+  }
+  expect((await rowTitle.boundingBox())!.width).toBeGreaterThan(0);
   await expect(nameSpan).toHaveAttribute('title', new RegExp('youtube-playlist-watch'));
   expect(await nameSpan.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
 
