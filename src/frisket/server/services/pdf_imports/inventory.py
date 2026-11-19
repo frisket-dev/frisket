@@ -6,7 +6,7 @@ from frisket.engine.store.transactions import inserted_rowid
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -155,7 +155,7 @@ class PdfDraftInventory:
     def append_manifest_batch(
         self,
         batch_id: str,
-        items: list[Mapping[str, Any]],
+        items: Sequence[Mapping[str, Any]],
         *,
         expected_files: int,
         expected_bytes: int,
@@ -299,7 +299,7 @@ class PdfDraftInventory:
     def stage_batch(
         self,
         batch_id: str,
-        facts: list[Mapping[str, Any]],
+        facts: Sequence[Mapping[str, Any]],
     ) -> tuple[int, bool]:
         payload_hash = self.payload_hash(facts)
         self.db.execute("BEGIN IMMEDIATE")
@@ -379,7 +379,7 @@ class PdfDraftInventory:
             self.db.rollback()
             raise
 
-    def record_acquisitions(self, facts: list[Mapping[str, Any]]) -> None:
+    def record_acquisitions(self, facts: Sequence[Mapping[str, Any]]) -> None:
         """Retain trusted acquisition facts independently of shared blob bytes."""
 
         with self.db:
@@ -422,7 +422,7 @@ class PdfDraftInventory:
                     (occurrence_id, *values),
                 )
 
-    def stage_acquisition_errors(self, facts: list[Mapping[str, Any]]) -> None:
+    def stage_acquisition_errors(self, facts: Sequence[Mapping[str, Any]]) -> None:
         """Admit error-only URL occurrences without inventing file bytes."""
 
         self.db.execute("BEGIN IMMEDIATE")
@@ -514,7 +514,7 @@ class PdfDraftInventory:
             raise
 
     def upload_batch_through(
-        self, batch_id: str, facts: list[Mapping[str, Any]]
+        self, batch_id: str, facts: Sequence[Mapping[str, Any]]
     ) -> int | None:
         row = self.db.execute(
             "SELECT payload_hash,through_ordinal FROM pdf_upload_batches WHERE batch_id=?",

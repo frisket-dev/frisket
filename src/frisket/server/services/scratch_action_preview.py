@@ -7,7 +7,7 @@ import copy
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any, Awaitable, Callable, Iterator, Mapping
+from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 
 from frisket.engine.executor.table_preview import TablePreviewResult
 from frisket.engine.store.runs import RunResultStore
@@ -170,7 +170,7 @@ class ScratchActionPreviewRunContext:
             else replace(self.resolved_execution, persistence="ephemeral")
         )
 
-    def write_model_calls(self, calls: list[Mapping[str, Any]]) -> float:
+    def write_model_calls(self, calls: Sequence[Mapping[str, Any]]) -> float:
         if not calls or self.attempt is None or self.receipt_id is None:
             return 0.0
         batch = [

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frisket.features.followthemoney.adapter import (
@@ -42,7 +42,7 @@ FOLLOWTHEMONEY_EXPORT_CONTENT_TYPES = {
 def build_followthemoney_export_package(
     *,
     source: Mapping[str, Any],
-    mappings: list[Mapping[str, Any]],
+    mappings: Sequence[Mapping[str, Any]],
     rowsets_by_key: Mapping[str, Mapping[str, Any]],
     project_id: str,
     media_policy: str = "refs",
@@ -263,7 +263,7 @@ def _source_entries_for_mapping(
     )
 
 
-def _coverage(mapping_results: list[Mapping[str, Any]]) -> dict[str, Any]:
+def _coverage(mapping_results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     row_count = 0
     entity_count = 0
     skipped_count = 0
@@ -290,8 +290,8 @@ def _coverage(mapping_results: list[Mapping[str, Any]]) -> dict[str, Any]:
 
 
 def _diagnostics_summary(
-    mapping_diagnostics: list[Mapping[str, Any]],
-    validation_diagnostics: list[Mapping[str, Any]],
+    mapping_diagnostics: Sequence[Mapping[str, Any]],
+    validation_diagnostics: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     all_diagnostics = [*mapping_diagnostics, *validation_diagnostics]
     by_code = Counter(str(item.get("code") or "unknown") for item in all_diagnostics)

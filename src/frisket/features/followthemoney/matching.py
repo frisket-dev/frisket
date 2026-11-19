@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -697,7 +697,7 @@ def _candidate_payload(candidate: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _merge_reasons(pairs: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def _merge_reasons(pairs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     merged: dict[tuple[str, str], dict[str, Any]] = {}
     for pair in pairs:
         entity_ids = [pair.get("left_entity_id"), pair.get("right_entity_id")]
@@ -723,7 +723,7 @@ def _merge_reasons(pairs: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return sorted(merged.values(), key=lambda item: (item["code"], item["property"]))
 
 
-def _group_id(candidates: list[Mapping[str, Any]]) -> str:
+def _group_id(candidates: Sequence[Mapping[str, Any]]) -> str:
     material = json.dumps(
         [
             {

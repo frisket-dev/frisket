@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 
@@ -63,7 +63,7 @@ def bounded_snippet(snippet: str, *, start_marker: str, end_marker: str) -> str:
 
 def native_snippets(
     query: str,
-    candidates: list[Mapping[str, Any]],
+    candidates: Sequence[Mapping[str, Any]],
     *,
     start_marker: str = "<b>",
     end_marker: str = "</b>",
