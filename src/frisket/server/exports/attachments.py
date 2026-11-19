@@ -8,7 +8,7 @@ from zipfile import ZIP_STORED, ZipFile
 
 from frisket.engine.store.blob_backend import BlobStoreError, validate_blob_digest
 from frisket.server.downloads import download_filename
-from frisket.server.exports.rowset import ExportError
+from frisket.exports.rowset import ExportError
 
 
 class ExportAttachments:

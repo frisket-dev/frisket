@@ -319,8 +319,8 @@
    "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
   ],
   [
-   "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__",
-   "src/frisket/server/exports/dataset_formats.py::DatasetFormatError.__init__"
+   "src/frisket/exports/dataset_formats.py::DatasetFormatError.__init__",
+   "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__"
   ],
   [
    "src/frisket/features/followthemoney/adapter.py::_diagnostic",
@@ -338,9 +338,9 @@
    "src/frisket/pdf_packets/matching.py::_start_kinds.find"
   ],
   [
+   "src/frisket/exports/rowset.py::ExportError.__init__",
    "src/frisket/features/investigations/rowsets.py::InvestigativeRowsetError.__init__",
-   "src/frisket/preview/common.py::ComparePreviewError.__init__",
-   "src/frisket/server/exports/rowset.py::ExportError.__init__"
+   "src/frisket/preview/common.py::ComparePreviewError.__init__"
   ],
   [
    "src/frisket/ingest.py::_media_kind",

@@ -13,8 +13,8 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal
 
-from frisket.server.exports import rowset as _rowset
-from frisket.server.exports.rowset import ExportError
+from frisket.exports import rowset as _rowset
+from frisket.exports.rowset import ExportError
 from frisket.engine.store import Project
 
 if TYPE_CHECKING:
@@ -246,7 +246,7 @@ def _build_export_columns(
     include_attachment_paths: bool = False,
 ) -> list[ExportColumn]:
     """Project visible sheet columns into generated columns via media projection."""
-    from frisket.server.exports import media as _media
+    from frisket.exports import media as _media
 
     return _media.project_export_columns(
         project,
@@ -269,7 +269,7 @@ def iter_export_row_batches(
     result > source cell) with no stringification. Media columns resolve their
     fixed reference siblings per row.
     """
-    from frisket.server.exports import media as _media
+    from frisket.exports import media as _media
 
     media_source_ids = {
         column.source_column_id

@@ -8,7 +8,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Callable, Iterator
 
-from frisket.server.exports.plan import (
+from frisket.exports.plan import (
     AttachmentPath,
     SheetExportPlan,
     iter_export_row_batches,

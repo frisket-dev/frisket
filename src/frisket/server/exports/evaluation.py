@@ -6,7 +6,7 @@ import csv
 import io
 
 from frisket.engine.store.prepared_content import decode_logical_value
-from frisket.server.exports.sheet_csv import csv_display
+from frisket.exports.sheet_csv import csv_display
 from frisket.server.route_errors import RouteError
 
 

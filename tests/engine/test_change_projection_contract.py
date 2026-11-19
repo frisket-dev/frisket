@@ -11,7 +11,7 @@ from frisket.engine.store.current_value_windows import read_current_column
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.querysets import resolve_sheet_filter_rows
-from frisket.server.exports.plan import build_sheet_export_plan, iter_export_row_batches
+from frisket.exports.plan import build_sheet_export_plan, iter_export_row_batches
 from helpers import run_writer_authority_fixture
 from test_result_generation_store import (
     _declare,

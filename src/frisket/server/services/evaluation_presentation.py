@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from frisket.server.exports.sheet_csv import csv_cell
+from frisket.exports.sheet_csv import csv_cell
 from frisket.server.services.evaluation_values import value_hash
 
 CELL_BYTE_LIMIT = 64 * 1024
