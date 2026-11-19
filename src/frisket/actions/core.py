@@ -9,7 +9,16 @@ from dataclasses import dataclass, field, replace
 from collections.abc import Mapping as MappingABC
 from enum import Enum, StrEnum
 from types import MappingProxyType
-from typing import Any, Callable, Generic, Literal, Mapping, TypeVar, get_type_hints
+from typing import (
+    Any,
+    Callable,
+    Generic,
+    Literal,
+    Mapping,
+    TypedDict,
+    TypeVar,
+    get_type_hints,
+)
 
 from pydantic import BaseModel, JsonValue, TypeAdapter
 from pydantic.fields import FieldInfo
@@ -1376,6 +1385,10 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
 )
 
 
+_CatalogFamily = Literal["map", "external", "model"]
+_CatalogCostKind = Literal["none", "external_metered", "unknown", "model_metered"]
+
+
 @dataclass(frozen=True)
 class CapabilityCatalogSpec:
     """Catalog facts one host capability adds to a row or sheet action.
@@ -1390,10 +1403,10 @@ class CapabilityCatalogSpec:
     side_effects: tuple[str, ...] = ()
     required_capabilities: tuple[str, ...] = ()
     credentials: tuple[str, ...] = ()
-    family: Literal["map", "external", "model"] = "map"
+    family: _CatalogFamily = "map"
     calls_provider: bool = False
     records_model_calls: bool = False
-    cost_kind: Literal["none", "external_metered", "unknown", "model_metered"] = "none"
+    cost_kind: _CatalogCostKind = "none"
     provider_retry: bool = False
     queued: bool = False
 
@@ -1420,12 +1433,33 @@ _TRANSCRIPT_SELECTION_SPEC = CapabilityCatalogSpec(
     ),
     queued=True,
 )
-_AGENT = {"family": "model", "cost_kind": "unknown"}
-_EXTERNAL = {"family": "external", "calls_provider": True}
+
+
+class _AgentPreset(TypedDict):
+    family: _CatalogFamily
+    cost_kind: _CatalogCostKind
+
+
+class _ExternalPreset(TypedDict):
+    family: _CatalogFamily
+    calls_provider: bool
+
+
+class _RoutedPreset(_ExternalPreset):
+    records_model_calls: bool
+    cost_kind: _CatalogCostKind
+
+
+_AGENT: _AgentPreset = {"family": "model", "cost_kind": "unknown"}
+_EXTERNAL: _ExternalPreset = {"family": "external", "calls_provider": True}
 _FETCH_SPEC = CapabilityCatalogSpec(
     required_capabilities=("external:media_download",), **_EXTERNAL
 )
-_ROUTED = {**_EXTERNAL, "records_model_calls": True, "cost_kind": "external_metered"}
+_ROUTED: _RoutedPreset = {
+    **_EXTERNAL,
+    "records_model_calls": True,
+    "cost_kind": "external_metered",
+}
 _SEMANTIC_JOIN_ERRORS = (
     ("duplicate_sheet_name", "The linked sheet name already exists."),
     ("embedding_backend_unavailable", "No embedding backend is configured."),
