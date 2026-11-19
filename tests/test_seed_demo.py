@@ -355,7 +355,7 @@ def test_seed_audio_imports_packaged_council_fixture_without_network(
                 params={
                     "source": "media",
                     "engine": "faster_whisper",
-                    "model_size": "tiny",
+                    "model_size": "base",
                 },
                 output_names={
                     "text": "transcript",
@@ -552,3 +552,55 @@ def test_typed_output_placement_participates_in_demo_idempotency_key():
 
     assert request("summary") == request("summary")
     assert request("summary")["idempotency_key"] != request("other")["idempotency_key"]
+
+
+@pytest.mark.parametrize(
+    ("seed", "expected_actions"),
+    [
+        (seed_demo.seed_stories, ["map.classify"]),
+        (seed_demo.seed_tariff, ["import.rows", "map.summarize", "map.classify"]),
+        (seed_demo.seed_audio, ["media.transcribe", "map.summarize"]),
+    ],
+)
+def test_keyless_demo_actions_pass_real_root_validation(
+    seed, expected_actions, monkeypatch, tmp_path
+):
+    emitted = []
+    primed = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/projects":
+            return httpx.Response(200, json={"id": "demo"})
+        if path.endswith("/model-routes"):
+            assert json.loads(request.content) == {
+                "model_id": seed_demo.MODEL,
+                "route": "own",
+            }
+            return httpx.Response(200, json={})
+        if path.endswith(("/import/csv", "/import/files")):
+            return httpx.Response(200, json={"sheet_id": 17})
+        if path.endswith("/sheets"):
+            return httpx.Response(200, json=[{"id": 17, "name": "countries"}])
+        assert path == "/api/projects/demo/actions/v1/run"
+        payload = json.loads(request.content)
+        validated = validate_root_action(payload)
+        assert validated.ok, (payload["action_id"], validated.error)
+        emitted.append(payload["action_id"])
+        return httpx.Response(200, json={"status": "completed", "run_id": None})
+
+    monkeypatch.setattr(
+        seed_demo,
+        "prime_replies",
+        lambda workspace, _pid, action, _replies: primed.append(
+            (workspace, action["action_id"])
+        ),
+    )
+    with httpx.Client(
+        base_url="http://frisket.test", transport=httpx.MockTransport(handle)
+    ) as client:
+        seed(client, tmp_path)
+    assert emitted == expected_actions
+    assert primed == [
+        (tmp_path, action) for action in expected_actions if action.startswith("map.")
+    ]

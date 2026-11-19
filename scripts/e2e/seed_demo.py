@@ -7,17 +7,23 @@ Usage:
 
 Creates each of these that the server does not already hold:
   1. "Local stories" — classify demo (beats + justification)
-  2. "Council audio" — packaged CC0 council excerpt → transcribe → summarize
+  2. "Council audio" — packaged CC0 council excerpt → local Whisper base
+     transcription → summarize
   3. "Tariff impacts" — countries; web_search → summarize → score chain
   4. "People mentioned" — fixture rows → derived People sheet, model-free
-Runs are REAL model calls (the server's keys); total cost well under $0.25.
+Model and search calls are REAL (the server's keys); total cost well under
+$0.25. Transcription is local and needs the pinned Whisper base model in the
+Hugging Face cache (scripts/e2e/fetch_whisper_model.py, or the in-app setup).
 
-``--keyless`` builds only the projects that need no provider: "People
-mentioned", and "Local stories" with its classify replies taken from
-STORIES_REPLIES, stored in the project's response cache under the keys the
-run will look up (prime_replies.py) and replayed with the model routed to the
-project's own key, so the run succeeds under FRISKET_CACHE_MODE=replay_strict
-with no key at all. <workspace> is the server's workspace directory.
+``--keyless`` makes no provider call. Every model reply is a fixture
+(STORIES_REPLIES, AUDIO_SUMMARY_REPLIES, TARIFF_SUMMARY_REPLIES,
+TARIFF_SCORE_REPLIES) stored in the project's response cache under the keys
+the run will look up (prime_replies.py) and replayed with the model routed to
+the project's own key, so the runs succeed under
+FRISKET_CACHE_MODE=replay_strict with no key at all. Web search has no
+replay, so the keyless "Tariff impacts" imports TARIFF_SEARCH_RESULTS as its
+search_results column instead of running research.web_search.
+<workspace> is the server's workspace directory.
 
 Each project is built on its own: a run that ends with failed rows leaves its
 project partial (the run records which rows failed), and a project that
@@ -90,6 +96,35 @@ STORIES_CLASSIFY = {
     "include_justification": True,
     "include_confidence": True,
 }
+
+
+# Fixture data for the keyless build; it stands in for provider output and
+# measures nothing. AUDIO_SUMMARY_REPLIES has one reply per imported file.
+AUDIO_SUMMARY_REPLIES = [
+    {"summary": "A city council committee discusses items on its agenda."}
+]
+TARIFF_SEARCH_RESULTS = {
+    country: [
+        {
+            "title": f"Fixture search result {n} on US tariffs and {country}",
+            "url": f"https://example.org/fixture/{country.lower()}/{n}",
+            "snippet": f"Placeholder text standing in for a search result about {country}.",
+        }
+        for n in (1, 2)
+    ]
+    for country in COUNTRIES
+}
+TARIFF_SUMMARY_REPLIES = [
+    {"summary": f"Placeholder summary of US tariff impacts on {country}."}
+    for country in COUNTRIES
+]
+TARIFF_SCORE_REPLIES = [
+    {
+        "tariff_impact": score,
+        "tariff_impact_justification": f"Placeholder score for {country}.",
+    }
+    for country, score in zip(COUNTRIES, (7, 8, 9, 4, 6, 5), strict=True)
+]
 
 
 def _story_reply(beat: str, why: str, score: int, weight: str, confidence: float):
@@ -316,6 +351,28 @@ def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) 
     )
 
 
+def route_model_to_own_key(client: httpx.Client, pid: str) -> None:
+    """Route MODEL to the project's own key so primed replies replay keyless."""
+    client.patch(
+        f"/api/projects/{pid}/model-routes",
+        json={"model_id": MODEL, "route": "own"},
+    ).raise_for_status()
+
+
+def run_model_action(
+    client: httpx.Client,
+    pid: str,
+    action: dict,
+    label: str,
+    keyless_workspace: Path | None,
+    replies: list[dict],
+) -> None:
+    """Run a model action; keyless, its replies come from ``replies``."""
+    if keyless_workspace is not None:
+        prime_replies(keyless_workspace, pid, action, replies)
+    run(client, pid, action, label)
+
+
 def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
     pid = create_project(client, "Local stories")
     sheet = import_sheet(
@@ -325,36 +382,66 @@ def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) ->
         "map.classify", sheet_id=sheet, params=STORIES_CLASSIFY
     )
     if keyless_workspace is not None:
-        client.patch(
-            f"/api/projects/{pid}/model-routes",
-            json={"model_id": MODEL, "route": "own"},
-        ).raise_for_status()
-        prime_replies(keyless_workspace, pid, action, STORIES_REPLIES)
-    run(client, pid, action, "classify stories")
+        route_model_to_own_key(client, pid)
+    run_model_action(
+        client, pid, action, "classify stories", keyless_workspace, STORIES_REPLIES
+    )
     print(f"✓ Local stories → {pid}")
 
 
-def seed_tariff(client: httpx.Client) -> None:
-    pid = create_project(client, "Tariff impacts")
-    sheet = import_sheet(
-        client, pid, "csv", {"file": ("countries.csv", COUNTRIES_CSV, "text/csv")}
-    )
+def import_fixture_search_results(client: httpx.Client, pid: str) -> int:
+    """The keyless stand-in for research.web_search: countries with fixture
+    search_results; returns the sheet's id."""
     run(
         client,
         pid,
         typed_action_request(
-            "research.web_search",
-            sheet_id=sheet,
+            "import.rows",
+            sheet_name="countries",
             params={
-                "query": {"text": "US tariff impacts on {{country}} economy 2026"},
-                "model": MODEL,
-                "max_results": 8,
+                "columns": [
+                    {"name": "country", "type": "text"},
+                    {"name": "search_results", "type": "json"},
+                ],
+                "rows": [
+                    {"country": country, "search_results": results}
+                    for country, results in TARIFF_SEARCH_RESULTS.items()
+                ],
+                "source": {"kind": "inline", "label": "seed_demo search results"},
             },
-            output_names={"search_results": "search_results"},
         ),
-        "web search",
+        "import fixture search results",
     )
-    run(
+    response = client.get(f"/api/projects/{pid}/sheets")
+    response.raise_for_status()
+    return next(s["id"] for s in response.json() if s["name"] == "countries")
+
+
+def seed_tariff(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
+    pid = create_project(client, "Tariff impacts")
+    if keyless_workspace is not None:
+        route_model_to_own_key(client, pid)
+        sheet = import_fixture_search_results(client, pid)
+    else:
+        sheet = import_sheet(
+            client, pid, "csv", {"file": ("countries.csv", COUNTRIES_CSV, "text/csv")}
+        )
+        run(
+            client,
+            pid,
+            typed_action_request(
+                "research.web_search",
+                sheet_id=sheet,
+                params={
+                    "query": {"text": "US tariff impacts on {{country}} economy 2026"},
+                    "model": MODEL,
+                    "max_results": 8,
+                },
+                output_names={"search_results": "search_results"},
+            ),
+            "web search",
+        )
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -369,8 +456,10 @@ def seed_tariff(client: httpx.Client) -> None:
             output_names={"summary": "summary"},
         ),
         "summarize",
+        keyless_workspace,
+        TARIFF_SUMMARY_REPLIES,
     )
-    run(
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -392,12 +481,16 @@ def seed_tariff(client: httpx.Client) -> None:
             },
         ),
         "score impacts",
+        keyless_workspace,
+        TARIFF_SCORE_REPLIES,
     )
     print(f"✓ Tariff impacts → {pid}")
 
 
-def seed_audio(client: httpx.Client) -> None:
+def seed_audio(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
     pid = create_project(client, COUNCIL_AUDIO_PROJECT_NAME)
+    if keyless_workspace is not None:
+        route_model_to_own_key(client, pid)
     audio = council_audio_bytes(COUNCIL_AUDIO_SAMPLE.filename)
     sheet = import_sheet(
         client,
@@ -420,7 +513,7 @@ def seed_audio(client: httpx.Client) -> None:
             params={
                 "source": "media",
                 "engine": "faster_whisper",
-                "model_size": "tiny",
+                "model_size": "base",
             },
             output_names={
                 "text": "transcript",
@@ -430,7 +523,7 @@ def seed_audio(client: httpx.Client) -> None:
         ),
         "transcribe",
     )
-    run(
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -444,11 +537,11 @@ def seed_audio(client: httpx.Client) -> None:
             output_names={"summary": "one_line_summary"},
         ),
         "summarize transcript",
+        keyless_workspace,
+        AUDIO_SUMMARY_REPLIES,
     )
     print(f"✓ {COUNCIL_AUDIO_PROJECT_NAME} → {pid}")
 
-
-KEYLESS_PROJECTS = ("Local stories", "People mentioned")
 
 # Failures that end one project's build; the next project is still built.
 SEED_FAILURES = (
@@ -524,8 +617,8 @@ def main() -> None:
         auth = httpx.BasicAuth(u, pw)
     seeders: dict[str, Callable[[httpx.Client], None]] = {
         "Local stories": lambda client: seed_stories(client, args.keyless),
-        COUNCIL_AUDIO_PROJECT_NAME: seed_audio,
-        "Tariff impacts": seed_tariff,
+        COUNCIL_AUDIO_PROJECT_NAME: lambda client: seed_audio(client, args.keyless),
+        "Tariff impacts": lambda client: seed_tariff(client, args.keyless),
         "People mentioned": seed_people_derive,
     }
     outcomes: dict[str, dict] = {}
@@ -538,8 +631,6 @@ def main() -> None:
         for name, seed in seeders.items():
             if name in present:
                 outcomes[name] = {"state": "present", "detail": None}
-                continue
-            if args.keyless and name not in KEYLESS_PROJECTS:
                 continue
             outcomes[name] = seed_one(client, name, seed)
     report(outcomes)

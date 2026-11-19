@@ -3,8 +3,9 @@
 // projects the workspace lacks, each on its own, and reports each one as
 // complete, partial or missing; only complete ones are published to the
 // persistent e2e workspace. With FRISKET_CACHE_MODE=replay_strict it builds
-// only the keyless ones ("Local stories" from fixture replies, "People
-// mentioned"); otherwise it makes real model calls (~$0.25). Either way the
+// them from fixture replies with no provider call ("Council audio" also needs
+// the pinned Whisper base model, scripts/e2e/fetch_whisper_model.py);
+// otherwise it makes real model and search calls (~$0.25). Either way the
 // setup then opens each seeded project and records which ones are unusable
 // (absent, partially built, or created by an incompatible build), so the specs
 // that need them fail at once with that reason while every other spec still
@@ -19,8 +20,6 @@ import { testPython } from '../support/testPython';
 import { SEED_REMEDY, SEEDED_PROJECTS, type SeedStatus, writeSeedStatus } from './seedProjects';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const KEYLESS_ABSENT =
-  'absent: only a paid seed run builds it, and FRISKET_CACHE_MODE=replay_strict builds only the keyless projects';
 
 function sleep(ms: number) {
   return new Promise((resolve) => {
@@ -107,8 +106,8 @@ async function projectIds(request: APIRequestContext): Promise<Map<string, strin
   return ids;
 }
 
-function outcomeFailure(outcome: SeedOutcome | undefined, keyless: boolean): string | null {
-  if (outcome === undefined) return keyless ? KEYLESS_ABSENT : 'absent: the seeder did not report it';
+function outcomeFailure(outcome: SeedOutcome | undefined): string | null {
+  if (outcome === undefined) return 'absent: the seeder did not report it';
   if (outcome.state === 'partial') return `partially built: ${outcome.detail ?? 'a run did not complete'}`;
   if (outcome.state === 'missing') return `absent: building it failed (${outcome.detail ?? 'no detail'})`;
   return null;
@@ -143,7 +142,7 @@ async function seed(): Promise<SeedVerdict> {
     .filter(([, outcome]) => outcome.state === 'complete')
     .map(([name]) => name);
   await publishSeedToBaseWorkspace(new Set(complete));
-  return (name) => outcomeFailure(outcomes[name], keyless);
+  return (name) => outcomeFailure(outcomes[name]);
 }
 
 async function openFailure(

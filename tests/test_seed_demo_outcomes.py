@@ -33,6 +33,9 @@ class FakeServer:
         self.projects: dict[str, str] = {}
         self.runs: dict[int, tuple[str, str]] = {}
         self.actions: list[tuple[str, str]] = []
+        self.params: dict[tuple[str, str], dict] = {}
+        self.own_routes: list[str] = []
+        self.primed: list[tuple[str, str, int]] = []
 
     def _name(self, pid: str) -> str:
         return next(name for name, known in self.projects.items() if known == pid)
@@ -56,6 +59,7 @@ class FakeServer:
         if path.endswith(("/import/csv", "/import/files")):
             return httpx.Response(200, json={"sheet_id": 1})
         if path.endswith("/model-routes"):
+            self.own_routes.append(self._name(pid))
             return httpx.Response(200, json={})
         if path.endswith("/sheets"):
             return httpx.Response(
@@ -64,8 +68,10 @@ class FakeServer:
         if path.endswith("/data"):
             return httpx.Response(200, json={"columns": [{"id": 2, "name": "people"}]})
         if path.endswith("/actions/v1/run"):
-            action_id = json.loads(request.content)["action_id"]
+            payload = json.loads(request.content)
+            action_id = payload["action_id"]
             self.actions.append((self._name(pid), action_id))
+            self.params[(self._name(pid), action_id)] = payload["params"]
             run_id = len(self.runs) + 1
             self.runs[run_id] = (self._name(pid), action_id)
             return httpx.Response(200, json={"run_id": run_id})
@@ -98,7 +104,11 @@ def _seed(
         return real_client(transport=httpx.MockTransport(server.handle), **kwargs)
 
     monkeypatch.setattr(seed_demo.httpx, "Client", client)
-    monkeypatch.setattr(seed_demo, "prime_replies", lambda *_args: None)
+
+    def prime(_workspace: Path, pid: str, action: dict, replies: list[dict]) -> None:
+        server.primed.append((server._name(pid), action["action_id"], len(replies)))
+
+    monkeypatch.setattr(seed_demo, "prime_replies", prime)
     status_file = tmp_path / "seed-status.json"
     monkeypatch.setattr(
         sys,
@@ -205,3 +215,34 @@ def test_a_project_the_server_already_holds_is_recorded_present(monkeypatch, tmp
     assert code == 0
     assert status["Local stories"] == {"state": "present", "detail": None}
     assert ("Local stories", "map.classify") not in server.actions
+
+
+def test_keyless_builds_every_project_from_fixture_replies(monkeypatch, tmp_path):
+    server = FakeServer()
+
+    code, status = _seed(monkeypatch, tmp_path, server, "--keyless", str(tmp_path))
+
+    assert code == 0
+    assert status == {
+        name: {"state": "complete", "detail": None} for name in ALL_PROJECTS
+    }
+    assert server.own_routes == ["Local stories", "Council audio", "Tariff impacts"]
+    # Every model action is primed with one fixture reply per row first.
+    assert server.primed == [
+        ("Local stories", "map.classify", 8),
+        ("Council audio", "map.summarize", 1),
+        ("Tariff impacts", "map.summarize", 6),
+        ("Tariff impacts", "map.classify", 6),
+    ]
+    model_actions = [
+        action for action in server.actions if "model" in server.params[action]
+    ]
+    assert model_actions == [(name, action) for name, action, _ in server.primed]
+    # Web search has no replay: the keyless build imports its results instead.
+    assert ("Tariff impacts", "research.web_search") not in server.actions
+    rows = server.params[("Tariff impacts", "import.rows")]["rows"]
+    assert [row["country"] for row in rows] == seed_demo.COUNTRIES
+    assert all(row["search_results"] for row in rows)
+    transcribe = server.params[("Council audio", "media.transcribe")]
+    assert transcribe["engine"] == "faster_whisper"
+    assert transcribe["model_size"] == "base"

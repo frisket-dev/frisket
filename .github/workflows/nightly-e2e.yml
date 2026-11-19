@@ -10,9 +10,9 @@ name: nightly-e2e
 # Keyless by construction: no secrets reach any job, and
 # FRISKET_CACHE_MODE=replay_strict makes every model call replay from the
 # committed response cache or fail as a cache miss, so no run can spend or
-# egress to a provider. The seed setup therefore never builds the paid demo
-# projects here; the specs that need them fail at once and stay listed under
-# the `seed` reason.
+# egress to a provider. The seed setup therefore builds every demo project
+# from fixture replies (scripts/e2e/seed_demo.py --keyless) and records in its
+# `seed-status` annotation which ones it could not build.
 #
 # A night whose verdict fails opens, or comments on, one issue labelled
 # `nightly-e2e`; the next passing night closes it. Dispatch it to judge the
@@ -107,6 +107,9 @@ jobs:
       # The extras bring spaCy but not its pipeline; without the pinned model
       # in the managed cache the entity action reports Setup needed.
       - run: uv run --no-sync python scripts/e2e/fetch_spacy_model.py
+      # The seeded "Council audio" transcribes locally; the no-network worker
+      # loads only the pinned Whisper base snapshot from the Hub cache.
+      - run: uv run --no-sync python scripts/e2e/fetch_whisper_model.py
       - run: npx playwright install --with-deps chromium
         working-directory: web
       # Test failures do not fail the shard: the verdict job judges them
