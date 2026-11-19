@@ -265,9 +265,6 @@
  "sample-project-intro.spec.ts": {
   "guided Home entry opens the existing chooser without the introduction": "stale-expectation"
  },
- "save-to-combobox-a11y.spec.ts": {
-  "save-to input exposes its native combobox and keyboard-real rich popup": "stale-expectation"
- },
  "search.spec.ts": {
   "clicking a hit in another sheet switches to that sheet": "stale-expectation"
  },
