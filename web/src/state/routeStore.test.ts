@@ -102,6 +102,18 @@ describe('routeStore three-entry write seam', () => {
     controller.dispose();
   });
 
+  it('normalize writes its replace when the store already holds the corrected route', () => {
+    const route = createRouteStore('p1');
+    route.projectExternal(base);
+    const write = vi.fn();
+    const controller = createRouteSyncController({ routeStore: route, write });
+
+    route.normalize(base);
+
+    expect(write.mock.calls).toEqual([[base, 'replace']]);
+    controller.dispose();
+  });
+
   it.each(['projectExternal', 'navigate', 'normalize'] as const)(
     '%s rejects a route for a different mounted project',
     (entry) => {
