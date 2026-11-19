@@ -159,6 +159,14 @@ export function dynamicPortPair(
   throw new Error('Unable to lock a unique Playwright e2e port pair after 20 attempts');
 }
 
+/** A fresh workspace under the OS temp directory carrying the harness's
+ *  active marker, for a stack a spec boots for itself. */
+export function newIsolatedE2EWorkspace(label: string): string {
+  const workspace = path.join(os.tmpdir(), `frisket-e2e-${label}-${randomUUID()}`);
+  prepareE2EWorkspace({ workspace, runId: label, env: { FRISKET_E2E_ISOLATED: '1' } });
+  return workspace;
+}
+
 function localPortPair(): { frontendPort: number; backendPort: number; fixedPorts: boolean } {
   const fixedPorts = process.env.FRISKET_E2E_FIXED_PORTS === '1';
   const explicitFrontend = intEnv('FRISKET_E2E_FRONTEND_PORT');

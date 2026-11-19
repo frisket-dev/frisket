@@ -10,7 +10,7 @@
 // prove. Both workarounds are gone with the preflight. Every launch POSTs
 // unconfirmed; the only thing that can raise this modal is a real 402.
 
-import { expect, test, type Locator } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 import {
   createProject,
   importCsv,
@@ -18,6 +18,7 @@ import {
   selectActionSourceColumns,
   uniqueName,
 } from './helpers';
+import { expect, seedPlaceholderProviderKey, test } from './replayStack';
 import {
   actionSelectorResponse,
   stubActionSelectorChoices,
@@ -56,9 +57,12 @@ async function expectCostGateContribution(contribution: Locator) {
   ]);
 }
 
-test('expensive run trips the 402 cost gate modal', async ({ page }) => {
+test('expensive run trips the 402 cost gate modal', async ({ page, replayStack }) => {
   const pid = await createProject(page.request, uniqueName('e2e-costgate'));
   await importCsv(page.request, pid, 'big.csv', bigCsv(1_000));
+  // Without a project key the model routes to Cloud, which refuses before
+  // the gate. The placeholder cannot reach a provider (replayStack.ts).
+  seedPlaceholderProviderKey(replayStack, pid, 'anthropic');
 
   // The POST /run request goes to the live backend and must return the V1
   // action-result 402 envelope.
