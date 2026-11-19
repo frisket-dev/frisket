@@ -632,7 +632,7 @@ _PROJECT_CAPABILITY_SPECS = _project_capability_registry(
                 ),
                 (
                     "embedding_cost_requires_confirmation",
-                    "Automatic refresh requires a finite cost ceiling.",
+                    "Automatic refresh needs an allowance that covers its estimate.",
                 ),
                 (
                     "external_effect_reconciliation_required",

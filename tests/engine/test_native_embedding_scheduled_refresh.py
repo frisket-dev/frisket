@@ -7,7 +7,8 @@ remote refresh is gated:
 - the worker runs a scheduled refresh over the whole index;
 - automatic remote refresh blocks BEFORE the gateway without
   allow_remote_automatic_refresh (embedding_remote_confirmation_required) and
-  without a cost ceiling (embedding_cost_requires_confirmation);
+  without an allowance, over it, or with no known unit price
+  (embedding_cost_requires_confirmation);
 - with both opt-ins it runs; a MANUAL remote refresh ignores the automatic gates;
 - crash/stale-running recovers at the queue layer.
 """
@@ -244,6 +245,89 @@ def test_automatic_remote_with_flags_and_ceiling_runs(env):
     backend.ensure_schema()
     assert backend.item_counts(index_id) == {"ready": 3}
     backend.close()
+
+
+_AUTOMATIC = {"allow_remote": True, "allow_remote_automatic_refresh": True}
+# Three rows "story 0".."story 2": 7 chars each -> 1 estimated token each.
+_HEADLINE_TOKENS = 3
+_OPENAI_RATE = 0.02
+
+
+def _openai_estimate_usd() -> float:
+    return _HEADLINE_TOKENS * _OPENAI_RATE / 1_000_000
+
+
+def _scheduled_refresh(env, index_id, gw):
+    return run_action_spec(
+        env.project,
+        {
+            "action_id": "embedding.index_refresh",
+            "scope": {"kind": "project"},
+            "params": {
+                "index_id": index_id,
+                "mode": "full",
+                "trigger_ref": {"trigger_kind": "schedule"},
+            },
+            "idempotency_key": f"scheduled_refresh@{index_id}",
+        },
+        project_id=env.project_id,
+        deps=ExecutorDeps(embedding_gateway=gw),
+    )
+
+
+def test_automatic_remote_at_allowance_runs(env):
+    index_id = _create_index(
+        env,
+        provider="openai",
+        policy={**_AUTOMATIC, "max_cost_usd_per_refresh": _openai_estimate_usd()},
+    )
+    gw = FakeGateway(dim=1536)
+    result = _scheduled_refresh(env, index_id, gw)
+    assert result.status == "completed", result.errors
+    assert len(gw.calls) == 1
+
+
+def test_automatic_remote_over_allowance_refuses_before_gateway(env):
+    allowance = _openai_estimate_usd() / 2
+    index_id = _create_index(
+        env,
+        provider="openai",
+        policy={**_AUTOMATIC, "max_cost_usd_per_refresh": allowance},
+    )
+    gw = FakeGateway(dim=1536)
+    result = _scheduled_refresh(env, index_id, gw)
+    assert gw.calls == []
+    [error] = result.errors
+    assert error.code == "embedding_cost_requires_confirmation"
+    # The refusal carries the estimate it compared, by value.
+    assert error.details == {
+        "units": 3,
+        "input_tokens": _HEADLINE_TOKENS,
+        "input_usd_per_million_tokens": _OPENAI_RATE,
+        "estimated_cost_usd": _openai_estimate_usd(),
+        "allowance_usd": allowance,
+    }
+
+
+def test_automatic_remote_with_unknown_price_refuses_before_gateway(env):
+    index_id = _create_index(
+        env,
+        provider="openai",
+        policy={**_AUTOMATIC, "max_cost_usd_per_refresh": 1000.0},
+    )
+    space_id = EmbeddingStore(env.project).get_index(index_id)["space_id"]
+    env.project.db.execute(
+        "UPDATE embedding_spaces SET actual_model_id=? WHERE id=?",
+        ("unpriced-embedding-model", space_id),
+    )
+    env.project.db.commit()
+    gw = FakeGateway(dim=1536)
+    result = _scheduled_refresh(env, index_id, gw)
+    assert gw.calls == []
+    [error] = result.errors
+    assert error.code == "embedding_cost_requires_confirmation"
+    assert error.details["estimated_cost_usd"] is None
+    assert error.details["input_usd_per_million_tokens"] is None
 
 
 def test_manual_remote_refresh_ignores_automatic_gates(env):

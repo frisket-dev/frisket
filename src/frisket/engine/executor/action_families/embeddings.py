@@ -65,7 +65,10 @@ from frisket.ai.embeddings import (
     make_space_descriptor,
     resolve_embedding_capability,
 )
-from frisket.ai.embeddings.capabilities import embedding_model_size_budget_gb
+from frisket.ai.embeddings.capabilities import (
+    embedding_model_size_budget_gb,
+    estimate_embedding_cost,
+)
 from frisket.ai.models.metadata import provider_network_blocked
 from frisket.ai.embeddings.gateway import (
     ExecutionEmbeddingGateway,
@@ -613,7 +616,7 @@ def _gateway_inputs(
 
 
 # Triggers that run a refresh unattended (no human at the keyboard). Remote
-# egress on these needs a second opt-in beyond allow_remote, plus a cost ceiling.
+# egress on these needs a second opt-in beyond allow_remote, plus an allowance.
 AUTOMATIC_REFRESH_TRIGGER_KINDS = frozenset({"schedule", "source_run_completed"})
 
 
@@ -622,7 +625,7 @@ def _is_automatic_refresh(params: IndexRefreshParams) -> bool:
     return trigger.get("trigger_kind") in AUTOMATIC_REFRESH_TRIGGER_KINDS
 
 
-def _is_positive_finite_number(value: Any) -> bool:
+def _is_positive_finite_number(value: object) -> TypeGuard[int | float]:
     return (
         not isinstance(value, bool)
         and isinstance(value, (int, float))
@@ -631,34 +634,67 @@ def _is_positive_finite_number(value: Any) -> bool:
     )
 
 
-def _automatic_cost_gate(action, params, index, space, project_id, *, units: int):
-    """Cost/privacy gate for automatic remote refresh, BEFORE any provider call.
+def _automatic_cost_gate(
+    action, params, index, space, project_id, *, to_embed: list[dict[str, Any]]
+):
+    """Allowance gate for automatic remote refresh, BEFORE any provider call.
 
-    Embedding unit pricing is not modeled yet, so we never fabricate a cost. The
-    honest gate: an unattended remote refresh that would embed >0 rows must carry
-    an explicit ``max_cost_usd_per_refresh`` ceiling on the provider policy — that
-    ceiling IS the operator's confirmation that they accept the (unknown) cost.
-    Missing ceiling blocks with embedding_cost_requires_confirmation."""
-    if units <= 0 or not _is_automatic_refresh(params):
+    ``max_cost_usd_per_refresh`` on the provider policy is the allowance. An
+    unattended remote refresh starts only when its estimate is at or under it;
+    no allowance, an estimate over it, or no known unit price refuses with
+    embedding_cost_requires_confirmation, so the refresh is asked for instead."""
+    if not to_embed or not _is_automatic_refresh(params):
         return None
     if space["provider_kind"] not in REMOTE_PROVIDER_KINDS:
         return None
     provider_policy = _json_obj(index["provider_policy_json"])
-    cost_cap = provider_policy.get("max_cost_usd_per_refresh")
-    if not _is_positive_finite_number(cost_cap):
+    allowance = provider_policy.get("max_cost_usd_per_refresh")
+    if not _is_positive_finite_number(allowance):
         return _error(
             action,
             project_id,
             "embedding_cost_requires_confirmation",
             (
                 "automatic remote refresh requires provider policy "
-                "max_cost_usd_per_refresh; embedding cost is unknown, so set a "
-                "ceiling to confirm the spend before egress"
+                "max_cost_usd_per_refresh, the allowance a refresh may spend "
+                "without asking"
             ),
             field="params.index_id",
-            details={"units": units, "cost_source": "unknown"},
+            details={"units": len(to_embed)},
         )
-    return None
+    estimate = estimate_embedding_cost(
+        [str(item["payload"]) for item in to_embed],
+        modality=str(space["modality"]),
+        provider=str(space["provider_id"]),
+        model=str(space["actual_model_id"]),
+    )
+    if estimate.cost_usd is not None and estimate.cost_usd <= allowance:
+        return None
+    message = (
+        f"automatic remote refresh has no known unit price for "
+        f"{space['provider_id']}/{space['actual_model_id']}, so it cannot run "
+        "within an allowance; refresh it manually"
+        if estimate.cost_usd is None
+        else (
+            f"automatic remote refresh is estimated at ${estimate.cost_usd:.6f}, "
+            f"over the ${float(allowance):.6f} allowance per refresh; refresh it "
+            "manually or raise the allowance"
+        )
+    )
+    return _error(
+        action,
+        project_id,
+        "embedding_cost_requires_confirmation",
+        message,
+        field="params.index_id",
+        details={
+            "units": estimate.units,
+            "input_tokens": estimate.input_tokens,
+            "input_usd_per_million_tokens": estimate.input_usd_per_million_tokens,
+            "estimated_cost_usd": estimate.cost_usd,
+            "allowance_usd": float(allowance),
+        },
+    )
 
 
 class _RefreshScopeError(Exception):
@@ -2138,7 +2174,7 @@ def _do_refresh(
         batch_result: dict[str, Any] | None = None
         if to_embed:
             cost_block = _automatic_cost_gate(
-                action, params, index, space, project_id, units=len(to_embed)
+                action, params, index, space, project_id, to_embed=to_embed
             )
             if cost_block is not None:
                 return cost_block
