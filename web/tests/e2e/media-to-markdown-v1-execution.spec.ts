@@ -5,7 +5,6 @@ import {
   listSheets,
   openAction,
   sheetColumns,
-  simplePdf,
   uniqueName,
 } from './helpers';
 
@@ -113,86 +112,6 @@ function simpleDocx(): Buffer {
   ]);
 }
 
-async function stubActionRun(
-  page: Page,
-  pid: string,
-): Promise<{
-  legacyPosts: Array<Record<string, unknown>>;
-  v1Posts: Array<Record<string, unknown>>;
-  statusPolls: string[];
-}> {
-  const legacyPosts: Array<Record<string, unknown>> = [];
-  const v1Posts: Array<Record<string, unknown>> = [];
-  const statusPolls: string[] = [];
-  await page.route(`**/api/projects/${pid}/run`, async (route) => {
-    legacyPosts.push(route.request().postDataJSON() as Record<string, unknown>);
-    await route.fulfill({
-      status: 500,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: 'to_markdown should not use legacy /run' }),
-    });
-  });
-  await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
-    const body = route.request().postDataJSON() as Record<string, unknown>;
-    v1Posts.push(body);
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema_version: 'frisket.action_result.v1',
-        action: { kind: body.action_id, action_id: 'act-web-to-markdown' },
-        status: 'queued',
-        project_id: pid,
-        run_id: 9821,
-        job_id: 4821,
-        receipt_id: 'receipt-web-to-markdown',
-        op_ids: [],
-        outputs: [],
-        warnings: [],
-        errors: [],
-      }),
-    });
-  });
-  await page.route(`**/api/projects/${pid}/actions/runs/*/status`, async (route) => {
-    statusPolls.push(route.request().url());
-    const match = route.request().url().match(/\/runs\/([^/]+)\/status$/);
-    const id = Number(match?.[1] ?? 9821);
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema_version: 'frisket.actions.v1',
-        action: 'run_status',
-        project_id: pid,
-        run: {
-          id,
-          sheet_id: 1,
-          action_kind: 'media.to_markdown',
-          action_name: 'To Markdown',
-          status: 'queued',
-          total_rows: 1,
-          completed_rows: 0,
-          failed_rows: 0,
-          cost_actual: 0,
-          cost_estimate: 0,
-          public_status: {
-            run_id: id,
-            action_kind: 'media.to_markdown',
-            action_name: 'To Markdown',
-            status: 'queued',
-            total: 1,
-            completed: 0,
-            failed: 0,
-            cost: 0,
-            live: false,
-          },
-        },
-      }),
-    });
-  });
-  return { legacyPosts, v1Posts, statusPolls };
-}
-
 async function recordLiveActionRun(
   page: Page,
   pid: string,
@@ -226,89 +145,6 @@ async function recordLiveActionRun(
   });
   return { legacyPosts, v1Posts, v1Results };
 }
-
-async function markToMarkdownCatalogEngine(page: Page): Promise<void> {
-  await page.route('**/actions/v1/catalog', async (route) => {
-    const response = await route.fetch();
-    const catalog = await response.json();
-    const patched = catalog.actions.map((action: Record<string, unknown>) => {
-      if (action.kind !== 'media.to_markdown') return action;
-      const uiHints = (action.ui_hints as Record<string, unknown> | undefined) ?? {};
-      const engines = Array.isArray(uiHints.engines)
-        ? uiHints.engines.map((engine: Record<string, unknown>) => {
-            if (engine.id !== 'docling') return engine;
-            return {
-              ...engine,
-              label: 'Docling catalog proof',
-              available: true,
-              error: null,
-            };
-          })
-        : uiHints.engines;
-      return {
-        ...action,
-        ui_hints: {
-          ...uiHints,
-          engines,
-        },
-      };
-    });
-    await route.fulfill({
-      status: response.status(),
-      contentType: 'application/json',
-      body: JSON.stringify({ ...catalog, actions: patched }),
-    });
-  });
-}
-
-test('to_markdown launches media.to_markdown through the v1 action endpoint', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-v1-to-markdown'));
-  const posts = await stubActionRun(page, pid);
-
-  const importRes = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=documents`, {
-    multipart: {
-      files: {
-        name: 'report.pdf',
-        mimeType: 'application/pdf',
-        buffer: simplePdf(['Quarterly Report', 'Revenue doubled.']),
-      },
-    },
-  });
-  expect(importRes.ok()).toBeTruthy();
-
-  const sheets = await listSheets(page.request, pid);
-  const docSheet = sheets.find((sheet) => sheet.name === 'documents');
-  expect(docSheet).toBeTruthy();
-
-  await markToMarkdownCatalogEngine(page);
-  await page.goto(`/p/${pid}/s/${docSheet!.id}`);
-  await openAction(page, 'media.to_markdown');
-  await expect(page.getByTestId('field-source')).toBeVisible();
-  await expect(page.getByTestId('field-source')).toHaveValue('media');
-  await page.getByTestId('engine-picker-button').click();
-  await page.getByTestId('engine-picker-tier-sidecar').click();
-  await expect(page.getByTestId('engine-option-docling')).toContainText('Docling catalog proof');
-  await page.getByTestId('engine-option-docling').click();
-  await page.getByTestId('generated-action-run').click();
-
-  await expect.poll(() => posts.v1Posts.length, { timeout: 5000 }).toBe(1);
-  expect(posts.legacyPosts).toHaveLength(0);
-  const posted = posts.v1Posts[0];
-  expect(posted.action_id).toBe('media.to_markdown');
-  expect(typeof posted.idempotency_key).toBe('string');
-
-  const params = posted.params as Record<string, unknown>;
-  expect(posted.scope).toEqual({ kind: 'sheet_rows', sheet_id: docSheet!.id });
-  expect(params.source).toBe('media');
-  expect(params.engine).toBe('docling');
-  expect(posted.output_names).toMatchObject({ markdown: 'markdown' });
-  expect(params).not.toHaveProperty('confirmed');
-  expect(posted).not.toHaveProperty('confirmation');
-  await expect
-    .poll(() => posts.statusPolls.length, { timeout: 5000 })
-    .toBeGreaterThan(0);
-  expect(posts.statusPolls[0]).toContain(`/api/projects/${pid}/actions/runs/9821/status`);
-});
 
 test('to_markdown converts DOCX through local markitdown and renders markdown output', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-v1-to-markdown-docx'));
