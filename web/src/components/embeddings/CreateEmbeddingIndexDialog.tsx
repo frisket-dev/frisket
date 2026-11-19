@@ -14,6 +14,7 @@ import { Boxes } from 'lucide-react';
 import type { EmbeddingProvider, SheetMeta } from '../../api/types';
 import type { EmbeddingApiPort } from '../../api/ports';
 import { formatUsd } from '../../format';
+import { providerLabel } from '../../actions/model';
 import type { CreateEmbeddingIndexForm } from './createForm';
 import {
   EMBEDDING_COST_SAMPLE_ROWS,
@@ -74,7 +75,7 @@ const SUMMARY_STEP: CreateStep = {
   testId: 'embedding-create-step-summary',
 };
 
-function providerLabel(
+function modelLabel(
   selectedCard: EmbeddingProvider | null,
   form: CreateEmbeddingIndexForm,
 ): string {
@@ -92,7 +93,6 @@ function columnsLabel(columns: string[]): string {
 function refreshPolicyLabel(
   remoteSelected: boolean,
   form: CreateEmbeddingIndexForm,
-  selectedCard: EmbeddingProvider | null,
 ): string {
   if (!remoteSelected) return 'Manual refresh with local processing.';
   if (!form.allowRemoteAutomaticRefresh) {
@@ -104,9 +104,9 @@ function refreshPolicyLabel(
   // out of a blank input stated an unbounded standing spend authorization
   // the user never granted. No figure, no authorization sentence.
   if (!(maxCost > 0)) {
-    return `Unattended remote refresh needs a per-refresh cost limit before ${selectedCard?.label ?? form.provider} is pre-authorized.`;
+    return `Unattended remote refresh needs a per-refresh cost limit before ${providerLabel(form.provider)} is pre-authorized.`;
   }
-  return `Unattended remote refresh is pre-authorized up to ${formatUsd(maxCost)} per refresh with ${selectedCard?.label ?? form.provider}.`;
+  return `Unattended remote refresh is pre-authorized up to ${formatUsd(maxCost)} per refresh with ${providerLabel(form.provider)}.`;
 }
 
 interface CustomEmbeddingModelDetailProps {
@@ -223,8 +223,8 @@ export function CreateEmbeddingIndexDialog({
   const canAdvance =
     activeStep === 'source' ? sourceReady : activeStep === 'egress' ? egressReady : costReady;
   const finalStep = activeStep === 'summary';
-  const modelSummary = providerLabel(selectedCard, form);
-  const refreshSummary = refreshPolicyLabel(remoteSelected, form, selectedCard);
+  const modelSummary = modelLabel(selectedCard, form);
+  const refreshSummary = refreshPolicyLabel(remoteSelected, form);
   const inputRate = selectedCard?.pricing?.inputUsdPerMillionTokens ?? null;
   const costEstimateKey = `${sheet.id}:${sheet.rowCount}:${form.sourceColumns.join('\u0000')}:${inputRate ?? 'unknown'}`;
   const costEstimateEligible = remoteSelected && inputRate != null && form.sourceColumns.length > 0;
@@ -360,7 +360,7 @@ export function CreateEmbeddingIndexDialog({
             data-testid="embedding-remote-controls"
           >
             <p className="form-hint panel-notice" data-tone="warning">
-              {selectedCard?.label ?? providerCard?.label ?? form.provider} is a remote provider. Your source text leaves this machine.
+              {providerLabel(form.provider)} is a remote provider. Your source text leaves this machine.
             </p>
             <label className="control-row">
               <input
@@ -369,7 +369,7 @@ export function CreateEmbeddingIndexDialog({
                 checked={form.allowRemote}
                 onChange={(e) => onAllowRemoteChange(e.target.checked)}
               />
-              Allow sending data to {selectedCard?.label ?? providerCard?.label ?? form.provider}
+              Allow sending data to {providerLabel(form.provider)}
             </label>
           </div>
         )}
@@ -473,7 +473,7 @@ export function CreateEmbeddingIndexDialog({
                 <dt>Remote egress</dt>
                 <dd>
                   {remoteSelected
-                    ? `Allowed for ${selectedCard?.label ?? form.provider}`
+                    ? `Allowed for ${providerLabel(form.provider)}`
                     : 'None'}
                 </dd>
               </div>

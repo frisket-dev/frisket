@@ -185,4 +185,41 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
     expect(screen.getByTestId('embedding-create')).toBeEnabled();
     expect(screen.getByTestId('embedding-create-summary-columns')).toHaveTextContent('bio, notes');
   });
+
+  it.each([
+    ['gemini', 'Gemini · multilingual (remote)', 'Gemini'],
+    ['openrouter', 'OpenRouter · custom remote model (dimension discovered at create)', 'OpenRouter'],
+    ['openrouter', 'Remote · openrouter/acme/embed (dimension discovered at create)', 'OpenRouter'],
+    ['acme-embed', 'Remote · acme-embed/large (dimension discovered at create)', 'acme-embed'],
+  ])('names the %s provider, not the model label %s, in remote copy', async (provider, label, name) => {
+    serveChoices();
+    const card: EmbeddingProvider = {
+      ...providerCard, providerId: provider, providerKind: 'platform_api', label,
+      local: false, egress: 'remote',
+    };
+    await act(async () => { render(<CreateEmbeddingIndexDialog
+      projectId="embedding-project"
+      apiPort={{ getSheetData: vi.fn() }}
+      sheet={sheet}
+      form={{ provider, model: 'default', sourceColumns: ['bio'], allowRemote: true,
+        allowRemoteAutomaticRefresh: true, maxCost: '2', confirmRemote: true }}
+      selectedCard={card} providerCard={card}
+      remoteSelected={true} autoRefreshOn={true} createReady={true} creating={false}
+      onClose={vi.fn()} onSubmit={vi.fn()} onModelSelect={vi.fn()} onSourceColumnToggle={vi.fn()}
+      onAllowRemoteChange={vi.fn()} onAllowAutoRefreshChange={vi.fn()} onMaxCostChange={vi.fn()}
+      onConfirmRemoteChange={vi.fn()}
+    />); });
+
+    fireEvent.click(screen.getByTestId('embedding-create-next'));
+    const egress = screen.getByTestId('embedding-remote-controls');
+    expect(egress).toHaveTextContent(`${name} is a remote provider. Your source text leaves this machine.`);
+    expect(within(egress).getByRole('checkbox', { name: `Allow sending data to ${name}` })).toBeChecked();
+    fireEvent.click(screen.getByTestId('embedding-create-next'));
+    fireEvent.click(screen.getByTestId('embedding-create-next'));
+    expect(screen.getByTestId('embedding-create-summary-refresh')).toHaveTextContent(
+      `Unattended remote refresh is pre-authorized up to $2.00 per refresh with ${name}.`,
+    );
+    expect(screen.getByTestId('embedding-create-summary')).toHaveTextContent(`Allowed for ${name}`);
+    expect(screen.getByTestId('embedding-create-summary')).toHaveTextContent(label);
+  });
 });
