@@ -234,28 +234,25 @@ def test_concurrent_action_job_reservation_rechecks_params_after_lock(
     # first-reservation race.
     # realtime: joined thread completion, not a clock window, is the assertion.
     threads = [threading.Thread(target=reserve, args=(action,)) for action in actions]
-    try:
-        for thread in threads:
-            thread.start()
-        for thread in threads:
-            thread.join(timeout=10)
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
 
-        assert all(not thread.is_alive() for thread in threads)
-        assert failures == []
-        assert len(results) == 2
-        reservations = [result for result in results if isinstance(result, dict)]
-        conflicts = [
-            result
-            for result in results
-            if isinstance(result, ActionResult)
-            and result.status == "failed"
-            and result.errors
-            and result.errors[0].code == "idempotency_conflict"
-        ]
-        assert len(reservations) == 1
-        assert len(conflicts) == 1
-    finally:
-        project.close()
+    assert all(not thread.is_alive() for thread in threads)
+    assert failures == []
+    assert len(results) == 2
+    reservations = [result for result in results if isinstance(result, dict)]
+    conflicts = [
+        result
+        for result in results
+        if isinstance(result, ActionResult)
+        and result.status == "failed"
+        and result.errors
+        and result.errors[0].code == "idempotency_conflict"
+    ]
+    assert len(reservations) == 1
+    assert len(conflicts) == 1
 
 
 def test_action_job_replay_resumes_after_pre_enqueue_failure(tmp_path) -> None:

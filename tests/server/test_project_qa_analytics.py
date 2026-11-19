@@ -511,42 +511,37 @@ def test_relative_date_filter_is_anchored_for_results_and_group_replay(
     )
     scope = {"kind": "sheet", "sheet_id": sheet}
 
-    try:
-        result = evaluate_analytics(
-            project,
-            {
-                "sheet_id": sheet,
-                "filter": {"awarded": {"date_relative": {"amount": 7, "unit": "days"}}},
-                "groups": [{"column_id": columns["supplier"]}],
-                "metrics": [{"id": "rows", "kind": "count"}],
-            },
-            scope,
-        )
+    result = evaluate_analytics(
+        project,
+        {
+            "sheet_id": sheet,
+            "filter": {"awarded": {"date_relative": {"amount": 7, "unit": "days"}}},
+            "groups": [{"column_id": columns["supplier"]}],
+            "metrics": [{"id": "rows", "kind": "count"}],
+        },
+        scope,
+    )
 
-        anchored = {
-            "awarded": {"between": {"start": "2026-04-04", "end": "2026-04-10"}}
-        }
-        assert result["filter"] == anchored
-        assert result["row_count"] == 2
-        assert result["groups"][0]["metrics"]["rows"] == 2
-        locator_filter = result["groups"][0]["locator"]["filter"]
-        assert locator_filter["awarded"] == anchored["awarded"]
+    anchored = {"awarded": {"between": {"start": "2026-04-04", "end": "2026-04-10"}}}
+    assert result["filter"] == anchored
+    assert result["row_count"] == 2
+    assert result["groups"][0]["metrics"]["rows"] == 2
+    locator_filter = result["groups"][0]["locator"]["filter"]
+    assert locator_filter["awarded"] == anchored["awarded"]
 
-        monkeypatch.setattr(project_qa_query, "datetime", AprilEleventh)
-        replayed = evaluate_query(
-            project,
-            {
-                "schema_version": "frisket.query.v1",
-                "kind": "sheet.filter",
-                "scope": scope,
-                "filter": locator_filter,
-            },
-            scope,
-        )
-        assert replayed["row_ids"] == rows[1:]
-        assert replayed["total"] == result["groups"][0]["metrics"]["rows"] == 2
-    finally:
-        project.close()
+    monkeypatch.setattr(project_qa_query, "datetime", AprilEleventh)
+    replayed = evaluate_query(
+        project,
+        {
+            "schema_version": "frisket.query.v1",
+            "kind": "sheet.filter",
+            "scope": scope,
+            "filter": locator_filter,
+        },
+        scope,
+    )
+    assert replayed["row_ids"] == rows[1:]
+    assert replayed["total"] == result["groups"][0]["metrics"]["rows"] == 2
 
 
 def test_value_missing_and_invalid_locators_replay_through_ordinary_query(tmp_path):

@@ -43,10 +43,7 @@ def audio(make_project):
     project = make_project("audio")
     sheet = project.add_sheet("Sources")
     columns = {name: project.add_column(sheet, name, "json") for name in ("a", "b")}
-    try:
-        yield project, sheet, columns
-    finally:
-        project.close()
+    yield project, sheet, columns
 
 
 def _media(project, duration, *, acquired=None):

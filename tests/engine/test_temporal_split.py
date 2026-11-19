@@ -935,41 +935,37 @@ def test_split_stage_failure_publishes_no_partial_outputs(make_project) -> None:
             )
         return _fake_stage(project_arg, source, temporal_range, output_path)
 
-    try:
-        seeded = _seed_media(project)
-        params = _request(
-            seeded,
-            {
-                "kind": "draft_ranges",
-                "items": [
-                    {"start_ms": 1_000, "end_ms": 2_000},
-                    {"start_ms": 3_000, "end_ms": 4_000},
-                ],
-            },
-        )
-        result = _run(
-            project,
-            _with_key(params, key="split-stage-failure"),
-            project_id=PROJECT_ID,
-            stage_fn=fail_second,
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "temporal_materializer_unavailable"
-        assert [row["name"] for row in project.sheets()] == ["Media"]
-        assert (
-            project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0]
-            == 0
-        )
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM artifact_timeline_segments"
-            ).fetchone()[0]
-            == 0
-        )
-        assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
-        assert all(not path.exists() for path in staged_paths)
-    finally:
-        project.close()
+    seeded = _seed_media(project)
+    params = _request(
+        seeded,
+        {
+            "kind": "draft_ranges",
+            "items": [
+                {"start_ms": 1_000, "end_ms": 2_000},
+                {"start_ms": 3_000, "end_ms": 4_000},
+            ],
+        },
+    )
+    result = _run(
+        project,
+        _with_key(params, key="split-stage-failure"),
+        project_id=PROJECT_ID,
+        stage_fn=fail_second,
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "temporal_materializer_unavailable"
+    assert [row["name"] for row in project.sheets()] == ["Media"]
+    assert (
+        project.db.execute("SELECT COUNT(*) FROM blob_derivations").fetchone()[0] == 0
+    )
+    assert (
+        project.db.execute(
+            "SELECT COUNT(*) FROM artifact_timeline_segments"
+        ).fetchone()[0]
+        == 0
+    )
+    assert project.db.execute("SELECT COUNT(*) FROM blobs").fetchone()[0] == 1
+    assert all(not path.exists() for path in staged_paths)
 
 
 def _insert_split_failure_receipt(
@@ -1012,22 +1008,19 @@ def test_split_failure_preserves_error_facts_by_value(make_project) -> None:
         action_kind=ACTION_KIND,
         details={"provider": "fixture", "billable": False},
     )
-    try:
-        _insert_split_failure_receipt(project, receipt_id=receipt_id)
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id=PROJECT_ID,
-            action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            project_write_failed_message="Split failure receipt could not be finalized.",
-            error=error,
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    _insert_split_failure_receipt(project, receipt_id=receipt_id)
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id=PROJECT_ID,
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        project_write_failed_message="Split failure receipt could not be finalized.",
+        error=error,
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.errors == [error]
-        assert stored is not None and stored.errors == [error]
-    finally:
-        project.close()
+    assert result.errors == [error]
+    assert stored is not None and stored.errors == [error]
 
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
@@ -1086,43 +1079,40 @@ def test_queued_split_failure_leaves_worker_owned_receipt_untouched(
     project = make_project("queued-split-owned-receipt")
     receipt_id = "receipt_queued_split_owned_by_worker"
     action_id = "act_queued_split_owned_by_worker"
-    try:
-        seeded = _seed_media(project)
-        params = _request(
-            seeded,
-            {
-                "kind": "draft_ranges",
-                "items": [{"start_ms": 1_000, "end_ms": 2_000}],
-            },
-        )
-        action = _with_key(params, key="queued-split-owned-receipt")
-        prior = _insert_split_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            action_id=action_id,
-            idempotency_key=action.idempotency_key,
-            params_hash=typed_request_hash(
-                typed_action_for_request(action.model_dump(mode="json"))
-            ),
-        )
+    seeded = _seed_media(project)
+    params = _request(
+        seeded,
+        {
+            "kind": "draft_ranges",
+            "items": [{"start_ms": 1_000, "end_ms": 2_000}],
+        },
+    )
+    action = _with_key(params, key="queued-split-owned-receipt")
+    prior = _insert_split_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        action_id=action_id,
+        idempotency_key=action.idempotency_key,
+        params_hash=typed_request_hash(
+            typed_action_for_request(action.model_dump(mode="json"))
+        ),
+    )
 
-        def fail_stage(*_args: Any, **_kwargs: Any) -> StagedMediaSplice:
-            raise RuntimeError("queued split fixture failure")
+    def fail_stage(*_args: Any, **_kwargs: Any) -> StagedMediaSplice:
+        raise RuntimeError("queued split fixture failure")
 
-        result = _run(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            reserved_action_id=action_id,
-            reserved_receipt_id=receipt_id,
-            stage_fn=fail_stage,
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    result = _run(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        reserved_action_id=action_id,
+        reserved_receipt_id=receipt_id,
+        stage_fn=fail_stage,
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.status == "failed"
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert stored == prior
 
 
 def test_split_source_change_after_staging_publishes_nothing(make_project) -> None:

@@ -87,10 +87,7 @@ def source(make_project):
         ],
         columns,
     )
-    try:
-        yield project, sheet, columns, rows, digest
-    finally:
-        project.close()
+    yield project, sheet, columns, rows, digest
 
 
 def _bind(owner, source, index=0):

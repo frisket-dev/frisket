@@ -238,10 +238,7 @@ def text_project(make_project):
     sheet_id = project.add_sheet("S")
     col = project.add_column(sheet_id, "text", type="text")
     project.add_rows(sheet_id, [{"text": "https://example.com/a"}], {"text": col})
-    try:
-        yield project, sheet_id
-    finally:
-        project.close()
+    yield project, sheet_id
 
 
 def _external_plan(project: Project, sheet_id: int, *, action_id="map.api_call"):

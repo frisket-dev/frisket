@@ -233,10 +233,7 @@ def fetch_run(make_project, monkeypatch):
             )
         return result
 
-    try:
-        yield project, rows, calls, run
-    finally:
-        project.close()
+    yield project, rows, calls, run
 
 
 def test_real_two_output_outcome_publication_has_two_exact_occurrences(fetch_run):

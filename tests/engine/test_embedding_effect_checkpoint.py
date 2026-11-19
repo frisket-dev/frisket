@@ -87,10 +87,7 @@ def project(make_project):
     cols = {"headline": p.add_column(sheet, "headline")}
     p.add_rows(sheet, [{"headline": f"story {i}"} for i in range(3)], cols)
     p._sheet_id = sheet  # type: ignore[attr-defined]
-    try:
-        yield p
-    finally:
-        p.close()
+    yield p
 
 
 def _run(project, data, *, gateway):

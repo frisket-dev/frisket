@@ -171,75 +171,70 @@ def test_lexical_dispatch_and_text_cursor_resume_across_store_opens(
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"body": "alpha beta gamma delta"}],
-            {"body": column_id},
-        )[0]
-        resolved = _source(project, sheet_id, column_id, row_id)
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'gamma'"
-                ).fetchone()[0]
-                == 1
-            )
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"body": "alpha beta gamma delta"}],
+        {"body": column_id},
+    )[0]
+    resolved = _source(project, sheet_id, column_id, row_id)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
+        assert (
+            store.db.execute(
+                "SELECT count(*) FROM lexical_fts WHERE lexical_fts MATCH 'gamma'"
+            ).fetchone()[0]
+            == 1
+        )
 
-        first = process_text_preparation_batch(
+    first = process_text_preparation_batch(
+        project,
+        encoder=encoder,
+        recipe=recipe,
+        space=space,
+        max_parts=1,
+    )
+    assert first.processed_parts == 1 and first.pending
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id=recipe.recipe_id,
+            channel=TEXT_CHANNEL,
+        )
+        assert state is not None
+        assert state.space_id == space.identity
+        assert state.status == "preparing" and state.cursor_json is not None
+
+    for _ in range(10):
+        progress = process_text_preparation_batch(
             project,
             encoder=encoder,
             recipe=recipe,
             space=space,
             max_parts=1,
         )
-        assert first.processed_parts == 1 and first.pending
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert state is not None
-            assert state.space_id == space.identity
-            assert state.status == "preparing" and state.cursor_json is not None
+        if progress.complete:
+            break
+    else:
+        raise AssertionError("bounded text preparation did not finish")
 
-        for _ in range(10):
-            progress = process_text_preparation_batch(
-                project,
-                encoder=encoder,
-                recipe=recipe,
-                space=space,
-                max_parts=1,
-            )
-            if progress.complete:
-                break
-        else:
-            raise AssertionError("bounded text preparation did not finish")
-
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert state is not None and state.status == "ready"
-            assert state.prepared_parts >= 3
-            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == (
-                state.prepared_parts
-            )
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM part_representations"
-                ).fetchone()[0]
-                == state.prepared_parts
-            )
-        assert preparation_work_marker(project.path) is None
-    finally:
-        project.close()
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id=recipe.recipe_id,
+            channel=TEXT_CHANNEL,
+        )
+        assert state is not None and state.status == "ready"
+        assert state.prepared_parts >= 3
+        assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == (
+            state.prepared_parts
+        )
+        assert (
+            store.db.execute("SELECT count(*) FROM part_representations").fetchone()[0]
+            == state.prepared_parts
+        )
+    assert preparation_work_marker(project.path) is None
 
 
 def test_same_source_lexical_dispatch_replay_is_idempotent(make_project) -> None:
@@ -455,46 +450,43 @@ def test_pdf_render_failure_marks_target_failed_and_releases_queue(
         raise PdfRenderError("invalid PDF bytes")
 
     monkeypatch.setattr("frisket.retrieval.preparation.render_pdf_pages", fail_render)
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "document", type="file")
-        digest = project.add_blob(b"not a PDF", mime="application/pdf")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"document": {"blob": digest, "mime": "application/pdf"}}],
-            {"document": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-
-        progress = process_blob_image_preparation_batch(
-            project,
-            channel=PDF_PAGE_CHANNEL,
-            encoder=_Encoder(),
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "document", type="file")
+    digest = project.add_blob(b"not a PDF", mime="application/pdf")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"document": {"blob": digest, "mime": "application/pdf"}}],
+        {"document": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
         )
+    assert resolved is not None
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
 
-        assert progress.complete and progress.processed_parts == 0
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id="pdf-page-png-v1:dpi=144:max-edge=1600",
-                channel=PDF_PAGE_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == (
-                "failed",
-                "pdf_render_failed",
-            )
-    finally:
-        project.close()
+    progress = process_blob_image_preparation_batch(
+        project,
+        channel=PDF_PAGE_CHANNEL,
+        encoder=_Encoder(),
+    )
+
+    assert progress.complete and progress.processed_parts == 0
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id="pdf-page-png-v1:dpi=144:max-edge=1600",
+            channel=PDF_PAGE_CHANNEL,
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == (
+            "failed",
+            "pdf_render_failed",
+        )
 
 
 @pytest.mark.parametrize(
@@ -567,72 +559,69 @@ def test_repaired_corrupt_blob_requeues_on_next_authoritative_dispatch(
 ) -> None:
     project = make_project("repaired-corrupt-image")
     image_bytes = _tiny_png()
-    try:
-        sheet_id = project.add_sheet("Media")
-        column_id = project.add_column(sheet_id, "image", type="image")
-        digest = project.add_blob(image_bytes, mime="image/png")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"image": {"blob": digest, "mime": "image/png"}}],
-            {"image": column_id},
-        )[0]
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_blob_source(
-                snapshot,
-                sheet_id=sheet_id,
-                row_id=row_id,
-                column_id=column_id,
-            )
-        assert resolved is not None
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-
-        canonical = project.path / "blobs" / digest[:2] / digest
-        canonical.write_bytes(b"corrupt")
-        failed = process_blob_image_preparation_batch(
-            project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+    sheet_id = project.add_sheet("Media")
+    column_id = project.add_column(sheet_id, "image", type="image")
+    digest = project.add_blob(image_bytes, mime="image/png")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"image": {"blob": digest, "mime": "image/png"}}],
+        {"image": column_id},
+    )[0]
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_blob_source(
+            snapshot,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
         )
-        assert failed.complete and failed.processed_parts == 0
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id="image-bytes-v1",
-                channel=IMAGE_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == (
-                "failed",
-                "blob_integrity_failed",
-            )
+    assert resolved is not None
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
 
-        # Repairing storage does not create a hot worker retry. The next
-        # authoritative source dispatch is the bounded retry trigger.
-        canonical.unlink()
-        assert project.add_blob(image_bytes, mime="image/png") == digest
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_blob_source(store, resolved)
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id="image-bytes-v1",
-                channel=IMAGE_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == ("pending", None)
-
-        repaired = process_blob_image_preparation_batch(
-            project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+    canonical = project.path / "blobs" / digest[:2] / digest
+    canonical.write_bytes(b"corrupt")
+    failed = process_blob_image_preparation_batch(
+        project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+    )
+    assert failed.complete and failed.processed_parts == 0
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id="image-bytes-v1",
+            channel=IMAGE_CHANNEL,
         )
-        assert repaired.complete and repaired.processed_parts == 1
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id="image-bytes-v1",
-                channel=IMAGE_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == ("ready", None)
-    finally:
-        project.close()
+        assert state is not None
+        assert (state.status, state.error_code) == (
+            "failed",
+            "blob_integrity_failed",
+        )
+
+    # Repairing storage does not create a hot worker retry. The next
+    # authoritative source dispatch is the bounded retry trigger.
+    canonical.unlink()
+    assert project.add_blob(image_bytes, mime="image/png") == digest
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_blob_source(store, resolved)
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id="image-bytes-v1",
+            channel=IMAGE_CHANNEL,
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == ("pending", None)
+
+    repaired = process_blob_image_preparation_batch(
+        project, channel=IMAGE_CHANNEL, encoder=_Encoder()
+    )
+    assert repaired.complete and repaired.processed_parts == 1
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id="image-bytes-v1",
+            channel=IMAGE_CHANNEL,
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == ("ready", None)
 
 
 def test_preparation_policy_persists_strategy_and_defaults_raw_audio_off(
@@ -893,37 +882,34 @@ def test_transcript_preparation_resumes_derived_segments(
         "frisket.retrieval.preparation.resolve_cell_transcript_source",
         lambda *_args, **_kwargs: resolved,
     )
-    try:
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_cited_source(store, resolved)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_cited_source(store, resolved)
 
-        first = process_cited_text_preparation_batch(
+    first = process_cited_text_preparation_batch(
+        project,
+        channel=TRANSCRIPT_CHANNEL,
+        encoder=_Encoder(),
+        max_parts=1,
+    )
+    assert first.processed_parts == 1 and first.pending
+    for _ in range(4):
+        progress = process_cited_text_preparation_batch(
             project,
             channel=TRANSCRIPT_CHANNEL,
             encoder=_Encoder(),
             max_parts=1,
         )
-        assert first.processed_parts == 1 and first.pending
-        for _ in range(4):
-            progress = process_cited_text_preparation_batch(
-                project,
-                channel=TRANSCRIPT_CHANNEL,
-                encoder=_Encoder(),
-                max_parts=1,
-            )
-            if progress.complete:
-                break
-        assert progress.complete
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                source.source_id,
-                recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
-                channel=TRANSCRIPT_CHANNEL,
-            )
-            assert state is not None and state.status == "ready"
-            assert state.prepared_parts == 3
-    finally:
-        project.close()
+        if progress.complete:
+            break
+    assert progress.complete
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            source.source_id,
+            recipe_id=DEFAULT_TRANSCRIPT_RECIPE.recipe_id,
+            channel=TRANSCRIPT_CHANNEL,
+        )
+        assert state is not None and state.status == "ready"
+        assert state.prepared_parts == 3
 
 
 def test_dirty_dispatch_prepares_real_timestamped_transcript_column(
@@ -1086,35 +1072,32 @@ def test_missing_encoder_is_unavailable_until_explicit_requeue(make_project) -> 
     project = make_project("unavailable")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id, [{"body": "alpha beta gamma"}], {"body": column_id}
-        )[0]
-        resolved = _source(project, sheet_id, column_id, row_id)
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(
+        sheet_id, [{"body": "alpha beta gamma"}], {"body": column_id}
+    )[0]
+    resolved = _source(project, sheet_id, column_id, row_id)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
 
-        result = process_text_preparation_batch(
-            project,
-            encoder=None,
-            recipe=recipe,
-            space=space,
+    result = process_text_preparation_batch(
+        project,
+        encoder=None,
+        recipe=recipe,
+        space=space,
+    )
+    assert result.complete and result.processed_parts == 0
+    assert preparation_work_marker(project.path) is None
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id=recipe.recipe_id,
+            channel=TEXT_CHANNEL,
         )
-        assert result.complete and result.processed_parts == 0
-        assert preparation_work_marker(project.path) is None
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert state is not None and state.status == "unavailable"
-            assert store.requeue_unavailable(channel=TEXT_CHANNEL) == 1
-        assert preparation_work_marker(project.path) is not None
-    finally:
-        project.close()
+        assert state is not None and state.status == "unavailable"
+        assert store.requeue_unavailable(channel=TEXT_CHANNEL) == 1
+    assert preparation_work_marker(project.path) is not None
 
 
 def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) -> None:
@@ -1122,36 +1105,33 @@ def test_runtime_startup_model_miss_becomes_retryable_unavailable(make_project) 
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _MissingAtStartEncoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id, [{"body": "alpha beta"}], {"body": column_id}
-        )[0]
-        resolved = _source(project, sheet_id, column_id, row_id)
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(sheet_id, [{"body": "alpha beta"}], {"body": column_id})[
+        0
+    ]
+    resolved = _source(project, sheet_id, column_id, row_id)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
 
-        result = process_text_preparation_batch(
-            project,
-            encoder=encoder,
-            recipe=recipe,
-            space=space,
+    result = process_text_preparation_batch(
+        project,
+        encoder=encoder,
+        recipe=recipe,
+        space=space,
+    )
+    assert result.complete and encoder.calls == 1
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            resolved.source.source_id,
+            recipe_id=recipe.recipe_id,
+            channel=TEXT_CHANNEL,
         )
-        assert result.complete and encoder.calls == 1
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                resolved.source.source_id,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == (
-                "unavailable",
-                "encoder_unavailable",
-            )
-    finally:
-        project.close()
+        assert state is not None
+        assert (state.status, state.error_code) == (
+            "unavailable",
+            "encoder_unavailable",
+        )
 
 
 def test_preparation_reuses_project_representation_cache(make_project) -> None:
@@ -1159,44 +1139,40 @@ def test_preparation_reuses_project_representation_cache(make_project) -> None:
     recipe = TextChunkRecipe(max_codepoints=32, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_ids = project.add_rows(
-            sheet_id,
-            [{"body": "same text"}, {"body": "same text"}],
-            {"body": column_id},
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_ids = project.add_rows(
+        sheet_id,
+        [{"body": "same text"}, {"body": "same text"}],
+        {"body": column_id},
+    )
+    with project.read_snapshot() as snapshot:
+        resolved = resolve_cell_text_sources(
+            snapshot,
+            sheet_id=sheet_id,
+            column_id=column_id,
+            row_ids=row_ids,
         )
-        with project.read_snapshot() as snapshot:
-            resolved = resolve_cell_text_sources(
-                snapshot,
-                sheet_id=sheet_id,
-                column_id=column_id,
-                row_ids=row_ids,
-            )
-        with RetrievalStore(project).open() as store:
-            for row_id in row_ids:
-                dispatch_resolved_text_source(
-                    store, resolved[row_id], recipe=recipe, space=space
-                )
-
-        for _ in row_ids:
-            process_text_preparation_batch(
-                project,
-                encoder=encoder,
-                recipe=recipe,
-                space=space,
+    with RetrievalStore(project).open() as store:
+        for row_id in row_ids:
+            dispatch_resolved_text_source(
+                store, resolved[row_id], recipe=recipe, space=space
             )
 
-        assert encoder.calls == 1
-        with RetrievalStore(project).open() as store:
-            assert (
-                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
-                == 1
-            )
-            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
-    finally:
-        project.close()
+    for _ in row_ids:
+        process_text_preparation_batch(
+            project,
+            encoder=encoder,
+            recipe=recipe,
+            space=space,
+        )
+
+    assert encoder.calls == 1
+    with RetrievalStore(project).open() as store:
+        assert (
+            store.db.execute("SELECT count(*) FROM representations").fetchone()[0] == 1
+        )
+        assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
 
 
 def test_repeated_chunks_share_one_representation_with_distinct_locations(
@@ -1206,41 +1182,35 @@ def test_repeated_chunks_share_one_representation_with_distinct_locations(
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=0)
     space = EmbeddingGemma2Space(dimensions=128)
     encoder = _Encoder()
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"body": "repeat\n\nrepeat\n\n"}],
-            {"body": column_id},
-        )[0]
-        resolved = _source(project, sheet_id, column_id, row_id)
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"body": "repeat\n\nrepeat\n\n"}],
+        {"body": column_id},
+    )[0]
+    resolved = _source(project, sheet_id, column_id, row_id)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, resolved, recipe=recipe, space=space)
 
-        progress = process_text_preparation_batch(
-            project,
-            encoder=encoder,
-            recipe=recipe,
-            space=space,
+    progress = process_text_preparation_batch(
+        project,
+        encoder=encoder,
+        recipe=recipe,
+        space=space,
+    )
+
+    assert progress.complete and progress.processed_parts == 2
+    assert encoder.calls == 1
+    with RetrievalStore(project).open() as store:
+        assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
+        assert (
+            store.db.execute("SELECT count(*) FROM representations").fetchone()[0] == 1
         )
-
-        assert progress.complete and progress.processed_parts == 2
-        assert encoder.calls == 1
-        with RetrievalStore(project).open() as store:
-            assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
-            assert (
-                store.db.execute("SELECT count(*) FROM representations").fetchone()[0]
-                == 1
-            )
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM part_representations"
-                ).fetchone()[0]
-                == 2
-            )
-    finally:
-        project.close()
+        assert (
+            store.db.execute("SELECT count(*) FROM part_representations").fetchone()[0]
+            == 2
+        )
 
 
 def test_invalid_image_does_not_block_later_blank_pdf_in_worker_quantum(
@@ -1332,49 +1302,46 @@ def test_edit_during_preparation_rejects_old_cursor_target(make_project) -> None
     project = make_project("edit")
     recipe = TextChunkRecipe(max_codepoints=8, overlap_codepoints=2)
     space = EmbeddingGemma2Space(dimensions=128)
-    try:
-        sheet_id = project.add_sheet("Documents")
-        column_id = project.add_column(sheet_id, "body")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"body": "alpha beta gamma delta"}],
-            {"body": column_id},
-        )[0]
-        old = _source(project, sheet_id, column_id, row_id)
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, old, recipe=recipe, space=space)
-        assert process_text_preparation_batch(
-            project,
-            encoder=_Encoder(),
-            recipe=recipe,
-            space=space,
-            max_parts=1,
-        ).pending
+    sheet_id = project.add_sheet("Documents")
+    column_id = project.add_column(sheet_id, "body")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"body": "alpha beta gamma delta"}],
+        {"body": column_id},
+    )[0]
+    old = _source(project, sheet_id, column_id, row_id)
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, old, recipe=recipe, space=space)
+    assert process_text_preparation_batch(
+        project,
+        encoder=_Encoder(),
+        recipe=recipe,
+        space=space,
+        max_parts=1,
+    ).pending
 
-        project.apply_edits(
-            [{"row_id": row_id, "column_id": column_id, "value": "replacement"}]
+    project.apply_edits(
+        [{"row_id": row_id, "column_id": column_id, "value": "replacement"}]
+    )
+    result = process_text_preparation_batch(
+        project,
+        encoder=_Encoder(),
+        recipe=recipe,
+        space=space,
+        max_parts=1,
+    )
+    assert result.complete and result.processed_parts == 0
+    with RetrievalStore(project).open() as store:
+        old_state = store.preparation_state(
+            old.source.source_id,
+            recipe_id=recipe.recipe_id,
+            channel=TEXT_CHANNEL,
         )
-        result = process_text_preparation_batch(
-            project,
-            encoder=_Encoder(),
-            recipe=recipe,
-            space=space,
-            max_parts=1,
+        assert old_state is not None
+        assert (old_state.status, old_state.error_code) == (
+            "failed",
+            "stale_source",
         )
-        assert result.complete and result.processed_parts == 0
-        with RetrievalStore(project).open() as store:
-            old_state = store.preparation_state(
-                old.source.source_id,
-                recipe_id=recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert old_state is not None
-            assert (old_state.status, old_state.error_code) == (
-                "failed",
-                "stale_source",
-            )
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("change_during_encoding", [False, True])
@@ -1383,96 +1350,90 @@ def test_source_file_edit_retires_pending_text(
 ) -> None:
     project = make_project("document-dependency")
     space = EmbeddingGemma2Space(dimensions=128)
-    try:
-        sheet_id = project.add_sheet("Documents")
-        file_column = project.add_column(sheet_id, "File", type="file")
-        text_column = project.add_column(sheet_id, "Text")
-        digest = project.add_blob(b"first PDF", mime="application/pdf")
-        row_id = project.add_rows(
-            sheet_id,
-            [{"File": {"blob": digest}, "Text": "authority original text"}],
-            {"File": file_column, "Text": text_column},
-        )[0]
-        ensure_document_text_role(
-            project,
-            source_column_id=file_column,
-            text_column_id=text_column,
-            commit=True,
-        )
-        project.db.execute("BEGIN IMMEDIATE")
-        op_id = project.append_change("prepare.test", commit=False)
-        artifact = record_source_artifact(
-            project,
-            artifact_kind="document",
-            media_type="application/pdf",
-            blob_hash=digest,
-            page_count=1,
-            source_sheet_id=sheet_id,
-            source_row_id=row_id,
-            source_column_id=file_column,
-        )
-        prepared = PreparedContentStore(project).stage_reference(
-            source_artifact_id=int(artifact["id"]),
-            producing_op_id=op_id,
-            pages=(PreparedPageDraft(1, "authority original text"),),
-        )
-        project.db.commit()
+    sheet_id = project.add_sheet("Documents")
+    file_column = project.add_column(sheet_id, "File", type="file")
+    text_column = project.add_column(sheet_id, "Text")
+    digest = project.add_blob(b"first PDF", mime="application/pdf")
+    row_id = project.add_rows(
+        sheet_id,
+        [{"File": {"blob": digest}, "Text": "authority original text"}],
+        {"File": file_column, "Text": text_column},
+    )[0]
+    ensure_document_text_role(
+        project,
+        source_column_id=file_column,
+        text_column_id=text_column,
+        commit=True,
+    )
+    project.db.execute("BEGIN IMMEDIATE")
+    op_id = project.append_change("prepare.test", commit=False)
+    artifact = record_source_artifact(
+        project,
+        artifact_kind="document",
+        media_type="application/pdf",
+        blob_hash=digest,
+        page_count=1,
+        source_sheet_id=sheet_id,
+        source_row_id=row_id,
+        source_column_id=file_column,
+    )
+    prepared = PreparedContentStore(project).stage_reference(
+        source_artifact_id=int(artifact["id"]),
+        producing_op_id=op_id,
+        pages=(PreparedPageDraft(1, "authority original text"),),
+    )
+    project.db.commit()
+    project.apply_edits(
+        [{"row_id": row_id, "column_id": text_column, "value": prepared}]
+    )
+    source = _source(project, sheet_id, text_column, row_id)
+    assert source.source_binding is not None
+    with RetrievalStore(project).open() as store:
+        dispatch_resolved_text_source(store, source, space=space)
+
+    replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
+
+    def change_file():
         project.apply_edits(
-            [{"row_id": row_id, "column_id": text_column, "value": prepared}]
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": file_column,
+                    "value": {"blob": replacement},
+                }
+            ]
         )
-        source = _source(project, sheet_id, text_column, row_id)
-        assert source.source_binding is not None
-        with RetrievalStore(project).open() as store:
-            dispatch_resolved_text_source(store, source, space=space)
 
-        replacement = project.add_blob(b"replacement PDF", mime="application/pdf")
-
-        def change_file():
-            project.apply_edits(
-                [
-                    {
-                        "row_id": row_id,
-                        "column_id": file_column,
-                        "value": {"blob": replacement},
-                    }
-                ]
+    class SourceChangingEncoder(_Encoder):
+        def encode(self, inputs, *, purpose, space, cancelled=None):
+            if change_during_encoding:
+                change_file()
+            return super().encode(
+                inputs, purpose=purpose, space=space, cancelled=cancelled
             )
 
-        class SourceChangingEncoder(_Encoder):
-            def encode(self, inputs, *, purpose, space, cancelled=None):
-                if change_during_encoding:
-                    change_file()
-                return super().encode(
-                    inputs, purpose=purpose, space=space, cancelled=cancelled
-                )
+    if not change_during_encoding:
+        change_file()
+    encoder = SourceChangingEncoder()
+    progress = process_text_preparation_batch(project, encoder=encoder, space=space)
 
-        if not change_during_encoding:
-            change_file()
-        encoder = SourceChangingEncoder()
-        progress = process_text_preparation_batch(project, encoder=encoder, space=space)
-
-        assert progress.complete and progress.processed_parts == 0
-        assert encoder.calls == int(change_during_encoding)
+    assert progress.complete and progress.processed_parts == 0
+    assert encoder.calls == int(change_during_encoding)
+    assert (
+        project.get_values(sheet_id, text_column)[row_id] == "authority original text"
+    )
+    with RetrievalStore(project).open() as store:
+        state = store.preparation_state(
+            source.source.source_id,
+            recipe_id=DEFAULT_PREPARATION_POLICY.text_recipe.recipe_id,
+            channel=TEXT_CHANNEL,
+        )
+        assert state is not None
+        assert (state.status, state.error_code) == ("failed", "stale_source")
         assert (
-            project.get_values(sheet_id, text_column)[row_id]
-            == "authority original text"
+            store.db.execute("SELECT count(*) FROM part_representations").fetchone()[0]
+            == 0
         )
-        with RetrievalStore(project).open() as store:
-            state = store.preparation_state(
-                source.source.source_id,
-                recipe_id=DEFAULT_PREPARATION_POLICY.text_recipe.recipe_id,
-                channel=TEXT_CHANNEL,
-            )
-            assert state is not None
-            assert (state.status, state.error_code) == ("failed", "stale_source")
-            assert (
-                store.db.execute(
-                    "SELECT count(*) FROM part_representations"
-                ).fetchone()[0]
-                == 0
-            )
-    finally:
-        project.close()
 
 
 def test_dirty_dispatch_uses_only_unified_sidecar_and_recovers_deletion(make_project):

@@ -42,10 +42,7 @@ def seeded(make_project):
         project_id="p",
     )
     assert result.status == "completed", result.errors
-    try:
-        yield project, sheet, column, rows, result.receipt_id
-    finally:
-        project.close()
+    yield project, sheet, column, rows, result.receipt_id
 
 
 def _request(receipt_id, **params):

@@ -76,10 +76,7 @@ def extracted(make_project, monkeypatch):
     assert named["source_action_kind"] == "custom.extract"
     assert named["output_key"] == "entities"
     assert named["route"] == "published_entities"
-    try:
-        yield project, named, requests
-    finally:
-        project.close()
+    yield project, named, requests
 
 
 def derive(project, named):

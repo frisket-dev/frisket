@@ -104,21 +104,18 @@ def test_numeric_histograms_and_ranges_share_native_json_number_validity(make_pr
         [{"amount": -1}, {"amount": 1.5}, {"amount": "0"}, {"amount": True}],
         {"amount": amount},
     )
-    try:
-        preview = resolve_column_values_preview(
-            project, sheet_id=sheet, input_column="amount"
+    preview = resolve_column_values_preview(
+        project, sheet_id=sheet, input_column="amount"
+    )
+    assert sum(bin_["count"] for bin_ in preview["distribution"]["bins"]) == 2
+    assert (
+        _row_ids(
+            project,
+            sheet,
+            {"amount": {"between": {"start": "-2", "end": "2"}}},
         )
-        assert sum(bin_["count"] for bin_ in preview["distribution"]["bins"]) == 2
-        assert (
-            _row_ids(
-                project,
-                sheet,
-                {"amount": {"between": {"start": "-2", "end": "2"}}},
-            )
-            == rows[:2]
-        )
-    finally:
-        project.close()
+        == rows[:2]
+    )
 
 
 def test_integer_ranges_keep_signed_64_bit_endpoints_exact(make_project):
@@ -215,12 +212,9 @@ def test_boolean_in_rejects_unknown_spellings(make_project):
         [{"flag": True}, {"flag": False}],
         {"flag": flag},
     )
-    try:
-        assert _row_ids(project, sheet, {"flag": {"in": ["yes", "off"]}}) == rows
-        with pytest.raises(SheetRowSetError, match="invalid boolean filter"):
-            _row_ids(project, sheet, {"flag": {"in": ["banana"]}})
-    finally:
-        project.close()
+    assert _row_ids(project, sheet, {"flag": {"in": ["yes", "off"]}}) == rows
+    with pytest.raises(SheetRowSetError, match="invalid boolean filter"):
+        _row_ids(project, sheet, {"flag": {"in": ["banana"]}})
 
 
 @pytest.mark.parametrize(
@@ -288,25 +282,20 @@ def test_histograms_include_timestamps_and_extreme_finite_numbers(make_project):
         ],
         columns,
     )
-    try:
-        amount = resolve_column_values_preview(
-            project, sheet_id=sheet, input_column="amount"
-        )
-        assert sum(bin_["count"] for bin_ in amount["distribution"]["bins"]) == 2
-        assert all(
-            math.isfinite(float(bin_[bound]))
-            for bin_ in amount["distribution"]["bins"]
-            for bound in ("start", "end")
-        )
+    amount = resolve_column_values_preview(
+        project, sheet_id=sheet, input_column="amount"
+    )
+    assert sum(bin_["count"] for bin_ in amount["distribution"]["bins"]) == 2
+    assert all(
+        math.isfinite(float(bin_[bound]))
+        for bin_ in amount["distribution"]["bins"]
+        for bound in ("start", "end")
+    )
 
-        filed = resolve_column_values_preview(
-            project, sheet_id=sheet, input_column="filed"
-        )
-        assert filed["distribution"]["min"] == "2026-01-01"
-        assert filed["distribution"]["max"] == "2026-04-01"
-        assert sum(bin_["count"] for bin_ in filed["distribution"]["bins"]) == 2
-    finally:
-        project.close()
+    filed = resolve_column_values_preview(project, sheet_id=sheet, input_column="filed")
+    assert filed["distribution"]["min"] == "2026-01-01"
+    assert filed["distribution"]["max"] == "2026-04-01"
+    assert sum(bin_["count"] for bin_ in filed["distribution"]["bins"]) == 2
 
 
 def test_histogram_handles_subnormal_spans_without_dropping_counts(make_project):
@@ -318,13 +307,10 @@ def test_histogram_handles_subnormal_spans_without_dropping_counts(make_project)
         [{"amount": 5e-324}, {"amount": 1e-323}, {"amount": 5e-324}],
         {"amount": amount},
     )
-    try:
-        preview = resolve_column_values_preview(
-            project, sheet_id=sheet, input_column="amount"
-        )
-        distribution = preview["distribution"]
-        assert distribution["min"] == 5e-324
-        assert distribution["max"] == 1e-323
-        assert sum(bin_["count"] for bin_ in distribution["bins"]) == 3
-    finally:
-        project.close()
+    preview = resolve_column_values_preview(
+        project, sheet_id=sheet, input_column="amount"
+    )
+    distribution = preview["distribution"]
+    assert distribution["min"] == 5e-324
+    assert distribution["max"] == 1e-323
+    assert sum(bin_["count"] for bin_ in distribution["bins"]) == 3

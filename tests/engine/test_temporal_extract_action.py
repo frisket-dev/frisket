@@ -869,20 +869,17 @@ def test_extract_failure_preserves_error_facts_by_value(make_project) -> None:
         action_kind="temporal.extract_range",
         details={"provider": "fixture", "billable": False},
     )
-    try:
-        _insert_extract_failure_receipt(project, receipt_id=receipt_id)
-        result = _terminalize_extract_failure(
-            project,
-            project_id="project-extract-terminalization",
-            receipt_id=receipt_id,
-            error=error,
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    _insert_extract_failure_receipt(project, receipt_id=receipt_id)
+    result = _terminalize_extract_failure(
+        project,
+        project_id="project-extract-terminalization",
+        receipt_id=receipt_id,
+        error=error,
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.errors == [error]
-        assert stored is not None and stored.errors == [error]
-    finally:
-        project.close()
+    assert result.errors == [error]
+    assert stored is not None and stored.errors == [error]
 
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])
@@ -944,24 +941,21 @@ def test_queued_extract_failure_leaves_worker_owned_receipt_untouched(
         action_kind="temporal.extract_range",
         details={"owner": "action.run"},
     )
-    try:
-        prior = _insert_extract_failure_receipt(
-            project,
-            receipt_id=receipt_id,
-            queued=True,
-        )
-        result = _terminalize_extract_failure(
-            project,
-            project_id="project-extract-terminalization",
-            receipt_id=receipt_id,
-            error=error,
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    prior = _insert_extract_failure_receipt(
+        project,
+        receipt_id=receipt_id,
+        queued=True,
+    )
+    result = _terminalize_extract_failure(
+        project,
+        project_id="project-extract-terminalization",
+        receipt_id=receipt_id,
+        error=error,
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.errors == [error]
-        assert stored == prior
-    finally:
-        project.close()
+    assert result.errors == [error]
+    assert stored == prior
 
 
 def test_extract_range_maps_one_acknowledged_literal_over_multiple_rows(

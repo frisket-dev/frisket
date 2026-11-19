@@ -38,10 +38,7 @@ def owned_research(make_project):
         max_turns=None,
     )
     session = ResearchSession(ledger, run["id"], authorize=lambda: None)
-    try:
-        yield project, qa, turn, ledger, run, session
-    finally:
-        project.close()
+    yield project, qa, turn, ledger, run, session
 
 
 async def _pending(ledger, research_id, *, operation_id=None, kind=None):

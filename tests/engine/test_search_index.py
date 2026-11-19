@@ -23,10 +23,7 @@ def documents(make_project):
     rows = project.add_rows(
         sheet, [{"body": f"needle document {i}"} for i in range(7)], {"body": column}
     )
-    try:
-        yield project, sheet, column, rows
-    finally:
-        project.close()
+    yield project, sheet, column, rows
 
 
 def test_readers_do_not_prepare_and_maintenance_batches_are_bounded(documents):

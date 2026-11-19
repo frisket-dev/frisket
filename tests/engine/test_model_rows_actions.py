@@ -338,18 +338,15 @@ def test_third_party_model_rows_literal_source_refuses_before_paid_dispatch(
 ) -> None:
     project = make_project("literal")
     requests: list[LLMRequest] = []
+    sheet_id, _ = _seed(project)
+    request = _third_party_request(sheet_id, source={"text": "literal only"})
     try:
-        sheet_id, _ = _seed(project)
-        request = _third_party_request(sheet_id, source={"text": "literal only"})
-        try:
-            _run_third_party(project, request, _value_router(requests, "Ada"))
-        except ValueError as error:
-            assert "reference at least one column" in str(error)
-        else:
-            raise AssertionError("literal-only paid prompt was accepted")
-        assert requests == []
-    finally:
-        project.close()
+        _run_third_party(project, request, _value_router(requests, "Ada"))
+    except ValueError as error:
+        assert "reference at least one column" in str(error)
+    else:
+        raise AssertionError("literal-only paid prompt was accepted")
+    assert requests == []
 
 
 def test_model_rows_applies_functional_output_validator_before_publication(
@@ -357,98 +354,92 @@ def test_model_rows_applies_functional_output_validator_before_publication(
 ) -> None:
     project = make_project("functional-validator")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        request = _third_party_request(sheet_id, source=["body"], row_ids=[row_ids[0]])
-        router = _value_router(requests, " Ada ")
-        gated = _run_third_party(project, request, router)
-        assert gated.status == "needs_confirmation"
-        assert requests == []
+    sheet_id, row_ids = _seed(project)
+    request = _third_party_request(sheet_id, source=["body"], row_ids=[row_ids[0]])
+    router = _value_router(requests, " Ada ")
+    gated = _run_third_party(project, request, router)
+    assert gated.status == "needs_confirmation"
+    assert requests == []
 
-        confirmed = _third_party_request(
-            sheet_id,
-            source=["body"],
-            row_ids=[row_ids[0]],
-            confirmation=gated.errors[0].details["promise_set_hash"],
-        )
-        result = _run_third_party(project, confirmed, router)
+    confirmed = _third_party_request(
+        sheet_id,
+        source=["body"],
+        row_ids=[row_ids[0]],
+        confirmation=gated.errors[0].details["promise_set_hash"],
+    )
+    result = _run_third_party(project, confirmed, router)
 
-        assert result.status == "failed"
-        assert len(requests) == 1
-        assert set((requests[0].schema or {})["properties"]) == {"answer"}
-        output = next(
-            column
-            for column in project.columns(sheet_id, include_hidden=True)
-            if column["name"] == "answer"
-        )
-        assert project.get_values(sheet_id, int(output["id"]), row_ids=row_ids) == {
-            row_ids[0]: None,
-            row_ids[1]: None,
-        }
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert receipt.provider_use[0]["model_call_count"] == 1
-        assert receipt.provider_use[0]["cost_actual"] == 0.001
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert len(requests) == 1
+    assert set((requests[0].schema or {})["properties"]) == {"answer"}
+    output = next(
+        column
+        for column in project.columns(sheet_id, include_hidden=True)
+        if column["name"] == "answer"
+    )
+    assert project.get_values(sheet_id, int(output["id"]), row_ids=row_ids) == {
+        row_ids[0]: None,
+        row_ids[1]: None,
+    }
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert receipt.provider_use[0]["model_call_count"] == 1
+    assert receipt.provider_use[0]["cost_actual"] == 0.001
 
 
 def test_model_rows_publishes_structured_and_json_output_fields(make_project) -> None:
     project = make_project("structured-output")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        outputs = {"point": "point", "tags": "tags", "metadata": "metadata"}
-        request = _third_party_request(
-            sheet_id,
-            source=["body"],
-            row_ids=[row_ids[0]],
-            action=_STRUCTURED_ACTION,
-            output_names=outputs,
-            idempotency_key="structured@1",
-        )
-        data = {
-            "point": {"lat": 40.6405, "lon": -73.9681},
-            "tags": ["filing", "person"],
-            "metadata": {"mentions": 1},
-        }
-        router = _data_router(requests, data)
-        gated = _run_third_party(project, request, router, _STRUCTURED_ACTION)
-        confirmed = _third_party_request(
-            sheet_id,
-            source=["body"],
-            row_ids=[row_ids[0]],
-            confirmation=gated.errors[0].details["promise_set_hash"],
-            action=_STRUCTURED_ACTION,
-            output_names=outputs,
-            idempotency_key="structured@1",
-        )
+    sheet_id, row_ids = _seed(project)
+    outputs = {"point": "point", "tags": "tags", "metadata": "metadata"}
+    request = _third_party_request(
+        sheet_id,
+        source=["body"],
+        row_ids=[row_ids[0]],
+        action=_STRUCTURED_ACTION,
+        output_names=outputs,
+        idempotency_key="structured@1",
+    )
+    data = {
+        "point": {"lat": 40.6405, "lon": -73.9681},
+        "tags": ["filing", "person"],
+        "metadata": {"mentions": 1},
+    }
+    router = _data_router(requests, data)
+    gated = _run_third_party(project, request, router, _STRUCTURED_ACTION)
+    confirmed = _third_party_request(
+        sheet_id,
+        source=["body"],
+        row_ids=[row_ids[0]],
+        confirmation=gated.errors[0].details["promise_set_hash"],
+        action=_STRUCTURED_ACTION,
+        output_names=outputs,
+        idempotency_key="structured@1",
+    )
 
-        result = _run_third_party(project, confirmed, router, _STRUCTURED_ACTION)
+    result = _run_third_party(project, confirmed, router, _STRUCTURED_ACTION)
 
-        assert result.status == "completed", result.errors
-        assert len(requests) == 1
-        columns = {column["name"]: column for column in project.columns(sheet_id)}
-        assert (
-            project.get_values(
-                sheet_id, int(columns["point"]["id"]), row_ids=[row_ids[0]]
-            )[row_ids[0]]
-            == data["point"]
-        )
-        assert (
-            project.get_values(
-                sheet_id, int(columns["tags"]["id"]), row_ids=[row_ids[0]]
-            )[row_ids[0]]
-            == data["tags"]
-        )
-        assert (
-            project.get_values(
-                sheet_id, int(columns["metadata"]["id"]), row_ids=[row_ids[0]]
-            )[row_ids[0]]
-            == data["metadata"]
-        )
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    assert len(requests) == 1
+    columns = {column["name"]: column for column in project.columns(sheet_id)}
+    assert (
+        project.get_values(sheet_id, int(columns["point"]["id"]), row_ids=[row_ids[0]])[
+            row_ids[0]
+        ]
+        == data["point"]
+    )
+    assert (
+        project.get_values(sheet_id, int(columns["tags"]["id"]), row_ids=[row_ids[0]])[
+            row_ids[0]
+        ]
+        == data["tags"]
+    )
+    assert (
+        project.get_values(
+            sheet_id, int(columns["metadata"]["id"]), row_ids=[row_ids[0]]
+        )[row_ids[0]]
+        == data["metadata"]
+    )
 
 
 def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
@@ -456,92 +447,87 @@ def test_model_rows_direct_confirmation_multimodal_receipt_and_replay(
 ) -> None:
     project = make_project("model-rows")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        body["params"].update(
-            {
-                "source": {
-                    "text": "private-template-marker {{body}} {{scan}} {{body}}"
-                },
-                "question": "private-question-marker",
-                "context": "private-context-marker",
-            }
-        )
-        gated = run_typed_map_request(
-            project,
-            body,
-            project_id="project-1",
-            deps=_zero_consent_deps(project),
-        )
-        assert gated.status == "needs_confirmation"
-        assert requests == []
-        promise_hash = gated.errors[0].details["promise_set_hash"]
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    body["params"].update(
+        {
+            "source": {"text": "private-template-marker {{body}} {{scan}} {{body}}"},
+            "question": "private-question-marker",
+            "context": "private-context-marker",
+        }
+    )
+    gated = run_typed_map_request(
+        project,
+        body,
+        project_id="project-1",
+        deps=_zero_consent_deps(project),
+    )
+    assert gated.status == "needs_confirmation"
+    assert requests == []
+    promise_hash = gated.errors[0].details["promise_set_hash"]
 
-        request = ActionRequest.model_validate({**body, "confirmation": promise_hash})
-        from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
-        from frisket.engine.runner import MapRunner
-        from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+    request = ActionRequest.model_validate({**body, "confirmation": promise_hash})
+    from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
+    from frisket.engine.runner import MapRunner
+    from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
-        router = _router(requests)
-        result = run_typed_map_rows_action(
-            project,
-            "project-1",
-            BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
-            router,
-            lambda target, selected: MapRunner(
-                target,
-                selected or router,
-                authority=UnroutedOnlyAuthority(target),
-                consent_coverage=_zero_consent_coverage(target),
-            ),
-        )
-        assert result.status == "completed", result.errors
-        assert [output.name for output in result.outputs] == ["person"]
-        assert len(requests) == 1
-        assert set((requests[0].schema or {})["properties"]) == {"answer"}
-        assert [part["type"] for part in requests[0].messages[1]["content"]] == [
-            "text",
-            "image",
-            "text",
-        ]
-        assert (
-            "private-template-marker The filing names Ada."
-            in requests[0].messages[1]["content"][0]["text"]
-        )
+    router = _router(requests)
+    result = run_typed_map_rows_action(
+        project,
+        "project-1",
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
+        router,
+        lambda target, selected: MapRunner(
+            target,
+            selected or router,
+            authority=UnroutedOnlyAuthority(target),
+            consent_coverage=_zero_consent_coverage(target),
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert [output.name for output in result.outputs] == ["person"]
+    assert len(requests) == 1
+    assert set((requests[0].schema or {})["properties"]) == {"answer"}
+    assert [part["type"] for part in requests[0].messages[1]["content"]] == [
+        "text",
+        "image",
+        "text",
+    ]
+    assert (
+        "private-template-marker The filing names Ada."
+        in requests[0].messages[1]["content"][0]["text"]
+    )
 
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert receipt.provider_use[0]["provider"] == "anthropic"
-        assert receipt.provider_use[0]["model_call_count"] == 1
-        assert receipt.outputs[0].ref["role"] == "answer"
-        assert receipt.outputs[0].ref["name"] == "person"
-        assert [item.name for item in receipt.inputs] == [
-            "column.body",
-            "column.scan",
-        ]
-        assert [item.ref["name"] for item in receipt.inputs] == ["body", "scan"]
-        durable = receipt.model_dump_json()
-        assert "private-template-marker" not in durable
-        assert "private-question-marker" not in durable
-        assert "private-context-marker" not in durable
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert receipt.provider_use[0]["provider"] == "anthropic"
+    assert receipt.provider_use[0]["model_call_count"] == 1
+    assert receipt.outputs[0].ref["role"] == "answer"
+    assert receipt.outputs[0].ref["name"] == "person"
+    assert [item.name for item in receipt.inputs] == [
+        "column.body",
+        "column.scan",
+    ]
+    assert [item.ref["name"] for item in receipt.inputs] == ["body", "scan"]
+    durable = receipt.model_dump_json()
+    assert "private-template-marker" not in durable
+    assert "private-question-marker" not in durable
+    assert "private-context-marker" not in durable
 
-        replay = run_typed_map_rows_action(
-            project,
-            "project-1",
-            BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
-            router,
-            lambda target, selected: MapRunner(
-                target,
-                selected or router,
-                authority=UnroutedOnlyAuthority(target),
-                consent_coverage=_zero_consent_coverage(target),
-            ),
-        )
-        assert replay.receipt_id == result.receipt_id
-        assert len(requests) == 1
-    finally:
-        project.close()
+    replay = run_typed_map_rows_action(
+        project,
+        "project-1",
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
+        router,
+        lambda target, selected: MapRunner(
+            target,
+            selected or router,
+            authority=UnroutedOnlyAuthority(target),
+            consent_coverage=_zero_consent_coverage(target),
+        ),
+    )
+    assert replay.receipt_id == result.receipt_id
+    assert len(requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -573,101 +559,95 @@ def test_ask_response_type_drives_schema_and_persisted_values(
 
     project = make_project("typed-answer")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        body["params"].update(
-            source=["body"],
-            response_type=response_type,
-            include_confidence=include_confidence,
-            include_reasoning=include_reasoning,
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    body["params"].update(
+        source=["body"],
+        response_type=response_type,
+        include_confidence=include_confidence,
+        include_reasoning=include_reasoning,
+    )
+    data = {"answer": value}
+    if include_reasoning:
+        body["output_names"]["answer_reasoning"] = "explanation"
+        data["answer_reasoning"] = "The supplied content supports this answer."
+    if include_confidence:
+        body["output_names"]["answer_confidence"] = "confidence"
+        data["answer_confidence"] = 0.9
+    action = ACTION_REGISTRY.get("map.ask")
+    request = ActionRequest.model_validate(body)
+    router = _data_router(requests, data)
+    gated = _run_third_party(project, request, router, action)
+    assert gated.status == "needs_confirmation"
+    confirmed = request.model_copy(
+        update={"confirmation": gated.errors[0].details["promise_set_hash"]}
+    )
+    result = _run_third_party(project, confirmed, router, action)
+    assert result.status == "completed", result.errors
+    column = next(c for c in project.columns(sheet_id) if c["name"] == "person")
+    assert column["type"] == column_type
+    assert (
+        project.get_values(sheet_id, column["id"], row_ids=[row_ids[0]])[row_ids[0]]
+        == value
+    )
+    assert len(requests) == 1
+    Draft202012Validator(requests[0].schema).validate(data)
+    assert set(requests[0].schema["properties"]) == set(data)
+    if include_reasoning:
+        reasoning = next(
+            c for c in project.columns(sheet_id) if c["name"] == "explanation"
         )
-        data = {"answer": value}
-        if include_reasoning:
-            body["output_names"]["answer_reasoning"] = "explanation"
-            data["answer_reasoning"] = "The supplied content supports this answer."
-        if include_confidence:
-            body["output_names"]["answer_confidence"] = "confidence"
-            data["answer_confidence"] = 0.9
-        action = ACTION_REGISTRY.get("map.ask")
-        request = ActionRequest.model_validate(body)
-        router = _data_router(requests, data)
-        gated = _run_third_party(project, request, router, action)
-        assert gated.status == "needs_confirmation"
-        confirmed = request.model_copy(
-            update={"confirmation": gated.errors[0].details["promise_set_hash"]}
-        )
-        result = _run_third_party(project, confirmed, router, action)
-        assert result.status == "completed", result.errors
-        column = next(c for c in project.columns(sheet_id) if c["name"] == "person")
-        assert column["type"] == column_type
+        assert reasoning["type"] == "text"
         assert (
-            project.get_values(sheet_id, column["id"], row_ids=[row_ids[0]])[row_ids[0]]
-            == value
+            project.get_values(sheet_id, reasoning["id"], row_ids=[row_ids[0]])[
+                row_ids[0]
+            ]
+            == data["answer_reasoning"]
         )
-        assert len(requests) == 1
-        Draft202012Validator(requests[0].schema).validate(data)
-        assert set(requests[0].schema["properties"]) == set(data)
-        if include_reasoning:
-            reasoning = next(
-                c for c in project.columns(sheet_id) if c["name"] == "explanation"
-            )
-            assert reasoning["type"] == "text"
-            assert (
-                project.get_values(sheet_id, reasoning["id"], row_ids=[row_ids[0]])[
-                    row_ids[0]
-                ]
-                == data["answer_reasoning"]
-            )
-            assert "In answer_reasoning" in requests[0].messages[0]["content"]
-        else:
-            assert "In answer_reasoning" not in requests[0].messages[0]["content"]
-        if include_confidence:
-            confidence = next(
-                c for c in project.columns(sheet_id) if c["name"] == "confidence"
-            )
-            assert confidence["type"] == "number"
-            assert (
-                project.get_values(sheet_id, confidence["id"], row_ids=[row_ids[0]])[
-                    row_ids[0]
-                ]
-                == 0.9
-            )
-            assert not Draft202012Validator(requests[0].schema).is_valid(
-                {**data, "answer_confidence": 1.1}
-            )
-        if response_type in {"integer", "number", "boolean"}:
-            assert not Draft202012Validator(requests[0].schema).is_valid(
-                {**data, "answer": "unknown"}
-            )
-        replay = _run_third_party(project, confirmed, router, action)
-        assert replay.receipt_id == result.receipt_id
-        assert len(requests) == 1
-    finally:
-        project.close()
+        assert "In answer_reasoning" in requests[0].messages[0]["content"]
+    else:
+        assert "In answer_reasoning" not in requests[0].messages[0]["content"]
+    if include_confidence:
+        confidence = next(
+            c for c in project.columns(sheet_id) if c["name"] == "confidence"
+        )
+        assert confidence["type"] == "number"
+        assert (
+            project.get_values(sheet_id, confidence["id"], row_ids=[row_ids[0]])[
+                row_ids[0]
+            ]
+            == 0.9
+        )
+        assert not Draft202012Validator(requests[0].schema).is_valid(
+            {**data, "answer_confidence": 1.1}
+        )
+    if response_type in {"integer", "number", "boolean"}:
+        assert not Draft202012Validator(requests[0].schema).is_valid(
+            {**data, "answer": "unknown"}
+        )
+    replay = _run_third_party(project, confirmed, router, action)
+    assert replay.receipt_id == result.receipt_id
+    assert len(requests) == 1
 
 
 def test_ask_wrong_response_type_is_not_published(make_project) -> None:
     project = make_project("invalid-answer")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        body["params"].update(source=["body"], response_type="boolean")
-        action = ACTION_REGISTRY.get("map.ask")
-        request = ActionRequest.model_validate(body)
-        router = _data_router(requests, {"answer": "not sure"})
-        gated = _run_third_party(project, request, router, action)
-        confirmed = request.model_copy(
-            update={"confirmation": gated.errors[0].details["promise_set_hash"]}
-        )
-        result = _run_third_party(project, confirmed, router, action)
-        assert result.status == "failed"
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt.errors[0].details["failed_rows"] == 1
-        assert not any(c["name"] == "person" for c in project.columns(sheet_id))
-    finally:
-        project.close()
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    body["params"].update(source=["body"], response_type="boolean")
+    action = ACTION_REGISTRY.get("map.ask")
+    request = ActionRequest.model_validate(body)
+    router = _data_router(requests, {"answer": "not sure"})
+    gated = _run_third_party(project, request, router, action)
+    confirmed = request.model_copy(
+        update={"confirmation": gated.errors[0].details["promise_set_hash"]}
+    )
+    result = _run_third_party(project, confirmed, router, action)
+    assert result.status == "failed"
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt.errors[0].details["failed_rows"] == 1
+    assert not any(c["name"] == "person" for c in project.columns(sheet_id))
 
 
 @pytest.mark.parametrize("action_id", ["map.ask", "map.extract"])
@@ -679,97 +659,92 @@ def test_typed_model_retry_changes_only_empty_failed_output_type(
 
     project = make_project("typed-failed-retry")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        if action_id == "map.ask":
-            body = _request(sheet_id, row_ids=[row_ids[0]])
-            body["params"].update(source=["body"], response_type="boolean")
-        else:
-            body = typed_extract_request(
-                sheet_id,
-                source=["body"],
-                row_ids=[row_ids[0]],
-                fields=[{"name": "answer", "type": "boolean"}],
-                output_names={"answer": "person"},
-                idempotency_key="extract-retry@1",
-            )
-        action = ACTION_REGISTRY.get(action_id)
-
-        def run_confirmed(payload, data):
-            router = _data_router(requests, data)
-            request = ActionRequest.model_validate(payload)
-            result = _run_third_party(project, request, router, action)
-            if result.status == "needs_confirmation":
-                if payload["idempotency_key"].endswith("-text"):
-                    # Quoting/planning may admit the name, but cannot retire it.
-                    assert project.get_column(old_id)["active"] == 1
-                request = request.model_copy(
-                    update={
-                        "confirmation": result.errors[0].details["promise_set_hash"],
-                    }
-                )
-                result = _run_third_party(project, request, router, action)
-            return result
-
-        first = run_confirmed(body, {"answer": initial_value})
-        empty = initial_value == "not sure"
-        assert first.status == ("failed" if empty else "completed"), first.errors
-        column = next(
-            c
-            for c in project.columns(sheet_id, include_hidden=True)
-            if c["name"] == "person"
-        )
-        old_id = int(column["id"])
-        assert bool(column["hidden"]) == empty
-        if not empty:
-            # A user-hidden successful output still owns its typed history.
-            project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (old_id,))
-            project.db.commit()
-        old_heads = ResultGenerationStore(project).read_cell_heads(old_id, [row_ids[0]])
-        old_receipt = ReceiptStore(project).parsed_by_id(str(first.receipt_id))
-        retry = json.loads(json.dumps(body))
-        retry["idempotency_key"] += "-text"
-        if action_id == "map.ask":
-            retry["params"]["response_type"] = "text"
-        else:
-            retry["params"]["fields"][0]["type"] = "text"
-        # Explicit identity targets cannot silently become a new column.
-        explicit = {**retry, "expected_output_columns": {"person": old_id}}
-        refused = run_confirmed(explicit, {"answer": "Ada"})
-        assert refused.status == "failed"
-        assert refused.errors[0].code in {
-            "output_target_changed",
-            "output_column_exists",
-        }
-        calls_before = len(requests)
-        recovered = run_confirmed(retry, {"answer": "Ada"})
-        if empty:
-            assert recovered.status == "completed", recovered.errors
-            current = next(
-                c for c in project.columns(sheet_id) if c["name"] == "person"
-            )
-            assert current["id"] != old_id
-            assert current["type"] == "text"
-            assert project.get_values(
-                sheet_id, current["id"], row_ids=[row_ids[0]]
-            ) == {row_ids[0]: "Ada"}
-        else:
-            assert recovered.status == "failed"
-            assert recovered.errors[0].code == "output_column_exists"
-            assert len(requests) == calls_before
-            assert project.get_column(old_id)["active"] == 1
-        assert (
-            ResultGenerationStore(project).read_cell_heads(old_id, [row_ids[0]])
-            == old_heads
-        )
-        assert ReceiptStore(project).parsed_by_id(str(first.receipt_id)) == old_receipt
-        assert project.get_values(
+    sheet_id, row_ids = _seed(project)
+    if action_id == "map.ask":
+        body = _request(sheet_id, row_ids=[row_ids[0]])
+        body["params"].update(source=["body"], response_type="boolean")
+    else:
+        body = typed_extract_request(
             sheet_id,
-            next(c for c in project.columns(sheet_id) if c["name"] == "body")["id"],
+            source=["body"],
             row_ids=[row_ids[0]],
-        ) == {row_ids[0]: "The filing names Ada."}
-    finally:
-        project.close()
+            fields=[{"name": "answer", "type": "boolean"}],
+            output_names={"answer": "person"},
+            idempotency_key="extract-retry@1",
+        )
+    action = ACTION_REGISTRY.get(action_id)
+
+    def run_confirmed(payload, data):
+        router = _data_router(requests, data)
+        request = ActionRequest.model_validate(payload)
+        result = _run_third_party(project, request, router, action)
+        if result.status == "needs_confirmation":
+            if payload["idempotency_key"].endswith("-text"):
+                # Quoting/planning may admit the name, but cannot retire it.
+                assert project.get_column(old_id)["active"] == 1
+            request = request.model_copy(
+                update={
+                    "confirmation": result.errors[0].details["promise_set_hash"],
+                }
+            )
+            result = _run_third_party(project, request, router, action)
+        return result
+
+    first = run_confirmed(body, {"answer": initial_value})
+    empty = initial_value == "not sure"
+    assert first.status == ("failed" if empty else "completed"), first.errors
+    column = next(
+        c
+        for c in project.columns(sheet_id, include_hidden=True)
+        if c["name"] == "person"
+    )
+    old_id = int(column["id"])
+    assert bool(column["hidden"]) == empty
+    if not empty:
+        # A user-hidden successful output still owns its typed history.
+        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (old_id,))
+        project.db.commit()
+    old_heads = ResultGenerationStore(project).read_cell_heads(old_id, [row_ids[0]])
+    old_receipt = ReceiptStore(project).parsed_by_id(str(first.receipt_id))
+    retry = json.loads(json.dumps(body))
+    retry["idempotency_key"] += "-text"
+    if action_id == "map.ask":
+        retry["params"]["response_type"] = "text"
+    else:
+        retry["params"]["fields"][0]["type"] = "text"
+    # Explicit identity targets cannot silently become a new column.
+    explicit = {**retry, "expected_output_columns": {"person": old_id}}
+    refused = run_confirmed(explicit, {"answer": "Ada"})
+    assert refused.status == "failed"
+    assert refused.errors[0].code in {
+        "output_target_changed",
+        "output_column_exists",
+    }
+    calls_before = len(requests)
+    recovered = run_confirmed(retry, {"answer": "Ada"})
+    if empty:
+        assert recovered.status == "completed", recovered.errors
+        current = next(c for c in project.columns(sheet_id) if c["name"] == "person")
+        assert current["id"] != old_id
+        assert current["type"] == "text"
+        assert project.get_values(sheet_id, current["id"], row_ids=[row_ids[0]]) == {
+            row_ids[0]: "Ada"
+        }
+    else:
+        assert recovered.status == "failed"
+        assert recovered.errors[0].code == "output_column_exists"
+        assert len(requests) == calls_before
+        assert project.get_column(old_id)["active"] == 1
+    assert (
+        ResultGenerationStore(project).read_cell_heads(old_id, [row_ids[0]])
+        == old_heads
+    )
+    assert ReceiptStore(project).parsed_by_id(str(first.receipt_id)) == old_receipt
+    assert project.get_values(
+        sheet_id,
+        next(c for c in project.columns(sheet_id) if c["name"] == "body")["id"],
+        row_ids=[row_ids[0]],
+    ) == {row_ids[0]: "The filing names Ada."}
 
 
 @pytest.mark.parametrize("edited_value", [True, None])
@@ -779,84 +754,81 @@ def test_typed_ask_retry_preserves_manual_edit_history_on_failed_output(
 ) -> None:
     project = make_project("edited-failed-answer")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        body["params"].update(source=["body"], response_type="boolean")
-        action = ACTION_REGISTRY.get("map.ask")
-        request = ActionRequest.model_validate(body)
-        router = _data_router(requests, {"answer": "not sure"})
-        gated = _run_third_party(project, request, router, action)
-        confirmed = request.model_copy(
-            update={
-                "confirmation": gated.errors[0].details["promise_set_hash"],
-            }
-        )
-        failed = _run_third_party(project, confirmed, router, action)
-        assert failed.status == "failed"
-        column = next(
-            c
-            for c in project.columns(sheet_id, include_hidden=True)
-            if c["name"] == "person"
-        )
-        column_id = int(column["id"])
-        project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (column_id,))
-        project.db.commit()
-        edit_op = project.apply_edits(
-            [
-                {
-                    "row_id": row_ids[0],
-                    "column_id": column_id,
-                    "value": edited_value,
-                }
-            ]
-        )
-        if undo_edit:
-            assert project.undo() == edit_op
-        project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
-        project.db.commit()
-        edits_before = [
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT * FROM edits WHERE column_id=?",
-                (column_id,),
-            ).fetchall()
-        ]
-        heads_before = ResultGenerationStore(project).read_cell_heads(
-            column_id, [row_ids[0]]
-        )
-        calls_before = len(requests)
-        retry = request.model_copy(
-            update={
-                "params": {**request.params, "response_type": "text"},
-                "idempotency_key": "edited-failed-retry@text",
-            }
-        )
-        result = _run_third_party(
-            project, retry, _data_router(requests, {"answer": "Ada"}), action
-        )
-        assert result.status == "failed", result.errors
-        assert result.errors[0].code == "output_column_exists"
-        assert len(requests) == calls_before
-        assert project.get_column(column_id)["active"] == 1
-        assert [
-            tuple(row)
-            for row in project.db.execute(
-                "SELECT * FROM edits WHERE column_id=?",
-                (column_id,),
-            ).fetchall()
-        ] == edits_before
-        assert (
-            ResultGenerationStore(project).read_cell_heads(column_id, [row_ids[0]])
-            == heads_before
-        )
-        if undo_edit:
-            assert project.redo() == edit_op
-        assert project.get_values(sheet_id, column_id, row_ids=[row_ids[0]]) == {
-            row_ids[0]: edited_value
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    body["params"].update(source=["body"], response_type="boolean")
+    action = ACTION_REGISTRY.get("map.ask")
+    request = ActionRequest.model_validate(body)
+    router = _data_router(requests, {"answer": "not sure"})
+    gated = _run_third_party(project, request, router, action)
+    confirmed = request.model_copy(
+        update={
+            "confirmation": gated.errors[0].details["promise_set_hash"],
         }
-    finally:
-        project.close()
+    )
+    failed = _run_third_party(project, confirmed, router, action)
+    assert failed.status == "failed"
+    column = next(
+        c
+        for c in project.columns(sheet_id, include_hidden=True)
+        if c["name"] == "person"
+    )
+    column_id = int(column["id"])
+    project.db.execute("UPDATE columns SET hidden=0 WHERE id=?", (column_id,))
+    project.db.commit()
+    edit_op = project.apply_edits(
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": column_id,
+                "value": edited_value,
+            }
+        ]
+    )
+    if undo_edit:
+        assert project.undo() == edit_op
+    project.db.execute("UPDATE columns SET hidden=1 WHERE id=?", (column_id,))
+    project.db.commit()
+    edits_before = [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM edits WHERE column_id=?",
+            (column_id,),
+        ).fetchall()
+    ]
+    heads_before = ResultGenerationStore(project).read_cell_heads(
+        column_id, [row_ids[0]]
+    )
+    calls_before = len(requests)
+    retry = request.model_copy(
+        update={
+            "params": {**request.params, "response_type": "text"},
+            "idempotency_key": "edited-failed-retry@text",
+        }
+    )
+    result = _run_third_party(
+        project, retry, _data_router(requests, {"answer": "Ada"}), action
+    )
+    assert result.status == "failed", result.errors
+    assert result.errors[0].code == "output_column_exists"
+    assert len(requests) == calls_before
+    assert project.get_column(column_id)["active"] == 1
+    assert [
+        tuple(row)
+        for row in project.db.execute(
+            "SELECT * FROM edits WHERE column_id=?",
+            (column_id,),
+        ).fetchall()
+    ] == edits_before
+    assert (
+        ResultGenerationStore(project).read_cell_heads(column_id, [row_ids[0]])
+        == heads_before
+    )
+    if undo_edit:
+        assert project.redo() == edit_op
+    assert project.get_values(sheet_id, column_id, row_ids=[row_ids[0]]) == {
+        row_ids[0]: edited_value
+    }
 
 
 def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
@@ -870,71 +842,66 @@ def test_ask_default_options_preserve_legacy_receipt_hash_and_replay(
 
     project = make_project("legacy-ask-hash")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=[row_ids[0]])
-        body["params"]["source"] = ["body"]
-        action = ACTION_REGISTRY.get("map.ask")
-        request = ActionRequest.model_validate(body)
-        bound = BoundTypedActionRequest.bind(action, request)
-        legacy_identity = normalized_typed_request_identity(bound)
-        legacy_identity["params"] = bound.params.model_dump(mode="json", by_alias=True)
-        legacy_identity["params"].pop("response_type")
-        legacy_identity["params"].pop("include_confidence")
-        legacy_identity["params"].pop("include_reasoning")
-        legacy_hash = (
-            "sha256:"
-            + hashlib.sha256(
-                json.dumps(
-                    legacy_identity,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                    allow_nan=False,
-                ).encode()
-            ).hexdigest()
-        )
-        assert typed_request_hash(bound) == legacy_hash
-        router = _data_router(requests, {"answer": "Ada"})
-        gated = _run_third_party(project, request, router, action)
-        confirmed = request.model_copy(
-            update={
-                "confirmation": gated.errors[0].details["promise_set_hash"],
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=[row_ids[0]])
+    body["params"]["source"] = ["body"]
+    action = ACTION_REGISTRY.get("map.ask")
+    request = ActionRequest.model_validate(body)
+    bound = BoundTypedActionRequest.bind(action, request)
+    legacy_identity = normalized_typed_request_identity(bound)
+    legacy_identity["params"] = bound.params.model_dump(mode="json", by_alias=True)
+    legacy_identity["params"].pop("response_type")
+    legacy_identity["params"].pop("include_confidence")
+    legacy_identity["params"].pop("include_reasoning")
+    legacy_hash = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                legacy_identity,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+    )
+    assert typed_request_hash(bound) == legacy_hash
+    router = _data_router(requests, {"answer": "Ada"})
+    gated = _run_third_party(project, request, router, action)
+    confirmed = request.model_copy(
+        update={
+            "confirmation": gated.errors[0].details["promise_set_hash"],
+        }
+    )
+    first = _run_third_party(project, confirmed, router, action)
+    assert first.status == "completed", first.errors
+    assert (
+        ReceiptStore(project).parsed_by_id(str(first.receipt_id)).params_hash
+        == legacy_hash
+    )
+    explicit = confirmed.model_copy(
+        update={
+            "params": {
+                **confirmed.params,
+                "response_type": "text",
+                "include_confidence": False,
+                "include_reasoning": False,
             }
-        )
-        first = _run_third_party(project, confirmed, router, action)
-        assert first.status == "completed", first.errors
+        }
+    )
+    replay = _run_third_party(project, explicit, router, action)
+    assert replay.receipt_id == first.receipt_id
+    assert replay.status == "completed", replay.errors
+    assert len(requests) == 1
+    for params in (
+        {"response_type": "boolean"},
+        {"include_confidence": True},
+        {"include_reasoning": True},
+    ):
+        changed = request.model_copy(update={"params": {**request.params, **params}})
         assert (
-            ReceiptStore(project).parsed_by_id(str(first.receipt_id)).params_hash
-            == legacy_hash
+            typed_request_hash(BoundTypedActionRequest.bind(action, changed))
+            != legacy_hash
         )
-        explicit = confirmed.model_copy(
-            update={
-                "params": {
-                    **confirmed.params,
-                    "response_type": "text",
-                    "include_confidence": False,
-                    "include_reasoning": False,
-                }
-            }
-        )
-        replay = _run_third_party(project, explicit, router, action)
-        assert replay.receipt_id == first.receipt_id
-        assert replay.status == "completed", replay.errors
-        assert len(requests) == 1
-        for params in (
-            {"response_type": "boolean"},
-            {"include_confidence": True},
-            {"include_reasoning": True},
-        ):
-            changed = request.model_copy(
-                update={"params": {**request.params, **params}}
-            )
-            assert (
-                typed_request_hash(BoundTypedActionRequest.bind(action, changed))
-                != legacy_hash
-            )
-    finally:
-        project.close()
 
 
 def test_model_rows_direct_skips_empty_references_in_labeled_template(
@@ -942,40 +909,37 @@ def test_model_rows_direct_skips_empty_references_in_labeled_template(
 ) -> None:
     project = make_project("labeled-empty-direct")
     requests: list[LLMRequest] = []
-    try:
-        sheet_id, row_ids = _seed(project)
-        body = _request(sheet_id, row_ids=row_ids)
-        gated = run_typed_map_request(
-            project,
-            body,
-            project_id="project-1",
-            deps=_zero_consent_deps(project),
-        )
-        request = ActionRequest.model_validate(
-            {**body, "confirmation": gated.errors[0].details["promise_set_hash"]}
-        )
-        router = _router(requests)
+    sheet_id, row_ids = _seed(project)
+    body = _request(sheet_id, row_ids=row_ids)
+    gated = run_typed_map_request(
+        project,
+        body,
+        project_id="project-1",
+        deps=_zero_consent_deps(project),
+    )
+    request = ActionRequest.model_validate(
+        {**body, "confirmation": gated.errors[0].details["promise_set_hash"]}
+    )
+    router = _router(requests)
 
-        from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
-        from frisket.engine.runner import MapRunner
-        from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+    from frisket.engine.executor.map_rows_action import run_typed_map_rows_action
+    from frisket.engine.runner import MapRunner
+    from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 
-        result = run_typed_map_rows_action(
-            project,
-            "project-1",
-            BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
-            router,
-            lambda target, selected: MapRunner(
-                target,
-                selected or router,
-                authority=UnroutedOnlyAuthority(target),
-                consent_coverage=_zero_consent_coverage(target),
-            ),
-        )
-        assert result.status == "completed", result.errors
-        assert len(requests) == 1
-    finally:
-        project.close()
+    result = run_typed_map_rows_action(
+        project,
+        "project-1",
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get("map.ask"), request),
+        router,
+        lambda target, selected: MapRunner(
+            target,
+            selected or router,
+            authority=UnroutedOnlyAuthority(target),
+            consent_coverage=_zero_consent_coverage(target),
+        ),
+    )
+    assert result.status == "completed", result.errors
+    assert len(requests) == 1
 
 
 def test_model_rows_template_rejects_incompatible_referenced_type(

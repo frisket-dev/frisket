@@ -45,10 +45,7 @@ def source(make_project, monkeypatch):
         "idempotency_key": "review-recovery",
     }
     router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)
-    try:
-        yield project, row, body, router, calls
-    finally:
-        project.close()
+    yield project, row, body, router, calls
 
 
 def _interrupt_returned(source, monkeypatch):

@@ -109,28 +109,25 @@ def test_local_export_rejects_nonsemantic_path_before_writes(
     export_dir = tmp_path / "exports"
     export_dir.mkdir()
     monkeypatch.chdir(export_dir)
-    try:
-        sheet_id = project.add_sheet("Rows")
-        params: dict[str, Any] = {"destination": {"kind": "local_file", "path": path}}
-        if kind != "export.work_log":
-            params["sheet_id"] = sheet_id
+    sheet_id = project.add_sheet("Rows")
+    params: dict[str, Any] = {"destination": {"kind": "local_file", "path": path}}
+    if kind != "export.work_log":
+        params["sheet_id"] = sheet_id
 
-        result = executor_actions.run_action_spec(
-            project,
-            {
-                "action_id": kind,
-                "scope": {"kind": "project"},
-                "params": params,
-                "idempotency_key": f"invalid-path/{kind}@sha256:v1",
-            },
-            project_id="project-export-invalid-path",
-        )
+    result = executor_actions.run_action_spec(
+        project,
+        {
+            "action_id": kind,
+            "scope": {"kind": "project"},
+            "params": params,
+            "idempotency_key": f"invalid-path/{kind}@sha256:v1",
+        },
+        project_id="project-export-invalid-path",
+    )
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert list(export_dir.iterdir()) == []
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert list(export_dir.iterdir()) == []
 
 
 @pytest.mark.parametrize(
@@ -199,21 +196,18 @@ def test_export_work_log_removes_new_destination_when_commit_fails_after_deliver
     wrapper.fail_commit_at = 2
     promoted = []
     wrapper.before_failed_commit = lambda: promoted.append(destination.read_bytes())
-    try:
-        result = executor_actions.run_action_spec(
-            project,
-            _work_log_action(destination),
-            project_id="project-export-rollback",
-        )
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert not destination.exists()
-        assert not list(tmp_path.glob(".work-log-new.md.*"))
-        assert wrapper.commit_count == 3
-        assert promoted
-        assert _receipt_count(project) == before_receipts + 1
-    finally:
-        project.close()
+    result = executor_actions.run_action_spec(
+        project,
+        _work_log_action(destination),
+        project_id="project-export-rollback",
+    )
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".work-log-new.md.*"))
+    assert wrapper.commit_count == 3
+    assert promoted
+    assert _receipt_count(project) == before_receipts + 1
 
 
 def test_export_sheet_csv_restores_destination_when_commit_fails_after_delivery(

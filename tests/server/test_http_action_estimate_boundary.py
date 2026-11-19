@@ -630,28 +630,22 @@ def test_routed_action_preview_rates_once_and_returns_that_billed_estimate(
 
     policy = _CountingCostPlusPolicy()
     install_pricing_policy(policy)
-    try:
-        result = ActionPreviewService(_PreviewWorkspace()).estimate(
-            "project",
-            {
-                "action_id": "media.transcribe",
-                "scope": {"kind": "sheet_rows", "sheet_id": sheet},
-                "params": {"source": "media", "engine": "openai/whisper-1"},
-                "output_names": {"text": "transcript"},
-                "idempotency_key": "estimate-transcribe-once@sha256:test",
-            },
-        )
-        estimate = result["estimate"]
-        assert estimate["policy_id"] == policy.policy_id
-        assert estimate["cost"] == 0.001064
-        assert estimate["billed_cost"] == 2_128
-        assert estimate["requires_confirmation"] is False
-        assert estimate["venue_label"] == "Media is sent to openai, a third-party API."
-        assert (
-            estimate["billing_label"]
-            == "billed to your own account; no platform charge"
-        )
-        assert len(policy.facts) == 1
-        assert policy.facts[0].provider_cost == 1_064
-    finally:
-        project.close()
+    result = ActionPreviewService(_PreviewWorkspace()).estimate(
+        "project",
+        {
+            "action_id": "media.transcribe",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet},
+            "params": {"source": "media", "engine": "openai/whisper-1"},
+            "output_names": {"text": "transcript"},
+            "idempotency_key": "estimate-transcribe-once@sha256:test",
+        },
+    )
+    estimate = result["estimate"]
+    assert estimate["policy_id"] == policy.policy_id
+    assert estimate["cost"] == 0.001064
+    assert estimate["billed_cost"] == 2_128
+    assert estimate["requires_confirmation"] is False
+    assert estimate["venue_label"] == "Media is sent to openai, a third-party API."
+    assert estimate["billing_label"] == "billed to your own account; no platform charge"
+    assert len(policy.facts) == 1
+    assert policy.facts[0].provider_cost == 1_064

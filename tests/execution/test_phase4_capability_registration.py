@@ -459,10 +459,7 @@ def phase4_project(make_project):
         ],
         {"body": text_col, "doc": doc_col, "point": point_col},
     )
-    try:
-        yield project, sheet_id
-    finally:
-        project.close()
+    yield project, sheet_id
 
 
 #: priced capability -> (recipe name, spec extras, expected venue, expected

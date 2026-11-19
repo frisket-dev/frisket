@@ -47,10 +47,7 @@ def project(make_project):
     sheet = project.add_sheet("Source")
     column = project.add_column(sheet, "value")
     project.add_rows(sheet, [{"value": "original"}], {"value": column})
-    try:
-        yield project
-    finally:
-        project.close()
+    yield project
 
 
 def _snapshot(db):

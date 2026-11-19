@@ -891,30 +891,27 @@ def test_transcript_failure_cas_loss_never_fabricates_terminal_result(
         action_kind=ACTION_KIND,
         details={"source_row_id": 17},
     )
-    try:
-        _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
-        monkeypatch.setattr(
-            ReceiptStore,
-            "update_body_status",
-            lambda *_args, **_kwargs: False,
-        )
+    _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
+    monkeypatch.setattr(
+        ReceiptStore,
+        "update_body_status",
+        lambda *_args, **_kwargs: False,
+    )
 
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id="project-transcript-terminalization",
-            action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            error=error,
-            project_write_failed_message="Transcript segments receipt could not be finalized.",
-        )
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id="project-transcript-terminalization",
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        error=error,
+        project_write_failed_message="Transcript segments receipt could not be finalized.",
+    )
 
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
-        assert result.status == "failed"
-        assert result.errors[0].code == "project_write_failed"
-        assert stored is not None and stored.status == "running"
-        assert stored.errors == []
-    finally:
-        project.close()
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    assert result.status == "failed"
+    assert result.errors[0].code == "project_write_failed"
+    assert stored is not None and stored.status == "running"
+    assert stored.errors == []
 
 
 def test_transcript_failure_preserves_error_facts_by_value(make_project) -> None:
@@ -931,22 +928,19 @@ def test_transcript_failure_preserves_error_facts_by_value(make_project) -> None
         action_kind=ACTION_KIND,
         details={"provider": "fixture", "billable": False},
     )
-    try:
-        _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
-        result = _terminalize_claimless_direct_failure(
-            project,
-            project_id="project-transcript-terminalization",
-            action_kind=ACTION_KIND,
-            stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
-            error=error,
-            project_write_failed_message="Transcript segments receipt could not be finalized.",
-        )
-        stored = ReceiptStore(project).parsed_by_id(receipt_id)
+    _insert_transcript_failure_receipt(project, receipt_id=receipt_id)
+    result = _terminalize_claimless_direct_failure(
+        project,
+        project_id="project-transcript-terminalization",
+        action_kind=ACTION_KIND,
+        stored_receipt=ReceiptStore(project).find_by_id(receipt_id),
+        error=error,
+        project_write_failed_message="Transcript segments receipt could not be finalized.",
+    )
+    stored = ReceiptStore(project).parsed_by_id(receipt_id)
 
-        assert result.errors == [error]
-        assert stored is not None and stored.errors == [error]
-    finally:
-        project.close()
+    assert result.errors == [error]
+    assert stored is not None and stored.errors == [error]
 
 
 @pytest.mark.parametrize("prior_status", ["cancelled", "failed"])

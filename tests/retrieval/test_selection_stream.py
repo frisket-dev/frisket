@@ -25,10 +25,7 @@ def document_rows(make_project):
         sheet, [{"text": "budget hearing"}, {"text": "roads"}], {"text": column}
     )
     drain_index(project)
-    try:
-        yield project, sheet, column, rows
-    finally:
-        project.close()
+    yield project, sheet, column, rows
 
 
 def request(sheet, *, limit=1000000):

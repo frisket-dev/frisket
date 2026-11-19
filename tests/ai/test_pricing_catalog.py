@@ -104,10 +104,7 @@ def test_typed_program_estimates_use_catalog(make_project, monkeypatch):
         assert resolved is not None and not isinstance(resolved, Refusal), resolved
         return plan.program.estimate(project, spec, None, resolution=resolved)
 
-    try:
-        _assert_program_estimates(monkeypatch, estimate)
-    finally:
-        project.close()
+    _assert_program_estimates(monkeypatch, estimate)
 
 
 def _assert_program_estimates(monkeypatch, estimate):
