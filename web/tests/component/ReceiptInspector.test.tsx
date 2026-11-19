@@ -71,3 +71,11 @@ it('keeps an already committed export downloadable after a later action failure'
   });
   expect(screen.getByRole('link', { name: 'Download export.zip' })).toHaveAttribute('download', 'export.zip');
 });
+
+it('announces a receipt load failure as an alert', async () => {
+  vi.spyOn(stores.projectApi, 'getReceipt').mockRejectedValue(new Error('Receipt unavailable'));
+  render(<WorkspaceStoresContext.Provider value={stores}>
+    <ReceiptInspector receiptId="receipt-missing" />
+  </WorkspaceStoresContext.Provider>);
+  expect(await screen.findByRole('alert')).toBe(screen.getByTestId('receipt-error'));
+});

@@ -76,6 +76,7 @@ it.each(cases)('lets $kind run again with an explicit destination after a name c
   await waitFor(() => expect(run).toBeEnabled());
   fireEvent.click(run);
   expect(await screen.findByTestId('embedding-analysis-error-idx_1')).toHaveTextContent('already exists');
+  expect(screen.getByRole('alert')).toBe(screen.getByTestId('embedding-analysis-error-idx_1'));
   expect(destination).toHaveValue(name);
   expect(onSelectSheet).toHaveBeenCalledTimes(1);
 

@@ -165,7 +165,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
           )}
         </>
       )}
-      {saveAction.error && <p className="panel-error">{saveAction.error}</p>}
+      {saveAction.error && <p className="panel-error" role="alert">{saveAction.error}</p>}
       <Button
         type="button"
 

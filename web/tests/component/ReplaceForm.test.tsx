@@ -142,6 +142,7 @@ describe('ReplaceForm Params body', () => {
     setTarget(0, 'Broken');
     await flushPreview();
     expect(screen.getByTestId('resolve-replace-rule-error')).toHaveTextContent('does not compile');
+    expect(screen.getByRole('alert')).toBe(screen.getByTestId('resolve-replace-rule-error'));
     await flushPreview();
     expect(preview.mock.lastCall?.[0].rules).toEqual([]);
     setPattern(0, 'glob(ex|al)');

@@ -79,6 +79,12 @@ describe('SubstituteForm Params body', () => {
     expect(screen.getByTestId('resolve-footer-summary')).toHaveTextContent('3 of 5 values mapped');
   });
 
+  it('announces a failed enumeration as an alert', async () => {
+    vi.spyOn(api, 'columnValuesPreview').mockRejectedValue(new Error('Values unavailable'));
+    mount();
+    expect(await screen.findByRole('alert')).toBe(screen.getByTestId('resolve-substitute-error'));
+  });
+
   it('parses pasted TSV, quoted commas, explicit nulls, and duplicate keys', async () => {
     const user = userEvent.setup();
     vi.spyOn(api, 'columnValuesPreview').mockResolvedValue(preview());

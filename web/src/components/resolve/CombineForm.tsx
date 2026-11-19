@@ -634,7 +634,7 @@ function CombineFormBody({
             </div>
           )}
           {loadError && !loading && (
-            <div className="panel-error control-row" data-testid="resolve-combine-load-error">
+            <div className="panel-error control-row" role="alert" data-testid="resolve-combine-load-error">
               <span>{loadError}</span>
               <Button
                 type="button"

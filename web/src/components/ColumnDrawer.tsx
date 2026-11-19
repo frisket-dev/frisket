@@ -397,7 +397,7 @@ function ColumnStatsSection({ column, sheetId }: { column: ColumnDef; sheetId: s
           label={visibleState.force ? 'analyzing column...' : 'loading statistics...'}
         />
       ) : visibleState.phase === 'error' ? (
-        <div className="panel-error" data-testid="column-stats-error">{visibleState.message}</div>
+        <div className="panel-error" role="alert" data-testid="column-stats-error">{visibleState.message}</div>
       ) : visibleState.stats.requiresManualAnalyze ? (
         <div className="column-stats-deferred" data-testid="column-stats-deferred">
           <p>
@@ -694,7 +694,7 @@ function ColumnSettingsSection({
         </Button>
       </div>
       {visibleUpdateState.error && (
-        <div className="panel-error" data-testid="column-update-error">{visibleUpdateState.error}</div>
+        <div className="panel-error" role="alert" data-testid="column-update-error">{visibleUpdateState.error}</div>
       )}
       {visibleUpdateState.message && (
         <div className="column-update-result" data-testid="column-update-result">

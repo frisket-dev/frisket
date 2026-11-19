@@ -7,6 +7,11 @@ import type { ProvenanceManifest as ProvenanceManifestData } from '../../src/api
 import { ProvenanceManifest } from '../../src/components/ProvenanceManifest';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
+// The panel reads three members of the project API; the rest is not built.
+function fakeProjectApi(members: Record<string, unknown>): ProjectApi {
+  return members as unknown as ProjectApi;
+}
+
 beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-17T12:00:00Z')); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
@@ -38,11 +43,11 @@ it('pins mount, paging, refresh and stale-completion markup', async () => {
     requests.push(request);
     return request.promise;
   });
-  const projectApi = {
+  const projectApi = fakeProjectApi({
     getProvenanceManifest,
     qa: { citation: vi.fn(), report: vi.fn() },
     listAttemptReceipts: vi.fn(() => new Promise(() => {})),
-  } as unknown as ProjectApi;
+  });
   const harness = createWorkspaceTestHarness({ projectId: 'paging', api: { projectApi } });
   const { container, unmount } = harness.render(<ProvenanceManifest projectName="Paging" onClose={vi.fn()} />);
   const steps = [container.innerHTML];
@@ -72,15 +77,27 @@ it('pins mount, paging, refresh and stale-completion markup', async () => {
 
 it('ignores a mount completion that lands after unmount', async () => {
   const request = deferred<ProvenanceManifestData>();
-  const projectApi = {
+  const projectApi = fakeProjectApi({
     getProvenanceManifest: vi.fn(() => request.promise),
     qa: { citation: vi.fn(), report: vi.fn() },
     listAttemptReceipts: vi.fn(() => new Promise(() => {})),
-  } as unknown as ProjectApi;
+  });
   const errors = vi.spyOn(console, 'error');
   const harness = createWorkspaceTestHarness({ projectId: 'paging-unmount', api: { projectApi } });
   const { unmount } = harness.render(<ProvenanceManifest projectName="Paging" onClose={vi.fn()} />);
   unmount();
   request.resolve(manifest(0, 0)); await flush();
   expect(errors).not.toHaveBeenCalled();
+});
+
+it('announces a manifest load failure as an alert', async () => {
+  const projectApi = fakeProjectApi({
+    getProvenanceManifest: vi.fn(() => Promise.reject(new Error('Provenance unavailable'))),
+    qa: { citation: vi.fn(), report: vi.fn() },
+    listAttemptReceipts: vi.fn(() => new Promise(() => {})),
+  });
+  const harness = createWorkspaceTestHarness({ projectId: 'paging-error', api: { projectApi } });
+  harness.render(<ProvenanceManifest projectName="Paging" onClose={vi.fn()} />);
+  await flush();
+  expect(screen.getByRole('alert')).toBe(screen.getByTestId('provenance-error'));
 });

@@ -488,7 +488,7 @@ function ReplaceFormForSheet({
               {(regexFlag && invalidRegex) || blocker || count ? (
                 <div className="control-row resolve-replace-rule-meta">
                   {invalidRegex && regexFlag ? (
-                    <span className="panel-error" data-testid="resolve-replace-rule-error">
+                    <span className="panel-error" role="alert" data-testid="resolve-replace-rule-error">
                       {regexFlag.message}
                     </span>
                   ) : blocker ? (
@@ -522,7 +522,7 @@ function ReplaceFormForSheet({
       </div>
 
       {previewError && (
-        <div className="panel-error" data-testid="resolve-replace-preview-error">
+        <div className="panel-error" role="alert" data-testid="resolve-replace-preview-error">
           {previewError}{' '}
           <Button
             type="button"

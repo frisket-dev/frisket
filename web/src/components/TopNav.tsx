@@ -1099,7 +1099,7 @@ function ExportGoogleSheetsModal({
             </FormField>
           </div>
         )}
-        {error && <div className="panel-error">{error}</div>}
+        {error && <div className="panel-error" role="alert">{error}</div>}
         {resultUrl && (
           <a className="form-help" href={resultUrl} target="_blank" rel="noreferrer">
             Open spreadsheet
