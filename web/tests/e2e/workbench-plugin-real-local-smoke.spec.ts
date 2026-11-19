@@ -13,6 +13,7 @@ import {
   uniqueName,
 } from './helpers';
 import {
+  expectBundledPluginRows,
   openPluginManager,
   pluginManagerRow,
 } from './workbenchPluginLifecycleFixture';
@@ -53,25 +54,12 @@ test('real local plugin load activates visible Map contribution and backend proj
   await openProject(page, pid, sheetId);
   const manager = await openPluginManager(page);
   await expect(manager).toBeVisible();
-  // Pin revision (geo-bundled-plugin-v1, updated for decision 15's
-  // frisket.transliterate bonus plugin): a fresh project ships with every
-  // packaged BUNDLED plugin seeded through the public bundled install path at
-  // project creation (bootstrap_project_bundled_plugins iterates the whole
-  // package directory) — currently frisket.geo, frisket.media, the dormant
-  // frisket.ftm importer (ftm-bundled-plugin-v1, auto_enable:false but still
-  // installed like the media precedent), and frisket.transliterate
-  // (auto_enable:true), so the manager shows four rows. This
-  // spec exercises the standalone geo smoke-twin lifecycle. The twin ships under
-  // its OWN non-colliding plugin id (frisket.geosmoke) so activating it never
-  // shadows the workspace-resident bundled frisket.geo
-  // (plugin_activation_registry_conflict — a same-id/different-evidence package
-  // is refused by design). We still disable the bundled frisket.geo for this
-  // project first so exactly one map view resolves from the runtime index;
-  // uninstalling it would remove it from every project in the shared e2e
-  // workspace. frisket.media, frisket.ftm, and frisket.transliterate are left
-  // untouched throughout; the bundled row is targeted by frisket.geo, the twin
-  // below by frisket.geosmoke.
-  await expect(manager).toHaveAttribute('data-plugin-count', '4');
+  await expectBundledPluginRows(page);
+  // The smoke twin ships under its own plugin id so activating it never
+  // collides with the workspace-resident bundled frisket.geo (a same-id package
+  // with different evidence is refused). The bundled frisket.geo is disabled
+  // for this project only, so exactly one map view resolves; uninstalling it
+  // would remove it from every project in the shared e2e workspace.
   const bundledRow = pluginManagerRow(page);
   // Normally 'enabled'; a prior in-process registry swap (this shared e2e
   // server hosts every spec) can leave bootstrap at 'installed'.

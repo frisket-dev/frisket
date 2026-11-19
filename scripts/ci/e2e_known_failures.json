@@ -48,11 +48,5 @@
  "workbench-ia-shell.spec.ts": {
   "Home renders real project cards with real meta counts and navigates into the workbench": "seed:Local stories,Tariff impacts",
   "the switcher menu recent-projects entry switches projects": "seed:Local stories,Tariff impacts"
- },
- "workbench-plugin-marketplace-discovery.spec.ts": {
-  "plugin manager exposes explicit local install without marketplace repair path": "stale-expectation"
- },
- "workbench-plugin-real-local-smoke.spec.ts": {
-  "real local plugin load activates visible Map contribution and backend projection binding": "stale-expectation"
  }
 }
