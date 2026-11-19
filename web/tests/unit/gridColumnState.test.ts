@@ -17,19 +17,18 @@ import {
   spliceColumnOrderBeside,
 } from '../../src/workspace/gridColumnState';
 import { filterOperatorOptions } from '../../src/workspace/workspaceState';
+import { sheetMeta } from '../support/actionFormFixtures';
 
-const sheet: SheetMeta = {
+const sheet: SheetMeta = sheetMeta([
+  { id: '1', name: 'title', type: 'text' },
+  { id: '2', name: 'source_url', type: 'link' },
+  { id: '3', name: 'url', type: 'link', defaultHidden: true },
+  { id: '4', name: 'source_raw', type: 'json', defaultHidden: true },
+], {
   id: 'sheet-1',
   name: 'YouTube',
   rowCount: 1,
-  citedColumnIds: [],
-  columns: [
-    { id: '1', name: 'title', type: 'text' },
-    { id: '2', name: 'source_url', type: 'link' },
-    { id: '3', name: 'url', type: 'link', defaultHidden: true },
-    { id: '4', name: 'source_raw', type: 'json', defaultHidden: true },
-  ],
-};
+});
 
 const classificationAi = {
   actionName: 'classify',

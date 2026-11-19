@@ -36,6 +36,7 @@ import type { SheetMeta } from '../../src/api/types';
 import { installDialogPolyfill } from '../support/domPolyfills';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
@@ -138,7 +139,7 @@ describe('useEscapeDismiss (the shared overlay dismissal registry)', () => {
 
 describe('CascadeConfirmDialog Escape contract', () => {
   function sheet(id: string, name: string): SheetMeta {
-    return { id, name, rowCount: 0, columns: [] };
+    return sheetMeta([], { id, name, rowCount: 0 });
   }
 
   it('Escape CANCELS -- never confirms/runs -- the cascade', () => {

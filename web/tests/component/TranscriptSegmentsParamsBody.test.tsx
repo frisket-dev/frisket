@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { SheetMeta } from '../../src/api/open';
 import { TranscriptSegmentsParamsBody } from '../../src/components/action-panel/TranscriptSegmentsParamsBody';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 afterEach(cleanup);
 
@@ -14,16 +15,17 @@ type Props = ComponentProps<typeof TranscriptSegmentsParamsBody>;
 type Params = Props['params'];
 type Request = Props['request'];
 
-const sheet: SheetMeta = {
-  id: '7', name: 'Interviews', rowCount: 4, citedColumnIds: [],
-  columns: [
-    { id: '1', name: 'transcript', type: 'timestamped_transcript' },
-    { id: '2', name: 'alternate', type: 'timestamped_transcript' },
-    { id: '3', name: 'chapters', type: 'timeline_points' },
-    { id: '4', name: 'excerpts', type: 'timeline_ranges' },
-    { id: '5', name: 'old_segments', type: 'json' },
-  ],
-};
+const sheet: SheetMeta = sheetMeta([
+  { id: '1', name: 'transcript', type: 'timestamped_transcript' },
+  { id: '2', name: 'alternate', type: 'timestamped_transcript' },
+  { id: '3', name: 'chapters', type: 'timeline_points' },
+  { id: '4', name: 'excerpts', type: 'timeline_ranges' },
+  { id: '5', name: 'old_segments', type: 'json' },
+], {
+  id: '7',
+  name: 'Interviews',
+  rowCount: 4,
+});
 const request: Request = {
   scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [101, 102] },
   sheet_name: 'Transcript segments', output_names: { transcript: 'Excerpt' },

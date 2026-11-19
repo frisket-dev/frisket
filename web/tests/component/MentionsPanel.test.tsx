@@ -38,6 +38,7 @@ import type {
   EntityMentionsPreview,
   SheetMeta,
 } from '../../src/api/open';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const entityMentionsPreview = vi.spyOn(api, 'entityMentionsPreview');
 const mockApi = { entityMentionsPreview };
@@ -50,15 +51,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const MARKED_SHEET: SheetMeta = {
+const MARKED_SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'body', type: 'text' },
+  { id: '12', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 1000,
-  columns: [
-    { id: '11', name: 'body', type: 'text' },
-    { id: '12', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
-  ],
-};
+});
 
 const TWO_MARKED_SHEET: SheetMeta = {
   ...MARKED_SHEET,
@@ -68,15 +68,14 @@ const TWO_MARKED_SHEET: SheetMeta = {
   ],
 };
 
-const UNRELATED_SHEET: SheetMeta = {
+const UNRELATED_SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'body', type: 'text' },
+  { id: '21', name: 'ocr_blocks', type: 'json', currentRunId: '901' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 1000,
-  columns: [
-    { id: '11', name: 'body', type: 'text' },
-    { id: '21', name: 'ocr_blocks', type: 'json', currentRunId: '901' },
-  ],
-};
+});
 
 const ACME: EntityMentionGroup = {
   type: 'organization',

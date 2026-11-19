@@ -14,23 +14,22 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { createProjectApi } from '../../src/api/real';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 let api = createProjectApi('test-project');
 
 const PROJECT = 'temporal-extract-range-canonical';
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'recording', type: 'video' },
+  { id: '12', name: 'alternate_recording', type: 'audio' },
+  { id: '13', name: 'reviewed_range', type: 'timeline_range' },
+  { id: '14', name: 'reviewed_ranges', type: 'timeline_ranges' },
+  { id: '15', name: 'notes', type: 'text' },
+], {
   id: '7',
   name: 'Interviews',
   rowCount: 12,
-  citedColumnIds: [],
-  columns: [
-    { id: '11', name: 'recording', type: 'video' },
-    { id: '12', name: 'alternate_recording', type: 'audio' },
-    { id: '13', name: 'reviewed_range', type: 'timeline_range' },
-    { id: '14', name: 'reviewed_ranges', type: 'timeline_ranges' },
-    { id: '15', name: 'notes', type: 'text' },
-  ],
-};
+});
 
 const extractEntry = syntheticActionCatalogEntry('temporal.extract_range');
 

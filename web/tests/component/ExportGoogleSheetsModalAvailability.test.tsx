@@ -25,6 +25,7 @@ import { ConfirmationRequiredError } from '../../src/api/open';
 import { ProjectExportModals } from '../../src/components/TopNav';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
@@ -39,12 +40,11 @@ beforeEach(() => {
 
 const project: ProjectInfo = { id: 'proj-1', name: 'Sheets Desk' };
 const fakeProjectApi = {} as unknown as ProjectApi;
-const currentSheet: SheetMeta = {
+const currentSheet: SheetMeta = sheetMeta([{ id: '1', name: 'name', type: 'text' }], {
   id: '7',
   name: 'People',
   rowCount: 3,
-  columns: [{ id: '1', name: 'name', type: 'text' }],
-};
+});
 
 function catalogWithReason(reason: string | null): ActionCatalogPayload {
   return {

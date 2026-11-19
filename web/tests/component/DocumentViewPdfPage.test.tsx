@@ -71,15 +71,13 @@ vi.mock('../../src/workspace/useWorkspaceChromeState', async (importOriginal) =>
 }));
 
 import { DocumentView } from '../../src/workbench/DocumentView';
+import { sheetMeta } from '../support/actionFormFixtures';
 
-const sheet = {
+const sheet = sheetMeta([sourceColumn], {
   id: 'sheet-1',
   name: 'Pages',
   rowCount: 1,
-  columns: [sourceColumn],
-  citedColumnIds: [],
-  annotatedTextColumnIds: [],
-} as SheetMeta;
+});
 
 const state = {
   sheetId: sheet.id,

@@ -7,6 +7,7 @@ import { createProjectApi } from '../../src/api/real';
 import type { SheetMeta } from '../../src/api/types';
 import { SheetInfoPopover } from '../../src/workspace/SheetInfoPopover';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const { render } = createWorkspaceTestHarness({
   projectId: 'sheet-info-project',
@@ -16,18 +17,15 @@ const { render } = createWorkspaceTestHarness({
 afterEach(() => cleanup());
 
 function derivedSheet(refreshable: boolean): SheetMeta {
-  return {
+  return sheetMeta([], {
     id: '2',
     name: 'Extracted records',
     rowCount: 4,
-    columns: [],
-    citedColumnIds: [],
-    annotatedTextColumnIds: [],
     dependentSheetIds: [],
     parent: { sheetId: '1', sheetName: 'Documents', viaAction: 'Extract documents' },
     syncState: 'synced',
     refreshable,
-  };
+  });
 }
 
 it('keeps source freshness separate from unavailable rerun controls', () => {

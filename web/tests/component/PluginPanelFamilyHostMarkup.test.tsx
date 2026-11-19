@@ -11,6 +11,7 @@ import { PluginDockTabHost } from '../../src/workbench/PluginDockTabHost';
 import { PluginPeekHost } from '../../src/workbench/PluginPeekHost';
 import { PluginDetailHost } from '../../src/workbench/PluginDetailHost';
 import { SELECTION_SUMMARY_PANEL_COMPONENT_KEY } from '../../src/workbench/SelectionSummaryPanel';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 // Rendered markup of the four panel-family hosts in every state. The data
 // attributes, test ids and class names are read by Playwright specs and plugin
@@ -21,8 +22,11 @@ vi.mock('../../src/workbench/TrustedLocalPluginComponent', () => ({
   TrustedLocalPluginComponent: (props: RuntimeProps) => <div data-testid="runtime-probe" data-component={props.componentKey} />,
 }));
 
-const sheet: SheetMeta = { id: '7', name: 'Documents', rowCount: 2,
-  columns: [{ id: '1', name: 'title', type: 'text' }, { id: '2', name: 'date', type: 'date' }, { id: '3', name: 'image', type: 'image' }] };
+const sheet: SheetMeta = sheetMeta([{ id: '1', name: 'title', type: 'text' }, { id: '2', name: 'date', type: 'date' }, { id: '3', name: 'image', type: 'image' }], {
+  id: '7',
+  name: 'Documents',
+  rowCount: 2,
+});
 const subject = { kind: 'row' as const, sheetId: sheet.id, rowId: '11' };
 
 function hostContext(): WorkbenchHostContext {

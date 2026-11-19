@@ -8,6 +8,7 @@ import { FriendlyFiltersPanel } from '../../src/components/FriendlyFiltersPanel'
 import type { ColumnValuesPreview, SheetMeta } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const columnValuesPreview = vi.spyOn(api, 'columnValuesPreview');
@@ -20,24 +21,23 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'status', type: 'text' },
+  { id: '12', name: 'region', type: 'category' },
+  { id: '13', name: 'amount', type: 'number' },
+  { id: '14', name: 'filed', type: 'date' },
+  { id: '15', name: 'agencies', type: 'json' },
+  {
+    id: '16',
+    name: 'mentions',
+    type: 'json',
+    semanticType: 'entity_mentions',
+  },
+], {
   id: '7',
   name: 'Cases',
   rowCount: 100,
-  columns: [
-    { id: '11', name: 'status', type: 'text' },
-    { id: '12', name: 'region', type: 'category' },
-    { id: '13', name: 'amount', type: 'number' },
-    { id: '14', name: 'filed', type: 'date' },
-    { id: '15', name: 'agencies', type: 'json' },
-    {
-      id: '16',
-      name: 'mentions',
-      type: 'json',
-      semanticType: 'entity_mentions',
-    },
-  ],
-};
+});
 
 function valuesPreview(
   inputColumn: string,
@@ -1022,12 +1022,11 @@ describe('FriendlyFiltersPanel', () => {
   });
 
   it('uses exact text controls for integer endpoints beyond JavaScript safe range', async () => {
-    const integerSheet: SheetMeta = {
+    const integerSheet: SheetMeta = sheetMeta([{ id: '21', name: 'identifier', type: 'integer' }], {
       id: '8',
       name: 'Identifiers',
       rowCount: 2,
-      columns: [{ id: '21', name: 'identifier', type: 'integer' }],
-    };
+    });
     columnValuesPreview.mockResolvedValue({
       ...valuesPreview('identifier'),
       sheetId: '8',

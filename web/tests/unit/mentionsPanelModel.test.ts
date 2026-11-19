@@ -17,21 +17,21 @@ import {
   typeFilterValue,
   uncoveredRows,
 } from '../../src/components/mentionsPanelModel';
+import { sheetMeta } from '../support/actionFormFixtures';
 
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  { id: '1', name: 'body', type: 'text' },
+  // Marked: the only eligible shape.
+  { id: '2', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
+  // A json column whose NAME says entities but which carries no marker.
+  { id: '3', name: 'entities_imported', type: 'json' },
+  // A marked column of the wrong physical type.
+  { id: '4', name: 'entities_text', type: 'text', semanticType: 'entity_mentions' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 10,
-  columns: [
-    { id: '1', name: 'body', type: 'text' },
-    // Marked: the only eligible shape.
-    { id: '2', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
-    // A json column whose NAME says entities but which carries no marker.
-    { id: '3', name: 'entities_imported', type: 'json' },
-    // A marked column of the wrong physical type.
-    { id: '4', name: 'entities_text', type: 'text', semanticType: 'entity_mentions' },
-  ],
-};
+});
 
 function group(overrides: Partial<EntityMentionGroup> = {}): EntityMentionGroup {
   return {

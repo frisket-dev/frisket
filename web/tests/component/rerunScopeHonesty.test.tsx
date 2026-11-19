@@ -30,6 +30,7 @@ import {
   defineEditionModule,
   EditionModuleProvider,
 } from '../../src/editions/module';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('p1');
 const listAlerts = vi.spyOn(api, 'listAlerts');
@@ -48,14 +49,13 @@ afterEach(() => {
 });
 
 function staleSheet(id: string, name: string): SheetMeta {
-  return {
+  return sheetMeta([], {
     id,
     name,
     rowCount: 3,
-    columns: [],
     parent: { sheetId: '1', sheetName: 'Stories', viaAction: 'derive.table_from_list' },
     syncState: 'stale',
-  };
+  });
 }
 
 describe('stale-cascade confirm — scope honesty (ruling 4)', () => {

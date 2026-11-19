@@ -8,6 +8,7 @@ import { createProjectApi } from '../../src/api/real';
 import type { Row, RunProgress, SheetMeta } from '../../src/api/types';
 import { columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null, mounts: 0 }));
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
@@ -26,10 +27,11 @@ vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
 
 const projectApi = createProjectApi('completion-grid');
 const { render } = createWorkspaceTestHarness({ projectId: 'completion-grid', api: { projectApi } });
-const sheet: SheetMeta = {
-  id: '1', name: 'Results', rowCount: 1,
-  columns: [columnDef({ id: 'answer', name: 'Answer', type: 'text' })],
-};
+const sheet: SheetMeta = sheetMeta([columnDef({ id: 'answer', name: 'Answer', type: 'text' })], {
+  id: '1',
+  name: 'Results',
+  rowCount: 1,
+});
 
 afterEach(() => {
   cleanup();

@@ -22,6 +22,7 @@ import type {
 import { GridColumnHeaderMenu } from '../../src/workspace/gridMenus';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
@@ -163,16 +164,15 @@ describe('group-header provenance entry', () => {
   it('loads on menu activation, not hover, and compares from a complete run anchor', async () => {
     const load = vi.fn().mockResolvedValue(details);
     const compare = vi.fn();
-    const sheet: SheetMeta = {
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
+    ], {
       id: 'sheet-1',
       name: 'Court filings',
       rowCount: 1,
       documentTextColumnIds: ['out-1'],
-      columns: [
-        columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
-        columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
-      ],
-    };
+    });
     render(
       <SheetGrid
         sheet={sheet}
@@ -234,15 +234,14 @@ describe('group-header provenance entry', () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new Error('temporary'))
       .mockResolvedValueOnce(details);
-    const sheet: SheetMeta = {
+    const sheet: SheetMeta = sheetMeta([
+      columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
+      columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
+    ], {
       id: 'sheet-1',
       name: 'Court filings',
       rowCount: 1,
-      columns: [
-        columnDef({ id: 'out-1', name: 'plaintiff', ai: aiMeta(), latestRunId: '42' }),
-        columnDef({ id: 'out-2', name: 'defendant', ai: aiMeta(), latestRunId: '42' }),
-      ],
-    };
+    });
     render(
       <SheetGrid
         sheet={sheet}

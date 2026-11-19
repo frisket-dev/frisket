@@ -17,6 +17,7 @@ import type { ProjectApi } from '../../src/api/ports';
 import { ProjectExportModals } from '../../src/components/TopNav';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const projectA: ProjectInfo = { id: 'project-a', name: 'Project A' };
 const projectB: ProjectInfo = { id: 'project-b', name: 'Project B' };
@@ -26,12 +27,11 @@ const { render } = createWorkspaceTestHarness({
   api: { projectApi: api },
 });
 const projectApi = {} as unknown as ProjectApi;
-const currentSheet: SheetMeta = {
+const currentSheet: SheetMeta = sheetMeta([{ id: '9', name: 'tables', type: 'json' }], {
   id: '7',
   name: 'Source data',
   rowCount: 1,
-  columns: [{ id: '9', name: 'tables', type: 'json' }],
-};
+});
 const catalogEntry = {
   kind: 'export.column_tables',
   input_schema: { properties: {} },
