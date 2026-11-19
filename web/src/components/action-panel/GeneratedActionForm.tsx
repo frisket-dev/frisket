@@ -406,9 +406,15 @@ function initialParams(entry: GeneratedActionCatalogEntry, template: ActionTempl
       edits[param.name] = schema && 'default' in schema
         ? schema.default as CanonicalFieldValue
         : { text: sourceColumn ? `{{${sourceColumn}}}` : '' };
-    } else edits[param.name] = schema && 'default' in schema
-      ? schema.default as CanonicalFieldValue
-      : schema?.type === 'array' ? [] : '';
+    } else if (schema && 'default' in schema) {
+      edits[param.name] = schema.default as CanonicalFieldValue;
+    } else if (schema?.type === 'array') {
+      edits[param.name] = [];
+    } else if (schema?.type !== 'object') {
+      // An object without a declared default is left to the server's own
+      // default; an empty string is never a valid object.
+      edits[param.name] = '';
+    }
   }
   const customization = generatedActionCustomizationFor(entry.kind);
   const promptField = template.params?.find((param) => param.name === 'question' || param.name === 'instruction');
