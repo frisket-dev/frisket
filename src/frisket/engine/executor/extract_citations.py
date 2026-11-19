@@ -268,19 +268,19 @@ def _captured_text_spans(
 
     raw_text = source.get("captured_text")
     text = repair_unicode_text(raw_text) if isinstance(raw_text, str) else raw_text
-    quote = _optional_string(entry.get("quote"))
-    if quote is not None:
-        quote = repair_unicode_text(quote)
-        entry = {**entry, "quote": quote}
+    passage = _optional_string(entry.get("quote"))
+    if passage is not None:
+        passage = repair_unicode_text(passage)
+        entry = {**entry, "quote": passage}
     if not isinstance(text, str):
         return None
-    if quote is None:
+    if passage is None:
         return []
 
     from frisket.engine.store.evidence import record_source_span, record_text_surface
     from frisket.engine.store.text_passage_match import passage_ranges
 
-    ranges = passage_ranges(text, quote)
+    ranges = passage_ranges(text, passage)
     if not ranges:
         return []
     content_hash = _text_hash(text)
@@ -778,8 +778,8 @@ def _transcript_passage_spans(
     transcript's own artifact), never the caller's ``artifact`` (extract's
     row-json/text artifact, which carries no renderable blob)."""
 
-    quote = _optional_string(entry.get("quote"))
-    if quote is None:
+    passage = _optional_string(entry.get("quote"))
+    if passage is None:
         return None
 
     from frisket.engine.store.transcript_segment_stream import (
@@ -797,7 +797,7 @@ def _transcript_passage_spans(
     from frisket.engine.store.evidence import get_source_span, record_source_span
     from frisket.engine.store.grounding_contract import TextTarget, ground
 
-    matches = ground(TextTarget(text=quote), resolved.segments, threshold=0.8)
+    matches = ground(TextTarget(text=passage), resolved.segments, threshold=0.8)
     if not matches:
         return []
     span_spec = matches[0].spans[0]
@@ -889,7 +889,7 @@ def _resolve_citation_entry_spans(
         )
     prepared_source = captured_source or {}
     prepared_ref_id = _prepared_ref_id(prepared_source)
-    quote = _optional_string(entry.get("quote"))
+    passage = _optional_string(entry.get("quote"))
     if entry_spans is None and prepared_ref_id is not None:
         metadata = {
             "raw": entry,
@@ -919,7 +919,7 @@ def _resolve_citation_entry_spans(
 
             pdf_artifact = get_source_artifact(project, prepared.source_artifact_id)
             if pdf_artifact is not None:
-                if quote is None:
+                if passage is None:
                     return _source_spans(
                         project, artifact=pdf_artifact, item=entry, rank=rank
                     )
@@ -928,7 +928,7 @@ def _resolve_citation_entry_spans(
                         project,
                         artifact=pdf_artifact,
                         source=prepared_source,
-                        quote=quote,
+                        quote=passage,
                         snippet=_optional_string(entry.get("snippet")),
                         base_meta=metadata,
                         page=_int_or_none(entry.get("page") or entry.get("page_start")),
@@ -968,7 +968,7 @@ def _source_spans(
     bbox = _normalized_bbox(item.get("bbox"))
     page = _int_or_none(item.get("page") or item.get("page_start"))
     page_end = _int_or_none(item.get("page_end")) or page
-    quote = _optional_string(item.get("quote"))
+    passage = _optional_string(item.get("quote"))
     snippet = _optional_string(item.get("snippet"))
     grounding_method = _optional_string(item.get("grounding_method"))
     blob_hash = _optional_string(artifact.get("blob_hash"))
@@ -986,7 +986,7 @@ def _source_spans(
                 bbox=bbox,
                 page=page,
                 page_end=page_end,
-                quote=quote,
+                quote=passage,
                 snippet=snippet,
                 blob_hash=blob_hash,
                 base_meta=metadata,
@@ -999,16 +999,16 @@ def _source_spans(
                 page_start=page,
                 page_end=page_end,
                 bbox=[bbox],
-                quote=quote,
+                quote=passage,
                 snippet=snippet,
                 metadata=metadata,
             )
         ]
-    if quote is not None:
+    if passage is not None:
         spans, reason = _aligned_passage_spans(
             project,
             artifact=artifact,
-            quote=quote,
+            quote=passage,
             snippet=snippet,
             blob_hash=blob_hash,
             base_meta=metadata,
@@ -1029,7 +1029,7 @@ def _source_spans(
                 span_kind="text",
                 page_start=page,
                 page_end=page_end,
-                quote=quote,
+                quote=passage,
                 snippet=snippet,
                 metadata=metadata,
             )

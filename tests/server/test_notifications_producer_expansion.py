@@ -15,7 +15,7 @@ from frisket.notifications.producers import (
     NOTIFICATION_DELIVERY_HEALTH_SOURCE_KIND,
     delivery_health_notification_candidate,
     export_notification_candidate,
-    source_health_notification_candidate,
+    feed_health_notification_candidate,
 )
 from frisket.server.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.emit import (
@@ -72,7 +72,7 @@ def _plugin_candidate(project_id: str) -> dict[str, Any]:
 
 
 def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
-    failed = source_health_notification_candidate(
+    failed = feed_health_notification_candidate(
         project_id="proj",
         source_id=7,
         source_name="Court RSS",
@@ -92,7 +92,7 @@ def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
     assert failed["severity"] == "warning"
     assert failed["payload"]["error"] == "feed timeout"
 
-    stale = source_health_notification_candidate(
+    stale = feed_health_notification_candidate(
         project_id="proj",
         source_id=7,
         source_name="Court RSS",
@@ -105,7 +105,7 @@ def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
     assert stale["source_ref"]["stale_reason"] == "missed_two_intervals"
     assert stale["payload"]["schedule"] == "@hourly"
 
-    recovered = source_health_notification_candidate(
+    recovered = feed_health_notification_candidate(
         project_id="proj",
         source_id=7,
         source_name="Court RSS",
@@ -116,7 +116,7 @@ def test_feed_health_candidates_cover_failure_stale_and_recovery() -> None:
     assert recovered["dedupe_key"] == "source:proj:7:recovered:45"
     assert recovered["severity"] == "info"
     assert (
-        source_health_notification_candidate(
+        feed_health_notification_candidate(
             project_id="proj",
             source_id=7,
             status="running",

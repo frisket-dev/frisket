@@ -108,19 +108,19 @@ def capture_result_evidence(
         for entity in entities:
             if not isinstance(entity, dict) or not isinstance(entity.get("text"), str):
                 continue
-            quote = entity["text"]
+            passage = entity["text"]
             matches: list[list[int]] = []
             search_from = 0
-            while quote:
-                start = source_text.find(quote, search_from)
+            while passage:
+                start = source_text.find(passage, search_from)
                 if start < 0:
                     break
-                matches.append([start, start + len(quote)])
-                search_from = start + len(quote)
+                matches.append([start, start + len(passage)])
+                search_from = start + len(passage)
             if matches:
                 for start, end in matches:
                     mention = {**entity, "start": start, "end": end}
-                    key = (quote, mention.get("type"), start, end)
+                    key = (passage, mention.get("type"), start, end)
                     if key in seen_mentions:
                         continue
                     seen_mentions.add(key)
@@ -131,7 +131,7 @@ def capture_result_evidence(
                 end = entity.get("end")
                 if type(start) is not int or type(end) is not int:
                     continue
-                key = (quote, entity.get("type"), start, end)
+                key = (passage, entity.get("type"), start, end)
                 if key in seen_mentions:
                     continue
                 seen_mentions.add(key)
@@ -146,7 +146,7 @@ def capture_result_evidence(
             if not isinstance(entity, dict) or not isinstance(entity.get("text"), str):
                 positions.append([])
                 continue
-            quote = entity["text"]
+            passage = entity["text"]
             start = entity.get("start")
             end = entity.get("end")
             positions.append(
@@ -154,7 +154,7 @@ def capture_result_evidence(
                 if type(start) is int
                 and type(end) is int
                 and 0 <= start < end <= len(source_text)
-                and source_text[start:end] == quote
+                and source_text[start:end] == passage
                 else []
             )
 

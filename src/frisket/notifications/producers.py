@@ -20,7 +20,7 @@ _RUN_STATUSES = {
     "needs_user_action",
 }
 _PROGRESS_STATUSES = {"queued", "running"}
-_SOURCE_HEALTH_STATUSES = {"failed", "stale", "recovered"}
+_FEED_HEALTH_STATUSES = {"failed", "stale", "recovered"}
 _EXPORT_STATUSES = {"ready", "failed"}
 _DELIVERY_HEALTH_STATUSES = {"failed", "cancelled", "skipped"}
 
@@ -115,7 +115,7 @@ def run_transition_notification_candidate(
     return validate_notification_candidate(candidate)
 
 
-def source_health_notification_candidate(
+def feed_health_notification_candidate(
     *,
     project_id: str,
     source_id: int,
@@ -127,8 +127,8 @@ def source_health_notification_candidate(
     schedule: str | None = None,
     payload: dict[str, Any] | None = None,
 ) -> NotificationCandidate | None:
-    normalized_status = _normalize_source_health_status(status)
-    if normalized_status not in _SOURCE_HEALTH_STATUSES:
+    normalized_status = _normalize_feed_health_status(status)
+    if normalized_status not in _FEED_HEALTH_STATUSES:
         return None
     source_ref: dict[str, Any] = {
         "project_id": project_id,
@@ -144,16 +144,16 @@ def source_health_notification_candidate(
         candidate_payload["error"] = error
     if schedule:
         candidate_payload["schedule"] = schedule
-    label = source_name or f"Source {int(source_id)}"
+    label = source_name or f"Feed {int(source_id)}"
     candidate = {
         "source_kind": "source",
         "source_ref": source_ref,
         "dedupe_key": (
             f"source:{project_id}:{int(source_id)}:"
-            f"{_source_health_reason_key(normalized_status, source_run_id, stale_reason)}"
+            f"{_feed_health_reason_key(normalized_status, source_run_id, stale_reason)}"
         ),
-        "title": _source_health_title(normalized_status, label),
-        "summary": _source_health_summary(
+        "title": _feed_health_title(normalized_status, label),
+        "summary": _feed_health_summary(
             normalized_status,
             label,
             stale_reason=stale_reason,
@@ -275,7 +275,7 @@ def _normalize_status(status: str) -> str:
     return "cancelled" if text == "canceled" else text
 
 
-def _normalize_source_health_status(status: str) -> str:
+def _normalize_feed_health_status(status: str) -> str:
     text = str(status or "").strip().lower()
     if text in {"error", "failing", "failure"}:
         return "failed"
@@ -306,7 +306,7 @@ def _reason_key(
     return status
 
 
-def _source_health_reason_key(
+def _feed_health_reason_key(
     status: str,
     source_run_id: int | None,
     stale_reason: str | None,
@@ -318,7 +318,7 @@ def _source_health_reason_key(
     return status
 
 
-def _source_health_title(status: str, label: str) -> str:
+def _feed_health_title(status: str, label: str) -> str:
     if status == "failed":
         return f"{label} check failed"
     if status == "stale":
@@ -326,7 +326,7 @@ def _source_health_title(status: str, label: str) -> str:
     return f"{label} recovered"
 
 
-def _source_health_summary(
+def _feed_health_summary(
     status: str,
     label: str,
     *,
