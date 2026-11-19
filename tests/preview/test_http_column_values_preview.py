@@ -12,12 +12,11 @@ from __future__ import annotations
 import json
 
 import pytest
-from helpers import stored_output_descriptor
+from helpers import write_claimed_test_results
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.value_codec import encode_stored_value
 
 from helpers import make_client as _client
 
@@ -437,49 +436,11 @@ def test_preview_tolerant_live_resolution_preserves_edit_head_source_precedence(
         row_ids=[head_row],
         total_rows=1,
     )
-    from frisket.engine.store.changes import start_change
-
-    project.db.execute("BEGIN IMMEDIATE")
-    start_change(project.db, op_id, writing=True)
-    project.db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
-        (
-            run_id,
-            tags,
-            "tags",
-            "sha256:list-facet",
-            "create",
-            "active",
-            "claim:test",
-            stored_output_descriptor(project.db, tags),
-        ),
+    write_claimed_test_results(
+        project,
+        run_id,
+        [{"row_id": head_row, "column_id": tags, "value": ["run-head"]}],
     )
-    project.db.execute(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
-        "VALUES (?,?,?,?,?,?,?,1)",
-        (
-            run_id,
-            head_row,
-            tags,
-            *encode_stored_value(["run-head"]),
-            "ok",
-            "publish_value",
-        ),
-    )
-    project.db.execute(
-        "UPDATE run_output_generations SET state='sealed', "
-        "terminal_disposition='completed', sealed_at=datetime('now') "
-        "WHERE run_id=? AND column_id=?",
-        (run_id, tags),
-    )
-    project.db.execute(
-        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?)",
-        (tags, head_row, run_id),
-    )
-    project.db.commit()
 
     project.apply_edits(
         [

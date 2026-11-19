@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 import pytest
@@ -75,6 +74,8 @@ def _seed_orphaned_run(
     reserved_checkpoint: bool = False,
     include_attempt_evidence: bool = True,
     request_cancel: bool = True,
+    swept: bool = True,
+    action_kind: str = ACTION_KIND,
 ) -> _OrphanedRun:
     sheet_id = project.add_sheet("Source")
     source_column_id = project.add_column(sheet_id, "source", type="text")
@@ -93,23 +94,26 @@ def _seed_orphaned_run(
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
-        ACTION_KIND,
+        action_kind,
         total_rows=1,
         row_ids=[row_id],
     )
     attempt_id = "attempt_dead_writer"
-    project.db.execute(
-        "INSERT INTO execution_attempts "
-        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
-        "VALUES (?, ?, 0, 'dispatching', 'dead-writer-fixture', ?, "
-        "datetime('now', '-7 hours'))",
-        (attempt_id, run_id, f"[{row_id}]"),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (attempt_id, run_id),
-    )
-    project.db.commit()
+    # A writer that went silent seven hours into its dispatch. Dispatching
+    # is reachable only through a full admission and claim, so the attempt
+    # is written in that state directly.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO execution_attempts "
+            "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+            "VALUES (?, ?, 0, 'dispatching', 'dead-writer-fixture', ?, "
+            "datetime('now', '-7 hours'))",
+            (attempt_id, run_id, f"[{row_id}]"),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?",
+            (attempt_id, run_id),
+        )
 
     receipt_id = "receipt_dead_writer"
     with write_transaction(project.db):
@@ -118,7 +122,7 @@ def _seed_orphaned_run(
                 receipt_id=receipt_id,
                 project_id=PROJECT_ID,
                 action_id="action_dead_writer",
-                action_kind=ACTION_KIND,
+                action_kind=action_kind,
                 run_id=run_id,
                 idempotency_key="dead-writer@sha256:stable",
                 params_hash="sha256:dead-writer",
@@ -144,7 +148,7 @@ def _seed_orphaned_run(
     claims, conflict = OutputColumnClaimStore(project).acquire(
         sheet_id=sheet_id,
         output_names=["extracted"],
-        action_kind=ACTION_KIND,
+        action_kind=action_kind,
         receipt_id=receipt_id,
         run_id=run_id,
         op_id=op_id,
@@ -181,13 +185,14 @@ def _seed_orphaned_run(
     # current-writer pointer is cleared without releasing the orphan claim.
     # Reserving a paid checkpoint renews the claim as part of its fenced
     # transaction, so expire it after that step to model the later dead writer.
-    project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at="
-        "datetime('now', '-1 hour') WHERE claim_token=?",
-        (claim_token,),
-    )
-    project.db.commit()
-    assert abandon_stale_dispatching_attempts(project, run_id) == 1
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE output_column_claims SET lease_expires_at="
+            "datetime('now', '-1 hour') WHERE claim_token=?",
+            (claim_token,),
+        )
+    if swept:
+        assert abandon_stale_dispatching_attempts(project, run_id) == 1
     if request_cancel:
         assert RunResultStore(project).request_cancel(run_id)
     return _OrphanedRun(
@@ -244,6 +249,8 @@ def _seed_never_dispatched_run(
     attempt_state: str = "created",
     include_claim: bool = True,
     mismatched_claim_receipt: bool = False,
+    bind_claim: bool = True,
+    spec: dict[str, object] | None = None,
 ) -> _NeverDispatchedRun:
     sheet_id = project.add_sheet("Never dispatched")
     source_column_id = project.add_column(sheet_id, "source", type="text")
@@ -258,7 +265,9 @@ def _seed_never_dispatched_run(
         [{"source": "alpha"}],
         {"source": source_column_id},
     )
-    op_id = project.append_change(ACTION_KIND, {"action_kind": "map.regex_extract"})
+    op_id = project.append_change(
+        ACTION_KIND, spec or {"action_kind": "map.regex_extract"}
+    )
     run_id = RunResultStore(project).start_run(
         op_id,
         sheet_id,
@@ -301,7 +310,7 @@ def _seed_never_dispatched_run(
             output_names=["extracted"],
             action_kind=ACTION_KIND,
             receipt_id=claim_receipt_id,
-            run_id=run_id,
+            run_id=run_id if bind_claim else None,
             op_id=op_id,
             claim_token=claim_token,
             lease_seconds=None,
@@ -321,17 +330,34 @@ def _seed_never_dispatched_run(
         for seq in range(attempt_count)
     )
     if attempt_state != "created":
-        project.db.executemany(
-            "UPDATE execution_attempts SET state=? WHERE id=?",
-            [(attempt_state, attempt_id) for attempt_id in attempt_ids],
-        )
-        project.db.commit()
+        # Admission needs a full commitment, and the historical states model
+        # a dispatch these never-dispatched attempts must not have had.
+        with write_transaction(project.db):
+            project.db.executemany(
+                "UPDATE execution_attempts SET state=? WHERE id=?",
+                [(attempt_state, attempt_id) for attempt_id in attempt_ids],
+            )
     return _NeverDispatchedRun(
         run_id=run_id,
         receipt_id=receipt_id,
         claim_token=claim_token,
         attempt_ids=attempt_ids,
     )
+
+
+def _dispatch_directly(project: Project, run_id: int, attempt_id: str) -> None:
+    # Dispatching is reachable only through a full admission and claim; these
+    # tests need a live writer on a run the terminalizer believes was never
+    # dispatched.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+            (attempt_id,),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?",
+            (attempt_id, run_id),
+        )
 
 
 def _never_dispatched_snapshot(
@@ -436,7 +462,9 @@ def test_terminalizer_closes_change_and_resolves_unpublished_scope(project) -> N
 def test_terminalizer_preserves_deferred_family_empty_output_visibility(
     project,
 ) -> None:
-    run = _seed_never_dispatched_run(project, attempt_count=0)
+    run = _seed_never_dispatched_run(
+        project, attempt_count=0, spec={"deferred_publication": True}
+    )
     row = project.db.execute(
         "SELECT op_id,sheet_id FROM runs WHERE id=?", (run.run_id,)
     ).fetchone()
@@ -445,11 +473,6 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         (row["sheet_id"],),
     ).fetchone()
     assert run.claim_token is not None
-    project.db.execute(
-        "UPDATE ops SET spec=? WHERE id=?",
-        (json.dumps({"deferred_publication": True}), int(row["op_id"])),
-    )
-    project.db.commit()
     project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
     ResultGenerationStore(project).declare(
         run.run_id,
@@ -625,15 +648,7 @@ def test_never_dispatched_zero_attempts_converges_failed_tuple(project) -> None:
 def test_never_dispatched_refuses_a_live_current_writer(project) -> None:
     run = _seed_never_dispatched_run(project, attempt_count=1)
     [attempt_id] = run.attempt_ids
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (attempt_id, run.run_id),
-    )
-    project.db.commit()
+    _dispatch_directly(project, run.run_id, attempt_id)
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -656,11 +671,12 @@ def test_never_dispatched_refuses_dispatching_attempt_without_owner_pointer(
 ) -> None:
     run = _seed_never_dispatched_run(project, attempt_count=1)
     [attempt_id] = run.attempt_ids
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.commit()
+    # A dispatching attempt the run no longer points at.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
+            (attempt_id,),
+        )
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -680,11 +696,12 @@ def test_never_dispatched_refuses_dispatching_attempt_without_owner_pointer(
 def test_never_dispatched_refuses_a_dangling_current_writer_pointer(project) -> None:
     run = _seed_never_dispatched_run(project, attempt_count=1)
     [attempt_id] = run.attempt_ids
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (attempt_id, run.run_id),
-    )
-    project.db.commit()
+    # The run points at an attempt that never left created.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=? WHERE id=?",
+            (attempt_id, run.run_id),
+        )
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -744,12 +761,7 @@ def test_never_dispatched_refuses_a_mismatched_active_claim(project) -> None:
 
 
 def test_never_dispatched_refuses_an_unbound_active_claim(project) -> None:
-    run = _seed_never_dispatched_run(project, attempt_count=1)
-    project.db.execute(
-        "UPDATE output_column_claims SET run_id=NULL WHERE claim_token=?",
-        (run.claim_token,),
-    )
-    project.db.commit()
+    run = _seed_never_dispatched_run(project, attempt_count=1, bind_claim=False)
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -796,15 +808,7 @@ def test_never_dispatched_reserved_effect_requires_reconciliation(project) -> No
     run = _seed_never_dispatched_run(project, attempt_count=1)
     [attempt_id] = run.attempt_ids
     assert run.claim_token is not None
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (attempt_id, run.run_id),
-    )
-    project.db.commit()
+    _dispatch_directly(project, run.run_id, attempt_id)
     checkpoint_id = "checkpoint_never_dispatched_reserved"
     assert EffectCheckpointStore(project.db).reserve(
         checkpoint_id,
@@ -819,15 +823,16 @@ def test_never_dispatched_reserved_effect_requires_reconciliation(project) -> No
         claim_token=run.claim_token,
         payload={"possible_external_effect": True},
     )
-    project.db.execute(
-        "UPDATE execution_attempts SET state='created' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
-        (run.run_id,),
-    )
-    project.db.commit()
+    # The attempt that reserved the effect reads as never dispatched again.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE execution_attempts SET state='created' WHERE id=?",
+            (attempt_id,),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
+            (run.run_id,),
+        )
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -853,43 +858,50 @@ def test_never_dispatched_refuses_effect_history(
     run = _seed_never_dispatched_run(project, attempt_count=1)
     [attempt_id] = run.attempt_ids
     assert run.claim_token is not None
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (attempt_id, run.run_id),
-    )
-    project.db.commit()
+    _dispatch_directly(project, run.run_id, attempt_id)
     checkpoint_id = f"checkpoint_never_dispatched_{effect_state}"
     checkpoints = EffectCheckpointStore(project.db)
+    writer = {
+        "run_id": run.run_id,
+        "writer_attempt_id": attempt_id,
+        "claim_token": run.claim_token,
+    }
+    unit = {
+        "family": "row_effect",
+        "group_key": f"run:{run.run_id}",
+        "unit_key": "row:1",
+        "action_kind": ACTION_KIND,
+        "identity": f"never-dispatched-{effect_state}",
+    }
     assert checkpoints.reserve(
         checkpoint_id,
-        family="row_effect",
-        group_key=f"run:{run.run_id}",
-        unit_key="row:1",
-        action_kind=ACTION_KIND,
-        identity=f"never-dispatched-{effect_state}",
+        **unit,
         authorized_attempt_id=attempt_id,
-        run_id=run.run_id,
-        writer_attempt_id=attempt_id,
-        claim_token=run.claim_token,
+        **writer,
         payload={"possible_external_effect": True},
     )
-    project.db.execute(
-        "UPDATE effect_checkpoints SET state=?, payload='{}' WHERE id=?",
-        (effect_state, checkpoint_id),
-    )
-    project.db.execute(
-        "UPDATE execution_attempts SET state='superseded' WHERE id=?",
-        (attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
-        (run.run_id,),
-    )
-    project.db.commit()
+    checkpoints.complete(checkpoint_id, **unit, payload={}, **writer)
+    if effect_state == "consumed":
+        assert (
+            checkpoints.consume_group_retained(
+                family=unit["family"],
+                group_key=unit["group_key"],
+                action_kind=ACTION_KIND,
+                audit=lambda _payload: {},
+                **writer,
+            )
+            == 1
+        )
+    # The attempt that produced the effect reads as superseded before dispatch.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE execution_attempts SET state='superseded' WHERE id=?",
+            (attempt_id,),
+        )
+        project.db.execute(
+            "UPDATE runs SET current_attempt_id=NULL WHERE id=?",
+            (run.run_id,),
+        )
     before = _never_dispatched_snapshot(project, run)
 
     result = terminalize_project_run(
@@ -1100,14 +1112,15 @@ def test_current_writer_retry_refuses_terminal_tuple_with_pending_attempt(
     assert terminalized.disposition == "terminalized"
 
     pending_attempt_id = "attempt_pending_after_terminal_split"
-    project.db.execute(
-        "INSERT INTO execution_attempts "
-        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
-        "VALUES (?, ?, 1, 'admitted', 'pending-after-terminal', '[]', "
-        "datetime('now'))",
-        (pending_attempt_id, orphan.run_id),
-    )
-    project.db.commit()
+    # An admitted attempt appearing on an already-terminal run.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO execution_attempts "
+            "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+            "VALUES (?, ?, 1, 'admitted', 'pending-after-terminal', '[]', "
+            "datetime('now'))",
+            (pending_attempt_id, orphan.run_id),
+        )
 
     repeated = terminalize_project_run(
         project,
@@ -1211,12 +1224,12 @@ def test_reserved_effect_still_requires_reconciliation_after_claim_is_lost(
     project,
 ) -> None:
     orphan = _seed_orphaned_run(project, reserved_checkpoint=True)
-    project.db.execute(
-        "UPDATE output_column_claims SET status='expired', "
-        "released_at=datetime('now') WHERE run_id=?",
-        (orphan.run_id,),
+    assert (
+        OutputColumnClaimStore(project).release(
+            claim_token=orphan.claim_token, status="expired"
+        )
+        == 1
     )
-    project.db.commit()
     before = _durable_snapshot(project, orphan)
 
     result = terminalize_project_run(
@@ -1322,11 +1335,12 @@ def test_receipt_only_orphan_repair_is_idempotent_after_receipt_turns_terminal(
 
 def test_prepared_unclaimed_cancel_supersedes_attempt_and_closes_tuple(project) -> None:
     orphan = _seed_orphaned_run(project)
-    project.db.execute(
-        "UPDATE execution_attempts SET state='admitted' WHERE id=?",
-        (orphan.attempt_id,),
-    )
-    project.db.commit()
+    # The receipt's prepared attempt still reads as admitted, never claimed.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE execution_attempts SET state='admitted' WHERE id=?",
+            (orphan.attempt_id,),
+        )
 
     transition = queued_v1_terminal_receipt_transition(
         project,
@@ -1351,13 +1365,15 @@ def test_prepared_replacement_cancel_ignores_historical_abandoned_attempt(
 ) -> None:
     orphan = _seed_orphaned_run(project)
     replacement_attempt_id = "attempt_replacement_admitted"
-    project.db.execute(
-        "INSERT INTO execution_attempts "
-        "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
-        "VALUES (?, ?, 1, 'admitted', 'replacement-fixture', '[]', datetime('now'))",
-        (replacement_attempt_id, orphan.run_id),
-    )
-    project.db.commit()
+    # Admission needs a full commitment; the replacement is written admitted.
+    with write_transaction(project.db):
+        project.db.execute(
+            "INSERT INTO execution_attempts "
+            "(id, run_id, seq, state, action_identity_hash, scope_json, created_at) "
+            "VALUES (?, ?, 1, 'admitted', 'replacement-fixture', '[]', "
+            "datetime('now'))",
+            (replacement_attempt_id, orphan.run_id),
+        )
     stored = ReceiptStore(project).find_by_id(orphan.receipt_id)
     assert stored is not None
     replacement_receipt = stored.parsed().model_copy(
@@ -1441,21 +1457,9 @@ def test_recovery_without_job_evidence_ignores_newer_auxiliary_receipt(project) 
 
 
 def test_missing_job_recovery_preserves_custom_producer_action_kind(project) -> None:
-    orphan = _seed_orphaned_run(project)
     custom_kind = "demo.plugin.op.clean"
-    stored = ReceiptStore(project).find_by_id(orphan.receipt_id)
-    assert stored is not None
-    custom_receipt = stored.parsed().model_copy(update={"action_kind": custom_kind})
+    orphan = _seed_orphaned_run(project, action_kind=custom_kind)
     with write_transaction(project.db):
-        project.db.execute(
-            "UPDATE runs SET action_kind=? WHERE id=?",
-            (custom_kind, orphan.run_id),
-        )
-        assert ReceiptStore(project).update_if_status_in(custom_receipt, {"queued"})
-        project.db.execute(
-            "UPDATE output_column_claims SET action_kind=? WHERE run_id=?",
-            (custom_kind, orphan.run_id),
-        )
         ReceiptStore(project).insert_queued(
             Receipt(
                 receipt_id="receipt_custom_kind_auxiliary",
@@ -1498,11 +1502,13 @@ def test_missing_job_recovery_preserves_custom_producer_action_kind(project) -> 
 
 def test_terminal_run_receipt_repair_releases_a_run_bound_claim(project) -> None:
     orphan = _seed_orphaned_run(project)
-    project.db.execute(
-        "UPDATE runs SET status='completed', finished_at=datetime('now') WHERE id=?",
-        (orphan.run_id,),
-    )
-    project.db.commit()
+    # Interrupted after the run turned terminal, before its receipt and claim.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE runs SET status='completed', finished_at=datetime('now') "
+            "WHERE id=?",
+            (orphan.run_id,),
+        )
 
     transition = queued_v1_terminal_receipt_transition(
         project,
@@ -1526,11 +1532,11 @@ def test_terminal_run_receipt_repair_releases_a_run_bound_claim(project) -> None
 
 def test_malformed_receipt_is_a_typed_conflict_without_partial_writes(project) -> None:
     orphan = _seed_orphaned_run(project)
-    project.db.execute(
-        "UPDATE receipts SET body='not-json' WHERE id=?",
-        (orphan.receipt_id,),
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE receipts SET body='not-json' WHERE id=?",
+            (orphan.receipt_id,),
+        )
     before = _durable_snapshot(project, orphan)
 
     transition = queued_v1_terminal_receipt_transition(
@@ -1550,8 +1556,8 @@ def test_malformed_receipt_is_a_typed_conflict_without_partial_writes(project) -
 
 def test_missing_receipt_refuses_before_any_terminal_projection(project) -> None:
     orphan = _seed_orphaned_run(project)
-    project.db.execute("DELETE FROM receipts WHERE id=?", (orphan.receipt_id,))
-    project.db.commit()
+    with write_transaction(project.db):
+        project.db.execute("DELETE FROM receipts WHERE id=?", (orphan.receipt_id,))
     before = {
         "run": tuple(
             project.db.execute(
@@ -1664,16 +1670,7 @@ def test_current_writer_terminalization_rolls_back_when_attempt_close_refuses(
     project,
     monkeypatch,
 ) -> None:
-    orphan = _seed_orphaned_run(project)
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (orphan.attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (orphan.attempt_id, orphan.run_id),
-    )
-    project.db.commit()
+    orphan = _seed_orphaned_run(project, swept=False)
     before = _durable_snapshot(project, orphan)
 
     monkeypatch.setattr(
@@ -1759,16 +1756,8 @@ def test_abandoned_writer_terminalization_rolls_back_when_claim_release_fails(
 def test_run_store_refuses_current_writer_without_authority(
     project,
 ):
-    orphan = _seed_orphaned_run(project, request_cancel=False)
+    orphan = _seed_orphaned_run(project, request_cancel=False, swept=False)
     project.db.execute("BEGIN IMMEDIATE")
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (orphan.attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET current_attempt_id=? WHERE id=?",
-        (orphan.attempt_id, orphan.run_id),
-    )
     from frisket.engine.store.changes import start_change
 
     op_id = project.db.execute(
@@ -1813,18 +1802,13 @@ def test_run_store_refuses_current_writer_without_authority(
 
 
 def test_current_writer_cannot_reclassify_a_terminal_run(project):
-    orphan = _seed_orphaned_run(project, request_cancel=False)
+    orphan = _seed_orphaned_run(project, request_cancel=False, swept=False)
     # A partially repaired historical tuple is not permission to change an
     # already-terminal execution, even if a writer pointer remains attached.
-    project.db.execute(
-        "UPDATE execution_attempts SET state='dispatching' WHERE id=?",
-        (orphan.attempt_id,),
-    )
-    project.db.execute(
-        "UPDATE runs SET status='completed',current_attempt_id=? WHERE id=?",
-        (orphan.attempt_id, orphan.run_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE runs SET status='completed' WHERE id=?", (orphan.run_id,)
+        )
     before = _durable_snapshot(project, orphan)
     outcome = terminalize_project_run(
         project,

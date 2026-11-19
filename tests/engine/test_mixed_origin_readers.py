@@ -5,16 +5,17 @@ import json
 from typing import Any
 
 import pytest
-from helpers import stored_output_descriptor
+from helpers import write_claimed_test_results
 
 from frisket.contracts.http.history_review import ColumnRunsPage
 from frisket.contracts.http.models import SheetData
 from frisket.engine.executor import actions as executor_actions
 from frisket.engine.store import Project
 from frisket.engine.store.cells import MixedOriginReplayUnsupported
-from frisket.engine.store.current_cells import refresh_current_cells
+from frisket.engine.store.column_descriptors import set_descriptor
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.value_codec import encode_stored_value
 from frisket.preview.entity_mentions import (
     EntityMentionsPreviewError,
@@ -40,110 +41,6 @@ class _MixedReaderFixture:
     edit_op_id: int
 
 
-def _declare_generation(
-    project: Project,
-    *,
-    run_id: int,
-    column_id: int,
-    write_mode: str,
-) -> None:
-    state = "active" if write_mode == "create" else "staged"
-    project.db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,expected_base_run_id,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?,?)",
-        (
-            run_id,
-            column_id,
-            "generated",
-            "sha256:mixed-reader-output",
-            write_mode,
-            state,
-            f"claim:{run_id}",
-            None,
-            stored_output_descriptor(project.db, column_id),
-        ),
-    )
-
-
-def _publish_result(
-    project: Project,
-    *,
-    run_id: int,
-    row_id: int,
-    column_id: int,
-    effect: str,
-    value: Any = None,
-    error: str | None = None,
-    outcome: str = "ok",
-    confidence: float | None = None,
-    justification: str | None = None,
-) -> None:
-    if effect == "publish_value":
-        value_kind, stored_value = encode_stored_value(value)
-    elif effect == "publish_null":
-        value_kind, stored_value = encode_stored_value(None)
-    else:
-        value_kind, stored_value = None, None
-    project.db.execute(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,confidence,justification,error,"
-        "outcome,publication_effect) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        (
-            run_id,
-            row_id,
-            column_id,
-            value_kind,
-            stored_value,
-            confidence,
-            justification,
-            error,
-            outcome,
-            effect,
-        ),
-    )
-
-
-def _seal_generation(project: Project, *, run_id: int, column_id: int) -> None:
-    project.db.execute(
-        "UPDATE run_output_generations SET state='sealed', "
-        "terminal_disposition='completed', sealed_at=datetime('now') "
-        "WHERE run_id=? AND column_id=?",
-        (run_id, column_id),
-    )
-    project.db.execute(
-        "UPDATE runs SET status='completed', finished_at=datetime('now') WHERE id=?",
-        (run_id,),
-    )
-
-
-def _point_heads(
-    project: Project,
-    *,
-    run_id: int,
-    column_id: int,
-    row_ids: list[int],
-) -> None:
-    project.db.executemany(
-        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (?,?,?) "
-        "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id",
-        [(column_id, row_id, run_id) for row_id in row_ids],
-    )
-
-    from frisket.engine.store.changes import start_change
-
-    start_change(
-        project.db,
-        project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[
-            0
-        ],
-    )
-    project.db.executemany(
-        "UPDATE results SET published=1 WHERE column_id=? AND row_id=? AND run_id=?",
-        [(column_id, row_id, run_id) for row_id in row_ids],
-    )
-
-
 def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None:
     """A stray scalar pointer cannot make headless AI results current again."""
 
@@ -164,37 +61,39 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None
         row_ids=row_ids,
         total_rows=len(row_ids),
     )
-    project.db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,confidence,error,outcome) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        [
-            (
-                run_id,
-                row_ids[0],
-                output_column_id,
-                *encode_stored_value("retired-result"),
-                0.99,
-                None,
-                "ok",
-            ),
-            (
-                run_id,
-                row_ids[1],
-                output_column_id,
-                None,
-                None,
-                None,
-                "retired failure",
-                "model_error",
-            ),
-        ],
-    )
-    project.db.execute(
-        "UPDATE columns SET current_run_id=? WHERE id=?",
-        (run_id, output_column_id),
-    )
-    project.db.commit()
+    # Results with no generation or publication effect behind a scalar
+    # pointer predate the generation protocol; no current writer makes them.
+    with write_transaction(project.db):
+        project.db.executemany(
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,confidence,error,outcome) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [
+                (
+                    run_id,
+                    row_ids[0],
+                    output_column_id,
+                    *encode_stored_value("retired-result"),
+                    0.99,
+                    None,
+                    "ok",
+                ),
+                (
+                    run_id,
+                    row_ids[1],
+                    output_column_id,
+                    None,
+                    None,
+                    None,
+                    "retired failure",
+                    "model_error",
+                ),
+            ],
+        )
+        project.db.execute(
+            "UPDATE columns SET current_run_id=? WHERE id=?",
+            (run_id, output_column_id),
+        )
 
     assert (
         resolve_sheet_filter_rows(
@@ -253,19 +152,14 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
         {"source": source_column_id, "generated": output_column_id},
     )
 
+    runs = RunResultStore(project)
     first_op_id = project.append_change("map", {"phase": "first"})
-    first_run_id = RunResultStore(project).start_run(
+    first_run_id = runs.start_run(
         first_op_id,
         sheet_id,
         "test.mixed_reader_fixture",
         row_ids=row_ids,
         total_rows=len(row_ids),
-    )
-    _declare_generation(
-        project,
-        run_id=first_run_id,
-        column_id=output_column_id,
-        write_mode="create",
     )
     first_values = [
         "first-value",
@@ -273,91 +167,66 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
         "first-error-old",
         "first-untargeted",
     ]
-    for position, (row_id, value) in enumerate(zip(row_ids, first_values, strict=True)):
-        _publish_result(
-            project,
-            run_id=first_run_id,
-            row_id=row_id,
-            column_id=output_column_id,
-            effect="publish_value",
-            value=value,
-            confidence=0.42 if position == 3 else None,
-            justification=(
-                "retained first-generation evidence" if position == 3 else None
-            ),
-        )
-    _point_heads(
+    write_claimed_test_results(
         project,
-        run_id=first_run_id,
-        column_id=output_column_id,
-        row_ids=row_ids,
+        first_run_id,
+        [
+            {
+                "row_id": row_id,
+                "column_id": output_column_id,
+                "value": value,
+                "confidence": 0.42 if position == 3 else None,
+                "justification": (
+                    "retained first-generation evidence" if position == 3 else None
+                ),
+            }
+            for position, (row_id, value) in enumerate(
+                zip(row_ids, first_values, strict=True)
+            )
+        ],
+        output_roles={output_column_id: "generated"},
     )
-    _seal_generation(project, run_id=first_run_id, column_id=output_column_id)
+    runs.finish_run(first_run_id)
 
-    project.db.commit()
     second_op_id = project.append_change("map", {"phase": "second"})
-    second_run_id = RunResultStore(project).start_run(
+    second_run_id = runs.start_run(
         second_op_id,
         sheet_id,
         "test.mixed_reader_fixture",
         row_ids=row_ids[:3],
         total_rows=3,
     )
-    _declare_generation(
+    write_claimed_test_results(
         project,
-        run_id=second_run_id,
-        column_id=output_column_id,
-        write_mode="replace_scope",
+        second_run_id,
+        [
+            {
+                "row_id": row_ids[0],
+                "column_id": output_column_id,
+                "value": "second-value",
+                "confidence": 0.91,
+                "justification": "new exact value",
+            },
+            {
+                "row_id": row_ids[1],
+                "column_id": output_column_id,
+                "value": None,
+                "outcome": "ok",
+            },
+            {
+                "row_id": row_ids[2],
+                "column_id": output_column_id,
+                "value": None,
+                "error": "deliberate mixed-reader error",
+                "outcome": "model_error",
+            },
+        ],
     )
-    _publish_result(
-        project,
-        run_id=second_run_id,
-        row_id=row_ids[0],
-        column_id=output_column_id,
-        effect="publish_value",
-        value="second-value",
-        confidence=0.91,
-        justification="new exact value",
-    )
-    _publish_result(
-        project,
-        run_id=second_run_id,
-        row_id=row_ids[1],
-        column_id=output_column_id,
-        effect="publish_null",
-    )
-    _publish_result(
-        project,
-        run_id=second_run_id,
-        row_id=row_ids[2],
-        column_id=output_column_id,
-        effect="publish_error",
-        error="deliberate mixed-reader error",
-        outcome="model_error",
-    )
-    _seal_generation(project, run_id=second_run_id, column_id=output_column_id)
-    _point_heads(
-        project,
-        run_id=second_run_id,
-        column_id=output_column_id,
-        row_ids=row_ids[:3],
-    )
+    runs.finish_run(second_run_id)
 
     # Leave the retired scalar pointed at the newest subset run. Exact readers
     # must still retain the first head on the untargeted row.
-    project.db.execute(
-        "UPDATE columns SET current_run_id=? WHERE id=?",
-        (second_run_id, output_column_id),
-    )
-    # This fixture deliberately publishes historical heads through the
-    # low-level generation tables. Materialize their exact winners before the
-    # manual overlay below so normal readers see the same state.
-    refresh_current_cells(
-        project.db,
-        column_ids={output_column_id},
-        row_ids=set(row_ids),
-    )
-    project.db.commit()
+    runs.point_column_at_run(second_op_id, output_column_id, second_run_id)
     edit_op_id = project.apply_edits(
         [
             {
@@ -833,11 +702,10 @@ def test_entity_mentions_coverage_typed_gates_mixed_origins(
     mixed_reader: _MixedReaderFixture,
 ) -> None:
     fixture = mixed_reader
-    fixture.project.db.execute(
-        "UPDATE columns SET type='json', semantic_type='entity_mentions' WHERE id=?",
-        (fixture.output_column_id,),
+    set_descriptor(fixture.project, fixture.output_column_id, "type", "json")
+    set_descriptor(
+        fixture.project, fixture.output_column_id, "semantic_type", "entity_mentions"
     )
-    fixture.project.db.commit()
     with pytest.raises(EntityMentionsPreviewError) as excinfo:
         resolve_entity_mentions_preview(
             fixture.project,
