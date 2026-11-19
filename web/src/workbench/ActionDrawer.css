@@ -10,8 +10,7 @@
    beside it, with the project bar above. The drawer stacks above the positioned
    menubar(50) and inspectors, but below modals(60)/command palette(70). ------ */
 .workbench-shell.action-drawer-open > [data-testid='workbench-region-act'],
-.workbench-shell.action-drawer-open > [data-testid='workbench-region-navigate'],
-.workbench-shell.action-drawer-open > .workbench-main-row,
+.workbench-shell.action-drawer-open > .workbench-body,
 .workbench-shell.action-drawer-open > [data-testid='workbench-region-bottomDock'] {
   margin-right: var(--action-drawer-width, 400px);
 }
