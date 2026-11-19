@@ -1842,7 +1842,8 @@ function useSheetGridController({
       return;
     }
 
-    const columnIndex = gridColumns.findIndex(
+    const wholeRow = pendingCellReveal.columnId === null && pendingCellReveal.columnName === null;
+    const columnIndex = wholeRow ? Math.min(0, gridColumns.length - 1) : gridColumns.findIndex(
       (column) =>
         column.id === pendingCellReveal.columnId ||
         column.name === pendingCellReveal.columnName,

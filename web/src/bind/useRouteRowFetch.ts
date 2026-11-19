@@ -17,6 +17,7 @@ import { panelsEqual } from '../core/route/RouteState';
 import type { RouteStoreHandle } from '../state/routeStore';
 import type { DetailStoreHandle } from '../state/detailStore';
 import type { SelectionStoreHandle } from '../state/selectionStore';
+import { requestGridCellReveal } from '../grid/gridCellReveal';
 import { useSelector } from './useSelector';
 import { useWorkspaceStores } from './useWorkspaceStores';
 
@@ -30,7 +31,10 @@ interface RouteRowFetchDeps {
   activeGridSort: GridSortSpec | null;
   activeGridScopeRowIds: number[] | null;
   viewSelection?: ViewSelection | null;
+  /** The row the Detail drawer shows, complete or not. */
   rowDrawerId: string | null;
+  /** False while the drawer holds only the grid's projected columns. */
+  rowDrawerComplete: boolean;
   showError: (message: string) => void;
 }
 
@@ -90,6 +94,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeGridScopeRowIds,
     viewSelection,
     rowDrawerId,
+    rowDrawerComplete,
     showError,
   } = deps;
 
@@ -136,11 +141,14 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
       : null;
     detail.syncRow();
     selection.setSelectedColumnId(columnId);
-    if (rowDrawerId === panel.rowId) {
+    if (rowDrawerId === panel.rowId && rowDrawerComplete) {
       return () => {
         alive = false;
       };
     }
+    // A row the drawer did not already show was opened from outside the grid
+    // (a link, history, a reference), so the grid scrolls to it and selects it.
+    const revealInGrid = rowDrawerId !== panel.rowId;
 
     const scope = viewSelection ? { selection: viewSelection } : {
       parentRowId: activeChildFilterParentRowId,
@@ -150,8 +158,16 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     };
     void fetchRouteRow(api, sheet.id, panel.rowId, scope)
       .then((row) => {
-        if (alive) {
-          detail.loadRow(row);
+        if (!alive) return;
+        detail.loadRow(row);
+        if (row && revealInGrid) {
+          requestGridCellReveal({
+            projectId: route.store.get().projectId,
+            sheetId: sheet.id,
+            rowId: row.id,
+            columnId: columnId,
+            columnName: null,
+          });
         }
       })
       .catch((e: Error) => {
@@ -177,6 +193,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
     activeGridScopeRowIds,
     viewSelection,
     rowDrawerId,
+    rowDrawerComplete,
     showError,
     api,
   ]);

@@ -151,10 +151,12 @@ test('large sheet product paths use bounded browser traffic', async ({ page }) =
   for (const url of locateRequests) {
     expect(url.searchParams.get('page_size')).toBe('500');
   }
-  const dataOffsets = dataRequests.map((url) => url.searchParams.get('offset'));
-  expect(dataOffsets).toContain('1500');
-  expect(dataOffsets).not.toContain('500');
-  expect(dataOffsets).not.toContain('1000');
+  // The grid scrolls to the linked row and loads its page plus the row cache's
+  // half-page margin before it (offset 1000); it never pages through the rows
+  // between the top and the target (offset 500).
+  const dataOffsets = () => dataRequests.map((url) => url.searchParams.get('offset'));
+  await expect.poll(dataOffsets).toContain('1500');
+  expect(dataOffsets()).not.toContain('500');
   for (const url of dataRequests) {
     const limit = Number(url.searchParams.get('limit') ?? 0);
     expect(limit).toBeLessThanOrEqual(500);

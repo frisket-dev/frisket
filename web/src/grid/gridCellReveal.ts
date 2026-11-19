@@ -3,8 +3,9 @@ interface GridCellRevealRequest {
   projectId: string;
   sheetId: string;
   rowId: string;
-  columnId: string;
-  columnName: string;
+  /** Both null reveals the row at the grid's first column. */
+  columnId: string | null;
+  columnName: string | null;
 }
 
 type Listener = () => void;
