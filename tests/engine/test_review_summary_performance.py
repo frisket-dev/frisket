@@ -5,10 +5,12 @@ import json
 
 from helpers import stored_output_descriptor
 
+from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.runner.review import review_bundle_count
 from frisket.engine.store.review_stats import mark_run_review_stats_dirty
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.value_codec import encode_stored_value
 
 
@@ -143,15 +145,24 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
     project.db.commit()
     assert review_bundle_count(project) == 1_260
 
-    project.db.execute("BEGIN IMMEDIATE")
-    RunResultStore(project).set_result_review_state(
-        replacement_run_id,
-        replacement_rows[0],
-        answer_id,
-        "verified",
+    with write_transaction(project.db):
+        RunResultStore(project).set_result_review_state(
+            replacement_run_id,
+            replacement_rows[0],
+            answer_id,
+            "verified",
+        )
+    deleted = run_action_spec(
+        project,
+        {
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet_id, "row_ids": [row_ids[1]]},
+            "idempotency_key": "delete-reviewed-row",
+        },
+        project_id="test",
     )
-    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
-    project.db.commit()
+    assert deleted.status == "completed", deleted.errors
 
     other_sheet_id = project.add_sheet("Other visible sheet")
     other_row_id = project.add_rows(other_sheet_id, [{}], {})[0]
@@ -181,8 +192,7 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
     assert project.refresh_pending_review_summary() == 1_259
     assert review_bundle_count(project) == 1_259
 
-    project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet_id,))
-    project.db.commit()
+    project.delete_sheet(sheet_id)
     assert project.refresh_pending_review_summary() == 0
 
     # Sanity-check that the test actually left historical data behind.
