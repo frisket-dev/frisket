@@ -458,39 +458,32 @@ class RunResultStore:
             (json.dumps(params, sort_keys=True), run_id),
         )
 
-    def set_worker_version(
-        self, run_id: int, worker_version: str, *, commit: bool = True
-    ) -> None:
+    def set_worker_version(self, run_id: int, worker_version: str) -> None:
         """Stamp the code identity of the worker claiming this run
         (worker-version-guard-v1). Called by the project.run/action.run
         handlers as soon as they claim a run, so even a run that fails
         immediately after still shows which code touched it."""
-        self.db.execute(
-            "UPDATE runs SET worker_version=? WHERE id=?",
-            (worker_version, run_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db):
+            self.db.execute(
+                "UPDATE runs SET worker_version=? WHERE id=?",
+                (worker_version, run_id),
+            )
 
-    def set_total_rows(
-        self, run_id: int, total_rows: int, *, commit: bool = True
-    ) -> None:
+    def set_total_rows(self, run_id: int, total_rows: int) -> None:
+        """Set the run's row total in the caller's transaction."""
+        require_transaction(self.db, "run row total")
         self.db.execute(
             "UPDATE runs SET total_rows=? WHERE id=?",
             (int(total_rows), run_id),
         )
-        if commit:
-            self.db.commit()
 
-    def increment_total_rows(
-        self, run_id: int, delta: int, *, commit: bool = True
-    ) -> None:
+    def increment_total_rows(self, run_id: int, delta: int) -> None:
+        """Grow the run's row total in the caller's transaction."""
+        require_transaction(self.db, "run row total")
         self.db.execute(
             "UPDATE runs SET total_rows = total_rows + ? WHERE id=?",
             (int(delta), run_id),
         )
-        if commit:
-            self.db.commit()
 
     def record_run_row_scope(self, run_id: int, row_ids: list[int]) -> None:
         """Record immutable run scope inside the caller's transaction."""
@@ -755,15 +748,15 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> None:
-        self._require_run_sheet_mutable(run_id)
-        self.db.execute(
-            "UPDATE results SET value_kind=NULL, value=NULL, error=?, justification=NULL, "
-            "outcome='model_error', publication_effect='publish_error' "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (_safe_result_error(error, "model_error"), run_id, row_id, column_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="result failure"):
+            self._require_run_sheet_mutable(run_id)
+            self.db.execute(
+                "UPDATE results SET value_kind=NULL, value=NULL, error=?, "
+                "justification=NULL, outcome='model_error', "
+                "publication_effect='publish_error' "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (_safe_result_error(error, "model_error"), run_id, row_id, column_id),
+            )
 
     def retain_unpublished_result(
         self, run_id: int, row_id: int, column_id: int
@@ -3177,20 +3170,19 @@ class RunResultStore:
         run is still live; a terminal run refuses a new request.
         """
 
-        requested = self.db.execute(
-            "UPDATE runs SET cancel_requested_at="
-            "COALESCE(cancel_requested_at, datetime('now')) "
-            "WHERE id=? AND status='running'",
-            (run_id,),
-        )
-        if requested.rowcount == 1:
-            # Stop withdraws publication immediately; the exact attempt still
-            # owns returned facts and terminal drain, like source deletion.
-            from .run_lifecycle import close_run_change
+        with write_transaction(self.db, commit=commit, what="run cancellation request"):
+            requested = self.db.execute(
+                "UPDATE runs SET cancel_requested_at="
+                "COALESCE(cancel_requested_at, datetime('now')) "
+                "WHERE id=? AND status='running'",
+                (run_id,),
+            )
+            if requested.rowcount == 1:
+                # Stop withdraws publication immediately; the exact attempt still
+                # owns returned facts and terminal drain, like source deletion.
+                from .run_lifecycle import close_run_change
 
-            close_run_change(self.project, run_id)
-        if commit:
-            self.db.commit()
+                close_run_change(self.project, run_id)
         return requested.rowcount == 1
 
     def has_cancel_intent(self, run_id: int) -> bool:
@@ -3320,9 +3312,7 @@ class RunResultStore:
                 transient_cancel_requested_at=transient_cancel_requested_at,
             )
 
-    def revert_run_resume(
-        self, run_id: int, admission: RunResumeAdmission, *, commit: bool = True
-    ) -> None:
+    def revert_run_resume(self, run_id: int, admission: RunResumeAdmission) -> None:
         """Undo :meth:`begin_run_resume` for a resume that never dispatched.
 
         Restores status, ``finished_at`` AND ``params`` (the halt markers
@@ -3346,54 +3336,53 @@ class RunResultStore:
         # winner or any other concurrent transition, and match every field
         # begin_run_resume itself wrote so an unrelated update cannot be
         # erased.
-        self.db.execute(
-            "UPDATE runs SET status=?, finished_at=?, params=?, "
-            "cancel_requested_at=?, halted_code=?, halted_reason=? WHERE id=? "
-            "AND status='running' AND finished_at IS NULL AND params=? "
-            "AND cancel_requested_at IS ? "
-            "AND halted_code IS NULL AND halted_reason IS NULL "
-            "AND current_attempt_id IS NULL "
-            "AND NOT EXISTS ("
-            "SELECT 1 FROM execution_attempts "
-            "WHERE run_id=? AND state='dispatching'"
-            ")",
-            (
-                admission.prior_status,
-                admission.prior_finished_at,
-                admission.prior_params,
-                admission.prior_cancel_requested_at,
-                admission.prior_halted_code,
-                admission.prior_halted_reason,
-                run_id,
-                admission.transient_params,
-                admission.transient_cancel_requested_at,
-                run_id,
-            ),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, what="run resume revert"):
+            self.db.execute(
+                "UPDATE runs SET status=?, finished_at=?, params=?, "
+                "cancel_requested_at=?, halted_code=?, halted_reason=? WHERE id=? "
+                "AND status='running' AND finished_at IS NULL AND params=? "
+                "AND cancel_requested_at IS ? "
+                "AND halted_code IS NULL AND halted_reason IS NULL "
+                "AND current_attempt_id IS NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM execution_attempts "
+                "WHERE run_id=? AND state='dispatching'"
+                ")",
+                (
+                    admission.prior_status,
+                    admission.prior_finished_at,
+                    admission.prior_params,
+                    admission.prior_cancel_requested_at,
+                    admission.prior_halted_code,
+                    admission.prior_halted_reason,
+                    run_id,
+                    admission.transient_params,
+                    admission.transient_cancel_requested_at,
+                    run_id,
+                ),
+            )
 
     def point_column_at_run(
         self, op_id: int, column_id: int, run_id: int, *, commit: bool = True
     ) -> None:
         """Move a column pointer, capturing prior state for undo."""
-        prev = self.db.execute(
-            "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
-        ).fetchone()[0]
-        op = self.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (op_id,)
-        ).fetchone()
-        info = json.loads(op["undo_info"] or "{}") if op else {}
-        # keep the FIRST prior pointer: repeat pointing within one op must
-        # undo to the pre-op state, not an intermediate run
-        info.setdefault("column_pointers", {}).setdefault(str(column_id), prev)
-        info.setdefault("column_pointers_after", {})[str(column_id)] = run_id
-        self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
-        )
-        self.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, column_id)
-        )
+        with write_transaction(self.db, commit=commit, what="column run pointer"):
+            prev = self.db.execute(
+                "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
+            ).fetchone()[0]
+            op = self.db.execute(
+                "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+            ).fetchone()
+            info = json.loads(op["undo_info"] or "{}") if op else {}
+            # keep the FIRST prior pointer: repeat pointing within one op must
+            # undo to the pre-op state, not an intermediate run
+            info.setdefault("column_pointers", {}).setdefault(str(column_id), prev)
+            info.setdefault("column_pointers_after", {})[str(column_id)] = run_id
+            self.db.execute(
+                "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+            )
+            self.db.execute(
+                "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, column_id)
+            )
         if commit:
-            self.db.commit()
             self.project.refresh_pending_review_summary()

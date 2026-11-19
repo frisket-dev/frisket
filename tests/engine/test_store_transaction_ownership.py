@@ -641,6 +641,53 @@ def test_running_receipt_delete_joined_rolls_back_with_the_caller(project):
     assert _committed_receipt_status(project) == "running"
 
 
+# -- run counters, cancellation and pointers ---------------------------------
+
+
+@pytest.mark.parametrize("write", ["set_total_rows", "increment_total_rows"])
+def test_run_total_writes_require_caller_transaction(project, write):
+    run_id = _running_run(project)
+
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        getattr(RunResultStore(project), write)(run_id, 3)
+
+    assert not project.db.in_transaction
+
+
+def test_request_cancel_joined_rolls_back_with_the_caller(project):
+    run_id = _running_run(project)
+    _open_caller_transaction(project)
+
+    assert RunResultStore(project).request_cancel(run_id, commit=False)
+
+    project.db.rollback()
+    assert _committed(
+        project, "SELECT cancel_requested_at FROM runs WHERE id=?", (run_id,)
+    ) == [(None,)]
+
+
+def test_request_cancel_commit_true_inside_caller_transaction_refuses(project):
+    run_id = _running_run(project)
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).request_cancel(run_id)
+
+    assert _committed_sheet_name(project) == "Source"
+
+
+def test_point_column_at_run_commit_true_inside_caller_transaction_refuses(project):
+    run_id = _running_run(project)
+    column_id = _value_column(project)
+    op_id = int(project.db.execute("SELECT op_id FROM runs").fetchone()[0])
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).point_column_at_run(op_id, column_id, run_id)
+
+    assert _committed_sheet_name(project) == "Source"
+
+
 # -- provider facts and spend ------------------------------------------------
 
 
