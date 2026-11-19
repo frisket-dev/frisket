@@ -7,6 +7,7 @@ import json
 import hashlib
 import inspect
 from contextlib import asynccontextmanager
+from typing import TypedDict
 
 from frisket.actions.cluster_types import ClusterOptions
 from frisket.ai.embeddings import backends as embedding_backends
@@ -39,6 +40,20 @@ def _cache_only_embedding(_texts):
     )
 
 
+class _CheckpointUnit(TypedDict):
+    family: str
+    group_key: str
+    unit_key: str
+    action_kind: str
+    identity: str
+
+
+class _WriterFence(TypedDict):
+    run_id: int | None
+    writer_attempt_id: str | None
+    claim_token: str | None
+
+
 class _ClusterEmbeddingBatch:
     """The existing paid checkpoint lifecycle around one fixed admitted batch."""
 
@@ -55,7 +70,7 @@ class _ClusterEmbeddingBatch:
         )
         self.id = "cluster_embed_" + hashlib.sha256(self.identity.encode()).hexdigest()
         self.texts = texts
-        self.unit = dict(
+        self.unit = _CheckpointUnit(
             family="model_call",
             group_key=str(ctx.extras["run_id"]),
             unit_key=self.id,
@@ -63,7 +78,7 @@ class _ClusterEmbeddingBatch:
             identity=self.identity,
         )
         attempt = attempt_in_scope(ctx.extras)
-        self.fence = dict(
+        self.fence = _WriterFence(
             run_id=ctx.extras["run_id"],
             writer_attempt_id=attempt.attempt_id if attempt else None,
             claim_token=ctx.extras["claim_token"],
@@ -181,7 +196,7 @@ def persist_cluster_fact(project, fact, *, writer_attempt_id, claim_token):
             run_id=fact["run_id"],
             writer_attempt_id=writer_attempt_id,
             claim_token=claim_token,
-            output_column_ids=[fact["output"]["column_id"]],
+            output_column_ids={fact["output"]["column_id"]},
         )
         run = db.execute(
             "SELECT ops.id,ops.spec FROM runs JOIN ops ON ops.id=runs.op_id WHERE runs.id=?",
