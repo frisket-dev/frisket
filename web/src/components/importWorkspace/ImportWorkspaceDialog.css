@@ -132,6 +132,9 @@ dialog.import-workspace-layer::backdrop {
 .import-feed-form {
   width: min(620px, 100%);
 }
+.import-followup-notice {
+  padding: 14px 16px;
+}
 .import-check-inline {
   display: inline-flex;
   align-items: center;

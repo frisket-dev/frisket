@@ -20,10 +20,6 @@
  "markdown.spec.ts": {
   "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
- "media-import-download-prompt.spec.ts": {
-  "\"Not now\" declines quietly — the dialog closes with no action launched": "stale-expectation",
-  "an import landing undownloaded YouTube URL rows prompts \"Download media?\"; Download closes and launches the matching action": "stale-expectation"
- },
  "media.spec.ts": {
   "audio playback survives a run while new grid starts wait for terminal progress": "stale-expectation"
  }

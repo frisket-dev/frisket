@@ -1,7 +1,9 @@
 // An import that lands media links before anything has downloaded them offers
 // "Download media?", never "Transcribe these?": transcription needs a media
 // column, which this import has not produced. Pasted rows take the same table
-// import path as a CSV file.
+// import path as a CSV file: the dialog closes once the import is accepted,
+// rows land in the background, and the prompt appears with the workspace's
+// notices when the import finishes.
 
 import { expect, test, type Page } from '@playwright/test';
 import { createProject, importCsv, openImportWorkspace, uniqueName } from './helpers';
@@ -35,11 +37,9 @@ test('an import landing undownloaded YouTube URL rows prompts "Download media?";
     ['https://youtube.com/watch?v=abc123', 'https://youtube.com/watch?v=def456'],
   );
 
-  // The dialog stays open, showing the download prompt — never a transcribe
-  // prompt (no media column exists yet inside this same dialog turn).
-  await expect(page.getByTestId('import-workspace-dialog')).toBeVisible();
-  const prompt = page.getByTestId('media-download-prompt');
-  await expect(prompt).toBeVisible();
+  await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
+  const prompt = page.getByTestId('status-notice-stack').getByTestId('media-download-prompt');
+  await expect(prompt).toBeVisible({ timeout: 20_000 });
   await expect(prompt).toContainText('Download media?');
   await expect(prompt).toContainText('video_url');
   await expect(prompt).not.toContainText(/transcribe/i);
@@ -48,18 +48,17 @@ test('an import landing undownloaded YouTube URL rows prompts "Download media?";
 
   await page.getByTestId('media-download-run').click();
 
-  // Closes the import dialog, then routes to the download action
-  // (download_media, per compatibleSourceColumns) prefilled with the
-  // detected URL column — the same runActionFromSurface(kind, column) shape
-  // the caret menu uses.
-  await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
-  await expect(page).toHaveURL(/\/action\/download_media(?:\?|$)/);
+  // Routes to the download action the server named for these links (YouTube
+  // goes through yt-dlp) prefilled with the detected URL column — the same
+  // runActionFromSurface(kind, column) shape the caret menu uses.
+  await expect(prompt).toBeHidden();
+  await expect(page).toHaveURL(/\/action\/media\.ytdlp_download(?:\?|$)/);
   const drawer = page.getByTestId('action-drawer');
   await expect(drawer).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByTestId('media-source-column-select')).toHaveValue('video_url');
+  await expect(drawer.getByRole('combobox', { name: 'URL', exact: true })).toHaveValue('video_url');
 });
 
-test('"Not now" declines quietly — the dialog closes with no action launched', async ({ page }) => {
+test('"Not now" declines quietly — the prompt closes with no action launched', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-media-download-prompt-dismiss'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
   await page.goto(`/p/${pid}`);
@@ -75,11 +74,11 @@ test('"Not now" declines quietly — the dialog closes with no action launched',
 
   await pasteAndImport(page, 'video_url', ['https://youtube.com/watch?v=abc123']);
 
-  const prompt = page.getByTestId('media-download-prompt');
-  await expect(prompt).toBeVisible();
+  const prompt = page.getByTestId('status-notice-stack').getByTestId('media-download-prompt');
+  await expect(prompt).toBeVisible({ timeout: 20_000 });
   await page.getByTestId('media-download-dismiss').click();
 
-  await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
+  await expect(prompt).toBeHidden();
   await expect(page.getByTestId('action-drawer')).toHaveCount(0);
   expect(runRequests).toEqual([]);
 });

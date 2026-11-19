@@ -14,7 +14,7 @@ import {
 } from '../../../api/tableImports';
 import { usePoll } from '../../../hooks/usePoll';
 import { trackImportSubmission } from '../../../telemetry/importTelemetry';
-import { notifyImportSessionChanged } from '../../importProgressSession';
+import { expectImportFollowup, notifyImportSessionChanged } from '../../importProgressSession';
 import { DiscardImportConfirm } from '../pdfBatch/DiscardImportConfirm';
 import { useImportRequest } from '../useImportRequest';
 import {
@@ -441,6 +441,7 @@ export function TableImportFlow({
           bytes: source.source.size,
           columns: source.columns.filter((column) => column.included && column.target_type !== 'omit').length,
         }, () => api.commit(projectId, source.draft_id, source.revision, commitKey.current));
+        expectImportFollowup(result.import_ref);
         notifyImportSessionChanged();
         callbacks.current.onImported(result.sheet_id);
       } catch (problem) {

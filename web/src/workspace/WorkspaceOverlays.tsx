@@ -1,6 +1,8 @@
 import './WorkspaceOverlays.css';
 import { lazy, memo, Suspense, useCallback, useMemo } from 'react';
 import { StatusBar } from '../components/StatusBar';
+import { ImportFollowupNotice } from '../components/importWorkspace/ImportFollowupPrompts';
+import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { useShellIdentity } from '../shellIdentity';
 import { DiagnosticReportButton } from './DiagnosticReport';
 import { NowPlayingWidget } from '../components/NowPlayingWidget';
@@ -98,6 +100,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     workbenchHostContext,
     workbenchVisibilityTargets,
     importProgress,
+    importFollowup,
   } = useOverlayModel();
   const visiblePanels: WorkspaceTelemetryPanel[] = [];
   if (columnDrawer && sheet) visiblePanels.push('column');
@@ -151,10 +154,25 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
     [columnDrawer, renderPluginDetailTab, sheet],
   );
 
+  const pendingFollowup = importFollowup.pending;
+  const followupNotice = pendingFollowup && sheet && Number(sheet.id) === pendingFollowup.sheetId ? (
+    <ImportFollowupNotice
+      followup={pendingFollowup.followup}
+      onRun={() => {
+        const { followup } = pendingFollowup;
+        importFollowup.dismiss();
+        if (followup.kind === 'download') runActionFromSurface(followup.launcherKind, followup.columnName);
+        else runActionFromSurface(MENTIONS_EXTRACT_ACTION_KIND);
+      }}
+      onDismiss={importFollowup.dismiss}
+    />
+  ) : null;
+
   return (
 <>
       <StatusBar
         actions={identityMode ? <DiagnosticReportButton /> : undefined}
+        importFollowup={followupNotice}
         run={run}
         history={history}
         reviewCount={reviewCount}

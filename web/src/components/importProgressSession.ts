@@ -1,6 +1,7 @@
 import { importFileLogicalPath } from '../api/open';
 
 const browserUploads = new Set<string>();
+const awaitingFollowup = new Set<string>();
 const listeners = new Set<() => void>();
 let version = 0;
 
@@ -72,6 +73,18 @@ export function setImportSessionBrowserUploading(
   if (uploading) browserUploads.add(importRef);
   else browserUploads.delete(importRef);
   notifyImportSessionChanged();
+}
+
+/** An import this tab committed whose rows land in the background: its
+ *  post-import prompt is offered when it finishes. Kept in memory only, so a
+ *  reload never offers it again. */
+export function expectImportFollowup(importRef: string): void {
+  awaitingFollowup.add(importRef);
+}
+
+/** True exactly once per expected import. */
+export function claimImportFollowup(importRef: string): boolean {
+  return awaitingFollowup.delete(importRef);
 }
 
 export function isImportSessionBrowserUploading(importRef: string): boolean {

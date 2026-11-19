@@ -43,13 +43,10 @@ import {
 } from './tableImport';
 import { SearchPreparationReceipt } from '../SearchPreparationReceipt';
 import { IMPORT_MODES, type FileImportMode, type ImportMode } from './model';
-import {
-  nerImportOffer,
-  type NerImportOffer,
-} from '../nerImportPromptModel';
 import { FeedImportForm } from './FeedImportForm';
 import { BulkImportPlanPanel } from './BulkImportPlanPanel';
-import { MediaDownloadPrompt, NerExtractPrompt } from './ImportFollowupPrompts';
+import { ImportFollowupPrompt } from './ImportFollowupPrompts';
+import { classifyImportFollowup, type ImportFollowup } from './importFollowup';
 import { ACCEPTS, FTM_ACCEPT, prepareFileSelection, logicalPathForImport, selectionExpandsArchives, bulkPlanValidationError, importSessionIsComplete, importSessionNeedsPreparationPlan, useImportUpload, type PreparedFileSelection, type FileImportCompletion, type SingleFileFormat } from './fileIntake';
 import type { ImportHandlers } from './model';
 import { errorMessage } from '../../hooks/errorMessage';
@@ -149,16 +146,9 @@ function OpenImportWorkspaceSession({
     mode === 'xlsx' || mode === 'files' ? mode : 'csv';
   const railMode: ImportMode = mode === 'xlsx' ? 'csv' : mode === 'urls' ? 'files' : mode;
 
-  // Sibling to
-  // FeedImportForm's own `populate` state — local, not a store slot,
-  // for the same reason (no unmounted-target race: this prompt and its
-  // onImported/onLaunchDownload targets live in the same always-mounted
-  // component tree for the dialog's lifetime).
-  const [downloadPrompt, setDownloadPrompt] = useState<{
-    columnName: string;
-    launcherKind: string;
-  } | null>(null);
-  const [nerPrompt, setNerPrompt] = useState<NerImportOffer | null>(null);
+  // Local, not a store slot: this prompt and its onImported/onLaunchDownload
+  // targets live in the same component tree for the dialog's lifetime.
+  const [followup, setFollowup] = useState<ImportFollowup | null>(null);
   const [preparationReceipt, setPreparationReceipt] = useState<{
     sheetId: number | null;
     batchId: string | null;
@@ -263,8 +253,7 @@ function OpenImportWorkspaceSession({
   const closeWorkspace = useCallback(() => {
     resetBulkPlan();
     setFtmFile(null);
-    setDownloadPrompt(null);
-    setNerPrompt(null);
+    setFollowup(null);
     setPreparationReceipt(null);
     setPreparationFollowupError(null);
     onClose();
@@ -288,51 +277,17 @@ function OpenImportWorkspaceSession({
     closeWorkspace();
   }, [bulkBusy, bulkPreparing, busy, closeWorkspace, pdfBatchActive, selectionPreparing, sessionBusy, tableImportSelected]);
 
-  // The ONE shared success
-  // handler replacing the three independent close-on-success calls
-  // (confirmDraft; the file-input onChange and URL-submit upload callbacks
-  // below — FeedImportForm's own create()/populate flow is untouched, it
-  // already holds the dialog open for its own "Populate feed?" prompt).
-  // 1) reports the import up FIRST, unconditionally — every existing
-  //    onImported consumer (the global sheets refresh) keeps working with
-  //    no regression. 2) awaits getSheetData for the resulting
-  //    sheet's columns — a call this adds, not a reuse of onImported's
-  //    refresh, which cannot supply columns. 3) classifies via the
-  //    server-computed mediaDownloadCandidate (compute_media_download_
-  //    candidates, gated on the sheet having no audio/video/file column yet):
-  //    found -> hold the dialog open on the download prompt; otherwise close
-  //    immediately (unchanged for ordinary CSV/paste
-  //    imports).
+  // Success handler for imports whose rows have all landed when the request
+  // returns. It reports the import up first, then holds the dialog open on
+  // the sheet's follow-up prompt, or closes when there is none. Table and
+  // PDF imports land rows in the background instead: their prompt is offered
+  // by the workspace when the import finishes.
   const finishImport = useCallback(
     async (sheetId: number) => {
       onImported(sheetId);
-      try {
-        const page = await projectApi.getSheetData(String(sheetId), 0, 25);
-        const candidate = page.columns.find((column) => column.mediaDownloadCandidate);
-        if (candidate?.mediaDownloadCandidate) {
-          setDownloadPrompt({
-            columnName: candidate.name,
-            launcherKind: candidate.mediaDownloadCandidate,
-          });
-          return;
-        }
-        // Media first when a sheet qualifies for both: undownloaded links are
-        // the blocking next step, and there is no text to read until they
-        // land. One prompt per import either way.
-        const offer = nerImportOffer({
-          columns: page.columns,
-          rowCount: page.total,
-          nerTemplate,
-        });
-        if (offer) {
-          setNerPrompt(offer);
-          return;
-        }
-      } catch {
-        // Classification is a nicety, not a requirement — a failed lookup
-        // here must never block the ordinary close-on-success path.
-      }
-      closeWorkspace();
+      const next = await classifyImportFollowup(projectApi, sheetId, nerTemplate);
+      if (next) setFollowup(next);
+      else closeWorkspace();
     },
     [closeWorkspace, nerTemplate, onImported, projectApi],
   );
@@ -411,24 +366,11 @@ function OpenImportWorkspaceSession({
     setMode(nextMode);
   };
 
-  const runDownloadPrompt = () => {
-    if (!downloadPrompt) return;
-    const { launcherKind, columnName } = downloadPrompt;
+  const runFollowup = () => {
+    if (!followup) return;
     closeWorkspace();
-    onLaunchDownload(launcherKind, columnName);
-  };
-
-  const dismissDownloadPrompt = () => {
-    closeWorkspace();
-  };
-
-  const runNerPrompt = () => {
-    closeWorkspace();
-    onExtractEntities?.();
-  };
-
-  const dismissNerPrompt = () => {
-    closeWorkspace();
+    if (followup.kind === 'download') onLaunchDownload(followup.launcherKind, followup.columnName);
+    else onExtractEntities?.();
   };
 
   const executeBulkPlan = useCallback((
@@ -710,7 +652,7 @@ function OpenImportWorkspaceSession({
     && !bulkPlan);
   const showPreparation = preparationReceipt !== null || importInProgress;
   const tableImportActive = tableImportSelected && !showPreparation;
-  const fileEntry = (railMode === 'files' || railMode === 'pdf_split') && !showPreparation && !pdfBatchActive && !downloadPrompt && !nerPrompt;
+  const fileEntry = (railMode === 'files' || railMode === 'pdf_split') && !showPreparation && !pdfBatchActive && !followup;
   const EntryStep = fileEntry ? PanelFrame : Fragment;
   const EntryBody = fileEntry ? PanelBody : Fragment;
   const closeDisabled = !pdfBatchActive && (
@@ -1004,18 +946,8 @@ function OpenImportWorkspaceSession({
                     </PanelFooter>
                   </PanelFrame>
                 )
-              ) : downloadPrompt ? (
-                <MediaDownloadPrompt
-                  columnName={downloadPrompt.columnName}
-                  onRun={runDownloadPrompt}
-                  onDismiss={dismissDownloadPrompt}
-                />
-              ) : nerPrompt ? (
-                <NerExtractPrompt
-                  offer={nerPrompt}
-                  onRun={runNerPrompt}
-                  onDismiss={dismissNerPrompt}
-                />
+              ) : followup ? (
+                <ImportFollowupPrompt followup={followup} onRun={runFollowup} onDismiss={closeWorkspace} />
               ) : singleFileFormat === 'ftm' && ftmFile ? (
                 <section className="table-import-ftm-handoff">
                   <FileText size={26} aria-hidden />

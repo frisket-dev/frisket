@@ -167,6 +167,8 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
 
 interface StatusBarProps {
   actions?: ReactNode;
+  /** A finished import's follow-up prompt, first in the notice stack. */
+  importFollowup?: ReactNode;
   run: RunProgress | null;
   history: HistoryState | null;
   reviewCount: number;
@@ -185,7 +187,7 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
-  actions,
+  actions, importFollowup,
   run, history, reviewCount, projectionStatus,
   importProgress = IDLE_IMPORT_PROGRESS, importPriority = null,
   onUndo, onRedo, onOpenReview, onCancelRun,
@@ -257,6 +259,7 @@ export function StatusBar({
   return (
     <>
     <div className="status-notice-stack" data-testid="status-notice-stack">
+        {importFollowup}
         <FeedProgressNotice />
         <RuntimeSetupNotice />
         {run && runNoticeOpen && (

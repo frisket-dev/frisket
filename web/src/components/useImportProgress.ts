@@ -22,6 +22,7 @@ import { usePoll } from '../hooks/usePoll';
 import { countLabel } from '../format';
 import type { SearchPreparationNotice } from './useSearchPreparationNotice';
 import {
+  claimImportFollowup,
   forgetImportSelection,
   importSessionSnapshot,
   isImportSessionBrowserUploading,
@@ -45,6 +46,12 @@ function isPolling(session: ImportSessionStatus): boolean {
   return ['admitting', 'running', 'paused', 'cancelling'].includes(session.state)
     || preparationIncomplete(session)
     || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
+}
+
+/** Every row landed and every page was read without error. A stopped, failed
+ *  or cancelled import never finishes. */
+function importFinished(session: ImportSessionStatus): boolean {
+  return session.state === 'completed' && !session.error && !isPolling(session);
 }
 
 export interface ImportActivityLine {
@@ -241,10 +248,13 @@ function isSoftTableProgress(session: ImportSessionStatus): boolean {
     && (session.state === 'admitting' || session.state === 'running');
 }
 
-export function useImportProgress({ projectId, onChanged, onError }: {
+export function useImportProgress({ projectId, onChanged, onError, onFinished }: {
   projectId: string;
   onChanged?(change: ImportProgressChange): void;
   onError?(message: string): void;
+  /** Called once for each import this tab expected a follow-up for, when it
+   *  finishes, with the sheet its rows landed in. */
+  onFinished?(sheetId: number): void;
 }): ImportProgressController {
   const [sessions, setSessions] = useState<ImportSessionStatus[]>([]);
   const [busyRef, setBusyRef] = useState<string | null>(null);
@@ -291,12 +301,18 @@ export function useImportProgress({ projectId, onChanged, onError }: {
       }
       previousRef.current = next;
       setSessions(result.sessions);
+      for (const session of result.sessions) {
+        if (onFinished && session.sheet_id != null && importFinished(session)
+          && claimImportFollowup(session.import_ref)) {
+          onFinished(session.sheet_id);
+        }
+      }
     } catch (error) {
       if (!signal?.aborted && generation === refreshGeneration.current) {
         setMessage(errorMessage(error));
       }
     }
-  }, [onChanged, projectId]);
+  }, [onChanged, onFinished, projectId]);
 
   useEffect(() => {
     const controller = new AbortController();
