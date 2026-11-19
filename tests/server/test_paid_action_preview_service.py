@@ -479,33 +479,33 @@ def test_refused_attempt_mint_fails_the_preview_receipt(tmp_path, monkeypatch):
         project.close()
 
 
-def test_busy_row_write_still_records_row_outcomes_and_fails_receipt(
+def test_failed_row_with_pending_write_still_records_outcomes_and_fails_receipt(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     adapter = _Adapter()
     service, project, body = _fixture(tmp_path, adapter)
 
-    async def busy_row(*_args, **kwargs):
+    failed = []
+
+    async def busy_row(*_args, **_kwargs):
+        # Rows share the preview thread's connection: only the first one
+        # writes, so no sibling commit can publish its pending write.
+        if failed:
+            raise sqlite3.OperationalError("database is locked")
+        failed.append(True)
         db = project.db
         attempt = db.execute(
             "SELECT id FROM execution_attempts WHERE state='dispatching'"
         ).fetchone()
-        db.execute(
-            "INSERT OR IGNORE INTO attempt_row_authorizations "
+        db.executemany(
+            "INSERT INTO attempt_row_authorizations "
             "(attempt_id,row_id,quoted_quantity) VALUES (?,?,?)",
-            (attempt["id"], kwargs["row_id"], "1"),
+            [(attempt["id"], row_id, "1") for row_id in (1, 2)],
         )
         db.commit()
-        db.execute("PRAGMA busy_timeout=50")
-        holder = sqlite3.connect(project.db_path, isolation_level=None)
-        holder.execute("BEGIN IMMEDIATE")
-        try:
-            db.execute("UPDATE sheets SET name=name")
-        finally:
-            holder.rollback()
-            holder.close()
-            db.execute("PRAGMA busy_timeout=10000")
+        db.execute("UPDATE sheets SET name='half-finished'")
+        raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(preview_module, "execute_row", busy_row)
     try:
@@ -521,13 +521,16 @@ def test_busy_row_write_still_records_row_outcomes_and_fails_receipt(
             "SELECT terminal_outcome FROM attempt_row_authorizations"
         ).fetchall()
         assert outcomes and {row[0] for row in outcomes} == {"failed"}
+        assert "half-finished" not in {
+            row[0] for row in project.db.execute("SELECT name FROM sheets")
+        }
         assert not adapter.calls
     finally:
         service._registry.shutdown()
         project.close()
 
 
-def test_scratch_start_refused_after_busy_write_releases_reservation(
+def test_scratch_start_refused_with_pending_write_releases_reservation(
     tmp_path, monkeypatch
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
@@ -542,16 +545,7 @@ def test_scratch_start_refused_after_busy_write_releases_reservation(
         pass
 
     def busy_start(*_args, **_kwargs):
-        project.db.execute("PRAGMA busy_timeout=50")
-        holder = sqlite3.connect(project.db_path, isolation_level=None)
-        holder.execute("BEGIN IMMEDIATE")
-        try:
-            with pytest.raises(sqlite3.OperationalError, match="database is locked"):
-                project.db.execute("UPDATE sheets SET name=name")
-        finally:
-            holder.rollback()
-            holder.close()
-            project.db.execute("PRAGMA busy_timeout=10000")
+        project.db.execute("UPDATE sheets SET name='half-finished'")
         raise RegistryFull("preview registry refused the job")
 
     try:
@@ -568,6 +562,9 @@ def test_scratch_start_refused_after_busy_write_releases_reservation(
             )
         assert not project.db.in_transaction
         assert ReceiptStore(project).count() == 0
+        assert "half-finished" not in {
+            row[0] for row in project.db.execute("SELECT name FROM sheets")
+        }
     finally:
         service._registry.shutdown()
         project.close()
