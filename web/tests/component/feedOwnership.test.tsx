@@ -6,6 +6,8 @@ import type { FeedHealth, FeedInfo } from '../../src/api/open';
 import type { FeedApiPort } from '../../src/api/ports';
 import { useFeedHealth } from '../../src/components/feeds/useFeedHealth';
 import { useFeedsPanelState } from '../../src/components/feeds/useFeedsPanelState';
+import { createStore } from '../../src/core/store/createStore';
+import type { ActionJob, FeedFetchResult } from '../../src/api/types';
 
 afterEach(cleanup);
 const source = (id = 7): FeedInfo => ({ id, name: `Source ${id}`, kind: 'rss', url: 'https://example.test/feed',
@@ -32,6 +34,18 @@ function api() {
     deleteFeed: vi.fn().mockResolvedValue(undefined), fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
   } satisfies FeedApiPort;
 }
+function jobStore() {
+  const store = createStore<{ actionJobs: { error: string | null; jobs: ActionJob[]; loading: boolean } }>(
+    { actionJobs: { error: null, jobs: [], loading: false } });
+  return { store, refresh: vi.fn(async () => {}) };
+}
+const noJobs = jobStore();
+const pollJob = (status: string, error: string | null = null): ActionJob => ({
+  schemaVersion: 'frisket.action_job.v1', projectId: 'p', jobId: 41, kind: 'source.poll', runId: null, status,
+  actionKind: null, actionName: null, attempts: 1, maxAttempts: 1,
+  lease: { lockedBy: null, lockedAt: null, leaseExpiresAt: null, leaseExpired: false },
+  timing: { createdAt: null, startedAt: null, finishedAt: null }, error });
+const queued: FeedFetchResult = { jobId: 41, sheetId: 2, runId: null, newRows: 0, revisions: 0, skippedRows: 0, changedRows: 0, warningCount: 0 };
 const submitEvent = { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
 
 describe('source health request ownership', () => {
@@ -39,7 +53,7 @@ describe('source health request ownership', () => {
     const port = api();
     const a = deferred<FeedHealth>(), b = deferred<FeedHealth>();
     port.getFeedHealth.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { void result.current.actions.openHealth(7); });
     act(() => { void result.current.actions.openHealth(8); });
     expect(result.current.state.healthOpenId).toBe(8);
@@ -56,7 +70,7 @@ describe('source health request ownership', () => {
     const first = api(), second = api();
     const old = deferred<FeedHealth>(), stale = deferred<FeedHealth>();
     first.getFeedHealth.mockReturnValueOnce(old.promise).mockReturnValueOnce(stale.promise);
-    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port), { initialProps: { port: first } });
+    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port, noJobs), { initialProps: { port: first } });
     const retiredLoad = result.current.load;
     act(() => { void result.current.load(7); void result.current.load(7); });
     await act(async () => { old.resolve(health()); });
@@ -74,7 +88,7 @@ describe('source health request ownership', () => {
   it('does not navigate or refresh retired source health when a poll completes after API replacement', async () => {
     const first = api(), second = api(), pending = deferred<{ sheetId: number | null }>();
     first.fetchFeed.mockReturnValueOnce(pending.promise);
-    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port), { initialProps: { port: first } });
+    const { result, rerender } = renderHook(({ port }) => useFeedHealth(port, noJobs), { initialProps: { port: first } });
     const onPolled = vi.fn(), afterPoll = vi.fn(async () => {});
     act(() => { void result.current.poll(7, { onPolled, afterPoll }); });
     rerender({ port: second });
@@ -89,7 +103,7 @@ describe('source health request ownership', () => {
   it('reloads failed poll health/history, retains its error, and suppresses duplicate polls', async () => {
     const port = api(), pending = deferred<{ sheetId: number | null }>();
     port.fetchFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedHealth(port));
+    const { result } = renderHook(() => useFeedHealth(port, noJobs));
     const afterPoll = vi.fn(async () => {}), onPolled = vi.fn();
     act(() => { void result.current.poll(7, { afterPoll, onPolled }); void result.current.poll(7, { afterPoll, onPolled }); });
     expect(port.fetchFeed).toHaveBeenCalledOnce();
@@ -100,9 +114,43 @@ describe('source health request ownership', () => {
     expect(onPolled).not.toHaveBeenCalled();
   });
 
+  it('keeps a queued check in progress until its job fails, then shows the error and its recorded check', async () => {
+    const port = api(), jobs = jobStore();
+    port.fetchFeed.mockResolvedValueOnce(queued);
+    const { result } = renderHook(() => useFeedsPanelState(port, jobs));
+    await waitFor(() => expect(result.current.state.items).not.toBeNull());
+    await act(async () => { await result.current.actions.openHealth(7); });
+    port.listFeeds.mockClear(); port.getFeedHealth.mockClear(); port.getFeed.mockClear();
+    let finished = false;
+    act(() => { void result.current.actions.fetchNow(7).then(() => { finished = true; }); });
+    await waitFor(() => expect(jobs.refresh).toHaveBeenCalled());
+    act(() => { jobs.store.set({ actionJobs: { error: null, loading: false, jobs: [pollJob('running')] } }); });
+    expect(finished).toBe(false);
+    expect(result.current.state.busy).toBe(7);
+    expect(port.getFeedHealth).not.toHaveBeenCalled();
+    await act(async () => { jobs.store.set({ actionJobs: { error: null, loading: false, jobs: [pollJob('failed', 'blocked URL')] } }); });
+    await waitFor(() => expect(finished).toBe(true));
+    expect(result.current.state.busy).toBeNull();
+    expect(result.current.state.error).toBe('Check failed: blocked URL');
+    expect(result.current.state.healthError).toBe('Check failed: blocked URL');
+    expect(port.getFeedHealth).toHaveBeenCalledExactlyOnceWith(7, 0, 20);
+    expect(port.getFeed).toHaveBeenCalledWith(7, 0, 20);
+    expect(port.listFeeds).toHaveBeenCalledOnce();
+  });
+
+  it('reloads health without an error once a queued check succeeds', async () => {
+    const port = api(), jobs = jobStore();
+    port.fetchFeed.mockResolvedValueOnce(queued);
+    jobs.store.set({ actionJobs: { error: null, loading: false, jobs: [pollJob('done')] } });
+    const { result } = renderHook(() => useFeedHealth(port, jobs));
+    await act(async () => { await result.current.poll(7); });
+    expect(result.current.entries[7]).toMatchObject({ busy: false, error: null });
+    expect(port.getFeedHealth).toHaveBeenCalledExactlyOnceWith(7, 0, 20);
+  });
+
   it.each(['schedule', 'enabled'])('refreshes list/open health after a successful %s patch only', async (field) => {
     const port = api();
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     await waitFor(() => expect(result.current.state.items).not.toBeNull());
     await act(async () => { await result.current.actions.openHealth(7); });
     const patch = () => field === 'schedule' ? result.current.actions.changeSchedule(7, '') : result.current.actions.toggleEnabled(7, false);
@@ -122,7 +170,7 @@ describe('source health request ownership', () => {
   it('retires an old GET error after a successful patch and silent health refresh', async () => {
     const port = api();
     port.getFeedHealth.mockRejectedValueOnce(new Error('Health read unavailable'));
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     await act(async () => { await result.current.actions.openHealth(7); });
     expect(result.current.state.healthError).toBe('Health read unavailable');
     await act(async () => { await result.current.actions.toggleEnabled(7, false); });
@@ -135,7 +183,7 @@ describe('source editor draft-owned completion', () => {
   it('reports a failed save after typing in the same editor session', async () => {
     const port = api(), pending = deferred<FeedInfo>();
     port.updateFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'Revised while saving' }); });
@@ -147,7 +195,7 @@ describe('source editor draft-owned completion', () => {
   it('updates the created source instead of creating it again after in-session typing', async () => {
     const port = api(), pending = deferred<FeedInfo>();
     port.createFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'Updated new source' }); });
@@ -162,7 +210,7 @@ describe('source editor draft-owned completion', () => {
   it.each(['success', 'failure'])('ignores old %s after cancelling and reopening the same source', async (outcome) => {
     const port = api(), pending = deferred<FeedInfo>();
     port.updateFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.startEdit(source()); });
@@ -174,7 +222,7 @@ describe('source editor draft-owned completion', () => {
   it.each(['success', 'failure'])('does not attach an old create %s to a newly opened create session', async (outcome) => {
     const port = api(), pending = deferred<FeedInfo>();
     port.createFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'First create', url: 'https://example.test/feed' }); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'Second create', url: 'https://example.test/new' }); });
@@ -185,7 +233,7 @@ describe('source editor draft-owned completion', () => {
 
   it('closes an unchanged create draft after saving', async () => {
     const port = api();
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.setAdding(true); result.current.actions.updateForm({ name: 'New source', url: 'https://example.test/feed' }); });
     await act(async () => { await result.current.actions.submit(submitEvent); });
     expect(port.createFeed).toHaveBeenCalledOnce();
@@ -195,7 +243,7 @@ describe('source editor draft-owned completion', () => {
   it.each(['success', 'failure'])('preserves draft B when save A completes with %s', async (outcome) => {
     const port = api(), pending = deferred<FeedInfo>();
     port.updateFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.setAdding(false); result.current.actions.startEdit(source(8)); result.current.actions.updateForm({ name: 'Draft B' }); });
@@ -207,7 +255,7 @@ describe('source editor draft-owned completion', () => {
   it('preserves typing during save and only clears the submitted revision', async () => {
     const port = api(), pending = deferred<FeedInfo>();
     port.updateFeed.mockReturnValueOnce(pending.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.updateForm({ name: 'New typing' }); });
@@ -221,7 +269,7 @@ describe('source editor draft-owned completion', () => {
   it('does not let save A clear pending save B or B’s error', async () => {
     const port = api(), a = deferred<FeedInfo>(), b = deferred<FeedInfo>();
     port.updateFeed.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
-    const { result } = renderHook(() => useFeedsPanelState(port));
+    const { result } = renderHook(() => useFeedsPanelState(port, noJobs));
     act(() => { result.current.actions.startEdit(source()); });
     act(() => { void result.current.actions.submit(submitEvent); });
     act(() => { result.current.actions.startEdit(source(8)); });

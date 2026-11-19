@@ -8,20 +8,22 @@ import { feedKindLabel } from './feedConfig';
 import { formatCost } from './feedFormatting';
 import { FeedHealthSummary, FeedHealthChecks } from './FeedHealthContent';
 import '../FeedsPanel.css';
-import { useFeedHealth } from './useFeedHealth';
+import { useFeedHealth, type FeedCheckJobs } from './useFeedHealth';
 
 export function FeedHealthMainView({
   feedApi,
+  jobs,
   sourceId,
   onClose,
   onPolled,
 }: {
   feedApi: FeedApiPort;
+  jobs: FeedCheckJobs;
   sourceId: number;
   onClose: () => void;
   onPolled?: (sheetId: number | null) => void;
 }) {
-  const { entries, load, poll } = useFeedHealth(feedApi);
+  const { entries, load, poll } = useFeedHealth(feedApi, jobs);
   const entry = entries[sourceId];
   const health = entry?.health ?? null;
   const loading = entry?.loading ?? true;

@@ -4,17 +4,18 @@ import type { FeedHealth, FeedInfo, FeedInput } from '../../api/open';
 import type { FeedApiPort } from '../../api/ports';
 import { buildFeedInput, type FeedFormState } from './feedConfig';
 import { initialFeedsState, feedsReducer, type BusyFeed } from './feedState';
-import { useFeedHealth } from './useFeedHealth';
+import { useFeedHealth, type FeedCheckJobs } from './useFeedHealth';
 import { errorMessage } from '../../hooks/errorMessage';
 
 const msg = (e: unknown): string => errorMessage(e);
 
 export function useFeedsPanelState(
   feedApi: FeedApiPort,
+  jobs: FeedCheckJobs,
   onPolled?: (sheetId: number | null) => void,
 ) {
   const [state, dispatch] = useReducer(feedsReducer, undefined, initialFeedsState);
-  const { entries, load: loadHealth, poll, forget } = useFeedHealth(feedApi);
+  const { entries, load: loadHealth, poll, forget } = useFeedHealth(feedApi, jobs);
   const currentState = useRef(state);
   useEffect(() => { currentState.current = state; }, [state]);
   const busyRequests = useRef(new Map<symbol, BusyFeed>());
@@ -100,7 +101,7 @@ export function useFeedsPanelState(
         onPolled,
         afterPoll: async () => {
           dispatch({ type: 'set-expanded', id, open: true });
-          await loadRuns(id, false);
+          await Promise.all([refresh(), loadRuns(id, false)]);
         },
         refreshHealth: () => currentState.current.healthOpenId === id,
       });
@@ -108,7 +109,7 @@ export function useFeedsPanelState(
     } finally {
       endBusy(request);
     }
-  }, [beginBusy, endBusy, loadRuns, onPolled, poll]);
+  }, [beginBusy, endBusy, loadRuns, onPolled, poll, refresh]);
 
   const patchFeed = useCallback(async (id: number, patch: Partial<FeedInput>) => {
     dispatch({ type: 'set-error', error: null });

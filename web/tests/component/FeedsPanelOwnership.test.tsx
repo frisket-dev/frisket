@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { FeedDetail, FeedInfo } from '../../src/api/open';
 import type { FeedApiPort } from '../../src/api/ports';
 import { FeedsPanel } from '../../src/components/FeedsPanel';
+import { createStore } from '../../src/core/store/createStore';
 
 afterEach(cleanup);
 
@@ -34,7 +35,8 @@ function setup(item = source()) {
     getFeedHealth: vi.fn(), fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
   } satisfies FeedApiPort;
   const onPolled = vi.fn();
-  render(<FeedsPanel feedApi={api} onPolled={onPolled}
+  const jobs = { store: createStore({ actionJobs: { error: null, jobs: [], loading: false } }), refresh: vi.fn(async () => {}) };
+  render(<FeedsPanel feedApi={api} jobs={jobs} onPolled={onPolled}
     feedKindFormFrame={({ sourceKind, children }) => <div data-testid={`kind-frame-${sourceKind}`}>{children}</div>} />);
   return { api, onPolled };
 }

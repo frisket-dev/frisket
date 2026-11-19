@@ -189,6 +189,7 @@ export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
       <FeedsConnectionsDialog
         open={feedsConnectionsOpen}
         feedApi={projectApi}
+        jobs={jobs}
         onClose={actSurfaceHandle.closeSourcesConnections}
         onOpenImportDialog={() => actSurfaceHandle.openImportDialog('feed')}
         onPolled={(sheetId) => {

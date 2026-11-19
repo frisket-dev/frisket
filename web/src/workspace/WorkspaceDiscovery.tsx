@@ -16,7 +16,7 @@ import { useWorkspaceShell, useWorkspacePluginDetailRender, useWorkbenchHostCont
 import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 function SidebarContributionBody({ contribution }: { contribution: WorkbenchResolvedLayoutContribution }) {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, job } = useWorkspaceStores();
   const {
     openView,
     leftSidebarPluginPanelDescriptors,
@@ -70,6 +70,7 @@ function SidebarContributionBody({ contribution }: { contribution: WorkbenchReso
       return (
         <FeedsWorkbenchPanel
           feedApi={projectApi}
+          jobs={job}
           feedDetailContributions={
             resolveRegionContributions(resolvedWorkbenchLayout, 'sourceDetail').contributions
           }

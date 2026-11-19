@@ -253,7 +253,7 @@ function WorkspaceSheetMainView() {
 }
 
 function WorkspaceFeedHealthMainView() {
-  const { projectApi } = useWorkspaceStores();
+  const { projectApi, job } = useWorkspaceStores();
   const {
     closeRoutePanel,
     refreshHistory,
@@ -272,6 +272,7 @@ function WorkspaceFeedHealthMainView() {
             <FeedHealthMainViewFrame>
               <FeedHealthMainView
                 feedApi={projectApi}
+                jobs={job}
                 key={routePanel.sourceId}
                 sourceId={Number(routePanel.sourceId)}
                 onClose={closeRoutePanel}

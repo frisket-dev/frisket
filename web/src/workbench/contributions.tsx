@@ -786,6 +786,7 @@ export function EmbeddingsWorkbenchPanel({
 export function FeedsWorkbenchPanel({
   host = 'leftSidebar',
   feedApi,
+  jobs,
   onPolled,
   onOpenFeedHealthMainView,
   onOpenImportDialog,
@@ -810,6 +811,7 @@ export function FeedsWorkbenchPanel({
     <WorkbenchContributionFrame descriptor={descriptor} host={placement.host} className="">
       <FeedsPanel
         feedApi={feedApi}
+        jobs={jobs}
         onPolled={onPolled}
         onOpenFeedHealthMainView={onOpenFeedHealthMainView}
         onOpenImportDialog={onOpenImportDialog ?? openImportDialogOnFeed}
