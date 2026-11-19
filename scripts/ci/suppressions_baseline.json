@@ -599,7 +599,7 @@
   "web/tests/component/OrganizationLocalModelsSettings.test.tsx": 17,
   "web/tests/component/ProjectAiProvidersMoneyCells.test.tsx": 1,
   "web/tests/component/ProjectPluginsSettingsGate.test.tsx": 1,
-  "web/tests/component/ProvenanceManifestPaging.test.tsx": 2,
+  "web/tests/component/ProvenanceManifestPaging.test.tsx": 1,
   "web/tests/component/ResolveOptionAProbe.test.tsx": 1,
   "web/tests/component/ReviewValue.test.tsx": 1,
   "web/tests/component/SheetGridPreview.test.tsx": 1,
