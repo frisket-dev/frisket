@@ -80,10 +80,14 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
         value={right?.id ?? ''} disabled={blocked}
         options={[...(!right ? [{ value: '', label: params.right?.sheet_id != null ? 'Saved sheet unavailable' : 'Choose a sheet' }] : []),
           ...sheets.filter((item) => item.id !== sheet.id).map((item) => ({ value: item.id, label: item.name }))]}
-        onValueChange={(id) => setParams({ ...params, right: { sheet_id: Number(id) },
-          join_keys: keys.map((key) => ({ ...key, right_column: '' })),
-          ...(columns == null ? {} : { columns: columns.map((column) => column.side === 'right'
-            ? { ...column, column: '' } : column) }) })} />
+        onValueChange={(id) => {
+          // Choosing the sheet already selected keeps its key pairs and projections.
+          if (Number(id) === params.right?.sheet_id) return;
+          setParams({ ...params, right: { sheet_id: Number(id) },
+            join_keys: keys.map((key) => ({ ...key, right_column: '' })),
+            ...(columns == null ? {} : { columns: columns.map((column) => column.side === 'right'
+              ? { ...column, column: '' } : column) }) });
+        }} />
     </FormField>
     <div className="form-field"><span>Key pairs</span>
     <div className="editor-list" data-testid="join-key-pairs">

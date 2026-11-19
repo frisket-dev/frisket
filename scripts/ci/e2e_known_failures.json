@@ -38,10 +38,6 @@
  "date-range-filter.spec.ts": {
   "date-range filters use date columns and round-trip through views": "stale-expectation"
  },
- "derive-join-stale-projection.spec.ts": {
-  "refresh after a projection rename retains its stable id and posts the current wire name": "stale-expectation",
-  "refresh after projection deletion fails closed until explicit replacement and sends no stale POST": "stale-expectation"
- },
  "derive-preview-progress.spec.ts": {
   "derive preview shows active progress while awaiting the preview response": "stale-expectation"
  },

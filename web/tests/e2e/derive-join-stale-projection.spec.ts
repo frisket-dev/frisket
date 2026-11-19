@@ -84,7 +84,7 @@ async function seedAndOpen(page: Page, request: APIRequestContext, name: string)
     .getByRole('option')
     .filter({ hasText: /^city/ })
     .click();
-  await page.getByTestId('field-join_how').click();
+  await page.keyboard.press('Escape');
   const city = (await sheetColumns(request, pid, leftId)).find((column) => column.name === 'city');
   expect(city).toBeTruthy();
   return { pid, leftId, cityId: String(city!.id) };
@@ -131,19 +131,14 @@ test('refresh after projection deletion fails closed until explicit replacement 
   mutateColumn(pid, leftId, cityId, 'delete');
   await page.getByTestId('tabular-join-refresh-sheets').click();
   await expect(page.getByTestId('generated-action-run')).toBeDisabled();
-  await expect(page.getByTestId('run-disabled-reason')).toContainText(
-    /(?:city|projection).*(?:missing|deleted|repair)/i,
+  await expect(page.getByTestId('tabular-join-repair')).toContainText(
+    'Source columns missing: city.',
   );
   await page.getByTestId('generated-action-run').click({ force: true });
   await expect.poll(() => posted.length).toBe(0);
 
-  await page.getByTestId('field-join_left_columns').click();
-  await page
-    .getByTestId('field-join_left_columns-menu')
-    .getByRole('option')
-    .filter({ hasText: /^state/ })
-    .click();
-  await page.getByTestId('field-join_how').click();
+  await page.getByTestId('join-projection-column-0').selectOption('state');
+  await expect(page.getByTestId('tabular-join-repair')).toHaveCount(0);
   await expect(page.getByTestId('generated-action-run')).toBeEnabled();
 
   const response = page.waitForResponse((candidate) =>

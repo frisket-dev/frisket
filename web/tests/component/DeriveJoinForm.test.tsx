@@ -95,3 +95,13 @@ it('defaults only an unbound fresh right reference and keeps a saved missing ide
   expect(screen.getByTestId('field-join_key_right-0')).toHaveValue('code');
   expect(screen.getByTestId('field-join_right_sheet')).not.toHaveTextContent('Saved sheet unavailable');
 });
+
+it('keeps the key pairs when the selected right sheet is chosen again', async () => {
+  renderJoinForm();
+  await waitFor(() => expect(screen.getByTestId('field-join_key_right-0')).toHaveValue('code'));
+  fireEvent.mouseDown(screen.getByTestId('field-join_right_sheet'));
+  fireEvent.click(within(screen.getByTestId('field-join_right_sheet-menu'))
+    .getByRole('option', { name: 'Zones', hidden: true }));
+  expect(screen.getByTestId('field-join_right_sheet')).toHaveValue('2');
+  expect(screen.getByTestId('field-join_key_right-0')).toHaveValue('code');
+});
