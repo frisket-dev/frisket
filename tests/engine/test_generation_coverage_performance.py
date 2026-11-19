@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
+import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from frisket.engine.store.current_cells import register_current_cell_functions
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.schema import SCHEMA
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,
@@ -16,7 +20,79 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
-from test_sparse_projection_performance import _production_shaped_database
+
+
+def _production_shaped_database(row_count: int) -> sqlite3.Connection:
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    register_current_cell_functions(db)
+    db.executescript(SCHEMA)
+    db.execute("DELETE FROM search_dirty_scopes")
+    db.execute("INSERT INTO sheets (id,name) VALUES (1,'Rows')")
+    db.execute(
+        "INSERT INTO columns (id,sheet_id,name,type,ai_generated) "
+        "VALUES (10,1,'generated','integer',1)"
+    )
+    db.execute(
+        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order) "
+        "VALUES (1,'source.write','source','{}','{}',1)"
+    )
+    db.execute(
+        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
+    )
+    db.execute(
+        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order,publication_closed) "
+        "VALUES (2,'map.test','generated','{}','{}',2,0)"
+    )
+    db.execute(
+        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
+    )
+    db.execute(
+        "INSERT INTO run_output_generations "
+        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+        "VALUES (20,10,'value','integer-v1','create','active','claim-20',?)",
+        (
+            json.dumps(
+                {
+                    "column_type": "integer",
+                    "schema": {},
+                    "format": None,
+                    "semantic_type": None,
+                }
+            ),
+        ),
+    )
+    rows = [(row_id, 1, row_id) for row_id in range(1, row_count + 1)]
+    db.executemany("INSERT INTO rows (id,sheet_id,position) VALUES (?,?,?)", rows)
+    db.executemany(
+        "INSERT INTO run_rows(run_id,row_id,position) VALUES (20,?,?)",
+        ((row_id, row_id - 1) for row_id in range(1, row_count + 1)),
+    )
+    db.executemany(
+        "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
+        "VALUES (?,10,'integer',?,1)",
+        ((row_id, -row_id) for row_id in range(1, row_count + 1)),
+    )
+    db.executemany(
+        "INSERT INTO results "
+        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
+        "VALUES (20,?,10,'integer',?,'ok','publish_value',1)",
+        ((row_id, row_id) for row_id in range(1, row_count + 1)),
+    )
+    db.executemany(
+        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,?,20)",
+        ((row_id,) for row_id in range(1, row_count + 1)),
+    )
+    db.executemany(
+        "INSERT INTO current_cells "
+        "(column_id,row_id,retrieval_revision,origin_kind,origin_op_id,"
+        "origin_run_id,validity) "
+        "VALUES (10,?,1,'run_result',2,20,'valid')",
+        ((row_id,) for row_id in range(1, row_count + 1)),
+    )
+    db.commit()
+    db.execute("ANALYZE")
+    return db
 
 
 @contextmanager
