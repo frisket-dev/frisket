@@ -92,7 +92,7 @@ def _conversion_outcomes(
 
     original = cell.text
     if original == "" or cell.kind == "blank":
-        return _ConversionOutcomes(*("blank" for _ in range(8)))
+        return _ConversionOutcomes(*(("blank",) * 8))
 
     try:
         _parse_boolean(original)
