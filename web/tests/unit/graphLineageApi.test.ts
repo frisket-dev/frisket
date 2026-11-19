@@ -4,7 +4,7 @@ import { createGraphLineageApi } from '../../src/api/graphLineage';
 import { ApiError, createProjectApi } from '../../src/api/real';
 
 function stubFetch(body: unknown, init: { ok?: boolean; status?: number } = {}) {
-  const fetchMock = vi.fn(() => Promise.resolve({
+  const fetchMock = vi.fn<typeof globalThis.fetch>(() => Promise.resolve({
     ok: init.ok ?? true,
     status: init.status ?? 200,
     statusText: '',

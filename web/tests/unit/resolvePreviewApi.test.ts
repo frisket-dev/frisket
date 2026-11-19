@@ -13,7 +13,7 @@ import { createResolvePreviewsApi } from '../../src/api/resolvePreviews';
 let api = createProjectApi('test-project');
 
 function stubFetch(body: unknown, init: { ok?: boolean; status?: number } = {}) {
-  const fetchMock = vi.fn(() =>
+  const fetchMock = vi.fn<typeof globalThis.fetch>(() =>
     Promise.resolve({
       ok: init.ok ?? true,
       status: init.status ?? 200,

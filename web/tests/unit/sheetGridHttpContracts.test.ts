@@ -108,7 +108,7 @@ describe('sheet and grid HTTP contracts', () => {
   it('preserves bounded descriptors separately from exact cells and projects display reads', async () => {
     const descriptor = { preview: 'A display excerpt', value_kind: 'text', total_characters: 100000,
       total_bytes: 100001, retrieval_revision: 3, truncated: true, manual_editable: false, manual_edit_byte_limit: 65536 };
-    const fetchMock = vi.fn(async () => jsonResponse({ columns: [sheetColumnWire], total: 1,
+    const fetchMock = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ columns: [sheetColumnWire], total: 1,
       rows: [{ id: 11, cells: {}, meta: { 9: { bounded_value: descriptor,
         current_value_ref: { kind: 'source_cell', row_id: 11, column_id: 9, run_id: null, op_id: null } } },
         parent_row_id: null, child_count: 0 }] }));
@@ -793,7 +793,7 @@ describe('sheet and grid HTTP contracts', () => {
   });
 
   it('rejects non-JSON nested row cell values before dispatch', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
     vi.stubGlobal('fetch', fetchMock);
     const api = createSheetGridApi({
       columnRunInfo: () => undefined,

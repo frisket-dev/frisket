@@ -26,7 +26,7 @@ describe('onboarding/import generated HTTP contracts', () => {
   it('prepares URL inventory without invoking the publishing URL import route', async () => {
     const prepared = { kind: 'pdf_import', draft: { draft_id: 'url-draft' }, downloaded: 1,
       failed: 1, warnings: ['One URL failed.'] };
-    const fetch = vi.fn(async () => jsonResponse(prepared));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse(prepared));
     vi.stubGlobal('fetch', fetch);
     const controller = new AbortController();
     await expect(prepareImportUrls('project/one', ['https://example.test/report.pdf', 'not-a-url'],

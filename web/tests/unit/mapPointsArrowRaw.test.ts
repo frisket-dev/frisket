@@ -12,7 +12,7 @@ describe('map-points Arrow raw transport', () => {
   it('owns the exact map-points query and response metadata', async () => {
     const metadata = vi.fn();
     const unsubscribe = subscribeMapPointsMeta(metadata);
-    const fetch = vi.fn(async () => new Response(new ArrayBuffer(3), {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(new ArrayBuffer(3), {
       headers: {
         'X-Frisket-Map-Transient': '1',
         'X-Frisket-Map-Generation': 'gen-7',
