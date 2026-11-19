@@ -830,7 +830,7 @@ def discover_local_endpoints(root: str | Path) -> dict[str, Any]:
 
 def resolve_local_endpoints(
     root: str | Path,
-    env: dict[str, str] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[tuple[LocalModelEndpointConfig, ...], list[str]]:
     """Resolve one explicit endpoint collection with no singular aliases."""
     env = os.environ if env is None else env
@@ -848,7 +848,7 @@ def resolve_local_endpoints(
 
 # ---------------------------------------------------------------------------
 def resolve_effective_keys(
-    root: str | Path, env: dict[str, str] | None = None
+    root: str | Path, env: Mapping[str, str] | None = None
 ) -> dict[str, str]:
     """File-stored remote-provider keys with environment overrides removed."""
     env = os.environ if env is None else env
@@ -928,7 +928,7 @@ def save_search_provider(root: str | Path, provider: str) -> str:
 
 
 def provider_key_status(
-    root: str | Path, env: dict[str, str] | None = None
+    root: str | Path, env: Mapping[str, str] | None = None
 ) -> list[dict[str, Any]]:
     """Per key-provider config status. Reveals only the key tail, never the
     value; reports whether the effective key comes from env or the file."""
@@ -1236,7 +1236,7 @@ def ollama_reachable(
 def local_endpoint_catalog_entry(
     root: str | Path,
     endpoint: LocalModelEndpointConfig,
-    env: dict[str, str],
+    env: Mapping[str, str],
     *,
     authority: Literal["instance", "organization"],
 ) -> dict[str, Any]:
@@ -1281,7 +1281,7 @@ def local_endpoint_catalog_entry(
 
 def build_provider_catalog(
     root: str | Path,
-    env: dict[str, str] | None = None,
+    env: Mapping[str, str] | None = None,
     *,
     network_off: bool = False,
     local_endpoints: Sequence[LocalModelEndpointConfig] | None = None,
