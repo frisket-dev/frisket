@@ -9,6 +9,7 @@ export async function stubPdfTableProducer(page: Page, pid: string, columnId: nu
     status: 'completed', current: true, spec: {}, total_rows: 1, completed_rows: 1,
     failed_rows: 0, cost_actual: 0, started_at: '2026-01-01T00:00:00Z', finished_at: null,
     duration_ms: 1, model: null, tokens_in: null, tokens_out: null,
+    human_score: { passed: 0, graded: 0 }, judge_scores: [],
   };
   const history: HttpColumnRunsPage = {
     column: { id: columnId, name: 'pdf_tables', type: 'json', ai_generated: true,

@@ -8,9 +8,6 @@
  "costgate.spec.ts": {
   "expensive run trips the 402 cost gate modal": "stale-expectation"
  },
- "feeds.spec.ts": {
-  "an RSS feed can be added, checked, edited, and deleted from the UI": "stale-expectation"
- },
  "golden-ntsb.spec.ts": {
   "NTSB reports: PDFs → markdown → structured lat/lon extraction vs answer key": "stale-expectation"
  },
@@ -19,16 +16,6 @@
  },
  "grid.spec.ts": {
   "json array cell renders as a mini table in the row drawer": "seed:Local stories,Tariff impacts"
- },
- "import-surfaces.spec.ts": {
-  "URL import records invalid URL errors": "stale-expectation",
-  "two generic Files selections with one PDF stay on the normal file import": "stale-expectation"
- },
- "large-sheet-scale.spec.ts": {
-  "large sheet product paths use bounded browser traffic": "stale-expectation"
- },
- "lazy-ocr-evidence-real-composition.spec.ts": {
-  "retained PDF evidence renders its two pages lazily through the authenticated API": "stale-expectation"
  },
  "local-model-walkthrough.spec.ts": {
   "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
@@ -41,31 +28,16 @@
  },
  "media-import-download-prompt.spec.ts": {
   "\"Not now\" declines quietly — the dialog closes with no action launched": "stale-expectation",
-  "an import landing undownloaded YouTube URL rows prompts \"Download media?\"; Download closes and launches the matching action": "stale-expectation",
-  "an ordinary import with no classifiable URL column closes immediately — no regression": "stale-expectation"
+  "an import landing undownloaded YouTube URL rows prompts \"Download media?\"; Download closes and launches the matching action": "stale-expectation"
  },
  "media.spec.ts": {
   "audio grid leading control opens one dismissible player without opening row detail": "seed:Council audio,Local stories",
   "audio playback survives a run while new grid starts wait for terminal progress": "seed:Council audio",
   "audio row controls the one app-level player and actually plays": "seed:Council audio"
  },
- "pdf-table-extraction-v1-execution.spec.ts": {
-  "PDF table extraction queues media.extract_pdf_tables for selected file rows": "stale-expectation"
- },
- "pdf-tables-picker.spec.ts": {
-  "picker fails loudly when table groups have mismatched real shapes": "stale-expectation",
-  "picker previews per-table groups and materializes a metadata-free child sheet via derive.table_from_list": "stale-expectation"
- },
  "picker.spec.ts": {
   "project dropdown switches projects": "seed:Local stories,Tariff impacts",
   "the home screen lists the seeded projects": "seed:Local stories,Tariff impacts,Council audio"
- },
- "replay-mode-banner.spec.ts": {
-  "with no providers, the setup link opens organization AI provider settings with no project open": "stale-expectation",
-  "with no providers, the setup link opens project AI provider settings when a project is open": "stale-expectation"
- },
- "transcribe-deeplink-prefill.spec.ts": {
-  "same-launch column refresh follows stable ids across rename and clears a deleted source without first-column fallback": "stale-expectation"
  },
  "workbench-ia-document-view.spec.ts": {
   "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio"

@@ -380,7 +380,8 @@ export function useWorkspaceNavigationController({
     activeGridSort,
     activeGridScopeRowIds: scopeRowIds,
     viewSelection,
-    rowDrawerId: rowDrawer?.loadedColumnIds ? null : rowDrawer?.id ?? null,
+    rowDrawerId: rowDrawer?.id ?? null,
+    rowDrawerComplete: !rowDrawer?.loadedColumnIds,
     showError,
   });
 

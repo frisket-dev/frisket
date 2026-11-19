@@ -1842,7 +1842,8 @@ function useSheetGridController({
       return;
     }
 
-    const columnIndex = gridColumns.findIndex(
+    const wholeRow = pendingCellReveal.columnId === null && pendingCellReveal.columnName === null;
+    const columnIndex = wholeRow ? 0 : gridColumns.findIndex(
       (column) =>
         column.id === pendingCellReveal.columnId ||
         column.name === pendingCellReveal.columnName,
@@ -1874,8 +1875,16 @@ function useSheetGridController({
         }
 
         const rowIndex = location.index;
-        const cell: Item = [columnIndex, rowIndex];
         loadRevealedRows(rowIndex, rowIndex);
+        consumeGridCellReveal(pendingCellReveal.requestId);
+        if (wholeRow) {
+          requestAnimationFrame(() => {
+            gridRef.current?.scrollTo(0, rowIndex, 'vertical', 0, 24, { vAlign: 'center' });
+            recomputeDetailIconBounds();
+          });
+          return;
+        }
+        const cell: Item = [columnIndex, rowIndex];
         selectedItem.current = cell;
         setGridSelection({
           columns: CompactSelection.empty(),
@@ -1886,7 +1895,6 @@ function useSheetGridController({
             rangeStack: [],
           },
         });
-        consumeGridCellReveal(pendingCellReveal.requestId);
         requestAnimationFrame(() => {
           gridRef.current?.scrollTo(columnIndex, rowIndex, 'both', 24, 24, {
             hAlign: 'center',

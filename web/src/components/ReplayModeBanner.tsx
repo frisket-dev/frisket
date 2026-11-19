@@ -77,6 +77,7 @@ export function ReplayModeBanner() {
       : undefined;
   const providerSnapshotKey = projectId ?? '__global__';
 
+  const hasIdentity = Boolean(descriptor.capabilities.identity);
   const providerSnapshot = useLoader(async () => {
     const labels = new Set<string>();
     const addLocalProviders = async () => {
@@ -86,6 +87,8 @@ export function ReplayModeBanner() {
       }
     };
     const addOrganizationProviders = async () => {
+      // Organization keys exist only where there are identities.
+      if (!hasIdentity) return;
       const keys = await listOrganizationKeys();
       for (const key of keys) labels.add(key.provider);
     };
@@ -95,7 +98,7 @@ export function ReplayModeBanner() {
     };
     await Promise.allSettled([addLocalProviders(), addOrganizationProviders(), addProjectProviders()]);
     return { key: providerSnapshotKey, providers: Array.from(labels).sort() };
-  }, [projectId, providerSnapshotKey, visible], { keepPreviousData: true, enabled: visible }).data;
+  }, [hasIdentity, projectId, providerSnapshotKey, visible], { keepPreviousData: true, enabled: visible }).data;
 
   if (!visible) return null;
 

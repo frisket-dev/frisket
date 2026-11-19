@@ -3,8 +3,10 @@ interface GridCellRevealRequest {
   projectId: string;
   sheetId: string;
   rowId: string;
-  columnId: string;
-  columnName: string;
+  /** Both null scrolls the row into view without selecting a cell or taking
+   *  focus: a selected cell turns the next click on it into an edit. */
+  columnId: string | null;
+  columnName: string | null;
 }
 
 type Listener = () => void;

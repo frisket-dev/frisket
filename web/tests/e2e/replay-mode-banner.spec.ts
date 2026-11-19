@@ -1,14 +1,15 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openProject, projectIdByName } from './helpers';
 
-// onboard-replay-banner-v1: the persistent top bar appears ONLY when the active
+// The persistent top bar appears ONLY when the active
 // mode makes live AI calls impossible. The default cache_mode="replay" is
 // cache-FIRST but falls through to a live call on a miss — so it is live-call-
 // capable and shows NO banner. Strict replay is the one no-live-calls posture,
 // so these tests pin the server into replay_strict via GET /api/config to
 // exercise the bar deterministically. With no platform providers configured the
-// bar's root cause is "no providers", so it links to the AI-providers page; the
-// AI-call-mode explainer itself lives in Settings → Preferences.
+// bar's root cause is "no providers", so it links to the AI-providers page, which
+// Local keeps in personal settings; the AI-call-mode explainer itself lives in
+// Settings → Preferences.
 
 async function forceMode(
   page: Page,
@@ -81,27 +82,14 @@ test('the top bar persists inside an open project workbench under strict replay'
   await expect(page.getByTestId('replay-mode-banner')).toBeVisible();
 });
 
-test('with no providers, the setup link opens project AI provider settings when a project is open', async ({
-  page,
-}) => {
-  await forceMode(page, 'replay_strict', false);
-  await noProvidersConfigured(page);
-  const pid = await projectIdByName(page.request, 'Local stories');
-  await openProject(page, pid);
-
-  await page.getByTestId('replay-mode-banner-setup-link').click();
-  await expect(page).toHaveURL(new RegExp(`/p/${pid}/settings/project/ai-providers(?:\\?|$)`));
-  await expect(page.getByTestId('settings-workspace')).toBeVisible();
-});
-
-test('with no providers, the setup link opens organization AI provider settings with no project open', async ({
+test('with no providers on Local, the setup link opens the personal AI provider settings', async ({
   page,
 }) => {
   await forceMode(page, 'replay_strict', false);
   await noProvidersConfigured(page);
   await page.goto('/');
   await page.getByTestId('replay-mode-banner-setup-link').click();
-  await expect(page).toHaveURL(/\/settings\/organization\/ai-providers(?:\?|$)/);
+  await expect(page).toHaveURL(/\/settings\/personal\/ai-providers(?:\?|$)/);
   await expect(page.getByTestId('settings-workspace')).toBeVisible();
 });
 

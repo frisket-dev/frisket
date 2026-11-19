@@ -1,13 +1,9 @@
-// PDF-tables picker. After
-// media.extract_pdf_tables completes it leaves a JSON output column whose cells
-// flatten EVERY extracted table into one array keyed by table_index, with 8
-// metadata keys inserted BEFORE the real table columns. The grid renders that as
-// raw JSON and RowDrawer's 6-key mini-table shows metadata-only. This picker,
-// reachable from the pdf_tables action's post-run completion state, renders a
-// structured per-table preview (grouped by table_index, metadata collapsed),
-// then materializes a clean child sheet via the ordinary derive.table_from_list
-// column source with a metadata-excluding include_columns projection — no
-// bespoke materializer, no model call.
+// PDF-tables picker. media.extract_pdf_tables leaves a JSON output column whose
+// cells flatten every extracted table into one array keyed by table_index, with
+// eight metadata keys before the real table columns. The picker, reachable from
+// the action's post-run state, previews each table (metadata collapsed) and
+// materializes a child sheet through derive.table_from_list with an
+// include_columns projection that leaves the metadata out; no model call.
 
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
@@ -34,8 +30,7 @@ const REPO_ROOT =
     ? path.resolve(process.cwd(), '..')
     : process.cwd();
 
-// Copied from derive-object-list.spec.ts (P5 owns helper consolidation; this
-// mirrors the extract_pdf_tables end-state: a materialized JSON list column).
+// The extract_pdf_tables end state: a materialized JSON list column.
 function addJsonColumn(pid: string, sheetId: number, name: string): number {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
   const script = `

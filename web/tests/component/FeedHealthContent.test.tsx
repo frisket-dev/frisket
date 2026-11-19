@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { FeedHealthMainView } from '../../src/components/feeds/FeedHealthMainView';
 import type { FeedHealth } from '../../src/api/types';
 import type { FeedApiPort } from '../../src/api/ports';
+import { createStore } from '../../src/core/store/createStore';
 
 afterEach(cleanup);
 
@@ -22,6 +23,7 @@ const health: FeedHealth = {
     costs: { recentActualMicro: 4200, recentEstimatedMicro: 5000, basis: 'runs' },
     alerts: [{ message: 'Attention needed' }], warnings: [{ message: 'Incomplete metadata' }],
   };
+const jobs = { store: createStore({ actionJobs: { error: null, jobs: [], loading: false } }), refresh: vi.fn(async () => {}) };
 it('keeps summaries, run details, jobs, warnings and poll behavior in shared source-health content', async () => {
   const feedApi: FeedApiPort = {
     listFeeds: vi.fn(), getFeed: vi.fn(), createFeed: vi.fn(), updateFeed: vi.fn(), deleteFeed: vi.fn(),
@@ -29,7 +31,7 @@ it('keeps summaries, run details, jobs, warnings and poll behavior in shared sou
     fetchFeed: vi.fn().mockResolvedValue({ sheetId: 2 }),
   };
   const polled = vi.fn();
-  render(<FeedHealthMainView feedApi={feedApi} sourceId={4} onClose={vi.fn()} onPolled={polled} />);
+  render(<FeedHealthMainView feedApi={feedApi} jobs={jobs} sourceId={4} onClose={vi.fn()} onPolled={polled} />);
   expect(await screen.findByTestId('feed-health-status-4')).toHaveTextContent('failing');
   expect(screen.getByTestId('feed-health-deltas-4')).toHaveTextContent('+4 new');
   expect(screen.getByTestId('feed-health-checks-4')).toHaveTextContent('Fetch failed');
@@ -49,7 +51,7 @@ it('ignores an earlier source health response after changing sources', async () 
     listFeeds: vi.fn(), getFeed: vi.fn(), createFeed: vi.fn(), updateFeed: vi.fn(), deleteFeed: vi.fn(),
     getFeedHealth: vi.fn().mockReturnValueOnce(previous).mockResolvedValue(next), fetchFeed: vi.fn(),
   };
-  const props = { feedApi, onClose: vi.fn() };
+  const props = { feedApi, jobs, onClose: vi.fn() };
   const view = render(<FeedHealthMainView {...props} sourceId={4} />);
   view.rerender(<FeedHealthMainView {...props} sourceId={5} />);
   await screen.findByText('Next records');

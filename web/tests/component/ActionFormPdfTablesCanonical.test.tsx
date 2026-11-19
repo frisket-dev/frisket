@@ -95,6 +95,17 @@ describe('typed PDF-table action consumers', () => {
     }));
   });
 
+  it('leaves untouched extraction options to the server default instead of sending text', async () => {
+    const onExecute = vi.fn();
+    mount({ selectedRowIds: ['101'], onExecuteRegisteredAction: onExecute });
+    await run();
+    expect(onExecute.mock.calls[0][0].params).toEqual({
+      source: 'first_pdf', mode: 'extract_table', table_mode: 'auto',
+    });
+    expect(vi.mocked(stores.projectApi.resolveActionParams).mock.calls.at(-1)?.[0].params)
+      .not.toHaveProperty('extract_table');
+  });
+
   it('reopens saved options and scope for preview and run without retaining execution authority', async () => {
     const saved = draft();
     expect(encodeSavedActionSpec(decodeSavedActionSpec(CATALOG, saved))).toEqual(saved);

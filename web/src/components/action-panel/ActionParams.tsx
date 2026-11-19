@@ -544,7 +544,9 @@ function ParamInput({
         onValueChange={onChange}
         emptyMessage={param.aiGeneratedOnly ? 'No generated columns yet — run an AI action first.' : undefined}
         options={[
-          ...(param.input === 'column-optional' ? [{ value: '', label: '— all rows —' }] : []),
+          ...(param.input === 'column-optional' ? [{ value: '', label: '— all rows —' }]
+            : columnOptions.length === 0 || columnOptions.some((column) => column.name === value) ? []
+              : [{ value, label: 'Choose a column…', disabled: true }]),
           ...columnSelectOptions(columnOptions),
         ]}
       />

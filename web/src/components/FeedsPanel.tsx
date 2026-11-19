@@ -10,10 +10,12 @@ import { FeedList } from './feeds/FeedList';
 import { FeedHealthDrawer } from './feeds/FeedHealthDrawer';
 import type { FeedDetailFrames, FeedKindFormFrame } from './feeds/feedFrames';
 import { useFeedsPanelState } from './feeds/useFeedsPanelState';
+import type { FeedCheckJobs } from './feeds/useFeedHealth';
 import './FeedsPanel.css';
 
 export interface FeedsPanelProps {
   feedApi: FeedApiPort;
+  jobs: FeedCheckJobs;
   /** Fired after a manual poll. sheetId is the source sheet, so the workspace can refresh/navigate. */
   onPolled?(sheetId: number | null): void;
   onOpenFeedHealthMainView?(feedId: number): void;
@@ -35,6 +37,7 @@ export interface FeedsPanelProps {
 
 export function FeedsPanel({
   feedApi,
+  jobs,
   onPolled,
   onOpenFeedHealthMainView,
   onOpenImportDialog,
@@ -43,7 +46,7 @@ export function FeedsPanel({
   feedDetailContributions,
   renderPluginDetailTab,
 }: FeedsPanelProps) {
-  const { state, actions } = useFeedsPanelState(feedApi, onPolled);
+  const { state, actions } = useFeedsPanelState(feedApi, jobs, onPolled);
   const {
     items,
     runs,
