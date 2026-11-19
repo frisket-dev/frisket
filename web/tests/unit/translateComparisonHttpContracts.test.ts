@@ -23,7 +23,7 @@ const RESPONSE = {
 };
 
 function stubFetch(body: unknown, init: { status?: number; statusText?: string } = {}) {
-  const fetchMock = vi.fn(() => Promise.resolve({
+  const fetchMock = vi.fn<typeof globalThis.fetch>(() => Promise.resolve({
     status: init.status ?? 200,
     statusText: init.statusText ?? '',
     json: () => Promise.resolve(body),

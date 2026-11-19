@@ -250,10 +250,10 @@ describe('WorkspaceAiProvidersSettings', () => {
     await userEvent.selectOptions(screen.getByLabelText('Provider'), 'openai');
     await userEvent.type(screen.getByLabelText('Provider key'), KEY);
 
-    const saveButton = screen.getByRole('button', { name: 'Save', exact: true });
+    const saveButton = screen.getByRole('button', { name: 'Save' });
     expect(saveButton).toBeDisabled();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Test', exact: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(validateProviderKey).toHaveBeenCalledWith('openai', KEY, { signal: expect.any(AbortSignal) }));
     const message = await screen.findByTestId('provider-validation-message');
     expect(message).toHaveTextContent(/valid/i);

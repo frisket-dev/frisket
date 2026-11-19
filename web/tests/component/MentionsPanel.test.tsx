@@ -16,17 +16,6 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      entityMentionsPreview: vi.fn(),
-    },
-  };
-});
-
 import { MentionsPanel } from '../../src/components/MentionsPanel';
 import { ApiError } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
@@ -38,6 +27,7 @@ import type {
   EntityMentionsPreview,
   SheetMeta,
 } from '../../src/api/open';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const entityMentionsPreview = vi.spyOn(api, 'entityMentionsPreview');
 const mockApi = { entityMentionsPreview };
@@ -50,15 +40,14 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const MARKED_SHEET: SheetMeta = {
+const MARKED_SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'body', type: 'text' },
+  { id: '12', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 1000,
-  columns: [
-    { id: '11', name: 'body', type: 'text' },
-    { id: '12', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
-  ],
-};
+});
 
 const TWO_MARKED_SHEET: SheetMeta = {
   ...MARKED_SHEET,
@@ -68,15 +57,14 @@ const TWO_MARKED_SHEET: SheetMeta = {
   ],
 };
 
-const UNRELATED_SHEET: SheetMeta = {
+const UNRELATED_SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'body', type: 'text' },
+  { id: '21', name: 'ocr_blocks', type: 'json', currentRunId: '901' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 1000,
-  columns: [
-    { id: '11', name: 'body', type: 'text' },
-    { id: '21', name: 'ocr_blocks', type: 'json', currentRunId: '901' },
-  ],
-};
+});
 
 const ACME: EntityMentionGroup = {
   type: 'organization',
@@ -126,7 +114,7 @@ function preview(overrides: Partial<EntityMentionsPreview> = {}): EntityMentions
   return {
     sheetId: '7',
     column: { id: '12', name: 'entities', semanticType: 'entity_mentions' },
-    coverage: { targetRows: 1000, completedRows: 997, failedRows: 3, sheetRows: 1000 },
+    coverage: { targetRows: 1000, completedRows: 997, failedRows: 3, sheetRows: 1000, scopeKind: 'all_rows' },
     search: null,
     type: null,
     totalGroups: 3,
@@ -192,7 +180,7 @@ describe('MentionsPanel — no marked column', () => {
 describe('MentionsPanel — zero groups, loading, and errors', () => {
   it('says no mentions were found and still shows coverage', async () => {
     mockApi.entityMentionsPreview.mockResolvedValue(
-      preview({ totalGroups: 0, items: [], coverage: { targetRows: 40, completedRows: 40, failedRows: 0, sheetRows: 40 } }),
+      preview({ totalGroups: 0, items: [], coverage: { targetRows: 40, completedRows: 40, failedRows: 0, sheetRows: 40, scopeKind: 'all_rows' } }),
     );
     const onExtract = vi.fn();
     renderPanel({ onExtractEntities: onExtract });
@@ -601,7 +589,7 @@ describe('MentionsPanel — per-section paging and coverage', () => {
 
   it('shows no coverage line at all when the column has never been run', async () => {
     mockApi.entityMentionsPreview.mockResolvedValue(
-      preview({ coverage: { targetRows: null, completedRows: null, failedRows: null, sheetRows: 1000 } }),
+      preview({ coverage: { targetRows: null, completedRows: null, failedRows: null, sheetRows: 1000, scopeKind: null } }),
     );
     renderPanel();
 
@@ -623,13 +611,13 @@ describe('MentionsPanel — per-section paging and coverage', () => {
 
 describe('MentionsPanel — staying current after a run', () => {
   const EMPTY = preview({
-    coverage: { targetRows: 4, completedRows: 0, failedRows: 0, sheetRows: 4 },
+    coverage: { targetRows: 4, completedRows: 0, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' },
     totalGroups: 0,
     typeTotals: [],
     items: [],
   });
   const FILLED = preview({
-    coverage: { targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4 },
+    coverage: { targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' },
     totalGroups: 1,
     typeTotals: [{ type: 'organization', totalGroups: 1 }],
     items: [ACME],
@@ -952,7 +940,7 @@ describe('MentionsPanel — readable type names', () => {
 describe('MentionsPanel — an extraction that no longer covers the sheet', () => {
   it('says how many rows are uncovered and what to do about it', async () => {
     mockApi.entityMentionsPreview.mockResolvedValue(
-      preview({ coverage: { targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: 4 } }),
+      preview({ coverage: { targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' } }),
     );
     renderPanel();
 
@@ -966,7 +954,7 @@ describe('MentionsPanel — an extraction that no longer covers the sheet', () =
 
   it('adds no noise when the extraction still covers the sheet', async () => {
     mockApi.entityMentionsPreview.mockResolvedValue(
-      preview({ coverage: { targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4 } }),
+      preview({ coverage: { targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' } }),
     );
     renderPanel();
 
@@ -979,7 +967,7 @@ describe('MentionsPanel — an extraction that no longer covers the sheet', () =
   it('still shows no coverage line at all for a column that was never run', async () => {
     mockApi.entityMentionsPreview.mockResolvedValue(
       preview({
-        coverage: { targetRows: null, completedRows: null, failedRows: null, sheetRows: 4 },
+        coverage: { targetRows: null, completedRows: null, failedRows: null, sheetRows: 4, scopeKind: null },
       }),
     );
     renderPanel();

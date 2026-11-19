@@ -187,7 +187,7 @@ describe('action estimate and parameter-validation HTTP contracts', () => {
   });
 
   it('resolves dynamic outputs from the registered action request', async () => {
-    const fetch = vi.fn(async () => jsonResponse(validationWire));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse(validationWire));
     vi.stubGlobal('fetch', fetch);
     const api = createActionEstimateValidationApi('project/one');
 

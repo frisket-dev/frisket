@@ -33,7 +33,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', request);
 });
 afterEach(() => { cleanup(); configureProductTelemetry(false); vi.unstubAllGlobals(); });
-const click = (name: string) => fireEvent.click(screen.getByRole('button', { name, exact: true }));
+const click = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
 
 it('tracks actual guide steps, pause/resume and completion; attributes action activity', () => {
   const view = render(<App />);

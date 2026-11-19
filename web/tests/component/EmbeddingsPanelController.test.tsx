@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FormEvent } from 'react';
 
 import type { EmbeddingApiPort } from '../../src/api/ports';
-import type { SheetMeta } from '../../src/api/types';
 import { useEmbeddingsPanelController } from '../../src/components/embeddings/useEmbeddingsPanelController';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -19,14 +19,11 @@ function deferred<T>(): {
   return { promise, resolve };
 }
 
-const sheet = {
+const sheet = sheetMeta([{ id: '11', name: 'bio', type: 'text' }], {
   id: '7',
   name: 'People',
   rowCount: 1,
-  columns: [{ id: '11', name: 'bio', type: 'text' }],
-  citedColumnIds: [],
-  annotatedTextColumnIds: [],
-} as SheetMeta;
+});
 
 function apiPort(overrides: Record<string, unknown> = {}): EmbeddingApiPort {
   return {

@@ -10,17 +10,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      getRunRows: vi.fn(async () => ({ rows: [], total: 0 })),
-    },
-  };
-});
-
 import { StatusBar } from '../../src/components/StatusBar';
 import { createProjectApi } from '../../src/api/real';
 import { installPopoverPolyfill } from '../support/domPolyfills';

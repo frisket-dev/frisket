@@ -5,14 +5,15 @@ import { ApiError } from '../../src/api/contractErrors';
 import type { GridApiPort } from '../../src/api/ports';
 import type { ActionCatalogEntry, SheetMeta } from '../../src/api/types';
 import { useWorkspaceExpectedAnswers } from '../../src/workspace/useWorkspaceExpectedAnswers';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const calls = vi.hoisted(() => ({ getLinks: vi.fn(), previewLink: vi.fn(), getContext: vi.fn(), saveLink: vi.fn(), setRule: vi.fn() }));
 vi.mock('../../src/api/evaluation', () => ({ createEvaluationApi: () => ({ getLinks: calls.getLinks, previewLink: calls.previewLink, saveLink: calls.saveLink, setRule: calls.setRule }) }));
 vi.mock('../../src/api/actionComparison', () => ({ createActionComparisonApi: () => ({ getContext: calls.getContext }) }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 const sheets: SheetMeta[] = [
-  { id: '1', name: 'Current', rowCount: 1, columns: [{ id: '11', name: 'answer', type: 'text', latestRunId: '101' }] },
-  { id: '2', name: 'Other', rowCount: 1, columns: [{ id: '22', name: 'answer', type: 'text', latestRunId: '202' }] },
+  sheetMeta([{ id: '11', name: 'answer', type: 'text', latestRunId: '101' }], { id: '1', name: 'Current', rowCount: 1 }),
+  sheetMeta([{ id: '22', name: 'answer', type: 'text', latestRunId: '202' }], { id: '2', name: 'Other', rowCount: 1 }),
 ];
 const showError = vi.fn();
 function prepare() {

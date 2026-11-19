@@ -9,6 +9,7 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { servedActionCatalog } from '../support/servedActionCatalog';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const catalog = servedActionCatalog();
 let stores: WorkspaceStores | undefined;
@@ -19,9 +20,8 @@ it.each(['map.ask', 'map.summarize', 'map.extract', 'map.ner'])('%s follows its 
   if (!entry || !isGeneratedActionCatalogEntry(entry)) throw new Error('Missing generated action');
   const template = generatedActionTemplateFromCatalogEntry(entry);
   if (!template) throw new Error('Missing template');
-  const sheet: SheetMeta = { id: '7', name: 'Documents', rowCount: 1,
-    columns: [{ id: '1', name: 'body', type: 'text' }, { id: '2', name: 'picture', type: 'image' },
-      { id: '3', name: 'document', type: 'file' }], citedColumnIds: [], annotatedTextColumnIds: [] };
+  const sheet: SheetMeta = sheetMeta([{ id: '1', name: 'body', type: 'text' }, { id: '2', name: 'picture', type: 'image' },
+    { id: '3', name: 'document', type: 'file' }], { id: '7', name: 'Documents', rowCount: 1 });
   stores = createWorkspaceStores('files', createProjectApi('files'));
   vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('No remote calls')));
   render(<WorkspaceStoresContext.Provider value={stores}><GeneratedActionForm

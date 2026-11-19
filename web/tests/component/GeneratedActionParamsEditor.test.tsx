@@ -18,16 +18,16 @@ import { GeneratedActionForm } from '../../src/components/action-panel/Generated
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { columnDef } from '../support/domainFixtures';
 import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
+import { sheetMeta } from '../support/actionFormFixtures';
 
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  columnDef({ id: '1', name: 'story', type: 'text' }),
+  columnDef({ id: '2', name: 'notes', type: 'text' }),
+], {
   id: '7',
   name: 'Court filings',
   rowCount: 240,
-  columns: [
-    columnDef({ id: '1', name: 'story', type: 'text' }),
-    columnDef({ id: '2', name: 'notes', type: 'text' }),
-  ],
-};
+});
 
 const ENTRY = {
   kind: 'map.extract',

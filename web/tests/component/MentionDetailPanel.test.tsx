@@ -13,18 +13,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      entityMentionDocuments: vi.fn(),
-      entityMentionOccurrences: vi.fn(),
-    },
-  };
-});
-
 import { MentionDetailPanel } from '../../src/workbench/MentionDetailPanel';
 import type { MentionDetailTarget } from '../../src/workbench/mentionDetailModel';
 import { createProjectApi } from '../../src/api/real';

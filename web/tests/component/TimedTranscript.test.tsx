@@ -31,9 +31,9 @@ const document: TimedTranscriptDocument = {
   },
   sheet: {
     columns: [
-      { id: '1', name: 'recording', type: 'audio', ai_generated: false },
-      { id: '2', name: 'transcript', type: 'timestamped_transcript', ai_generated: true },
-      { id: '3', name: 'transcript_segments', type: 'json', ai_generated: true },
+      { id: '1', name: 'recording', type: 'audio' },
+      { id: '2', name: 'transcript', type: 'timestamped_transcript' },
+      { id: '3', name: 'transcript_segments', type: 'json' },
     ],
   },
   media: { url: '/recording.mp3', label: 'meeting.mp3', mime: 'audio/mpeg' },

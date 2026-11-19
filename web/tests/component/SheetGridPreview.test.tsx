@@ -8,6 +8,7 @@ import { createProjectApi } from '../../src/api/real';
 import type { ColumnRun, PreviewOverlayCell, PreviewOverlayColumn, SheetMeta } from '../../src/api/types';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const editor = vi.hoisted(() => ({ props: null as DataEditorProps | null }));
 vi.mock('@glideapps/glide-data-grid', async (importOriginal) => {
@@ -45,7 +46,7 @@ afterEach(() => {
   refreshRows.mockClear();
   localStorage.clear();
 });
-const sheet: SheetMeta = { id: '1', name: 'Videos', rowCount: 2, columns: [columnDef({ id: 'old', name: 'Cuts', type: 'text' })] };
+const sheet: SheetMeta = sheetMeta([columnDef({ id: 'old', name: 'Cuts', type: 'text' })], { id: '1', name: 'Videos', rowCount: 2 });
 const column: PreviewOverlayColumn = { name: 'Cuts', columnType: 'timeline_points', format: null, hidden: false, replacesColumnId: 'old' };
 const temporal: PreviewOverlayCell = { value: {
   schema_version: 'frisket.timeline_points.v1',

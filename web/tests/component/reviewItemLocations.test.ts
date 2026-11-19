@@ -5,7 +5,7 @@ import type { ReviewCitationSource } from '../../src/components/review/reviewCit
 import { evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 function field(value: unknown): ReviewBundleField {
-  return { id: 'entities', runId: '1', sheetId: '1', rowId: '1', columnId: '1', columnName: 'Entities',
+  return { id: 'entities', runId: '1', sourceId: '1', copiedChangeId: null, sheetId: '1', rowId: '1', columnId: '1', columnName: 'Entities',
     columnType: 'json', semanticType: 'entity_mentions', value: JSON.stringify(value), confidence: null,
     justification: '', reviewState: 'unreviewed', role: 'field', chore: false };
 }

@@ -15,23 +15,22 @@ import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/cre
 import { completeCatalogPayload } from '../support/actionFormFixtures';
 import { createProjectApi } from '../../src/api/real';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 let api = createProjectApi('test-project');
 
 const PROJECT = 'temporal-segments-canonical';
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  { id: '11', name: 'recording', type: 'video' },
+  { id: '12', name: 'alternate_recording', type: 'video' },
+  { id: '13', name: 'reviewed_cuts', type: 'timeline_points' },
+  { id: '14', name: 'reviewed_ranges', type: 'timeline_ranges' },
+  { id: '15', name: 'timestamped_transcript', type: 'timestamped_transcript' },
+], {
   id: '7',
   name: 'Interviews',
   rowCount: 12,
-  citedColumnIds: [],
-  columns: [
-    { id: '11', name: 'recording', type: 'video' },
-    { id: '12', name: 'alternate_recording', type: 'video' },
-    { id: '13', name: 'reviewed_cuts', type: 'timeline_points' },
-    { id: '14', name: 'reviewed_ranges', type: 'timeline_ranges' },
-    { id: '15', name: 'timestamped_transcript', type: 'timestamped_transcript' },
-  ],
-};
+});
 
 const mediaEntry = syntheticActionCatalogEntry('derive.temporal_segments');
 

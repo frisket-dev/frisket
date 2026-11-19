@@ -9,7 +9,6 @@ export function mockActionApiDefaults(estimate: Partial<RunEstimate> = {}): void
   vi.spyOn(actionFormProjectApi, 'estimateAction').mockResolvedValue({
     cost: 0,
     rows: 1,
-    llm: true,
     ...estimate,
   });
   vi.spyOn(actionFormProjectApi, 'listSheets').mockResolvedValue([]);

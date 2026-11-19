@@ -13,7 +13,7 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 describe('PDF imports API', () => {
   it('uses generated route metadata for create and preserves the typed request body', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1' }, 201));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ draft_id: 'draft-1' }, 201));
     const api = createPdfImportsApi();
 
     await api.create('project / one', 2, 17, 'Folder', { fetch });
@@ -30,7 +30,7 @@ describe('PDF imports API', () => {
   });
 
   it('keeps multipart file, occurrence, and logical-path fields index aligned', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1' }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ draft_id: 'draft-1' }));
     const api = createPdfImportsApi();
     const one = new File(['one'], 'one.pdf', { type: 'application/pdf' });
     const two = new File(['two'], 'two.pdf', { type: 'application/pdf' });
@@ -51,7 +51,7 @@ describe('PDF imports API', () => {
   });
 
   it('uses the generated staged-analysis route without inventing a request body', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1', revision: 4 }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ draft_id: 'draft-1', revision: 4 }));
     const api = createPdfImportsApi();
 
     await api.analyze('project / one', 'draft / one', { fetch });
@@ -64,7 +64,7 @@ describe('PDF imports API', () => {
   });
 
   it('sends the exact paid OCR approval hash with the final commit', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ draft_id: 'draft-1', status: 'accepted' }, 202));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ draft_id: 'draft-1', status: 'accepted' }, 202));
     const api = createPdfImportsApi();
     const confirmation = 'a'.repeat(64);
 
@@ -85,7 +85,7 @@ describe('PDF imports API', () => {
   });
 
   it('sends the missing-text OCR policy and preserves bounded extension counts', async () => {
-    const fetch = vi.fn()
+    const fetch = vi.fn<typeof globalThis.fetch>()
       .mockResolvedValueOnce(jsonResponse({ draft_id: 'draft-1' }))
       .mockResolvedValueOnce(jsonResponse({
         category: 'other',
@@ -114,7 +114,7 @@ describe('PDF imports API', () => {
   });
 
   it('preserves the PDF workflow response error used for revision retries', async () => {
-    const fetch = vi.fn(async () => jsonResponse({ detail: 'revision changed' }, 409));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ detail: 'revision changed' }, 409));
     const api = createPdfImportsApi();
 
     await expect(api.get('project-1', 'draft-1', { fetch })).rejects.toEqual(

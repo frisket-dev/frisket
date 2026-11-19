@@ -8,7 +8,7 @@ import {
 } from '@glideapps/glide-data-grid';
 
 import type { ActionComparisonCell, ActionComparisonContext } from '../../src/api/actionComparison';
-import { createActionCompareSession } from '../../src/workbench/actionCompareSession';
+import { createActionCompareSession, type ActionCompareVariantRun } from '../../src/workbench/actionCompareSession';
 import { ActionCompareTab } from '../../src/workbench/ActionCompareTab';
 import { PanelSelect } from '../../src/components/PanelSelect';
 import { ActionCompareGrid } from '../../src/workbench/ActionCompareGrid';
@@ -64,8 +64,8 @@ function fixture(): ActionComparisonContext {
     source_columns: [{ param: 'source', column_id: 2, name: 'body', column_type: 'text', format: null }],
     source_rows: { 10: { body: cell('First document') }, 11: { body: cell('Second document') } },
     output_columns: [
-      { logical_key: 'party', column_id: 30, current_name: 'party', column_type: 'text', format: null, hidden: false, schema: null },
-      { logical_key: 'note', column_id: 31, current_name: 'note', column_type: 'text', format: null, hidden: true, schema: null },
+      { logical_key: 'party', column_id: 30, current_name: 'party', column_type: 'text', format: null, hidden: false, schema: {} },
+      { logical_key: 'note', column_id: 31, current_name: 'note', column_type: 'text', format: null, hidden: true, schema: {} },
     ],
     expected_output_signature: 'sig',
     replacement_targets: [
@@ -99,7 +99,7 @@ describe('ActionCompareTab', () => {
   });
 
   it('keeps the variant editor open while choosing a nested picker option', () => {
-    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     session.addVariant();
     render(<ActionCompareTab projectId="p1" {...gridPreferences} session={session} onUseSettings={vi.fn()}
       renderVariantEditor={({ draft, onDraftChange }) => <PanelSelect ariaLabel="Model" value={String(draft.params.model)}
@@ -164,7 +164,7 @@ describe('ActionCompareTab', () => {
   it('routes output cell and score clicks with their actual field', () => {
     const context = fixture();
     context.output_columns[1].hidden = false;
-    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const onOpenRow = vi.fn(); const onScoreClick = vi.fn();
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
       evaluation={{ response: null, field: 'party', view: 'expected', rowIds: [10], onOpenRow, onScoreClick, onRuleClick: vi.fn() }} />);
@@ -177,7 +177,7 @@ describe('ActionCompareTab', () => {
   it('keeps boxed variant badges with compact score labels in the expected lens', () => {
     const context = fixture();
     context.limits = { max_sample_rows: 20, max_challengers: 5 } as unknown as ActionComparisonContext['limits'];
-    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     for (let index = 0; index < 4; index += 1) session.addVariant();
     const state = session.getSnapshot();
     const response = { link: null, expected: {}, variants: state.variants.map((variant) => ({ key: variant.displayKey,
@@ -191,7 +191,7 @@ describe('ActionCompareTab', () => {
   });
 
   it('shows partial hand scoring and checked answers in grid headers', () => {
-    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const response = { link: { fields: [{ logical_key: 'party', rule: 'hand', hidden: false }] }, expected: {},
       variants: [{ key: 'A', rows: {}, scores: { party: { accuracy: 1, scored: 1, remaining: 37, checked: 38 } }, verdicts: {} }], best: {} } as unknown as EvaluationResponse;
     render(<ActionCompareGrid projectId="p1" state={session.getSnapshot()} {...gridPreferences}
@@ -322,13 +322,13 @@ describe('ActionCompareTab', () => {
   });
 
   it('does not expose Use on an existing baseline and opens the injected editor for a challenger', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure() {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure(this: HTMLElement) {
       if (this.classList.contains('action-compare')) return rect(200, 720);
       if (this.classList.contains('action-compare-toolbar-shell')) return rect(200, 260);
       if (this.tagName === 'FOOTER') return rect(672, 720);
       return rect(0, 0);
     });
-    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context: fixture() }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const b = session.addVariant()!;
     const renderVariantEditor = vi.fn(({ label }) => <div>Editor for {label}</div>);
     render(<ActionCompareTab projectId="project-1" {...gridPreferences}
@@ -395,7 +395,7 @@ describe('ActionCompareTab', () => {
       blob: digest, mime: 'image/png', filename: 'source.png',
     }));
     context.baseline_rows!['10']!.party = cell('First\\n\\nsecond');
-    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
 
     render(<ActionCompareTab projectId="project-1" {...gridPreferences} wrapText
       session={session} onUseSettings={vi.fn()} />);
@@ -428,7 +428,7 @@ describe('ActionCompareTab', () => {
     context.baseline_rows!['10']!.party = cell('unused', {
       state: 'value', value: { party: { name: 'Acme', roles: ['buyer', 'seller'] } },
     });
-    const session = createActionCompareSession({ context }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const onOpenBoundedValue = vi.fn();
     const onOpenStructuredValue = vi.fn();
     render(<ActionCompareTab projectId="project-1" {...gridPreferences}
@@ -465,11 +465,11 @@ describe('ActionCompareTab', () => {
     };
     context.output_columns = [
       { logical_key: 'amount', column_id: 30, current_name: 'amount',
-        column_type: 'number', format: null, hidden: false, schema: null },
+        column_type: 'number', format: null, hidden: false, schema: {} },
       { logical_key: 'approved', column_id: 31, current_name: 'approved',
-        column_type: 'boolean', format: null, hidden: false, schema: null },
+        column_type: 'boolean', format: null, hidden: false, schema: {} },
       { logical_key: 'category', column_id: 32, current_name: 'category',
-        column_type: 'category', format: null, hidden: false, schema: null },
+        column_type: 'category', format: null, hidden: false, schema: {} },
     ];
     context.replacement_targets = context.output_columns.map((output) => ({
       logical_key: output.logical_key,

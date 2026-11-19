@@ -12,13 +12,16 @@ import { GeneratedActionForm } from '../../src/components/action-panel/Generated
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installActionSelectorFixture, selectorProviderCatalog } from '../support/selectorChoicesFixture';
 import { installPopoverPolyfill } from '../support/domPolyfills';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 beforeAll(installPopoverPolyfill);
 const catalog = servedActionCatalog();
 
-const sheet: SheetMeta = { id: '7', name: 'Stories', rowCount: 3,
-  columns: [{ id: '11', name: 'story', type: 'text' }, { id: '12', name: 'category', type: 'category' }],
-  citedColumnIds: [], annotatedTextColumnIds: [] };
+const sheet: SheetMeta = sheetMeta([{ id: '11', name: 'story', type: 'text' }, { id: '12', name: 'category', type: 'category' }], {
+  id: '7',
+  name: 'Stories',
+  rowCount: 3,
+});
 let stores: WorkspaceStores | undefined;
 afterEach(() => { cleanup(); stores?.dispose(); stores = undefined; vi.restoreAllMocks(); });
 

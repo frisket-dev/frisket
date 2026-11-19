@@ -28,6 +28,7 @@ import type { RecipeFencePosture } from '../../src/api/types';
 import { mockActionApiDefaults } from '../support/renderActionForm';
 import { renderPythonForm } from '../support/pythonActionFixture';
 import { PYTHON_SNIPPET_TRUST_COPY } from '../../src/actions/model';
+import { runtimeConfig } from '../support/domainFixtures';
 
 
 
@@ -47,14 +48,9 @@ beforeEach(() => {
 /** The server's /api/config answer. `posture: undefined` is the older-server /
  *  field-absent case. */
 function stubPosture(posture: RecipeFencePosture | undefined | string) {
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay',
-    live_calls_possible: true,
-    cache_mode_editable: false,
-    email_from_address: null,
-    email_from_name: null,
-    recipe_fence_posture: posture as RecipeFencePosture | undefined,
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig(
+    posture === undefined ? {} : { recipe_fence_posture: posture as RecipeFencePosture },
+  ));
 }
 
 

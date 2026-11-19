@@ -28,7 +28,7 @@ async function installScrollProbe(page: Page) {
     probeWindow.__rowFieldScrollIntoViewCalls = [];
 
     const originalScrollTo = HTMLElement.prototype.scrollTo;
-    HTMLElement.prototype.scrollTo = function rowDrawerScrollTo(...args: unknown[]) {
+    HTMLElement.prototype.scrollTo = function rowDrawerScrollTo(this: HTMLElement, ...args: unknown[]) {
       if (this.classList.contains('drawer-body')) {
         const first = args[0];
         const top =
@@ -52,7 +52,7 @@ async function installScrollProbe(page: Page) {
     } as typeof HTMLElement.prototype.scrollTo;
 
     const originalScrollIntoView = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function rowFieldScrollIntoView(...args: unknown[]) {
+    Element.prototype.scrollIntoView = function rowFieldScrollIntoView(this: Element, ...args: unknown[]) {
       const fieldId = (this as HTMLElement).dataset?.rowFieldId;
       if (fieldId) probeWindow.__rowFieldScrollIntoViewCalls?.push(fieldId);
       return Reflect.apply(originalScrollIntoView, this, args);

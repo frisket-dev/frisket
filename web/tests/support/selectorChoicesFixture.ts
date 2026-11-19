@@ -19,14 +19,14 @@ export function selectorProviderCatalog(modelIds: string[]): LocalProviderCatalo
   };
 }
 
-function choice(selection: Selection, label: string, available: boolean, reason?: string): SelectorChoice {
+function choice(selection: Selection, label: string, available: boolean, reason?: string | null): SelectorChoice {
   return {
     choice_id: JSON.stringify(selection), authored_selection: selection, label,
     summary: selection.kind === 'model' ? selection.model
       : selection.kind === 'engine_model' ? selection.model ?? selection.engine : selection.engine,
     description: '', facts: [], resolved_target: null,
     processing_destination: { kind: 'unknown', label: 'Test execution target' },
-    execution_route: null,
+    execution_route: null, route_selection: null,
     status: available ? 'ready' : 'unavailable', can_author: available, can_run: available,
     blocker: available ? null : { code: 'fixture_unavailable', message: reason ?? 'Unavailable in this catalog', field: null },
     setup: null, configuration_actions: [], active_operation: null, model_card_url: null,
@@ -68,7 +68,7 @@ function actionSelectorResponse(
   const fixed = engines.filter((engine) => engine.id !== 'llm').map((engine) => {
     const item = choice(
       mixed ? { kind: 'engine_model', engine: engine.id, model: null } : { kind: 'engine', engine: engine.id },
-      engine.label, engine.available, engine.error,
+      engine.label, engine.available === true, engine.error,
     );
     const licenseParts = [engine.license?.name, engine.license?.note].filter((value): value is string => Boolean(value));
     if (licenseParts.length) item.facts.push({ kind: 'text',
@@ -85,12 +85,14 @@ function actionSelectorResponse(
   if (fixed.length) groups.push({ group_id: 'local', kind: 'local', label: 'Local', status: 'ready', choices: fixed });
   for (const provider of catalog.providers) {
     if (!hasModel) break;
+    const ready = provider.kind === 'local_http' ? provider.reachable : provider.configured;
     const models = provider.models.map((model) => choice(
       mixed ? { kind: 'engine_model', engine: 'llm', model: model.id } : { kind: 'model', model: model.id },
-      model.label, provider.configured && (!mixed || llm?.available === true),
+      model.label, ready && (!mixed || llm?.available === true),
       mixed && llm?.available !== true ? llm?.error ?? 'The LLM engine is not offered' : 'Provider setup is required',
     ));
-    if (models.length) groups.push({ group_id: provider.id, kind: 'provider', label: provider.label,
+    const groupId = provider.kind === 'local_http' ? provider.endpoint_id : provider.id;
+    if (models.length) groups.push({ group_id: groupId, kind: 'provider', label: provider.label,
       status: models.some((model) => model.can_run) ? 'ready' : 'unavailable', choices: models });
   }
   const choices = groups.flatMap((group) => group.choices);
@@ -112,7 +114,7 @@ function actionSelectorResponse(
   if (preferred) preferred.is_default = true;
   const orphan = current && !selected ? choice(current, engine ?? model ?? 'Saved choice', false, 'Saved choice is not offered') : null;
   if (orphan) orphan.is_current = true;
-  return { schema_version: 'frisket.selector_choices.v2', project_id: projectId,
+  return { schema_version: 'frisket.selector_choices.v3', project_id: projectId,
     subject: { kind: 'action', action_id: entry.kind, field: subject.field },
     depends_on: hasEngine ? mixed ? ['engine', 'model'] : ['engine'] : ['model'], current_choice_id: selected?.choice_id ?? orphan?.choice_id ?? null,
     default_choice_id: preferred?.choice_id ?? null, groups, orphaned_current: orphan,
@@ -138,8 +140,10 @@ export async function chooseActionSelector(value: string) {
       const choiceId = candidate.dataset.engineSelectorChoice;
       if (choiceId) {
         try {
-          const selection = JSON.parse(choiceId) as Partial<Selection>;
-          if (selection.engine === value || selection.model === value) return true;
+          const selection: unknown = JSON.parse(choiceId);
+          if (typeof selection === 'object' && selection !== null
+            && (('engine' in selection && selection.engine === value)
+              || ('model' in selection && selection.model === value))) return true;
         } catch { /* Non-JSON choice ids may still match their exact label below. */ }
       }
       return candidate.querySelector('strong')?.textContent === value;

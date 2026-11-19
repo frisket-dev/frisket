@@ -19,12 +19,12 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ActionCatalogPayload, ProjectInfo, SheetMeta } from '../../src/api/types';
-import type { ProjectApi } from '../../src/api/ports';
 
 import { ConfirmationRequiredError } from '../../src/api/open';
 import { ProjectExportModals } from '../../src/components/TopNav';
 import { createProjectApi } from '../../src/api/real';
-import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { createWorkspaceTestHarness, projectApiWith } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
@@ -38,13 +38,12 @@ beforeEach(() => {
 });
 
 const project: ProjectInfo = { id: 'proj-1', name: 'Sheets Desk' };
-const fakeProjectApi = {} as unknown as ProjectApi;
-const currentSheet: SheetMeta = {
+const fakeProjectApi = projectApiWith({});
+const currentSheet: SheetMeta = sheetMeta([{ id: '1', name: 'name', type: 'text' }], {
   id: '7',
   name: 'People',
   rowCount: 3,
-  columns: [{ id: '1', name: 'name', type: 'text' }],
-};
+});
 
 function catalogWithReason(reason: string | null): ActionCatalogPayload {
   return {
@@ -73,6 +72,7 @@ describe('ExportGoogleSheetsModal availability gate (bugfix)', () => {
         modal="google_sheets"
         project={project}
         projectApi={fakeProjectApi}
+        sheets={[currentSheet]}
         onClose={() => {}}
       />,
     );
@@ -95,6 +95,7 @@ describe('ExportGoogleSheetsModal availability gate (bugfix)', () => {
         modal="google_sheets"
         project={project}
         projectApi={fakeProjectApi}
+        sheets={[currentSheet]}
         onClose={() => {}}
       />,
     );
@@ -115,6 +116,7 @@ describe('ExportGoogleSheetsModal availability gate (bugfix)', () => {
         modal="google_sheets"
         project={project}
         projectApi={fakeProjectApi}
+        sheets={[currentSheet]}
         onClose={() => {}}
       />,
     );
@@ -141,6 +143,7 @@ describe('ExportGoogleSheetsModal confirmation admission', () => {
         modal="google_sheets"
         project={project}
         projectApi={fakeProjectApi}
+        sheets={[currentSheet]}
         currentSheet={currentSheet}
         currentSheetExportOptions={{
           filter: { city: { eq: 'Paris' } },

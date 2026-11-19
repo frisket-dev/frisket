@@ -29,7 +29,7 @@ describe('product telemetry boundary', () => {
   });
 
   it('does not send before the user chooses or after opt-out', () => {
-    const fetch = vi.fn();
+    const fetch = vi.fn<typeof globalThis.fetch>();
     vi.stubGlobal('fetch', fetch);
 
     sendProductTelemetry({ type: 'App.opened', properties: { platform: 'linux' } });
@@ -42,7 +42,7 @@ describe('product telemetry boundary', () => {
   });
 
   it('rotates the pseudonym lazily when the UTC month changes', () => {
-    const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+    const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(null, { status: 204 })));
     vi.stubGlobal('fetch', fetch);
     setTelemetryPreference(true);
 
@@ -78,7 +78,7 @@ it('attaches bounded client facts without sending the user-agent or location', (
   configureProductTelemetry(true);
   setTelemetryPreference(true);
   vi.stubGlobal('navigator', { userAgent: 'Mozilla/5.0 (secret-device) Chrome/142.0 Electron/39.1', platform: 'MacIntel' });
-  const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+  const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(null, { status: 204 })));
   vi.stubGlobal('fetch', fetch);
   sendProductTelemetry({ type: 'Project.opened', properties: {} }, 'example');
   const sent = JSON.parse(fetch.mock.calls[0]![1]!.body as string);
@@ -91,7 +91,7 @@ it('attaches bounded client facts without sending the user-agent or location', (
 
 it('limits walkthrough context to its project and maps custom IDs to other', () => {
   localStorage.clear(); configureProductTelemetry(true); setTelemetryPreference(true);
-  const fetch = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
+  const fetch = vi.fn<typeof globalThis.fetch>(() => Promise.resolve(new Response(null, { status: 204 })));
   vi.stubGlobal('fetch', fetch);
   setTelemetryWalkthrough({ projectId: 'p', walkthrough: 'private-guide-name', walkthroughState: 'active' });
   sendProductTelemetry({ type: 'Action.opened', properties: { action: 'map.extract' } }, 'p');

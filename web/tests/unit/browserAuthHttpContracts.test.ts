@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe('generated browser-auth HTTP contracts', () => {
   it('trims a typed request-link body and preserves the legacy status error', async () => {
-    const fetch = vi.fn(async () => new Response(null, { status: 502 }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 502 }));
     vi.stubGlobal('fetch', fetch);
 
     await expect(requestMagicLink('  person@example.test  ')).rejects.toThrow(
@@ -25,7 +25,7 @@ describe('generated browser-auth HTTP contracts', () => {
   });
 
   it('consumes the typed logout response but preserves best-effort logout', async () => {
-    const fetch = vi.fn(async () => new Response('{"detail":"unexpected"}', { status: 500 }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response('{"detail":"unexpected"}', { status: 500 }));
     vi.stubGlobal('fetch', fetch);
     localStorage.setItem('frisket:product-telemetry:v1', JSON.stringify({
       schema_version: 1,

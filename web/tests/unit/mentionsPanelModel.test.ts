@@ -17,21 +17,21 @@ import {
   typeFilterValue,
   uncoveredRows,
 } from '../../src/components/mentionsPanelModel';
+import { sheetMeta } from '../support/actionFormFixtures';
 
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([
+  { id: '1', name: 'body', type: 'text' },
+  // Marked: the only eligible shape.
+  { id: '2', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
+  // A json column whose NAME says entities but which carries no marker.
+  { id: '3', name: 'entities_imported', type: 'json' },
+  // A marked column of the wrong physical type.
+  { id: '4', name: 'entities_text', type: 'text', semanticType: 'entity_mentions' },
+], {
   id: '7',
   name: 'Filings',
   rowCount: 10,
-  columns: [
-    { id: '1', name: 'body', type: 'text' },
-    // Marked: the only eligible shape.
-    { id: '2', name: 'entities', type: 'json', semanticType: 'entity_mentions' },
-    // A json column whose NAME says entities but which carries no marker.
-    { id: '3', name: 'entities_imported', type: 'json' },
-    // A marked column of the wrong physical type.
-    { id: '4', name: 'entities_text', type: 'text', semanticType: 'entity_mentions' },
-  ],
-};
+});
 
 function group(overrides: Partial<EntityMentionGroup> = {}): EntityMentionGroup {
   return {
@@ -58,17 +58,17 @@ describe('eligibility is the marker, and only the marker', () => {
 
 describe('coverageLine — completed_rows INCLUDES failures', () => {
   it('subtracts the failing subset out of the extracted count', () => {
-    expect(coverageLine({ targetRows: 1000, completedRows: 997, failedRows: 3, sheetRows: 1000 }))
+    expect(coverageLine({ targetRows: 1000, completedRows: 997, failedRows: 3, sheetRows: 1000, scopeKind: 'all_rows' }))
       .toBe('994 of 1,000 rows extracted · 3 failed');
   });
 
   it('drops the failure clause when nothing failed', () => {
-    expect(coverageLine({ targetRows: 40, completedRows: 40, failedRows: 0, sheetRows: 40 }))
+    expect(coverageLine({ targetRows: 40, completedRows: 40, failedRows: 0, sheetRows: 40, scopeKind: 'all_rows' }))
       .toBe('40 of 40 rows extracted');
   });
 
   it('reports an incomplete run honestly', () => {
-    expect(coverageLine({ targetRows: 1000, completedRows: 400, failedRows: 0, sheetRows: 1000 }))
+    expect(coverageLine({ targetRows: 1000, completedRows: 400, failedRows: 0, sheetRows: 1000, scopeKind: 'all_rows' }))
       .toBe('400 of 1,000 rows extracted');
   });
 
@@ -76,7 +76,7 @@ describe('coverageLine — completed_rows INCLUDES failures', () => {
     // sheet_rows is a fact about the SHEET and arrives even here — it must not
     // conjure a coverage line for an extraction that never happened.
     expect(coverageLine({
-      targetRows: null, completedRows: null, failedRows: null, sheetRows: 12,
+      targetRows: null, completedRows: null, failedRows: null, sheetRows: 12, scopeKind: null,
     })).toBeNull();
   });
 });
@@ -87,7 +87,7 @@ describe('coverageLine — completed_rows INCLUDES failures', () => {
 // permanently. sheet_rows is what makes the gap sayable.
 describe('coverageLine — rows the extraction never covered', () => {
   it('names the uncovered rows and the remedy', () => {
-    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: 4 }))
+    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' }))
       .toBe(
         '2 of 2 rows extracted · 2 rows on this sheet not extracted — '
         + 're-run extraction to cover the whole sheet',
@@ -95,14 +95,14 @@ describe('coverageLine — rows the extraction never covered', () => {
   });
 
   it('reads naturally for a single uncovered row, and counts in thousands', () => {
-    expect(coverageLine({ targetRows: 3, completedRows: 3, failedRows: 0, sheetRows: 4 }))
+    expect(coverageLine({ targetRows: 3, completedRows: 3, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' }))
       .toContain('1 row on this sheet not extracted');
-    expect(coverageLine({ targetRows: 1000, completedRows: 1000, failedRows: 0, sheetRows: 3400 }))
+    expect(coverageLine({ targetRows: 1000, completedRows: 1000, failedRows: 0, sheetRows: 3400, scopeKind: 'all_rows' }))
       .toContain('2,400 rows on this sheet not extracted');
   });
 
   it('keeps the failure clause alongside it', () => {
-    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 1, sheetRows: 4 }))
+    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 1, sheetRows: 4, scopeKind: 'all_rows' }))
       .toBe(
         '1 of 2 rows extracted · 1 failed · 2 rows on this sheet not extracted — '
         + 're-run extraction to cover the whole sheet',
@@ -110,19 +110,19 @@ describe('coverageLine — rows the extraction never covered', () => {
   });
 
   it('adds NOTHING when the extraction still covers the sheet', () => {
-    expect(coverageLine({ targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4 }))
+    expect(coverageLine({ targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 4, scopeKind: 'all_rows' }))
       .toBe('4 of 4 rows extracted');
     // A sheet that SHRANK is not an uncovered sheet.
-    expect(coverageLine({ targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 2 }))
+    expect(coverageLine({ targetRows: 4, completedRows: 4, failedRows: 0, sheetRows: 2, scopeKind: 'all_rows' }))
       .toBe('4 of 4 rows extracted');
   });
 
   it('claims nothing when the sheet count is missing', () => {
     // A pre-sheet_rows payload: "cannot say" is not "everything is covered",
     // but it is certainly not a warning we can justify either.
-    expect(uncoveredRows({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: null }))
+    expect(uncoveredRows({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: null, scopeKind: 'all_rows' }))
       .toBe(0);
-    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: null }))
+    expect(coverageLine({ targetRows: 2, completedRows: 2, failedRows: 0, sheetRows: null, scopeKind: 'all_rows' }))
       .toBe('2 of 2 rows extracted');
   });
 });

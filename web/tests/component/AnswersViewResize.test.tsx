@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ColumnDef, SheetMeta } from '../../src/api/types';
 import { AnswersView } from '../../src/workbench/AnswersView';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 vi.mock('../../src/bind/useWorkspaceStores', () => ({
   useWorkspaceStores: () => ({ projectApi: {} }),
@@ -18,12 +19,11 @@ const ANSWER_COLUMN: ColumnDef = {
   name: 'Answer',
   type: 'text',
 };
-const SHEET: SheetMeta = {
+const SHEET: SheetMeta = sheetMeta([ANSWER_COLUMN], {
   id: 'sheet-answers',
   name: 'Answers',
   rowCount: 0,
-  columns: [ANSWER_COLUMN],
-};
+});
 
 function renderAnswersView() {
   return render(

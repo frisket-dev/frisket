@@ -42,16 +42,14 @@ describe('transcribe diarization declaration', () => {
         {
           id: 'parakeet_modal',
           label: 'Parakeet on Modal',
-          local: false,
-          source: 'modal',
+          tier: 'hosted',
           available: true,
           diarization: SORTFORMER,
         },
         {
           id: 'faster_whisper',
           label: 'Whisper',
-          local: true,
-          source: 'local',
+          tier: 'local',
           available: true,
           diarization: { supported: false },
         },
@@ -107,8 +105,7 @@ describe('transcribe diarization declaration', () => {
         {
           id: 'parakeet_modal',
           label: 'Parakeet on Modal',
-          local: false,
-          source: 'modal',
+          tier: 'hosted',
           available: true,
           diarization: SORTFORMER,
         },

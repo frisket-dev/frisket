@@ -121,7 +121,7 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     preflight: { state: 'ready', free_bytes: 1_000_000 },
     manifest: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
     upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
-    analysis: { files_done: 2, files_total: 2, sealed: true },
+    analysis: { files_done: 2, files_total: 2 },
     cleanup: { files_done: 0, files_total: 0, bytes_done: 0, bytes_total: 0, sealed: false },
     category_counts: categories,
     sample_ready_counts: { text: 1, suspicious: 1 },
@@ -398,7 +398,7 @@ describe('PDF batch import flow', () => {
       source_label: 'records.zip',
       manifest: { files_done: 17, files_total: 17, bytes_done: 170, bytes_total: 170, sealed: true },
       upload: { files_done: 17, files_total: 17, bytes_done: 170, bytes_total: 170, sealed: true },
-      analysis: { files_done: 0, files_total: 17, sealed: false },
+      analysis: { files_done: 0, files_total: 17 },
       category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 17 },
       sample_ready_counts: {},
       can_review_text: false,
@@ -409,7 +409,7 @@ describe('PDF batch import flow', () => {
       return snapshot(1 + Math.ceil(analyzed / 8), {
         ...initial,
         revision: 1 + Math.ceil(analyzed / 8),
-        analysis: { files_done: analyzed, files_total: 17, sealed: analyzed === 17 },
+        analysis: { files_done: analyzed, files_total: 17 },
         category_counts: { text: analyzed, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 17 - analyzed },
         sample_ready_counts: { text: Math.min(analyzed, 6) },
         can_review_text: analyzed > 0,
@@ -434,7 +434,7 @@ describe('PDF batch import flow', () => {
   it('aborts an in-flight staged analysis request before pausing for cancel', async () => {
     const initial = snapshot(1, {
       upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
-      analysis: { files_done: 0, files_total: 2, sealed: false },
+      analysis: { files_done: 0, files_total: 2 },
       category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 2 },
       sample_ready_counts: {},
       can_review_text: false,
@@ -460,7 +460,7 @@ describe('PDF batch import flow', () => {
   it('falls back to status polling without tightly retrying a failed staged analysis call', async () => {
     const initial = snapshot(1, {
       upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
-      analysis: { files_done: 0, files_total: 2, sealed: false },
+      analysis: { files_done: 0, files_total: 2 },
       category_counts: { text: 0, suspicious: 0, missing: 0, image: 0, other: 0, unreadable: 0, unchecked: 2 },
       sample_ready_counts: {},
       can_review_text: false,
@@ -714,15 +714,15 @@ describe('PDF batch import flow', () => {
       onBack={vi.fn()} onContinue={vi.fn()} />);
     expect(screen.getByText('3 rows from 1 file')).toBeVisible();
     const pdfRow = screen.getByRole('row', { name: /PDFs with a text layer/ });
-    expect(within(pdfRow).getByRole('cell', { name: '1', exact: true })).toBeVisible();
-    expect(within(pdfRow).getByRole('cell', { name: '3 pages', exact: true })).toBeVisible();
+    expect(within(pdfRow).getByRole('cell', { name: '1' })).toBeVisible();
+    expect(within(pdfRow).getByRole('cell', { name: '3 pages' })).toBeVisible();
     expect(screen.queryByText('8 pages')).not.toBeInTheDocument();
     expect(screen.getByText('1 file already in Archive and left as is')).toBeVisible();
   });
 
   it('preselects Split PDFs while admitted files are still being checked', async () => {
     const initial = snapshot(1, {
-      analysis: { files_done: 1, files_total: 2, sealed: true },
+      analysis: { files_done: 1, files_total: 2 },
       category_counts: { ...categories, suspicious: 0, unchecked: 1 },
     });
     const { api } = createApi(initial);
@@ -759,7 +759,7 @@ describe('PDF batch import flow', () => {
     const initial = snapshot(1, {
       manifest: { files_done: 1, files_total: 1, bytes_done: 3, bytes_total: 3, sealed: true },
       upload: { files_done: 1, files_total: 1, bytes_done: 3, bytes_total: 3, sealed: true },
-      analysis: { files_done: 1, files_total: 1, sealed: true },
+      analysis: { files_done: 1, files_total: 1 },
       category_counts: { ...categories, text: 1, suspicious: 0 },
       organization_summary: {
         ...snapshot().organization_summary, pdf_count: 1, page_count: pages,
@@ -836,7 +836,7 @@ describe('PDF batch import flow', () => {
       source_label: '4 files',
       manifest: { files_done: 4, files_total: 4, bytes_done: 12, bytes_total: 12, sealed: true },
       upload: { files_done: 4, files_total: 4, bytes_done: 12, bytes_total: 12, sealed: true },
-      analysis: { files_done: 4, files_total: 4, sealed: true },
+      analysis: { files_done: 4, files_total: 4 },
       category_counts: {
         text: 1, suspicious: 0, missing: 0, image: 1, other: 1, unreadable: 1, unchecked: 0,
       },
@@ -985,7 +985,7 @@ describe('PDF batch import flow', () => {
     const initial = snapshot(3, {
       paused: true,
       upload: { files_done: 1, files_total: 2, bytes_done: 3, bytes_total: 6, sealed: false },
-      analysis: { files_done: 1, files_total: 2, sealed: false },
+      analysis: { files_done: 1, files_total: 2 },
       choices: {
         ...snapshot().choices,
         semantic_search: false,
@@ -1324,7 +1324,7 @@ describe('PDF batch import flow', () => {
       preflight: { state: 'insufficient', free_bytes: 1 },
       manifest: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: false },
       upload: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: false },
-      analysis: { files_done: 0, files_total: 2, sealed: false },
+      analysis: { files_done: 0, files_total: 2 },
     });
     const { api } = createApi(initial);
     render(<PdfBatchImportFlow
@@ -1376,7 +1376,7 @@ describe('PDF batch import flow', () => {
     const initial = snapshot(1, {
       manifest: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: false },
       upload: { files_done: 0, files_total: 2, bytes_done: 0, bytes_total: 6, sealed: false },
-      analysis: { files_done: 0, files_total: 2, sealed: false },
+      analysis: { files_done: 0, files_total: 2 },
       category_counts: { unchecked: 2 },
       sample_ready_counts: {},
       can_review_text: false,
@@ -1588,7 +1588,7 @@ describe('PDF batch import flow', () => {
   it('waits for copied files before paid OCR estimation and offers retry after failure', async () => {
     const initial = snapshot(5, {
       upload: { files_done: 1, files_total: 2, bytes_done: 3, bytes_total: 6, sealed: false },
-      analysis: { files_done: 1, files_total: 2, sealed: false },
+      analysis: { files_done: 1, files_total: 2 },
       choices: { ...snapshot().choices, ocr_selection: { kind: 'engine_model', engine: 'remote-ocr', model: 'vision-ocr-v2' } },
     });
     const { api } = createApi(initial);
@@ -1715,7 +1715,7 @@ describe('PDF batch import flow', () => {
 it('refreshes files as text checking finishes without changing the selected sample', async () => {
   let finished = false;
   const initial = snapshot(1, {
-    analysis: { files_done: 1, files_total: 2, sealed: false },
+    analysis: { files_done: 1, files_total: 2 },
     category_counts: { ...categories, text: 0, suspicious: 1, unchecked: 1 },
   });
   const { api } = createApi(initial);
@@ -1771,7 +1771,7 @@ describe('guide draft arrival', () => {
   });
 
   it('waits for analysis readiness before entering Check text', async () => {
-    const pending = snapshot(1, { can_review_text: false, analysis: { files_done: 0, files_total: 2, sealed: false } });
+    const pending = snapshot(1, { can_review_text: false, analysis: { files_done: 0, files_total: 2 } });
     const { api } = createApi(pending);
     vi.mocked(api.analyze).mockResolvedValue(snapshot(2));
     render(<PdfBatchImportFlow projectId="project-1" resumeDraftId="draft-1" initialCheckText

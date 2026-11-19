@@ -6,11 +6,11 @@ import { transcribeCompareInputFor } from '../../src/workbench/transcribeCompare
 const localParakeet: EngineOption = {
   id: 'parakeet-tdt', label: 'Parakeet', tier: 'local', available: true,
   target_id: 'local-onnx',
-  transcription_options: { language: false, vad: true, model_size: false },
+  transcription_options: { language: false, vad: true, model_size: false, context: false },
   diarization: { supported: true, mode: 'optional', speaker_hint: 'none' },
   targets: [{
     target: 'local-onnx', target_id: 'local-onnx', available: true,
-    transcription_options: { language: false, vad: false, model_size: false },
+    transcription_options: { language: false, vad: false, model_size: false, context: false },
     diarization: { supported: false, mode: 'none' },
   }],
 };

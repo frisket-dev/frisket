@@ -31,14 +31,14 @@ import { ReviewSourcePreview } from '../../src/components/review/ReviewSourcePre
 const fieldOne = reviewField('field-one', 'column-one');
 const fieldTwo = reviewField('field-two', 'column-two');
 const bundle: ReviewBundle = {
-  id: 'bundle-1', runId: 'run-9', sheetId: 'sheet-1', sheetName: 'Sheet', rowId: 'row-3', rowIndex: 2,
+  id: 'bundle-1', runId: 'run-9', sourceId: 'run-9', copiedChangeId: null, sheetId: 'sheet-1', sheetName: 'Sheet', rowId: 'row-3', rowIndex: 2,
   actionKind: 'enrich', actionName: 'Extract', model: 'model', confidence: null, source: {}, context: '',
   fields: [fieldOne, fieldTwo], evidence: [],
 };
 
 function reviewField(id: string, columnId: string): ReviewBundleField {
   return {
-    id, runId: 'run-9', sheetId: 'sheet-1', rowId: 'row-3', columnId, columnName: id,
+    id, runId: 'run-9', sourceId: 'run-9', copiedChangeId: null, sheetId: 'sheet-1', rowId: 'row-3', columnId, columnName: id,
     columnType: 'text', value: `${id} value`, confidence: null, justification: '', reviewState: 'unreviewed', role: 'field', chore: false,
   };
 }

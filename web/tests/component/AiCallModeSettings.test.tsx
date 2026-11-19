@@ -13,18 +13,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as apiModule from '../../src/api/open';
 import type { RuntimeConfig } from '../../src/api/types';
 import { AiCallModeSettings } from '../../src/settings/PersonalSettings';
+import { runtimeConfig } from '../support/domainFixtures';
 
 
 
 function stubConfig(patch: Partial<RuntimeConfig>) {
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay',
-    live_calls_possible: true,
-    cache_mode_editable: false,
-    email_from_address: null,
-    email_from_name: null,
-    ...patch,
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig(patch));
 }
 
 afterEach(() => {
@@ -79,13 +73,11 @@ describe('AI call mode', () => {
 
   it('saves a local editable mode and marks the returned server value current', async () => {
     stubConfig({ cache_mode_editable: true, cache_mode: 'replay' });
-    const update = vi.spyOn(apiModule, 'updateRuntimeConfig').mockResolvedValue({
+    const update = vi.spyOn(apiModule, 'updateRuntimeConfig').mockResolvedValue(runtimeConfig({
       cache_mode: 'replay_strict',
       live_calls_possible: false,
       cache_mode_editable: true,
-      email_from_address: null,
-      email_from_name: null,
-    });
+    }));
     render(<AiCallModeSettings />);
 
     const strict = await screen.findByRole('radio', { name: /Strict replay/i });
@@ -102,13 +94,10 @@ describe('AI call mode', () => {
       cache_mode: 'replay_strict',
       live_calls_possible: false,
     });
-    const update = vi.spyOn(apiModule, 'updateRuntimeConfig').mockResolvedValue({
+    const update = vi.spyOn(apiModule, 'updateRuntimeConfig').mockResolvedValue(runtimeConfig({
       cache_mode: 'off',
-      live_calls_possible: true,
       cache_mode_editable: true,
-      email_from_address: null,
-      email_from_name: null,
-    });
+    }));
     render(<AiCallModeSettings />);
 
     fireEvent.click(await screen.findByRole('radio', { name: /Live without cache/i }));

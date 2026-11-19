@@ -19,20 +19,6 @@ import type {
   ProjectProviderKeys,
 } from '../../src/api/types';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      getProjectProviderKeys: vi.fn(),
-      validateProjectProviderKey: vi.fn(),
-      setProjectProviderKey: vi.fn(),
-      deleteProjectProviderKey: vi.fn(),
-    },
-  };
-});
-
 import { ProjectAiProvidersSettings } from '../../src/settings/AiProviderSettings';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
@@ -101,7 +87,7 @@ describe('AI Providers money cells', () => {
     await userEvent.selectOptions(screen.getByLabelText('Provider'), 'datalab');
     expect(screen.queryByLabelText('Spend cap in US dollars')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Project provider key'), 'candidate-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Test', exact: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(

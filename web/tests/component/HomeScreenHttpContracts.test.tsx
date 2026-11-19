@@ -48,7 +48,7 @@ const SHEETS = [
 
 describe('Home sheet counts generated HTTP contract', () => {
   it('uses tenant.list_sheets.get once with generated pid encoding and maps counts', async () => {
-    const fetch = vi.fn(async () => jsonResponse(SHEETS));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse(SHEETS));
     vi.stubGlobal('fetch', fetch);
 
     await expect(fetchProjectSheetCounts('project id%')).resolves.toEqual({ sheets: 2, rows: 5 });

@@ -19,7 +19,7 @@ describe('diagnostics generated HTTP contracts', () => {
       core: { store: { ok: true } },
       info: { future_probe: { nested: [true, null, 3.5] } },
     };
-    const fetch = vi.fn(async () => jsonResponse(payload));
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse(payload));
 
     await expect(fetchDiagnostics(projectId, { fetch })).resolves.toEqual(payload);
 

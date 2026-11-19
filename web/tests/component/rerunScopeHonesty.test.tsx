@@ -7,18 +7,6 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      listAlerts: vi.fn(),
-      getNotificationsSummary: vi.fn(),
-    },
-  };
-});
-
 import { CascadeConfirmDialog } from '../../src/workbench/LineagePanel';
 import { AlertsPanel } from '../../src/components/AlertsPanel';
 
@@ -30,6 +18,7 @@ import {
   defineEditionModule,
   EditionModuleProvider,
 } from '../../src/editions/module';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('p1');
 const listAlerts = vi.spyOn(api, 'listAlerts');
@@ -48,14 +37,13 @@ afterEach(() => {
 });
 
 function staleSheet(id: string, name: string): SheetMeta {
-  return {
+  return sheetMeta([], {
     id,
     name,
     rowCount: 3,
-    columns: [],
     parent: { sheetId: '1', sheetName: 'Stories', viaAction: 'derive.table_from_list' },
     syncState: 'stale',
-  };
+  });
 }
 
 describe('stale-cascade confirm — scope honesty (ruling 4)', () => {

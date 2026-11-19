@@ -16,6 +16,7 @@ import { PluginPeekHost } from '../../src/workbench/PluginPeekHost';
 import { PluginDetailHost } from '../../src/workbench/PluginDetailHost';
 import { PluginMainViewHost } from '../../src/workbench/PluginMainViewHost';
 import { SELECTION_SUMMARY_PANEL_COMPONENT_KEY } from '../../src/workbench/SelectionSummaryPanel';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 type RuntimeProps = ComponentProps<typeof TrustedLocalPluginComponent>;
 const runtimeMount = vi.hoisted(() => vi.fn<(props: RuntimeProps) => void>());
@@ -40,8 +41,11 @@ vi.mock('../../src/workbench/TimelineProjectionView', () => ({
   },
 }));
 
-const sheet: SheetMeta = { id: '7', name: 'Documents', rowCount: 2,
-  columns: [{ id: '1', name: 'title', type: 'text' }, { id: '2', name: 'date', type: 'date' }, { id: '3', name: 'image', type: 'image' }] };
+const sheet: SheetMeta = sheetMeta([{ id: '1', name: 'title', type: 'text' }, { id: '2', name: 'date', type: 'date' }, { id: '3', name: 'image', type: 'image' }], {
+  id: '7',
+  name: 'Documents',
+  rowCount: 2,
+});
 const subject = { kind: 'row' as const, sheetId: sheet.id, rowId: '11' };
 
 function hostContext(): WorkbenchHostContext {

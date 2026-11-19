@@ -15,14 +15,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: { ...actual.api, listAttemptReceipts: vi.fn() },
-  };
-});
-
 import { AttemptReceiptList } from '../../src/components/AttemptReceiptList';
 
 import type { AttemptReceipt, AttemptReceiptsPage } from '../../src/api/open';
@@ -51,9 +43,12 @@ function receipt(overrides: Partial<AttemptReceipt> = {}): AttemptReceipt {
     scope: [],
     target: null,
     consent: null,
+    evaluation: null,
+    receipt_id: null,
     cost_basis: { kind: 'operator_borne_zero' },
     price_card_version: null,
     settlement: {
+      terminal_status: null,
       price_card_version: null,
       pricing_key: null,
       charge_usd: '0',
@@ -84,6 +79,7 @@ const PAID = receipt({
   attempt_id: 'attempt_paid',
   cost_basis: { kind: 'priced' },
   settlement: {
+    terminal_status: null,
     price_card_version: 'test.synthetic.terms.v1',
     pricing_key: 'test.synthetic.audio_minute',
     unit_rate: '0.017',
@@ -341,6 +337,7 @@ describe('AttemptReceiptList', () => {
         receipt({
           run_id: null,
           settlement: {
+            terminal_status: null,
             price_card_version: 'test.synthetic.terms.v1',
             charge_usd: null,
             unsettleable: 'metering_reclaimed',
@@ -368,6 +365,7 @@ describe('AttemptReceiptList', () => {
       page([
         receipt({
           settlement: {
+            terminal_status: null,
             price_card_version: 'test.synthetic.terms.v1',
             pricing_key: 'test.synthetic.audio_minute',
             unit_rate: '0.017',
