@@ -16,7 +16,7 @@ afterEach(cleanup);
 
 const sheet: SheetMeta = {
   id: '9', name: 'Documents', rowCount: 500,
-  columns: [{ id: '10', name: 'file', type: 'file', ai_generated: false }],
+  columns: [{ id: '10', name: 'file', type: 'file' }],
   citedColumnIds: [], annotatedTextColumnIds: [],
 };
 
@@ -57,9 +57,9 @@ describe('useDocumentView bounded paging', () => {
   it('hydrates only media and timed-transcript companion columns', async () => {
     const transcriptSheet: SheetMeta = { ...sheet, columns: [
       ...sheet.columns,
-      { id: '20', name: 'transcript', type: 'timestamped_transcript', ai_generated: true },
-      { id: '21', name: 'transcript_segments', type: 'json', ai_generated: true },
-      { id: '22', name: 'unrelated', type: 'text', ai_generated: false },
+      { id: '20', name: 'transcript', type: 'timestamped_transcript' },
+      { id: '21', name: 'transcript_segments', type: 'json' },
+      { id: '22', name: 'unrelated', type: 'text' },
     ] };
     const hydrateRow = vi.fn(async () => null);
     renderHook(() => useDocumentView(hookArgs({
@@ -74,8 +74,8 @@ describe('useDocumentView bounded paging', () => {
   it('does not fetch transcript companions for an ordinary PDF', async () => {
     const transcriptSheet: SheetMeta = { ...sheet, columns: [
       ...sheet.columns,
-      { id: '20', name: 'transcript', type: 'timestamped_transcript', ai_generated: true },
-      { id: '21', name: 'transcript_segments', type: 'json', ai_generated: true },
+      { id: '20', name: 'transcript', type: 'timestamped_transcript' },
+      { id: '21', name: 'transcript_segments', type: 'json' },
     ] };
     const hydrateRow = vi.fn(async () => null);
     renderHook(() => useDocumentView(hookArgs({ sheet: transcriptSheet, hydrateRow })));
@@ -84,7 +84,7 @@ describe('useDocumentView bounded paging', () => {
 
   it('does not issue an empty projected row fetch for annotated text', async () => {
     const textSheet: SheetMeta = { ...sheet,
-      columns: [{ id: '30', name: 'body', type: 'text', ai_generated: false }],
+      columns: [{ id: '30', name: 'body', type: 'text' }],
       annotatedTextColumnIds: ['30'] };
     const hydrateRow = vi.fn(async () => null);
     renderHook(() => useDocumentView(hookArgs({
@@ -186,9 +186,9 @@ describe('useDocumentView bounded paging', () => {
 describe('DocumentAlongsidePane hydration', () => {
   it('requests the selected video and its presentation companion cells', async () => {
     const columns: SheetMeta['columns'] = [
-      { id: 'video', name: 'interview', type: 'video', ai_generated: false },
-      { id: 'caption', name: 'interview transcript', type: 'text', ai_generated: false },
-      { id: 'other', name: 'duration', type: 'number', ai_generated: false },
+      { id: 'video', name: 'interview', type: 'video' },
+      { id: 'caption', name: 'interview transcript', type: 'text' },
+      { id: 'other', name: 'duration', type: 'number' },
     ];
     const hydrateRow = vi.fn(async () => null);
     render(<DocumentAlongsidePane projectId="project-a" sheetId="9" columns={columns}

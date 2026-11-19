@@ -27,7 +27,7 @@ const sheet: SheetMeta = {
   name: 'Filings',
   rowCount: 1,
   columns: [
-    { id: 'file', name: 'file', type: 'file', ai_generated: false },
+    { id: 'file', name: 'file', type: 'file' },
   ],
   citedColumnIds: [],
   annotatedTextColumnIds: [],
