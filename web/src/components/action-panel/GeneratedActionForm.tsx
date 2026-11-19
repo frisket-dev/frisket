@@ -52,6 +52,7 @@ import { JoinOutputNames } from './JoinOutputNames';
 import { PdfTablesReview, type PdfTablesMaterializeIntent, type PdfTablesExportIntent } from './PdfTablesReview';
 import type { OcrCompareTarget } from '../../actions/ocrCompare';
 import { errorMessage } from '../../hooks/errorMessage';
+import { useJoinColumnPins } from './useJoinSheets';
 
 interface RichSourceEditorState {
   mode: SourceInputMode;
@@ -911,6 +912,31 @@ function GeneratedActionFormContents({
     latestDraft.current = next;
     setDraft(next);
   };
+  // A chosen source column follows its column id across a rename; a deleted
+  // one clears the choice instead of falling back to another column. A saved
+  // name that matched no column when the form opened keeps its own diagnostic.
+  const columnSourceParams = Object.entries(catalogEntry.ui_hints.semantic_controls)
+    .flatMap(([name, control]) => control === 'column' || control === 'column_or_template' ? [name] : []);
+  const [unresolvedAtOpen] = useState(() => new Map(columnSourceParams.flatMap((name) => {
+    const value = draft[name];
+    return typeof value === 'string' && !columns.some((column) => column.name === value) ? [[name, value]] : [];
+  })));
+  const missingSourceColumns = useJoinColumnPins(sheet ? [sheet] : [], Boolean(sheet),
+    columnSourceParams.flatMap((name) => {
+      const value = draft[name];
+      return typeof value === 'string' && sheetId !== null && Number.isSafeInteger(sheetId)
+        && unresolvedAtOpen.get(name) !== value
+        ? [{ slot: name, sheetId, name: value }] : [];
+    }),
+    (names) => {
+      setRichSourceEditors((current) => Object.fromEntries(Object.entries(current).map(([name, editor]) => {
+        const renamed = names.get(name);
+        return [name, renamed === undefined || editor.mode !== 'column' ? editor : { ...editor, columns: [renamed] }];
+      })));
+      writeFields(Object.fromEntries(names));
+    });
+  const missingSourceProblem = missingSourceColumns.length
+    ? `Source column ${missingSourceColumns.join(', ')} no longer exists. Choose another column.` : null;
   const updateField = (name: string, value: CanonicalFieldValue) => {
     markFieldTouched(name);
     setParamsEdited(true);
@@ -1389,6 +1415,8 @@ function GeneratedActionFormContents({
         />
       )}
 
+      {missingSourceProblem && <p className="panel-error" role="alert"
+        data-testid="generated-missing-source">{missingSourceProblem}</p>}
       {editorProblem && <p className="panel-error" role="alert" data-testid="generated-editor-problem">{editorProblem}</p>}
       {lockedUpdateProblem && <p className="panel-error" role="alert"
         data-testid="generated-locked-param-problem">{lockedUpdateProblem}</p>}
@@ -1554,7 +1582,7 @@ function GeneratedActionFormContents({
         primaryTestId={customization?.primaryTestId}
         disabledReason={resolved.runtime_setup ? 'Set up browser tools before running.' : !catalogAccepted ? 'The action catalog is refreshing.'
           : missingCredentials.length ? `Configure ${missingCredentials.join(', ')} in Settings before running.`
-          : editorProblem ?? engineProblem ?? resolutionProblem ?? outputNameProblem ?? (!validIdentity
+          : missingSourceProblem ?? editorProblem ?? engineProblem ?? resolutionProblem ?? outputNameProblem ?? (!validIdentity
           ? 'The selected rows are invalid.'
           : 'Complete the required fields.')}
         testIdPrefix="generated-action"

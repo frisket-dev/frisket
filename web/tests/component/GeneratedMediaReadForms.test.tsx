@@ -57,12 +57,14 @@ function form(kind: MediaAction, options: {
   const estimateAction = vi.fn(async () => options.estimate ?? {
     cost: 0, rows: 2, billed_cost: 0, policy_id: 'frisket.identity.v1',
   });
-  render(<GeneratedActionForm projectId={`generated-media:${kind}`} catalogEntry={entry} actionTemplate={template}
-    sheet={{ ...sheet, columns: options.columns ?? sheet.columns }} selectedRowIds={options.selectedRowIds ?? ['3', '8']} initialSourceColumn={kind === 'media.ocr' ? 'scan' : 'clip'}
+  const element = (columns: typeof sheet.columns) => <GeneratedActionForm projectId={`generated-media:${kind}`} catalogEntry={entry} actionTemplate={template}
+    sheet={{ ...sheet, columns }} selectedRowIds={options.selectedRowIds ?? ['3', '8']} initialSourceColumn={kind === 'media.ocr' ? 'scan' : 'clip'}
     initialDraft={options.initialDraft} hasExactRowScopeInitializer={Boolean(options.initialDraft)}
     running={false} resolveParams={resolveParams} estimateAction={estimateAction}
-    onExecute={onExecute} onClose={vi.fn()} onOpenDiagnose={onOpenDiagnose} onOpenOcrCompare={onOpenOcrCompare} />);
-  return { onExecute, entry, resolveParams, estimateAction, onOpenDiagnose, onOpenOcrCompare };
+    onExecute={onExecute} onClose={vi.fn()} onOpenDiagnose={onOpenDiagnose} onOpenOcrCompare={onOpenOcrCompare} />;
+  const view = render(element(options.columns ?? sheet.columns));
+  const setColumns = (columns: typeof sheet.columns) => view.rerender(element(columns));
+  return { onExecute, entry, resolveParams, estimateAction, onOpenDiagnose, onOpenOcrCompare, setColumns };
 }
 
 function saved(kind: MediaAction, params: Record<string, unknown>, output_names: Record<string, string> = {}): GeneratedActionDraft {
@@ -78,6 +80,25 @@ async function choose(engine: EngineOption) {
 }
 
 describe('typed OCR/transcription forms', () => {
+  it('follows the chosen source column by id across a rename and clears it when that column is deleted', async () => {
+    const other = columnDef({ id: '1', name: 'media_a', type: 'audio' });
+    const chosen = columnDef({ id: '2', name: 'clip', type: 'audio' });
+    const { onExecute, setColumns } = form('media.transcribe', { columns: [other, chosen] });
+    await waitFor(() => expect(screen.getByTestId('field-source')).toHaveValue('clip'));
+
+    setColumns([other, { ...chosen, name: 'clip_renamed' }]);
+    await waitFor(() => expect(screen.getByTestId('field-source')).toHaveValue('clip_renamed'));
+    await run();
+    expect(onExecute.mock.lastCall?.[0].params.source).toBe('clip_renamed');
+
+    setColumns([other]);
+    await waitFor(() => expect(screen.getByTestId('generated-missing-source'))
+      .toHaveTextContent('Source column clip_renamed no longer exists'));
+    expect(screen.getByTestId('field-source')).toHaveValue('');
+    expect(screen.getByTestId('field-source')).toHaveTextContent('Choose a column…');
+    expect(screen.getByTestId('generated-action-run')).toBeDisabled();
+  });
+
   it('uses the empty source picker as the required-column guidance without repeating its validation', async () => {
     const message = 'value must be non-empty and trimmed';
     form('media.ocr', {
