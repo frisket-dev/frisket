@@ -232,7 +232,7 @@ def register_search_index_handler(
                 embedding_encoder=embedding_encoder,
             )
             if not stopped():
-                continuation = {
+                continuation: dict[str, object] = {
                     "project_id": project_id,
                     "workspace_root": str(project_root),
                 }

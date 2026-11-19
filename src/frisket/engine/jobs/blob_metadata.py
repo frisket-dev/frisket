@@ -74,7 +74,7 @@ def register_blob_metadata_handler(
                 # Yield the worker between batches. A failed enqueue retries
                 # this job; completed probe namespaces already mark progress.
                 # Carry only serializable queue identity, not injected claims.
-                continuation = {
+                continuation: dict[str, object] = {
                     "project_id": project_id,
                     "workspace_root": str(project_root),
                     "after_hash": digests[-1],

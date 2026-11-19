@@ -107,7 +107,7 @@ def register_import_files_handler(
         sessions = ImportSessionStore(project)
 
         def project_payload() -> dict:
-            continuation = {
+            continuation: dict[str, object] = {
                 "project_id": project_id,
                 "workspace_root": str(project_root),
             }
