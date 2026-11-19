@@ -6,13 +6,13 @@ import hashlib
 import inspect
 import json
 import copy
-from collections.abc import Collection
+from collections.abc import AsyncIterator, Collection
 from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from functools import partial
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic_core import SchemaValidator
@@ -89,7 +89,7 @@ from frisket.contracts.action import (
     ReceiptEvidence,
     ReceiptIO,
 )
-from frisket.ops.base import ActionContext, ActionProgram, RenderedCall
+from frisket.ops.base import ActionContext, ActionProgram, CostClass, RenderedCall
 from frisket.engine.executor.action_lifecycle import (
     _PreparedMapExecution,
     _run_reserved_maprunner_action,
@@ -126,6 +126,16 @@ from frisket.sdk.provenance import Provenance, build_receipt_from_provenance
 from frisket.sdk.replay import (
     output_columns_replay_error,
     replay_expected_row_ids,
+)
+
+if TYPE_CHECKING:
+    from frisket.actions.extract import ExtractParams
+    from frisket.actions.ner import NerParams
+    from frisket.authoring.plugin_registry import RuntimeBindingSpec
+
+# Rows whose capability returned provider accounting carry it beside the cells.
+_RowPublication = (
+    PreparedRowPublication | tuple[PreparedRowPublication, Mapping[str, Any]]
 )
 
 _FILE_CAPABILITIES = (
@@ -170,7 +180,7 @@ class TypedMapRowsPlan:
     request_identity: Mapping[str, Any]
     evaluation_context: ModelRowsEvaluationContext | None
     spec: Mapping[str, Any]
-    program: ActionProgram
+    program: _TypedMapRowsProgram
 
     def spec_dict(self) -> dict[str, Any]:
         return dict(self.spec)
@@ -194,6 +204,13 @@ def _capability_engine(terminal, params: BaseModel, capability: type) -> str | N
     if annotation.__pydantic_generic_metadata__.get("args", ()) != (capability,):
         return None
     return getattr(params, name).root
+
+
+def _admitted_capability_engine(terminal, params: BaseModel, capability: type) -> str:
+    engine = _capability_engine(terminal, params, capability)
+    if engine is None:
+        raise ValueError(f"{capability.__name__} execution requires an admitted engine")
+    return engine
 
 
 def _model_backed_terminal(terminal) -> bool:
@@ -268,8 +285,13 @@ class _MapTerminalPolicy:
 class _TypedMapRowsProgram(ActionProgram):
     """Generic Program protocol adapter; never registered or action-specific."""
 
-    consumes_resolution = False
-    cost_class = "free"
+    # One adapter class serves every row family, so these declarations are
+    # decided per instance from the family's terminal capabilities.
+    consumes_resolution: bool = False
+    execution_capability: str | None = None
+    cost_class: CostClass = "free"
+    # Set only for model-backed terminals, whose prompts read these columns.
+    prompt_source_columns: tuple[str, ...]
     llm = False
     action_lifecycle_only = True
     # Typed Outcomes may intentionally carry low confidence into review. Plain
@@ -290,6 +312,18 @@ class _TypedMapRowsProgram(ActionProgram):
                 project, self._runtime_binding
             )
 
+    @property
+    def _extract_params(self) -> ExtractParams | None:
+        from frisket.actions.extract import ExtractParams
+
+        return self._params if isinstance(self._params, ExtractParams) else None
+
+    @property
+    def _ner_params(self) -> NerParams | None:
+        from frisket.actions.ner import NerParams
+
+        return self._params if isinstance(self._params, NerParams) else None
+
     def __init__(
         self,
         action: RegisteredAction,
@@ -298,7 +332,7 @@ class _TypedMapRowsProgram(ActionProgram):
         resolved_output_fields: tuple[OutputField, ...],
         output_fields: tuple[dict[str, Any], ...],
         evaluation_context: ModelRowsEvaluationContext | None = None,
-        runtime_binding: Any | None = None,
+        runtime_binding: RuntimeBindingSpec | None = None,
         preserve_invalid_source_columns: Collection[str] = (),
     ) -> None:
         self.name = action.action_id
@@ -492,6 +526,16 @@ class _TypedMapRowsProgram(ActionProgram):
         del spec
         return [dict(field) for field in self._output_fields]
 
+    def _agent_response_schema(self):
+        return {
+            "type": "object",
+            "properties": {
+                field.key: dict(field.schema) for field in self._resolved_output_fields
+            },
+            "required": [field.key for field in self._resolved_output_fields],
+            "additionalProperties": False,
+        }
+
     def max_row_concurrency(self, spec):
         if OpenCorporates in self._terminal.capabilities:
             return 1
@@ -531,18 +575,22 @@ class _TypedMapRowsProgram(ActionProgram):
                 classifier_provenance_model,
             )
 
-            engine = _capability_engine(self._terminal, self._params, Classifier)
-            if engine is None:
-                raise ValueError("Classifier execution requires an admitted engine")
-            return classifier_provenance_model(engine)
+            return classifier_provenance_model(
+                _admitted_capability_engine(self._terminal, self._params, Classifier)
+            )
         if isinstance(self._terminal, _DirectModelRows):
-            return getattr(self._params, self._terminal.engine_param).root
+            engine_param = self._terminal.engine_param
+            if engine_param is None:
+                raise TypeError("a direct model_rows terminal names its engine param")
+            return getattr(self._params, engine_param).root
         if routed_capability(self._terminal) is not None:
             return spec.get("engine")
         return super().run_provenance_model(spec)
 
     @asynccontextmanager
-    async def execution_scope(self, spec, ctx, *, expected_rows):
+    async def execution_scope(
+        self, spec: dict, ctx: ActionContext, *, expected_rows: int
+    ) -> AsyncIterator[None]:
         async with AsyncExitStack() as resources:
             if self._uses_translator:
                 from frisket.execution.attempt import attempt_in_scope
@@ -551,15 +599,16 @@ class _TypedMapRowsProgram(ActionProgram):
                 self._translation_writer = (
                     attempt.attempt_id if attempt is not None else None
                 )
-            if self._uses_extract:
+            extract_params = self._extract_params
+            if extract_params is not None:
                 from frisket.engine.executor.extract_result_citations import (
                     ExtractResultCitations,
                 )
                 from frisket.execution.attempt import attempt_in_scope
 
-                grounding = self._params.grounding
-                policy = self._params.evidence_policy
-                names = {field.name for field in self._params.fields}
+                grounding = extract_params.grounding
+                policy = extract_params.evidence_policy
+                names = {field.name for field in extract_params.fields}
                 self._extract_citations = ExtractResultCitations(
                     ctx.project,
                     fields={
@@ -568,15 +617,15 @@ class _TypedMapRowsProgram(ActionProgram):
                         if field.key in names
                     },
                     output_names=self._output_names,
-                    required_fields={
-                        field.name for field in self._params.fields if field.required
-                    },
+                    required_fields=frozenset(
+                        field.name for field in extract_params.fields if field.required
+                    ),
                     grounding_enabled=bool(grounding and grounding.enabled),
                     citation_required=bool(
                         (grounding and grounding.citation_required)
                         or (policy and policy.citation_required)
                     ),
-                    source_columns=self._params.source_document_columns,
+                    source_columns=extract_params.source_document_columns,
                     prompt_source_columns=self.prompt_source_columns,
                 )
                 attempt = attempt_in_scope(ctx.extras)
@@ -603,7 +652,7 @@ class _TypedMapRowsProgram(ActionProgram):
                     from frisket.contracts.classification import DECISION_ENGINE_IDS
                     from frisket.contracts.clef import classification_context
 
-                    engine = _capability_engine(
+                    engine = _admitted_capability_engine(
                         self._terminal, self._params, capability
                     )
                     factory = (
@@ -621,7 +670,7 @@ class _TypedMapRowsProgram(ActionProgram):
 
                     reader = AdmittedNerExtractor(
                         ctx,
-                        engine=_capability_engine(
+                        engine=_admitted_capability_engine(
                             self._terminal, self._params, capability
                         ),
                     )
@@ -632,7 +681,7 @@ class _TypedMapRowsProgram(ActionProgram):
 
                     reader = AdmittedTranslator(
                         ctx,
-                        engine=_capability_engine(
+                        engine=_admitted_capability_engine(
                             self._terminal, self._params, capability
                         ),
                         options=resolved_engine_options(self._terminal, self._params)
@@ -646,10 +695,13 @@ class _TypedMapRowsProgram(ActionProgram):
 
                         reader = AdmittedResearcher(ctx, model=spec["model"])
                     else:
+                        from frisket.actions.mcp_extract import McpExtractParams
                         from frisket.engine.executor.mcp_extract_read import (
                             AdmittedMcpExtractor,
                         )
 
+                        if not isinstance(self._params, McpExtractParams):
+                            raise TypeError("McpExtractor requires McpExtractParams")
                         reader = AdmittedMcpExtractor(
                             ctx,
                             model=spec["model"],
@@ -962,7 +1014,7 @@ class _TypedMapRowsProgram(ActionProgram):
         row_values: dict[str, Any],
         spec: dict[str, Any],
         ctx: ActionContext,
-    ) -> PreparedRowPublication:
+    ) -> _RowPublication:
         bindings = self._capability_bindings.get()
         if self._terminal.capabilities and bindings is None:
             raise RuntimeError("typed row capabilities require an invocation scope")
@@ -1016,11 +1068,15 @@ class _TypedMapRowsProgram(ActionProgram):
                     strict=True,
                 )
             ]
-            produced = self._terminal.handler(
+            produced = self._handler_terminal().handler(
                 self._params, row, *self._handler_arguments(row_bindings, ctx)
             )
             if inspect.isawaitable(produced):
                 produced = await produced
+            if not isinstance(produced, RowResult):
+                raise TypeError(
+                    "typed row handler returned something other than RowResult"
+                )
             topic_reader = next(
                 (
                     binding
@@ -1062,7 +1118,9 @@ class _TypedMapRowsProgram(ActionProgram):
                 self._row_error_publication(error), ctx.extras.get("row_id")
             )
 
-    def _with_accounting(self, publication, row_id):
+    def _with_accounting(
+        self, publication: PreparedRowPublication, row_id: int | None
+    ) -> _RowPublication:
         calls = [
             copy.deepcopy(call)
             for binding in self._capability_bindings.get() or ()
@@ -1104,6 +1162,11 @@ class _TypedMapRowsProgram(ActionProgram):
                 return publication, accounting
         return publication
 
+    def _handler_terminal(self) -> MapRows | _ProjectAction:
+        if isinstance(self._terminal, ModelRows):
+            raise TypeError("model_rows terminals render prompts and have no handler")
+        return self._terminal
+
     def _handler_arguments(self, bindings, ctx):
         capabilities = iter(bindings)
         return tuple(
@@ -1112,7 +1175,7 @@ class _TypedMapRowsProgram(ActionProgram):
             else self._required_plugin_secrets()
             if kind is PluginSecrets
             else next(capabilities)
-            for kind in self._terminal.injections
+            for kind in self._handler_terminal().injections
         )
 
     def _required_plugin_secrets(self):
@@ -1289,11 +1352,14 @@ class _TypedMapRowsProgram(ActionProgram):
             typed_ner_citation_spec,
         )
 
+        ner_params = self._ner_params
+        if ner_params is None:
+            raise TypeError("NER citations require NerParams")
         capture_result_evidence(
             values,
             capture,
             results,
-            {**spec, **typed_ner_citation_spec(self._params, self._output_names)},
+            {**spec, **typed_ner_citation_spec(ner_params, self._output_names)},
             **kwargs,
         )
 
@@ -1309,12 +1375,17 @@ class _TypedMapRowsProgram(ActionProgram):
 
         if self._uses_translator:
             from frisket.engine.store.receipts import ReceiptStore
+            from frisket.execution.attempt import StaleAttemptWriter
 
             for cell in batch:
                 for call in cell.get("row_file_calls", ()):
                     if call.get("kind") != "translate_read":
                         continue
                     for artifact in call.get("artifacts", ()):
+                        if self._translation_writer is None:
+                            raise StaleAttemptWriter(
+                                "the mutation supplied no immutable writer attempt"
+                            )
                         ReceiptStore(project)._record_writer_supporting_record(
                             {**artifact, "kind": "map_translate_artifact"},
                             run_id=run_id,
@@ -1333,7 +1404,8 @@ class _TypedMapRowsProgram(ActionProgram):
                 **kwargs,
             )
 
-        if self._uses_ner:
+        ner_params = self._ner_params
+        if ner_params is not None:
             from frisket.ops.ner_citations import (
                 _write_ner_result_citations,
                 typed_ner_citation_spec,
@@ -1341,7 +1413,7 @@ class _TypedMapRowsProgram(ActionProgram):
 
             _write_ner_result_citations(
                 project,
-                {**spec, **typed_ner_citation_spec(self._params, self._output_names)},
+                {**spec, **typed_ner_citation_spec(ner_params, self._output_names)},
                 batch=batch,
                 run_id=run_id,
                 claim_token=claim_token,
@@ -1444,7 +1516,7 @@ class _TypedMapBatchProgram(_TypedMapRowsProgram):
         values_by_row: dict[int, dict[str, Any]],
         spec: dict[str, Any],
         ctx: ActionContext,
-    ) -> dict[int, PreparedRowPublication]:
+    ) -> dict[int, _RowPublication]:
         del spec
         bindings = self._capability_bindings.get()
         if self._terminal.capabilities and bindings is None:
@@ -1457,7 +1529,7 @@ class _TypedMapBatchProgram(_TypedMapRowsProgram):
             )
         ]
         rows = Rows({row_id: Row(values) for row_id, values in values_by_row.items()})
-        produced = self._terminal.handler(
+        produced = self._handler_terminal().handler(
             self._params, rows, *self._handler_arguments(batch_bindings, ctx)
         )
         if inspect.isawaitable(produced):
@@ -1489,36 +1561,31 @@ class _TypedAgentRowsProgram(_TypedMapRowsProgram):
     def requires_row_effect_checkpoint(self, spec):
         return True
 
-    def _agent_response_schema(self):
-        return {
-            "type": "object",
-            "properties": {
-                field.key: dict(field.schema) for field in self._resolved_output_fields
-            },
-            "required": [field.key for field in self._resolved_output_fields],
-            "additionalProperties": False,
-        }
-
     def render(self, row_values, spec):
         from frisket.actions.row_research import source_values
         from frisket.ai.message_content import render_input_block
 
+        from frisket.actions.mcp_extract import McpExtractParams
         from frisket.actions.research import WebSearchParams
+        from frisket.actions.row_research import ResearchParams
 
         row = Row(row_values)
-        if isinstance(self._params, WebSearchParams):
+        params = self._params
+        if isinstance(params, WebSearchParams):
             content = []
-            instruction = self._params.query.render(row)
+            instruction = params.query.render(row)
         elif Researcher in self._terminal.capabilities:
-            content = render_input_block(source_values(row, self._params.source))
-            instruction = self._params.question.render(row)
+            if not isinstance(params, ResearchParams):
+                raise TypeError("Researcher prompts require ResearchParams")
+            content = render_input_block(source_values(row, params.source))
+            instruction = params.question.render(row)
         else:
-            content = render_input_block(source_values(row, self._params.source))
-            instruction = self._params.instruction or "Extract the requested fields."
-            if self._params.context:
-                instruction = (
-                    f"Dataset context: {self._params.context}\n\n{instruction}"
-                )
+            if not isinstance(params, McpExtractParams):
+                raise TypeError("agent extraction prompts require McpExtractParams")
+            content = render_input_block(source_values(row, params.source))
+            instruction = params.instruction or "Extract the requested fields."
+            if params.context:
+                instruction = f"Dataset context: {params.context}\n\n{instruction}"
         content.append({"type": "text", "text": instruction})
         return RenderedCall(
             messages=[{"role": "user", "content": content}],
@@ -1546,7 +1613,7 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         resolved_output_fields: tuple[OutputField, ...],
         output_fields: tuple[dict[str, Any], ...],
         evaluation_context: ModelRowsEvaluationContext | None = None,
-        runtime_binding: Any | None = None,
+        runtime_binding: RuntimeBindingSpec | None = None,
         preserve_invalid_source_columns: Collection[str] = (),
     ) -> None:
         super().__init__(
@@ -1563,6 +1630,8 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         if not isinstance(terminal, ModelRows):
             raise TypeError(f"{action.action_id} is not a model_rows action")
         self._model_rows = terminal
+        if terminal.response_model is None:
+            raise TypeError(f"{action.action_id} declares no model response")
         self._response_model = terminal.response_model
         self._response_schema = compile_output_schema(
             self._response_model, output_fields=resolved_output_fields
@@ -1608,10 +1677,11 @@ class _TypedModelRowsProgram(_TypedMapRowsProgram):
         row_values: dict[str, Any],
         spec: dict[str, Any],
     ) -> RenderedCall:
+        extract_params = self._extract_params
         if (
-            self._uses_extract
-            and self._params.grounding
-            and self._params.grounding.enabled
+            extract_params is not None
+            and extract_params.grounding
+            and extract_params.grounding.enabled
         ):
             from frisket.engine.executor.extract_result_citations import (
                 extract_prompt_values,
@@ -1725,7 +1795,7 @@ def build_typed_map_rows_plan(
         set(references.source_columns)
         & {
             field.materialized_name(request.output_names)
-            for field in bound.output_fields
+            for field in _row_output_fields(bound)
         }
     )
     if overlapping_columns:
@@ -1746,7 +1816,7 @@ def build_typed_map_rows_plan(
     else:
         output_names = {
             field.key: field.materialized_name(bound.request.output_names)
-            for field in bound.output_fields
+            for field in _row_output_fields(bound)
         }
         output_target_preconditions = {}
     unresolved = _typed_map_rows_plan(
@@ -1757,7 +1827,7 @@ def build_typed_map_rows_plan(
     )
     if (
         bound.action.action_id in {"map.ask", "map.extract", "map.summarize"}
-        and isinstance(bound.action.definition.run, ModelRows)
+        and isinstance(unresolved.program, _TypedModelRowsProgram)
         and any(
             references.source_column_types.get(name) == "file"
             for name in unresolved.program.prompt_source_columns
@@ -1772,6 +1842,12 @@ def build_typed_map_rows_plan(
     )
 
 
+def _row_output_fields(bound: BoundTypedActionRequest) -> tuple[OutputField, ...]:
+    if bound.output_fields is None:
+        raise TypeError(f"{bound.action.action_id} binds no row outputs")
+    return bound.output_fields
+
+
 def _resolve_typed_output_targets(
     project: Any,
     bound: BoundTypedActionRequest,
@@ -1781,7 +1857,7 @@ def _resolve_typed_output_targets(
     return resolve_row_output_targets(
         project,
         bound.request,
-        bound.output_fields,
+        _row_output_fields(bound),
         allow_idempotent_outputs=allow_idempotent_outputs,
     )
 
@@ -1951,6 +2027,11 @@ def bound_typed_program_request_from_runner_spec(
     ) and getattr(action.definition.run, "capabilities", ()) != (ValueClusterer,):
         return None
     row_ids = runner_spec.get("row_ids")
+    resolved_fields = action.definition.run.resolve_output_fields(
+        action.definition.run.params_model.model_validate(runner_spec.get("params"))
+    )
+    if resolved_fields is None:
+        raise TypeError(f"{action_id} resolves no row outputs")
     request = ActionRequest.model_validate(
         {
             "action_id": action_id,
@@ -1962,11 +2043,7 @@ def bound_typed_program_request_from_runner_spec(
             "params": runner_spec.get("params"),
             "output_names": {
                 field.key: runner_spec.get("output_names", {}).get(field.key, field.key)
-                for field in action.definition.run.resolve_output_fields(
-                    action.definition.run.params_model.model_validate(
-                        runner_spec.get("params")
-                    )
-                )
+                for field in resolved_fields
                 if not field.hidden
             },
             "replace_existing": runner_spec.get("replace_existing", False),
@@ -2510,7 +2587,7 @@ def _typed_map_rows_plan(
     action, request = bound.action, bound.request
     scope = require_sheet_rows(request.scope)
     terminal_policy = _MapTerminalPolicy.for_terminal(action.definition.run)
-    params, output_fields = bound.params, bound.output_fields
+    params, output_fields = bound.params, _row_output_fields(bound)
     request_identity = normalized_typed_request_identity(bound)
     declared_references = discover_references(params)
     source_columns = tuple(reference.column for reference in declared_references)
@@ -2762,7 +2839,7 @@ def _typed_replay_error(
         if _model_backed_terminal(action.definition.run):
             terminal = action.definition.run
             evaluation = getattr(terminal, "evaluation", None)
-            roles = {
+            roles: dict[str | None, str] = {
                 field.materialized_name(request.output_names): (
                     "judge_verdict"
                     if evaluation is not None and field.key == "verdict"
@@ -2770,7 +2847,7 @@ def _typed_replay_error(
                     if evaluation is not None and field.key == "judge_note"
                     else field.key
                 )
-                for field in bound.output_fields
+                for field in _row_output_fields(bound)
             }
             if any(
                 output.ref.get("role") != roles.get(output.ref.get("name"))
@@ -2852,12 +2929,11 @@ def typed_map_rows_replay_result(
     existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
     if existing is None:
         return None
-    if existing["status"] == "running" and getattr(
-        bound.action.definition.run, "capabilities", ()
-    ):
+    capabilities = getattr(bound.action.definition.run, "capabilities", ())
+    if existing["status"] == "running" and capabilities:
         from frisket.actions.cluster_types import ValueClusterer
 
-        if bound.action.definition.run.capabilities == (ValueClusterer,):
+        if capabilities == (ValueClusterer,):
             run_id = existing["run_id"]
             ready = None
             if run_id is not None and existing["params_hash"] == typed_request_hash(
@@ -3028,20 +3104,21 @@ def _typed_receipt(
         rich_by_name = {item["name"]: item for item in facts.input_columns_rich}
         inputs = []
         for name in plan.source_columns:
-            is_subject = (
+            subject_context = context
+            if not (
                 evaluation is not None
-                and plan.evaluation_context is not None
-                and name == plan.evaluation_context.subject_column
-            )
-            if is_subject:
-                context = plan.evaluation_context
-                assert context is not None
+                and subject_context is not None
+                and name == subject_context.subject_column
+            ):
+                subject_context = None
+            is_subject = subject_context is not None
+            if subject_context is not None:
                 rich = {
                     "ai_generated": True,
-                    "source_run_id": context.source_run_id,
-                    "source_receipt_id": context.source_receipt_id,
+                    "source_run_id": subject_context.source_run_id,
+                    "source_receipt_id": subject_context.source_receipt_id,
                 }
-                row_ids = list(context.subject_row_ids)
+                row_ids = list(subject_context.subject_row_ids)
             else:
                 rich = rich_by_name[name]
                 row_ids = facts.row_ids
@@ -3061,13 +3138,10 @@ def _typed_receipt(
                     else {}
                 ),
             }
-            if is_subject:
-                ref["included_original_prompt"] = bool(
-                    plan.evaluation_context.original_prompt
-                )
+            if subject_context is not None:
+                ref["included_original_prompt"] = bool(subject_context.original_prompt)
                 ref["value_refs"] = [
-                    dict(value_ref)
-                    for value_ref in plan.evaluation_context.subject_value_refs
+                    dict(value_ref) for value_ref in subject_context.subject_value_refs
                 ]
             inputs.append(ReceiptIO(name=f"column.{name}", kind="column", ref=ref))
         from frisket.engine.executor.action_support import _model_call_provider_use
@@ -3310,20 +3384,24 @@ def _typed_receipt(
         for engine, group in grouped.items():
             declaration = find_engine(to_markdown_engine_table(), engine)
             calls = [call for call in document_calls if call["engine"] == engine]
-            if not calls and declaration is None:
+            if calls:
+                provider = calls[0]["provider"]
+            elif declaration is not None:
+                provider = declaration.provider
+            else:
                 # Preserve the receipt rather than guessing provider identity
                 # from an unknown engine spelling. A paid call always carries
                 # its provider by value in ``document_calls``.
                 continue
             provider_use.append(
                 {
-                    "provider": calls[0]["provider"] if calls else declaration.provider,
+                    "provider": provider,
                     "model": engine,
                     "engine": engine,
                     "service": "document.convert",
                     "external_api": bool(calls)
                     or bool(group["external"])
-                    or declaration.tier == "hosted",
+                    or (declaration is not None and declaration.tier == "hosted"),
                     "operation_call_count": group["count"],
                     "model_call_count": len(calls),
                     "cost_actual": model_calls_cost_actual(calls),
@@ -3383,14 +3461,14 @@ def _typed_receipt(
         calls = [
             item.ref for item in recorded if item.ref.get("kind") == "row_file_call"
         ]
-        grouped = {}
+        grouped_calls: dict[tuple[Any, Any, bool], int] = {}
         for call in calls:
             key = (
                 call.get("provider", "local"),
                 call.get("service", "file_acquisition"),
                 bool(call.get("external_api", False)),
             )
-            grouped[key] = grouped.get(key, 0) + 1
+            grouped_calls[key] = grouped_calls.get(key, 0) + 1
         provider_use.extend(
             {
                 "provider": provider,
@@ -3399,7 +3477,7 @@ def _typed_receipt(
                 "operation_call_count": count,
                 "cost_actual": 0.0,
             }
-            for (provider, service, remote), count in grouped.items()
+            for (provider, service, remote), count in grouped_calls.items()
         )
     if any(
         capability in getattr(plan.action.definition.run, "capabilities", ())
@@ -3444,11 +3522,14 @@ def _typed_receipt(
             else []
         )
         supporting_records.extend(recorded)
+        runtime_binding = plan.program._runtime_binding
+        if runtime_binding is None:
+            raise TypeError("OpenCorporates requires an installed action binding")
         provider_use = (
             [
                 {
                     "provider": "opencorporates.com",
-                    "plugin_id": plan.program._runtime_binding.plugin,
+                    "plugin_id": runtime_binding.plugin,
                     "action_kind": plan.action.action_id,
                     "external_api": True,
                     "cost_source": "external_metered_declared",
@@ -3571,17 +3652,20 @@ def typed_queued_map_spec(
     ) -> dict[str, Any] | ActionError:
         try:
             existing = _receipt_for_idempotency(project, bound.request.idempotency_key)
-            recovering_queued = bool(
-                existing is not None and existing["status"] == "queued"
+            queued_receipt = (
+                existing
+                if existing is not None and existing["status"] == "queued"
+                else None
             )
+            recovering_queued = queued_receipt is not None
             plan = build_typed_map_rows_plan(
                 project,
                 bound,
                 _allow_existing_outputs=recovering_queued,
                 _enforce_expected_generated_columns=not recovering_queued,
             )
-            if recovering_queued and type(existing["run_id"]) is int:
-                run_id = int(existing["run_id"])
+            if queued_receipt is not None and type(queued_receipt["run_id"]) is int:
+                run_id = int(queued_receipt["run_id"])
                 role_to_name = {
                     str(role): str(name) for role, name in plan.output_names.items()
                 }
@@ -3757,7 +3841,7 @@ def typed_queued_map_spec(
             ):
                 return ActionError(
                     code="stale_media_extract_pdf_tables_input"
-                    if PdfTablesReader in bound.action.definition.run.capabilities
+                    if PdfTablesReader in current_plan.program._terminal.capabilities
                     else "stale_input",
                     message="media sources changed since queue reservation",
                     action_kind=bound.action.action_id,
