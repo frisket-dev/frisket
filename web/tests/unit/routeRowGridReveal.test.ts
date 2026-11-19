@@ -7,7 +7,7 @@ import { consumeGridCellReveal, getPendingGridCellReveal } from '../../src/grid/
 import { createDetailStore } from '../../src/state/detailStore';
 import { createRouteStore } from '../../src/state/routeStore';
 import { createSelectionStore } from '../../src/state/selectionStore';
-import { row } from '../support/domainFixtures';
+import { columnDef, row } from '../support/domainFixtures';
 
 const linked: Row = row({ title: 'Scale row 1500' }, { id: '1501', index: 0 });
 const api = {
@@ -16,12 +16,12 @@ const api = {
 };
 vi.mock('../../src/bind/useWorkspaceStores', () => ({ useWorkspaceStores: () => ({ projectApi: api }) }));
 
-const sheet = { id: '4', columns: [] };
+const sheet = { id: '4', columns: [columnDef({ id: '7', name: 'name' })] };
 
-function renderRoute(drawer: Row | null) {
+function renderRoute(drawer: Row | null, columnId?: string) {
   const route = createRouteStore('project-1');
   route.navigate({ projectId: 'project-1', sheetId: '4', actionKind: null, review: false,
-    panel: { kind: 'row', rowId: '1501' } });
+    panel: { kind: 'row', rowId: '1501', ...(columnId ? { columnId } : {}) } });
   const detail = createDetailStore();
   if (drawer) detail.openRow(drawer);
   renderHook(() => useRouteRowFetch({
@@ -39,12 +39,18 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('route row grid reveal', () => {
-  it('asks the grid to scroll to and select a linked row the drawer did not show', async () => {
+  it('asks the grid to scroll to a linked row the drawer did not show', async () => {
     const detail = renderRoute(null);
     await waitFor(() => expect(detail.store.get().rowDrawer?.id).toBe('1501'));
     expect(getPendingGridCellReveal()).toMatchObject({
       projectId: 'project-1', sheetId: '4', rowId: '1501', columnId: null, columnName: null,
     });
+  });
+
+  it('reveals a linked cell as its row only, so no cell selection turns the next click into an edit', async () => {
+    const detail = renderRoute(null, '7');
+    await waitFor(() => expect(detail.store.get().rowDrawer?.id).toBe('1501'));
+    expect(getPendingGridCellReveal()).toMatchObject({ rowId: '1501', columnId: null, columnName: null });
   });
 
   it('leaves the grid alone when the drawer row came from the grid with only its projected columns', async () => {

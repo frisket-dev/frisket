@@ -147,7 +147,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
       };
     }
     // A row the drawer did not already show was opened from outside the grid
-    // (a link, history, a reference), so the grid scrolls to it and selects it.
+    // (a link, history, a reference), so the grid scrolls it into view.
     const revealInGrid = rowDrawerId !== panel.rowId;
 
     const scope = viewSelection ? { selection: viewSelection } : {
@@ -165,7 +165,7 @@ export function useRouteRowFetch(deps: RouteRowFetchDeps): void {
             projectId: route.store.get().projectId,
             sheetId: sheet.id,
             rowId: row.id,
-            columnId: columnId,
+            columnId: null,
             columnName: null,
           });
         }

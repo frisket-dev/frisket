@@ -3,7 +3,8 @@ interface GridCellRevealRequest {
   projectId: string;
   sheetId: string;
   rowId: string;
-  /** Both null reveals the row at the grid's first column. */
+  /** Both null scrolls the row into view without selecting a cell or taking
+   *  focus: a selected cell turns the next click on it into an edit. */
   columnId: string | null;
   columnName: string | null;
 }
