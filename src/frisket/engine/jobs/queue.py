@@ -35,7 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import sqlalchemy as sa
 from filelock import FileLock
@@ -174,6 +174,14 @@ def _now() -> datetime:
 def _iso(dt: datetime) -> str:
     # fixed-width microseconds so ISO strings compare correctly in SQL
     return dt.isoformat(timespec="microseconds")
+
+
+@overload
+def _parse(ts: str | datetime) -> datetime: ...
+
+
+@overload
+def _parse(ts: None) -> None: ...
 
 
 def _parse(ts: str | datetime | None) -> datetime | None:
