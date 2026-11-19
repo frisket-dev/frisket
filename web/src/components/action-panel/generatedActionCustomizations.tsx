@@ -240,7 +240,7 @@ const EXACT_CUSTOMIZATIONS = {
   },
   'resolve.entities': {
     body: EntityTableParamsBody,
-    primaryLabel: 'Create entity table',
+    primaryLabel: 'Create entity sheet',
     outputNamesReadOnly: true,
   },
   'media.extract_metadata': {

@@ -83,7 +83,7 @@ async function fillExtractionForm(page: Page): Promise<void> {
 }
 
 async function expectGatewayLayout(dialog: Locator, stacked: boolean): Promise<void> {
-  const guide = dialog.getByRole('link', { name: 'Models server setup guide' });
+  const guide = dialog.getByRole('link', { name: 'Model server setup guide' });
   const url = dialog.getByLabel('Gateway URL');
   const token = dialog.getByLabel('Gateway token');
   const testButton = dialog.getByRole('button', { name: 'Test', exact: true });
@@ -349,7 +349,7 @@ test('Per-model routes survive key setup and drive real Cloud and own previews',
     await dialog.locator(`[data-choice-id="${media!.choice_id}"]`).click();
     await page.getByTestId('field-engine').locator('.engine-selector__trigger').click();
     await expect(dialog).toContainText('Frisket Cloud');
-    await dialog.getByRole('button', { name: 'Models server', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Model server', exact: true }).click();
     await expectGatewayLayout(dialog, false);
     await dialog.screenshot({ path: testInfo.outputPath(`${engineId}-cloud-gateway.png`) });
     await page.setViewportSize({ width: 640, height: 900 });

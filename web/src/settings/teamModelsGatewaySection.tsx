@@ -6,6 +6,6 @@ export const TEAM_MODELS_GATEWAY_SECTION: EditionSettingsSection = {
   routePattern: '/settings/organization/models-gateway', title: 'Models gateway',
   navGroup: 'Organization', searchLabels: ['models', 'gateway', 'server', 'token'],
   visibility: 'hosted-only', permission: 'organization-admin',
-  component: 'organization.modelsGateway', summary: 'Attach your Frisket models server.',
+  component: 'organization.modelsGateway', summary: 'Attach your Frisket model server.',
   handler: () => <ModelsGatewaySettings scope="organization" />,
 };

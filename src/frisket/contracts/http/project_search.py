@@ -206,6 +206,7 @@ class ProjectSearchCoverage(WireModel):
     is_top_k: bool
     truncated: bool
     channels: list[ProjectSearchChannelCoverage]
+    rerank_unavailable_reason: str | None = None
 
 
 class ProjectSearchEvidenceNavigation(WireModel):

@@ -187,10 +187,10 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
   });
 
   it.each([
-    ['gemini', 'Gemini · multilingual (remote)', 'Gemini'],
-    ['openrouter', 'OpenRouter · custom remote model (dimension discovered at create)', 'OpenRouter'],
-    ['openrouter', 'Remote · openrouter/acme/embed (dimension discovered at create)', 'OpenRouter'],
-    ['acme-embed', 'Remote · acme-embed/large (dimension discovered at create)', 'acme-embed'],
+    ['gemini', 'Gemini · multilingual', 'Gemini'],
+    ['openrouter', 'OpenRouter · custom model (dimension discovered at create)', 'OpenRouter'],
+    ['openrouter', 'openrouter/acme/embed (dimension discovered at create)', 'OpenRouter'],
+    ['acme-embed', 'acme-embed/large (dimension discovered at create)', 'acme-embed'],
   ])('names the %s provider, not the model label %s, in remote copy', async (provider, label, name) => {
     serveChoices();
     const card: EmbeddingProvider = {
@@ -215,9 +215,11 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
     expect(egress).toHaveTextContent(`${name} is a remote provider. Your source text leaves this machine.`);
     expect(within(egress).getByRole('checkbox', { name: `Allow sending data to ${name}` })).toBeChecked();
     fireEvent.click(screen.getByTestId('embedding-create-next'));
+    expect(screen.getByRole('checkbox', { name: 'Allow unattended remote refresh within an allowance' })).toBeChecked();
+    expect(screen.getByLabelText('Allowance per refresh (USD)')).toHaveValue(2);
     fireEvent.click(screen.getByTestId('embedding-create-next'));
     expect(screen.getByTestId('embedding-create-summary-refresh')).toHaveTextContent(
-      `Unattended remote refresh is pre-authorized up to $2.00 per refresh with ${name}.`,
+      `Unattended remote refresh runs without asking within an allowance of $2.00 per refresh with ${name}.`,
     );
     expect(screen.getByTestId('embedding-create-summary')).toHaveTextContent(`Allowed for ${name}`);
     expect(screen.getByTestId('embedding-create-summary')).toHaveTextContent(label);

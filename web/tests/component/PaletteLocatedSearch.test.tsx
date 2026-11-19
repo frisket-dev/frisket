@@ -259,6 +259,40 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('located palette search', () => {
+  it('greys out Rerank with what to install when the server reports no reranker', async () => {
+    const reason = "Rerank needs the Xenova/ms-marco-MiniLM-L-6-v2 model in FastEmbed's cache; run 'frisket doctor embeddings' to check it.";
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      coverage: { ...completeResponse.coverage, rerank_unavailable_reason: reason },
+    });
+    render(<PaletteHarness />);
+
+    const toggle = screen.getByRole('checkbox', { name: 'Rerank' });
+    await waitFor(() => expect(toggle).toBeDisabled());
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(reason);
+    expect(screen.getByRole('checkbox', { name: 'Rerank' })).toBe(toggle);
+  });
+
+  it('lets Rerank be turned on when the server reports a reranker', async () => {
+    searchProject.mockResolvedValue({
+      ...completeResponse,
+      coverage: { ...completeResponse.coverage, rerank_unavailable_reason: null },
+    });
+    render(<PaletteHarness />);
+    await screen.findByText('supporting passage');
+
+    const toggle = screen.getByRole('checkbox', { name: 'Rerank' });
+    expect(toggle).toBeEnabled();
+    fireEvent.click(toggle);
+    expect(toggle).toBeChecked();
+    await waitFor(() => expect(searchProject).toHaveBeenLastCalledWith(
+      'project-1',
+      expect.objectContaining({ ranking: { rerank: 'on' } }),
+      expect.anything(),
+    ));
+  });
+
   it('puts an explicit similarity anchor ahead of unrelated palette commands', async () => {
     searchProject.mockResolvedValue({
       ...completeResponse,

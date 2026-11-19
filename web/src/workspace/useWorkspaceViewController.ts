@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import type { ColumnDef, SheetMeta } from '../api/open';
 import type { OcrCompareTarget } from '../actions/ocrCompare';
 import { useCompareViewHandle } from '../bind/useCompareViewHandle';
-import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
 import { useWorkViewHandle } from '../bind/useWorkViewHandle';
 import { selectWorkViewAvailability } from '../core/selectors/workView';
@@ -41,7 +40,6 @@ export function useWorkspaceViewController({
 }) {
   const workView = useWorkViewHandle();
   const compareView = useCompareViewHandle();
-  const selection = useSelectionHandle();
   const { openSplit, documentView, promotedViews, setOpenSplit, setDocumentView, setPromotedViews } = chromeState;
   const { hiddenContributionIdSet, isContributionHidden } = visibility;
   const mapContributionId = mapViewDescriptor?.id ?? null;
@@ -208,8 +206,9 @@ export function useWorkspaceViewController({
   const setWorkView = useCallback(
     (kind: WorkViewKind) => {
       setWorkViewResetTransition({ setDocumentView }, workView, compareView, kind);
+      // The row selection is shared by every work view, so it carries over a
+      // view switch.
       const sheetId = sheet?.id ?? null;
-      if (sheetId && kind !== activeWorkView) selection.clearRowSelection(sheetId);
       switch (kind) {
         case 'grid':
           setWorkViewGridTransition({ setOpenSplit }, workView, sheetId);
@@ -286,8 +285,6 @@ export function useWorkspaceViewController({
       workView,
       compareView,
       documentView,
-      activeWorkView,
-      selection,
       sheet?.id,
     ],
   );

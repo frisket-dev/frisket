@@ -334,13 +334,13 @@ def _execution_route(
         account_id = None
     elif target.egress_class == "none":
         kind = "local_engine"
-        label = "On this computer"
+        label = "On this device"
         billed_to = None
         sends_data_to = None
         account_id = None
     elif target.egress_class in {"operator_lan", "frisket_dedicated_org"}:
         kind = "models_server"
-        label = "Models server"
+        label = "Model server"
         billed_to = None
         sends_data_to = target.operator
         account_id = None
@@ -373,9 +373,9 @@ def _own_route_label(target: ExecutionTarget | None) -> str:
     if target is None:
         return "Own setup"
     if target.egress_class in {"operator_lan", "frisket_dedicated_org"}:
-        return "Models server"
+        return "Model server"
     if target.egress_class == "none":
-        return "On this computer"
+        return "On this device"
     provider = PROVIDER_LABELS.get(target.operator, target.operator)
     return f"Your {provider} key"
 
@@ -1157,9 +1157,9 @@ def _engine_destination(engine: Mapping[str, Any], target: Any) -> dict[str, str
         return _destination(target.egress_class, target.operator)
     tier = engine.get("tier")
     if tier == "local":
-        return {"kind": "local", "label": "Runs on this device"}
+        return {"kind": "local", "label": "On this device"}
     if tier == "sidecar":
-        return {"kind": "unknown", "label": "Configured models server"}
+        return {"kind": "unknown", "label": "Model server"}
     if tier == "hosted":
         return {"kind": "external", "label": "External provider"}
     return {"kind": "unknown", "label": "Destination unknown"}
@@ -1167,7 +1167,7 @@ def _engine_destination(engine: Mapping[str, Any], target: Any) -> dict[str, str
 
 def _destination(egress_class: str | None, operator: str | None) -> dict[str, str]:
     if egress_class == "none":
-        return {"kind": "local", "label": "Runs on this device"}
+        return {"kind": "local", "label": "On this device"}
     if egress_class in {"operator_lan", "frisket_dedicated_org"}:
         return {"kind": "operator_network", "label": "Runs on your infrastructure"}
     if egress_class in {"frisket_shared", "third_party_api"}:
@@ -1363,7 +1363,7 @@ def _embedding_target(row: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str,
     if row.get("local") and row.get("provider_kind") == "local_process":
         return (
             {"target_id": "local", "operator": "self", "egress_class": "none"},
-            {"kind": "local", "label": "Runs on this device"},
+            {"kind": "local", "label": "On this device"},
         )
     if row.get("provider_kind") == "local_http":
         return (

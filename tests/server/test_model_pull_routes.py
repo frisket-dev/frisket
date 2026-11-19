@@ -484,7 +484,7 @@ def test_engine_setup_is_allowlisted_and_deduplicated(tmp_path) -> None:
     assert second.json()["deduplicated"] is True
     pull = first.json()["pull"]
     assert pull["operation_kind"] == "engine_setup"
-    assert pull["display_name"] == "Parakeet TDT (local ONNX)"
+    assert pull["display_name"] == "Parakeet TDT (ONNX)"
     assert pull["capabilities"] == {"cancel": True, "retry": False, "remove": False}
 
     refused = client.post(

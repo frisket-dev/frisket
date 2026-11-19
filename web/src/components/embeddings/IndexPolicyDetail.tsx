@@ -160,7 +160,7 @@ export function IndexPolicyDetail({ apiPort, index, onChanged }: IndexPolicyDeta
               data-testid={`embedding-policy-gate-note-${index.indexId}`}
             >
               Automatic refresh will still block (embedding_cost_requires_confirmation)
-              until you set a positive cost cap. Saving stores the preauthorization only.
+              until you set a positive cost cap. Saving stores the setting only.
             </p>
           )}
         </>

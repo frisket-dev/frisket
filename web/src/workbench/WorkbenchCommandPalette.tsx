@@ -191,6 +191,7 @@ export function WorkbenchCommandPalette({
     setMode,
     rerank,
     setRerank,
+    rerankUnavailableReason,
     groups,
     coverage,
     searchError,
@@ -534,6 +535,7 @@ export function WorkbenchCommandPalette({
             onModeChange={setMode}
             rerank={rerank}
             onRerankChange={setRerank}
+            rerankUnavailableReason={rerankUnavailableReason}
             namedIndexes={namedIndexes}
             namedIndexId={namedIndexId}
             onNamedIndexChange={setNamedIndexId}

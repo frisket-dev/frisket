@@ -209,13 +209,13 @@ describe('SelectorField', () => {
     payload.groups[0].choices.push({
       ...structuredClone(blocked),
       choice_id: 'models-server-ready',
-      label: 'Models server model',
+      label: 'Model server model',
       route_selection: {
         model_id: 'hosted/model', selected: 'cloud', can_mutate: true,
         options: [
           { id: 'cloud', label: 'Frisket Cloud', status: 'unavailable',
             disabled_reason: 'Network access is off for this project.' },
-          { id: 'gateway', label: 'Models server', status: 'ready', disabled_reason: null },
+          { id: 'gateway', label: 'Model server', status: 'ready', disabled_reason: null },
         ],
       },
       is_current: false,
@@ -245,7 +245,7 @@ describe('SelectorField', () => {
       'models-server-ready', 'ready-second', 'network-blocked',
     ]);
     const modelsServerRow = dialog.querySelector('[data-choice-id="models-server-ready"]')!;
-    expect(modelsServerRow).toHaveTextContent('Models server');
+    expect(modelsServerRow).toHaveTextContent('Model server');
     expect(modelsServerRow).not.toHaveTextContent('Frisket Cloud');
     expect(modelsServerRow.querySelector('.engine-selector__status--ready')).not.toBeNull();
     const blockedRow = dialog.querySelector('[data-choice-id="network-blocked"]')!;
@@ -331,7 +331,7 @@ describe('SelectorField', () => {
       model_id: 'docling', selected: 'cloud', can_mutate: true,
       options: [
         { id: 'cloud', label: 'Frisket Cloud', status: 'ready', disabled_reason: null },
-        { id: 'own', label: 'On this computer', status: 'ready', disabled_reason: null },
+        { id: 'own', label: 'On this device', status: 'ready', disabled_reason: null },
       ],
     };
     const after = structuredClone(before);
@@ -440,7 +440,7 @@ describe('SelectorField', () => {
     expect(screen.getByRole('heading', { name: 'Add your Gemini key' })).toBeVisible();
     expect(screen.queryByText('Connect Frisket Cloud to see available models.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Sign in with browser/ })).not.toBeInTheDocument();
-    expect(screen.queryByText('Set up on this computer')).not.toBeInTheDocument();
+    expect(screen.queryByText('Set up on this device')).not.toBeInTheDocument();
   });
 
   it('loads authoritative readiness while its trigger is disabled for an active run', async () => {
@@ -491,7 +491,7 @@ describe('SelectorField', () => {
     const token = within(dialog).getByLabelText('Gateway token');
     expect(within(dialog).queryByText(/FRISKET_MODELS_URL/)).not.toBeInTheDocument();
     expect(dialog.querySelector('.engine-selector__detail-scroll')).toContainElement(token);
-    expect(within(dialog).getByRole('link', { name: 'Models server setup guide' })).toBeInTheDocument();
+    expect(within(dialog).getByRole('link', { name: 'Model server setup guide' })).toBeInTheDocument();
   });
 
   it('shows readable token pricing and setup instructions only once', async () => {

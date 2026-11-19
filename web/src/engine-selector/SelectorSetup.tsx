@@ -257,8 +257,8 @@ function OwnedSetupPanel({ editingOwner, reportEditing, ...props }:
 function configurationLabel(action: ConfigurationAction): string {
   switch (action.kind) {
     case 'api_key': return `Use your own ${providerName(action.provider)} API key`;
-    case 'models_gateway': return 'Configure models server';
-    case 'engine_setup': return 'Set up on this computer';
+    case 'models_gateway': return 'Configure model server';
+    case 'engine_setup': return 'Set up on this device';
     case 'artifact_download': return 'Download for local use';
   }
 }

@@ -20,7 +20,7 @@ const routing: ProjectCloudRoutingView = {
 describe('projectProviderKeySource', () => {
   it('uses local, then Cloud-held, then add-key precedence', () => {
     expect(projectProviderKeySource(provider(true), routing)).toEqual({
-      kind: 'local', label: '••••8f2a · on this computer',
+      kind: 'local', label: '••••8f2a · on this device',
     });
     expect(projectProviderKeySource(provider(false), routing)).toEqual({
       kind: 'cloud', label: 'Riverton News’s key · kept in Frisket Cloud',

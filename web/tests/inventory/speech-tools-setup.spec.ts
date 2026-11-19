@@ -5,8 +5,8 @@ import { createProject } from '../e2e/helpers';
 import { selectorChoicesResponse } from '../e2e/selectorChoicesFixture';
 
 for (const engine of [
-  { id: 'parakeet-tdt', label: 'Parakeet', setup: 'engine-setup:parakeet-tdt.local-onnx@1', display: 'Parakeet TDT (local ONNX)' },
-  { id: 'faster_whisper', label: 'Whisper', setup: 'engine-setup:faster-whisper.local@1', display: 'Whisper base (local)' },
+  { id: 'parakeet-tdt', label: 'Parakeet', setup: 'engine-setup:parakeet-tdt.local-onnx@1', display: 'Parakeet TDT (ONNX)' },
+  { id: 'faster_whisper', label: 'Whisper', setup: 'engine-setup:faster-whisper.local@1', display: 'Whisper base' },
 ]) test(`${engine.label} uses the existing setup component for missing runtime and models`, async ({ page, context }) => {
   await context.route('**/*', route => new URL(route.request().url()).origin === process.env.FRISKET_INVENTORY_APP_URL
     ? route.continue() : route.abort());

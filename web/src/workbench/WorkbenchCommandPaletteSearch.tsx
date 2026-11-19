@@ -151,6 +151,7 @@ export function PaletteSearchSection({
   onModeChange,
   rerank,
   onRerankChange,
+  rerankUnavailableReason,
   namedIndexes,
   namedIndexId,
   onNamedIndexChange,
@@ -192,6 +193,7 @@ export function PaletteSearchSection({
   onModeChange(mode: 'lexical' | 'semantic' | 'hybrid'): void;
   rerank: boolean;
   onRerankChange(rerank: boolean): void;
+  rerankUnavailableReason: string | null;
   namedIndexes: EmbeddingIndexSummary[];
   namedIndexId: string | undefined;
   onNamedIndexChange(indexId: string | undefined): void;
@@ -310,15 +312,22 @@ export function PaletteSearchSection({
             <option value="hybrid">Hybrid</option>
             <option value="semantic">Semantic</option>
           </PanelSelect>
-          <label className="palette-search-rerank">
+          <label className="palette-search-rerank" title={rerankUnavailableReason ?? undefined}>
             <input
               type="checkbox"
               data-testid="search-rerank-toggle"
               checked={rerank}
+              disabled={rerankUnavailableReason !== null}
+              aria-describedby={rerankUnavailableReason !== null ? 'search-rerank-unavailable' : undefined}
               onChange={(event) => onRerankChange(event.target.checked)}
             />
             <span>Rerank</span>
           </label>
+          {rerankUnavailableReason !== null && (
+            <span id="search-rerank-unavailable" className="sr-only" data-testid="search-rerank-unavailable">
+              {rerankUnavailableReason}
+            </span>
+          )}
           <Button
             type="button"
             className="search-alert-btn"

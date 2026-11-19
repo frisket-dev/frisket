@@ -31,7 +31,7 @@ export function EntityTableParamsBody({ params }:
             canonical_overrides: params.canonical_overrides }, null, 2)}</pre>
         </details>}
     </> : <p className="form-hint">First write your reviewed groups with Cluster values.
-      Then open that completed result and choose Create entity table. A preview alone is not a result.</p>}
+      Then open that completed result and choose Create entity sheet. A preview alone is not a result.</p>}
     <Button type="button" onClick={() => {
       if (!chrome.store.get().provenanceOpen) chrome.toggleProvenanceOpen();
     }}>Open receipt history</Button>

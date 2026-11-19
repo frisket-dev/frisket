@@ -330,7 +330,7 @@ export function CloudConnectionPanel({
       <h3>{expired ? 'Reconnect Frisket Cloud' : 'Connect Frisket Cloud'}</h3>
       <p>{expired
         ? 'This computer was signed out of Frisket Cloud. Your settings are unchanged.'
-        : 'Sign in with your Frisket account. No API key is needed, and this project stays on this computer.'}</p>
+        : 'Sign in with your Frisket account. No API key is needed, and this project stays on this device.'}</p>
       {!expired && <p>Each person gets $5 of free Frisket credit every month.</p>}
     </>}
     <Button className="btn-primary" type="button" disabled={busy || !permitted}

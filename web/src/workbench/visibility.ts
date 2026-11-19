@@ -66,8 +66,8 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
     host: 'leftSidebar',
     mode: 'panel',
     locationId: 'leftSidebar',
-    locationLabel: 'Left Sidebar',
-    menuSectionTitle: 'Sidebar Panels',
+    locationLabel: 'Discover',
+    menuSectionTitle: 'Discover Panels',
     nonHideableContributionIds: [],
     // Search + Ask retired from the sidebar (they became the ⌘K palette
     // SEARCH section and the ✧ Focus popover), so they are no longer
