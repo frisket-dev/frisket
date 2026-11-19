@@ -1,68 +1,12 @@
 {
- "account.spec.ts": {
-  "account redirect opens Personal Profile settings and saves display name": "stale-expectation"
- },
- "action-placement-single-source.spec.ts": {
-  "ribbon and compact menu expose identical ordered categories and leaves": "unclassified"
- },
- "agent-research-review.spec.ts": {
-  "Explain Research details survives hover loss and Escape preserves the parent detail view": "stale-expectation",
-  "Review retains companion sources and honest absence wording when no trace was recorded": "stale-expectation",
-  "Review shows renamed companion sources and recorded tool details at wide and narrow widths": "stale-expectation"
- },
- "answers-view-docked-evidence.spec.ts": {
-  "region-grounded citation: the DOCKED pane (not the modal) renders the page image + region highlight, auto-defaulted on open": "stale-expectation"
- },
  "answers-view-shell.spec.ts": {
   "selection syncs BOTH ways through SelectedGridRows, matching the Document view contract": "stale-expectation"
  },
- "citation-span-runs.spec.ts": {
-  "a disjoint 2-run citation offers TWO run-clips, each a real ffmpeg cut of its own run": "stale-expectation"
- },
- "cluster-action-drawer.spec.ts": {
-  "the Cluster tile opens the action drawer and commits a canonical column": "stale-expectation"
- },
  "column-format.spec.ts": {
-  "AI-generated text columns can be saved as markdown from the column drawer": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally",
-  "column drawer retypes columns and edits display formats": "stale-expectation"
+  "AI-generated text columns can be saved as markdown from the column drawer": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
  "costgate.spec.ts": {
   "expensive run trips the 402 cost gate modal": "stale-expectation"
- },
- "date-range-filter.spec.ts": {
-  "date-range filters use date columns and round-trip through views": "stale-expectation"
- },
- "derive-preview-progress.spec.ts": {
-  "derive preview shows active progress while awaiting the preview response": "stale-expectation"
- },
- "derive-table-from-list-v1-composite.spec.ts": {
-  "derive rows composes map.extract and derive.table_from_list through v1": "stale-expectation"
- },
- "discover-notifications-tab.spec.ts": {
-  "notifications tab reveals from a run notification opened while viewing Notifications": "stale-expectation"
- },
- "engine-selection-layout.spec.ts": {
-  "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
- },
- "error-remediation.spec.ts": {
-  "missing provider key at run-confirm time shows named remediation and Diagnose link": "stale-expectation"
- },
- "evidence-viewer-region-overlay.spec.ts": {
-  "OCR PDF row with no persisted page image still falls back gracefully": "stale-expectation",
-  "grounded OCR PDF row: page images render (not the text fallback), the region highlight overlays at the right normalized position, and clicking its span navigates to that page": "stale-expectation"
- },
- "evidence-viewer.spec.ts": {
-  "row drawer opens the shared evidence viewer and hides stale support by default": "stale-expectation"
- },
- "export-column-tables.spec.ts": {
-  "all three export surfaces fail closed without disabling the PDF drawer or refetching": "stale-expectation",
-  "picker \"Export all tables…\" runs export.column_tables and writes a zip + manifest.json": "stale-expectation"
- },
- "export-delete.spec.ts": {
-  "project settings downloads exports with and without media": "stale-expectation"
- },
- "feed-add-populate-prompt.spec.ts": {
-  "Run launches exactly the manual poll (source.poll on the new feed)": "stale-expectation"
  },
  "feeds.spec.ts": {
   "an RSS feed can be added, checked, edited, and deleted from the UI": "stale-expectation"
@@ -73,23 +17,12 @@
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
  },
- "grid-column-layout.spec.ts": {
-  "grid column layout: drag reorder persists as default layout and saved-view columns": "stale-expectation"
- },
  "grid.spec.ts": {
-  "AI column header opens the column drawer": "stale-expectation",
-  "grid renders the seeded rows and AI columns": "stale-expectation",
   "json array cell renders as a mini table in the row drawer": "seed:Local stories,Tariff impacts"
- },
- "grounded-extract-v1-execution.spec.ts": {
-  "grounded extract posts citation policy on map.extract and opens evidence links": "stale-expectation"
  },
  "import-surfaces.spec.ts": {
   "URL import records invalid URL errors": "stale-expectation",
   "two generic Files selections with one PDF stay on the normal file import": "stale-expectation"
- },
- "investigative-feeds.spec.ts": {
-  "Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener through source.poll": "stale-expectation"
  },
  "large-sheet-scale.spec.ts": {
   "large sheet product paths use bounded browser traffic": "stale-expectation"
@@ -103,38 +36,18 @@
  "long-lived-project-v1.spec.ts": {
   "v1 web paths keep stable sheet/run/row targets in a long-lived project": "stale-expectation"
  },
- "make-searchable.spec.ts": {
-  "a resumable file import keeps its preparation receipt in the import flow and clears the recovery bar": "stale-expectation",
-  "closing missing transcription setup starts no pull and remains recoverable from Search": "stale-expectation",
-  "native PDF import becomes searchable without starting a model setup": "stale-expectation",
-  "native text review requests replacement OCR without changing the original PDF": "stale-expectation",
-  "turning automatic preparation off leaves an imported PDF untouched until Search prepares it": "stale-expectation"
- },
  "markdown.spec.ts": {
-  "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally",
-  "markdown is sniffed on import and rendered in drawer + grid preview": "stale-expectation"
+  "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
  "media-import-download-prompt.spec.ts": {
   "\"Not now\" declines quietly — the dialog closes with no action launched": "stale-expectation",
   "an import landing undownloaded YouTube URL rows prompts \"Download media?\"; Download closes and launches the matching action": "stale-expectation",
   "an ordinary import with no classifiable URL column closes immediately — no regression": "stale-expectation"
  },
- "media-recipe-inputs.spec.ts": {
-  "OCR and transcribe bind a typed media source column without LLM prompt/schema controls": "stale-expectation"
- },
- "media-to-markdown-v1-execution.spec.ts": {
-  "to_markdown launches media.to_markdown through the v1 action endpoint": "stale-expectation"
- },
  "media.spec.ts": {
   "audio grid leading control opens one dismissible player without opening row detail": "seed:Council audio,Local stories",
   "audio playback survives a run while new grid starts wait for terminal progress": "seed:Council audio",
   "audio row controls the one app-level player and actually plays": "seed:Council audio"
- },
- "notifications-settings.spec.ts": {
-  "notification settings manages channels routes digests and delivery health": "stale-expectation"
- },
- "notifications.spec.ts": {
-  "generic notification feed links alert events and supports read acknowledgement": "stale-expectation"
  },
  "pdf-table-extraction-v1-execution.spec.ts": {
   "PDF table extraction queues media.extract_pdf_tables for selected file rows": "stale-expectation"
@@ -144,47 +57,8 @@
   "picker previews per-table groups and materializes a metadata-free child sheet via derive.table_from_list": "stale-expectation"
  },
  "picker.spec.ts": {
-  "deep link /p/{id} boots into the project": "stale-expectation",
   "project dropdown switches projects": "seed:Local stories,Tariff impacts",
   "the home screen lists the seeded projects": "seed:Local stories,Tariff impacts,Council audio"
- },
- "plugin-case-files-column-type.spec.ts": {
-  "demo_case_files registers case_id, displays fallback text, and canonicalizes edits": "stale-expectation"
- },
- "plugin-selection-summary-panel.spec.ts": {
-  "missing required panel host capability prevents selection summary mount": "stale-expectation",
-  "selection summary panel mounts through PluginPanelHost and tracks grid selection": "stale-expectation"
- },
- "plugin-stars-column-type.spec.ts": {
-  "demo_stars registers a stars renderer, displays stars, and edits numerically": "stale-expectation"
- },
- "plugin-timeline-projection.spec.ts": {
-  "timeline projection view mounts from runtime index and reads a projection artifact": "stale-expectation"
- },
- "preview-tab.spec.ts": {
-  "preview computes an in-memory sample, overlays it, and persists nothing": "stale-expectation",
-  "preview tab close cancels + drops the sample (nothing persisted)": "stale-expectation"
- },
- "project-start-surfaces.spec.ts": {
-  "empty project dropzone routes dropped PDF selections through file import, not CSV": "stale-expectation"
- },
- "provenance-deep-link.spec.ts": {
-  "YouTube-sourced blob: temporal span gets an open-at-timestamp deep link beside the seek button": "stale-expectation",
-  "non-YouTube webpage_url: deep link still renders, without a fabricated timestamp param": "stale-expectation"
- },
- "provenance-download-clip.spec.ts": {
-  "temporal span: the download-clip affordance streams a real ffmpeg-cut clip": "stale-expectation"
- },
- "provider-live-mode-coherence.spec.ts": {
-  "organization AI Providers require test before save and clear validation on edits": "stale-expectation"
- },
- "recipe-forms.spec.ts": {
-  "catalog actions without static cards are reachable and runnable": "unclassified",
-  "media action engine picker uses backend availability metadata": "stale-expectation"
- },
- "recipe-selected-rows.spec.ts": {
-  "NER visibly refuses an unrepresentable selected-row scope before any run POST": "stale-expectation",
-  "action run submits explicit row_ids for selected rows and shows row-scoped progress": "stale-expectation"
  },
  "replay-accept-chrome.spec.ts": {
   "accept-all-in-column clears every pending cell in one click": "stale-expectation",
@@ -194,114 +68,23 @@
   "with no providers, the setup link opens organization AI provider settings with no project open": "stale-expectation",
   "with no providers, the setup link opens project AI provider settings when a project is open": "stale-expectation"
  },
- "research-answer-launcher-terminology.spec.ts": {
-  "research answer uses its ribbon label, catalog form title and canonical run route": "stale-expectation"
- },
- "retrieval-search-flow.spec.ts": {
-  "live lexical search returns grouped results and navigates to the exact cell": "stale-expectation"
- },
- "review-multi-output.spec.ts": {
-  "review queue groups sibling outputs and resolves fields independently": "stale-expectation"
- },
- "review-queue-paging.spec.ts": {
-  "review pages stable row bundles without loading the whole sheet or dropping decided rows": "stale-expectation"
- },
- "review-run-assessment.spec.ts": {
-  "review scopes runs and fields through the toolbar, reports decisions, and reopens a completed run": "stale-expectation"
- },
- "route-sync-epoch.spec.ts": {
-  "map deep-link entry hydrates the split and normalizes the URL (B1), coexisting with a row Detail": "stale-expectation"
- },
- "row-detail-density.spec.ts": {
-  "row detail clamps long values and trims entity/segment columns": "stale-expectation"
- },
- "run-progress-single-surface.spec.ts": {
-  "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
- },
- "run-receipts-panel.spec.ts": {
-  "a free local OCR run shows an honest no-charges receipt panel": "stale-expectation"
- },
- "run.spec.ts": {
-  "import → classify run → results → undo/redo": "stale-expectation"
- },
- "runs-jobs-parity.spec.ts": {
-  "an INLINE run is visible in the jobs listing while running (real backend, no queue job), and flips to terminal with progress on completion": "stale-expectation"
- },
- "sample-project-intro.spec.ts": {
-  "guided Home entry opens the existing chooser without the introduction": "stale-expectation"
- },
- "search.spec.ts": {
-  "clicking a hit in another sheet switches to that sheet": "stale-expectation"
- },
- "settings-billing-token-polish.spec.ts": {
-  "organization API key creation has a one-time copyable reveal and redacted list": "stale-expectation"
- },
- "settings-project-general-data.spec.ts": {
-  "Project General and Data Management settings update metadata retention and compaction": "stale-expectation"
- },
- "settings-registry-contract.spec.ts": {
-  "settings nav renders exactly the registry sections": "stale-expectation"
- },
- "settings-workspace-ai-providers.spec.ts": {
-  "ask model selector opens an authoritative dialog without an inline configuration pane": "stale-expectation",
-  "workspace AI-providers settings page renders keys + ollama URL editor": "stale-expectation"
- },
- "substrate-render-counts.spec.ts": {
-  "render-counts: open sheet -> apply filter -> open drawer -> toggle theme stays <= baseline per region": "stale-expectation"
- },
  "transcribe-deeplink-prefill.spec.ts": {
-  "same-launch column refresh follows stable ids across rename and clears a deleted source without first-column fallback": "stale-expectation",
-  "the transcribe deep link resets every explicit launch while a same-launch grid refresh preserves valid dirty state": "stale-expectation"
- },
- "url-evidence-capture.spec.ts": {
-  "URL capture launches web.capture_page with render and WARC options": "stale-expectation"
- },
- "v1-action-catalog-resilience.spec.ts": {
-  "action launcher renders generated cards from v1 catalog when legacy metadata is blocked": "stale-expectation"
- },
- "workbench-ia-action-drawer.spec.ts": {
-  "legacy footer renders scope line, Preview, and a Run-all split with selection + backfill entries": "stale-expectation",
-  "ribbon action reserves a right-side band so the grid ends at the drawer": "stale-expectation"
+  "same-launch column refresh follows stable ids across rename and clears a deleted source without first-column fallback": "stale-expectation"
  },
  "workbench-ia-document-view.spec.ts": {
-  "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio",
-  "document browsing does not become a hidden Run-selected scope": "stale-expectation",
-  "selection syncs BOTH ways through SelectedGridRows; the doc list follows the sheet order": "stale-expectation"
- },
- "workbench-ia-focus.spec.ts": {
-  "⌘K and the chrome Command pill both open the palette; the query live-filters ACTIONS": "stale-expectation"
- },
- "workbench-ia-lineage.spec.ts": {
-  "Re-run now on a MODEL-backed derived sheet pauses at the cost confirm (no auto-spend)": "stale-expectation"
- },
- "workbench-ia-region-frames.spec.ts": {
-  "C6: a PanelEmpty renders identically in a dock tab and a Discover tab": "stale-expectation",
-  "R1: every dock tab body shares one frame class with identical computed padding": "stale-expectation"
+  "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio"
  },
  "workbench-ia-right-edge.spec.ts": {
-  "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment",
-  "the » overflow menu OPENS and switches to a hidden tab (regression: clipped by overflow:hidden)": "stale-expectation"
+  "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment"
  },
  "workbench-ia-shell.spec.ts": {
   "Home renders real project cards with real meta counts and navigates into the workbench": "seed:Local stories,Tariff impacts",
   "the switcher menu recent-projects entry switches projects": "seed:Local stories,Tariff impacts"
- },
- "workbench-ia-work-views.spec.ts": {
-  "deep link /map/column opens the split as workspace state and normalizes the URL so the panel slot frees up": "stale-expectation"
- },
- "workbench-plugin-form-contributions.spec.ts": {
-  "action forms render as workbench action form contributions": "stale-expectation"
  },
  "workbench-plugin-marketplace-discovery.spec.ts": {
   "plugin manager exposes explicit local install without marketplace repair path": "stale-expectation"
  },
  "workbench-plugin-real-local-smoke.spec.ts": {
   "real local plugin load activates visible Map contribution and backend projection binding": "stale-expectation"
- },
- "workbench-resolved-layout-renderer.spec.ts": {
-  "workbench regions are populated by a resolved layout tree": "stale-expectation"
- },
- "workbench-structured-workspace.spec.ts": {
-  "mainView tabs are visible and prototype map move controls stay out of daily UI": "stale-expectation"
  }
 }
