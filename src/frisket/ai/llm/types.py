@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Callable, Literal, NotRequired, Protocol, TypedDict, cast
 
@@ -293,6 +294,18 @@ class LLMError(Exception):
         # succeed, not that an immediate identical wire call is safe.
         self.post_egress_ambiguous = bool(post_egress_ambiguous)
         self.purchase_dispatched = purchase_dispatched
+        # Responses the provider already returned (and may have billed) before
+        # this failure; owners that catch it must still record them.
+        self.wire_calls: list[LLMResponse] = []
+
+
+def attach_wire_calls(error: BaseException, calls: Iterable[LLMResponse]) -> None:
+    """Record returned responses on any exception, cancellation included.
+
+    Readers take ``getattr(error, "wire_calls", ())``: an exception that is
+    not an ``LLMError`` carries the attribute only once a call is attached.
+    """
+    setattr(error, "wire_calls", list(calls))
 
 
 class SchemaViolation(LLMError):

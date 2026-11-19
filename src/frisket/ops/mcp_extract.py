@@ -20,6 +20,7 @@ from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
 from frisket.ai.llm import LLMResponse
+from frisket.ai.llm.types import attach_wire_calls
 from frisket.ai.llm.structured import (
     FrisketRouterModel,
     StructuredCompleter,
@@ -266,7 +267,7 @@ class McpExtractor:
             )
         except Exception as exc:
             prior = list(getattr(exc, "wire_calls", []) or [])
-            exc.wire_calls = [*tool_model.wire_calls, *prior]
+            attach_wire_calls(exc, [*tool_model.wire_calls, *prior])
             raise
         wire_calls = [*tool_model.wire_calls, *strict.wire_calls]
         return dict(strict.data), wire_calls
