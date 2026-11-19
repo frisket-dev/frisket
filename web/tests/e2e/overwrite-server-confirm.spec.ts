@@ -8,22 +8,16 @@ import {
   runAndWait,
   uniqueName,
 } from './helpers';
+import { exposeReplayModel, prepareOwnModelReplay } from './replayModelScenario';
 
-// A "would overwrite existing columns" hard error must offer a confirm prompt.
-// Previously the
-// confirm keys on the CLIENT column list (ActionPanel.tsx's
-// existingColumnByName), which was stale after a column was created behind
-// the form's back. Fix: (a) a server-side output_column_exists rejection
-// (map_ai.py's precheck_fn, mapped to HTTP 409) converts into the SAME
-// overwrite-confirm affordance the client-detected case already offers
-// (GeneratedColumnCollisionModal, App.tsx's WorkspaceOverlayRegion) instead of
-// a dead-end toast; (b) the drawer refreshes the sheet's column list when it
-// opens, closing the most common staleness window.
+// A run that would write into an existing generated column must offer a
+// confirm prompt, even when the form's column list is stale: the server's
+// output_column_exists rejection (HTTP 409) opens the same replace-confirm
+// modal the form uses, and confirming resubmits with replace_existing. The
+// drawer also refreshes the sheet's columns when it opens.
 //
-// Spec: create a column SERVER-SIDE (a direct API call, bypassing this
-// browser tab's own state entirely) while the extract form is already open
-// with a field that collides with it -> launch -> server 409s ->
-// confirm modal appears -> accept -> run launches with overwrite:true.
+// The first spec creates the column through the API while the extract form
+// is open, so only the server knows about it.
 
 test('a server-side output_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true', async ({
   page,
@@ -40,9 +34,17 @@ test('a server-side output_column_exists rejection converts into an overwrite-co
     ].join('\n'),
   );
 
+  await prepareOwnModelReplay(page.request, pid);
+  await exposeReplayModel(page, pid);
+
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'notes');
+  const engine = page.getByTestId('engine-selector').locator('.engine-selector__trigger');
+  await engine.click();
+  await page.getByTestId('engine-selector-dialog')
+    .locator('[data-engine-selector-choice="replay-engine-model"]').click();
+  await expect(engine).toContainText('Gemini 3.5 Flash-Lite');
   // The extract form opens with one output field; name it.
   await page.getByTestId('output-field-name').fill('officials');
   await expect(page.getByTestId('error-toast')).toHaveCount(0);
@@ -87,11 +89,11 @@ test('a server-side output_column_exists rejection converts into an overwrite-co
   );
   await page.getByTestId('overwrite-collision-confirm').click();
   const posted = (await secondRunRequest).postDataJSON() as {
-    kind: string;
-    output_intent?: Array<{ kind: string }>;
+    action_id: string;
+    replace_existing?: boolean;
   };
-  expect(posted.kind).toBe('map.extract');
-  expect(posted.output_intent).toContainEqual({ kind: 'overwrite_existing' });
+  expect(posted.action_id).toBe('map.extract');
+  expect(posted.replace_existing).toBe(true);
 
   // The resubmit actually launches (the server honors overwrite:true for the
   // prior AI-generated column) — no error toast, and the modal is gone.
@@ -102,18 +104,9 @@ test('a server-side output_column_exists rejection converts into an overwrite-co
 test('the translate drawer refreshes the column list on open, so a column created before the drawer opens is already known client-side', async ({
   page,
 }) => {
-  // translate (unlike extract, and unlike summarize which special-cases
-  // itself out of the blocking check — ActionPanel.tsx's
-  // blockingNewColumnError: `actionTemplate.kind === 'summarize' ||
-  // overwriteActive ? null : newColumnError`) uses the Save-To combobox with
-  // a NEW_COLUMN default (initialActionFormState: newColName defaults to
-  // actionTemplate.defaultFields[0].name, "translation") AND actually BLOCKS
-  // the Run button on a name collision, so it exercises the pre-existing
-  // CLIENT-side collision banner (newColumnConflictName/run-overwrite-
-  // existing) once sheet.columns is fresh — extract hides that combobox
-  // entirely (hidesTargetColumn) and has no client-side collision UI at all,
-  // which is why the first test above covers extract's server-only path
-  // instead.
+  // Translate's Result defaults to "translation". When the form already knows
+  // a generated column of that name, it saves to a fresh name instead and says
+  // so, without a round trip to the server.
   const pid = await createProject(page.request, uniqueName('e2e-overwrite-drawer-refresh'));
   const sheetId = await importCsv(
     page.request,
@@ -140,21 +133,20 @@ test('the translate drawer refreshes the column list on open, so a column create
     idempotency_key: 'e2e-behind-the-back@sha256:overwrite-drawer-refresh',
   });
 
-  // listSheets() (workspace/refreshSheets) fetches the bare sheet list, THEN
-  // each sheet's columns via .../sheets/{id}/data?offset=0&limit=0 (api/
-  // real.ts) — that second call is the one that actually carries the fresh
-  // column list, so wait for IT specifically (a broad "/sheets" match would
-  // resolve on the first, columns-less call too early).
+  // The drawer's refresh re-reads the sheet list, which carries each sheet's
+  // columns.
   const columnsRequest = page.waitForResponse((response) =>
-    response.url().includes(`/api/projects/${pid}/sheets/${sheetId}/data`) &&
-    response.url().includes('limit=0'),
+    new URL(response.url()).pathname === `/api/projects/${pid}/sheets`
+      && response.request().method() === 'GET',
   );
   await openAction(page, 'map.translate');
   await columnsRequest;
   await selectActionSourceColumns(page, 'title');
 
-  // Server truth is now visible client-side without ever hitting the 409
-  // path: the run-disabled reason should name the real collision.
-  await expect(page.getByTestId('run-disabled-reason')).toBeVisible();
-  await expect(page.getByTestId('run-overwrite-existing')).toBeVisible();
+  // Server truth is visible client-side without the 409 path: the default
+  // name steps around the existing column.
+  await expect(page.getByRole('combobox', { name: 'Result' })).toHaveValue('translation_2');
+  await expect(page.locator('[data-testid^="default-output-name-collision-"]')).toContainText(
+    'A "translation" column already exists',
+  );
 });

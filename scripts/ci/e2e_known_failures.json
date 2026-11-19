@@ -2,9 +2,6 @@
  "account.spec.ts": {
   "account redirect opens Personal Profile settings and saves display name": "stale-expectation"
  },
- "action-drawer-autoclose.spec.ts": {
-  "a server output_column_exists rejection keeps the drawer open (confirm flow)": "stale-expectation"
- },
  "action-placement-single-source.spec.ts": {
   "ribbon and compact menu expose identical ordered categories and leaves": "unclassified"
  },
@@ -145,10 +142,6 @@
  "notifications.spec.ts": {
   "generic notification feed links alert events and supports read acknowledgement": "stale-expectation"
  },
- "overwrite-server-confirm.spec.ts": {
-  "a server-side output_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true": "stale-expectation",
-  "the translate drawer refreshes the column list on open, so a column created before the drawer opens is already known client-side": "stale-expectation"
- },
  "pdf-table-extraction-v1-execution.spec.ts": {
   "PDF table extraction queues media.extract_pdf_tables for selected file rows": "stale-expectation"
  },
@@ -235,9 +228,6 @@
  "row-drawer-smooth-focus.spec.ts": {
   "row drawer focuses selected fields with scoped smooth scrolling": "stale-expectation",
   "row drawer selected-field scroll respects reduced motion": "stale-expectation"
- },
- "run-failure-surfacing.spec.ts": {
-  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation"
  },
  "run-progress-single-surface.spec.ts": {
   "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
