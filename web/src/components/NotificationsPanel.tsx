@@ -16,7 +16,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import type { AlertCheckLink } from '../state/alertCheckLinkStore';
-import { openRunLink } from '../routes';
+import { navigate, openRunLink } from '../routes';
 import './NotificationsPanel.css';
 
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
