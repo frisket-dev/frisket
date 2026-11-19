@@ -128,9 +128,13 @@ from frisket.sdk.replay import (
     replay_expected_row_ids,
 )
 
+from frisket.actions.extract import ExtractParams
+from frisket.actions.mcp_extract import McpExtractParams
+from frisket.actions.ner import NerParams
+from frisket.actions.row_research import ResearchParams
+from frisket.execution.attempt import StaleAttemptWriter
+
 if TYPE_CHECKING:
-    from frisket.actions.extract import ExtractParams
-    from frisket.actions.ner import NerParams
     from frisket.authoring.plugin_registry import RuntimeBindingSpec
 
 # Rows whose capability returned provider accounting carry it beside the cells.
@@ -314,14 +318,10 @@ class _TypedMapRowsProgram(ActionProgram):
 
     @property
     def _extract_params(self) -> ExtractParams | None:
-        from frisket.actions.extract import ExtractParams
-
         return self._params if isinstance(self._params, ExtractParams) else None
 
     @property
     def _ner_params(self) -> NerParams | None:
-        from frisket.actions.ner import NerParams
-
         return self._params if isinstance(self._params, NerParams) else None
 
     def __init__(
@@ -358,9 +358,6 @@ class _TypedMapRowsProgram(ActionProgram):
             and not self._terminal.capabilities
             and not self._terminal.injections
         )
-        from frisket.actions.ner import NerParams
-        from frisket.actions.extract import ExtractParams
-
         self._uses_ner = isinstance(params, NerParams)
         self._uses_extract = isinstance(params, ExtractParams)
         cost_policy = action.catalog_entry()["cost_policy"]
@@ -695,7 +692,6 @@ class _TypedMapRowsProgram(ActionProgram):
 
                         reader = AdmittedResearcher(ctx, model=spec["model"])
                     else:
-                        from frisket.actions.mcp_extract import McpExtractParams
                         from frisket.engine.executor.mcp_extract_read import (
                             AdmittedMcpExtractor,
                         )
@@ -1368,6 +1364,13 @@ class _TypedMapRowsProgram(ActionProgram):
     ):
         self._extract_citations.capture(values, capture, results, spec, **kwargs)
 
+    def _admitted_translation_writer(self) -> str:
+        if self._translation_writer is None:
+            raise StaleAttemptWriter(
+                "the mutation supplied no immutable writer attempt"
+            )
+        return self._translation_writer
+
     def _write_result_evidence(
         self, project, spec, *, batch, run_id, claim_token, **kwargs
     ):
@@ -1375,21 +1378,16 @@ class _TypedMapRowsProgram(ActionProgram):
 
         if self._uses_translator:
             from frisket.engine.store.receipts import ReceiptStore
-            from frisket.execution.attempt import StaleAttemptWriter
 
             for cell in batch:
                 for call in cell.get("row_file_calls", ()):
                     if call.get("kind") != "translate_read":
                         continue
                     for artifact in call.get("artifacts", ()):
-                        if self._translation_writer is None:
-                            raise StaleAttemptWriter(
-                                "the mutation supplied no immutable writer attempt"
-                            )
                         ReceiptStore(project)._record_writer_supporting_record(
                             {**artifact, "kind": "map_translate_artifact"},
                             run_id=run_id,
-                            writer_attempt_id=self._translation_writer,
+                            writer_attempt_id=self._admitted_translation_writer(),
                             claim_token=claim_token,
                         )
 
@@ -1565,9 +1563,7 @@ class _TypedAgentRowsProgram(_TypedMapRowsProgram):
         from frisket.actions.row_research import source_values
         from frisket.ai.message_content import render_input_block
 
-        from frisket.actions.mcp_extract import McpExtractParams
         from frisket.actions.research import WebSearchParams
-        from frisket.actions.row_research import ResearchParams
 
         row = Row(row_values)
         params = self._params
