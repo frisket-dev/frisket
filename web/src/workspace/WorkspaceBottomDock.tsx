@@ -36,6 +36,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
   const actionJobsLoading = useSelector(job.store, (s) => s.actionJobs.loading);
   const chrome = useChromeHandle();
   const activeBottomDockTab = useSelector(chrome.store, (s) => s.activeBottomDockTab);
+  const historyFocusChangeId = useSelector(chrome.store, (s) => s.historyFocusChangeId);
   const projectData = useProjectDataResource();
   const history = useSelector(projectData.store, (state) => state.history);
   const pluginLayout = usePluginLayoutHandle();
@@ -116,6 +117,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
               history={history}
               onRevert={doRevert} onRestore={doRestore}
               onLoadPage={loadHistoryPage}
+              focusChangeId={historyFocusChangeId}
             />
           );
         case 'frisket.core.panel.lineage':
@@ -163,6 +165,7 @@ export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion
       doRevert,
     doRestore,
       history,
+      historyFocusChangeId,
       loadHistoryPage,
       refreshSheets,
       resumeHaltedDockJob,

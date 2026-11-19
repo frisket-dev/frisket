@@ -832,6 +832,7 @@ export function HistoryWorkbenchPanel({
   onRevert,
   onRestore,
   onLoadPage,
+  focusChangeId,
 }: HistoryWorkbenchPanelProps) {
   const descriptor = HISTORY_DESCRIPTOR;
   const placement = placementForHost(descriptor, host);
@@ -842,7 +843,7 @@ export function HistoryWorkbenchPanel({
       host={placement.host}
       className={placement.host === 'bottomDock' ? 'bottom-dock-tab-body' : ''}
     >
-      <HistoryPanel history={history} onRevert={onRevert} onRestore={onRestore} onLoadPage={onLoadPage} />
+      <HistoryPanel history={history} onRevert={onRevert} onRestore={onRestore} onLoadPage={onLoadPage} focusChangeId={focusChangeId} />
     </WorkbenchContributionFrame>
   );
 }

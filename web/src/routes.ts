@@ -12,6 +12,7 @@
 //                                   → project workspace, source health main view
 //   /p/{projectId}/s/{id}/row/{rowId}[/column/{columnId}]
 //   /p/{projectId}/s/{id}/column/{columnId}
+//   any /p/{projectId}... path + ?run={runId} → that run (takeRunLinkParam)
 //   /settings/personal/profile     → personal settings
 //   /settings/organization/{section}
 //   /p/{projectId}/settings/project/{section}
@@ -299,6 +300,42 @@ export function returnToProjectFromSettings(projectId: string): void {
     && routePath(saved) === path
     ? saved
     : { kind: 'project', projectId });
+}
+
+// `?run={runId}` opens one run in the project named by the path. The open
+// workspace for that project takes the parameter exactly once
+// (takeRunLinkParam), because commitRoute carries the query string across
+// every later navigation.
+const RUN_LINK_PARAM = 'run';
+
+/** The shareable link to one run; `origin` makes it absolute. */
+export function runLinkHref(projectId: string, sheetId: string | undefined, runId: string, origin = ''): string {
+  const search = new URLSearchParams({ [RUN_LINK_PARAM]: runId });
+  return `${origin}${routePath({ kind: 'project', projectId, sheetId })}?${search.toString()}`;
+}
+
+/** Navigate to a run, staying on the current path when it is already that project's. */
+export function openRunLink(projectId: string, runId: string): void {
+  const current = parsePathname(window.location.pathname);
+  const path = current.kind === 'project' && current.projectId === projectId
+    ? window.location.pathname
+    : routePath({ kind: 'project', projectId });
+  const search = new URLSearchParams(currentSearch());
+  search.set(RUN_LINK_PARAM, runId);
+  window.history.pushState(null, '', `${path}?${search.toString()}`);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+/** Remove and return the run id when the URL names a run in `projectId`. */
+export function takeRunLinkParam(projectId: string): string | null {
+  const current = parsePathname(window.location.pathname);
+  if (current.kind !== 'project' || current.projectId !== projectId) return null;
+  const url = new URL(window.location.href);
+  const runId = url.searchParams.get(RUN_LINK_PARAM);
+  if (runId === null) return null;
+  url.searchParams.delete(RUN_LINK_PARAM);
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  return runId;
 }
 
 /** Update the path without a history entry (sheet switches — avoids history spam). */

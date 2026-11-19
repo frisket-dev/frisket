@@ -16,8 +16,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import type { AlertCheckLink } from '../state/alertCheckLinkStore';
-import { navigate } from '../routes';
-import { openRunReview } from './review/openRunReview';
+import { openRunLink } from '../routes';
 import './NotificationsPanel.css';
 
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
@@ -161,12 +160,8 @@ export function NotificationsPanel() {
         }
         const run = runLink(item);
         if (!run) return;
-        // Run ids are per project: never open another project's run here.
-        if (run.projectId !== null && run.projectId !== projectId) {
-          navigate({ kind: 'project', projectId: run.projectId });
-          return;
-        }
-        openRunReview(run.runId);
+        // Run ids are per project: the link names the run's own project.
+        openRunLink(run.projectId ?? projectId, run.runId);
       }));
   };
 
