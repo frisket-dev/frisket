@@ -128,7 +128,7 @@ describe('PdfViewer native page selection', () => {
     });
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(800);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(() => pdf.height);
-    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function () {
+    vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockImplementation(function (this: HTMLElement) {
       const page = Number((this as HTMLElement).dataset.page);
       if (pdf.layoutReady && page === 2) return 1000;
       return Number.isFinite(page) ? 16 + ((page - 1) * 1000) : 16;

@@ -322,7 +322,7 @@ describe('ActionCompareTab', () => {
   });
 
   it('does not expose Use on an existing baseline and opens the injected editor for a challenger', () => {
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure() {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function measure(this: HTMLElement) {
       if (this.classList.contains('action-compare')) return rect(200, 720);
       if (this.classList.contains('action-compare-toolbar-shell')) return rect(200, 260);
       if (this.tagName === 'FOOTER') return rect(672, 720);
