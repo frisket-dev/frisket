@@ -14,7 +14,7 @@ from frisket.ingest import (
     _item_key,
     _map_entry,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     FeedItem,
     FeedCheckResult,

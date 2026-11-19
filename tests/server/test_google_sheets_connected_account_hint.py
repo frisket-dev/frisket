@@ -28,7 +28,7 @@ from frisket.server.action_catalog_hints import (
     project_action_catalog_payload_with_launcher_hints,
 )
 from frisket.server.app import create_app
-from frisket.server.exports.sheet_csv import SheetExportLimits
+from frisket.exports.sheet_csv import SheetExportLimits
 
 
 def _hints_payload(project, **kwargs):

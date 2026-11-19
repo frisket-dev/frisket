@@ -8,12 +8,12 @@ import pytest
 
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     get_feed_checker,
     register_feed_checker,
 )
-from frisket.server.feeds.tiktok import TikTokProfileFeedChecker, list_tiktok_profile
+from frisket.feeds.tiktok import TikTokProfileFeedChecker, list_tiktok_profile
 
 
 def source(url="https://www.tiktok.com/@example", **config):

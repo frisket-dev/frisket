@@ -175,7 +175,7 @@ def test_view_grid_reads_generated_cells_and_reuses_owned_snapshot(make_project)
 
 def test_view_export_uses_one_ordered_cursor_across_batches(make_project):
     from frisket.engine.views.evaluate import open_selection
-    from frisket.server.exports.plan import (
+    from frisket.exports.plan import (
         build_sheet_export_plan,
         iter_export_row_batches,
     )

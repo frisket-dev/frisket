@@ -93,23 +93,16 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (runner.review -> server.paging; executor export/source families -> server.exports/server.sources; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports.work_log; jobs -> server.provider_config/server.services.table_imports/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
-        "frisket.engine.runner.review",
         "frisket.engine.executor.action_families.exports",
-        "frisket.engine.executor.action_families.exports_column_tables",
-        "frisket.engine.executor.collection_read",
-        "frisket.engine.executor.feed_poll_action",
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",
-        "frisket.engine.jobs.notifications_digest",
-        "frisket.engine.jobs.feeds",
-        "frisket.engine.jobs.notifications_delivery",
         "frisket.engine.jobs.runs",
         "frisket.engine.store.credentials"
       ],
@@ -123,7 +116,7 @@
     },
     {
       "id": "notifications-core-does-not-import-server",
-      "comment": "frisket.notifications holds the candidate builders and the emit/route-planning core that engine producers and server routes share. It must not depend on the server or team layers, or engine producers would need a layer exception to emit.",
+      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server or team layers, or engine producers and delivery jobs would need a layer exception.",
       "modules": [
         "frisket.notifications",
         "frisket.notifications.*"
@@ -137,25 +130,50 @@
       "reject_unresolved_dynamic": true
     },
     {
+      "id": "feeds-do-not-import-server",
+      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server or team layers.",
+      "modules": [
+        "frisket.feeds",
+        "frisket.feeds.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "exports-do-not-import-server",
+      "comment": "frisket.exports holds sheet export planning, row sets, media attachment policy and CSV/JSONL/Parquet rendering. Engine export actions use them, so they must not depend on the server or team layers.",
+      "modules": [
+        "frisket.exports",
+        "frisket.exports.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
       "id": "engine-does-not-import-features",
-      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers, including entity_package (the admitted FollowTheMoney dataset/package adapter), typed mutation_action, file_fetch (the admitted adapter replacing the SDK fetch classifier), and visual_cuts_read/topic_sections_read (the admitted temporal adapters replacing SDK finder orchestration), executor temporal/url_classification/watchlists/geometry/topic_segmentation consumers; jobs watchlists; store url_classification/watchlists — the store edge now lives in store.watches after the project.py split. No unrelated engine module may add such an import. The store.bundle_migrations exception is gone with the migration layer: its only features import was the watch-spec metadata backfill.",
+      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: entity_package (the FollowTheMoney dataset/package adapter), file_fetch and collection_read (URL classification), visual_cuts_read, topic_sections_read, temporal_annotations and temporal_finder_provenance (temporal and topic-segmentation adapters), jobs feeds/alerts and store alerts (alert events and triggers), and store media_download_candidates (URL classification). No other engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
         "frisket.engine.executor.entity_package",
-        "frisket.engine.executor.transcript_read",
         "frisket.engine.executor.file_fetch",
-        "frisket.engine.executor.temporal_materialization",
         "frisket.engine.executor.temporal_annotations",
-        "frisket.engine.executor.plugin_write_apply",
-        "frisket.engine.executor.mutation_action",
         "frisket.engine.executor.temporal_finder_provenance",
         "frisket.engine.executor.visual_cuts_read",
         "frisket.engine.executor.topic_sections_read",
         "frisket.engine.executor.collection_read",
-        "frisket.engine.executor.action_families.imports",
         "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.alerts",
         "frisket.engine.store.media_download_candidates",

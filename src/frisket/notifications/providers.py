@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     FakeNotificationDeliveryProvider,
     NotificationDeliveryProvider,

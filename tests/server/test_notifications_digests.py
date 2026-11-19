@@ -14,16 +14,16 @@ from frisket.engine.jobs import (
     register_notification_digest_handlers,
     register_notification_handlers,
 )
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
 )
-from frisket.server.notifications.digests import (
+from frisket.notifications.digests import (
     compose_notification_digest,
     due_digest_window_for_route,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.producers import run_transition_notification_candidate
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,

@@ -319,8 +319,8 @@
    "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
   ],
   [
-   "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__",
-   "src/frisket/server/exports/dataset_formats.py::DatasetFormatError.__init__"
+   "src/frisket/exports/dataset_formats.py::DatasetFormatError.__init__",
+   "src/frisket/features/followthemoney/adapter.py::FollowTheMoneyAdapterError.__init__"
   ],
   [
    "src/frisket/features/followthemoney/adapter.py::_diagnostic",
@@ -338,9 +338,9 @@
    "src/frisket/pdf_packets/matching.py::_start_kinds.find"
   ],
   [
+   "src/frisket/exports/rowset.py::ExportError.__init__",
    "src/frisket/features/investigations/rowsets.py::InvestigativeRowsetError.__init__",
-   "src/frisket/preview/common.py::ComparePreviewError.__init__",
-   "src/frisket/server/exports/rowset.py::ExportError.__init__"
+   "src/frisket/preview/common.py::ComparePreviewError.__init__"
   ],
   [
    "src/frisket/ingest.py::_media_kind",
@@ -372,16 +372,16 @@
    "src/frisket/server/services/project_debug.py::_spec"
   ],
   [
-   "src/frisket/server/feeds/api_list_dicts.py::_record_scalar_text",
-   "src/frisket/server/feeds/api_list_dicts.py::_record_source_item_id"
+   "src/frisket/feeds/api_list_dicts.py::_record_scalar_text",
+   "src/frisket/feeds/api_list_dicts.py::_record_source_item_id"
   ],
   [
-   "src/frisket/server/notifications/providers.py::_required_secret",
-   "src/frisket/server/notifications/providers.py::_webhook_signing_secret"
+   "src/frisket/notifications/providers.py::_required_secret",
+   "src/frisket/notifications/providers.py::_webhook_signing_secret"
   ],
   [
-   "src/frisket/server/notifications/providers.py::_webhook_max_request_bytes",
-   "src/frisket/server/notifications/providers.py::_webhook_max_response_bytes"
+   "src/frisket/notifications/providers.py::_webhook_max_request_bytes",
+   "src/frisket/notifications/providers.py::_webhook_max_response_bytes"
   ],
   [
    "src/frisket/server/provider_config.py::_normalize_validation_provider",
@@ -484,7 +484,7 @@
   ],
   [
    "src/frisket/engine/jobs/queue.py::_mapping",
-   "src/frisket/server/feeds/health.py::_mapping",
+   "src/frisket/feeds/health.py::_mapping",
    "src/frisket/server/services/selector_choices_projection.py::_mapping"
   ],
   [

@@ -16,12 +16,12 @@ from frisket.engine.jobs import (
     enqueue_due_feed_polls,
     register_feed_poll_handler,
 )
-from frisket.server.feeds.api_list_dicts import (
+from frisket.feeds.api_list_dicts import (
     API_LIST_DICTS_KIND,
     ApiListDictsHttpResponse,
     ApiListDictsFeedChecker,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     get_feed_checker,
     register_feed_checker,

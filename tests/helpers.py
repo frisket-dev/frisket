@@ -31,8 +31,8 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter, ResponseCache
 from frisket.authoring.plugin_registry import ActionProgramSpec, default_registry
 from frisket.server.app import create_app
-from frisket.server.exports.plan import build_sheet_export_plan
-from frisket.server.exports.sheet_csv import iter_export_csv_bytes
+from frisket.exports.plan import build_sheet_export_plan
+from frisket.exports.sheet_csv import iter_export_csv_bytes
 from frisket.testing import llm_cache_path
 
 

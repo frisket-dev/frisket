@@ -494,7 +494,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         )
         calls.clear()
         window_type = importlib.import_module(
-            "frisket.server.notifications.digests"
+            "frisket.notifications.digests"
         ).NotificationDigestWindow
         result = digests.compose_notification_digest_job(
             workspace_root=root,

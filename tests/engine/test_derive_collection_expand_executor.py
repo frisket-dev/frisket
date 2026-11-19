@@ -31,7 +31,7 @@ from frisket.engine.store.receipts import ReceiptStore
 
 from frisket.engine.executor import actions as executor_actions
 from frisket.server.services.action_runs import v1_action_result_http_status
-from frisket.server.feeds.youtube import YouTubeChannelListing
+from frisket.feeds.youtube import YouTubeChannelListing
 from frisket.engine.store import Project
 
 PROJECT_ID = "project-collection-expand"

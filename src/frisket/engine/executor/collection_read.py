@@ -19,7 +19,7 @@ from frisket.engine.runner.confirmation_context import (
 from frisket.engine.runner.confirmation_echo import refuse_unless_exact_echo
 from frisket.features.url_classification import classify_url
 from frisket.engine.store.consumed_sources import read_consumed_source
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     collection_display_name,
     enumerate_youtube_collection,
 )

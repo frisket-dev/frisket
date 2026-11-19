@@ -9,7 +9,7 @@ from frisket.actions.system import typed_action_for_request
 from frisket.contracts.action import ActionOutput, ActionResult
 from frisket.engine.executor.feed_poll_action import _feed_poll_sheet_id_in_txn
 from frisket.engine.store.feeds import FeedStore
-from frisket.server.feeds import ensure_rss_feed_checker, get_feed_checker
+from frisket.feeds import ensure_rss_feed_checker, get_feed_checker
 
 
 def queue_feed_poll(

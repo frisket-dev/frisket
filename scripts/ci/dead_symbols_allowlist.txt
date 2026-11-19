@@ -168,9 +168,9 @@ src/frisket/runtime/model_install.py::install_lock  unreferenced
 src/frisket/sdk/errors.py::<module>  frisket-cloud
 src/frisket/sdk/ops/transcribe_engines.py::transcription_model_calls  test-only
 src/frisket/search.py::search_sheet  test-only
-src/frisket/server/exports/sheet_csv.py::render_export_csv  test-only
+src/frisket/exports/sheet_csv.py::render_export_csv  test-only
 src/frisket/server/import_admission.py::ImportAdmissionLease.transferred  frisket-cloud
-src/frisket/server/notifications/secrets.py::StaticNotificationSecretResolver  test-only
+src/frisket/notifications/secrets.py::StaticNotificationSecretResolver  test-only
 src/frisket/server/provider_config.py::save_search_provider  test-only
 src/frisket/server/services/action_preview_jobs.py::ActionPreviewJobRegistry.has_active_jobs  frisket-cloud
 src/frisket/server/services/project_entity_review.py::ProjectEntityReviewError  unreferenced
@@ -180,8 +180,8 @@ src/frisket/server/services/projects.py::ProjectLifecycleService.resolve_project
 src/frisket/server/services/sample_project.py::sample_articles_csv  unreferenced
 src/frisket/server/services/search_preparation.py::SearchPreparationService.batch_for_receipt  test-only
 src/frisket/server/services/search_preparation.py::SearchPreparationService.recover_pdf_import  frisket-cloud
-src/frisket/server/feeds/runtime.py::registered_feed_kinds  unreferenced
-src/frisket/server/feeds/runtime.py::unregister_feed_checker  test-only
+src/frisket/feeds/runtime.py::registered_feed_kinds  unreferenced
+src/frisket/feeds/runtime.py::unregister_feed_checker  test-only
 src/frisket/table_import/conversion.py::convert_row  unreferenced
 src/frisket/table_import/reader.py::_RawRows  unreferenced
 src/frisket/team/bootstrap.py::init_identity_schema  frisket-cloud

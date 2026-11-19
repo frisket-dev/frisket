@@ -51,11 +51,11 @@ from frisket.server.runtime_settings import (
     save_workspace_cache_mode,
     save_workspace_allowance_usd,
 )
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     NotificationDeliveryRuntime,
     default_delivery_runtime,
 )
-from frisket.server.notifications.secrets import NotificationSecretResolver
+from frisket.notifications.secrets import NotificationSecretResolver
 from frisket.project_identity import validate_project_slug
 from frisket.authoring.action_registry import ActionRegistryStore
 from frisket.authoring.action_metadata import PRODUCT_EDITION_SNAPSHOT_KEY

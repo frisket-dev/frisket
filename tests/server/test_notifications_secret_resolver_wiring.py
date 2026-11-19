@@ -8,12 +8,12 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from frisket.engine.jobs import Worker
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.server.app import create_app
 from frisket.search_index import drain_index
 from http_test_helpers import drain_queue

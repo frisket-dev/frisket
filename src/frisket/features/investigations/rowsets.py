@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from frisket.engine.store.evidence import list_cell_citations
-from frisket.server.exports import rowset as export_rowset
+from frisket.exports import rowset as export_rowset
 from frisket.engine.store import Project
 
 INVESTIGATIVE_ROWSET_SCHEMA_VERSION = "frisket.investigative_rowset.v1"

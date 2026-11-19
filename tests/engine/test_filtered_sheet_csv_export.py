@@ -329,7 +329,7 @@ def test_solo_filtered_csv_export_over_10k_is_complete_and_uses_bounded_fetches(
     # must keep its SQL fetches bounded and must not first resolve a complete
     # explicit row-id list.  It deliberately says nothing about the
     # implementation used to turn those batches into HTTP chunks.
-    from frisket.server.exports import rowset
+    from frisket.exports import rowset
 
     original_batches = rowset.iter_row_id_batches
     calls: list[tuple[list[int] | None, list[int]]] = []
@@ -379,7 +379,7 @@ def test_direct_csv_starts_streaming_before_complete_render_in_bounded_chunks(
     """
     client = _client(tmp_path)
     pid, sheet_id = _seed_many_rows(client)
-    from frisket.server.exports import rowset
+    from frisket.exports import rowset
 
     original_batches = rowset.iter_row_id_batches
     calls: list[list[int]] = []
@@ -429,7 +429,7 @@ def test_streaming_unfiltered_rowset_orders_duplicate_positions_by_id(
         (rows["b"], rows["c"]),
     )
 
-    from frisket.server.exports.rowset import iter_row_id_batches
+    from frisket.exports.rowset import iter_row_id_batches
 
     batches = list(iter_row_id_batches(project, sheet_id, None, batch_size=1))
     assert batches == [[rows["a"]], [rows["b"]], [rows["c"]]]
@@ -485,7 +485,7 @@ def test_hosted_csv_export_limit_refuses_before_direct_or_action_delivery(
     # Cloud composition supplies a limit explicitly.  No limit object is
     # passed by Solo's normal ``create_app`` path, so this must never become a
     # self-hosted default cap.
-    from frisket.server.exports.sheet_csv import SheetExportLimits
+    from frisket.exports.sheet_csv import SheetExportLimits
 
     client = _client(
         tmp_path,
@@ -536,8 +536,8 @@ def test_hosted_csv_export_keeps_the_admitted_filtered_snapshot(
     surface: str,
 ) -> None:
     """Delivery and receipt facts must describe the admitted two-row snapshot."""
-    from frisket.server.exports import rowset
-    from frisket.server.exports.sheet_csv import SheetExportLimits
+    from frisket.exports import rowset
+    from frisket.exports.sheet_csv import SheetExportLimits
 
     client = _client(
         tmp_path,
@@ -631,7 +631,7 @@ def test_direct_csv_closes_its_response_owned_snapshot(
 ) -> None:
     from starlette.requests import ClientDisconnect
 
-    from frisket.server.exports import rowset
+    from frisket.exports import rowset
 
     client = _client(tmp_path)
     pid, sheet_id, _rows, _columns = _seed_project(client)
@@ -715,7 +715,7 @@ def test_large_filtered_solo_csv_action_streams_staging_and_keeps_receipt_compac
     # CSV encoder.  A staged write must happen while row batches remain to be
     # fetched, which rejects a full in-memory CSV collection without policing
     # its implementation details.
-    from frisket.server.exports import rowset
+    from frisket.exports import rowset
 
     original_batches = rowset.iter_row_id_batches
     events: list[tuple[str, int]] = []
@@ -809,8 +809,8 @@ def test_csv_byte_iterator_splits_a_single_large_record_without_losing_bytes(
     tmp_path: Path,
 ) -> None:
     """The shared direct/action encoder never hands a 200KiB record to I/O."""
-    from frisket.server.exports.plan import build_sheet_export_plan
-    from frisket.server.exports.sheet_csv import (
+    from frisket.exports.plan import build_sheet_export_plan
+    from frisket.exports.sheet_csv import (
         iter_export_csv_bytes,
         render_export_csv,
     )
@@ -832,8 +832,8 @@ def test_csv_byte_iterator_splits_a_single_large_record_without_losing_bytes(
 def test_csv_repairs_malformed_unicode_and_preserves_valid_emoji(
     tmp_path: Path,
 ) -> None:
-    from frisket.server.exports.plan import build_sheet_export_plan
-    from frisket.server.exports.sheet_csv import iter_export_csv_bytes
+    from frisket.exports.plan import build_sheet_export_plan
+    from frisket.exports.sheet_csv import iter_export_csv_bytes
 
     client = _client(tmp_path)
     pid = client.post("/api/projects", json={"name": "Unicode CSV"}).json()["id"]

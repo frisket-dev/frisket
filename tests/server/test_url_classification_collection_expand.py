@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     YOUTUBE_COLLECTION_ENUMERATORS,
     YouTubeChannelListing,
     YouTubePlaylistListing,
@@ -185,7 +185,7 @@ def test_enumerate_preview_count_is_total_even_when_entries_truncated() -> None:
 def test_enumerate_defaults_to_the_real_feed_checker_providers() -> None:
     # No provider injected -> the shared enumerator uses the SAME real yt-dlp
     # provider functions the feed checkers use (identity check, no call/network).
-    from frisket.server.feeds import youtube as youtube_module
+    from frisket.feeds import youtube as youtube_module
 
     assert youtube_module.list_youtube_channel_with_ytdlp is (
         list_youtube_channel_with_ytdlp

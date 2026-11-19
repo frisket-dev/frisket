@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
-from frisket.server.notifications.delivery import NotificationRenderedMessage
+from frisket.notifications.delivery import NotificationRenderedMessage
 from frisket.notifications.emit import (
     LOCAL_ACTOR_ID,
     _severity_rank,

@@ -20,12 +20,12 @@ from frisket.engine.jobs import (
     reconcile_notification_delivery_requests,
     register_notification_handlers,
 )
-from frisket.server.notifications.delivery import (
+from frisket.notifications.delivery import (
     DeliveryProviderResult,
     NotificationDeliveryRuntime,
     NotificationRenderedMessage,
 )
-from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+from frisket.notifications.secrets import StaticNotificationSecretResolver
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.engine.store import Project
 from frisket.search_index import drain_index
@@ -472,7 +472,7 @@ def test_recovery_enqueues_delivery_planned_before_process_stopped(tmp_path):
     from frisket.engine.jobs.notifications_delivery import (
         reconcile_notification_delivery_requests,
     )
-    from frisket.server.notifications.projections import emit_alert_check_notification
+    from frisket.notifications.projections import emit_alert_check_notification
 
     client = _client(tmp_path)
     pid, refs, _events = _seed_alert_events(client)

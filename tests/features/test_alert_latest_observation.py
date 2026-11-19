@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from frisket.server.notifications.projections import alert_check_notification_candidate
+from frisket.notifications.projections import alert_check_notification_candidate
 
 
 @pytest.fixture
@@ -192,7 +192,7 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
     from frisket.engine.jobs.notifications_delivery import (
         reconcile_notification_delivery_requests,
     )
-    from frisket.server.notifications.projections import emit_alert_check_notification
+    from frisket.notifications.projections import emit_alert_check_notification
 
     project, _, _, rows, alert = scene
     record(scene, [])
@@ -222,7 +222,7 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
 
 
 def test_notification_persists_total_not_preview_count(scene):
-    from frisket.server.notifications.projections import emit_alert_check_notification
+    from frisket.notifications.projections import emit_alert_check_notification
 
     project, sheet, column, _, alert = scene
     record(scene, [])
@@ -275,7 +275,7 @@ def test_failed_notification_does_not_block_later_checks(scene, monkeypatch):
     from frisket.engine.jobs.notifications_delivery import (
         reconcile_notification_delivery_requests,
     )
-    from frisket.server.notifications import projections
+    from frisket.notifications import projections
 
     project, _, _, rows, _ = scene
     record(scene, [])

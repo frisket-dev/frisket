@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.server.exports.plan import AttachmentPath, ExportColumn
-from frisket.server.exports.rowset import ExportError
+from frisket.exports.plan import AttachmentPath, ExportColumn
+from frisket.exports.rowset import ExportError
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
 

@@ -42,7 +42,7 @@ from frisket.server.action_enqueue import (
 )
 from frisket.authoring import actions as action_contract
 from frisket.execution.attempt import project_attempt_receipts, run_attempt_receipts
-from frisket.server.paging import offset_page_payload
+from frisket.contracts.http.paging import offset_page_payload
 from frisket.server.run_payloads import action_run_rows_payload
 from frisket.server.run_status import action_run_status_payload, public_run_progress
 from frisket.server.workspace import Workspace

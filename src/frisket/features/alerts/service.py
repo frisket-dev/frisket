@@ -16,7 +16,7 @@ from frisket.engine.views.specs import (
 )
 from frisket.retrieval.query import RetrievalQueryError
 from frisket.ai.embeddings.similarity import SimilarityError
-from frisket.server.notifications.projections import emit_alert_check_notification
+from frisket.notifications.projections import emit_alert_check_notification
 
 
 class AlertBindingError(ValueError):

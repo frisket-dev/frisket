@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from frisket.server.paging import offset_page_meta
+from frisket.contracts.http.paging import offset_page_meta
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 

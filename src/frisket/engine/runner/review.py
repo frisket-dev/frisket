@@ -17,7 +17,7 @@ from frisket.engine.store.review_stats import (
 from frisket.engine.store.review_values import read_review_results
 from frisket.engine.store.runs import REVIEWABLE_OUTCOMES_SQL, RunResultStore
 from frisket.review_predicate import authored_output_roles
-from frisket.server.paging import offset_page_payload
+from frisket.contracts.http.paging import offset_page_payload
 
 
 _ACTIVE_HEAD_JOIN = (

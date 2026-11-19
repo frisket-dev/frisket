@@ -12,7 +12,7 @@ import io
 import json
 from typing import Any
 
-from frisket.server.exports.plan import SheetExportPlan, iter_export_row_batches
+from frisket.exports.plan import SheetExportPlan, iter_export_row_batches
 from frisket.engine.store import Project
 
 PARQUET_WRITER_UNAVAILABLE = "parquet_writer_unavailable"

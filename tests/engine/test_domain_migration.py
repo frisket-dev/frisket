@@ -176,7 +176,7 @@ def test_upgrade_poll_keeps_deleted_legacy_source_item(tmp_path, changed):
     )
     from frisket.engine.store import Project
     from frisket.engine.store.feeds import FeedStore
-    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
+    from frisket.feeds.runtime import FeedItem, FeedCheckResult
     from tests.engine.historical_schema import restore_pre_domain_schema
 
     path = tmp_path / "feed.frisket"
@@ -263,7 +263,7 @@ def test_upgrade_poll_tracks_latest_legacy_revision_without_changing_old_rows(
     )
     from frisket.engine.store import Project
     from frisket.engine.store.feeds import FeedStore
-    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
+    from frisket.feeds.runtime import FeedItem, FeedCheckResult
     from tests.engine.historical_schema import restore_pre_domain_schema
 
     path = tmp_path / "revisions.frisket"

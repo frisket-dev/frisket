@@ -13,8 +13,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.server.exports.plan import build_sheet_export_plan, iter_export_row_batches
-from frisket.server.exports.rowset import ExportError
+from frisket.exports.plan import build_sheet_export_plan, iter_export_row_batches
+from frisket.exports.rowset import ExportError
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.server.app import create_app
 

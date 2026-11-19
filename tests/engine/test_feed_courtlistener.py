@@ -15,14 +15,14 @@ from frisket.engine.jobs import (
     enqueue_due_feed_polls,
     register_feed_poll_handler,
 )
-from frisket.server.feeds.courtlistener import (
+from frisket.feeds.courtlistener import (
     COURTLISTENER_DOCKET_KIND,
     CourtListenerDocketListing,
     CourtListenerDocketFeedChecker,
     CourtListenerProviderError,
     fetch_courtlistener_docket,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     get_feed_checker,
     register_feed_checker,

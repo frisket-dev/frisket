@@ -7,8 +7,8 @@ import pytest
 from frisket.engine.jobs import SqliteJobQueue, Worker
 from frisket.engine.store.feeds import FeedStore
 from frisket.server.feed_enqueue import queue_feed_poll
-from frisket.server.feeds.progress import listing_progress_options
-from frisket.server.feeds.rss import ensure_rss_feed_checker
+from frisket.feeds.progress import listing_progress_options
+from frisket.feeds.rss import ensure_rss_feed_checker
 from test_feed_scheduler import _feed, _project, _register
 
 

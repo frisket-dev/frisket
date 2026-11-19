@@ -54,7 +54,7 @@ def test_stale_terminal_worker_records_no_attempt_or_health_failure(
     delivery_request, monkeypatch, path
 ):
     from frisket.engine.jobs import notifications_delivery as worker
-    from frisket.server.notifications.delivery import DeliveryProviderResult
+    from frisket.notifications.delivery import DeliveryProviderResult
 
     project, identity = delivery_request
     project.claim_notification_delivery_request(identity, job_id=42)
@@ -146,7 +146,7 @@ def test_late_digest_writer_preserves_finished_composition(delivery_request, ter
 def test_attempt_insert_failure_rolls_back_terminal_state(delivery_request):
     import sqlite3
     from frisket.engine.jobs.notifications_delivery import _apply_terminal_result
-    from frisket.server.notifications.delivery import DeliveryProviderResult
+    from frisket.notifications.delivery import DeliveryProviderResult
 
     project, identity = delivery_request
     project.claim_notification_delivery_request(identity, job_id=42)
@@ -174,11 +174,11 @@ def test_late_transient_provider_response_does_not_append_retry_outcome(
 ):
     from types import SimpleNamespace
     from frisket.engine.jobs.notifications_delivery import deliver_notification_request
-    from frisket.server.notifications.delivery import (
+    from frisket.notifications.delivery import (
         DeliveryProviderResult,
         NotificationDeliveryRuntime,
     )
-    from frisket.server.notifications.secrets import StaticNotificationSecretResolver
+    from frisket.notifications.secrets import StaticNotificationSecretResolver
 
     project = make_project("late")
     channel = project.create_notification_channel(

@@ -13,12 +13,12 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.server.exports.plan import (
+from frisket.exports.plan import (
     ExportColumns,
     build_sheet_export_plan,
     iter_export_row_batches,
 )
-from frisket.server.exports.rowset import ExportError
+from frisket.exports.rowset import ExportError
 from frisket.server.app import create_app
 
 
