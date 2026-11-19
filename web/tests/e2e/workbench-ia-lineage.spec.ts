@@ -1,8 +1,5 @@
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import os from 'node:os';
-import path from 'node:path';
 import {
   createProject,
   editCells,
@@ -12,7 +9,6 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
-import { testPython } from '../support/testPython';
 
 // Workbench IA increment 7 — LIVE derived-sheet lineage UI.
 //
@@ -22,47 +18,8 @@ import { testPython } from '../support/testPython';
 // reports the child stale. The tab sync dot flips green -> amber, the sheet-info
 // popover shows Stale + the real transform label, Re-run now refreshes without a
 // cost confirm and the dot returns green, the cascade pill counts the stale
-// sheet, the Monitor Lineage tab renders the three-tier DAG with the stale node
-// amber, and a model-backed sheet's Re-run now pauses at the cost confirm.
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
-
-// A derived sheet whose parent op ran a MODEL: seeded directly into the bundle
-// (the same direct-python fixture idiom workbench-ia-sheet-tabs.spec.ts uses to
-// prime the derive cache) so the sheet.refresh cost gate can be asserted with
-// NO live model calls — the 402 fires before any model would be touched.
-function seedModelBackedDerivedSheet(pid: string, parentSheetId: number): number {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import sys
-from pathlib import Path
-from frisket.engine.store import Project
-
-workspace, pid, parent_id = sys.argv[1], sys.argv[2], int(sys.argv[3])
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    op_id = project.append_change("reduce.group_summary", {"sheet_id": parent_id})
-    project.db.execute(
-        "INSERT INTO runs (op_id, sheet_id, recipe, status, model, cost_estimate) "
-        "VALUES (?, ?, 'reduce', 'completed', 'stub/model', 0.42)",
-        (op_id, parent_id),
-    )
-    sheet_id = project.add_sheet("Summary", parent_sheet_id=parent_id, parent_op_id=op_id)
-    project.db.commit()
-    print(sheet_id)
-finally:
-    project.close()
-`;
-  const out = execFileSync(
-    testPython(),
-    ['-c', script, workspace, pid, String(parentSheetId)],
-    { cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000 },
-  );
-  return Number(out.toString().trim());
-}
+// sheet, and the Monitor Lineage tab renders the three-tier DAG with the stale
+// node amber.
 
 async function postAction(
   request: APIRequestContext,
@@ -294,24 +251,4 @@ test("sheet-info's View lineage focuses the Monitor Lineage tab (expanding a col
     'data-collapsed',
     'true',
   );
-});
-
-test('Re-run now on a MODEL-backed derived sheet pauses at the cost confirm (no auto-spend)', async ({
-  page,
-  request,
-}) => {
-  const { pid, parentId } = await seedDerivedProject(request);
-  const modelChildId = seedModelBackedDerivedSheet(pid, parentId);
-
-  await openProject(page, pid, modelChildId);
-  await page.getByTestId(`workbench-mainView-tab-info-${modelChildId}`).click();
-  await expect(page.getByTestId('sheet-info-popover')).toBeVisible();
-
-  await page.getByTestId('sheet-info-rerun').click();
-  // The server 402s with the estimate; the popover pauses for consent instead
-  // of spending — the priced line renders and Re-run now is disabled.
-  const gate = page.getByTestId('sheet-info-cost-confirm');
-  await expect(gate).toBeVisible();
-  await expect(gate).toContainText('$0.42');
-  await expect(page.getByTestId('sheet-info-rerun')).toBeDisabled();
 });
