@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic.config import JsonDict
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from frisket.contracts.http.models import WireModel
 
 
-def _optional_by_omission(schema: dict[str, object]) -> None:
+def _optional_by_omission(schema: JsonDict) -> None:
     """Keep only non-required nullable fields optional by omission.
 
     A required ``T | None`` field is a different wire contract from an
@@ -19,7 +20,8 @@ def _optional_by_omission(schema: dict[str, object]) -> None:
     properties = schema.get("properties")
     if not isinstance(properties, dict):
         return
-    required = set(schema.get("required", ()))
+    listed = schema.get("required", [])
+    required = set(listed) if isinstance(listed, list) else set()
     for name, value in properties.items():
         if name in required:
             continue
