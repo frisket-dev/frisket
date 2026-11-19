@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FormEvent } from 'react';
 
 import type { EmbeddingApiPort } from '../../src/api/ports';
-import type { SheetMeta } from '../../src/api/types';
 import { useEmbeddingsPanelController } from '../../src/components/embeddings/useEmbeddingsPanelController';
 import { sheetMeta } from '../support/actionFormFixtures';
 
