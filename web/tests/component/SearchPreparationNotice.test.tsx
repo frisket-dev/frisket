@@ -70,13 +70,18 @@ function preparationProgress(overrides: Partial<PreparationProgress> = {}): Prep
   return {
     action_kind: 'document.ocr',
     action_name: 'Read PDF text',
+    attempted: 2,
+    cancel_requested: false,
     completed: 2,
     cost: null,
     failed: 1,
     live: true,
+    remaining: 1,
     run_id: 92,
     sheet_id: 7,
+    skipped: 0,
     status: 'running',
+    succeeded: 1,
     timing: {
       elapsed_seconds: 3,
       estimated_finish_at: null,
@@ -258,7 +263,7 @@ describe('search preparation notice projection', () => {
       batches: [batch()], indexing: { status: 'idle', job_id: null, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -292,7 +297,7 @@ describe('search preparation notice projection', () => {
       batches: [batch()], indexing: { status: 'running', job_id: 781, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
     const { result, unmount } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
@@ -321,18 +326,18 @@ describe('search preparation notice projection', () => {
   it('keeps one activity across OCR, indexing and completion and gives a later index its own identity', async () => {
     vi.useFakeTimers();
     const list = vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [batch()],
+      batches: [batch()],
       indexing: { status: 'queued', job_id: 781, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(result.current).toMatchObject({ stage: 'prepare', activityKey: 'preparation:prep-1' });
 
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'queued', job_id: 781, error: null },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
@@ -344,7 +349,7 @@ describe('search preparation notice projection', () => {
     expect(progress).not.toHaveAttribute('aria-valuenow');
 
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'running', job_id: 781, error: null,
         pdf_files: [{ source_id: 'pdf:one', filename: 'Council papers.pdf', completed: 1_896, total: 24_909 }] },
     });
@@ -356,7 +361,7 @@ describe('search preparation notice projection', () => {
     expect(screen.getByRole('progressbar', { name: 'Indexing pages for Council papers.pdf' }))
       .toHaveAttribute('value', '1896');
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'queued', job_id: 782, error: null,
         pdf_files: [{ source_id: 'pdf:one', filename: 'Council papers.pdf', completed: 1_897, total: 24_909 }] },
     });
@@ -370,7 +375,7 @@ describe('search preparation notice projection', () => {
       .toHaveAttribute('value', '1897');
     expect(screen.getByTestId('search-preparation-banner')).not.toHaveTextContent(/queued|finished|ready|%/);
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'idle', job_id: null, error: null },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
@@ -379,13 +384,13 @@ describe('search preparation notice projection', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
 
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'running', job_id: 783, error: null },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(result.current).toMatchObject({ stage: 'index', activityKey: 'index:783' });
     list.mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1', batches: [],
+      batches: [],
       indexing: { status: 'failed', job_id: 783, error: 'Could not index' },
     });
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
@@ -570,7 +575,7 @@ describe('search preparation notice projection', () => {
           required: true, ready: false, runtime_ready: runtimeReady, can_setup: false,
           remediation: 'Install the local audio runtime, then prepare these files again.',
           download_bytes: null, additional_runtime_download: false,
-          license: null, source_url: null, pull_id: null,
+          license: 'CC-BY-4.0', source_url: 'https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2', pull_id: null,
         }],
       })],
     }));
@@ -585,20 +590,19 @@ describe('search preparation notice projection', () => {
 
   it('restores an unavailable runtime explanation after reopening the project', async () => {
     vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1',
       batches: [batch({
         status: 'failed',
         models: [{
           setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
           required: true, ready: false, runtime_ready: false, can_setup: false,
           remediation: 'Install the local audio runtime.', download_bytes: null,
-          additional_runtime_download: false, license: null, source_url: null, pull_id: null,
+          additional_runtime_download: false, license: 'CC-BY-4.0', source_url: 'https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2', pull_id: null,
         }],
       })],
       indexing: { status: 'idle', job_id: null, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
 
@@ -607,7 +611,6 @@ describe('search preparation notice projection', () => {
 
   it('does not treat denied setup permission as a historical runtime failure during unrelated indexing', async () => {
     vi.spyOn(preparationApi, 'listSearchPreparations').mockResolvedValue({
-      schemaVersion: 'frisket.search_preparation_list.v1',
       batches: [batch({
         id: 'just-failed',
         status: 'failed',
@@ -615,7 +618,7 @@ describe('search preparation notice projection', () => {
           setup_ref: 'parakeet', display_name: 'Parakeet', purpose: 'transcribe',
           required: true, ready: false, runtime_ready: true, can_setup: false,
           remediation: 'Model setup requires workspace model-management permission.',
-          download_bytes: null, additional_runtime_download: false, license: null, source_url: null, pull_id: null,
+          download_bytes: null, additional_runtime_download: false, license: 'CC-BY-4.0', source_url: 'https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2', pull_id: null,
         }],
         groups: [{ kind: 'ocr', count: 3, status: 'failed' }],
         errors: ['OCR could not read the imported PDFs.'],
@@ -623,7 +626,7 @@ describe('search preparation notice projection', () => {
       indexing: { status: 'pending', job_id: null, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
 
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
@@ -643,7 +646,7 @@ describe('search preparation notice projection', () => {
       batches: [historical], indexing: { status: 'running', job_id: 900, error: null },
     });
     vi.spyOn(openApi, 'listModelPulls').mockResolvedValue({
-      schemaVersion: 'frisket.model_pull_list.v1', pulls: [],
+      pulls: [],
     });
     const { result } = renderHook(() => useSearchPreparationNotice('project-1', 'workspace'));
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
