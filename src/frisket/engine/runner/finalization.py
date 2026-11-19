@@ -132,6 +132,7 @@ def _finalize_run_in_transaction(
             run_id,
             status,
             commit=False,
+            rebuild_review_stats=False,
             writer_attempt_id=writer_attempt_id,
             claim_token=generation_claim_token,
             claimless_direct_effect=claimless_direct_effect,

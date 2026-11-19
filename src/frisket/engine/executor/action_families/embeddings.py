@@ -1055,6 +1055,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1089,6 +1090,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1104,6 +1106,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1192,6 +1195,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1291,6 +1295,7 @@ def _run_paid_embedding_dimension_probe(
             run_id,
             "cancelled" if cancelled_after_return else "completed",
             commit=False,
+            rebuild_review_stats=False,
             writer_attempt_id=attempt_id,
             claimless_direct_effect=True,
         )
@@ -1325,6 +1330,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1783,7 +1789,9 @@ def _create_index(
                     raise RuntimeError(
                         "embedding probe run disappeared or changed scope before completion"
                     )
-                probe_run_store.finish_run(probe_run_id, "completed", commit=False)
+                probe_run_store.finish_run(
+                    probe_run_id, "completed", commit=False, rebuild_review_stats=False
+                )
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()
@@ -2851,6 +2859,7 @@ def _do_refresh(
                                 attempt_id and not attempt_closed
                             ),
                             commit=False,
+                            rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:
                             set_attempt_state(

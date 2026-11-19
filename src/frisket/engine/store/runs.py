@@ -3045,6 +3045,7 @@ class RunResultStore:
         status: str = "completed",
         *,
         commit: bool = True,
+        rebuild_review_stats: bool = True,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
@@ -3058,6 +3059,11 @@ class RunResultStore:
         are accepted only when the durable run has no live attempt or claim.
         Coupled publishers call this only after sealing and materializing their
         output family in the same transaction.
+
+        ``commit`` names the transaction owner (see ``write_transaction``).
+        The run's review stats are always marked stale; ``rebuild_review_stats``
+        also recounts them in the same transaction, which a caller finishing
+        the run inside a larger publication may defer to the next reader.
         """
         from frisket.execution.attempt import StaleAttemptWriter
 
@@ -3171,7 +3177,7 @@ class RunResultStore:
             )
 
             mark_run_review_stats_dirty(self.db, run_id)
-            if commit:
+            if rebuild_review_stats:
                 rebuild_run_review_stats(self.db, run_id)
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:

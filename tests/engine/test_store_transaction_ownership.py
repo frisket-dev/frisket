@@ -112,7 +112,9 @@ def test_finish_run_commit_false_joins_caller_transaction(project):
     run_id = _running_run(project)
     _open_caller_transaction(project)
 
-    RunResultStore(project).finish_run(run_id, "completed", commit=False)
+    RunResultStore(project).finish_run(
+        run_id, "completed", commit=False, rebuild_review_stats=False
+    )
 
     assert project.db.in_transaction
     assert _committed_run_status(project, run_id) == "running"
@@ -125,7 +127,9 @@ def test_finish_run_commit_false_requires_caller_transaction(project):
     run_id = _running_run(project)
 
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
-        RunResultStore(project).finish_run(run_id, "completed", commit=False)
+        RunResultStore(project).finish_run(
+            run_id, "completed", commit=False, rebuild_review_stats=False
+        )
 
     assert not project.db.in_transaction
     assert _committed_run_status(project, run_id) == "running"
@@ -487,6 +491,39 @@ def test_set_descriptor_owns_its_transaction_when_none_is_open(project):
 
     assert not project.db.in_transaction
     assert _committed_column_type(project, column_id) == "number"
+
+
+# -- review stats are chosen apart from transaction ownership ----------------
+
+
+def _committed_review_stats_ready(project, run_id) -> int:
+    return _committed(
+        project, "SELECT review_stats_ready FROM runs WHERE id=?", (run_id,)
+    )[0][0]
+
+
+def test_finish_run_joined_rebuild_lands_with_the_caller_commit(project):
+    run_id = _running_run(project)
+    _open_caller_transaction(project)
+
+    RunResultStore(project).finish_run(
+        run_id, "completed", commit=False, rebuild_review_stats=True
+    )
+
+    assert _committed_run_status(project, run_id) == "running"
+    project.db.commit()
+    assert _committed_run_status(project, run_id) == "completed"
+    assert _committed_review_stats_ready(project, run_id) == 1
+
+
+def test_finish_run_owned_without_rebuild_leaves_review_stats_stale(project):
+    run_id = _running_run(project)
+
+    RunResultStore(project).finish_run(run_id, "completed", rebuild_review_stats=False)
+
+    assert not project.db.in_transaction
+    assert _committed_run_status(project, run_id) == "completed"
+    assert _committed_review_stats_ready(project, run_id) == 0
 
 
 # -- receipts ----------------------------------------------------------------

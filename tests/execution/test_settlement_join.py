@@ -820,6 +820,7 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
         run_id,
         "completed",
         commit=False,
+        rebuild_review_stats=False,
         writer_attempt_id=terminal["writer_attempt_id"],
         claim_token=terminal["claim_token"],
     )

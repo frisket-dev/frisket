@@ -159,7 +159,9 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                         f"run {run_id} has outputs without a receipt"
                     )
                 if run["status"] == "running":
-                    runs.finish_run(run_id, "cancelled", commit=False)
+                    runs.finish_run(
+                        run_id, "cancelled", commit=False, rebuild_review_stats=False
+                    )
             else:
                 abandoned = db.execute(
                     "SELECT 1 FROM execution_attempts WHERE run_id=? AND state='abandoned'",
