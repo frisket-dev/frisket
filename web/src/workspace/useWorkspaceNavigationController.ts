@@ -788,7 +788,7 @@ export function useWorkspaceNavigationController({
       const runId = takeRunLinkParam(project.id);
       if (runId === null) return;
       openRunLink(runId).catch(() => {
-        if (alive) showError(`Run #${runId} was not found in this project.`);
+        if (alive) showError(`Run #${runId} could not be opened from this project.`);
       });
     };
     onLocation();

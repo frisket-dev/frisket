@@ -108,7 +108,7 @@ it('opens a run with nothing to review on its History change', async () => {
 it('leaves an unknown run on the project view with a notice', async () => {
   window.history.replaceState(null, '', runLinkHref('p1', undefined, '99'));
   const { stores, setError } = renderProject('p1');
-  await waitFor(() => expect(setError).toHaveBeenCalledWith({ message: 'Run #99 was not found in this project.' }));
+  await waitFor(() => expect(setError).toHaveBeenCalledWith({ message: 'Run #99 could not be opened from this project.' }));
   expect(latest?.overlayModel.reviewOpen).toBe(false);
   expect(stores.chrome.store.get().historyFocusChangeId).toBeNull();
   expect(window.location.search).toBe('');
