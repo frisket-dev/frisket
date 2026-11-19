@@ -939,11 +939,8 @@ class ModelRouter:
         embedding spaces need (actual model id, provider id/kind, dimension,
         usage). The metadata-loss in :meth:`embed` is why this exists; existing
         vector-only callers stay on ``embed``."""
-        from frisket.ai.embeddings import (
-            build_batch_result,
-            resolve_embedding_capability,
-        )
-        from .pricing import estimate_tokens
+        from frisket.ai.embeddings import build_batch_result
+        from frisket.ai.embeddings.capabilities import estimate_embedding_cost
 
         provider = provider_from_model_id(model)
         requested = model.split("/", 1)[-1]
@@ -956,21 +953,10 @@ class ModelRouter:
                 f"(configured: {', '.join(self._adapters)})"
             )
         credential_source = self.credential_source_for(provider)
-        capability = resolve_embedding_capability(
-            modality=modality,
-            provider=provider,
-            model=requested,
-            router=self,
-            local_available=False,
-            env={},
+        estimate = estimate_embedding_cost(
+            texts, modality=modality, provider=provider, model=requested, router=self
         )
-        pricing = capability.get("pricing") if capability is not None else None
-        input_rate = (pricing or {}).get("input_usd_per_million_tokens")
-        estimated_cost = (
-            None
-            if input_rate is None
-            else sum(estimate_tokens(text) for text in texts) * input_rate / 1_000_000
-        )
+        input_rate = estimate.input_usd_per_million_tokens
         provider_cost = None
         cost_source = None
 
@@ -1029,7 +1015,7 @@ class ModelRouter:
                 engine=model,
                 prepared={"model": requested, "input": texts},
                 credential_source=credential_source,
-                estimated_cost_usd=estimated_cost,
+                estimated_cost_usd=estimate.cost_usd,
             ),
             policy=self.model_call_policy,
             dispatch=_execution,

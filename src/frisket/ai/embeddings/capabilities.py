@@ -15,7 +15,10 @@ capability contract requires (MODEL_CAPABILITY_CONTRACT Invariant 4).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, TypedDict
+
+from frisket.ai.llm.pricing import estimate_tokens
 
 from .spaces import ALL_MODALITIES, make_space_descriptor
 
@@ -625,12 +628,55 @@ def resolve_embedding_capability(
     return candidates[0]
 
 
+@dataclass(frozen=True)
+class EmbeddingCostEstimate:
+    """Pre-call estimate for one embedding batch. ``cost_usd`` is None when the
+    engine has no known unit price; an unknown price is never treated as free."""
+
+    units: int
+    input_tokens: int
+    input_usd_per_million_tokens: float | None
+    cost_usd: float | None
+
+
+def estimate_embedding_cost(
+    texts: list[str],
+    *,
+    modality: str,
+    provider: str,
+    model: str,
+    router: Any = None,
+) -> EmbeddingCostEstimate:
+    """Estimate one batch from the capability's unit price and the shared
+    pre-run token heuristic. The router's purchase estimate and the unattended
+    refresh allowance both use this, so they quote the same number."""
+    capability = resolve_embedding_capability(
+        modality=modality,
+        provider=provider,
+        model=model,
+        router=router,
+        local_available=False,
+        env={},
+    )
+    pricing = capability["pricing"] if capability is not None else None
+    rate = (pricing or {}).get("input_usd_per_million_tokens")
+    input_tokens = sum(estimate_tokens(text) for text in texts)
+    return EmbeddingCostEstimate(
+        units=len(texts),
+        input_tokens=input_tokens,
+        input_usd_per_million_tokens=None if rate is None else float(rate),
+        cost_usd=None if rate is None else input_tokens * float(rate) / 1_000_000,
+    )
+
+
 __all__ = [
     "ALL_MODALITIES",
     "EmbeddingBatchResult",
     "EmbeddingCapability",
+    "EmbeddingCostEstimate",
     "build_batch_result",
     "embedding_capabilities",
+    "estimate_embedding_cost",
     "resolve_embedding_capability",
     "space_descriptor_from_result",
 ]
