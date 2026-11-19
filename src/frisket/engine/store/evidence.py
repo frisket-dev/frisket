@@ -81,8 +81,13 @@ def record_source_artifact(
     artifact_stable_id = stable_id or _stable_id("source_artifact")
     artifact_metadata = dict(metadata or {})
     captured_text = artifact_metadata.get("captured_text")
-    owns_transaction = not project.db.in_transaction
-    try:
+    # Joins an open caller transaction; otherwise owns one, so captured text
+    # and its artifact row land together.
+    with write_transaction(
+        project.db,
+        commit=not project.db.in_transaction,
+        what="source artifact",
+    ):
         if isinstance(captured_text, str):
             artifact_metadata = store_captured_text(
                 project.db,
@@ -115,12 +120,6 @@ def record_source_artifact(
                 _json_dumps(artifact_metadata),
             ),
         )
-        if owns_transaction:
-            project.db.commit()
-    except Exception:
-        if owns_transaction:
-            project.db.rollback()
-        raise
     return _artifact_row(project, inserted_rowid(cur))
 
 
