@@ -2212,7 +2212,7 @@ class SheetRows(BaseModel):
         return tuple(sorted(value))
 
 
-def require_sheet_rows(scope: ProjectScope | SheetRows) -> SheetRows:
+def require_sheet_rows(scope: ProjectScope | SheetRows | None) -> SheetRows:
     """The scope of a request whose action admits only sheet rows."""
     if not isinstance(scope, SheetRows):
         raise ValueError("action requires sheet_rows scope")
