@@ -60,7 +60,7 @@ it('offers expected editing in scoring mode and disables actions while busy', ()
 
 it('renders bounded values without offering to copy or edit an excerpt', () => {
   const p = props();
-  const field = { id: 'f', runId: '', sheetId: '2', rowId: '7', columnId: '4', columnName: 'amount',
+  const field = { id: 'f', runId: '', sourceId: '', copiedChangeId: null, sheetId: '2', rowId: '7', columnId: '4', columnName: 'amount',
     columnType: 'text' as const, value: null, confidence: null, justification: '', reviewState: 'unreviewed' as const,
     role: 'field' as const, chore: true, boundedValue: { preview: 'Partial answer', totalCharacters: 90000, totalBytes: 90000, downloadHref: null } };
   p.groups[0].field = field; p.expectedField = field;

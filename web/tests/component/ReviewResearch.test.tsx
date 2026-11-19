@@ -17,7 +17,7 @@ vi.mock('../../src/components/Modal', () => ({
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
 const answer: ReviewBundleField = {
-  id: '7:1:4', runId: '7', rowId: '1', sheetId: '2', columnId: '4',
+  id: '7:1:4', runId: '7', sourceId: '7', copiedChangeId: null, rowId: '1', sheetId: '2', columnId: '4',
   columnName: 'Answer', columnType: 'text', value: 'Unknown', outputKey: 'answer',
   confidence: null, justification: '', reviewState: 'unreviewed', role: 'field', chore: true,
 };
@@ -26,7 +26,7 @@ const source = {
   value: '["https://example.org/source"]', role: 'field' as const,
 };
 const bundle: ReviewBundle = {
-  id: '7:1', runId: '7', rowId: '1', sheetId: '2', sheetName: 'Companies', rowIndex: 0,
+  id: '7:1', runId: '7', sourceId: '7', copiedChangeId: null, rowId: '1', sheetId: '2', sheetName: 'Companies', rowIndex: 0,
   actionKind: 'research.answer', actionName: 'Agent Research', model: 'test',
   confidence: null, source: {}, context: '', fields: [answer, source],
   evidence: [], items: [answer, source],
