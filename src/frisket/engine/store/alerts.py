@@ -25,7 +25,11 @@ from frisket.contracts.query_spec import (
     canonical_json,
     detection_conditions,
 )
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 
 
 UNCHANGED_SCHEDULE = object()
@@ -103,8 +107,8 @@ def add_alert(
     detection_policy: dict[str, Any] | None = None,
     enabled: bool = True,
     schedule: str | None = "@hourly",
-    commit: bool = True,
 ) -> int:
+    """Create the one Alert a view may carry, in one owned transaction."""
     from .saved_views import get_view
     from frisket.engine.views.specs import stored_selection, normalize_selection
 
@@ -118,13 +122,12 @@ def add_alert(
         raise ValueError("This view already has alert settings.")
     _validate_schedule(schedule)
     policy = detection_conditions(normalize_detection_policy(detection_policy))
-    cur = project.db.execute(
-        "INSERT INTO watches (name,view_id,detection_policy,enabled,schedule,last_status) VALUES (?,?,?,?,?, 'never')",
-        (name, view_id, canonical_json(policy), int(enabled), schedule),
-    )
-    if commit:
-        project.db.commit()
-    return cur.lastrowid
+    with write_transaction(project.db, what="alert add"):
+        cur = project.db.execute(
+            "INSERT INTO watches (name,view_id,detection_policy,enabled,schedule,last_status) VALUES (?,?,?,?,?, 'never')",
+            (name, view_id, canonical_json(policy), int(enabled), schedule),
+        )
+    return inserted_rowid(cur)
 
 
 def update_alert(
@@ -160,14 +163,14 @@ def update_alert(
         return get_alert(project, alert_id)
     sets.append("updated_at=datetime('now')")
     values.append(int(alert_id))
-    cur = project.db.execute(
-        f"UPDATE watches SET {', '.join(sets)} WHERE id=?",
-        values,
-    )
-    if cur.rowcount == 0:
-        project.db.rollback()
-        return None
-    project.db.commit()
+    with write_transaction(project.db, what="alert update"):
+        cur = project.db.execute(
+            f"UPDATE watches SET {', '.join(sets)} WHERE id=?",
+            values,
+        )
+        if cur.rowcount == 0:
+            project.db.rollback()
+            return None
     return get_alert(project, alert_id)
 
 
@@ -179,28 +182,30 @@ def delete_alert(project: Any, alert_id: int) -> bool:
     matching local projections and routes must be removed in this transaction
     before deleting the Alert.  Delivery outside this database is not touched.
     """
-    alert_id = int(alert_id)
-    with write_transaction(project.db):
-        cur = project.db.cursor()
-        if (
-            cur.execute("SELECT 1 FROM watches WHERE id=?", (alert_id,)).fetchone()
-            is None
-        ):
-            return False
-        cur.execute(
-            "DELETE FROM notification_items "
-            "WHERE source_kind='watch' "
-            "AND json_extract(source_ref, '$.watch_id')=?",
-            (alert_id,),
-        )
-        cur.execute(
-            "DELETE FROM notification_routes "
-            "WHERE source_kind='watch' "
-            "AND json_extract(source_ref_match_json, '$.watch_id')=?",
-            (alert_id,),
-        )
-        cur.execute("DELETE FROM watches WHERE id=?", (alert_id,))
-        return True
+    with write_transaction(project.db, what="alert delete"):
+        return delete_alert_rows(project, int(alert_id))
+
+
+def delete_alert_rows(project: Any, alert_id: int) -> bool:
+    """``delete_alert`` inside the caller's open transaction."""
+    require_transaction(project.db, "alert delete")
+    db = project.db
+    if db.execute("SELECT 1 FROM watches WHERE id=?", (alert_id,)).fetchone() is None:
+        return False
+    db.execute(
+        "DELETE FROM notification_items "
+        "WHERE source_kind='watch' "
+        "AND json_extract(source_ref, '$.watch_id')=?",
+        (alert_id,),
+    )
+    db.execute(
+        "DELETE FROM notification_routes "
+        "WHERE source_kind='watch' "
+        "AND json_extract(source_ref_match_json, '$.watch_id')=?",
+        (alert_id,),
+    )
+    db.execute("DELETE FROM watches WHERE id=?", (alert_id,))
+    return True
 
 
 def alert_latest_run(project: Any, alert_id: int) -> sqlite3.Row | None:
