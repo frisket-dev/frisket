@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Self
+from typing import Any, Iterable, Mapping, Self, TypedDict
 
 from .changes import ChangeStore
 from .import_blobs import PreparedImportBlobPlan, publish_import_blobs
@@ -35,6 +35,22 @@ class PdfSplitSource:
     row_id: int | None = None
     column_id: int | None = None
     value: Any = None
+
+
+class _SessionArguments(TypedDict):
+    """The keyword arguments a new and an appending import session share."""
+
+    session_id: str
+    writer_authority: str
+    columns: Iterable[Mapping[str, Any]]
+    project_id: str
+    action_kind: str
+    operation_kind: str | None
+    idempotency_key: str | None
+    params_hash: str
+    action_id: str
+    receipt_id: str
+    source_ref: Mapping[str, Any]
 
 
 class PdfSplitWriter(StreamingSheetWriter):
@@ -100,7 +116,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             existing = active_import_session(project.db, sheet_id)
             if existing is not None:
                 raise ImportInProgress(existing)
-        kwargs = dict(
+        kwargs = _SessionArguments(
             session_id=session_id,
             writer_authority=writer_authority,
             columns=columns,
