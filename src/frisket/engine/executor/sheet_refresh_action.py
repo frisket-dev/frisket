@@ -11,7 +11,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, TypeGuard
 
 from frisket.actions.core import CreateSheet, _ProjectAction
 from frisket.actions.join_types import JoinedTablesReader
@@ -208,7 +208,7 @@ def _fail(
     )
 
 
-def supports_typed_sheet_refresh_action(terminal: Any) -> bool:
+def supports_typed_sheet_refresh_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         SheetRefresher,
     )

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import Any
+from typing import Any, TypeGuard
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.enclosure_types import (
@@ -48,7 +48,7 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.media_blobs import MediaBlobStore
 
 
-def supports_typed_enclosure_action(terminal: Any) -> bool:
+def supports_typed_enclosure_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         EnclosureMaterializer,
     )

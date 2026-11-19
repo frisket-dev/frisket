@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TypeGuard
+
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -152,7 +154,9 @@ class AdmittedTemporalExtractor:
         return token
 
 
-def supports_typed_temporal_extract_action(terminal):
+def supports_typed_temporal_extract_action(
+    terminal: object,
+) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         TemporalExtractor,
     )

@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, Mapping, NoReturn
+from typing import Any, Literal, Mapping, NoReturn, TypeGuard
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
@@ -226,7 +226,7 @@ class _Redoer(_OperationStep):
 _CAPABILITY_IMPL = {OperationUndoer: _Undoer, OperationRedoer: _Redoer}
 
 
-def supports_typed_operation_action(terminal: object) -> bool:
+def supports_typed_operation_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and any(
         terminal.capabilities == (cap,) for cap in _CAPABILITY_IMPL
     )

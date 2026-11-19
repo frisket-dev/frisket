@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, replace
 from functools import partial
 from types import MappingProxyType
-from typing import Any, Callable
+from typing import Any, Callable, TypeGuard
 
 from frisket.engine.executor.action_inventory import _typed_request_envelope
 from frisket.actions.core import SemanticJoin, _ProjectAction
@@ -73,7 +73,7 @@ class _BackfillPlan:
         return json.loads(self.spec_json)
 
 
-def supports_typed_backfill_action(terminal: Any) -> bool:
+def supports_typed_backfill_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         RunBackfiller,
     )
