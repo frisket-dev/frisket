@@ -225,20 +225,19 @@ async def cut_and_store_clip(
                 out_path=out_path,
             )
         data = out_path.read_bytes()
+        # The clip's bytes and blob row are durable before its lineage row; a
+        # blob row without lineage is unreferenced and blob GC prunes it.
         digest = project.add_blob(
             data,
             filename=clip_filename(source, start_ms=start_ms, end_ms=end_ms),
             mime=source.mime,
-            commit=False,
         )
         project.record_blob_derivation(
             derived_hash=digest,
             source_hash=source.blob_hash,
             op=op,
             params={"start_ms": start_ms, "end_ms": end_ms},
-            commit=False,
         )
-        project.db.commit()
         return digest
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

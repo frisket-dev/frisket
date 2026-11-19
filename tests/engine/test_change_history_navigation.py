@@ -1,6 +1,7 @@
 import pytest
 
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.changes import start_change
 from frisket.engine.store.column_descriptors import (
     descriptor_identity,
@@ -117,7 +118,7 @@ def test_selective_row_membership_uses_latest_active_change(make_project):
     row = project.add_rows(sheet, [{"value": "x"}], {"value": column})[0]
     ids = []
     for field in ("deleted_rows", "restored_rows", "deleted_rows"):
-        with project.db:
+        with write_transaction(project.db):
             op = append_change(project, field, undo_info={field: [row]}, commit=False)
             start_change(project.db, op)
             project_structural_changes(project.db, op)
@@ -185,7 +186,7 @@ def test_creation_restore_conflict_does_not_partially_restore_other_columns(
     sheet = project.add_sheet("data")
     a = project.add_column(sheet, "summary")
     b = project.add_column(sheet, "citation")
-    with project.db:
+    with write_transaction(project.db):
         op = append_change(
             project, "create", undo_info={"created_columns": [a, b]}, commit=False
         )

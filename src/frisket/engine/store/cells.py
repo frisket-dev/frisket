@@ -32,7 +32,7 @@ from frisket.engine.store.current_value_windows import prepared_text_sizes
 from frisket.engine.store.prepared_content import decode_logical_value
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.value_codec import decode_stored_value
-from .transactions import write_transaction
+from .transactions import inserted_rowid, require_transaction, write_transaction
 
 # Column types live in the pluggable registry (frisket.column_types) — the
 # core types are registered there on the same seam plugins use. COLUMN_TYPES
@@ -158,12 +158,7 @@ def add_sheet(
     commit: bool = True,
     close_change: bool = True,
 ) -> int:
-    owns_transaction = bool(
-        parent_op_id is not None and commit and not project.db.in_transaction
-    )
-    if owns_transaction:
-        project.db.execute("BEGIN IMMEDIATE")
-    try:
+    with write_transaction(project.db, commit=commit, what="sheet add"):
         if parent_op_id is not None:
             from .changes import close_change as _close_change, start_change
 
@@ -175,13 +170,7 @@ def add_sheet(
         )
         if parent_op_id is not None and close_change:
             _close_change(project.db, int(parent_op_id))
-        if commit:
-            project.db.commit()
-        return cur.lastrowid
-    except BaseException:
-        if owns_transaction:
-            project.db.rollback()
-        raise
+    return inserted_rowid(cur)
 
 
 def sheets(project: Any, include_hidden: bool = False) -> list[sqlite3.Row]:
@@ -200,23 +189,23 @@ def set_sheet_title_column(
     column per the grid's current drag order, falling back to canonical
     order) — that default is computed client-side, so this store only
     persists the explicit override itself."""
-    sheet_row = project.db.execute(
-        "SELECT id FROM sheets WHERE id=?", (sheet_id,)
-    ).fetchone()
-    if sheet_row is None:
-        raise KeyError(f"no sheet {sheet_id}")
-    if title_column_id is not None:
-        col = project.db.execute(
-            "SELECT id FROM columns WHERE id=? AND sheet_id=?",
-            (title_column_id, sheet_id),
+    with write_transaction(project.db, what="sheet title column"):
+        sheet_row = project.db.execute(
+            "SELECT id FROM sheets WHERE id=?", (sheet_id,)
         ).fetchone()
-        if col is None:
-            raise ValueError(f"column {title_column_id} is not in sheet {sheet_id}")
-    project.db.execute(
-        "UPDATE sheets SET title_column_id=? WHERE id=?",
-        (title_column_id, sheet_id),
-    )
-    project.db.commit()
+        if sheet_row is None:
+            raise KeyError(f"no sheet {sheet_id}")
+        if title_column_id is not None:
+            col = project.db.execute(
+                "SELECT id FROM columns WHERE id=? AND sheet_id=?",
+                (title_column_id, sheet_id),
+            ).fetchone()
+            if col is None:
+                raise ValueError(f"column {title_column_id} is not in sheet {sheet_id}")
+        project.db.execute(
+            "UPDATE sheets SET title_column_id=? WHERE id=?",
+            (title_column_id, sheet_id),
+        )
 
 
 def add_column(
@@ -245,74 +234,71 @@ def add_column(
     """
     if type not in COLUMN_TYPES:
         raise ValueError(f"unknown column type: {type}")
-    # Reuse only an active producer-owned hidden column (e.g. a staged output).
-    # Undo releases name ownership: inactive historical columns keep their IDs,
-    # values and metadata, and a new declaration gets a fresh identity.
-    existing_hidden = project.db.execute(
-        "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
-        (sheet_id, name),
-    ).fetchone()
-    if existing_hidden:
-        # semantic_type converges with the rest: a revived column that keeps a
-        # marker its new producer never declared would make the marker a lie
-        # (a prose column advertising entity_mentions), and one that loses a
-        # marker its producer DID declare reads as "no entity column" —
-        # indistinguishable from clean data.
-        #
-        # The pointer clear is LEGACY-ONLY. For a generation-managed column
-        # the scalar pointer is a compatibility mirror, not read authority
-        # (exact heads are), so clearing it suppresses nothing — and the
-        # successor generation's seal fence compares the pointer against the
-        # base captured at claim time, so a mid-run clear would refuse the
-        # very publication that replaces the old values. Revival therefore
-        # preserves the pointer wherever it stands (NULL after undo-revival,
-        # the prior run after a zero-success hide); terminal seal moves it
-        # atomically.
-        generation_managed = (
+    with write_transaction(project.db, commit=commit, what="column add"):
+        # Reuse only an active producer-owned hidden column (e.g. a staged output).
+        # Undo releases name ownership: inactive historical columns keep their IDs,
+        # values and metadata, and a new declaration gets a fresh identity.
+        existing_hidden = project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name=? AND active=1 AND hidden=1",
+            (sheet_id, name),
+        ).fetchone()
+        if existing_hidden:
+            # semantic_type converges with the rest: a revived column that keeps a
+            # marker its new producer never declared would make the marker a lie
+            # (a prose column advertising entity_mentions), and one that loses a
+            # marker its producer DID declare reads as "no entity column" —
+            # indistinguishable from clean data.
+            #
+            # The pointer clear is LEGACY-ONLY. For a generation-managed column
+            # the scalar pointer is a compatibility mirror, not read authority
+            # (exact heads are), so clearing it suppresses nothing — and the
+            # successor generation's seal fence compares the pointer against the
+            # base captured at claim time, so a mid-run clear would refuse the
+            # very publication that replaces the old values. Revival therefore
+            # preserves the pointer wherever it stands (NULL after undo-revival,
+            # the prior run after a zero-success hide); terminal seal moves it
+            # atomically.
+            generation_managed = (
+                project.db.execute(
+                    "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
+                    (existing_hidden["id"],),
+                ).fetchone()
+                is not None
+            )
+            pointer_sql = "" if generation_managed else ", current_run_id=NULL"
             project.db.execute(
-                "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-                (existing_hidden["id"],),
-            ).fetchone()
-            is not None
-        )
-        pointer_sql = "" if generation_managed else ", current_run_id=NULL"
-        project.db.execute(
-            "UPDATE columns SET hidden=?, default_hidden=?, type=?, ai_generated=?, "
-            f"format=?, semantic_type=?{pointer_sql} WHERE id=?",
+                "UPDATE columns SET hidden=?, default_hidden=?, type=?, ai_generated=?, "
+                f"format=?, semantic_type=?{pointer_sql} WHERE id=?",
+                (
+                    int(hidden),
+                    int(default_hidden),
+                    type,
+                    int(ai_generated),
+                    format,
+                    semantic_type,
+                    existing_hidden["id"],
+                ),
+            )
+            refresh_current_cells(project.db, column_ids=[int(existing_hidden["id"])])
+            return existing_hidden["id"]
+        cur = project.db.execute(
+            "INSERT INTO columns (sheet_id, name, type, ai_generated, format, "
+            "hidden, default_hidden, semantic_type, position) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, "
+            "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
             (
-                int(hidden),
-                int(default_hidden),
+                sheet_id,
+                name,
                 type,
                 int(ai_generated),
                 format,
+                int(hidden),
+                int(default_hidden),
                 semantic_type,
-                existing_hidden["id"],
+                sheet_id,
             ),
         )
-        refresh_current_cells(project.db, column_ids=[int(existing_hidden["id"])])
-        if commit:
-            project.db.commit()
-        return existing_hidden["id"]
-    cur = project.db.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, "
-        "hidden, default_hidden, semantic_type, position) VALUES "
-        "(?, ?, ?, ?, ?, ?, ?, ?, "
-        "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
-        (
-            sheet_id,
-            name,
-            type,
-            int(ai_generated),
-            format,
-            int(hidden),
-            int(default_hidden),
-            semantic_type,
-            sheet_id,
-        ),
-    )
-    if commit:
-        project.db.commit()
-    return cur.lastrowid
+    return inserted_rowid(cur)
 
 
 def columns(
@@ -342,14 +328,13 @@ def set_column_default_hidden(
     This is the hide primitive the shared output-retirement mechanism
     (`MapRunner._retire_dropped_output_columns`) calls; programs declare their
     dropped-role names via `ActionProgram.retired_output_names`."""
-    cur = project.db.execute(
-        "UPDATE columns SET default_hidden=? WHERE id=?",
-        (int(hidden), column_id),
-    )
-    if cur.rowcount == 0:
-        raise KeyError(f"no column {column_id}")
-    if commit:
-        project.db.commit()
+    with write_transaction(project.db, commit=commit, what="column default hidden"):
+        cur = project.db.execute(
+            "UPDATE columns SET default_hidden=? WHERE id=?",
+            (int(hidden), column_id),
+        )
+        if cur.rowcount == 0:
+            raise KeyError(f"no column {column_id}")
 
 
 def set_column_type(
@@ -438,11 +423,14 @@ def add_rows(
     Callers that already own an admitted operation pass its ``producer_id``
     and retain transaction ownership. The standalone convenience path creates
     one undoable append operation and producer for the complete batch.
+    ``commit=False`` joins the caller's open transaction.
     """
     if not records:
         return []
     owned_op = producer_id is None
     db = project.db
+    if not commit:
+        require_transaction(db, "row batch")
     nested = db.in_transaction
     savepoint = "add_rows"
     if nested:
@@ -500,10 +488,7 @@ def add_rows(
 
             ChangeStore(project).start(op_id)
             ChangeStore(project).close(op_id)
-        if nested:
-            db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit and not nested:
-            db.commit()
+        db.execute(f"RELEASE SAVEPOINT {savepoint}") if nested else db.commit()
         return row_ids
     except BaseException:
         if nested:

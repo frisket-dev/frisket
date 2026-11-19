@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from frisket.engine.store.credentials import replace_secret_consumers
+from frisket.engine.store.transactions import write_transaction
 from frisket.contracts.http.project_mcp import (
     MCP_SERVER_CATALOG_SCHEMA_VERSION,
     McpServer,
@@ -162,10 +163,8 @@ class ProjectMcpService:
         servers: list[dict[str, Any]],
         replacements: list[dict[str, Any]],
     ) -> None:
-        # ``set_meta(..., commit=False)`` and replace_secret_consumers share
-        # the same SQLite connection.  Either the configuration plus its
-        # grants commits together, or both roll back.
-        try:
+        # The configuration and its secret grants commit together or not at all.
+        with write_transaction(project.db, what="MCP servers and secret grants"):
             write_project_mcp_servers(project, servers, commit=False)
             for server in replacements:
                 replace_secret_consumers(
@@ -173,12 +172,7 @@ class ProjectMcpService:
                     kind="mcp_connector",
                     consumer_id=str(server["id"]),
                     names=cls._secret_refs(server.get("env", {})),
-                    commit=False,
                 )
-            project.db.commit()
-        except Exception:
-            project.db.rollback()
-            raise
 
     @staticmethod
     def _find(servers: list[dict[str, Any]], server_id: str) -> dict[str, Any]:

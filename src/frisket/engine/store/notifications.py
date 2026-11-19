@@ -6,7 +6,11 @@ leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
-from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 import json
 import sqlite3
 from typing import Any, Collection
@@ -167,26 +171,26 @@ def insert_notification_item(
     deep_link: str,
     payload: str,
 ) -> int:
-    cur = project.db.execute(
-        "INSERT INTO notification_items "
-        "(source_kind, source_ref, dedupe_key, source_event_ids, "
-        "event_count, event_kinds, title, summary, severity, deep_link, payload) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            source_kind,
-            source_ref,
-            dedupe_key,
-            source_event_ids,
-            int(event_count),
-            event_kinds,
-            title,
-            summary,
-            severity,
-            deep_link,
-            payload,
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="insert notification item"):
+        cur = project.db.execute(
+            "INSERT INTO notification_items "
+            "(source_kind, source_ref, dedupe_key, source_event_ids, "
+            "event_count, event_kinds, title, summary, severity, deep_link, payload) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                source_kind,
+                source_ref,
+                dedupe_key,
+                source_event_ids,
+                int(event_count),
+                event_kinds,
+                title,
+                summary,
+                severity,
+                deep_link,
+                payload,
+            ),
+        )
     return inserted_rowid(cur)
 
 
@@ -203,23 +207,23 @@ def update_notification_item(
     deep_link: str,
     payload: str,
 ) -> None:
-    project.db.execute(
-        "UPDATE notification_items SET source_event_ids=?, event_count=?, "
-        "event_kinds=?, title=?, summary=?, severity=?, deep_link=?, "
-        "payload=?, updated_at=datetime('now') WHERE id=?",
-        (
-            source_event_ids,
-            int(event_count),
-            event_kinds,
-            title,
-            summary,
-            severity,
-            deep_link,
-            payload,
-            int(notification_id) if notification_id is not None else None,
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="update notification item"):
+        project.db.execute(
+            "UPDATE notification_items SET source_event_ids=?, event_count=?, "
+            "event_kinds=?, title=?, summary=?, severity=?, deep_link=?, "
+            "payload=?, updated_at=datetime('now') WHERE id=?",
+            (
+                source_event_ids,
+                int(event_count),
+                event_kinds,
+                title,
+                summary,
+                severity,
+                deep_link,
+                payload,
+                int(notification_id) if notification_id is not None else None,
+            ),
+        )
 
 
 def list_notification_items(
@@ -367,12 +371,20 @@ def notification_summary(
 def ensure_notification_actor_state(
     project: Any, notification_id: int, actor_id: str
 ) -> sqlite3.Row:
+    """Create the actor's notification state if missing, owning the write."""
+    with write_transaction(project.db, what="notification actor state"):
+        return _joined_actor_state(project, notification_id, actor_id)
+
+
+def _joined_actor_state(
+    project: Any, notification_id: int, actor_id: str
+) -> sqlite3.Row:
+    require_transaction(project.db, "notification actor state")
     project.db.execute(
         "INSERT OR IGNORE INTO notification_actor_state "
         "(notification_id, actor_id, state) VALUES (?, ?, 'unseen')",
         (int(notification_id), actor_id),
     )
-    project.db.commit()
     row = project.db.execute(
         "SELECT * FROM notification_actor_state WHERE notification_id=? AND actor_id=?",
         (int(notification_id), actor_id),
@@ -407,49 +419,50 @@ def mark_notifications_seen(
         before_created_at=before_created_at,
     )
     count = 0
-    for notification_id in ids:
-        row = project.ensure_notification_actor_state(notification_id, actor_id)
-        if row["seen_at"] is None:
-            project.db.execute(
-                "UPDATE notification_actor_state SET state=?, "
-                "seen_at=COALESCE(seen_at, datetime('now')), "
-                "updated_at=datetime('now') WHERE notification_id=? AND actor_id=?",
-                ("seen", notification_id, actor_id),
-            )
-            count += 1
-    project.db.commit()
+    with write_transaction(project.db, what="notifications seen"):
+        for notification_id in ids:
+            row = _joined_actor_state(project, notification_id, actor_id)
+            if row["seen_at"] is None:
+                project.db.execute(
+                    "UPDATE notification_actor_state SET state=?, "
+                    "seen_at=COALESCE(seen_at, datetime('now')), "
+                    "updated_at=datetime('now') "
+                    "WHERE notification_id=? AND actor_id=?",
+                    ("seen", notification_id, actor_id),
+                )
+                count += 1
     return count
 
 
 def mark_notification_read(
     project: Any, notification_id: int, actor_id: str
 ) -> dict[str, Any]:
-    project.ensure_notification_actor_state(notification_id, actor_id)
-    project.db.execute(
-        "UPDATE notification_actor_state SET state='read', "
-        "seen_at=COALESCE(seen_at, datetime('now')), "
-        "read_at=COALESCE(read_at, datetime('now')), updated_at=datetime('now') "
-        "WHERE notification_id=? AND actor_id=?",
-        (int(notification_id), actor_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="notification read"):
+        _joined_actor_state(project, notification_id, actor_id)
+        project.db.execute(
+            "UPDATE notification_actor_state SET state='read', "
+            "seen_at=COALESCE(seen_at, datetime('now')), "
+            "read_at=COALESCE(read_at, datetime('now')), updated_at=datetime('now') "
+            "WHERE notification_id=? AND actor_id=?",
+            (int(notification_id), actor_id),
+        )
     return project.notification_actor_state(notification_id, actor_id)
 
 
 def acknowledge_notification(
     project: Any, notification_id: int, actor_id: str
 ) -> dict[str, Any]:
-    project.ensure_notification_actor_state(notification_id, actor_id)
-    project.db.execute(
-        "UPDATE notification_actor_state SET state='acknowledged', "
-        "seen_at=COALESCE(seen_at, datetime('now')), "
-        "read_at=COALESCE(read_at, datetime('now')), "
-        "acknowledged_at=COALESCE(acknowledged_at, datetime('now')), "
-        "acknowledged_by=?, updated_at=datetime('now') "
-        "WHERE notification_id=? AND actor_id=?",
-        (actor_id, int(notification_id), actor_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="notification acknowledgement"):
+        _joined_actor_state(project, notification_id, actor_id)
+        project.db.execute(
+            "UPDATE notification_actor_state SET state='acknowledged', "
+            "seen_at=COALESCE(seen_at, datetime('now')), "
+            "read_at=COALESCE(read_at, datetime('now')), "
+            "acknowledged_at=COALESCE(acknowledged_at, datetime('now')), "
+            "acknowledged_by=?, updated_at=datetime('now') "
+            "WHERE notification_id=? AND actor_id=?",
+            (actor_id, int(notification_id), actor_id),
+        )
     return project.notification_actor_state(notification_id, actor_id)
 
 
@@ -482,15 +495,17 @@ def acknowledge_notifications(
 def unacknowledge_notification(
     project: Any, notification_id: int, actor_id: str
 ) -> dict[str, Any]:
-    row = project.ensure_notification_actor_state(notification_id, actor_id)
-    next_state = "read" if row["read_at"] else "seen" if row["seen_at"] else "unseen"
-    project.db.execute(
-        "UPDATE notification_actor_state SET state=?, acknowledged_at=NULL, "
-        "acknowledged_by=NULL, updated_at=datetime('now') "
-        "WHERE notification_id=? AND actor_id=?",
-        (next_state, int(notification_id), actor_id),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="notification unacknowledgement"):
+        row = _joined_actor_state(project, notification_id, actor_id)
+        next_state = (
+            "read" if row["read_at"] else "seen" if row["seen_at"] else "unseen"
+        )
+        project.db.execute(
+            "UPDATE notification_actor_state SET state=?, acknowledged_at=NULL, "
+            "acknowledged_by=NULL, updated_at=datetime('now') "
+            "WHERE notification_id=? AND actor_id=?",
+            (next_state, int(notification_id), actor_id),
+        )
     return project.notification_actor_state(notification_id, actor_id)
 
 
@@ -505,18 +520,18 @@ def create_notification_channel(
 ) -> dict[str, Any]:
     if kind != "in_app":
         project.ensure_default_in_app_notification_channel()
-    cur = project.db.execute(
-        "INSERT INTO notification_channels "
-        "(kind, name, enabled, config_json, secret_ref) VALUES (?,?,?,?,?)",
-        (
-            kind,
-            name,
-            int(enabled),
-            json.dumps(config or {}, sort_keys=True),
-            secret_ref,
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="create notification channel"):
+        cur = project.db.execute(
+            "INSERT INTO notification_channels "
+            "(kind, name, enabled, config_json, secret_ref) VALUES (?,?,?,?,?)",
+            (
+                kind,
+                name,
+                int(enabled),
+                json.dumps(config or {}, sort_keys=True),
+                secret_ref,
+            ),
+        )
     return project.public_notification_channel(inserted_rowid(cur))
 
 
@@ -575,12 +590,12 @@ def update_notification_channel(
         else str(row["config_json"] or "{}")
     )
     next_secret_ref = secret_ref if set_secret_ref else row["secret_ref"]
-    project.db.execute(
-        "UPDATE notification_channels SET name=?, enabled=?, config_json=?, "
-        "secret_ref=?, updated_at=datetime('now') WHERE id=?",
-        (next_name, next_enabled, next_config, next_secret_ref, int(channel_id)),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="update notification channel"):
+        project.db.execute(
+            "UPDATE notification_channels SET name=?, enabled=?, config_json=?, "
+            "secret_ref=?, updated_at=datetime('now') WHERE id=?",
+            (next_name, next_enabled, next_config, next_secret_ref, int(channel_id)),
+        )
     return project.public_notification_channel(channel_id)
 
 
@@ -632,31 +647,31 @@ def create_notification_route(
     digest_anchor_time: str | None = None,
     template_key: str | None = None,
 ) -> dict[str, Any]:
-    cur = project.db.execute(
-        "INSERT INTO notification_routes "
-        "(name, enabled, owner_kind, owner_ref, recipient_actor_id, channel_id, "
-        "source_kind, source_ref_match_json, event_kinds_json, severity_min, "
-        "delivery_mode, digest_cadence, digest_timezone, digest_anchor_time, "
-        "template_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            name,
-            int(enabled),
-            owner_kind,
-            owner_ref or project.path.stem,
-            recipient_actor_id,
-            int(channel_id),
-            source_kind,
-            json.dumps(source_ref_match or {}, sort_keys=True),
-            json.dumps(event_kinds or [], sort_keys=True),
-            severity_min,
-            delivery_mode,
-            digest_cadence,
-            digest_timezone,
-            digest_anchor_time,
-            template_key,
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="create notification route"):
+        cur = project.db.execute(
+            "INSERT INTO notification_routes "
+            "(name, enabled, owner_kind, owner_ref, recipient_actor_id, channel_id, "
+            "source_kind, source_ref_match_json, event_kinds_json, severity_min, "
+            "delivery_mode, digest_cadence, digest_timezone, digest_anchor_time, "
+            "template_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                name,
+                int(enabled),
+                owner_kind,
+                owner_ref or project.path.stem,
+                recipient_actor_id,
+                int(channel_id),
+                source_kind,
+                json.dumps(source_ref_match or {}, sort_keys=True),
+                json.dumps(event_kinds or [], sort_keys=True),
+                severity_min,
+                delivery_mode,
+                digest_cadence,
+                digest_timezone,
+                digest_anchor_time,
+                template_key,
+            ),
+        )
     return project.public_notification_route(inserted_rowid(cur))
 
 
@@ -725,33 +740,33 @@ def update_notification_route(
         ),
         "template_key": template_key if set_template_key else row["template_key"],
     }
-    project.db.execute(
-        "UPDATE notification_routes SET name=?, enabled=?, owner_kind=?, "
-        "owner_ref=?, recipient_actor_id=?, channel_id=?, source_kind=?, "
-        "source_ref_match_json=?, event_kinds_json=?, severity_min=?, "
-        "delivery_mode=?, digest_cadence=?, digest_timezone=?, "
-        "digest_anchor_time=?, template_key=?, updated_at=datetime('now') "
-        "WHERE id=?",
-        (
-            next_values["name"],
-            next_values["enabled"],
-            next_values["owner_kind"],
-            next_values["owner_ref"],
-            next_values["recipient_actor_id"],
-            next_values["channel_id"],
-            next_values["source_kind"],
-            next_values["source_ref_match_json"],
-            next_values["event_kinds_json"],
-            next_values["severity_min"],
-            next_values["delivery_mode"],
-            next_values["digest_cadence"],
-            next_values["digest_timezone"],
-            next_values["digest_anchor_time"],
-            next_values["template_key"],
-            int(route_id),
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="update notification route"):
+        project.db.execute(
+            "UPDATE notification_routes SET name=?, enabled=?, owner_kind=?, "
+            "owner_ref=?, recipient_actor_id=?, channel_id=?, source_kind=?, "
+            "source_ref_match_json=?, event_kinds_json=?, severity_min=?, "
+            "delivery_mode=?, digest_cadence=?, digest_timezone=?, "
+            "digest_anchor_time=?, template_key=?, updated_at=datetime('now') "
+            "WHERE id=?",
+            (
+                next_values["name"],
+                next_values["enabled"],
+                next_values["owner_kind"],
+                next_values["owner_ref"],
+                next_values["recipient_actor_id"],
+                next_values["channel_id"],
+                next_values["source_kind"],
+                next_values["source_ref_match_json"],
+                next_values["event_kinds_json"],
+                next_values["severity_min"],
+                next_values["delivery_mode"],
+                next_values["digest_cadence"],
+                next_values["digest_timezone"],
+                next_values["digest_anchor_time"],
+                next_values["template_key"],
+                int(route_id),
+            ),
+        )
     return project.public_notification_route(route_id)
 
 
@@ -799,22 +814,22 @@ def create_notification_digest_run(
     status: str = "composed",
     item_count: int = 0,
 ) -> dict[str, Any]:
-    project.db.execute(
-        "INSERT OR IGNORE INTO notification_digest_runs "
-        "(route_id, channel_id, cadence, window_key, window_start_at, "
-        "window_end_at, status, item_count) VALUES (?,?,?,?,?,?,?,?)",
-        (
-            int(route_id),
-            int(channel_id),
-            cadence,
-            window_key,
-            window_start_at,
-            window_end_at,
-            status,
-            int(item_count),
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="create notification digest run"):
+        project.db.execute(
+            "INSERT OR IGNORE INTO notification_digest_runs "
+            "(route_id, channel_id, cadence, window_key, window_start_at, "
+            "window_end_at, status, item_count) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                int(route_id),
+                int(channel_id),
+                cadence,
+                window_key,
+                window_start_at,
+                window_end_at,
+                status,
+                int(item_count),
+            ),
+        )
     row = project.notification_digest_run_by_route_window(
         route_id=route_id,
         window_key=window_key,
@@ -834,13 +849,13 @@ def set_notification_digest_run_result(
 ) -> dict[str, Any]:
     if status not in {"empty", "composed"}:
         raise ValueError(f"Not a finished notification digest status: {status!r}")
-    project.db.execute(
-        "UPDATE notification_digest_runs SET status=?, item_count=?, "
-        "delivery_request_id=COALESCE(?, delivery_request_id), "
-        "updated_at=datetime('now') WHERE id=? AND status='composing'",
-        (status, int(item_count), delivery_request_id, int(digest_run_id)),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="set notification digest run result"):
+        project.db.execute(
+            "UPDATE notification_digest_runs SET status=?, item_count=?, "
+            "delivery_request_id=COALESCE(?, delivery_request_id), "
+            "updated_at=datetime('now') WHERE id=? AND status='composing'",
+            (status, int(item_count), delivery_request_id, int(digest_run_id)),
+        )
     return project.public_notification_digest_run(digest_run_id)
 
 
@@ -854,15 +869,15 @@ def add_notification_digest_items(
     digest_run_id: int,
     notification_ids: list[int],
 ) -> None:
-    project.db.executemany(
-        "INSERT OR IGNORE INTO notification_digest_items "
-        "(digest_run_id, notification_id) VALUES (?, ?)",
-        [
-            (int(digest_run_id), int(notification_id))
-            for notification_id in notification_ids
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="add notification digest items"):
+        project.db.executemany(
+            "INSERT OR IGNORE INTO notification_digest_items "
+            "(digest_run_id, notification_id) VALUES (?, ?)",
+            [
+                (int(digest_run_id), int(notification_id))
+                for notification_id in notification_ids
+            ],
+        )
 
 
 def notification_digest_items(
@@ -900,22 +915,22 @@ def create_notification_delivery_request(
     status: str = "queued",
     last_error: str | None = None,
 ) -> dict[str, Any]:
-    project.db.execute(
-        "INSERT OR IGNORE INTO notification_delivery_requests "
-        "(route_id, channel_id, notification_id, digest_run_id, delivery_kind, "
-        "dedupe_key, status, last_error) VALUES (?,?,?,?,?,?,?,?)",
-        (
-            route_id,
-            int(channel_id),
-            notification_id,
-            digest_run_id,
-            delivery_kind,
-            dedupe_key,
-            status,
-            last_error,
-        ),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="create notification delivery request"):
+        project.db.execute(
+            "INSERT OR IGNORE INTO notification_delivery_requests "
+            "(route_id, channel_id, notification_id, digest_run_id, delivery_kind, "
+            "dedupe_key, status, last_error) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                route_id,
+                int(channel_id),
+                notification_id,
+                digest_run_id,
+                delivery_kind,
+                dedupe_key,
+                status,
+                last_error,
+            ),
+        )
     row = project.db.execute(
         "SELECT id FROM notification_delivery_requests WHERE dedupe_key=?",
         (dedupe_key,),
@@ -1004,12 +1019,12 @@ def public_notification_delivery_request(
 def set_notification_delivery_request_job_id(
     project: Any, request_id: int, job_id: int
 ) -> dict[str, Any]:
-    project.db.execute(
-        "UPDATE notification_delivery_requests SET job_id=?, "
-        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
-        (int(job_id), int(request_id)),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="set notification delivery request job id"):
+        project.db.execute(
+            "UPDATE notification_delivery_requests SET job_id=?, "
+            "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
+            (int(job_id), int(request_id)),
+        )
     return project.public_notification_delivery_request(request_id)
 
 
@@ -1021,14 +1036,14 @@ def claim_notification_delivery_request(
     if job_id is not None:
         job_clause = " AND (job_id IS NULL OR job_id=?)"
         params.append(int(job_id))
-    cur = project.db.execute(
-        "UPDATE notification_delivery_requests SET status='processing', "
-        "job_id=COALESCE(job_id, ?), updated_at=datetime('now') "
-        "WHERE id=? AND status IN ('queued', 'processing')"
-        f"{job_clause}",
-        ([job_id, *params] if job_id is not None else [None, *params]),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="claim notification delivery request"):
+        cur = project.db.execute(
+            "UPDATE notification_delivery_requests SET status='processing', "
+            "job_id=COALESCE(job_id, ?), updated_at=datetime('now') "
+            "WHERE id=? AND status IN ('queued', 'processing')"
+            f"{job_clause}",
+            ([job_id, *params] if job_id is not None else [None, *params]),
+        )
     if cur.rowcount <= 0:
         return None
     return project.public_notification_delivery_request(request_id)
@@ -1037,13 +1052,15 @@ def claim_notification_delivery_request(
 def mark_notification_delivery_request_queued(
     project: Any, request_id: int, *, last_error: str | None = None
 ) -> dict[str, Any]:
-    project.db.execute(
-        "UPDATE notification_delivery_requests SET status='queued', "
-        "last_error=COALESCE(?, last_error), updated_at=datetime('now') "
-        "WHERE id=? AND status='processing'",
-        (last_error, int(request_id)),
-    )
-    project.db.commit()
+    with write_transaction(
+        project.db, what="mark notification delivery request queued"
+    ):
+        project.db.execute(
+            "UPDATE notification_delivery_requests SET status='queued', "
+            "last_error=COALESCE(?, last_error), updated_at=datetime('now') "
+            "WHERE id=? AND status='processing'",
+            (last_error, int(request_id)),
+        )
     return project.public_notification_delivery_request(request_id)
 
 
@@ -1054,13 +1071,14 @@ def record_notification_delivery_request_error(
     last_error: str | None,
     commit: bool = True,
 ) -> bool:
-    changed = project.db.execute(
-        "UPDATE notification_delivery_requests SET last_error=?, "
-        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
-        (last_error, int(request_id)),
-    )
-    if commit:
-        project.db.commit()
+    with write_transaction(
+        project.db, commit=commit, what="record notification delivery request error"
+    ):
+        changed = project.db.execute(
+            "UPDATE notification_delivery_requests SET last_error=?, "
+            "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
+            (last_error, int(request_id)),
+        )
     return changed.rowcount == 1
 
 
@@ -1075,15 +1093,16 @@ def terminalize_notification_delivery_request(
 ) -> bool:
     if status not in TERMINAL_REQUEST_STATUSES:
         raise ValueError(f"Not a terminal notification delivery status: {status!r}")
-    changed = project.db.execute(
-        "UPDATE notification_delivery_requests SET status=?, last_error=?, "
-        "provider_ref=COALESCE(?, provider_ref), "
-        "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
-        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
-        (status, last_error, provider_ref, status, int(request_id)),
-    )
-    if commit:
-        project.db.commit()
+    with write_transaction(
+        project.db, commit=commit, what="terminalize notification delivery request"
+    ):
+        changed = project.db.execute(
+            "UPDATE notification_delivery_requests SET status=?, last_error=?, "
+            "provider_ref=COALESCE(?, provider_ref), "
+            "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
+            "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
+            (status, last_error, provider_ref, status, int(request_id)),
+        )
     return changed.rowcount == 1
 
 
@@ -1115,25 +1134,26 @@ def record_notification_delivery_attempt(
         (notification_param, int(channel_id), delivery_request_id),
     ).fetchone()
     attempt = int(row["next_attempt"] if row else 1)
-    cur = project.db.execute(
-        "INSERT INTO notification_delivery_attempts "
-        "(delivery_request_id, notification_id, channel_id, status, attempt, "
-        "provider_ref, error, response_meta_json, sent_at) "
-        "VALUES (?,?,?,?,?,?,?,?, CASE WHEN ?='sent' THEN datetime('now') ELSE NULL END)",
-        (
-            delivery_request_id,
-            notification_param,
-            int(channel_id),
-            status,
-            attempt,
-            provider_ref,
-            error,
-            json.dumps(response_meta or {}, sort_keys=True),
-            status,
-        ),
-    )
-    if commit:
-        project.db.commit()
+    with write_transaction(
+        project.db, commit=commit, what="record notification delivery attempt"
+    ):
+        cur = project.db.execute(
+            "INSERT INTO notification_delivery_attempts "
+            "(delivery_request_id, notification_id, channel_id, status, attempt, "
+            "provider_ref, error, response_meta_json, sent_at) "
+            "VALUES (?,?,?,?,?,?,?,?, CASE WHEN ?='sent' THEN datetime('now') ELSE NULL END)",
+            (
+                delivery_request_id,
+                notification_param,
+                int(channel_id),
+                status,
+                attempt,
+                provider_ref,
+                error,
+                json.dumps(response_meta or {}, sort_keys=True),
+                status,
+            ),
+        )
     return project.notification_delivery_attempt(inserted_rowid(cur))
 
 

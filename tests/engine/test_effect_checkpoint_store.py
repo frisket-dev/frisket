@@ -54,6 +54,7 @@ def _reserved(store, **overrides):
 
 
 def _claimless_attempt(project, attempt_id: str, *, state: str) -> int:
+    project.db.commit()
     sheet = project.db.execute("SELECT id FROM sheets LIMIT 1").fetchone()
     if sheet is None:
         sheet_id = project.add_sheet("recovery")

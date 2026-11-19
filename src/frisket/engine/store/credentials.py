@@ -19,6 +19,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.team.security.secrets import decrypt_secret
 
 
@@ -235,8 +236,8 @@ def set_provider_key(
     the cap. Editing the cap, the hint, or re-saving the same key keeps
     every dollar.
     """
-    starts_fresh = _provider_key_value_changed(project, provider, encrypted)
-    try:
+    with write_transaction(project.db, commit=commit, what="provider key save"):
+        starts_fresh = _provider_key_value_changed(project, provider, encrypted)
         project.db.execute(
             "INSERT INTO project_provider_keys "
             "(provider, encrypted, hint, spend_cap_micro, spent_micro, "
@@ -257,24 +258,14 @@ def set_provider_key(
                 1 if starts_fresh else 0,
             ),
         )
-        if commit:
-            project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
 
 
 def delete_provider_key(project: Any, provider: str, *, commit: bool = True) -> bool:
     """Delete a provider key; returns True iff a row was removed."""
-    try:
+    with write_transaction(project.db, commit=commit, what="provider key delete"):
         cursor = project.db.execute(
             "DELETE FROM project_provider_keys WHERE provider=?", (provider,)
         )
-        if commit:
-            project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
     return cursor.rowcount > 0
 
 
@@ -340,7 +331,7 @@ def set_secret(project: Any, *, name: str, encrypted: str, hint: str) -> None:
     """Upsert an already-encrypted project secret and mark any pending
     migration conflict for that name resolved (the settings revamp contract:
     supplying the value clears the workbench_plugin_env_vars conflict)."""
-    try:
+    with write_transaction(project.db, what="project secret save"):
         project.db.execute(
             "INSERT INTO project_secrets (name, encrypted, hint, updated_at) "
             "VALUES (?, ?, ?, datetime('now')) "
@@ -353,51 +344,39 @@ def set_secret(project: Any, *, name: str, encrypted: str, hint: str) -> None:
             "SET status='resolved' WHERE name=?",
             (name,),
         )
-        project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
 
 
 def add_secret_consumer(
     project: Any, *, kind: str, consumer_id: str, name: str
 ) -> None:
-    try:
+    with write_transaction(project.db, what="project secret consumer"):
         project.db.execute(
             "INSERT OR IGNORE INTO project_secret_consumers "
             "(kind, consumer_id, name) VALUES (?, ?, ?)",
             (kind, consumer_id, name),
         )
-        project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
 
 
 def replace_secret_consumers(
-    project: Any, *, kind: str, consumer_id: str, names: set[str], commit: bool = True
+    project: Any, *, kind: str, consumer_id: str, names: set[str]
 ) -> None:
-    """Replace one consumer's declared project-secret references atomically.
+    """Replace one consumer's declared project-secret references.
 
+    Runs in the caller's open transaction, which also writes the consumer's
+    configuration, so the configuration and its grants land together.
     Removing a configuration consumer must never delete the shared project
-    secret itself.  Replacing the join rows in one transaction prevents stale
-    grants when a server is edited from one secret reference to another.
+    secret itself.
     """
-    try:
-        project.db.execute(
-            "DELETE FROM project_secret_consumers WHERE kind=? AND consumer_id=?",
-            (kind, consumer_id),
-        )
-        project.db.executemany(
-            "INSERT INTO project_secret_consumers (kind, consumer_id, name) "
-            "VALUES (?, ?, ?)",
-            [(kind, consumer_id, name) for name in sorted(names)],
-        )
-        if commit:
-            project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
+    require_transaction(project.db, "secret consumer replacement")
+    project.db.execute(
+        "DELETE FROM project_secret_consumers WHERE kind=? AND consumer_id=?",
+        (kind, consumer_id),
+    )
+    project.db.executemany(
+        "INSERT INTO project_secret_consumers (kind, consumer_id, name) "
+        "VALUES (?, ?, ?)",
+        [(kind, consumer_id, name) for name in sorted(names)],
+    )
 
 
 def secret_consumer_is_declared(
@@ -429,10 +408,6 @@ def secret_plaintext(project: Any, name: str) -> str | None:
 
 def delete_secret(project: Any, name: str) -> bool:
     """Delete a project secret; returns True iff a row was removed."""
-    try:
+    with write_transaction(project.db, what="project secret delete"):
         cursor = project.db.execute("DELETE FROM project_secrets WHERE name=?", (name,))
-        project.db.commit()
-    except Exception:
-        project.db.rollback()
-        raise
     return cursor.rowcount > 0

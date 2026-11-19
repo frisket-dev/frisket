@@ -9,6 +9,7 @@ one `sys.modules["conftest"]` slot.
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from frisket.engine.store.transactions import write_transaction
 
 import importlib.util
 import io
@@ -110,7 +111,7 @@ def replace_test_source_cell(
 
     if db is not None:
         return write()
-    with target_db:
+    with write_transaction(target_db):
         return write()
 
 
@@ -132,7 +133,7 @@ def initialize_test_source_cells(
         BaseCellWrite(int(row_id), int(column_id), value)
         for row_id, column_id, value in cells
     ]
-    with project.db:
+    with write_transaction(project.db):
         op_id = project.append_change(
             "test.source.initialize",
             {"count": len(writes)},
@@ -169,7 +170,7 @@ def replace_test_source_cells(
     by_column: dict[int, list[BaseCellWrite]] = {}
     for write in writes:
         by_column.setdefault(write.column_id, []).append(write)
-    with project.db:
+    with write_transaction(project.db):
         op_id = project.append_change(
             "test.source.update",
             {"count": len(writes)},

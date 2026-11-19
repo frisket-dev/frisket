@@ -522,7 +522,7 @@ def test_refresh_refuses_unsupported_model_op_without_cost_prompt(
             (op_id, parent_id),
         )
         model_child = project.add_sheet(
-            "Summary", parent_sheet_id=parent_id, parent_op_id=op_id
+            "Summary", parent_sheet_id=parent_id, parent_op_id=op_id, commit=False
         )
         project.db.commit()
 

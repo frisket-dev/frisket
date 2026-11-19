@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from frisket.ops.netguard import url_is_safe
 from frisket.engine.store.cell_writes import create_base_cell_producer
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from frisket.engine.store.project import Project
@@ -374,20 +375,20 @@ def ingest_rss(
             rec["_revision"] = _next_revision(project, sheet_id, col_ids, rec["guid"])
 
     # --- one logged op for the whole poll's inserts (undo/provenance) ---
-    op_id = project.append_change(
-        "ingest",
-        {
-            "source_id": source_id,
-            "sheet": sheet_id,
-            "new_rows": len(new_records),
-            "revisions": len(revision_records),
-            "url": url,
-        },
-        label=f"ingest {total_new} from {source['name']}",
-        commit=False,
-    )
     inserted_records = new_records + revision_records
-    try:
+    with write_transaction(project.db, what="feed poll rows"):
+        op_id = project.append_change(
+            "ingest",
+            {
+                "source_id": source_id,
+                "sheet": sheet_id,
+                "new_rows": len(new_records),
+                "revisions": len(revision_records),
+                "url": url,
+            },
+            label=f"ingest {total_new} from {source['name']}",
+            commit=False,
+        )
         producer_id = create_base_cell_producer(
             project.db, stage_id=f"op:{op_id}", op_id=op_id
         )
@@ -398,10 +399,6 @@ def ingest_rss(
             producer_id=producer_id,
             commit=False,
         )
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
     enclosure_row_ids = [
         row_id
         for row_id, rec in zip(row_ids, inserted_records, strict=True)

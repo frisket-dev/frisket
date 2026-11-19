@@ -17,6 +17,7 @@ from frisket.engine.store.prepared_content import (
     PreparedPageDraft,
 )
 from frisket.engine.store.prepared_readiness import prepared_source_readiness_ctes
+from frisket.engine.store.transactions import write_transaction
 from frisket.retrieval.source_adapter import resolve_cell_blob_source
 from frisket.server.services import search_preparation_planning as planning
 from frisket.server.services.project_qa_sources import (
@@ -28,7 +29,7 @@ from frisket.server.services.project_qa_sources import (
 
 
 def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
-    with project.db:
+    with write_transaction(project.db):
         op = project.append_change("test.document_text", commit=False)
         artifact = record_source_artifact(
             project,

@@ -449,6 +449,7 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         "UPDATE ops SET spec=? WHERE id=?",
         (json.dumps({"deferred_publication": True}), int(row["op_id"])),
     )
+    project.db.commit()
     project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
     ResultGenerationStore(project).declare(
         run.run_id,

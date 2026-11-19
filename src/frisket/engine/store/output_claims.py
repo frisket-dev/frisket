@@ -153,6 +153,23 @@ class OutputColumnClaimStore:
         expected_output_names: list[str] | None = None,
         commit: bool = True,
     ) -> int:
+        """Bind one active claim group to its run, all claims or none."""
+        with write_transaction(self.db, commit=commit, what="output claim binding"):
+            return self._bind_claims_to_run(
+                claim_token=claim_token,
+                run_id=run_id,
+                job_id=job_id,
+                expected_output_names=expected_output_names,
+            )
+
+    def _bind_claims_to_run(
+        self,
+        *,
+        claim_token: str,
+        run_id: int,
+        job_id: int | None,
+        expected_output_names: list[str] | None,
+    ) -> int:
         run = self.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()
         if run is None:
             raise ValueError(f"cannot bind output claims to missing run {run_id}")
@@ -197,8 +214,6 @@ class OutputColumnClaimStore:
                     claim["id"],
                 ),
             )
-        if commit:
-            self.db.commit()
         return len(claims)
 
     def active_output_fields(
@@ -361,16 +376,14 @@ class OutputColumnClaimStore:
         commit: bool = True,
         now: datetime | None = None,
     ) -> int:
-        renewed = self.renew_in_transaction(
-            self.db,
-            claim_token=claim_token,
-            lease_seconds=lease_seconds,
-            run_id=run_id,
-            now=now,
-        )
-        if commit:
-            self.db.commit()
-        return renewed
+        with write_transaction(self.db, commit=commit, what="output claim renewal"):
+            return self.renew_in_transaction(
+                self.db,
+                claim_token=claim_token,
+                lease_seconds=lease_seconds,
+                run_id=run_id,
+                now=now,
+            )
 
     @staticmethod
     def renew_in_transaction(
@@ -545,13 +558,12 @@ class OutputColumnClaimStore:
         status: str = "released",
         commit: bool = True,
     ) -> int:
-        released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-            "WHERE claim_token=? AND status='active'",
-            (status, claim_token),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="output claim release"):
+            released = self.db.execute(
+                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+                "WHERE claim_token=? AND status='active'",
+                (status, claim_token),
+            )
         return released.rowcount
 
     def finish_current_writer(
@@ -635,13 +647,14 @@ class OutputColumnClaimStore:
         status: str,
         commit: bool = True,
     ) -> int:
-        released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-            "WHERE receipt_id=? AND status='active'",
-            (status, receipt_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(
+            self.db, commit=commit, what="receipt output claim release"
+        ):
+            released = self.db.execute(
+                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+                "WHERE receipt_id=? AND status='active'",
+                (status, receipt_id),
+            )
         return released.rowcount
 
     def release_for_run_receipt(
@@ -659,13 +672,14 @@ class OutputColumnClaimStore:
         is the stable join shared by the terminal transaction.
         """
 
-        released = self.db.execute(
-            "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
-            "WHERE run_id=? AND receipt_id=? AND status='active'",
-            (status, run_id, receipt_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(
+            self.db, commit=commit, what="run receipt output claim release"
+        ):
+            released = self.db.execute(
+                "UPDATE output_column_claims SET status=?, released_at=datetime('now') "
+                "WHERE run_id=? AND receipt_id=? AND status='active'",
+                (status, run_id, receipt_id),
+            )
         return released.rowcount
 
     def discard_for_receipt(
@@ -681,12 +695,13 @@ class OutputColumnClaimStore:
         than ``release_for_receipt`` so terminal attempts retain their audit row.
         """
 
-        discarded = self.db.execute(
-            "DELETE FROM output_column_claims WHERE receipt_id=? AND status='active'",
-            (receipt_id,),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(
+            self.db, commit=commit, what="receipt output claim discard"
+        ):
+            discarded = self.db.execute(
+                "DELETE FROM output_column_claims WHERE receipt_id=? AND status='active'",
+                (receipt_id,),
+            )
         return discarded.rowcount
 
     def active_for_columns(
@@ -921,24 +936,25 @@ class OutputColumnClaimStore:
         """The RECOVERY release (distinct from `release()`'s normal
         finalize-time release): stamps `details.recovered_by` so a recovered
         claim is auditable/queryable separately from an ordinary release."""
-        row = self.db.execute(
-            "SELECT details FROM output_column_claims WHERE id=?", (claim_id,)
-        ).fetchone()
-        if row is None:
-            return 0
-        try:
-            details = json.loads(row["details"] or "{}")
-        except (TypeError, ValueError):
-            details = {}
-        if not isinstance(details, dict):
-            details = {}
-        details["recovered_by"] = reason
-        released = self.db.execute(
-            "UPDATE output_column_claims SET status='released', "
-            "released_at=datetime('now'), details=? "
-            "WHERE id=? AND status='active'",
-            (json.dumps(details, sort_keys=True), claim_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(
+            self.db, commit=commit, what="stale output claim release"
+        ):
+            row = self.db.execute(
+                "SELECT details FROM output_column_claims WHERE id=?", (claim_id,)
+            ).fetchone()
+            if row is None:
+                return 0
+            try:
+                details = json.loads(row["details"] or "{}")
+            except (TypeError, ValueError):
+                details = {}
+            if not isinstance(details, dict):
+                details = {}
+            details["recovered_by"] = reason
+            released = self.db.execute(
+                "UPDATE output_column_claims SET status='released', "
+                "released_at=datetime('now'), details=? "
+                "WHERE id=? AND status='active'",
+                (json.dumps(details, sort_keys=True), claim_id),
+            )
         return released.rowcount

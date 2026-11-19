@@ -57,6 +57,7 @@ def test_provider_key_set_get_delete_round_trips_through_store(tmp_path) -> None
 
 def test_provider_key_writes_can_share_a_caller_owned_transaction(tmp_path) -> None:
     project = _new_project(tmp_path)
+    project.db.execute("BEGIN IMMEDIATE")
     project.set_provider_key(
         provider="openai",
         encrypted=encrypt_secret("sk-transactional"),
@@ -73,6 +74,7 @@ def test_provider_key_writes_can_share_a_caller_owned_transaction(tmp_path) -> N
         hint=key_hint("sk-committed"),
         spend_cap_micro=None,
     )
+    project.db.execute("BEGIN IMMEDIATE")
     assert project.delete_provider_key("openai", commit=False) is True
     project.db.rollback()
     assert project.provider_model_keys() == {"openai": "sk-committed"}

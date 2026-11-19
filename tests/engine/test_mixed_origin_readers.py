@@ -294,6 +294,7 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
     )
     _seal_generation(project, run_id=first_run_id, column_id=output_column_id)
 
+    project.db.commit()
     second_op_id = project.append_change("map", {"phase": "second"})
     second_run_id = RunResultStore(project).start_run(
         second_op_id,

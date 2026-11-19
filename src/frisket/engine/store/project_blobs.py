@@ -6,7 +6,7 @@ stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
 
 from __future__ import annotations
 
-from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 import hashlib
 import json
 import logging
@@ -69,18 +69,16 @@ def add_blob(
         raise BlobIntegrityError(
             "blob store returned a digest that does not match the submitted bytes"
         )
-    metadata_json = json.dumps(metadata or {})
-    project.db.execute(
-        "INSERT OR IGNORE INTO blobs (hash, filename, mime, size, source_url, metadata) "
-        "VALUES (?,?,?,?,?,?)",
-        (digest, filename, mime, len(data), source_url, metadata_json),
-    )
-    if metadata:
-        from frisket.engine.store.media_blobs import MediaBlobStore
+    with write_transaction(project.db, commit=commit, what="blob add"):
+        project.db.execute(
+            "INSERT OR IGNORE INTO blobs "
+            "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
+            (digest, filename, mime, len(data), source_url, json.dumps(metadata or {})),
+        )
+        if metadata:
+            from frisket.engine.store.media_blobs import MediaBlobStore
 
-        MediaBlobStore(project).merge_metadata(digest, metadata)
-    if commit:
-        project.db.commit()
+            MediaBlobStore(project).merge_metadata(digest, metadata)
     return digest
 
 
@@ -117,18 +115,16 @@ def add_blob_from_path(
         raise BlobIntegrityError(
             "blob store returned a digest that does not match the submitted file"
         )
-    metadata_json = json.dumps(metadata or {})
-    project.db.execute(
-        "INSERT OR IGNORE INTO blobs (hash, filename, mime, size, source_url, metadata) "
-        "VALUES (?,?,?,?,?,?)",
-        (digest, filename, mime, size, source_url, metadata_json),
-    )
-    if metadata:
-        from frisket.engine.store.media_blobs import MediaBlobStore
+    with write_transaction(project.db, commit=commit, what="blob add from path"):
+        project.db.execute(
+            "INSERT OR IGNORE INTO blobs "
+            "(hash, filename, mime, size, source_url, metadata) VALUES (?,?,?,?,?,?)",
+            (digest, filename, mime, size, source_url, json.dumps(metadata or {})),
+        )
+        if metadata:
+            from frisket.engine.store.media_blobs import MediaBlobStore
 
-        MediaBlobStore(project).merge_metadata(digest, metadata)
-    if commit:
-        project.db.commit()
+            MediaBlobStore(project).merge_metadata(digest, metadata)
     return digest
 
 
@@ -150,33 +146,32 @@ def record_blob_derivation(
     blob can itself later be the SOURCE of a further derivation
     (clip-of-a-clip), so the read side (``blob_derivation_chain``) walks
     hop by hop rather than this table modeling a tree directly."""
-    if (
-        project.db.execute(
-            "SELECT 1 FROM blobs WHERE hash=?", (source_hash,)
-        ).fetchone()
-        is None
-    ):
-        raise BlobNotFoundError(
-            f"cannot record derivation: source blob {source_hash!r} is "
-            "not in this project's blob store"
+    with write_transaction(project.db, commit=commit, what="blob derivation"):
+        if (
+            project.db.execute(
+                "SELECT 1 FROM blobs WHERE hash=?", (source_hash,)
+            ).fetchone()
+            is None
+        ):
+            raise BlobNotFoundError(
+                f"cannot record derivation: source blob {source_hash!r} is "
+                "not in this project's blob store"
+            )
+        if (
+            project.db.execute(
+                "SELECT 1 FROM blobs WHERE hash=?", (derived_hash,)
+            ).fetchone()
+            is None
+        ):
+            raise BlobNotFoundError(
+                f"cannot record derivation: derived blob {derived_hash!r} is "
+                "not in this project's blob store (add it via add_blob first)"
+            )
+        cur = project.db.execute(
+            "INSERT INTO blob_derivations (derived_hash, source_hash, op, params_json) "
+            "VALUES (?,?,?,?)",
+            (derived_hash, source_hash, op, json.dumps(params or {})),
         )
-    if (
-        project.db.execute(
-            "SELECT 1 FROM blobs WHERE hash=?", (derived_hash,)
-        ).fetchone()
-        is None
-    ):
-        raise BlobNotFoundError(
-            f"cannot record derivation: derived blob {derived_hash!r} is "
-            "not in this project's blob store (add it via add_blob first)"
-        )
-    cur = project.db.execute(
-        "INSERT INTO blob_derivations (derived_hash, source_hash, op, params_json) "
-        "VALUES (?,?,?,?)",
-        (derived_hash, source_hash, op, json.dumps(params or {})),
-    )
-    if commit:
-        project.db.commit()
     return inserted_rowid(cur)
 
 

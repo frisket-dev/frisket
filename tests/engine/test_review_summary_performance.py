@@ -151,6 +151,7 @@ def test_large_review_summary_keeps_exact_active_visibility_and_primary_semantic
         "verified",
     )
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[1],))
+    project.db.commit()
 
     other_sheet_id = project.add_sheet("Other visible sheet")
     other_row_id = project.add_rows(other_sheet_id, [{}], {})[0]

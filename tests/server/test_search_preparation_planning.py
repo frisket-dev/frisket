@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.pdf_text import PdfTextError, PdfTextSample
 from frisket.engine.store.evidence import (
     record_citation,
@@ -917,7 +918,7 @@ def test_empty_native_text_allows_one_ocr_preparation_pass(
     assert [item["kind"] for item in plan["items"]] == ["ocr"]
 
     artifact = project.db.execute("SELECT id FROM source_artifacts").fetchone()[0]
-    with project.db:
+    with write_transaction(project.db):
         op = project.append_change("media.ocr", commit=False)
         prepared = PreparedContentStore(project).stage_reference(
             source_artifact_id=artifact,

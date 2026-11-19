@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.cells import apply_edits
 from frisket.engine.store.cell_writes import EditCellWrite, insert_edits
 from frisket.querysets import resolve_sheet_filter_rows
@@ -18,7 +19,7 @@ from test_result_generation_store import (
 
 
 def _reject_clear(project, *, row_id: int, column_id: int) -> int:
-    with project.db:
+    with write_transaction(project.db):
         op_id = project.append_change(
             "review.decision",
             {
