@@ -641,7 +641,7 @@ export function WorkbenchBottomDock({
       style={collapsed ? undefined : { height }}
       data-testid="workbench-region-bottomDock"
       data-collapsed={collapsed ? 'true' : undefined}
-      aria-label="Workbench bottom dock"
+      aria-label="Bottom dock"
     >
       {!collapsed && (
         <button
@@ -657,7 +657,7 @@ export function WorkbenchBottomDock({
         className="workbench-bottom-tablist"
         data-testid="bottom-dock-tablist"
         role="tablist"
-        aria-label="Operational output"
+        aria-label="Bottom dock tabs"
       >
         {tabs.map((tab) => {
           const isActive = activeContribution?.placementId === tab.placementId;
@@ -715,7 +715,7 @@ export function WorkbenchBottomDock({
           type="button"
           className="workbench-bottom-collapse icon-btn"
           data-testid="bottom-dock-collapse"
-          aria-label={collapsed ? 'Expand the Monitor dock' : 'Minimize the Monitor dock'}
+          aria-label={collapsed ? 'Expand the bottom dock' : 'Minimize the bottom dock'}
           aria-expanded={!collapsed}
           title={collapsed ? 'Expand' : 'Minimize'}
           onClick={() => setCollapsedPersist(!collapsed)}

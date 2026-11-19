@@ -51,7 +51,7 @@ test('workbench regions expose product-purpose slots instead of prototype sideba
   await expect(jobs).toBeVisible();
   await expect(jobs).toHaveAttribute('data-host', 'bottomDock');
   await expect(jobs).toHaveAttribute('data-slot', 'companion.output');
-  await expect(bottomDock.getByRole('tablist', { name: 'Operational output' })).toBeVisible();
+  await expect(bottomDock.getByRole('tablist', { name: 'Bottom dock tabs' })).toBeVisible();
 
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+P' : 'Control+Shift+P');
   const palette = page.getByTestId('workbench-region-commandPalette');

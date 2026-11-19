@@ -804,7 +804,7 @@ def register_project_run_handler(
                 pre_run_error = ActionError(
                     code="code_action_disabled",
                     message=(
-                        "code-execution actions are disabled on the hosted tier; "
+                        "code-execution actions are disabled on Frisket Cloud; "
                         "run frisket locally to use them"
                     ),
                     action_kind=str(payload.get("action_kind") or "project.run"),
@@ -1400,8 +1400,8 @@ def register_action_run_handler(
                         error=ActionError(
                             code="code_action_disabled",
                             message=(
-                                "code-execution actions are disabled on the hosted "
-                                "tier; run frisket locally to use them"
+                                "code-execution actions are disabled on Frisket "
+                                "Cloud; run frisket locally to use them"
                             ),
                             action_kind=envelope.action_kind,
                         ),

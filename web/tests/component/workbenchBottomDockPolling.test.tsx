@@ -108,7 +108,10 @@ describe('WorkbenchBottomDock — live Jobs/Errors resource interest', () => {
     expect(liveActionJobs.start).toHaveBeenCalledTimes(1);
     expect(liveActionJobs.dispose).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Minimize the Monitor dock' }));
+    expect(screen.getByRole('region', { name: 'Bottom dock' })).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Bottom dock tabs' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize the bottom dock' }));
+    expect(screen.getByRole('button', { name: 'Expand the bottom dock' })).toBeInTheDocument();
     expect(liveActionJobs.start).toHaveBeenCalledTimes(1);
     expect(liveActionJobs.dispose).not.toHaveBeenCalled();
     view.unmount();
