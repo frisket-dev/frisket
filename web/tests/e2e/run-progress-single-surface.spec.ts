@@ -112,6 +112,10 @@ test('active run uses one watcher surface plus a compact footer affordance', asy
   await expect(page.locator('.run-watcher-popover')).toHaveCount(0);
   await expect(page.getByTestId('run-progress')).toContainText(/queued|running/i);
 
+  // During an active run the footer toggle hides and re-shows the banner; it
+  // never opens the finished-run popover.
+  await page.getByTestId('run-watcher-toggle').click();
+  await expect(page.getByTestId('run-watcher')).toHaveCount(0);
   await page.getByTestId('run-watcher-toggle').click();
   await expect(page.getByTestId('run-watcher')).toHaveCount(1);
   await expect(page.locator('.run-watcher-popover')).toHaveCount(0);
@@ -151,7 +155,7 @@ test('active run uses one watcher surface plus a compact footer affordance', asy
   await page.getByTestId('run-watcher-toggle').click();
   await expect(page.locator('.run-watcher-popover')).toHaveCount(1);
   await expect(page.getByTestId('run-watcher')).toHaveCount(1);
-  await expect(page.getByTestId('run-progress')).toContainText('24 rows');
+  await expect(page.getByTestId('run-progress')).toContainText('24 / 24');
 
   await page.getByTestId('run-watcher-close').click();
   await expect(page.locator('.run-watcher-popover')).toHaveCount(0);

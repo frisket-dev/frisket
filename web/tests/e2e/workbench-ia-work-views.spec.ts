@@ -170,7 +170,7 @@ test('a map pin opens the Detail column WITHOUT evicting the split (split + Deta
   await expect(page.getByTestId('grid')).toBeVisible();
 });
 
-test('deep link /map/column opens the split as workspace state and normalizes the URL so the panel slot frees up', async ({
+test('deep link /map/column opens the split, and a pin then opens Detail beside it', async ({
   page,
 }) => {
   const { pid, sheetId, pointId } = await seedGeoSheet(page);
@@ -181,9 +181,15 @@ test('deep link /map/column opens the split as workspace state and normalizes th
   await expect(page.getByTestId('map-view')).toBeVisible();
   await expect(page.getByTestId('workbench-mainView-split')).toBeVisible();
 
-  // …then the URL normalizes (the map split is no longer route-driven), so the
-  // single route panel slot is free for a coexisting row Detail.
-  await expect.poll(() => new URL(page.url()).pathname).not.toContain('/map/column');
+  // A pin click opens the row Detail without evicting the deep-linked split.
+  await expect(page.getByTestId('map-points-count')).toHaveText('1 points');
+  const canvas = page.locator('[data-testid="map-canvas-container"] canvas').first();
+  await expect(canvas).toBeVisible();
+  await page.waitForTimeout(700);
+  await canvas.click();
+  await expect(page.getByTestId('row-drawer')).toContainText('Eiffel Tower', { timeout: 15_000 });
+  await expect(page.getByTestId('workbench-mainView-split')).toBeVisible();
+  await expect(page.getByTestId('map-view')).toBeVisible();
 });
 
 test('promote detaches the split into a persistent Navigate tab carrying selection, closes back to the sheet, survives reload, and never starts a run', async ({

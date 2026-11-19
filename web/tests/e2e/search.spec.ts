@@ -1,5 +1,5 @@
 // Project-wide search: ⌘K overlay, FTS results grouped by sheet, and result
-// clicks that switch sheets and focus the matching grid cell.
+// clicks that switch sheets and open the matching row.
 
 import { expect, test } from '@playwright/test';
 import {
@@ -9,10 +9,8 @@ import {
   openPalette,
   openProject,
   projectIdByName,
-  sheetData,
   uniqueName,
 } from './helpers';
-import type { ProjectSearchPage, SheetRowLocation } from '../../src/api/open';
 
 test('⌘K opens search; a seeded word returns grouped results', async ({ page }) => {
   const pid = await projectIdByName(page.request, 'Local stories');
@@ -58,42 +56,20 @@ test('clicking a hit in another sheet switches to that sheet', async ({ page }) 
 
   await openProject(page, pid, startingSheetId);
   await openPalette(page);
-  const searchResponse = page.waitForResponse((response) => {
-    const url = new URL(response.url());
-    return url.pathname === `/api/projects/${pid}/search` && url.searchParams.get('q') === 'Quayle';
-  });
   await page.getByTestId('command-palette-input').fill('Quayle');
-  await expect(page.getByTestId('search-results')).toBeVisible();
-
-  const searchPage = (await (await searchResponse).json()) as ProjectSearchPage;
-  const expectedHit = searchPage.hits.find((hit) => String(hit.sheet_id) === String(targetSheet.id));
-  if (!expectedHit) throw new Error('target search hit missing');
-  const targetData = await sheetData(page.request, pid, targetSheet.id);
-  const expectedColumnIndex = targetData.columns.findIndex(
-    (column) => String(column.id) === String(expectedHit.column_id),
-  );
-  expect(expectedColumnIndex).toBeGreaterThanOrEqual(0);
-  const locationResponse = await page.request.get(
-    `/api/projects/${pid}/sheets/${targetSheet.id}/rows/${expectedHit.row_id}/locate?page_size=500`,
-  );
-  expect(locationResponse.ok()).toBeTruthy();
-  const location = (await locationResponse.json()) as SheetRowLocation;
-  expect(location.found).toBe(true);
-  expect(location.index).not.toBeNull();
-
-  // Pick the hit from the other sheet, well beyond the grid's first page.
   const targetGroup = page
     .locator('.search-group')
     .filter({ has: page.locator('.search-group-label', { hasText: targetSheet.name }) });
   await expect(targetGroup).toBeVisible();
+
+  // Pick the hit from the other sheet, well beyond the grid's first page: a
+  // text hit opens that row's Detail on the target sheet.
   await targetGroup.getByTestId('search-hit').first().click();
 
   await expect(page.getByTestId('workbench-region-commandPalette')).toBeHidden();
   await expect(page.getByTestId(`workbench-mainView-tab-${targetSheet.id}`)).toHaveClass(/active/);
   await expect(page.locator('.sheet-title')).toHaveText(targetSheet.name);
-  await expect.poll(() => page.evaluate(() => (
-    window as unknown as {
-      __frisketGridSelection?: { cell: readonly [number, number] | null };
-    }
-  ).__frisketGridSelection?.cell ?? null)).toEqual([expectedColumnIndex, location.index]);
+  const detail = page.getByTestId('row-drawer');
+  await expect(detail).toContainText('Record 517');
+  await expect(detail).toContainText('Quayle is the cross-sheet search target');
 });

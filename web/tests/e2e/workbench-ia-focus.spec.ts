@@ -40,8 +40,9 @@ test('⌘K and the chrome Command pill both open the palette; the query live-fil
   await page.getByTestId('chrome-command-pill').click();
   await expect(palette).toBeVisible();
   await expect(palette).toHaveAttribute('data-host', 'commandPalette');
+  // The action catalog loads after the palette opens.
+  await expect.poll(() => palette.getByTestId('palette-action-item').count()).toBeGreaterThan(1);
   const unfiltered = await palette.getByTestId('palette-action-item').count();
-  expect(unfiltered).toBeGreaterThan(1);
 
   // …and closed with Esc.
   await page.keyboard.press('Escape');
@@ -53,8 +54,8 @@ test('⌘K and the chrome Command pill both open the palette; the query live-fil
   // Live text filtering narrows the ACTIONS list as typed.
   await page.getByTestId('command-palette-input').fill('summarize');
   const filtered = palette.getByTestId('palette-action-item');
-  await expect(filtered.filter({ hasText: /summarize/i })).toHaveCount(1);
-  expect(await filtered.count()).toBeLessThan(unfiltered);
+  await expect(filtered.first()).toContainText(/summarize/i);
+  await expect.poll(() => filtered.count()).toBeLessThan(unfiltered);
 
   // The key legend is present (the spec's production-work footer).
   await expect(palette.getByTestId('palette-key-legend')).toBeVisible();

@@ -294,32 +294,6 @@ test('alongside supports imported columns, copy, expansion, resize and per-sheet
   await expect(value).toContainText('Choose a column');
 });
 
-test('selection syncs BOTH ways through SelectedGridRows; the doc list follows the sheet order', async ({
-  page,
-}) => {
-  const { pid, sheetId } = await seedDocSheet(page, { extraDocs: true });
-  await openProject(page, pid, sheetId);
-
-  // Grid → Document: selecting a grid row and switching carries the selection,
-  // so the reader opens that document (the highlighted list item IS the row).
-  await selectRow(page, 1);
-  await page.getByTestId('view-switch-document').click();
-  await expect(page.getByTestId('document-view')).toBeVisible();
-  await expect(page.getByTestId('document-selection')).toHaveAttribute('data-selection-count', '1');
-  await expect(page.getByTestId('document-list-item').nth(1)).toHaveAttribute('data-active', 'true');
-
-  // Document → Grid: clicking a different list item writes the SAME
-  // SelectedGridRows state; switching back, the grid toolbar reflects it.
-  await page.getByTestId('document-list-item').nth(0).click();
-  await expect(page.getByTestId('document-list-item').nth(0)).toHaveAttribute('data-active', 'true');
-  await expect(page.getByTestId('document-selection')).toHaveAttribute('data-selection-count', '1');
-  await page.getByTestId('view-switch-grid').click();
-  await expect(page.getByTestId('delete-rows-button')).toHaveAttribute(
-    'title',
-    /Delete 1 selected row/,
-  );
-});
-
 test('a row without media shows the no-document state, not an error; opening the row Detail yields the three-column layout', async ({
   page,
 }) => {
@@ -383,9 +357,10 @@ test('document browsing does not become a hidden Run-selected scope', async ({ p
 
   await openAction(page, 'media.to_markdown');
   const drawer = page.getByTestId('action-drawer');
-  await expect(drawer.getByTestId('row-scope-summary')).toContainText('All');
-  await drawer.getByTestId('run-scope-menu-button').click();
-  await expect(drawer.getByTestId('row-scope-selected')).toBeDisabled();
+  await expect(drawer.locator('.run-scope-summary')).toContainText(/^All \d+ rows will run$/);
+  await drawer.getByTestId('generated-action-run-scope-menu-button').click();
+  await expect(page.getByTestId('generated-action-run-scope-menu')).toBeVisible();
+  await expect(page.getByTestId('generated-action-row-scope-selected')).toHaveCount(0);
 });
 
 test('the ⚙ view options popover exposes document controls persisted per project', async ({

@@ -26,8 +26,9 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('guided Home entry opens the existing chooser without the introduction', async ({ page }) => {
+  // Home shows the sample as a hero in an empty workspace and as a toolbar
+  // button beside existing projects; both launch the same flow.
   await page.goto('/');
-  await expect(page.getByTestId('home-sample-hero')).toBeVisible();
   await page.getByRole('button', { name: 'Try the sample project' }).click();
   await expect(page).toHaveURL(/\/p\/[^/]+/, { timeout: 30_000 });
   const chooser = page.getByTestId('walkthrough-chooser');
