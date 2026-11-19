@@ -197,7 +197,7 @@ beforeEach(() => {
     version: 1,
   }));
   vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
-  vi.spyOn(projectApi, 'estimateAction').mockResolvedValue({ cost: 0, rows: 3, llm: false });
+  vi.spyOn(projectApi, 'estimateAction').mockResolvedValue({ cost: 0, rows: 3 });
   vi.spyOn(apiModule, 'listProviders').mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test', kind: 'platform_api', configured: true, source: 'env', hint: null,
       models: [{ id: 'test/model', label: 'Test model', price: null, local: false }] }] });

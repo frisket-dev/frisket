@@ -147,7 +147,7 @@ async function postedBodyFromDispatch({
     ...(request.action_id === 'reduce.group_summary' ? { creates_sheet: true } : {}),
     logical_outputs: RESOLVED_OUTPUTS[request.action_id] ?? [],
   }));
-  vi.spyOn(api, 'estimateAction').mockResolvedValue({ cost: 0, rows: 2, llm: true });
+  vi.spyOn(api, 'estimateAction').mockResolvedValue({ cost: 0, rows: 2 });
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -91,7 +91,7 @@ function estimateByEngine(estimates: Record<string, Partial<RunEstimate>>): Type
   };
 }
 
-const LLM_ESTIMATE: Partial<RunEstimate> = { cost: 0.01, llm: true, billed_cost: 20_000, policy_id: 'acme.cost_plus.v1' };
+const LLM_ESTIMATE: Partial<RunEstimate> = { cost: 0.01, billed_cost: 20_000, policy_id: 'acme.cost_plus.v1' };
 
 function statementsSheet(): SheetMeta {
   return sheetMeta(
@@ -235,7 +235,7 @@ describe('translate form', () => {
     const { onExecute, estimateAction } = mountTranslate({
       estimate: estimateByEngine({
         llm: LLM_ESTIMATE,
-        deepl: { cost: null, llm: false, billed_cost: 5_000, policy_id: 'acme.cost_plus.v1',
+        deepl: { cost: null, billed_cost: 5_000, policy_id: 'acme.cost_plus.v1',
           venue_label: 'DeepL', billing_label: 'Billed per character' },
       }),
     });
