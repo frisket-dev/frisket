@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
@@ -147,6 +147,23 @@ class SearchPreparationBatchRow:
 
 
 @dataclass(frozen=True, slots=True)
+class PlannedSearchPreparationBatchRow(SearchPreparationBatchRow):
+    """A batch whose planning step stored its sheet, plan and plan hash."""
+
+    sheet_id: int
+    plan_hash: str
+    plan: dict[str, Any]
+
+
+def _require_planned(
+    batch: SearchPreparationBatchRow,
+) -> PlannedSearchPreparationBatchRow:
+    if not isinstance(batch, PlannedSearchPreparationBatchRow):
+        raise ValueError(f"search preparation batch {batch.id} has no stored plan")
+    return batch
+
+
+@dataclass(frozen=True, slots=True)
 class SearchPreparationChildRow:
     id: int
     batch_id: str
@@ -169,7 +186,7 @@ class SearchPreparationStore:
         scope = json.loads(row.scope_json)
         selected = json.loads(row.selected_setup_refs_json or "[]")
         errors = json.loads(row.error_json or "[]")
-        return SearchPreparationBatchRow(
+        batch = SearchPreparationBatchRow(
             id=str(row.id),
             workspace_root=str(row.workspace_root),
             storage_org_id=row.storage_org_id,
@@ -201,6 +218,11 @@ class SearchPreparationStore:
             errors=tuple(str(value) for value in errors),
             created_at=_parse(row.created_at),
             updated_at=_parse(row.updated_at),
+        )
+        if batch.sheet_id is None or batch.plan_hash is None or batch.plan is None:
+            return batch
+        return PlannedSearchPreparationBatchRow(
+            **{field.name: getattr(batch, field.name) for field in fields(batch)}
         )
 
     def create(
@@ -608,6 +630,13 @@ class SearchPreparationStore:
             ).first()
         return None if row is None else self._batch(row)
 
+    def _planned(
+        self, batch_id: str, *, project_id: str, storage_org_id: int | None
+    ) -> PlannedSearchPreparationBatchRow:
+        return _require_planned(
+            self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+        )
+
     def get(
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
     ) -> SearchPreparationBatchRow:
@@ -655,7 +684,7 @@ class SearchPreparationStore:
 
     def list_recent(
         self, *, project_id: str, storage_org_id: int | None, limit: int = 20
-    ) -> list[SearchPreparationBatchRow]:
+    ) -> list[PlannedSearchPreparationBatchRow]:
         c = search_preparation_batches_table.c
         predicate = (
             c.storage_org_id.is_(None)
@@ -670,7 +699,7 @@ class SearchPreparationStore:
                 .order_by(c.created_at.desc())
                 .limit(limit)
             ).fetchall()
-        return [self._batch(row) for row in rows]
+        return [_require_planned(self._batch(row)) for row in rows]
 
     def list_active_page(
         self,
@@ -718,7 +747,7 @@ class SearchPreparationStore:
         decision: str,
         selected_setup_refs: Sequence[str],
         decided_by: str | None = None,
-    ) -> SearchPreparationBatchRow:
+    ) -> PlannedSearchPreparationBatchRow:
         if decision not in {"prepare", "not_now"}:
             raise ValueError("invalid search preparation decision")
         c = search_preparation_batches_table.c
@@ -770,7 +799,9 @@ class SearchPreparationStore:
                     updated_at=now,
                 )
             )
-        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+        return self._planned(
+            batch_id, project_id=project_id, storage_org_id=storage_org_id
+        )
 
     def replace_undecided(
         self,
@@ -780,7 +811,7 @@ class SearchPreparationStore:
         storage_org_id: int | None,
         plan_hash: str,
         plan: Mapping[str, Any],
-    ) -> SearchPreparationBatchRow:
+    ) -> PlannedSearchPreparationBatchRow:
         """Replace exactly one unadmitted plan, fencing decisions and reservations."""
         b = search_preparation_batches_table.c
         predicate = (
@@ -867,7 +898,9 @@ class SearchPreparationStore:
                     updated_at=now,
                 )
             )
-        return self.get(new_id, project_id=project_id, storage_org_id=storage_org_id)
+        return self._planned(
+            new_id, project_id=project_id, storage_org_id=storage_org_id
+        )
 
     def replan(
         self,
@@ -876,7 +909,7 @@ class SearchPreparationStore:
         project_id: str,
         storage_org_id: int | None,
         plan: Mapping[str, Any],
-    ) -> SearchPreparationBatchRow:
+    ) -> PlannedSearchPreparationBatchRow:
         """Replace an undecided stale plan while retaining completed children."""
 
         c = search_preparation_batches_table.c
@@ -905,7 +938,9 @@ class SearchPreparationStore:
             )
             if result.rowcount != 1:
                 raise ValueError("search preparation plan can no longer be refreshed")
-        return self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
+        return self._planned(
+            batch_id, project_id=project_id, storage_org_id=storage_org_id
+        )
 
     def request_stop(
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
@@ -1111,6 +1146,7 @@ class SearchPreparationStore:
 
 
 __all__ = [
+    "PlannedSearchPreparationBatchRow",
     "SearchPreparationBatchRow",
     "SearchPreparationChildRow",
     "SearchPreparationStore",

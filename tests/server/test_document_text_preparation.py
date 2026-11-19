@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -22,7 +23,10 @@ from frisket.engine.store.prepared_content import (
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import PreparedContentRef
-from frisket.engine.jobs.search_preparation_store import canonical_plan_hash
+from frisket.engine.jobs.search_preparation_store import (
+    PlannedSearchPreparationBatchRow,
+    canonical_plan_hash,
+)
 from frisket.server.route_errors import RouteError
 from frisket.server.services.search_preparation import SearchPreparationService
 from frisket.server.services.sheet_grid import SheetGridService
@@ -684,19 +688,31 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
         "sources": [item],
     }
     changed = {**original, "items": []}
-    row = SimpleNamespace(
+    created_at = datetime.now(timezone.utc)
+    row = PlannedSearchPreparationBatchRow(
         id="batch",
-        project_id="project",
+        workspace_root=str(project.path),
         storage_org_id=None,
+        project_id="project",
+        trigger_receipt_id=None,
+        import_ref=None,
+        materialization_job_id=None,
         sheet_id=sheet_id,
-        row_ids=[row_id],
+        row_ids=(row_id,),
         force_ocr=False,
-        plan=original,
+        captured_sources=None,
+        source_cutoff=None,
         plan_hash=canonical_plan_hash(original),
-        stop_requested_at=None,
-        errors=(),
+        plan=original,
         decision=None,
+        decision_at=None,
+        decided_by=None,
         selected_setup_refs=(),
+        stop_requested_at=None,
+        settled_at=None,
+        errors=(),
+        created_at=created_at,
+        updated_at=created_at,
     )
 
     # Batch B was planned above. Batch A advances first and adopts every

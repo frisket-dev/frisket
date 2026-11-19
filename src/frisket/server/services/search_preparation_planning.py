@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from frisket.engine.pdf_text import (
     PdfTextError,
@@ -426,7 +426,7 @@ def _current_prepared_result(
 
 def sample_pdf(
     project: Any, sheet_id: int, item: Mapping[str, Any], page: int
-) -> tuple[str, int, str, bool]:
+) -> tuple[str, int, Literal["native", "prepared"], bool]:
     selected_page = item.get("page_number")
     if selected_page is not None and page != selected_page:
         raise RouteError(422, "preview must use the selected PDF page")
