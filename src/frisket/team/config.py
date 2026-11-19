@@ -70,7 +70,7 @@ class OIDCProviderConfig:
     def from_value(
         cls, value: "OIDCProviderConfig | dict[str, Any]"
     ) -> "OIDCProviderConfig":
-        if isinstance(value, cls):
+        if isinstance(value, OIDCProviderConfig):
             return value
         raw_scopes = value.get("scopes", ("openid", "email", "profile"))
         if isinstance(raw_scopes, str):
