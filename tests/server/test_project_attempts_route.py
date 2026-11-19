@@ -27,10 +27,6 @@ from frisket.server.app import create_app
 from frisket.server.services.action_runs import ActionRunService
 
 
-def _client(tmp_path: Path) -> TestClient:
-    return TestClient(create_app(tmp_path / "workspace"))
-
-
 def _seed_attempt(
     client: TestClient, pid: str, sheet_name: str = "S"
 ) -> tuple[int, str]:
@@ -78,24 +74,21 @@ def _seed_attempt_on_project(project, *, sheet_name: str = "S") -> tuple[int, st
     return run_id, commitment.attempt_id
 
 
-def _new_project(client: TestClient) -> str:
-    return str(client.post("/api/projects", json={"name": "Receipts"}).json()["id"])
-
-
 def test_a_compacted_run_leaves_a_receipt_only_the_project_reader_can_open(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, attempt_id = _seed_attempt(client, pid)
+    run_id, attempt_id = _seed_attempt(client, project_id)
 
     # Reachable both ways while the run is live.
-    run_scoped = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/attempts")
+    run_scoped = client.get(
+        f"/api/projects/{project_id}/actions/runs/{run_id}/attempts"
+    )
     assert run_scoped.status_code == 200, run_scoped.text
     assert [a["attempt_id"] for a in run_scoped.json()["attempts"]] == [attempt_id]
 
     # Compaction: the run's data is reclaimed, the authorization is not.
-    project = client.app.state.workspace.get(pid)
+    project = client.app.state.workspace.get(project_id)
     project.db.execute("DELETE FROM runs WHERE id=?", (run_id,))
     project.db.commit()
     assert (
@@ -108,13 +101,13 @@ def test_a_compacted_run_leaves_a_receipt_only_the_project_reader_can_open(
     # The run-keyed reader now returns nothing — correct, and exactly the
     # reason a second reader had to exist.
     orphaned_run_scoped = client.get(
-        f"/api/projects/{pid}/actions/runs/{run_id}/attempts"
+        f"/api/projects/{project_id}/actions/runs/{run_id}/attempts"
     )
     assert orphaned_run_scoped.status_code == 200
     assert orphaned_run_scoped.json()["attempts"] == []
 
     # The project-keyed reader opens it, with the honest null run id.
-    page = client.get(f"/api/projects/{pid}/actions/attempts")
+    page = client.get(f"/api/projects/{project_id}/actions/attempts")
     assert page.status_code == 200, page.text
     body = page.json()
     assert body["total"] == 1
@@ -128,21 +121,22 @@ def test_a_compacted_run_leaves_a_receipt_only_the_project_reader_can_open(
 
 
 def test_the_run_filter_answers_with_the_same_receipt_as_the_run_route(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
     """One attempt, two surfaces, one answer: the run detail panel's
     ``?run_id=`` query and the run-keyed route render the same receipt."""
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, attempt_id = _seed_attempt(client, pid)
-    other_run_id, other_attempt_id = _seed_attempt(client, pid, sheet_name="S2")
+    run_id, attempt_id = _seed_attempt(client, project_id)
+    other_run_id, other_attempt_id = _seed_attempt(client, project_id, sheet_name="S2")
 
-    filtered = client.get(f"/api/projects/{pid}/actions/attempts?run_id={run_id}")
+    filtered = client.get(
+        f"/api/projects/{project_id}/actions/attempts?run_id={run_id}"
+    )
     assert filtered.status_code == 200, filtered.text
     assert filtered.json() == ActionRunService(
         client.app.state.workspace
     ).project_attempts(
-        pid,
+        project_id,
         run_id=run_id,
         offset=0,
         limit=25,
@@ -152,13 +146,13 @@ def test_the_run_filter_answers_with_the_same_receipt_as_the_run_route(
     assert (
         filtered.json()["attempts"]
         == (
-            client.get(f"/api/projects/{pid}/actions/runs/{run_id}/attempts").json()[
-                "attempts"
-            ]
+            client.get(
+                f"/api/projects/{project_id}/actions/runs/{run_id}/attempts"
+            ).json()["attempts"]
         )
     )
 
-    unfiltered = client.get(f"/api/projects/{pid}/actions/attempts")
+    unfiltered = client.get(f"/api/projects/{project_id}/actions/attempts")
     assert unfiltered.json()["total"] == 2
     assert {a["attempt_id"] for a in unfiltered.json()["attempts"]} == {
         attempt_id,
@@ -169,18 +163,17 @@ def test_the_run_filter_answers_with_the_same_receipt_as_the_run_route(
 
 
 def test_a_free_local_run_settles_to_an_absence_not_a_zero_charge(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
     """What the receipts panel keys its "no charges" state off. An unrouted
     local run has an operator-borne-zero basis, so settlement names no SKU and
     the panel must render no money row — a fabricated $0.00 line is the very
     thing ``settle`` refuses to produce."""
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, _ = _seed_attempt(client, pid)
+    run_id, _ = _seed_attempt(client, project_id)
 
     (receipt,) = client.get(
-        f"/api/projects/{pid}/actions/attempts?run_id={run_id}"
+        f"/api/projects/{project_id}/actions/attempts?run_id={run_id}"
     ).json()["attempts"]
     assert receipt["cost_basis"] == {"kind": "operator_borne_zero"}
     settlement = receipt["settlement"]
@@ -223,17 +216,16 @@ def _record_model_call(
 
 
 def test_a_run_on_the_users_own_provider_key_is_not_reported_as_free(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
     """The BYOK receipt. ``operator_borne_zero`` says the PLATFORM charged
     nothing; it says nothing about whether the user's own key was billed, and
     the Charges panel used to read it as "this ran at no cost to you". The
     distinguishing fact lives on the calls the attempt authorized, so the
     receipt carries it rather than leaving the client to guess."""
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, attempt_id = _seed_attempt(client, pid)
-    project = client.app.state.workspace.get(pid)
+    run_id, attempt_id = _seed_attempt(client, project_id)
+    project = client.app.state.workspace.get(project_id)
     _record_model_call(
         project,
         run_id=run_id,
@@ -244,23 +236,22 @@ def test_a_run_on_the_users_own_provider_key_is_not_reported_as_free(
     )
 
     (receipt,) = client.get(
-        f"/api/projects/{pid}/actions/attempts?run_id={run_id}"
+        f"/api/projects/{project_id}/actions/attempts?run_id={run_id}"
     ).json()["attempts"]
     assert receipt["cost_basis"] == {"kind": "operator_borne_zero"}
     assert receipt["borne_by"] == {"credentialed_providers": ["openai"]}
 
 
 def test_a_local_model_call_is_not_mistaken_for_a_users_provider_key(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
     """``ModelCallMeta.local`` pins ``credential_source='local'`` — the same
     token an env-held provider key uses — so credential provenance alone would
     report in-process work as a billed key. ``cost_source`` is what separates
     them, and this is the test that goes red if that condition is dropped."""
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, attempt_id = _seed_attempt(client, pid)
-    project = client.app.state.workspace.get(pid)
+    run_id, attempt_id = _seed_attempt(client, project_id)
+    project = client.app.state.workspace.get(project_id)
     _record_model_call(
         project,
         run_id=run_id,
@@ -271,22 +262,21 @@ def test_a_local_model_call_is_not_mistaken_for_a_users_provider_key(
     )
 
     (receipt,) = client.get(
-        f"/api/projects/{pid}/actions/attempts?run_id={run_id}"
+        f"/api/projects/{project_id}/actions/attempts?run_id={run_id}"
     ).json()["attempts"]
     assert receipt["borne_by"] == {"credentialed_providers": []}
 
 
 def test_an_attempt_with_no_recorded_calls_says_nothing_about_who_paid(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
     """Absence of metering is not evidence of local execution. ``None`` here
     keeps the panel from upgrading "we have no record" into "it was free"."""
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    run_id, _ = _seed_attempt(client, pid)
+    run_id, _ = _seed_attempt(client, project_id)
 
     (receipt,) = client.get(
-        f"/api/projects/{pid}/actions/attempts?run_id={run_id}"
+        f"/api/projects/{project_id}/actions/attempts?run_id={run_id}"
     ).json()["attempts"]
     assert receipt["borne_by"] is None
 
@@ -309,18 +299,21 @@ def test_project_attempts_route_registered_after_the_run_keyed_reader(
 
 
 def test_paging_bounds_are_enforced_by_the_shared_page_limit(
-    tmp_path: Path,
+    client: TestClient,
+    project_id: str,
 ) -> None:
-    client = _client(tmp_path)
-    pid = _new_project(client)
-    _seed_attempt(client, pid)
+    _seed_attempt(client, project_id)
     assert (
-        client.get(f"/api/projects/{pid}/actions/attempts?limit=0").status_code == 422
+        client.get(f"/api/projects/{project_id}/actions/attempts?limit=0").status_code
+        == 422
     )
     assert (
-        client.get(f"/api/projects/{pid}/actions/attempts?limit=101").status_code == 422
+        client.get(f"/api/projects/{project_id}/actions/attempts?limit=101").status_code
+        == 422
     )
-    page = client.get(f"/api/projects/{pid}/actions/attempts?limit=1&offset=1").json()
+    page = client.get(
+        f"/api/projects/{project_id}/actions/attempts?limit=1&offset=1"
+    ).json()
     assert page["attempts"] == [] and page["total"] == 1 and page["has_more"] is False
 
 
