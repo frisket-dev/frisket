@@ -316,6 +316,12 @@ describe('createGridViewStore — unit', () => {
     expect(s.hiddenColumnsBySheet).toEqual({ 'sheet-1': ['b'] });
   });
 
+  it('setHiddenColumns records an empty list for a sheet that has no entry yet', () => {
+    const { store, setHiddenColumns } = createGridViewStore();
+    setHiddenColumns('sheet-1', []);
+    expect(store.get().hiddenColumnsBySheet).toEqual({ 'sheet-1': [] });
+  });
+
   it('setColumnGroupSpecs sets the specs WITHOUT bumping columnGroupsVersion (unlike applyViewGrid)', () => {
     const { store, setColumnGroupSpecs } = createGridViewStore();
     const specs = [{ run_id: 1, label: 'g', columns: ['a'], show_confidence: true, show_justification: true }];

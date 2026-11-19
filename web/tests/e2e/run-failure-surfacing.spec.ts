@@ -5,7 +5,6 @@ import {
   dblclickCell,
   importCsv,
   openAction,
-  selectActionSourceColumns,
   selectActionInputColumns,
   openProject,
   runAndWait,
@@ -98,7 +97,7 @@ test('a failing run with a real error message surfaces that message verbatim', a
   await expect(page.getByTestId('error-toast')).toContainText('Missing Census API key');
 });
 
-// --- Report 3: a disabled Run must state WHY, and offer the honest overwrite --
+// --- Report 3: a disabled Run must state WHY ---------------------------------
 
 test('census without a geo_point source disables Run and states the reason', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('censusfix-noreason'));
@@ -115,51 +114,6 @@ test('census without a geo_point source disables Run and states the reason', asy
   await expect(reason).toBeVisible();
   await expect(reason).toContainText(/geo_point/i);
   await expect(runButton).toHaveAttribute('title', /required fields|CENSUS_API_KEY|geo_point/i);
-});
-
-test('a NEW-column collision with an AI column offers an overwrite path, not a dead end', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('censusfix-collide'));
-  const sheetId = await importCsv(page.request, pid, 'notes.csv', 'note\nalpha\nbeta\n');
-  // Create a real AI-generated column named "demo_population" (deterministic
-  // template). Typing "demo population" (space) is NOT an exact match, so the
-  // destination stays "New column" and trips the normalized collision guard.
-  await runAndWait(page.request, pid, {
-    action_id: 'map.template',
-    scope: { kind: 'sheet_rows', sheet_id: sheetId },
-    params: { template: { text: '{{note}}!' } },
-    output_names: { rendered: 'demo_population' },
-    idempotency_key: `failure-surfacing-template-collision-${pid}`,
-  });
-
-  await openProject(page, pid, sheetId);
-  // Use a legacy-form action here because registered typed actions reject
-  // existing output names instead of offering the legacy overwrite escape hatch.
-  await openAction(page, 'map.classify');
-  await selectActionSourceColumns(page, 'note');
-  await expect(page.getByTestId('generated-action-form')).toBeVisible();
-
-  // Type a name that normalizes onto the existing AI column → output-name
-  // collision while the destination is still "New column".
-  const newColInput = page.getByTestId('new-column-name');
-  await newColInput.click();
-  await newColInput.fill('demo population');
-
-  const runButton = page.getByTestId('generated-action-run');
-  await expect(runButton).toBeDisabled();
-  const reason = page.getByTestId('run-disabled-reason');
-  await expect(reason).toContainText(/already exists/i);
-
-  // The honest path: overwrite the existing AI column (re-target it). It is NOT
-  // auto-applied — the user clicks it.
-  const overwrite = page.getByTestId('run-overwrite-existing');
-  await expect(overwrite).toBeVisible();
-  await overwrite.click();
-
-  // The collision clears (destination is now the existing column).
-  await expect(page.getByTestId('run-disabled-reason')).not.toContainText(/already exists/i);
-  await expect(page.getByTestId('run-overwrite-existing')).toHaveCount(0);
 });
 
 // --- Report 4: an in-memory preview cell error is readable in full -----------

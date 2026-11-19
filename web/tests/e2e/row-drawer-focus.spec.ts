@@ -3,7 +3,6 @@
 
 import { expect, test } from '@playwright/test';
 import {
-  clickCell,
   createProject,
   importCsv,
   openCellDrawer,
@@ -24,12 +23,10 @@ test('row drawer scrolls to and marks the activated cell field', async ({ page }
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
-  await clickCell(page, columns, 'search_results', 0);
   await expect(page.getByTestId('row-drawer')).toHaveCount(0);
-  // Activate the selected cell to open the resident Detail column. (Enter is
-  // the stable activation gesture; double-click on an overlay-editable JSON
-  // cell routes to the grid's inline editor, not the Detail column.)
-  await page.keyboard.press('Enter');
+  // 'search_results' imports as an in-place editable text column, so Enter
+  // edits it; the floating icon opens the Detail column.
+  await openCellDrawer(page, columns, 'search_results', 0);
 
   const drawer = page.getByTestId('row-drawer');
   await expect(drawer).toBeVisible();

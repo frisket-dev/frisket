@@ -19,6 +19,7 @@ import {
   runAndWait,
   uniqueName,
 } from './helpers';
+import { exposeReplayModel, prepareOwnModelReplay } from './replayModelScenario';
 
 test('a successful run auto-closes the action drawer', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-autoclose-success'));
@@ -76,9 +77,16 @@ test('a server output_column_exists rejection keeps the drawer open (confirm flo
     ].join('\n'),
   );
 
+  await prepareOwnModelReplay(page.request, pid);
+  await exposeReplayModel(page, pid);
   await page.goto(`/p/${pid}/s/${sheetId}`);
   await openAction(page, 'map.extract');
   await selectActionSourceColumns(page, 'title');
+  const engine = page.getByTestId('engine-selector').locator('.engine-selector__trigger');
+  await engine.click();
+  await page.getByTestId('engine-selector-dialog')
+    .locator('[data-engine-selector-choice="replay-engine-model"]').click();
+  await expect(engine).toContainText('Gemini 3.5 Flash-Lite');
   // The extract form opens with one output field; name it.
   await page.getByTestId('output-field-name').fill('officials');
   await expect(page.getByTestId('error-toast')).toHaveCount(0);

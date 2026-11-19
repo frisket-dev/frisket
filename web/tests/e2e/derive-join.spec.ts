@@ -2,9 +2,8 @@
 // isTabularJoin ActionPanel layout (two full sheet pickers, a repeatable
 // key-pair row list, a how= select, an indicator toggle), and the fan-out
 // confirm surfaced through the shared costGate UI. The backend (derive-join-
-// action-v1) is real, deterministic, and non-model (cost: none) — unlike
-// semantic-join.spec.ts, these specs drive the REAL backend end to end with no
-// route mocking.
+// action-v1) is real, deterministic, and non-model (cost: none), so these
+// specs drive the REAL backend end to end with no route mocking.
 
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {

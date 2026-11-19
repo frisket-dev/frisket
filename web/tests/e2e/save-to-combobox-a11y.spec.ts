@@ -8,29 +8,34 @@ test('save-to input exposes its native combobox and keyboard-real rich popup', a
   const csv = `${columnNames.join(',')}\n${columnNames.map((_, index) => `value_${index + 1}`).join(',')}\n`;
   const sheetId = await importCsv(page.request, pid, 'save-to-a11y.csv', csv);
 
-  // A generated Classify output may target generated category columns only.
-  // This keyboard-only fixture supplies those metadata facts; it never runs
-  // an action or overrides the form's actual compatibility policy.
-  await page.route(`**/api/projects/${pid}/sheets/${sheetId}/data*`, async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.columns = body.columns.map((column: Record<string, unknown>) => ({
-      ...column, type: 'category', ai_generated: true, generation_managed: true,
-    }));
-    await route.fulfill({ response, json: body });
+  // A Clean result may target generated text columns only. This keyboard-only
+  // fixture supplies those metadata facts; it never runs an action or
+  // overrides the form's actual compatibility policy.
+  const generated = (column: Record<string, unknown>) => ({
+    ...column, type: 'text', ai_generated: true, generation_managed: true,
   });
-  await page.goto(`/p/${pid}/s/${sheetId}/action/map.classify`);
-  const input = page.getByTestId('field-output-category');
+  await page.route((url) => url.pathname === `/api/projects/${pid}/sheets`, async (route) => {
+    const response = await route.fetch();
+    const sheets: Array<{ id: number; columns: Array<Record<string, unknown>> }> = await response.json();
+    await route.fulfill({
+      response,
+      json: sheets.map((sheet) => (
+        sheet.id === sheetId ? { ...sheet, columns: sheet.columns.map(generated) } : sheet
+      )),
+    });
+  });
+  await page.goto(`/p/${pid}/s/${sheetId}/action/map.clean_column`);
+  const input = page.getByTestId('field-output-cleaned');
   await expect(input).toBeVisible();
-  await expect(input).toHaveAccessibleName('Save to');
+  await expect(input).toHaveAccessibleName('Result');
   await expect(input).toHaveRole('combobox');
-  await expect(input).toHaveAttribute('list', 'field-output-category-options');
+  await expect(input).toHaveAttribute('list', 'field-output-cleaned-options');
   await expect(input).not.toHaveAttribute('role');
 
   await input.fill('');
   await input.focus();
   await page.keyboard.press('ArrowDown');
-  const listbox = page.getByTestId('field-output-category-listbox');
+  const listbox = page.getByTestId('field-output-cleaned-listbox');
   await expect(listbox).toBeVisible();
   await expect(input).toHaveAttribute('aria-activedescendant', /\S+/);
 
@@ -40,7 +45,7 @@ test('save-to input exposes its native combobox and keyboard-real rich popup', a
   const activeId = await input.getAttribute('aria-activedescendant');
   expect(activeId).toBeTruthy();
   const active = page.locator(`#${activeId}`);
-  await expect(active).toHaveClass(/is-active/);
+  await expect(active).toHaveAttribute('data-active', 'true');
   const [listboxBox, activeBox] = await Promise.all([listbox.boundingBox(), active.boundingBox()]);
   expect(listboxBox).not.toBeNull();
   expect(activeBox).not.toBeNull();

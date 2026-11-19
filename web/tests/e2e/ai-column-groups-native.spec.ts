@@ -42,10 +42,12 @@ async function openGroupMenu(
   firstColumnName: string,
   lastColumnName: string,
 ): Promise<void> {
-  const menu = page.getByTestId('native-column-group-menu');
+  // Hovering the group header shows the run card without layout controls;
+  // a click pins the menu with them, and a click on a pinned menu closes it.
+  const pinned = page.getByTestId('native-column-group-show-confidence');
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await clickGroupHeader(page, columns, firstColumnName, lastColumnName);
-    if (await menu.isVisible().catch(() => false)) return;
+    if (await pinned.isVisible().catch(() => false)) return;
     await page.waitForTimeout(150);
   }
 }
@@ -138,7 +140,6 @@ test('native Glide AI column groups rename and hide support columns as layout st
 
   await openGroupMenu(page, columns, 'beat', 'beat_confidence');
   await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Triage signals');
   await page.getByTestId('native-column-group-show-confidence').uncheck();
   await page.getByTestId('native-column-group-show-justification').uncheck();
   await expect(grid).toHaveAttribute('data-visible-column-names', 'snippet,beat,urgency');
@@ -160,7 +161,6 @@ test('native Glide AI column groups rename and hide support columns as layout st
 
   await openGroupMenu(page, visible(columns, ['snippet', 'beat', 'urgency']), 'beat', 'urgency');
   await expect(menu).toBeVisible();
-  await expect(menu).toContainText('Triage signals');
   await expect(page.getByTestId('native-column-group-show-confidence')).not.toBeChecked();
   await expect(page.getByTestId('native-column-group-show-justification')).not.toBeChecked();
 

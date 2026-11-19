@@ -2,9 +2,6 @@
  "account.spec.ts": {
   "account redirect opens Personal Profile settings and saves display name": "stale-expectation"
  },
- "action-drawer-autoclose.spec.ts": {
-  "a server output_column_exists rejection keeps the drawer open (confirm flow)": "stale-expectation"
- },
  "action-placement-single-source.spec.ts": {
   "ribbon and compact menu expose identical ordered categories and leaves": "unclassified"
  },
@@ -12,9 +9,6 @@
   "Explain Research details survives hover loss and Escape preserves the parent detail view": "stale-expectation",
   "Review retains companion sources and honest absence wording when no trace was recorded": "stale-expectation",
   "Review shows renamed companion sources and recorded tool details at wide and narrow widths": "stale-expectation"
- },
- "ai-column-groups-native.spec.ts": {
-  "native Glide AI column groups rename and hide support columns as layout state": "stale-expectation"
  },
  "answers-view-docked-evidence.spec.ts": {
   "region-grounded citation: the DOCKED pane (not the modal) renders the page image + region highlight, auto-defaulted on open": "stale-expectation"
@@ -38,10 +32,6 @@
  "date-range-filter.spec.ts": {
   "date-range filters use date columns and round-trip through views": "stale-expectation"
  },
- "derive-join-stale-projection.spec.ts": {
-  "refresh after a projection rename retains its stable id and posts the current wire name": "stale-expectation",
-  "refresh after projection deletion fails closed until explicit replacement and sends no stale POST": "stale-expectation"
- },
  "derive-preview-progress.spec.ts": {
   "derive preview shows active progress while awaiting the preview response": "stale-expectation"
  },
@@ -50,9 +40,6 @@
  },
  "discover-notifications-tab.spec.ts": {
   "notifications tab reveals from a run notification opened while viewing Notifications": "stale-expectation"
- },
- "editable-grid.spec.ts": {
-  "the in-place editor wraps a long unbroken text value": "stale-expectation"
  },
  "engine-selection-layout.spec.ts": {
   "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
@@ -85,9 +72,6 @@
  },
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
- },
- "grid-column-hide.spec.ts": {
-  "hide via caret removes the column from the grid but not from Detail; the boundary chevron revives it; state persists": "stale-expectation"
  },
  "grid-column-layout.spec.ts": {
   "grid column layout: drag reorder persists as default layout and saved-view columns": "stale-expectation"
@@ -151,10 +135,6 @@
  },
  "notifications.spec.ts": {
   "generic notification feed links alert events and supports read acknowledgement": "stale-expectation"
- },
- "overwrite-server-confirm.spec.ts": {
-  "a server-side output_column_exists rejection converts into an overwrite-confirm modal, and accepting relaunches with overwrite:true": "stale-expectation",
-  "the translate drawer refreshes the column list on open, so a column created before the drawer opens is already known client-side": "stale-expectation"
  },
  "pdf-table-extraction-v1-execution.spec.ts": {
   "PDF table extraction queues media.extract_pdf_tables for selected file rows": "stale-expectation"
@@ -229,26 +209,11 @@
  "review-run-assessment.spec.ts": {
   "review scopes runs and fields through the toolbar, reports decisions, and reopens a completed run": "stale-expectation"
  },
- "role-primitives-consolidation.spec.ts": {
-  "the derive AI/existing-column toggle behaves as a SegmentedToggle, including its disabled option (no JSON list columns)": "stale-expectation",
-  "the extract form Column/Template toggle behaves as a SegmentedToggle (aria-pressed parity, panel swap)": "stale-expectation"
- },
  "route-sync-epoch.spec.ts": {
   "map deep-link entry hydrates the split and normalizes the URL (B1), coexisting with a row Detail": "stale-expectation"
  },
  "row-detail-density.spec.ts": {
   "row detail clamps long values and trims entity/segment columns": "stale-expectation"
- },
- "row-drawer-focus.spec.ts": {
-  "keyboard cursor movement updates the row drawer selected field": "stale-expectation",
-  "row drawer scrolls to and marks the activated cell field": "stale-expectation"
- },
- "row-drawer-smooth-focus.spec.ts": {
-  "row drawer focuses selected fields with scoped smooth scrolling": "stale-expectation",
-  "row drawer selected-field scroll respects reduced motion": "stale-expectation"
- },
- "run-failure-surfacing.spec.ts": {
-  "a NEW-column collision with an AI column offers an overwrite path, not a dead end": "stale-expectation"
  },
  "run-progress-single-surface.spec.ts": {
   "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
@@ -265,14 +230,8 @@
  "sample-project-intro.spec.ts": {
   "guided Home entry opens the existing chooser without the introduction": "stale-expectation"
  },
- "save-to-combobox-a11y.spec.ts": {
-  "save-to input exposes its native combobox and keyboard-real rich popup": "stale-expectation"
- },
  "search.spec.ts": {
   "clicking a hit in another sheet switches to that sheet": "stale-expectation"
- },
- "semantic-join.spec.ts": {
-  "semantic join form creates a linkage child sheet": "stale-expectation"
  },
  "settings-billing-token-polish.spec.ts": {
   "organization API key creation has a one-time copyable reveal and redacted list": "stale-expectation"
@@ -319,10 +278,6 @@
   "C6: a PanelEmpty renders identically in a dock tab and a Discover tab": "stale-expectation",
   "R1: every dock tab body shares one frame class with identical computed padding": "stale-expectation"
  },
- "workbench-ia-ribbon.spec.ts": {
-  "a selected column pre-binds the configure-first form": "stale-expectation",
-  "contextual categories are keyed to column types in both ribbon and compact mode": "stale-expectation"
- },
  "workbench-ia-right-edge.spec.ts": {
   "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment",
   "the » overflow menu OPENS and switches to a hidden tab (regression: clipped by overflow:hidden)": "stale-expectation"
@@ -345,10 +300,6 @@
  },
  "workbench-resolved-layout-renderer.spec.ts": {
   "workbench regions are populated by a resolved layout tree": "stale-expectation"
- },
- "workbench-sidebar-contributions.spec.ts": {
-  "embeddings panel remounts per sheet with activeSheet gating preserved": "stale-expectation",
-  "the palette hides a re-homed panel (Alerts) and it recovers": "stale-expectation"
  },
  "workbench-structured-workspace.spec.ts": {
   "mainView tabs are visible and prototype map move controls stay out of daily UI": "stale-expectation"

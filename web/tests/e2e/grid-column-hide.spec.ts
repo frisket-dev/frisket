@@ -51,11 +51,11 @@ test('hide via caret removes the column from the grid but not from Detail; the b
   const columns = await sheetColumns(page.request, pid, sheetId);
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  expect(await visibleColumns(page)).toEqual(['city', 'status', 'source']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'status', 'source']);
 
   // HIDE the middle column via the caret.
   await hideColumn(page, columns, 'status');
-  expect(await visibleColumns(page)).toEqual(['city', 'source']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'source']);
 
   // Hidden ≠ deleted: the Detail panel (data-keyed on sheet.columns) still shows
   // the hidden column's field.
@@ -72,20 +72,20 @@ test('hide via caret removes the column from the grid but not from Detail; the b
   await expect(chevron).toBeVisible();
   await expect(chevron).toHaveAttribute('data-hidden-count', '1');
   await chevron.click();
-  expect(await visibleColumns(page)).toEqual(['city', 'status', 'source']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'status', 'source']);
   await expect(page.getByTestId('grid-hidden-boundary')).toHaveCount(0);
 
   // Persist across reload (per project+sheet UI preference).
   await hideColumn(page, columns, 'status');
   await page.reload();
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  expect(await visibleColumns(page)).toEqual(['city', 'source']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'source']);
   await expect(page.getByTestId('grid-hidden-boundary')).toBeVisible();
 
   // The toolbar ⋯ overflow "Show N hidden columns" is the always-reachable fallback.
   await openToolbarOverflow(page);
   await page.getByTestId('toolbar-show-hidden-columns').click();
-  expect(await visibleColumns(page)).toEqual(['city', 'status', 'source']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'status', 'source']);
 });
 
 test('a multi-column hidden run revives together from one boundary chevron; the caret Unhide item mirrors it', async ({
@@ -105,7 +105,7 @@ test('a multi-column hidden run revives together from one boundary chevron; the 
   // Hide two adjacent columns to form a single run between city and owner.
   await hideColumn(page, columns, 'status');
   await hideColumn(page, visibleWire(columns, ['status']), 'source');
-  expect(await visibleColumns(page)).toEqual(['city', 'owner']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'owner']);
 
   // The caret menu of an adjacent visible column offers "Unhide 2 columns".
   await clickHeaderMenu(page, visibleWire(columns, ['status', 'source']), 'owner');
@@ -117,7 +117,7 @@ test('a multi-column hidden run revives together from one boundary chevron; the 
   await expect(chevron).toHaveCount(1);
   await expect(chevron).toHaveAttribute('data-hidden-count', '2');
   await chevron.click();
-  expect(await visibleColumns(page)).toEqual(['city', 'status', 'source', 'owner']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['city', 'status', 'source', 'owner']);
 });
 
 test('a hidden geo column still satisfies Map availability (data-keyed views read sheet.columns, not visible columns)', async ({
@@ -149,7 +149,7 @@ test('a hidden geo column still satisfies Map availability (data-keyed views rea
 
   // Hide the geo column via the caret; it leaves the grid but stays in the schema.
   await hideColumn(page, columns, 'point');
-  expect(await visibleColumns(page)).toEqual(['place']);
+  await expect.poll(() => visibleColumns(page)).toEqual(['place']);
 
   // Map remains available — availability is data-keyed on sheet.columns.
   await expect(mapSegment).toBeVisible();

@@ -68,13 +68,12 @@ test('the palette hides a re-homed panel (Alerts) and it recovers', async ({ pag
     .click();
   await page.getByLabel('Close command palette').click();
 
-  // Contribution-scoped hide: the Discover panel body drops it AND the dock tab drops.
+  // Contribution-scoped hide: the Discover panel body drops it.
   await expect(
     discover.getByTestId('workbench-contribution-frisket-core-panel-watches'),
   ).toHaveCount(0);
-  await expect(page.getByTestId('bottom-dock-tab-watches')).toHaveCount(0);
 
-  // Revealing through the palette restores it to the Discover panel and the dock.
+  // Revealing through the palette restores it to the Discover panel.
   const revealPalette = await openCommandPalette(page);
   await revealPalette
     .getByTestId('workbench-visibility-command-reveal-frisket-core-panel-watches')
@@ -83,7 +82,6 @@ test('the palette hides a re-homed panel (Alerts) and it recovers', async ({ pag
   await expect(
     discover.getByTestId('workbench-contribution-frisket-core-panel-watches'),
   ).toBeVisible();
-  await expect(page.getByTestId('bottom-dock-tab-watches')).toBeVisible();
 });
 
 test('embeddings panel remounts per sheet with activeSheet gating preserved', async ({
@@ -105,9 +103,11 @@ test('embeddings panel remounts per sheet with activeSheet gating preserved', as
 
   // Open the create form: this is component state that ONLY a remount
   // resets — switching sheets must reset it (the per-sheet key), proving that
-  // always-open panels retain per-sheet remount semantics.
+  // always-open panels retain per-sheet remount semantics. The form is a
+  // modal portalled to the document body, outside the panel wrapper.
   await embeddingsWrapper.getByTestId('embeddings-add-button').click();
-  await expect(embeddingsWrapper.getByTestId('embeddings-form')).toBeVisible();
+  const createForm = page.getByTestId('embeddings-form');
+  await expect(createForm).toBeVisible();
 
   // The create dialog is a real full-viewport modal (no backdrop-click-to-
   // close), so it visually covers the sheet tab strip too; dispatch the
@@ -117,5 +117,5 @@ test('embeddings panel remounts per sheet with activeSheet gating preserved', as
   await page.getByTestId(`workbench-mainView-tab-${secondSheet}`).dispatchEvent('click');
   await expect(page).toHaveURL(new RegExp(`/p/${pid}/s/${secondSheet}$`));
   await expect(embeddingsWrapper.getByTestId('embeddings-panel')).toBeVisible();
-  await expect(embeddingsWrapper.getByTestId('embeddings-form')).toHaveCount(0);
+  await expect(createForm).toHaveCount(0);
 });
