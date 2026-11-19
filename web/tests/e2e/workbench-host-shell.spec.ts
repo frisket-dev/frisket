@@ -121,7 +121,7 @@ test('workbench host shell exposes fixed regions while the grid remains usable',
   expect(mainBox).not.toBeNull();
   expect(bottomDockBox).not.toBeNull();
   expect(mainBox!.y + mainBox!.height).toBeLessThanOrEqual(bottomDockBox!.y + 1);
-  await expect(bottomDock.getByRole('tablist', { name: 'Operational output' })).toBeVisible();
+  await expect(bottomDock.getByRole('tablist', { name: 'Bottom dock tabs' })).toBeVisible();
   await expect(bottomDock.getByRole('tab', { name: 'Runs' })).toHaveAttribute(
     'aria-selected',
     'true',
