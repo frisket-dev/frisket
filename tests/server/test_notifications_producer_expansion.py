@@ -40,10 +40,6 @@ class FailingProvider:
         return DeliveryProviderResult(status="failed", error=self.error)
 
 
-def _project(tmp_path: Path, project_id: str) -> Project:
-    return Project.create(tmp_path / f"{project_id}.frisket", name=project_id)
-
-
 def _external_route(project: Project) -> dict[str, Any]:
     channel = project.create_notification_channel(
         kind="email",
@@ -160,9 +156,10 @@ def test_export_candidates_cover_ready_and_failed_reports() -> None:
 
 def test_export_runner_emits_export_notification_candidate(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "export-producer-integration"
-    project = _project(tmp_path, project_id)
+    project = make_project(project_id)
     try:
         result = run_action_spec(
             project,
@@ -196,9 +193,9 @@ def test_export_runner_emits_export_notification_candidate(
 
 
 def test_delivery_health_items_are_feed_only_to_prevent_feedback_loops(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = _project(tmp_path, "delivery-health-feed-only")
+    project = make_project("delivery-health-feed-only")
     try:
         _external_route(project)
         candidate = delivery_health_notification_candidate(
@@ -228,9 +225,10 @@ def test_delivery_health_items_are_feed_only_to_prevent_feedback_loops(
 
 def test_failed_delivery_emits_health_notification_without_external_feedback(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "delivery-health-integration"
-    project = _project(tmp_path, project_id)
+    project = make_project(project_id)
     try:
         _external_route(project)
         emitted = emit_notification_candidate(project, _plugin_candidate(project_id))

@@ -20,16 +20,11 @@ from __future__ import annotations
 import pytest
 
 from frisket.team.security.secrets import decrypt_secret, encrypt_secret, key_hint
-from frisket.engine.store import Project
 from frisket.engine.store.credentials import ProviderKeyDecryptError
 
 
-def _new_project(tmp_path) -> Project:
-    return Project.create(tmp_path / "seam.frisket", name="Seam")
-
-
-def test_provider_key_set_get_delete_round_trips_through_store(tmp_path) -> None:
-    project = _new_project(tmp_path)
+def test_provider_key_set_get_delete_round_trips_through_store(make_project) -> None:
+    project = make_project("seam")
     assert project.provider_key_catalog_rows() == {}
     assert project.provider_model_keys() == {}
 
@@ -55,8 +50,8 @@ def test_provider_key_set_get_delete_round_trips_through_store(tmp_path) -> None
     assert project.provider_model_keys() == {}
 
 
-def test_provider_key_writes_can_share_a_caller_owned_transaction(tmp_path) -> None:
-    project = _new_project(tmp_path)
+def test_provider_key_writes_can_share_a_caller_owned_transaction(make_project) -> None:
+    project = make_project("seam")
     project.db.execute("BEGIN IMMEDIATE")
     project.set_provider_key(
         provider="openai",
@@ -120,7 +115,7 @@ def test_no_executor_path_composes_a_router_without_the_project_key_layer() -> N
     )
 
 
-def test_undecryptable_provider_key_raises_naming_the_provider(tmp_path) -> None:
+def test_undecryptable_provider_key_raises_naming_the_provider(make_project) -> None:
     """A stored key that will not decrypt used to be skipped with a silent
     `except Exception: continue`, degrading the project to "no project keys".
 
@@ -132,7 +127,7 @@ def test_undecryptable_provider_key_raises_naming_the_provider(tmp_path) -> None
     durable fact that did not describe what happened. A rotated or corrupt
     AEAD key is a configuration fault to name, not a fallback to take.
     """
-    project = _new_project(tmp_path)
+    project = make_project("seam")
     project.set_provider_key(
         provider="openai",
         encrypted=encrypt_secret("sk-real"),
@@ -157,10 +152,10 @@ def test_undecryptable_provider_key_raises_naming_the_provider(tmp_path) -> None
     assert "sk-real" not in message
 
 
-def test_store_decrypt_matches_legacy_inline_path(tmp_path) -> None:
+def test_store_decrypt_matches_legacy_inline_path(make_project) -> None:
     """provider_model_keys() must yield the SAME plaintext the old inline
     `decrypt_secret(row['encrypted'])` path produced from the same table."""
-    project = _new_project(tmp_path)
+    project = make_project("seam")
     plaintext = "sk-anthropic-abcd1234"
     project.set_provider_key(
         provider="anthropic",
@@ -179,8 +174,10 @@ def test_store_decrypt_matches_legacy_inline_path(tmp_path) -> None:
     assert project.provider_key_catalog_rows()["anthropic"]["spend_cap_micro"] is None
 
 
-def test_spent_micro_resets_and_hint_updates_on_provider_key_update(tmp_path) -> None:
-    project = _new_project(tmp_path)
+def test_spent_micro_resets_and_hint_updates_on_provider_key_update(
+    make_project,
+) -> None:
+    project = make_project("seam")
     project.set_provider_key(
         provider="openai",
         encrypted=encrypt_secret("k1"),
@@ -206,8 +203,10 @@ def test_spent_micro_resets_and_hint_updates_on_provider_key_update(tmp_path) ->
     assert project.provider_model_keys()["openai"] == "k2-longer"
 
 
-def test_secret_store_seam_round_trips_and_tracks_declared_consumers(tmp_path) -> None:
-    project = _new_project(tmp_path)
+def test_secret_store_seam_round_trips_and_tracks_declared_consumers(
+    make_project,
+) -> None:
+    project = make_project("seam")
     project.set_secret(
         name="MY_TOKEN",
         encrypted=encrypt_secret("s3cr3t"),

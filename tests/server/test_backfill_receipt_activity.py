@@ -1,5 +1,6 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from model_doubles import canned_reply_router
 
 import json
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.server.app import create_app
 from http_test_helpers import (
     drain_queue,
@@ -16,29 +16,10 @@ from http_test_helpers import (
 )
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]):
-        self.reply = reply
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=25,
-            tokens_out=10,
-            cost=0.0,
-            model=req.model,
-        )
-
-
 def _client(tmp_path: Path) -> TestClient:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
+    router, _ = canned_reply_router(
+        {"beat": "a"}, tokens_in=25, tokens_out=10, cost=0.0
     )
-    router._adapters["anthropic"] = _StubAdapter({"beat": "a"})  # noqa: SLF001
     return TestClient(create_app(tmp_path / "workspace", router=router))
 
 

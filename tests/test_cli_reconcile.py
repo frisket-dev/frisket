@@ -31,10 +31,6 @@ from typed_model_fixtures import model_plan
 FAKE_SECRET = "sk-ant-api03-SHOULD-NEVER-PRINT"
 
 
-def _store_project(tmp_path) -> Project:
-    return Project.create(tmp_path / "reconcile.frisket", name="reconcile")
-
-
 def _live_run_id(project: Project) -> int:
     """A real runs row so a row_effect group has a live referent."""
 
@@ -53,8 +49,10 @@ def _live_run_id(project: Project) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_list_surfaces_each_family_stuck_shape_and_orphans(tmp_path, capsys):
-    project = _store_project(tmp_path)
+def test_list_surfaces_each_family_stuck_shape_and_orphans(
+    tmp_path, make_project, capsys
+):
+    project = make_project("reconcile")
     try:
         store = EffectCheckpointStore(project.db)
         run_id = _live_run_id(project)
@@ -240,8 +238,10 @@ def test_list_surfaces_each_family_stuck_shape_and_orphans(tmp_path, capsys):
     assert FAKE_SECRET not in out.out + out.err
 
 
-def test_list_reports_nothing_stuck_and_rejects_non_bundle(tmp_path, capsys):
-    project = _store_project(tmp_path)
+def test_list_reports_nothing_stuck_and_rejects_non_bundle(
+    tmp_path, make_project, capsys
+):
+    project = make_project("reconcile")
     project.close()
     rc = reconcile(["list", "--project", str(tmp_path / "reconcile.frisket")])
     assert rc == 0

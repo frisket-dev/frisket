@@ -110,10 +110,6 @@ class FakeClient:
         return self.responses.pop(0)
 
 
-def _project(tmp_path: Path, project_id: str) -> Project:
-    return Project.create(tmp_path / f"{project_id}.frisket", name=project_id)
-
-
 def _open_project(tmp_path: Path, project_id: str) -> Project:
     return Project(tmp_path / f"{project_id}.frisket")
 
@@ -222,9 +218,10 @@ def test_webhook_channel_api_redacts_url_and_signing_refs(client) -> None:
 
 def test_webhook_provider_signs_payload_and_redacts_persisted_secrets(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "webhook-provider"
-    project = _project(tmp_path, project_id)
+    project = make_project(project_id)
     request_id = _webhook_request(project)
     project.close()
     webhook_url = "https://hooks.example.com/notify/TENANT/secret?token=hidden"
@@ -364,9 +361,10 @@ def test_guarded_webhook_post_caps_response_body() -> None:
 
 def test_webhook_missing_signing_secret_fails_closed_without_provider_call(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "webhook-missing-signing"
-    project = _project(tmp_path, project_id)
+    project = make_project(project_id)
     channel = project.create_notification_channel(
         kind="webhook",
         name="Ops webhook",

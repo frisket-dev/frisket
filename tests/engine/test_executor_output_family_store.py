@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.output_families import OutputFamilyStore
 
 
-def _project(tmp_path: Path) -> tuple[Project, int]:
-    project = Project.create(tmp_path / "family.frisket", name="family")
-    return project, project.add_sheet("Data")
-
-
-def test_family_creation_rolls_back_every_column_on_collision(tmp_path: Path) -> None:
-    project, sheet_id = _project(tmp_path)
+def test_family_creation_rolls_back_every_column_on_collision(make_project) -> None:
+    project = make_project("family")
+    sheet_id = project.add_sheet("Data")
     try:
         project.add_column(sheet_id, "source", type="text")
 
@@ -33,9 +27,10 @@ def test_family_creation_rolls_back_every_column_on_collision(tmp_path: Path) ->
 
 
 def test_family_creation_and_exact_generated_reuse(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id = _project(tmp_path)
+    project = make_project("family")
+    sheet_id = project.add_sheet("Data")
     try:
         store = OutputFamilyStore(project)
         first, created = store.create_or_reuse(
@@ -75,9 +70,10 @@ def test_family_creation_and_exact_generated_reuse(
 
 
 def test_family_reuse_rejects_hidden_generated_columns_without_reviving(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, sheet_id = _project(tmp_path)
+    project = make_project("family")
+    sheet_id = project.add_sheet("Data")
     try:
         hidden_id = project.add_column(
             sheet_id,
@@ -111,8 +107,9 @@ def test_family_reuse_rejects_hidden_generated_columns_without_reviving(
         project.close()
 
 
-def test_family_reuse_rejects_wrong_type_without_coercion(tmp_path: Path) -> None:
-    project, sheet_id = _project(tmp_path)
+def test_family_reuse_rejects_wrong_type_without_coercion(make_project) -> None:
+    project = make_project("family")
+    sheet_id = project.add_sheet("Data")
     try:
         column_id = project.add_column(
             sheet_id,
@@ -141,8 +138,9 @@ def test_family_reuse_rejects_wrong_type_without_coercion(tmp_path: Path) -> Non
         project.close()
 
 
-def test_family_validation_precedes_writes(tmp_path: Path) -> None:
-    project, sheet_id = _project(tmp_path)
+def test_family_validation_precedes_writes(make_project) -> None:
+    project = make_project("family")
+    sheet_id = project.add_sheet("Data")
     try:
         with pytest.raises(ValueError, match="must be unique"):
             OutputFamilyStore(project).create_or_reuse(

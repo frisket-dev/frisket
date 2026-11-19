@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field, ValidationError
 
 from executor_harness import run_action_with_confirmation
+from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.actions.extract import ExtractParams
 from frisket.actions.core import model_rows
@@ -362,7 +363,6 @@ def test_grounding_only_transcript_never_augments_model_prompt(
     tmp_path, monkeypatch, template
 ):
     from test_extract_scalar_temporal_anchors import (
-        _TRANSCRIPT_SEGMENTS,
         _run_transcribe,
         _seed_transcript_project,
         _stub_router,
@@ -392,7 +392,7 @@ def test_grounding_only_transcript_never_augments_model_prompt(
         assert len(adapter.requests) == 1
         prompt = json.dumps(adapter.requests[0].messages)
         assert "Episode 1" in prompt
-        for segment in _TRANSCRIPT_SEGMENTS:
+        for segment in TRANSCRIPT_SEGMENTS:
             assert segment["text"] not in prompt
         assert "transcript_segments" not in prompt
         # Invisible transcript anchors aren't even requested in the schema.

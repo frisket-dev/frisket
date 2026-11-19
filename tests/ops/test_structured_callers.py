@@ -1,10 +1,11 @@
 from __future__ import annotations
+
+from model_doubles import ScriptedAdapter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from frisket.execution.dispatch_control import STANDALONE
 import asyncio
 import json
-from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
@@ -24,24 +25,6 @@ def run(coro):
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class _ScriptedAdapter:
-    outcomes: list[Any]
-    base_url: str = "http://mock"
-    seen: list[Any] = field(default_factory=list)
-    _i: int = 0
-
-    async def complete(self, req: Any, client: Any) -> LLMResponse:
-        self.seen.append(req)
-        outcome = self.outcomes[min(self._i, len(self.outcomes) - 1)]
-        self._i += 1
-        if isinstance(outcome, Exception):
-            raise outcome
-        if callable(outcome):
-            return outcome(req)
-        return outcome
-
-
 def _resp(data: dict | None, *, tokens_in=50, tokens_out=10, cost=0.001):
     return lambda req: LLMResponse(
         content=json.dumps(data),
@@ -57,7 +40,7 @@ def _scripted_router(outcomes: list[Any], *, max_retries=3, provider="mock"):
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY, keys={}, max_retries=max_retries
     )
-    adapter = _ScriptedAdapter(outcomes=list(outcomes))
+    adapter = ScriptedAdapter(outcomes=list(outcomes))
     router._adapters[provider] = adapter  # noqa: SLF001
     return router, adapter
 
@@ -195,7 +178,7 @@ def test_ops_agent_hits_step_limit_without_finishing(monkeypatch):
         max_retries=0,
     )
     # always request the search tool -- the agent never finishes on its own.
-    adapter = _ScriptedAdapter(
+    adapter = ScriptedAdapter(
         outcomes=[
             lambda req, i=i: LLMResponse(
                 content=None,

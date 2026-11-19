@@ -1,4 +1,7 @@
 from __future__ import annotations
+from functools import partial
+
+from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
@@ -12,7 +15,7 @@ from typed_model_fixtures import model_plan, render_ner
 from frisket.actions.ner import NerModelOutput, normalize_ner_output
 from executor_harness import run_action_with_confirmation
 from frisket.actions.system import validate_root_action as validate_action_spec
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm import ModelRouter
 from frisket.ops.ner_citations import _NER_CITATION_CAPTURE_KEY
 from frisket.engine.runner import MapRunner
 from frisket.engine.store import Project
@@ -166,33 +169,7 @@ def test_llm_engine_declares_model_cost_while_local_engine_is_free():
 # ---------- end-to-end: kind="map.ner", engine="llm", through run_action_spec ----------
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=42,
-            tokens_out=17,
-            cost=0.004,
-            model=req.model,
-        )
-
-
-def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_stub_router = partial(canned_reply_router, tokens_in=42, tokens_out=17, cost=0.004)
 
 
 def _map_ner_llm_action(

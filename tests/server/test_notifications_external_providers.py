@@ -50,10 +50,6 @@ class RecordingPost:
         return self.responses.pop(0)
 
 
-def _create_project(tmp_path: Path, project_id: str) -> Project:
-    return Project.create(tmp_path / f"{project_id}.frisket", name=project_id)
-
-
 def _open_project(tmp_path: Path, project_id: str) -> Project:
     return Project(tmp_path / f"{project_id}.frisket")
 
@@ -121,9 +117,10 @@ def _attempt(project: Project) -> dict[str, Any]:
 
 def test_resend_email_provider_sends_request_and_redacts_response_meta(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "providers-email"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     channel = project.create_notification_channel(
         kind="email",
         name="Ops email",
@@ -192,9 +189,10 @@ def test_resend_email_provider_sends_request_and_redacts_response_meta(
 
 def test_slack_provider_failure_redacts_webhook_path_tokens_and_meta(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "providers-slack"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     channel = project.create_notification_channel(
         kind="slack",
         name="Ops Slack",
@@ -291,9 +289,10 @@ def test_slack_provider_blocks_non_slack_webhook_without_http_call() -> None:
 
 def test_route_test_request_with_null_notification_id_records_attempt(
     tmp_path: Path,
+    make_project,
 ) -> None:
     project_id = "providers-test-request"
-    project = _create_project(tmp_path, project_id)
+    project = make_project(project_id)
     channel = project.create_notification_channel(
         kind="email",
         name="Test email",

@@ -1,14 +1,13 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from model_doubles import canned_reply_router
 
 import json
-from typing import Any
 
 from fastapi.testclient import TestClient
 
 from frisket.authoring.action_metadata import action_metadata_for_action_kind
 from frisket.contracts.action import ActionResult
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.server import review_payloads
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmation
@@ -17,32 +16,11 @@ from http_test_helpers import drain_queue, post_v1_action_with_exact_confirmatio
 CSV = "story\nMayor met a lobbyist before the vote.\n"
 
 
-class StubAdapter:
-    async def complete(self, req: LLMRequest, client: Any) -> LLMResponse:  # noqa: ANN401
-        data = {
-            "beat": "civic",
-            "beat_confidence": 0.41,
-            "beat_justification": "mentions city government",
-        }
-        return LLMResponse(
-            content=json.dumps(data),
-            data=data,
-            tokens_in=10,
-            tokens_out=10,
-            cost=0.0,
-            model=req.model,
-        )
-
-
-def _stub_router() -> ModelRouter:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    router._adapters["anthropic"] = StubAdapter()  # noqa: SLF001
-    return router
+_REPLY = {
+    "beat": "civic",
+    "beat_confidence": 0.41,
+    "beat_justification": "mentions city government",
+}
 
 
 def test_action_metadata_uses_stable_unknown_fallback() -> None:
@@ -78,7 +56,9 @@ def test_review_payload_page_resolves_each_action_kind_once(monkeypatch) -> None
 
 
 def test_http_review_queue_and_bundles_use_action_metadata(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "ws", router=_stub_router()))
+    client = TestClient(
+        create_app(tmp_path / "ws", router=canned_reply_router(_REPLY)[0])
+    )
     project_id = client.post("/api/projects", json={"name": "Review v1"}).json()["id"]
     imported = client.post(
         f"/api/projects/{project_id}/import/csv",

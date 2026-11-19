@@ -13,6 +13,8 @@ wall-clock poll deadline (4), fail-closed unknown poll statuses (5), and the
 OCR->/convert migration + input-type gating (6)."""
 
 from __future__ import annotations
+
+from model_doubles import HttpClientRouter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import copy
@@ -38,13 +40,6 @@ from frisket.server.action_catalog_hints import _action_engines
 from frisket.engine.store import Project
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "datalab"
-
-
-class _HttpRouter:
-    def for_execution(self, execution):
-        from frisket.ai.llm.execution import ExecutionModelRouter
-
-        return ExecutionModelRouter(self, execution)
 
 
 def _load(name: str) -> dict[str, Any]:
@@ -717,14 +712,13 @@ def test_datalab_ocr_dispatch_routes_to_the_client_and_records_real_cost(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter(_HttpRouter):
-        client = _mock(handler)
+    stub_router = HttpClientRouter(_mock(handler))
 
     page = tmp_path / "page.png"
     page.write_bytes(b"\x89PNG\r\n\x1a\n page-bytes")
     p, sheet = _project(tmp_path, [{"page": str(page)}], "image")
     # Echo the typed action's exact server-authored confirmation before egress.
-    prog = _run_ocr(p, sheet, StubRouter())
+    prog = _run_ocr(p, sheet, stub_router)
     assert prog.status == "completed", prog.errors
     col = next(c for c in p.columns(sheet) if c["name"] == "ocr_text")
     (text,) = p.get_values(sheet, col["id"]).values()
@@ -752,8 +746,7 @@ def test_datalab_convert_dispatch_routes_to_the_client_and_records_real_cost(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter(_HttpRouter):
-        client = _mock(handler)
+    stub_router = HttpClientRouter(_mock(handler))
 
     # A real local path with a supported (.pdf) extension. The engine gate uses
     # Datalab's actual supported input
@@ -763,7 +756,7 @@ def test_datalab_convert_dispatch_routes_to_the_client_and_records_real_cost(
     doc = tmp_path / "doc.pdf"
     doc.write_bytes(b"%PDF-1.4 fake pdf bytes")
     p, sheet = _project(tmp_path, [{"doc": str(doc)}], "file")
-    prog = _run_markdown(p, sheet, StubRouter())
+    prog = _run_markdown(p, sheet, stub_router)
     assert prog.status == "completed", prog.errors
     col = next(c for c in p.columns(sheet) if c["name"] == "markdown")
     (markdown,) = p.get_values(sheet, col["id"]).values()
@@ -804,13 +797,12 @@ def test_datalab_accepted_job_error_stays_reconciliation_required(
             return httpx.Response(200, json=submit)
         return httpx.Response(503, json={"detail": "poll unavailable"})
 
-    class StubRouter(_HttpRouter):
-        client = _mock(handler)
+    stub_router = HttpClientRouter(_mock(handler))
 
     doc = tmp_path / "accepted.pdf"
     doc.write_bytes(b"%PDF-1.4 accepted work")
     project, sheet = _project(tmp_path, [{"doc": str(doc)}], "file")
-    progress = _run_markdown(project, sheet, StubRouter())
+    progress = _run_markdown(project, sheet, stub_router)
 
     assert progress.status == "failed", progress.errors
     assert progress.errors[0].code == "external_effect_reconciliation_required"
@@ -848,11 +840,10 @@ def test_datalab_convert_rejects_unsupported_input_type_before_any_network_call(
         called["n"] += 1
         return httpx.Response(200, json={})
 
-    class StubRouter(_HttpRouter):
-        client = _mock(handler)
+    stub_router = HttpClientRouter(_mock(handler))
 
     p, sheet = _project(tmp_path, [{"doc": "<html><body>hi</body></html>"}], "text")
-    prog = _run_markdown(p, sheet, StubRouter())
+    prog = _run_markdown(p, sheet, stub_router)
     assert prog.status == "failed", prog.errors
     assert called["n"] == 0  # no wasted network call for a doomed request
     err = p.db.execute(
@@ -886,13 +877,12 @@ def test_datalab_ocr_falls_back_to_external_pricing_estimate_when_cost_missing(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete_no_cost)
 
-    class StubRouter(_HttpRouter):
-        client = _mock(handler)
+    stub_router = HttpClientRouter(_mock(handler))
 
     page = tmp_path / "page.png"
     page.write_bytes(b"\x89PNG\r\n\x1a\n page-bytes")
     p, sheet = _project(tmp_path, [{"page": str(page)}], "image")
-    prog = _run_ocr(p, sheet, StubRouter())
+    prog = _run_ocr(p, sheet, stub_router)
     assert prog.status == "completed", prog.errors
     from frisket.ai.external_pricing import DATALAB_OCR_PAGE, external_unit_price_usd
 
@@ -980,17 +970,18 @@ def test_datalab_missing_key_refuses_the_run_with_the_remedy(tmp_path, monkeypat
     """
     monkeypatch.delenv("DATALAB_API_KEY", raising=False)
 
-    class StubRouter(_HttpRouter):
-        client = httpx.AsyncClient(
+    stub_router = HttpClientRouter(
+        httpx.AsyncClient(
             transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))
         )
+    )
 
     page1 = tmp_path / "page1.png"
     page2 = tmp_path / "page2.png"
     page1.write_bytes(b"\x89PNG\r\n\x1a\n one")
     page2.write_bytes(b"\x89PNG\r\n\x1a\n two")
     p, sheet = _project(tmp_path, [{"page": str(page1)}, {"page": str(page2)}], "image")
-    result = _run_ocr(p, sheet, StubRouter(), confirm=False)
+    result = _run_ocr(p, sheet, stub_router, confirm=False)
     assert result.status == "failed", result.errors
     assert "Datalab API key in the engine selector" in str(result.errors)
     # Nothing was dispatched: no results rows at all, rather than two

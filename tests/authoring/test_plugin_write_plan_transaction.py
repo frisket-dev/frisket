@@ -23,13 +23,8 @@ from frisket.engine.executor.plugin_write_apply import (
     apply_write_plan,
 )
 from frisket.engine.store import cell_writes
-from frisket.engine.store.project import Project
 
 _BOOM = "BOOM-mid-apply"
-
-
-def _project(tmp_path) -> Project:
-    return Project.create(tmp_path / "t.frisket", name="t")
 
 
 def _plan_with_boom_cell() -> dict:
@@ -57,8 +52,10 @@ def _encoder_that_explodes_on_boom():
     return fake
 
 
-def test_mid_apply_failure_rolls_back_begin_immediate(tmp_path, monkeypatch) -> None:
-    project = _project(tmp_path)
+def test_mid_apply_failure_rolls_back_begin_immediate(
+    make_project, monkeypatch
+) -> None:
+    project = make_project("t")
     cursor_before = project.get_meta("op_cursor")
     ops_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
 
@@ -87,9 +84,9 @@ def test_mid_apply_failure_rolls_back_begin_immediate(tmp_path, monkeypatch) -> 
 
 
 def test_mid_apply_failure_rolls_back_savepoint_and_keeps_outer_txn(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
-    project = _project(tmp_path)
+    project = make_project("t")
     db = project.db
 
     # Caller opens its OWN transaction and does prior work the plan must not disturb.
@@ -121,9 +118,9 @@ def test_mid_apply_failure_rolls_back_savepoint_and_keeps_outer_txn(
     assert [r["name"] for r in project.sheets()] == ["Prior"]
 
 
-def test_success_after_injection_removed_applies_cleanly(tmp_path) -> None:
+def test_success_after_injection_removed_applies_cleanly(make_project) -> None:
     """Control: the same shape without the injection applies and is one-step undoable."""
-    project = _project(tmp_path)
+    project = make_project("t")
     receipt = apply_write_plan(
         project,
         {
@@ -150,8 +147,8 @@ def test_success_after_injection_removed_applies_cleanly(tmp_path) -> None:
 
 @pytest.mark.parametrize("contents", ["sheet", "empty_table", "null_cell", "value"])
 @pytest.mark.parametrize("nested", [False, True])
-def test_table_plan_owns_one_closed_undoable_change(tmp_path, contents, nested):
-    project = _project(tmp_path)
+def test_table_plan_owns_one_closed_undoable_change(make_project, contents, nested):
+    project = make_project("t")
     ops = [{"op": "create_sheet", "sheet_ref": "s", "name": "People"}]
     if contents != "sheet":
         ops.append(

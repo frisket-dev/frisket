@@ -11,7 +11,8 @@ pending reviews". Rows are sorted by recency (most-recently-modified first).
 """
 
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+
+from model_doubles import canned_reply_router
 
 import asyncio
 import json
@@ -19,7 +20,6 @@ import os
 import time
 
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.runner.map_runner import MapRunner
 from frisket.engine.runner.review import review_queue
@@ -28,21 +28,6 @@ import frisket.engine.store.project as project_module
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from http_test_helpers import operation_step_action
 from typed_model_fixtures import run_with_exact_confirmation
-
-
-class StubAdapter:
-    def __init__(self, reply: dict):
-        self.reply = reply
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=dict(self.reply),
-            tokens_in=10,
-            tokens_out=10,
-            cost=0.0,
-            model=req.model,
-        )
 
 
 def accept_review(project: Project, project_id: str, item: dict, key: str) -> None:
@@ -62,17 +47,6 @@ def accept_review(project: Project, project_id: str, item: dict, key: str) -> No
         project_id=project_id,
     )
     assert result.status == "completed", result.errors
-
-
-def stub_router(reply: dict) -> ModelRouter:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    router._adapters["anthropic"] = StubAdapter(reply)  # noqa: SLF001
-    return router
 
 
 def classify_spec(sheet_id: int) -> dict:
@@ -113,7 +87,7 @@ def run_classify(project: Project, sheet_id: int) -> None:
         "beat_confidence": 0.4,
     }
     runner = MapRunner(
-        project, stub_router(reply), authority=UnroutedOnlyAuthority(project)
+        project, canned_reply_router(reply)[0], authority=UnroutedOnlyAuthority(project)
     )
     asyncio.run(run_with_exact_confirmation(runner, classify_spec(sheet_id)))
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from functools import partial
+
+from model_doubles import canned_reply_router
 
 import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
@@ -11,11 +13,11 @@ from typing import Any
 
 import pytest
 
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
 from runner_test_helpers import run_action_with_exact_confirmation
+from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS, fake_faster_whisper
 from tests.engine.extract_typed_chain_helpers import typed_extract_request
 
 
@@ -27,33 +29,7 @@ PROJECT_ID = "project-extract-scalar-temporal-anchors"
 # --------------------------------------------------------------------------- #
 
 
-class _StubAdapter:
-    def __init__(self, reply: dict[str, Any]) -> None:
-        self.reply = reply
-        self.requests: list[LLMRequest] = []
-
-    async def complete(self, req: LLMRequest, client) -> LLMResponse:  # noqa: ANN001
-        self.requests.append(req)
-        return LLMResponse(
-            content=json.dumps(self.reply),
-            data=json.loads(json.dumps(self.reply)),
-            tokens_in=91,
-            tokens_out=37,
-            cost=0.006,
-            model=req.model,
-        )
-
-
-def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, _StubAdapter]:
-    router = ModelRouter(
-        model_call_policy=LOCAL_PURCHASE_POLICY,
-        keys={"anthropic": "k"},
-        cache=None,
-        cache_mode="off",
-    )
-    adapter = _StubAdapter(reply)
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
-    return router, adapter
+_stub_router = partial(canned_reply_router, tokens_in=91, tokens_out=37, cost=0.006)
 
 
 def _verdict_field() -> dict[str, Any]:
@@ -114,16 +90,6 @@ def _assert_player_renderable(artifact: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- #
 
 
-_TRANSCRIPT_SEGMENTS = [
-    {"start": 0.0, "end": 2.0, "text": "welcome to the show"},
-    {"start": 2.0, "end": 4.0, "text": "today we discuss the election"},
-    {"start": 4.0, "end": 6.0, "text": "some say the vote was rigged"},
-    {"start": 6.0, "end": 8.0, "text": "others question the integrity of the count"},
-    {"start": 8.0, "end": 10.0, "text": "officials deny any wrongdoing"},
-    {"start": 10.0, "end": 12.0, "text": "thanks for listening"},
-]
-
-
 def _seed_transcript_project(tmp_path: Path) -> dict[str, Any]:
     project = Project.create(
         tmp_path / "scalar-transcript.frisket", name="Scalar Transcript"
@@ -155,32 +121,12 @@ def _seed_transcript_project(tmp_path: Path) -> dict[str, Any]:
     return {"project": project, "sheet_id": sheet_id, "row_ids": row_ids, "blob": blob}
 
 
-def _fake_faster_whisper(blob_hash: str):
-    async def fake(
-        self: transcribe_engines.FasterWhisperAdapter,
-        path: str,
-        spec: dict[str, Any],
-        *,
-        should_cancel: Any = None,
-    ) -> dict[str, Any]:
-        del self, spec
-        assert Path(path).name == blob_hash
-        return {
-            "text": " ".join(seg["text"] for seg in _TRANSCRIPT_SEGMENTS),
-            "segments": _TRANSCRIPT_SEGMENTS,
-            "language": "en",
-            "duration": _TRANSCRIPT_SEGMENTS[-1]["end"],
-        }
-
-    return fake
-
-
 def _run_transcribe(seeded: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
     project: Project = seeded["project"]
     monkeypatch.setattr(
         transcribe_engines.FasterWhisperAdapter,
         "transcribe",
-        _fake_faster_whisper(seeded["blob"]),
+        fake_faster_whisper(seeded["blob"]),
     )
     result = run_action_with_exact_confirmation(
         project,
@@ -230,7 +176,7 @@ def test_grounded_extract_ignores_unselected_later_row_artifact(
     seeded = _seed_transcript_project(tmp_path)
     project = seeded["project"]
     try:
-        monkeypatch.setitem(_TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
+        monkeypatch.setitem(TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         artifact = record_source_artifact(

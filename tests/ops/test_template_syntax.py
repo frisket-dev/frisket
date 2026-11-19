@@ -22,10 +22,6 @@ from frisket.execution.provider import (
 from frisket.authoring.templates import render_column_template
 
 
-def _project(tmp_path):
-    return Project.create(tmp_path / "templates.frisket", name="templates")
-
-
 def _seed(project: Project, rows: list[dict]):
     sheet = project.add_sheet("data")
     cols = {name: project.add_column(sheet, name) for name in rows[0]}
@@ -34,7 +30,7 @@ def _seed(project: Project, rows: list[dict]):
 
 
 def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_ROWS", 3)
     monkeypatch.setattr(map_runner_module, "LOCAL_RESULT_BATCH_SECONDS", 1000)
@@ -54,7 +50,7 @@ def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
         return read(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
 
     monkeypatch.setattr(ProjectReadSnapshot, "get_values_with_refs", record_read)
-    project = _project(tmp_path)
+    project = make_project("templates")
     path = project.path
     try:
         sheet = _seed(project, [{"name": f"row {i}", "suffix": "!"} for i in range(8)])
@@ -111,7 +107,7 @@ def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
 
 
 def test_typed_runner_template_infers_columns_without_input_columns(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     monkeypatch.delenv("OPENCAGE_API_KEY", raising=False)
     seen: dict[str, str] = {}
@@ -129,7 +125,7 @@ def test_typed_runner_template_infers_columns_without_input_columns(
             ],
         )
 
-    p = _project(tmp_path)
+    p = make_project("templates")
     sheet = _seed(
         p,
         [{"address": "Tour Eiffel", "city": "Paris", "country": "France"}],
