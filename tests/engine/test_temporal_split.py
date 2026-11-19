@@ -616,6 +616,57 @@ def test_split_bounds_duration_omitting_typed_point_against_resolved_timeline(
     assert plan.code == "range_out_of_bounds"
 
 
+@pytest.mark.parametrize(
+    "schema_version,item,expected",
+    [
+        (
+            "frisket.timeline_point.v1",
+            {"id": "cut", "at_ms": 4_000},
+            [(0, 4_000), (4_000, 10_000)],
+        ),
+        (
+            "frisket.timeline_range.v1",
+            {"id": "quote", "start_ms": 2_000, "end_ms": 6_000},
+            [(2_000, 6_000)],
+        ),
+    ],
+)
+def test_split_cuts_at_a_typed_point_and_keeps_a_typed_range(
+    make_project, schema_version: str, item: dict[str, Any], expected
+) -> None:
+    project = make_project("split-typed-single-item")
+    seeded = _seed_media(project)
+    anchor = resolve_timeline(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=seeded["row_id"],
+        column_id=seeded["columns"]["video"],
+    ).anchor.wire_value()
+    plan = _plan(
+        project,
+        _request(
+            seeded,
+            {
+                "kind": "typed_value",
+                "value": {
+                    "schema_version": schema_version,
+                    "timeline": anchor,
+                    "item": item,
+                },
+            },
+        ),
+    )
+
+    assert not isinstance(plan, ActionError), plan
+    ranges = plan.sources[0].source.ranges
+    assert [(r.start_ms, r.end_ms) for r in ranges] == expected
+    assert plan.sources[0].source.selection_value["item"] == {
+        "label": None,
+        "metadata": {},
+        **item,
+    }
+
+
 def test_split_rejects_batch_when_one_source_has_no_effective_ranges(
     make_project,
 ) -> None:
