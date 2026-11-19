@@ -21,10 +21,7 @@ def data(make_project):
         ],
         {"text": text, "amount": amount},
     )
-    try:
-        yield project, sheet, text, amount, rows
-    finally:
-        project.close()
+    yield project, sheet, text, amount, rows
 
 
 def test_order_limit_then_pagination_and_snapshot(data):

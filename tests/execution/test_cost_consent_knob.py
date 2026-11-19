@@ -82,10 +82,7 @@ def audio_project(make_project, monkeypatch):
         [{"media": media_cell(blob, mime="audio/wav", filename="a.wav")}],
         {"media": col},
     )
-    try:
-        yield project, sheet_id
-    finally:
-        project.close()
+    yield project, sheet_id
 
 
 @pytest.fixture()

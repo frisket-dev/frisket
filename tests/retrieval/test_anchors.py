@@ -104,20 +104,17 @@ def test_text_anchor_encodes_the_exact_bounded_selection(make_project) -> None:
 def test_image_anchor_uses_exact_current_blob_bytes(make_project) -> None:
     project = make_project("image")
     image = b"\x89PNG\r\n\x1a\nfixture"
-    try:
-        sheet_id, row_id, column_id = _blob_cell(
-            project, column_type="image", mime="image/png", data=image
-        )
+    sheet_id, row_id, column_id = _blob_cell(
+        project, column_type="image", mime="image/png", data=image
+    )
 
-        resolved = resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
+    resolved = resolve_cell_anchor(project, CellAnchor(sheet_id, row_id, column_id))
 
-        assert resolved.anchor.source.source_kind == "blob"
-        assert resolved.anchor.locator == SourceLocator(kind="image")
-        assert resolved.anchor.binding is not None
-        assert resolved.anchor.binding.dependencies[0].retrieval_revision > 0
-        assert resolved.input == ImageEncodingInput(image)
-    finally:
-        project.close()
+    assert resolved.anchor.source.source_kind == "blob"
+    assert resolved.anchor.locator == SourceLocator(kind="image")
+    assert resolved.anchor.binding is not None
+    assert resolved.anchor.binding.dependencies[0].retrieval_revision > 0
+    assert resolved.input == ImageEncodingInput(image)
 
 
 def test_pdf_anchor_requires_one_explicit_current_page(make_project) -> None:
@@ -148,27 +145,24 @@ def test_pdf_anchor_renders_only_selected_page(
         return type("Rendered", (), {"pages": ((2, output),)})()
 
     monkeypatch.setattr("frisket.retrieval.anchors.render_pdf_pages", render)
-    try:
-        sheet_id, row_id, column_id = _blob_cell(
-            project,
-            column_type="file",
-            mime="application/pdf",
-            data=b"pdf fixture",
-        )
-        selected = CellAnchor(
-            sheet_id,
-            row_id,
-            column_id,
-            locator=SourceLocator(kind="pdf_page", pages=PageRange(2, 2)),
-        )
+    sheet_id, row_id, column_id = _blob_cell(
+        project,
+        column_type="file",
+        mime="application/pdf",
+        data=b"pdf fixture",
+    )
+    selected = CellAnchor(
+        sheet_id,
+        row_id,
+        column_id,
+        locator=SourceLocator(kind="pdf_page", pages=PageRange(2, 2)),
+    )
 
-        resolved = asyncio.run(resolve_cell_anchor_async(project, selected))
+    resolved = asyncio.run(resolve_cell_anchor_async(project, selected))
 
-        assert calls == [[2]]
-        assert resolved.anchor.locator.pages == PageRange(2, 2)
-        assert isinstance(resolved.input, ImageEncodingInput)
-    finally:
-        project.close()
+    assert calls == [[2]]
+    assert resolved.anchor.locator.pages == PageRange(2, 2)
+    assert isinstance(resolved.input, ImageEncodingInput)
 
 
 def test_video_anchor_returns_decoder_observed_frame_time(
@@ -184,28 +178,25 @@ def test_video_anchor_returns_decoder_observed_frame_time(
         return LocatedFrame(PresentationPoint(6, 1, 4), ImageEncodingInput(b"jpeg"))
 
     monkeypatch.setattr("frisket.retrieval.anchors.decode_video_frame", decode)
-    try:
-        sheet_id, row_id, column_id = _blob_cell(
-            project, column_type="video", mime="video/mp4", data=b"video fixture"
-        )
-        selected = CellAnchor(
-            sheet_id,
-            row_id,
-            column_id,
-            locator=SourceLocator(kind="video_frame", time=TimeRange(1.25, 1.25)),
-        )
+    sheet_id, row_id, column_id = _blob_cell(
+        project, column_type="video", mime="video/mp4", data=b"video fixture"
+    )
+    selected = CellAnchor(
+        sheet_id,
+        row_id,
+        column_id,
+        locator=SourceLocator(kind="video_frame", time=TimeRange(1.25, 1.25)),
+    )
 
-        async def call_sync_adapter():
-            return resolve_cell_anchor(project, selected)
+    async def call_sync_adapter():
+        return resolve_cell_anchor(project, selected)
 
-        resolved = asyncio.run(call_sync_adapter())
+    resolved = asyncio.run(call_sync_adapter())
 
-        assert resolved.anchor.locator.time == TimeRange(1.5, 1.5)
-        assert resolved.input == ImageEncodingInput(b"jpeg")
-        with pytest.raises(MediaProductionError, match="lease has ended"):
-            borrowed[0].borrow_path()
-    finally:
-        project.close()
+    assert resolved.anchor.locator.time == TimeRange(1.5, 1.5)
+    assert resolved.input == ImageEncodingInput(b"jpeg")
+    with pytest.raises(MediaProductionError, match="lease has ended"):
+        borrowed[0].borrow_path()
 
 
 def test_audio_anchor_returns_effective_decoded_interval(
@@ -221,25 +212,22 @@ def test_audio_anchor_returns_effective_decoded_interval(
         return AudioWindow(4.0, 7.25, AudioEncodingInput(b"\0\0" * 10))
 
     monkeypatch.setattr("frisket.retrieval.anchors.decode_audio_interval", decode)
-    try:
-        sheet_id, row_id, column_id = _blob_cell(
-            project, column_type="audio", mime="audio/wav", data=b"audio fixture"
-        )
-        selected = CellAnchor(
-            sheet_id,
-            row_id,
-            column_id,
-            locator=SourceLocator(kind="audio_window", time=TimeRange(4.0, 9.0)),
-        )
+    sheet_id, row_id, column_id = _blob_cell(
+        project, column_type="audio", mime="audio/wav", data=b"audio fixture"
+    )
+    selected = CellAnchor(
+        sheet_id,
+        row_id,
+        column_id,
+        locator=SourceLocator(kind="audio_window", time=TimeRange(4.0, 9.0)),
+    )
 
-        resolved = resolve_cell_anchor(project, selected)
+    resolved = resolve_cell_anchor(project, selected)
 
-        assert resolved.anchor.locator.time == TimeRange(4.0, 7.25)
-        assert isinstance(resolved.input, AudioEncodingInput)
-        with pytest.raises(MediaProductionError, match="lease has ended"):
-            borrowed[0].borrow_path()
-    finally:
-        project.close()
+    assert resolved.anchor.locator.time == TimeRange(4.0, 7.25)
+    assert isinstance(resolved.input, AudioEncodingInput)
+    with pytest.raises(MediaProductionError, match="lease has ended"):
+        borrowed[0].borrow_path()
 
 
 @pytest.mark.parametrize("kind", ["text", "image"])

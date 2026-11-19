@@ -24,10 +24,7 @@ def source(make_project):
     project = make_project("PDF pages")
     digest = project.add_blob(b"%PDF-fixture", filename="a.pdf", mime="application/pdf")
     service = ProjectBlobService(SimpleNamespace(get=lambda _id: project))
-    try:
-        yield project, digest, service
-    finally:
-        project.close()
+    yield project, digest, service
 
 
 @pytest.mark.parametrize("generic_mime", [False, True])

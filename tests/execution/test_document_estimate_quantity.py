@@ -46,10 +46,7 @@ def documents(make_project):
         name: project.add_column(sheet_id, name, type="json")
         for name in ("primary", "alternate")
     }
-    try:
-        yield project, sheet_id, columns
-    finally:
-        project.close()
+    yield project, sheet_id, columns
 
 
 def _document(project, *, pages=3, kind="document", mime="application/pdf"):

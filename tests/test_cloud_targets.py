@@ -594,24 +594,21 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(
         provider=Provider(),
         credential_use_context=CredentialUseContext.open(),
     )
-    try:
-        composition = cloud_execution_composition(
-            base,
-            project,
-            store=CloudConnectionStore(tmp_path / "profile"),
-            client=object(),
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine="deepl",
-                capability=CAPABILITY_TRANSLATE,
-                options={},
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        base,
+        project,
+        store=CloudConnectionStore(tmp_path / "profile"),
+        client=object(),
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine="deepl",
+            capability=CAPABILITY_TRANSLATE,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "deepl"
@@ -760,24 +757,21 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(
         provider=Provider(),
         credential_use_context=CredentialUseContext.open(),
     )
-    try:
-        composition = cloud_execution_composition(
-            base,
-            project,
-            store=store,
-            client=object(),
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine="openai/gpt-5-mini",
-                capability=CAPABILITY_LLM,
-                options={},
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        base,
+        project,
+        store=store,
+        client=object(),
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine="openai/gpt-5-mini",
+            capability=CAPABILITY_LLM,
+            options={},
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert isinstance(outcome, Refusal)
     assert outcome.target_id is None
@@ -802,24 +796,21 @@ def test_unbound_legacy_project_does_not_inherit_install_cloud_first(
     store.set_preference("cloud_first")
     if unreadable_profile:
         store.key_path.unlink()
-    try:
-        assert legacy_cloud_execution_preference(project, store) == "local_first"
-        composition = cloud_execution_composition(
-            _base_with_openai_route(),
-            project,
-            store=store,
-            client=object(),
-        )
-        request = composition.resolution_request(
-            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
-        )
-        outcome = resolve(
-            request,
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    assert legacy_cloud_execution_preference(project, store) == "local_first"
+    composition = cloud_execution_composition(
+        _base_with_openai_route(),
+        project,
+        store=store,
+        client=object(),
+    )
+    request = composition.resolution_request(
+        "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+    )
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert composition.model_route_default is None
     assert request.route == "own"
@@ -959,20 +950,17 @@ def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(
         ),
     )
     store.save_capabilities(_llm_capabilities(), expected_user_id=7)
-    try:
-        composition = cloud_execution_composition(
-            _base_with_openai_route(), project, store=store, client=object()
-        )
-        request = composition.resolution_request(
-            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
-        )
-        outcome = resolve(
-            request,
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_with_openai_route(), project, store=store, client=object()
+    )
+    request = composition.resolution_request(
+        "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+    )
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert request.route == "cloud"
     assert not isinstance(outcome, Refusal)
@@ -1009,23 +997,20 @@ def test_legacy_cloud_first_uses_configured_local_else_actual_cloud_candidate(
         ),
     )
     store.save_capabilities(_capabilities(), expected_user_id=7)
-    try:
-        composition = cloud_execution_composition(
-            _base_with_paddleocr_local_route(configured=local_configured),
-            project,
-            store=store,
-            client=object(),
-        )
-        request = composition.resolution_request(
-            CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
-        )
-        outcome = resolve(
-            request,
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_with_paddleocr_local_route(configured=local_configured),
+        project,
+        store=store,
+        client=object(),
+    )
+    request = composition.resolution_request(
+        CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+    )
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert request.route == expected_route
     assert not isinstance(outcome, Refusal)
@@ -1057,20 +1042,17 @@ def test_legacy_cloud_first_connected_empty_catalog_keeps_configured_own_route(
     store.save_capabilities(
         CloudCapabilitiesResponse(account_id=41, routes=[]), expected_user_id=7
     )
-    try:
-        composition = cloud_execution_composition(
-            _base_with_openai_route(), project, store=store, client=object()
-        )
-        request = composition.resolution_request(
-            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
-        )
-        outcome = resolve(
-            request,
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_with_openai_route(), project, store=store, client=object()
+    )
+    request = composition.resolution_request(
+        "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+    )
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert request.route == "own"
     assert not isinstance(outcome, Refusal)
@@ -1103,20 +1085,17 @@ def test_materialized_cloud_default_connected_empty_catalog_keeps_configured_own
     store.save_capabilities(
         CloudCapabilitiesResponse(account_id=41, routes=[]), expected_user_id=7
     )
-    try:
-        composition = cloud_execution_composition(
-            _base_with_openai_route(), project, store=store, client=object()
-        )
-        request = composition.resolution_request(
-            "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
-        )
-        outcome = resolve(
-            request,
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_with_openai_route(), project, store=store, client=object()
+    )
+    request = composition.resolution_request(
+        "openai/gpt-5-mini", capability=CAPABILITY_LLM, options={}
+    )
+    outcome = resolve(
+        request,
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert request.route == "own"
     assert not isinstance(outcome, Refusal)
@@ -1347,42 +1326,39 @@ def test_structured_cloud_llm_action_estimates_quantity_without_promising_a_ceil
         capabilities=_llm_capabilities(),
         preference="cloud_first",
     )
-    try:
-        resolved = resolve_for_action(
-            project,
-            spec,
-            program,
-            composition=composition,
-            scope_row_ids=[row_id],
-        )
-        own_key = resolve_for_action(
-            project,
-            spec,
-            program,
-            composition=compose_cloud_targets(
-                _base_with_openai_route(),
-                user_id=7,
-                account=_account(),
-                capabilities=_llm_capabilities(),
-                preference="local_first",
-            ),
-            scope_row_ids=[row_id],
-        )
-        blocked_cloud = resolve_for_action(
-            project,
-            spec,
-            program,
-            composition=compose_cloud_targets(
-                _base_with_openai_route(),
-                user_id=7,
-                account=_account(),
-                capabilities=_llm_capabilities(ready=False),
-                preference="cloud_first",
-            ),
-            scope_row_ids=[row_id],
-        )
-    finally:
-        project.close()
+    resolved = resolve_for_action(
+        project,
+        spec,
+        program,
+        composition=composition,
+        scope_row_ids=[row_id],
+    )
+    own_key = resolve_for_action(
+        project,
+        spec,
+        program,
+        composition=compose_cloud_targets(
+            _base_with_openai_route(),
+            user_id=7,
+            account=_account(),
+            capabilities=_llm_capabilities(),
+            preference="local_first",
+        ),
+        scope_row_ids=[row_id],
+    )
+    blocked_cloud = resolve_for_action(
+        project,
+        spec,
+        program,
+        composition=compose_cloud_targets(
+            _base_with_openai_route(),
+            user_id=7,
+            account=_account(),
+            capabilities=_llm_capabilities(ready=False),
+            preference="cloud_first",
+        ),
+        scope_row_ids=[row_id],
+    )
 
     assert resolved is not None and not isinstance(resolved, Refusal)
     assert own_key is None
@@ -1655,12 +1631,9 @@ def test_project_composition_reads_selected_account_capabilities_without_network
             raise AssertionError((token, account_id))
 
     client = Client()
-    try:
-        composition = cloud_execution_composition(
-            _base_without_local_route(), project, store=store, client=client
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_without_local_route(), project, store=store, client=client
+    )
 
     assert client.calls == 0
     assert store.load().capabilities[41].routes == _capabilities().routes
@@ -1701,19 +1674,16 @@ def test_project_composition_uses_last_known_capabilities_without_refetch(
         def capabilities(self, _token, _account_id):
             raise AssertionError("a stored route snapshot must avoid discovery")
 
-    try:
-        composition = cloud_execution_composition(
-            _base_without_local_route(), project, store=store, client=Client()
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_without_local_route(), project, store=store, client=Client()
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert not isinstance(outcome, Refusal)
     assert outcome.target.id == "frisket-cloud:41:frisket_credits:anthropic"
@@ -1746,19 +1716,16 @@ def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(
         def capabilities(self, _token, _account_id):
             raise AssertionError("expired connections must not make a discovery call")
 
-    try:
-        composition = cloud_execution_composition(
-            _base_without_local_route(), project, store=store, client=Client()
-        )
-        outcome = resolve(
-            ResolutionRequest(
-                engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
-            ),
-            composition.provider_for_resolution(),
-            composition.facts,
-        )
-    finally:
-        project.close()
+    composition = cloud_execution_composition(
+        _base_without_local_route(), project, store=store, client=Client()
+    )
+    outcome = resolve(
+        ResolutionRequest(
+            engine=CLOUD_OCR_ENGINE, capability=CAPABILITY_OCR, options={}
+        ),
+        composition.provider_for_resolution(),
+        composition.facts,
+    )
 
     assert isinstance(outcome, Refusal)
     assert outcome.target_id == "frisket-cloud:41:frisket_credits:anthropic"

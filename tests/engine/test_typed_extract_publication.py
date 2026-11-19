@@ -31,10 +31,7 @@ def source(make_project):
     row = project.add_rows(
         sheet, [{"body": "Ada launched a rocket."}], {"body": column}
     )[0]
-    try:
-        yield project, sheet, column, row
-    finally:
-        project.close()
+    yield project, sheet, column, row
 
 
 def run_extract(

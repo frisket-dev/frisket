@@ -57,10 +57,7 @@ from tests.engine.test_transcript_segments_action import (
 def source(make_project):
     project = make_project("typed-transcripts")
     seeded = _seed_timestamped_transcript(project)
-    try:
-        yield project, seeded
-    finally:
-        project.close()
+    yield project, seeded
 
 
 class RenamedParams(ActionParams):

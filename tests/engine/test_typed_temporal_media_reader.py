@@ -100,10 +100,7 @@ def media(make_project, monkeypatch):
     monkeypatch.setattr(
         "frisket.engine.executor.temporal_split.stage_media_splice", render
     )
-    try:
-        yield project, sheet, row, paths
-    finally:
-        project.close()
+    yield project, sheet, row, paths
 
 
 def _run(media, handler, *, output_names=None):

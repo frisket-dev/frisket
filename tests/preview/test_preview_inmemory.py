@@ -45,22 +45,17 @@ def test_preview_runner_receives_composed_browser_runtime(make_project) -> None:
     project = make_project("Preview")
     browser = object()
     runner = SimpleNamespace(action_context_extras={})
-    try:
-        plan = build_map_preview_plan(
-            project,
-            action_kind="web.capture_screenshot",
-            runner_spec={},
-            router=None,
-            deps=ExecutorDeps(
-                map_runner_factory=lambda _project, _router: runner,
-                url_capture_browser=browser,
-            ),
-        )
-        assert (
-            plan.make_runner().action_context_extras["url_capture_browser"] is browser
-        )
-    finally:
-        project.close()
+    plan = build_map_preview_plan(
+        project,
+        action_kind="web.capture_screenshot",
+        runner_spec={},
+        router=None,
+        deps=ExecutorDeps(
+            map_runner_factory=lambda _project, _router: runner,
+            url_capture_browser=browser,
+        ),
+    )
+    assert plan.make_runner().action_context_extras["url_capture_browser"] is browser
 
 
 # --------------------------------------------------------------------------- #

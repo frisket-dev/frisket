@@ -39,10 +39,7 @@ def geocode_sheet(make_project):
         [{"street": "Main St", "house_number": 10}],
         {"street": street_id, "house_number": number_id},
     )
-    try:
-        yield project, sheet_id, street_id, number_id
-    finally:
-        project.close()
+    yield project, sheet_id, street_id, number_id
 
 
 def _plan(project, sheet_id, source):

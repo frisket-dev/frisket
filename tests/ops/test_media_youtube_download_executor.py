@@ -302,42 +302,35 @@ def test_media_download_action_supports_tiktok_without_youtube_backfill(
 
     monkeypatch.setattr(media_ops, "download_media", fake_download)
 
-    try:
-        result = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                media_type="video",
-                idempotency_key="media_ytdlp_download@sha256:tiktok",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        receipt = _receipt(project, result.receipt_id)
-        assert (
-            next(p for p in receipt.provider_use if p.get("external_api"))["provider"]
-            == "tiktok"
-        )
-        assert (
-            next(p for p in receipt.provider_use if p.get("external_api"))[
-                "operation_call_count"
-            ]
-            == 1
-        )
-        assert (
-            project.get_values(sheet_id, columns["channel_id"], row_ids=[row_id])[
-                row_id
-            ]
-            is None
-        )
-        assert (
-            project.get_values(sheet_id, columns["channel_title"], row_ids=[row_id])[
-                row_id
-            ]
-            is None
-        )
-    finally:
-        project.close()
+    result = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            media_type="video",
+            idempotency_key="media_ytdlp_download@sha256:tiktok",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    receipt = _receipt(project, result.receipt_id)
+    assert (
+        next(p for p in receipt.provider_use if p.get("external_api"))["provider"]
+        == "tiktok"
+    )
+    assert (
+        next(p for p in receipt.provider_use if p.get("external_api"))[
+            "operation_call_count"
+        ]
+        == 1
+    )
+    assert (
+        project.get_values(sheet_id, columns["channel_id"], row_ids=[row_id])[row_id]
+        is None
+    )
+    assert (
+        project.get_values(sheet_id, columns["channel_title"], row_ids=[row_id])[row_id]
+        is None
+    )
 
 
 def test_media_download_action_passes_arbitrary_http_domain_to_ytdlp(
@@ -363,31 +356,28 @@ def test_media_download_action_passes_arbitrary_http_domain_to_ytdlp(
 
     monkeypatch.setattr(media_ops, "download_media", fake_download)
 
-    try:
-        result = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                media_type="video",
-                idempotency_key="media_ytdlp_download@sha256:arbitrary",
-            ),
-            project_id=PROJECT_ID,
-        )
+    result = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            media_type="video",
+            idempotency_key="media_ytdlp_download@sha256:arbitrary",
+        ),
+        project_id=PROJECT_ID,
+    )
 
-        assert result.status == "completed", result.errors
-        receipt = _receipt(project, result.receipt_id)
-        assert (
-            next(p for p in receipt.provider_use if p.get("external_api"))["provider"]
-            == "generic"
-        )
-        assert (
-            next(p for p in receipt.provider_use if p.get("external_api"))[
-                "operation_call_count"
-            ]
-            == 1
-        )
-    finally:
-        project.close()
+    assert result.status == "completed", result.errors
+    receipt = _receipt(project, result.receipt_id)
+    assert (
+        next(p for p in receipt.provider_use if p.get("external_api"))["provider"]
+        == "generic"
+    )
+    assert (
+        next(p for p in receipt.provider_use if p.get("external_api"))[
+            "operation_call_count"
+        ]
+        == 1
+    )
 
 
 def test_media_download_overwrite_existing_intent_reuses_generated_column_but_protects_source(
@@ -493,58 +483,55 @@ def test_media_download_action_keeps_row_level_failures_for_bad_urls(
 
     monkeypatch.setattr(youtube_ops, "download_media", fake_download)
 
-    try:
-        all_invalid = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                row_ids=[row_ids[1]],
-                output_name="invalid_only",
-                idempotency_key="media_ytdlp_download@sha256:all-invalid",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert all_invalid.status == "failed"
-        assert all_invalid.errors[0].code == "external_rows_failed"
-        assert calls == []
+    all_invalid = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            row_ids=[row_ids[1]],
+            output_name="invalid_only",
+            idempotency_key="media_ytdlp_download@sha256:all-invalid",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert all_invalid.status == "failed"
+    assert all_invalid.errors[0].code == "external_rows_failed"
+    assert calls == []
 
-        result = run_action_with_confirmation(
-            project,
-            _youtube_action(
-                sheet_id=sheet_id,
-                idempotency_key="media_ytdlp_download@sha256:mixed",
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "partial", result.errors
-        assert result.receipt_id is not None
-        assert calls == [YOUTUBE_WATCH]
+    result = run_action_with_confirmation(
+        project,
+        _youtube_action(
+            sheet_id=sheet_id,
+            idempotency_key="media_ytdlp_download@sha256:mixed",
+        ),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "partial", result.errors
+    assert result.receipt_id is not None
+    assert calls == [YOUTUBE_WATCH]
 
-        run = project.db.execute(
-            "SELECT * FROM runs WHERE id=?", (result.run_id,)
-        ).fetchone()
-        assert run is not None
-        assert run["total_rows"] == 2
-        assert run["completed_rows"] == 2
-        assert run["failed_rows"] == 1
+    run = project.db.execute(
+        "SELECT * FROM runs WHERE id=?", (result.run_id,)
+    ).fetchone()
+    assert run is not None
+    assert run["total_rows"] == 2
+    assert run["completed_rows"] == 2
+    assert run["failed_rows"] == 1
 
-        receipt = _receipt(project, result.receipt_id)
-        assert receipt.status == "partial"
-        assert (
-            next(p for p in receipt.provider_use if p.get("external_api"))[
-                "operation_call_count"
-            ]
-            == 1
-        )
-        errors = project.db.execute(
-            "SELECT row_id,error_code FROM results WHERE run_id=? AND error_code IS NOT NULL",
-            (result.run_id,),
-        ).fetchall()
-        assert [(r["row_id"], r["error_code"]) for r in errors] == [
-            (row_ids[1], "invalid_url")
+    receipt = _receipt(project, result.receipt_id)
+    assert receipt.status == "partial"
+    assert (
+        next(p for p in receipt.provider_use if p.get("external_api"))[
+            "operation_call_count"
         ]
-    finally:
-        project.close()
+        == 1
+    )
+    errors = project.db.execute(
+        "SELECT row_id,error_code FROM results WHERE run_id=? AND error_code IS NOT NULL",
+        (result.run_id,),
+    ).fetchall()
+    assert [(r["row_id"], r["error_code"]) for r in errors] == [
+        (row_ids[1], "invalid_url")
+    ]
 
 
 def test_media_download_extra_opts_validation_probe():

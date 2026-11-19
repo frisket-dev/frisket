@@ -41,19 +41,16 @@ def _receipt(value, *, status="completed"):
 def test_domain_value_round_trips_receipt_storage_and_result(make_project, value):
     project = make_project("Values")
     receipt = _receipt(value)
-    try:
-        with write_transaction(project.db):
-            ReceiptStore(project).insert_completed(receipt)
-        stored = ReceiptStore(project).find_by_idempotency_key("report-once")
-        assert stored is not None
-        restored = stored.parsed()
-        result = _result_from_receipt(restored)
-        assert result.value == value
-        assert type(result.value) is type(value)
-        assert result.outputs[0].ref == receipt.outputs[0].ref
-        assert result.model_dump(mode="json")["value"] == value
-    finally:
-        project.close()
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_completed(receipt)
+    stored = ReceiptStore(project).find_by_idempotency_key("report-once")
+    assert stored is not None
+    restored = stored.parsed()
+    result = _result_from_receipt(restored)
+    assert result.value == value
+    assert type(result.value) is type(value)
+    assert result.outputs[0].ref == receipt.outputs[0].ref
+    assert result.model_dump(mode="json")["value"] == value
 
 
 @pytest.mark.parametrize("backend_kind", ["local", "hosted"])

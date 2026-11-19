@@ -364,16 +364,13 @@ def test_cancelled_or_wrong_space_does_not_call_model(indexed_project):
 def test_empty_project_reports_complete_without_starting_work(make_project, mode):
     project = make_project("Empty")
     encoder = Encoder()
-    try:
-        result = search_with_encoding(
-            project, replace(request(), mode=mode), runtime=encoder
-        )
-        assert not result.results
-        assert result.coverage.state == "complete"
-        assert encoder.calls == 0
-        assert not (project.path / "project.retrieval.db").exists()
-    finally:
-        project.close()
+    result = search_with_encoding(
+        project, replace(request(), mode=mode), runtime=encoder
+    )
+    assert not result.results
+    assert result.coverage.state == "complete"
+    assert encoder.calls == 0
+    assert not (project.path / "project.retrieval.db").exists()
 
 
 def test_find_similar_echoes_exact_resolved_source(indexed_project):

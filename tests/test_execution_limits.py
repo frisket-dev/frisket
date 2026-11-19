@@ -502,11 +502,8 @@ def test_pdf_table_extraction_limit_stops_the_adapter_before_dispatch(
         finally:
             await reader.aclose()
 
-    try:
-        with pytest.raises(_limit_error(), match="max_pdf_pages"):
-            asyncio.run(read())
-    finally:
-        project.close()
+    with pytest.raises(_limit_error(), match="max_pdf_pages"):
+        asyncio.run(read())
 
     assert calls == []
 
@@ -549,20 +546,17 @@ def test_pdf_markdown_limit_stops_datalab_before_dispatch(
         "params": {"source": "pdf", "engine": "datalab"},
         "idempotency_key": "pdf-limit",
     }
-    try:
-        estimate = run_action_spec(project, request, project_id="limits", deps=deps)
-        assert estimate.status == "needs_confirmation", estimate.errors
-        request["confirmation"] = estimate.errors[0].details["promise_set_hash"]
-        result = run_action_spec(project, request, project_id="limits", deps=deps)
-        assert result.status == "failed", result.errors
-        error = project.db.execute(
-            "SELECT error FROM results WHERE run_id=? AND error IS NOT NULL",
-            (result.run_id,),
-        ).fetchone()
-        assert error is not None and "max_pdf_pages" in error["error"]
-        assert calls == []
-    finally:
-        project.close()
+    estimate = run_action_spec(project, request, project_id="limits", deps=deps)
+    assert estimate.status == "needs_confirmation", estimate.errors
+    request["confirmation"] = estimate.errors[0].details["promise_set_hash"]
+    result = run_action_spec(project, request, project_id="limits", deps=deps)
+    assert result.status == "failed", result.errors
+    error = project.db.execute(
+        "SELECT error FROM results WHERE run_id=? AND error IS NOT NULL",
+        (result.run_id,),
+    ).fetchone()
+    assert error is not None and "max_pdf_pages" in error["error"]
+    assert calls == []
 
 
 def test_video_frames_limit_stops_ffprobe_before_subprocess_dispatch(
@@ -651,43 +645,38 @@ def test_visual_cuts_limit_stops_pyscenedetect_before_dispatch(
         return {"points": []}
 
     monkeypatch.setattr(visual_reader, "visual_cuts_value", fake_visual_cuts)
-    try:
-        request = ActionRequest(
-            action_id="map.find_visual_cuts",
-            scope=SheetRows(sheet_id=sheet_id, row_ids=(row_id,)),
-            params={"source": "video"},
-            output_names={"cuts": "Cuts"},
-            idempotency_key="visual-cuts-limit",
-        )
-        plan = build_typed_map_rows_plan(
+    request = ActionRequest(
+        action_id="map.find_visual_cuts",
+        scope=SheetRows(sheet_id=sheet_id, row_ids=(row_id,)),
+        params={"source": "video"},
+        output_names={"cuts": "Cuts"},
+        idempotency_key="visual-cuts-limit",
+    )
+    plan = build_typed_map_rows_plan(
+        project,
+        BoundTypedActionRequest.bind(ACTION_REGISTRY.get(request.action_id), request),
+    )
+    router = ModelRouter(
+        model_call_policy=LOCAL_PURCHASE_POLICY,
+        cache=None,
+        cache_mode="off",
+        use_env_keys=False,
+    )
+    composition = replace(
+        open_execution_composition(
+            project, router, ExecutionCompositionContext.direct()
+        ),
+        limits=_limits(max_media_seconds=2),
+    )
+    preview = asyncio.run(
+        MapRunner(
             project,
-            BoundTypedActionRequest.bind(
-                ACTION_REGISTRY.get(request.action_id), request
-            ),
-        )
-        router = ModelRouter(
-            model_call_policy=LOCAL_PURCHASE_POLICY,
-            cache=None,
-            cache_mode="off",
-            use_env_keys=False,
-        )
-        composition = replace(
-            open_execution_composition(
-                project, router, ExecutionCompositionContext.direct()
-            ),
-            limits=_limits(max_media_seconds=2),
-        )
-        preview = asyncio.run(
-            MapRunner(
-                project,
-                router,
-                authority=UnroutedOnlyAuthority(project),
-                execution_composition=composition,
-            ).preview(plan.spec_dict(), program=plan.program)
-        )
-        assert "max_media_seconds" in preview.values[row_id]["Cuts"]["error"]
-    finally:
-        project.close()
+            router,
+            authority=UnroutedOnlyAuthority(project),
+            execution_composition=composition,
+        ).preview(plan.spec_dict(), program=plan.program)
+    )
+    assert "max_media_seconds" in preview.values[row_id]["Cuts"]["error"]
 
     assert calls == []
 
@@ -823,12 +812,9 @@ def test_run_preview_and_row_clone_receive_the_same_execution_limits(
         "sheet_id": sheet_id,
         "row_ids": [row_id],
     }
-    try:
-        progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
-        assert progress.failed == 0
-        preview = asyncio.run(runner.preview(spec))
-        assert set(preview.values) == {row_id}
-    finally:
-        project.close()
+    progress = asyncio.run(run_with_output_claim(runner, spec, confirmed=True))
+    assert progress.failed == 0
+    preview = asyncio.run(runner.preview(spec))
+    assert set(preview.values) == {row_id}
 
     assert program.observed_limits == [limits, limits]

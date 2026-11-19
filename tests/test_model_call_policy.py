@@ -326,14 +326,11 @@ def test_queued_local_endpoint_overlay_retains_the_identical_policy(
         local_endpoints=(original_endpoint,),
         model_call_policy=policy if policy is not None else LOCAL_PURCHASE_POLICY,
     )
-    try:
-        rebuilt = _router_for(
-            project,
-            base,
-            local_endpoints=(replacement_endpoint,),
-        )
-    finally:
-        project.close()
+    rebuilt = _router_for(
+        project,
+        base,
+        local_endpoints=(replacement_endpoint,),
+    )
 
     assert rebuilt is not base
     assert rebuilt.local_endpoints == (replacement_endpoint,)

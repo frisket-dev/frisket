@@ -27,10 +27,7 @@ def source(make_project):
         thread["id"], request_id="one", question="Find the evidence"
     )
     drain_index(project)
-    try:
-        yield project, store, thread, turn, sheet, column, row
-    finally:
-        project.close()
+    yield project, store, thread, turn, sheet, column, row
 
 
 def test_search_opens_late_passage_and_continues_without_repeating_prefix(source):
