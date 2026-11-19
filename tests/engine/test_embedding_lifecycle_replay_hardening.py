@@ -361,8 +361,8 @@ def test_create_replay_rejects_deleted_index(project):
     first = _run(project, action)
     assert first.status == "completed", first.errors
     index_id = first.outputs[0].ref["index_id"]
-    project.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
-    project.db.commit()
+    deleted = _run(project, _delete_action(index_id, key="delete-after-create"))
+    assert deleted.status == "completed", deleted.errors
 
     _assert_stale(_run(project, action))
 
@@ -373,10 +373,10 @@ def test_create_replay_rejects_deleted_space(project):
     first = _run(project, action)
     assert first.status == "completed", first.errors
     space_id = first.outputs[0].ref["space_id"]
-    project.db.commit()
     project.db.execute("PRAGMA foreign_keys=OFF")
-    project.db.execute("DELETE FROM embedding_spaces WHERE id=?", (space_id,))
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute("DELETE FROM embedding_spaces WHERE id=?", (space_id,))
     project.db.execute("PRAGMA foreign_keys=ON")
 
     _assert_stale(_run(project, action))
@@ -393,23 +393,25 @@ def test_create_replay_rejects_space_dimension_and_source_query_drift(project):
     assert first.status == "completed", first.errors
     index_id = first.outputs[0].ref["index_id"]
     index = EmbeddingStore(project).get_index(index_id)
-    project.db.execute(
-        "UPDATE embedding_spaces SET dimension=? WHERE id=?",
-        (768, index["space_id"]),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_spaces SET dimension=? WHERE id=?",
+            (768, index["space_id"]),
+        )
 
     _assert_stale(_run(project, action))
 
-    project.db.execute(
-        "UPDATE embedding_spaces SET dimension=? WHERE id=?",
-        (384, index["space_id"]),
-    )
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_query_json=? WHERE id=?",
-        (json.dumps(_source_query(sheet, "story 2"), sort_keys=True), index_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_spaces SET dimension=? WHERE id=?",
+            (384, index["space_id"]),
+        )
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_query_json=? WHERE id=?",
+            (json.dumps(_source_query(sheet, "story 2"), sort_keys=True), index_id),
+        )
 
     _assert_stale(_run(project, action))
 
@@ -421,22 +423,24 @@ def test_create_replay_rejects_source_column_and_policy_drift(project):
     assert first.status == "completed", first.errors
     index_id = first.outputs[0].ref["index_id"]
 
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_columns_json=? WHERE id=?",
-        (json.dumps(["headline", "missing"], sort_keys=True), index_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_columns_json=? WHERE id=?",
+            (json.dumps(["headline", "missing"], sort_keys=True), index_id),
+        )
     _assert_stale(_run(project, action))
 
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_columns_json=?, source_policy_hash=? WHERE id=?",
-        (
-            json.dumps(["headline"], sort_keys=True),
-            "sha256:source-policy-drift",
-            index_id,
-        ),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_columns_json=?, source_policy_hash=? WHERE id=?",
+            (
+                json.dumps(["headline"], sort_keys=True),
+                "sha256:source-policy-drift",
+                index_id,
+            ),
+        )
     _assert_stale(_run(project, action))
 
 
@@ -486,11 +490,12 @@ def test_sparse_create_receipt_fails_closed(project):
         if evidence.get("ref", {}).get("kind") == "embedding_index":
             evidence["ref"].pop("source_query", None)
             evidence["ref"].pop("source_policy_hash", None)
-    project.db.execute(
-        "UPDATE receipts SET body=? WHERE id=?",
-        (json.dumps(body, sort_keys=True), first.receipt_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE receipts SET body=? WHERE id=?",
+            (json.dumps(body, sort_keys=True), first.receipt_id),
+        )
 
     _assert_stale(_run(project, action))
 
@@ -509,11 +514,15 @@ def test_update_policy_replay_rejects_later_policy_change_and_preserves_conflict
     first = _run(project, action)
     assert first.status == "completed", first.errors
 
-    project.db.execute(
-        "UPDATE embedding_indexes SET provider_policy_json=? WHERE id=?",
-        (json.dumps({"allow_remote": False}, sort_keys=True), index_id),
+    later = _run(
+        project,
+        _update_action(
+            index_id,
+            key="policy-drift-later",
+            provider={"allow_remote": False},
+        ),
     )
-    project.db.commit()
+    assert later.status == "completed", later.errors
 
     conflict = _run(
         project,
@@ -538,8 +547,8 @@ def test_update_policy_replay_rejects_deleted_index(project):
     )
     first = _run(project, action)
     assert first.status == "completed", first.errors
-    project.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
-    project.db.commit()
+    deleted = _run(project, _delete_action(index_id, key="delete-after-policy"))
+    assert deleted.status == "completed", deleted.errors
 
     _assert_stale(_run(project, action))
 
@@ -571,16 +580,18 @@ def test_delete_replay_rejects_recreated_index_sidecar_and_artifact(project):
 
     assert _run(project, action).status == "completed"
 
-    _insert_row(project, "embedding_spaces", original_space)
-    _insert_row(project, "embedding_indexes", original_index)
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        _insert_row(project, "embedding_spaces", original_space)
+        _insert_row(project, "embedding_indexes", original_index)
     _assert_stale(_run(project, action))
 
-    project.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
-    project.db.execute(
-        "DELETE FROM embedding_spaces WHERE id=?", (original_space["id"],)
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute("DELETE FROM embedding_indexes WHERE id=?", (index_id,))
+        project.db.execute(
+            "DELETE FROM embedding_spaces WHERE id=?", (original_space["id"],)
+        )
     with sqlite3.connect(project.path / "project.retrieval.db") as db:
         db.execute(
             "INSERT INTO named_dataset_membership("
@@ -646,11 +657,12 @@ def test_refresh_replay_rejects_vector_blob_and_index_definition_drift(project):
     _refresh(project, index_id, key="refresh-reset")
     fresh_action = _refresh_action(index_id, key="refresh-definition-drift")
     assert _run(project, fresh_action, gateway=FakeGateway()).status == "completed"
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_query_json=? WHERE id=?",
-        (json.dumps(_source_query(sheet, "story 1"), sort_keys=True), index_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_query_json=? WHERE id=?",
+            (json.dumps(_source_query(sheet, "story 1"), sort_keys=True), index_id),
+        )
     _assert_stale(_run(project, fresh_action, gateway=FakeGateway()))
 
 
@@ -786,11 +798,12 @@ def test_sparse_refresh_receipt_fails_closed(project):
         for ev in body["evidence"]
         if ev.get("ref", {}).get("kind") != "embedding_index_refresh_items"
     ]
-    project.db.execute(
-        "UPDATE receipts SET body=? WHERE id=?",
-        (json.dumps(body, sort_keys=True), result.receipt_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE receipts SET body=? WHERE id=?",
+            (json.dumps(body, sort_keys=True), result.receipt_id),
+        )
 
     _assert_stale(_run(project, action, gateway=FakeGateway()))
 
@@ -805,24 +818,26 @@ def test_export_replay_rejects_metadata_and_sidecar_drift(project):
     first = _run(project, action)
     assert first.status == "completed", first.errors
 
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_policy_hash=? WHERE id=?",
-        ("sha256:tampered", index_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_policy_hash=? WHERE id=?",
+            ("sha256:tampered", index_id),
+        )
     _assert_stale(_run(project, action))
 
     index = EmbeddingStore(project).get_index(index_id)
-    project.db.execute(
-        "UPDATE embedding_indexes SET source_policy_hash=? WHERE id=?",
-        (
-            _receipt_ref(
-                project, first.receipt_id, "embedding_index_export_provenance"
-            )["source_policy_hash"],
-            index_id,
-        ),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE embedding_indexes SET source_policy_hash=? WHERE id=?",
+            (
+                _receipt_ref(
+                    project, first.receipt_id, "embedding_index_export_provenance"
+                )["source_policy_hash"],
+                index_id,
+            ),
+        )
     _tamper_first_named_vector(project, str(index["id"]))
 
     _assert_stale(_run(project, action))
@@ -847,11 +862,12 @@ def test_export_replay_rejects_backend_provenance_mismatch(project):
         ref = evidence.get("ref", {})
         if ref.get("kind") == "embedding_index_export_provenance":
             ref["vector_backend_version"] = "stale-version"
-    project.db.execute(
-        "UPDATE receipts SET body=? WHERE id=?",
-        (json.dumps(body, sort_keys=True), result.receipt_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE receipts SET body=? WHERE id=?",
+            (json.dumps(body, sort_keys=True), result.receipt_id),
+        )
 
     _assert_stale(_run(project, action))
 
@@ -900,11 +916,12 @@ def test_export_replay_rejects_invalid_v3_item_evidence(project, field, mutation
         else:
             ref[field] = "sha256:tampered"
     assert found
-    project.db.execute(
-        "UPDATE receipts SET body=? WHERE id=?",
-        (json.dumps(body, sort_keys=True), result.receipt_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE receipts SET body=? WHERE id=?",
+            (json.dumps(body, sort_keys=True), result.receipt_id),
+        )
 
     _assert_stale(_run(project, action))
 
@@ -970,11 +987,12 @@ def test_sparse_export_receipt_fails_closed(project):
     ]
     for output in body["outputs"]:
         output.get("ref", {}).pop("row_count", None)
-    project.db.execute(
-        "UPDATE receipts SET body=? WHERE id=?",
-        (json.dumps(body, sort_keys=True), result.receipt_id),
-    )
-    project.db.commit()
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE receipts SET body=? WHERE id=?",
+            (json.dumps(body, sort_keys=True), result.receipt_id),
+        )
 
     _assert_stale(_run(project, action))
 
@@ -994,8 +1012,11 @@ def test_project_and_cluster_filter_out_of_scope_rows_and_snapshot_replay(projec
         assert backend.get_item(index_id, str(hidden_row_id)) is not None
     finally:
         backend.close()
-    project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (hidden_row_id,))
-    project.db.commit()
+    # row.delete marks the index stale; a hidden row still present in a fresh
+    # index is the state the analysis actions must filter on their own.
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (hidden_row_id,))
 
     project_action = _project_action(index_id, key="project-filter")
     projected = _run(project, project_action)

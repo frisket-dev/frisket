@@ -1,108 +1,73 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from types import SimpleNamespace
+from pathlib import Path
 
 import pytest
+from helpers import write_claimed_test_results
 
 from frisket.engine.store import Project
-from frisket.engine.store.current_cells import (
-    refresh_current_cells_from_key_table,
-    register_current_cell_functions,
-)
+from frisket.engine.store.cell_projection import repair_current_cells
+from frisket.engine.store.current_cells import refresh_current_cells_from_key_table
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.schema import SCHEMA
+from frisket.engine.store.runs import RunResultStore
 
 
-def _production_shaped_database(row_count: int) -> sqlite3.Connection:
-    db = sqlite3.connect(":memory:")
-    db.row_factory = sqlite3.Row
-    register_current_cell_functions(db)
-    db.executescript(SCHEMA)
-    db.execute("DELETE FROM search_dirty_scopes")
-    db.execute("INSERT INTO sheets (id,name) VALUES (1,'Rows')")
-    db.execute(
-        "INSERT INTO columns (id,sheet_id,name,type,ai_generated) "
-        "VALUES (10,1,'generated','integer',1)"
+def _production_shaped_project(
+    path: Path, row_count: int
+) -> tuple[Project, int, list[int]]:
+    """A generated column whose every row has a source cell under a run result."""
+    project = Project.create(path)
+    sheet = project.add_sheet("Rows")
+    column = project.add_column(sheet, "generated", type="integer", ai_generated=True)
+    row_ids = project.add_rows(
+        sheet,
+        [{"generated": -position} for position in range(1, row_count + 1)],
+        {"generated": column},
     )
-    db.execute(
-        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order) "
-        "VALUES (1,'source.write','source','{}','{}',1)"
+    run = RunResultStore(project).start_run(
+        project.append_change("map.test"),
+        sheet,
+        "map.test",
+        row_ids=row_ids,
+        total_rows=row_count,
     )
-    db.execute(
-        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
+    write_claimed_test_results(
+        project,
+        run,
+        [
+            {"row_id": row_id, "column_id": column, "value": position}
+            for position, row_id in enumerate(row_ids, 1)
+        ],
     )
-    db.execute(
-        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order,publication_closed) "
-        "VALUES (2,'map.test','generated','{}','{}',2,0)"
-    )
-    db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
-    )
-    db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (20,10,'value','integer-v1','create','active','claim-20',?)",
-        (
-            json.dumps(
-                {
-                    "column_type": "integer",
-                    "schema": {},
-                    "format": None,
-                    "semantic_type": None,
-                }
-            ),
-        ),
-    )
-    rows = [(row_id, 1, row_id) for row_id in range(1, row_count + 1)]
-    db.executemany("INSERT INTO rows (id,sheet_id,position) VALUES (?,?,?)", rows)
-    db.executemany(
-        "INSERT INTO run_rows(run_id,row_id,position) VALUES (20,?,?)",
-        ((row_id, row_id - 1) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
-        "VALUES (?,10,'integer',?,1)",
-        ((row_id, -row_id) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
-        "VALUES (20,?,10,'integer',?,'ok','publish_value',1)",
-        ((row_id, row_id) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,?,20)",
-        ((row_id,) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO current_cells "
-        "(column_id,row_id,retrieval_revision,origin_kind,origin_op_id,"
-        "origin_run_id,validity) "
-        "VALUES (10,?,1,'run_result',2,20,'valid')",
-        ((row_id,) for row_id in range(1, row_count + 1)),
-    )
-    db.commit()
-    db.execute("ANALYZE")
-    return db
+    while repair_current_cells(project):
+        pass
+    project.db.execute("ANALYZE")
+    return project, column, row_ids
 
 
-def test_exact_key_refresh_work_is_bounded_by_sparse_target() -> None:
-    row_count = 25_000
-    db = _production_shaped_database(row_count)
-    key_table = "temp_result_keys_1234abcd"
+def _sparse_key_table(db, key_table: str, column: int, target_rows: list[int]) -> None:
     db.execute(
         f"CREATE TEMP TABLE {key_table} ("
         "row_id INTEGER NOT NULL,column_id INTEGER NOT NULL,"
         "PRIMARY KEY(row_id,column_id)) WITHOUT ROWID"
     )
-    target_rows = list(range(row_count - 300, row_count + 1))
     db.executemany(
-        f"INSERT INTO {key_table} (row_id,column_id) VALUES (?,10)",
-        ((row_id,) for row_id in target_rows),
+        f"INSERT INTO {key_table} (row_id,column_id) VALUES (?,?)",
+        ((row_id, column) for row_id in target_rows),
     )
     db.commit()
+
+
+def test_exact_key_refresh_work_is_bounded_by_sparse_target(tmp_path: Path) -> None:
+    row_count = 25_000
+    project, column, row_ids = _production_shaped_project(
+        tmp_path / "refresh.frisket", row_count
+    )
+    db = project.db
+    key_table = "temp_result_keys_1234abcd"
+    target_rows = row_ids[-301:]
+    _sparse_key_table(db, key_table, column, target_rows)
     db.execute("BEGIN")
 
     progress_calls = 0
@@ -127,23 +92,15 @@ def test_exact_key_refresh_work_is_bounded_by_sparse_target() -> None:
     assert tuple(refreshed) == (len(target_rows), "run_result", "run_result")
     assert db.execute("SELECT COUNT(*) FROM current_cells").fetchone()[0] == row_count
     db.rollback()
-    db.close()
+    project.close()
 
 
-def _sparse_head_rebuild_vm_work(row_count: int) -> int:
-    db = _production_shaped_database(row_count)
+def _sparse_head_rebuild_vm_work(path: Path, row_count: int) -> int:
+    project, column, row_ids = _production_shaped_project(path, row_count)
+    db = project.db
     key_table = "temp_result_keys_5678abcd"
-    db.execute(
-        f"CREATE TEMP TABLE {key_table} ("
-        "row_id INTEGER NOT NULL,column_id INTEGER NOT NULL,"
-        "PRIMARY KEY(row_id,column_id)) WITHOUT ROWID"
-    )
-    target_rows = list(range(row_count - 300, row_count + 1))
-    db.executemany(
-        f"INSERT INTO {key_table} (row_id,column_id) VALUES (?,10)",
-        ((row_id,) for row_id in target_rows),
-    )
-    db.commit()
+    target_rows = row_ids[-301:]
+    _sparse_key_table(db, key_table, column, target_rows)
     db.execute("BEGIN")
 
     progress_calls = 0
@@ -155,7 +112,7 @@ def _sparse_head_rebuild_vm_work(row_count: int) -> int:
 
     db.set_progress_handler(count_vm_work, 1_000)
     try:
-        store = ResultGenerationStore(SimpleNamespace(db=db))
+        store = ResultGenerationStore(project)
         assert store.rebuild_heads_from_key_table(key_table, commit=False) == len(
             target_rows
         )
@@ -165,18 +122,21 @@ def _sparse_head_rebuild_vm_work(row_count: int) -> int:
     assert {
         int(row["row_id"])
         for row in db.execute(
-            "SELECT row_id FROM cell_result_heads WHERE column_id=10 "
-            f"AND row_id IN (SELECT row_id FROM {key_table})"
+            "SELECT row_id FROM cell_result_heads WHERE column_id=? "
+            f"AND row_id IN (SELECT row_id FROM {key_table})",
+            (column,),
         )
     } == set(target_rows)
     db.rollback()
-    db.close()
+    project.close()
     return progress_calls
 
 
-def test_sparse_head_rebuild_work_does_not_scale_with_unrelated_history() -> None:
-    small_work = _sparse_head_rebuild_vm_work(2_500)
-    large_work = _sparse_head_rebuild_vm_work(25_000)
+def test_sparse_head_rebuild_work_does_not_scale_with_unrelated_history(
+    tmp_path: Path,
+) -> None:
+    small_work = _sparse_head_rebuild_vm_work(tmp_path / "small.frisket", 2_500)
+    large_work = _sparse_head_rebuild_vm_work(tmp_path / "large.frisket", 25_000)
 
     assert large_work <= small_work * 2 + 50
 
@@ -244,11 +204,14 @@ def test_unknown_edit_transition_metadata_keeps_review_recount(
     edit_op_id = project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "after"}]
     )
-    project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?",
-        (json.dumps(transition_metadata), edit_op_id),
-    )
-    project.db.commit()
+    # No edit writes these keys; unrecognised transition metadata must keep
+    # the conservative review recount.
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?",
+            (json.dumps(transition_metadata), edit_op_id),
+        )
     refresh_calls = 0
 
     def count_refresh(_project: Project) -> int:
@@ -278,30 +241,33 @@ def test_edit_operation_with_generation_metadata_keeps_review_recount(
     edit_op_id = project.apply_edits(
         [{"row_id": row_id, "column_id": column_id, "value": "after"}]
     )
-    run_id = int(
+    # Edits never own a run; a generation attached to the edit operation is
+    # the unexpected metadata that must keep the review recount.
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        run_id = int(
+            project.db.execute(
+                "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
+                (edit_op_id, sheet_id, "map.test"),
+            ).lastrowid
+        )
         project.db.execute(
-            "INSERT INTO runs (op_id,sheet_id,action_kind) VALUES (?,?,?)",
-            (edit_op_id, sheet_id, "map.test"),
-        ).lastrowid
-    )
-    project.db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (?,?,'value','text-v1','create','active','claim-test',?)",
-        (
-            run_id,
-            column_id,
-            json.dumps(
-                {
-                    "column_type": "text",
-                    "schema": {},
-                    "format": None,
-                    "semantic_type": None,
-                }
+            "INSERT INTO run_output_generations "
+            "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
+            "VALUES (?,?,'value','text-v1','create','active','claim-test',?)",
+            (
+                run_id,
+                column_id,
+                json.dumps(
+                    {
+                        "column_type": "text",
+                        "schema": {},
+                        "format": None,
+                        "semantic_type": None,
+                    }
+                ),
             ),
-        ),
-    )
-    project.db.commit()
+        )
     refresh_calls = 0
 
     def count_refresh(_project: Project) -> int:
