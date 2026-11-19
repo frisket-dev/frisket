@@ -64,7 +64,7 @@ test('ribbon and compact menu expose identical ordered categories and leaves', a
 
   const ribbonCategories = await page
     .getByTestId('act-ribbon')
-    .locator('.act-ribbon-tab[data-testid]')
+    .locator('[role="tab"][data-testid^="ribbon-tab-"]')
     .evaluateAll((elements) =>
       elements.map((element) => ({
         id: (element.getAttribute('data-testid') ?? '').replace(/^ribbon-tab-/, ''),

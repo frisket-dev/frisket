@@ -5,6 +5,7 @@ import {
   createProject,
   gridReadSelection,
   importCsv,
+  openDiscoverTab,
   openFriendlyFilterSidebar,
   openProject,
   openToolbarOverflow,
@@ -115,7 +116,7 @@ test('date-range filters use date columns and round-trip through views', async (
   const restored = await (await viewApplyResponse).json();
   expect(restored.total).toBe(3);
 
-  await openFriendlyFilterSidebar(page, importedColumns, 'published');
+  await openDiscoverTab(page, 'Facets');
   await expect(page.getByTestId('facet-range-start-published')).toHaveValue('2026-01-01');
   await expect(page.getByTestId('facet-range-end-published')).toHaveValue('2026-03-31');
 });

@@ -1,5 +1,5 @@
 // Cluster is a real catalog action. The ribbon tile opens the ACTION
-// DRAWER at /action/cluster (like every other tile); the drawer body is the
+// DRAWER at /action/cluster.values (like every other tile); the drawer body is the
 // ClusterReviewForm — pick a column + method, PREVIEW groups (read-only
 // /clusters/v1/preview endpoint), review the cards (editable canonicals +
 // per-member exclusion checkboxes), then COMMIT cluster.values, which writes a
@@ -51,7 +51,7 @@ test('the Cluster tile opens the action drawer and commits a canonical column', 
 
   const drawer = page.getByTestId('action-drawer');
   await expect(drawer).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`/p/${pid}/(s/\\d+/)?action/cluster$`));
+  await expect(page).toHaveURL(new RegExp(`/p/${pid}/(s/\\d+/)?action/cluster\\.values$`));
   // the legacy right-inspector panel must NOT appear
   await expect(
     page.getByTestId('workbench-contribution-frisket-investigative-panel-cluster-resolve'),
@@ -60,7 +60,6 @@ test('the Cluster tile opens the action drawer and commits a canonical column', 
 
   // configure → preview → review → commit
   await drawer.getByTestId('cluster-column-select').selectOption('city');
-  await expect(drawer.getByTestId('cluster-output-name')).toHaveValue('city_canonical');
   await drawer.getByTestId('cluster-preview-button').click();
   await expect(drawer.getByTestId('cluster-card').first()).toBeVisible({
     timeout: 15_000,

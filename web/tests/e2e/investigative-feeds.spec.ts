@@ -331,9 +331,9 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
     actionPosts.push(payload);
-    if (payload.kind === 'source.poll') {
+    if (payload.action_id === 'source.poll') {
       const params = payload.params as Record<string, unknown>;
-      const sourceId = Number(params.source_id);
+      const sourceId = Number(params.source);
       const source = (await sources(page, pid)).find((candidate) => candidate.id === sourceId);
       if (source && source.kind !== 'rss') {
         const seeded = seedFakeSourcePoll(pid, sourceId, source.kind);
@@ -440,24 +440,22 @@ test('Feeds UI creates, edits, and polls RSS, YouTube, API, and CourtListener th
 
   await page.getByTestId(`feed-check-now-${rss.id}`).click();
   await expect.poll(() => (
-    actionPosts.some((post) => post.kind === 'source.poll'
-      && (post.params as Record<string, unknown>).source_id === rss.id)
+    actionPosts.some((post) => post.action_id === 'source.poll'
+      && (post.params as Record<string, unknown>).source === rss.id)
   )).toBeTruthy();
-  const rssPoll = actionPosts.find((post) => post.kind === 'source.poll'
-    && (post.params as Record<string, unknown>).source_id === rss.id);
+  const rssPoll = actionPosts.find((post) => post.action_id === 'source.poll'
+    && (post.params as Record<string, unknown>).source === rss.id);
   expect(rssPoll).toMatchObject({
-    kind: 'source.poll',
-    capabilities: ['project:write', 'external:source_poll'],
-    params: { source_id: rss.id },
+    action_id: 'source.poll',
+    params: { source: rss.id },
   });
-  expect(actionPosts.some((post) => post.kind === 'source.rss_fetch')).toBe(false);
+  expect(actionPosts.some((post) => post.action_id === 'source.rss_fetch')).toBe(false);
 
-  const apiPoll = actionPosts.find((post) => post.kind === 'source.poll'
-    && (post.params as Record<string, unknown>).source_id === api.id);
+  const apiPoll = actionPosts.find((post) => post.action_id === 'source.poll'
+    && (post.params as Record<string, unknown>).source === api.id);
   expect(apiPoll).toMatchObject({
-    kind: 'source.poll',
-    capabilities: ['project:write', 'external:source_poll'],
-    params: { source_id: api.id },
+    action_id: 'source.poll',
+    params: { source: api.id },
   });
 
   const apiSheetId = mockedPolls.get(api.id)?.sheetId;

@@ -3,7 +3,7 @@
 // FeedImportForm; sources-panel-add-flow-v1 already pins that reuse) -- a
 // "Populate feed?" prompt opens immediately, offering the same run the
 // Feeds panel's own "Check now" affordance makes (source.poll ->
-// api.fetchFeed). Run launches it; Not now dismisses with no run.
+// api.fetchFeed). Run queues it; Not now dismisses with no run.
 //
 // Deterministic + network-free: the source URL is http://localhost/..., which
 // the backend SSRF guard (frisket.ops.netguard) rejects synchronously (no DNS,
@@ -39,7 +39,7 @@ test('manual feed creation via the import dialog surfaces "Populate feed?" immed
   const pollActions: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.kind === 'source.poll') pollActions.push(payload);
+    if (payload.action_id === 'source.poll') pollActions.push(payload);
     await route.continue();
   });
 
@@ -80,7 +80,7 @@ test('Run launches exactly the manual poll (source.poll on the new feed)', async
   const pollActions: Array<Record<string, unknown>> = [];
   await page.route(`**/api/projects/${pid}/actions/v1/run`, async (route) => {
     const payload = route.request().postDataJSON() as Record<string, unknown>;
-    if (payload.kind === 'source.poll') pollActions.push(payload);
+    if (payload.action_id === 'source.poll') pollActions.push(payload);
     await route.continue();
   });
 
@@ -98,26 +98,17 @@ test('Run launches exactly the manual poll (source.poll on the new feed)', async
   await expect.poll(() => pollActions.length).toBe(1);
   const created = (await sources(page.request, pid)).find((s) => s.name === feedName)!;
   expect(pollActions[0]).toMatchObject({
-    schema_version: 'frisket.action.v2',
-    kind: 'source.poll',
-    capabilities: ['project:write', 'external:source_poll'],
-    params: { source_id: created.id },
+    action_id: 'source.poll',
+    scope: { kind: 'project' },
+    params: { source: created.id },
   });
 
-  // localhost is netguard-blocked, so this real run fails deterministically --
-  // same fixture sources.spec.ts's manual-fetch assertion relies on. The
-  // prompt surfaces the failure inline (does not silently close) so the
-  // dialog stays open with the error visible.
-  await expect(page.getByTestId('feed-populate-prompt')).toContainText(/populate failed/i);
-  await expect(page.getByTestId('feed-populate-prompt')).toContainText(/blocked|localhost|private/i);
+  // localhost is netguard-blocked, so this queued poll fails deterministically
+  // once the prompt has handed the run off.
+  await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
   await expect
     .poll(async () => (await sources(page.request, pid)).find((s) => s.id === created.id)?.last_status)
     .toBe('error');
-
-  // Not now still dismisses from here -- the run already fired; declining
-  // just closes.
-  await page.getByTestId('feed-populate-dismiss').click();
-  await expect(page.getByTestId('import-workspace-dialog')).toBeHidden();
 });
 
 test('the Feeds panel\'s Add-feed flow reaches the same Populate-feed prompt', async ({ page }) => {
