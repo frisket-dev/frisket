@@ -218,14 +218,6 @@
  "row-detail-density.spec.ts": {
   "row detail clamps long values and trims entity/segment columns": "stale-expectation"
  },
- "row-drawer-focus.spec.ts": {
-  "keyboard cursor movement updates the row drawer selected field": "stale-expectation",
-  "row drawer scrolls to and marks the activated cell field": "stale-expectation"
- },
- "row-drawer-smooth-focus.spec.ts": {
-  "row drawer focuses selected fields with scoped smooth scrolling": "stale-expectation",
-  "row drawer selected-field scroll respects reduced motion": "stale-expectation"
- },
  "run-progress-single-surface.spec.ts": {
   "active run uses one watcher surface plus a compact footer affordance": "stale-expectation"
  },

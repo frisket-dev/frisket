@@ -2584,7 +2584,11 @@ function SheetGridSurface({ controller }: { controller: SheetGridController }) {
             left: detailIconBounds.x + detailIconBounds.width,
             top: detailIconBounds.y,
           }}
-          onClick={openSelectedCell}
+          onClick={() => {
+            openSelectedCell();
+            // Keyboard navigation continues in the grid, moving the detail field.
+            gridRef.current?.focus();
+          }}
         >
           <Maximize2 size={11} aria-hidden />
         </button>
