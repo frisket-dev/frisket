@@ -764,7 +764,6 @@ class ProjectLifecycleService:
                 encrypted=encrypted,
                 hint=hint,
                 spend_cap_micro=_cap_micro(spend_cap_usd),
-                commit=False,
             )
         return self.project_provider_keys(project_id)
 
@@ -816,10 +815,7 @@ class ProjectLifecycleService:
             self._model_routes.pin_ready_routes(
                 project_id, commit=False, request_context=request_context
             )
-            deleted = project.delete_provider_key(
-                normalized_provider,
-                commit=False,
-            )
+            deleted = project.delete_provider_key(normalized_provider)
         return {
             "ok": True,
             "deleted": deleted,

@@ -29,6 +29,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-reduce-effects"
 
@@ -135,12 +136,13 @@ def test_returned_reduce_checkpoint_accounts_spend_before_result_commit(
     # The cap leaves headroom: the pre-flight spend-cap gate runs before the
     # replay-only retry, and an exactly-exhausted key would refuse the resume
     # itself.  Cap VISIBILITY of the crashed spend is asserted directly below.
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=50_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=50_000,
+        )
     provider = _CountingSummaryAdapter()
     router = _project_key_router(provider)
     action = _action(project._sheet_id)
@@ -290,12 +292,13 @@ def test_reduce_terminalizer_joins_materialization_transaction(
 ) -> None:
     """A failure after the kernel writes still rolls back the caller's txn."""
 
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=50_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=50_000,
+        )
     provider = _CountingSummaryAdapter()
     router = _project_key_router(provider)
     action = _action(
@@ -488,12 +491,13 @@ def test_group_refresh_recovers_committed_state_after_sigkill(project, tmp_path)
     from pathlib import Path
     from contextlib import closing
 
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=100_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=100_000,
+        )
     router = _project_key_router(_CountingSummaryAdapter())
     original = _run(project, _action(project._sheet_id, key="before-kill"), router)
     assert original.status == "completed", original.errors
@@ -615,12 +619,13 @@ def test_group_retry_keeps_every_paid_wire_in_checkpoint_and_replays_once(
 ):
     from frisket.ai.llm import LLMError
 
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=500_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=500_000,
+        )
 
     class RetryAdapter(_CountingSummaryAdapter):
         async def complete(self, req, client, **kwargs):

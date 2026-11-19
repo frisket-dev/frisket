@@ -13,6 +13,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import CostGate, MapRunner
 from frisket.server.app import create_app
 from http_test_helpers import drain_queue
+from frisket.engine.store.transactions import write_transaction
 
 
 def _post_join(
@@ -369,12 +370,13 @@ def test_queued_provider_failure_uses_join_terminal_writer_fence(
     client = _client(tmp_path)
     project_id, source_sheet_id, target_sheet_id = _seed_project(client)
     project = client.app.state.workspace.get(project_id)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-semantic"),
-        hint="sk-p***",
-        spend_cap_micro=50_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-semantic"),
+            hint="sk-p***",
+            spend_cap_micro=50_000,
+        )
     idempotency_key = f"join-semantic-provider-terminal-{replace_writer}@sha256:stable"
     gated = _post_join(
         client,

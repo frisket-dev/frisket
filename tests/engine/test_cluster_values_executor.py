@@ -18,6 +18,7 @@ from executor_harness import CatalogEntry, ExecutorCase, Gate
 from frisket.engine.store import Project
 from frisket.server.services.action_runs import v1_action_result_http_status
 from helpers import replace_test_source_cell
+from frisket.engine.store.transactions import write_transaction
 
 
 class _RemoteEmbeddingAdapter:
@@ -538,12 +539,13 @@ def test_semantic_cluster_refuses_an_exhausted_project_key_before_embedding(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-exhausted")
     seeded = _seed(project, tmp_path)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=0,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=0,
+        )
     router, adapter = _remote_embedding_router()
     action = _cluster_action(
         seeded["sheet_id"],
@@ -574,12 +576,13 @@ def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-provider-fact")
     seeded = _seed(project, tmp_path)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     router, adapter = _remote_embedding_router()
     action = _cluster_action(
         seeded["sheet_id"],
@@ -691,12 +694,13 @@ def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-cache-accounting")
     seeded = _seed(project, tmp_path)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     router, adapter = _remote_embedding_router()
     first_action = _cluster_action(
         seeded["sheet_id"],
@@ -723,12 +727,13 @@ def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
 
     # Set the cap exactly at accrued spend. A real second egress would now
     # refuse, but the content-addressed vectors make this action cache-only.
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=spend_after_first.spent_micro,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=spend_after_first.spent_micro,
+        )
     cached_action = _cluster_action(
         seeded["sheet_id"],
         idempotency_key="cluster_values@sha256:remote-cache-consumer",
@@ -788,12 +793,13 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
     )
     try:
         seeded = _seed(project, tmp_path)
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint=key_hint("sk-project-openai"),
-            spend_cap_micro=1_000_000,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="openai",
+                encrypted=encrypt_secret("sk-project-openai"),
+                hint=key_hint("sk-project-openai"),
+                spend_cap_micro=1_000_000,
+            )
         router, adapter = _remote_embedding_router()
         action = _cluster_action(
             seeded["sheet_id"],
@@ -939,12 +945,13 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
         [{"name": value} for value in values],
         {"name": column_id},
     )
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     router, adapter = _remote_embedding_router()
     action = _cluster_action(
         sheet_id,
@@ -1049,12 +1056,13 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-receipt-atomic")
     seeded = _seed(project, tmp_path)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     router, adapter = _remote_embedding_router()
     action = _cluster_action(
         seeded["sheet_id"],

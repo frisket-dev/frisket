@@ -43,12 +43,13 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             filename="replacement.pdf",
             mime="application/pdf",
         )
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("returned-call-fixture"),
-            hint="fixture",
-            spend_cap_micro=1_000_000,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("returned-call-fixture"),
+                hint="fixture",
+                spend_cap_micro=1_000_000,
+            )
         row_ids = [row_id]
         if publication == "first_flush":
             original_value = project.get_values(sheet_id, source_id, [row_id])[row_id]
@@ -257,12 +258,13 @@ def test_source_changed_publication_refusal_closes_exact_worker(
 def test_refused_checkpoint_publication_preserves_returned_accounting(tmp_path):
     project, sheet_id, row_id, source_id, text_id = _project_with_selection(tmp_path)
     try:
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("checkpoint-call-fixture"),
-            hint="fixture",
-            spend_cap_micro=1_000_000,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("checkpoint-call-fixture"),
+                hint="fixture",
+                spend_cap_micro=1_000_000,
+            )
         store = RunResultStore(project)
         op_id = project.append_change("media.ocr", {"action_kind": "media.ocr"})
         run_id = store.start_run(

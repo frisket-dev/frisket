@@ -26,6 +26,7 @@ from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.team.security.secrets import encrypt_secret
 from helpers import write_claimless_test_model_calls
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-custom-remote"
 _PROBE_DIM = 1024
@@ -296,12 +297,13 @@ def test_create_string_allow_remote_never_probes(project):
 
 def test_create_dimension_probe_refuses_over_cap_project_key_before_egress(project):
     """A paid create-time probe is subject to the same project-key cap."""
-    project.set_provider_key(
-        provider="openrouter",
-        encrypted=encrypt_secret("sk-project-openrouter"),
-        hint="sk-p***",
-        spend_cap_micro=500,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openrouter",
+            encrypted=encrypt_secret("sk-project-openrouter"),
+            hint="sk-p***",
+            spend_cap_micro=500,
+        )
     _accrue_project_key_spend(project, provider="openrouter", cost_usd=0.001)
     assert project.provider_spend_state("openrouter").over_cap
 
@@ -325,12 +327,13 @@ def test_create_dimension_probe_refuses_over_cap_project_key_before_egress(proje
 def test_paid_dimension_probe_is_metered_and_receipt_names_real_cost(project):
     """An admitted remote probe cannot masquerade as a free local metadata op."""
     probe_cost = 0.0017
-    project.set_provider_key(
-        provider="openrouter",
-        encrypted=encrypt_secret("sk-project-openrouter"),
-        hint="sk-p***",
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openrouter",
+            encrypted=encrypt_secret("sk-project-openrouter"),
+            hint="sk-p***",
+            spend_cap_micro=1_000_000,
+        )
     gw = FakeProbeGateway(
         dim=_PROBE_DIM,
         credential_source="project_key",
@@ -393,12 +396,13 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
 ):
     """An exact retry reconciles the paid probe instead of buying it again."""
     probe_cost = 0.0017
-    project.set_provider_key(
-        provider="openrouter",
-        encrypted=encrypt_secret("sk-project-openrouter"),
-        hint="sk-p***",
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openrouter",
+            encrypted=encrypt_secret("sk-project-openrouter"),
+            hint="sk-p***",
+            spend_cap_micro=1_000_000,
+        )
     gw = FakeProbeGateway(
         dim=_PROBE_DIM,
         credential_source="project_key",

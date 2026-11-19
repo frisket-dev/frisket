@@ -332,11 +332,12 @@ def run_writer_authority_fixture(
     )
     if conflict is not None or len(claims) != len(column_ids):
         raise AssertionError("could not acquire exact test output authority")
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=token,
-        run_id=int(run_id),
-        expected_output_names=[str(column["name"]) for column in columns],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=token,
+            run_id=int(run_id),
+            expected_output_names=[str(column["name"]) for column in columns],
+        )
     return RunWriterAuthorityFixture(attempt_id, token, False)
 
 

@@ -30,6 +30,7 @@ from frisket.engine.store.effect_checkpoints import ModelCallIdMissing
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _wav(path) -> str:
@@ -120,11 +121,12 @@ def test_pre_egress_typeerror_discards_checkpoint_and_run_stays_resumable(
     assert len(claims) == len(output_names)
 
     def bind_claim(progress) -> None:  # noqa: ANN001
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=claim_token,
-            run_id=progress.run_id,
-            expected_output_names=output_names,
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).bind_to_run(
+                claim_token=claim_token,
+                run_id=progress.run_id,
+                expected_output_names=output_names,
+            )
 
     calls = 0
     explode = True
@@ -273,11 +275,12 @@ def checkpointed_run(make_project):
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-        expected_output_names=["classification"],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            expected_output_names=["classification"],
+        )
     attempt_id = "attempt_idless_checkpoint"
     project.db.execute(
         "INSERT INTO execution_attempts "

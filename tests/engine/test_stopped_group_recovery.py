@@ -18,6 +18,7 @@ from tests.engine.test_reduce_effect_checkpoint import (
     _run,
     project as _project_fixture,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 project = _project_fixture
@@ -27,12 +28,13 @@ project = _project_fixture
 def test_stopped_group_crash_repairs_cancelled_receipt_without_new_purchase(
     project, tmp_path
 ):
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-test"),
-        hint=key_hint("sk-test"),
-        spend_cap_micro=100_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-test"),
+            hint=key_hint("sk-test"),
+            spend_cap_micro=100_000,
+        )
     original = _run(
         project,
         _action(project._sheet_id, key="create"),
@@ -205,12 +207,13 @@ def test_stop_before_group_metadata_batch_closes_cancelled_owner(project, monkey
     from frisket.engine.store.derived_refresh_stage import DerivedRefreshStage
     from frisket.engine.store.runs import RunResultStore
 
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-test"),
-        hint=key_hint("sk-test"),
-        spend_cap_micro=100_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-test"),
+            hint=key_hint("sk-test"),
+            spend_cap_micro=100_000,
+        )
     batches = DerivedRefreshStage.batches
     stopped = []
 

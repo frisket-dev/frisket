@@ -22,6 +22,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.result_generations import declare_prepared_outputs
 from frisket.engine.store.result_generations import ResultGenerationStore
+from frisket.engine.store.transactions import write_transaction
 
 
 @dataclass
@@ -147,11 +148,12 @@ class TestReuseConvergesSemanticType:
             claim_token=token,
         )
         assert conflict is None and len(claims) == len(names)
-        OutputColumnClaimStore(p).bind_to_run(
-            claim_token=token,
-            run_id=prepared.run_id,
-            expected_output_names=names,
-        )
+        with write_transaction(p.db):
+            OutputColumnClaimStore(p).bind_to_run(
+                claim_token=token,
+                run_id=prepared.run_id,
+                expected_output_names=names,
+            )
         declare_prepared_outputs(p, run_store, prepared, claim_token=token)
         from helpers import run_writer_authority_fixture
 

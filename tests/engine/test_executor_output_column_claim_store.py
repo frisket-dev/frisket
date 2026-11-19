@@ -7,6 +7,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(tmp_path: Path) -> tuple[Project, int, dict[str, int]]:
@@ -65,7 +66,8 @@ def test_generated_column_claim_store_preserves_claim_lifecycle(
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "map.template", total_rows=0
     )
-    store.bind_to_run(claim_token="claim:store", run_id=run_id, job_id=42)
+    with write_transaction(store.db):
+        store.bind_to_run(claim_token="claim:store", run_id=run_id, job_id=42)
     bound = store.active_for_columns([columns["summary"]])
     assert bound is not None
     assert bound["run_id"] == run_id

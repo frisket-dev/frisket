@@ -362,11 +362,12 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
         details={"output_fields": list(plan.output_fields)},
     )
     assert conflict is None
-    claims.bind_to_run(
-        claim_token="direct-claim",
-        run_id=prepared.run_id,
-        expected_output_names=["answer"],
-    )
+    with write_transaction(claims.db):
+        claims.bind_to_run(
+            claim_token="direct-claim",
+            run_id=prepared.run_id,
+            expected_output_names=["answer"],
+        )
     progress = asyncio.run(
         runner.run(
             plan.spec_dict(),

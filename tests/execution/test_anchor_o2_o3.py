@@ -47,6 +47,7 @@ from frisket.execution.resolve_for_action import (
 )
 from frisket.execution.resolver import RouteRowFacts
 from frisket.execution.runtime_binding import bind_fact_to_route
+from frisket.engine.store.transactions import write_transaction
 
 
 def _route_rows(project, run_id: int):
@@ -88,11 +89,12 @@ def _make_run(project) -> int:
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-        expected_output_names=["transcript"],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            expected_output_names=["transcript"],
+        )
     attempt_id = f"attempt_anchor_o2_o3_{run_id}"
     project.db.execute(
         "INSERT INTO execution_attempts "

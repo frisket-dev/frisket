@@ -10,6 +10,7 @@ from frisket.actions.types import ActionRequest
 from frisket.engine.executor.actions import _default_map_runner_factory
 from frisket.engine.executor.cluster_action import run_typed_cluster_action
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -64,12 +65,13 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     router, adapter = _remote_embedding_router()
     from frisket.team.security.secrets import encrypt_secret, key_hint
 
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-test-cluster"),
-        hint=key_hint("sk-test-cluster"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-test-cluster"),
+            hint=key_hint("sk-test-cluster"),
+            spend_cap_micro=1_000_000,
+        )
     estimate = execute(router=router, options={"method": "semantic"})
     assert estimate.status == "needs_confirmation", "\n".join(
         error.message for error in estimate.errors
@@ -97,12 +99,13 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     ).fetchone()
     assert call["provider_cost_usd"] == adapter.COST_USD
     spent = project.provider_spend_state("openai").spent_micro
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-test-cluster"),
-        hint=key_hint("sk-test-cluster"),
-        spend_cap_micro=spent,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-test-cluster"),
+            hint=key_hint("sk-test-cluster"),
+            spend_cap_micro=spent,
+        )
     cached = execute(
         router=router, options={"method": "semantic"}, output="cached", key="cached"
     )

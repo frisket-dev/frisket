@@ -15,6 +15,7 @@ from frisket.engine.runner import CostGate, MapRunner
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 
 class _ReturnedPaidCall:
@@ -39,12 +40,13 @@ def test_cancel_after_paid_call_returns_keeps_usage_cost_and_project_spend(
 ) -> None:
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     project = make_project("cancelled-paid-call")
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("sk-ant-test"),
-        hint=key_hint("sk-ant-test"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("sk-ant-test"),
+            hint=key_hint("sk-ant-test"),
+            spend_cap_micro=1_000_000,
+        )
     sheet = project.add_sheet("data")
     cols = {"text": project.add_column(sheet, "text")}
     project.add_rows(sheet, [{"text": "one billable row"}], cols)

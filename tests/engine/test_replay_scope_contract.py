@@ -31,6 +31,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture
+from frisket.engine.store.transactions import write_transaction
 
 _OUTPUT_KIND = "test_map_output"
 
@@ -73,11 +74,12 @@ class _Fixture:
             lease_seconds=6 * 60 * 60,
         )
         assert conflict is None and len(claims) == 1
-        OutputColumnClaimStore(self.project).bind_to_run(
-            claim_token=claim_token,
-            run_id=run_id,
-            expected_output_names=["label"],
-        )
+        with write_transaction(self.project.db):
+            OutputColumnClaimStore(self.project).bind_to_run(
+                claim_token=claim_token,
+                run_id=run_id,
+                expected_output_names=["label"],
+            )
         generations = ResultGenerationStore(self.project)
         field = {"name": "label", "column_type": "text"}
         generations.declare(

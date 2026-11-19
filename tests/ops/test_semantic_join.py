@@ -23,6 +23,7 @@ from frisket.ai.embeddings.backends import resolve_embedder as _REAL_RESOLVE_EMB
 from frisket.engine.runner.review import review_queue
 from frisket.engine.store import Project
 from http_test_helpers import drain_queue
+from frisket.engine.store.transactions import write_transaction
 
 VECS = {
     "Acme Corporation": [1.0, 0.0, 0.0],
@@ -1060,12 +1061,13 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     )
     pid, donors, registry = _api_project(client)
     project = client.app.state.workspace.get(pid)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=None,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=None,
+        )
 
     idempotency_key = "join.semantic@sha256:exhausted-project-key"
     gate = client.post(
@@ -1084,12 +1086,13 @@ def test_remote_semantic_join_refuses_exhausted_project_key_before_queue_or_embe
     )
     assert gate.status_code == 402, gate.text
     context_hash = gate.json()["errors"][0]["details"]["promise_set_hash"]
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=0,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=0,
+        )
 
     retry = client.post(
         f"/api/projects/{pid}/actions/v1/run",
@@ -1146,12 +1149,13 @@ def test_remote_semantic_join_completes_through_the_async_router_bridge(
     )
     pid, donors, registry = _api_project(client)
     project = client.app.state.workspace.get(pid)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
 
     launch = _post_bound_remote_join(
         client,
@@ -1233,12 +1237,13 @@ def test_remote_semantic_join_persists_each_call_and_receipts_actual_cost(
     )
     pid, donors, registry = _api_project(client)
     project = client.app.state.workspace.get(pid)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
 
     launch = _post_bound_remote_join(
         client,
@@ -1330,12 +1335,13 @@ def test_remote_semantic_join_retry_refuses_to_rebuy_fact_without_cached_vectors
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     paid_results = _patch_paid_remote_result(monkeypatch)
     project, source_sheet, target_sheet, source_rows, _target_rows = _project(tmp_path)
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": "sk-project-openai"},
@@ -1503,12 +1509,13 @@ def test_direct_join_semantic_stale_clear_retry_resumes_abandoned_run(
         ],
         registry_cols,
     )
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     project.close()
 
     idempotency_key = "join.semantic@sha256:stale-clear-resume"

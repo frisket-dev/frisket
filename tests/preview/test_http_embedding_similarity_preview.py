@@ -22,6 +22,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
+from frisket.engine.store.transactions import write_transaction
 
 _VECTORS = {
     "cat": [1.0, 0.0, 0.0],
@@ -312,9 +313,10 @@ def test_manual_text_blocks_remote_egress_without_policy(tmp_path):
     pid, project, sheet, cols, index_id = _seed(
         client, provider="openai", policy={"allow_remote": True}, dim=1536
     )
-    EmbeddingStore(project).update_index_policy(
-        index_id, provider_policy={"allow_remote": False}
-    )
+    with write_transaction(project.db):
+        EmbeddingStore(project).update_index_policy(
+            index_id, provider_policy={"allow_remote": False}
+        )
     resp = _preview(client, pid, _manual_query(index_id, "uncached policy query"))
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "embedding_remote_confirmation_required"
@@ -367,12 +369,13 @@ def test_remote_manual_preview_refuses_exhausted_project_key_before_egress(
     pid, project, sheet, _cols, index_id = _seed(
         client, provider="openai", policy={"allow_remote": True}, dim=1536
     )
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=0,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=0,
+        )
     calls = []
     _install_paid_project_key_embed(monkeypatch, calls)
 
@@ -409,12 +412,13 @@ def test_remote_manual_preview_persists_paid_fact_and_project_key_spend(
     pid, project, sheet, _cols, index_id = _seed(
         client, provider="openai", policy={"allow_remote": True}, dim=1536
     )
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     calls = []
     _install_paid_project_key_embed(monkeypatch, calls)
 
@@ -452,12 +456,13 @@ def test_remote_manual_preview_accounts_for_paid_malformed_provider_result(
     pid, project, sheet, _cols, index_id = _seed(
         client, provider="openai", policy={"allow_remote": True}, dim=1536
     )
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=1_000_000,
+        )
     calls = []
     _install_paid_project_key_embed(monkeypatch, calls, dimension=8)
 

@@ -26,6 +26,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import run_with_exact_confirmation, run_with_output_claim
+from frisket.engine.store.transactions import write_transaction
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -101,14 +102,15 @@ def _prepare_claimed_run(
         confirmed=False,
         resume_run_id=None,
     )
-    assert (
-        OutputColumnClaimStore(runner.project).bind_to_run(
-            claim_token=claim_token,
-            run_id=prepared.run_id,
-            expected_output_names=["relevance"],
+    with write_transaction(runner.project.db):
+        assert (
+            OutputColumnClaimStore(runner.project).bind_to_run(
+                claim_token=claim_token,
+                run_id=prepared.run_id,
+                expected_output_names=["relevance"],
+            )
+            == 1
         )
-        == 1
-    )
     return prepared, claim_token
 
 

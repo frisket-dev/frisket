@@ -55,6 +55,7 @@ from frisket.execution.pricing_policy import (
     install_pricing_policy,
 )
 from tests.execution_composition_helpers import open_attempt_authority
+from frisket.engine.store.transactions import write_transaction
 
 
 class _AboveLimitPricingPolicy:
@@ -277,11 +278,12 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     queued = _PREPARED_QUEUES.get((str(project.path), run_id))
     if queued is not None:
         token = "output-claim:" + queued[2]["receipt_id"]
-        OutputColumnClaimStore(project).bind_to_run(
-            claim_token=token,
-            run_id=run_id,
-            expected_output_names=[str(row["name"]) for row in columns],
-        )
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).bind_to_run(
+                claim_token=token,
+                run_id=run_id,
+                expected_output_names=[str(row["name"]) for row in columns],
+            )
         return token, {int(row["id"]) for row in columns}
     token = f"output-claim:worker-route-verification:{run_id}"
     claims, conflict = OutputColumnClaimStore(project).acquire(
@@ -293,11 +295,12 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
     )
     assert conflict is None
     assert len(claims) == len(columns)
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=token,
-        run_id=run_id,
-        expected_output_names=[str(row["name"]) for row in columns],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=token,
+            run_id=run_id,
+            expected_output_names=[str(row["name"]) for row in columns],
+        )
     return token, {int(row["id"]) for row in columns}
 
 

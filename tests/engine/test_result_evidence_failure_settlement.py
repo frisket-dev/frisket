@@ -21,6 +21,7 @@ from frisket.ai.llm import ModelRouter
 from frisket.execution.attempt import StaleAttemptWriter
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.engine.store.transactions import write_transaction
 
 
 def _invocation(tmp_path):
@@ -36,12 +37,13 @@ def _invocation(tmp_path):
     router._adapters["anthropic"] = adapter
     request = _map_extract_action(sheet_id, key="evidence-settlement")
     project = Project(path)
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret("test-key"),
-        hint=key_hint("test-key"),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret("test-key"),
+            hint=key_hint("test-key"),
+            spend_cap_micro=1_000_000,
+        )
     return project, router, adapter, request
 
 

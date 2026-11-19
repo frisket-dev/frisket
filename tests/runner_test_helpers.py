@@ -18,6 +18,7 @@ from frisket.engine.runner.map_runner import MapRunner, PreparedRun, RunProgress
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.runner.validation import ClaimsGate
 from frisket.ops.base import ActionProgram
+from frisket.engine.store.transactions import write_transaction
 
 
 def _retry_spec(spec: dict[str, Any], gate: ClaimsGate) -> dict[str, Any]:
@@ -96,11 +97,12 @@ async def run_with_exact_confirmation(
                 confirmed=True,
                 resume_run_id=resume_run_id,
             )
-        bound = claim_store.bind_to_run(
-            claim_token=claim_token,
-            run_id=prepared.run_id,
-            expected_output_names=output_names,
-        )
+        with write_transaction(claim_store.db):
+            bound = claim_store.bind_to_run(
+                claim_token=claim_token,
+                run_id=prepared.run_id,
+                expected_output_names=output_names,
+            )
         if bound != len(output_names):
             raise AssertionError("test runner did not bind its exact output plan")
         progress = await runner.run(
@@ -155,11 +157,12 @@ async def run_with_output_claim(
             confirmed=confirmed,
             resume_run_id=resume_run_id,
         )
-        bound = claim_store.bind_to_run(
-            claim_token=claim_token,
-            run_id=prepared.run_id,
-            expected_output_names=output_names,
-        )
+        with write_transaction(claim_store.db):
+            bound = claim_store.bind_to_run(
+                claim_token=claim_token,
+                run_id=prepared.run_id,
+                expected_output_names=output_names,
+            )
         if bound != len(output_names):
             raise AssertionError("test runner did not bind its exact output plan")
         progress = await runner.run(

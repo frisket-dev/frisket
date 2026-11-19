@@ -404,7 +404,6 @@ class GroupPublication:
                 claim_token=self.claim_token,
                 run_id=run_id,
                 expected_output_names=[self.params.summary_column_name],
-                commit=False,
             )
 
     def _require_writer(self):

@@ -21,6 +21,7 @@ import pytest
 
 from frisket.team.security.secrets import decrypt_secret, encrypt_secret, key_hint
 from frisket.engine.store.credentials import ProviderKeyDecryptError
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_provider_key_set_get_delete_round_trips_through_store(make_project) -> None:
@@ -28,12 +29,13 @@ def test_provider_key_set_get_delete_round_trips_through_store(make_project) -> 
     assert project.provider_key_catalog_rows() == {}
     assert project.provider_model_keys() == {}
 
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint=key_hint("sk-project-openai"),
-        spend_cap_micro=7_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint=key_hint("sk-project-openai"),
+            spend_cap_micro=7_000_000,
+        )
 
     rows = project.provider_key_catalog_rows()
     assert set(rows) == {"openai"}
@@ -44,8 +46,10 @@ def test_provider_key_set_get_delete_round_trips_through_store(make_project) -> 
 
     assert project.provider_model_keys() == {"openai": "sk-project-openai"}
 
-    assert project.delete_provider_key("openai") is True
-    assert project.delete_provider_key("openai") is False
+    with write_transaction(project.db):
+        assert project.delete_provider_key("openai") is True
+    with write_transaction(project.db):
+        assert project.delete_provider_key("openai") is False
     assert project.provider_key_catalog_rows() == {}
     assert project.provider_model_keys() == {}
 
@@ -58,19 +62,19 @@ def test_provider_key_writes_can_share_a_caller_owned_transaction(make_project) 
         encrypted=encrypt_secret("sk-transactional"),
         hint=key_hint("sk-transactional"),
         spend_cap_micro=None,
-        commit=False,
     )
     project.db.rollback()
     assert project.provider_key_catalog_rows() == {}
 
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-committed"),
-        hint=key_hint("sk-committed"),
-        spend_cap_micro=None,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-committed"),
+            hint=key_hint("sk-committed"),
+            spend_cap_micro=None,
+        )
     project.db.execute("BEGIN IMMEDIATE")
-    assert project.delete_provider_key("openai", commit=False) is True
+    assert project.delete_provider_key("openai") is True
     project.db.rollback()
     assert project.provider_model_keys() == {"openai": "sk-committed"}
 
@@ -128,12 +132,13 @@ def test_undecryptable_provider_key_raises_naming_the_provider(make_project) -> 
     AEAD key is a configuration fault to name, not a fallback to take.
     """
     project = make_project("seam")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-real"),
-        hint=key_hint("sk-real"),
-        spend_cap_micro=None,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-real"),
+            hint=key_hint("sk-real"),
+            spend_cap_micro=None,
+        )
     # Corrupt the ciphertext in place, exactly as a rotated bundle key looks.
     project.db.execute(
         "UPDATE project_provider_keys SET encrypted=? WHERE provider='openai'",
@@ -157,12 +162,13 @@ def test_store_decrypt_matches_legacy_inline_path(make_project) -> None:
     `decrypt_secret(row['encrypted'])` path produced from the same table."""
     project = make_project("seam")
     plaintext = "sk-anthropic-abcd1234"
-    project.set_provider_key(
-        provider="anthropic",
-        encrypted=encrypt_secret(plaintext),
-        hint=key_hint(plaintext),
-        spend_cap_micro=None,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="anthropic",
+            encrypted=encrypt_secret(plaintext),
+            hint=key_hint(plaintext),
+            spend_cap_micro=None,
+        )
 
     row = project.db.execute(
         "SELECT encrypted FROM project_provider_keys WHERE provider='anthropic'"
@@ -178,24 +184,26 @@ def test_spent_micro_resets_and_hint_updates_on_provider_key_update(
     make_project,
 ) -> None:
     project = make_project("seam")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("k1"),
-        hint=key_hint("k1"),
-        spend_cap_micro=5_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("k1"),
+            hint=key_hint("k1"),
+            spend_cap_micro=5_000_000,
+        )
     project.db.execute(
         "UPDATE project_provider_keys SET spent_micro=123456 WHERE provider='openai'"
     )
     project.db.commit()
     assert project.provider_key_catalog_rows()["openai"]["spent_micro"] == 123456
 
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("k2-longer"),
-        hint=key_hint("k2-longer"),
-        spend_cap_micro=9_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("k2-longer"),
+            hint=key_hint("k2-longer"),
+            spend_cap_micro=9_000_000,
+        )
     row = project.provider_key_catalog_rows()["openai"]
     assert row["spent_micro"] == 0
     assert row["spend_cap_micro"] == 9_000_000

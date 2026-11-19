@@ -21,6 +21,7 @@ from frisket.engine.store import Project
 from frisket.retrieval.store import RetrievalStore
 from frisket.team.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
+from frisket.engine.store.transactions import write_transaction
 
 
 class MappedGateway:
@@ -541,12 +542,13 @@ def test_typed_preview_uses_cached_remote_query_without_admission(
     )
     project.db.commit()
     project.set_network_policy(mode="off")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-cached-query"),
-        hint=key_hint("sk-cached-query"),
-        spend_cap_micro=0,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-cached-query"),
+            hint=key_hint("sk-cached-query"),
+            spend_cap_micro=0,
+        )
     model_calls_before = project.db.execute(
         "SELECT COUNT(*) FROM model_calls"
     ).fetchone()[0]

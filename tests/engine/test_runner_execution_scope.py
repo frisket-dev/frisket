@@ -35,6 +35,7 @@ from frisket.engine.store.result_generations import (
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from runner_test_helpers import run_with_output_claim
 from typed_model_fixtures import prepare_model_run
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_exact_target_rows_refuse_membership_lost_after_resolution() -> None:
@@ -770,11 +771,12 @@ def _prepare_claimed_run(
         confirmed=False,
         resume_run_id=None,
     )
-    assert OutputColumnClaimStore(runner.project).bind_to_run(
-        claim_token=claim_token,
-        run_id=prepared.run_id,
-        expected_output_names=output_names,
-    ) == len(output_names)
+    with write_transaction(runner.project.db):
+        assert OutputColumnClaimStore(runner.project).bind_to_run(
+            claim_token=claim_token,
+            run_id=prepared.run_id,
+            expected_output_names=output_names,
+        ) == len(output_names)
     return prepared, claim_token
 
 

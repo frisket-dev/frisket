@@ -13,6 +13,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.output_families import OutputFamilyStore
 from frisket.engine.store.op_log import append_change
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _undone_column(project, sheet, name, *, type="text"):
@@ -44,7 +45,8 @@ def test_output_claims_bind_only_current_identity(project):
     assert store.active_for_columns([current])["id"] == claims[0]["id"]
     op = append_change(project, "map", undo_info={"created_columns": [current]})
     run = RunResultStore(project).start_run(op, sheet, "map.regex_extract")
-    assert store.bind_to_run(claim_token="fresh-output", run_id=run) == 1
+    with write_transaction(store.db):
+        assert store.bind_to_run(claim_token="fresh-output", run_id=run) == 1
     claim = store.active_for_output_name(sheet_id=sheet, output_name="result")
     assert claim["column_id"] == current
     assert store.active_for_columns([old]) is None

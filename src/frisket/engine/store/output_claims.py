@@ -9,7 +9,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 
 # A claim's owning run can reach a terminal status (project-local
@@ -151,16 +151,16 @@ class OutputColumnClaimStore:
         run_id: int,
         job_id: int | None = None,
         expected_output_names: list[str] | None = None,
-        commit: bool = True,
     ) -> int:
-        """Bind one active claim group to its run, all claims or none."""
-        with write_transaction(self.db, commit=commit, what="output claim binding"):
-            return self._bind_claims_to_run(
-                claim_token=claim_token,
-                run_id=run_id,
-                job_id=job_id,
-                expected_output_names=expected_output_names,
-            )
+        """Bind one active claim group to its run, all claims or none, in the
+        caller's transaction."""
+        require_transaction(self.db, "output claim binding")
+        return self._bind_claims_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            job_id=job_id,
+            expected_output_names=expected_output_names,
+        )
 
     def _bind_claims_to_run(
         self,

@@ -21,6 +21,7 @@ from frisket.engine.store.runs import RunResultStore
 from frisket.team.security.secrets import encrypt_secret
 from helpers import replace_test_source_cell, write_claimless_test_model_calls
 from unified_embedding_probe import UnifiedEmbeddingProbe
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-embeddings"
@@ -381,12 +382,13 @@ def test_remote_index_with_policy_allows_refresh(project):
 
 def test_over_cap_project_key_blocks_remote_embedding_refresh_before_egress(project):
     """The project-key spend cap covers embeddings as well as chat recipes."""
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret("sk-project-openai"),
-        hint="sk-p***",
-        spend_cap_micro=500,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret("sk-project-openai"),
+            hint="sk-p***",
+            spend_cap_micro=500,
+        )
     index_id = _create(
         project,
         provider="openai",

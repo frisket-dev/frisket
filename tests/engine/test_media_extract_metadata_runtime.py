@@ -41,6 +41,7 @@ from frisket.engine.store.result_generations import (
     ResultGenerationStore,
 )
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
+from frisket.engine.store.transactions import write_transaction
 
 
 def _png_header(width: int = 13, height: int = 7) -> bytes:
@@ -1110,14 +1111,15 @@ def test_metadata_resume_never_recreates_changed_claimed_outputs(
     )
     assert conflict is None and len(acquired) == 1
     prepared = runner.prepare_run(spec, program=plan.program, confirmed=True)
-    assert (
-        claims.bind_to_run(
-            claim_token=claim_token,
-            run_id=prepared.run_id,
-            expected_output_names=["meta"],
+    with write_transaction(claims.db):
+        assert (
+            claims.bind_to_run(
+                claim_token=claim_token,
+                run_id=prepared.run_id,
+                expected_output_names=["meta"],
+            )
+            == 1
         )
-        == 1
-    )
     declare_bound_run_outputs(
         project,
         run_id=prepared.run_id,

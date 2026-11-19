@@ -42,6 +42,7 @@ from frisket.server.services.project_qa_web import (
     search_web,
 )
 from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.engine.store.transactions import write_transaction
 
 
 class _AskAdapter:
@@ -1025,12 +1026,13 @@ def test_runner_checks_project_key_spend_before_each_provider_request(
     }
     project, store, turn = _project_turn(tmp_path, scope)
     try:
-        project.set_provider_key(
-            provider="anthropic",
-            encrypted=encrypt_secret("test-project-key"),
-            hint=key_hint("test-project-key"),
-            spend_cap_micro=0,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="anthropic",
+                encrypted=encrypt_secret("test-project-key"),
+                hint=key_hint("test-project-key"),
+                spend_cap_micro=0,
+            )
         router = ModelRouter(
             model_call_policy=LOCAL_PURCHASE_POLICY,
             keys={"anthropic": "test-project-key"},

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 from frisket.execution.dispatch_control import STANDALONE
 from runner_test_helpers import run_action_with_exact_confirmation
+from frisket.engine.store.transactions import write_transaction
 
 pytestmark = pytest.mark.gap
 
@@ -235,12 +236,13 @@ def test_exhausted_structured_repair_still_persists_paid_wire_facts(
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
     project, sheet_id = _project(tmp_path, "structured-exhaustion")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret(secret),
-        hint=key_hint(secret),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret(secret),
+            hint=key_hint(secret),
+            spend_cap_micro=1_000_000,
+        )
     try:
         result = run_action_with_exact_confirmation(
             project,
@@ -316,12 +318,13 @@ def test_output_limited_structured_response_persists_one_neutral_wire_fact(
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
     project, sheet_id = _project(tmp_path, "structured-output-limit")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret(secret),
-        hint=key_hint(secret),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret(secret),
+            hint=key_hint(secret),
+            spend_cap_micro=1_000_000,
+        )
     try:
         result = run_action_with_exact_confirmation(
             project,
@@ -401,12 +404,13 @@ def test_paid_invalid_wire_survives_transport_failure_during_repair(
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
     project, sheet_id = _project(tmp_path, "repair-transport-failure")
-    project.set_provider_key(
-        provider="openai",
-        encrypted=encrypt_secret(secret),
-        hint=key_hint(secret),
-        spend_cap_micro=1_000_000,
-    )
+    with write_transaction(project.db):
+        project.set_provider_key(
+            provider="openai",
+            encrypted=encrypt_secret(secret),
+            hint=key_hint(secret),
+            spend_cap_micro=1_000_000,
+        )
     try:
         result = run_action_with_exact_confirmation(
             project,

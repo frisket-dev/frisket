@@ -40,6 +40,7 @@ from runner_test_helpers import run_with_output_claim as _run_with_output_claim
 from tests.typed_model_fixtures import model_plan
 from frisket.actions.system import typed_action_for_request
 from frisket.engine.executor.map_rows_action import _typed_map_rows_plan
+from frisket.engine.store.transactions import write_transaction
 
 MODEL = "anthropic/claude-haiku-4-5"
 
@@ -209,11 +210,12 @@ def _prepare_claimed_runner_run(
         confirmed=confirmed,
         resume_run_id=None,
     )
-    assert OutputColumnClaimStore(runner.project).bind_to_run(
-        claim_token=claim_token,
-        run_id=prepared.run_id,
-        expected_output_names=output_names,
-    ) == len(output_names)
+    with write_transaction(runner.project.db):
+        assert OutputColumnClaimStore(runner.project).bind_to_run(
+            claim_token=claim_token,
+            run_id=prepared.run_id,
+            expected_output_names=output_names,
+        ) == len(output_names)
     return prepared, claim_token
 
 

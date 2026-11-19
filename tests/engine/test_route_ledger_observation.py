@@ -31,6 +31,7 @@ from frisket.execution.runtime_binding import (
     ROUTE_OBSERVATION_KEY,
     bind_fact_to_route,
 )
+from frisket.engine.store.transactions import write_transaction
 
 PROMISES = [
     {
@@ -80,11 +81,12 @@ def _make_run(project) -> int:
     )
     assert conflict is None
     assert len(claims) == 1
-    OutputColumnClaimStore(project).bind_to_run(
-        claim_token=claim_token,
-        run_id=run_id,
-        expected_output_names=["transcript"],
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).bind_to_run(
+            claim_token=claim_token,
+            run_id=run_id,
+            expected_output_names=["transcript"],
+        )
     assert int(claims[0]["column_id"]) == output_column_id
     attempt_id = f"attempt_route_observation_{run_id}"
     project.db.execute(

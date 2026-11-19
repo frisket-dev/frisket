@@ -24,6 +24,7 @@ from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimless_test_model_calls
+from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-media-transcribe"
 WORKFLOW_ID = "rss-transcribe-sample-extract-export"
@@ -609,12 +610,13 @@ def test_a_remote_transcription_meters_settles_and_accrues_against_the_key(
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project = env.project
         # A capped project key, exactly as Settings > AI Providers writes it.
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint="sk-p***",
-            spend_cap_micro=5_000_000,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="openai",
+                encrypted=encrypt_secret("sk-project-openai"),
+                hint="sk-p***",
+                spend_cap_micro=5_000_000,
+            )
         # The composition the queued run handler performs, so the credential
         # provenance on the fact is the production one and not a test literal.
         router = _router_for(project, None)
@@ -700,12 +702,13 @@ def test_over_cap_remote_transcription_is_refused_before_provider_egress(
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project = env.project
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint="sk-p***",
-            spend_cap_micro=500,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="openai",
+                encrypted=encrypt_secret("sk-project-openai"),
+                hint="sk-p***",
+                spend_cap_micro=500,
+            )
 
         # Exhaust the key through the same durable accrual path production
         # metering uses; do not mutate the spend counter directly.
@@ -817,12 +820,13 @@ def test_remote_transcription_records_only_response_proven_provider_calls(
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         project = env.project
-        project.set_provider_key(
-            provider="openai",
-            encrypted=encrypt_secret("sk-project-openai"),
-            hint="sk-p***",
-            spend_cap_micro=5_000_000,
-        )
+        with write_transaction(project.db):
+            project.set_provider_key(
+                provider="openai",
+                encrypted=encrypt_secret("sk-project-openai"),
+                hint="sk-p***",
+                spend_cap_micro=5_000_000,
+            )
         action = _transcribe_action(
             sheet_id=env.seeded["sheet_id"],
             row_ids=[env.seeded["row_ids"][0]],
