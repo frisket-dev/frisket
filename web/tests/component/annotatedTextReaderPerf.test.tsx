@@ -25,7 +25,7 @@ import {
   partitionAnnotationFragments,
 } from '../../src/workbench/textAnnotationModel';
 
-import type { TextAnnotationLayer, TextAnnotations } from '../../src/api/open';
+import type { TextAnnotationLayer, TextAnnotations, TextAnnotationSpan } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
@@ -56,8 +56,8 @@ function transcript(words: number): string {
 
 /** One span on every occurrence of "Ada" — ~1 entity per 10 words, which is a
  *  dense but realistic NER yield for interview prose. */
-function denseLayer(text: string): TextAnnotationLayer {
-  const spans = [];
+function denseLayer(text: string): Extract<TextAnnotationLayer, { positioned: true }> {
+  const spans: TextAnnotationSpan[] = [];
   let cursor = 0;
   let n = 0;
   for (;;) {
@@ -71,6 +71,7 @@ function denseLayer(text: string): TextAnnotationLayer {
       end: at + 3,
       quote: 'Ada',
       entityType: 'person',
+      entityFingerprint: null,
     });
   }
   return {

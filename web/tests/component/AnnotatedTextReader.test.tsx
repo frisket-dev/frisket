@@ -48,18 +48,19 @@ const ENTITIES_LAYER: TextAnnotationLayer = {
   generatedColumn: { id: '12', name: 'entities' },
   positioned: true,
   spans: [
-    { occurrenceId: '1:1', start: 0, end: 12, quote: 'Ada Lovelace', entityType: 'person' },
-    { occurrenceId: '2:1', start: 22, end: 25, quote: 'Ada', entityType: 'person' },
+    { occurrenceId: '1:1', start: 0, end: 12, quote: 'Ada Lovelace', entityType: 'person', entityFingerprint: null },
+    { occurrenceId: '2:1', start: 22, end: 25, quote: 'Ada', entityType: 'person', entityFingerprint: null },
     {
       occurrenceId: '3:1',
       start: 32,
       end: 50,
       quote: 'Boeing Company Ltd',
       entityType: 'organization',
+      entityFingerprint: null,
     },
     // Nested, and in the MIDDLE of its container — so the outer mark is drawn
     // as two fragments with the inner one between them.
-    { occurrenceId: '4:1', start: 39, end: 46, quote: 'Company', entityType: 'organization' },
+    { occurrenceId: '4:1', start: 39, end: 46, quote: 'Company', entityType: 'organization', entityFingerprint: null },
   ],
   counts: { shown: 4, total: 4, invalid: 0 },
 };
