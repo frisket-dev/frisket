@@ -45,6 +45,10 @@ from frisket.ai.models.gateway_config import (
     normalize_models_gateway_origin,
     resolve_models_gateway_env,
 )
+from frisket.contracts.http.local_providers import (
+    LocalEndpointDiscoveryCandidate,
+    LocalEndpointDiscoveryResponse,
+)
 from frisket.local_model_ids import format_local_model_id, validate_local_endpoint_id
 from frisket.provider_definitions import PROVIDERS, provider_definition, providers_for
 from frisket.redaction import redact_text
@@ -768,7 +772,7 @@ def delete_local_endpoint(root: str | Path, endpoint_id: str) -> bool:
     return _mutate_config_file(root, delete)
 
 
-def discover_local_endpoints(root: str | Path) -> dict[str, Any]:
+def discover_local_endpoints(root: str | Path) -> LocalEndpointDiscoveryResponse:
     """Probe and persist the fixed localhost candidate set on explicit request.
 
     There is deliberately no URL parameter: this helper is not a general
@@ -798,18 +802,22 @@ def discover_local_endpoints(root: str | Path) -> dict[str, Any]:
                 for (_label, origin), result in zip(pending, results, strict=True)
             }
 
-    candidates: list[dict[str, str]] = []
+    candidates: list[LocalEndpointDiscoveryCandidate] = []
     for label, origin in LOCAL_ENDPOINT_DISCOVERY_CANDIDATES:
         if origin in configured_origins:
             candidates.append(
-                {"label": label, "origin": origin, "outcome": "already_added"}
+                LocalEndpointDiscoveryCandidate(
+                    label=label, origin=origin, outcome="already_added"
+                )
             )
             continue
         probe = probes[origin]
         protocol = probe.get("protocol")
         if protocol not in ("ollama_native", "openai_compatible"):
             candidates.append(
-                {"label": label, "origin": origin, "outcome": "not_found"}
+                LocalEndpointDiscoveryCandidate(
+                    label=label, origin=origin, outcome="not_found"
+                )
             )
             continue
         try:
@@ -823,9 +831,11 @@ def discover_local_endpoints(root: str | Path) -> dict[str, Any]:
         else:
             outcome = "added"
         configured_origins.add(origin)
-        candidates.append({"label": label, "origin": origin, "outcome": outcome})
+        candidates.append(
+            LocalEndpointDiscoveryCandidate(label=label, origin=origin, outcome=outcome)
+        )
 
-    return {"candidates": candidates}
+    return LocalEndpointDiscoveryResponse(candidates=candidates)
 
 
 def resolve_local_endpoints(
