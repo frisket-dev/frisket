@@ -72,6 +72,6 @@ function DeriveFromSheetForm({ extractEntry, onCompositeRun, ...props }:
           });
         }} />
       {problem && <p className="panel-error" role="alert">{problem}</p>}
-    </> : <p className="panel-error">Extraction is unavailable.</p>}
+    </> : <p className="panel-error" role="alert">Extraction is unavailable.</p>}
   </>;
 }

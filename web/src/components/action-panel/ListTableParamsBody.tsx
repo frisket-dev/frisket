@@ -106,7 +106,8 @@ export function ListTableParamsBody({ sheet, params, setParams }:
         <div className="form-label">Parent column destinations</div>
         {parentSelections.map(({ selected, column, label }) => <div className="field-group"
           key={selected.column_id} data-testid={`list-parent-column-${selected.column_id}`}>
-          <span className={column ? 'form-hint' : 'panel-error'}>{label}</span>
+          <span className={column ? 'form-hint' : 'panel-error'}
+            role={column ? undefined : 'alert'}>{label}</span>
           <TextInput aria-label={`Destination for ${label}`} value={selected.output_name}
             onChange={(event) => setParams({ ...params, parent_columns: parentColumns.map(
               (candidate) => candidate.column_id === selected.column_id

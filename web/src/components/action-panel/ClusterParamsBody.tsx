@@ -8,6 +8,7 @@ import { ApiError, type ClusterGroup, type ClusterValuesMethod } from '../../api
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelSelect } from '../PanelSelect';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
+import { useEditorProblem } from './useEditorProblem';
 import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
 import '../cluster-review.css';
 import { errorMessage } from '../../hooks/errorMessage';
@@ -79,7 +80,7 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
     : savedRepair ? 'Resolve the incompatible saved review before writing.'
     : !hasGroups ? 'Preview the groups before writing.'
     : blankCanonical ? 'Every group needs a canonical value.' : null;
-  useEffect(() => { setEditorProblem?.(problem); }, [problem, setEditorProblem]);
+  useEditorProblem(setEditorProblem, problem);
 
   const update = (changes: Partial<Params>) => {
     generation.current += 1;
@@ -196,10 +197,10 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
         </div>
       </details>
     </div>
-    {unavailable && <div className="panel-error" data-testid="cluster-semantic-unavailable">
+    {unavailable && <div className="panel-error" data-testid="cluster-semantic-unavailable" role="alert">
       {error} Choose Fingerprint or N-gram fingerprint to cluster without embeddings.
     </div>}
-    {error && !unavailable && <div className="panel-error" data-testid="cluster-error">{error}</div>}
+    {error && !unavailable && <div className="panel-error" data-testid="cluster-error" role="alert">{error}</div>}
     {savedRepair && <div className="panel-error" data-testid="cluster-saved-review-repair" role="alert">
       {savedRepair}{' '}<Button type="button" data-testid="cluster-saved-review-reset"
         onClick={() => { setSavedReview(null); setSavedRepair(null); }}>Use current groups</Button>
@@ -214,7 +215,7 @@ function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem 
             <TextInput className={value.trim() ? 'form-input' : 'form-input form-input-invalid'}
               data-testid="cluster-canonical-input" aria-invalid={!value.trim()} value={value}
               onChange={(event) => setDrafts((before) => ({ ...before, [cluster.key]: event.target.value }))} />
-            {!value.trim() && <span className="panel-error" data-testid="cluster-canonical-blank">A canonical value is required.</span>}
+            {!value.trim() && <span className="panel-error" data-testid="cluster-canonical-blank" role="alert">A canonical value is required.</span>}
           </label>
           <ul className="cluster-values">{cluster.values.map((member) => <li key={member.value}>
             <label className="cluster-member"><input type="checkbox" data-testid="cluster-member-checkbox"

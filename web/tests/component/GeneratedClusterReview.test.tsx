@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, createProjectApi } from '../../src/api/real';
 import { isGeneratedActionCatalogEntry, type GeneratedActionDraft } from '../../src/api/types';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
+import { ClusterParamsBody } from '../../src/components/action-panel/ClusterParamsBody';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 import { servedActionCatalog } from '../support/servedActionCatalog';
@@ -88,7 +89,23 @@ describe('generated cluster review', () => {
     form({ method: 'semantic' });
     fireEvent.click(screen.getByTestId('cluster-preview-button'));
     expect(await screen.findByTestId('cluster-semantic-unavailable')).toHaveTextContent('Fingerprint');
+    expect(screen.getAllByRole('alert')).toContain(screen.getByTestId('cluster-semantic-unavailable'));
     expect(screen.getByTestId('cluster-commit-button')).toBeDisabled();
+  });
+  it('announces a failed preview', async () => {
+    vi.spyOn(api, 'clusterPreview').mockRejectedValue(new Error('preview exploded'));
+    form();
+    fireEvent.click(screen.getByTestId('cluster-preview-button'));
+    expect(await screen.findByTestId('cluster-error')).toHaveTextContent('preview exploded');
+    expect(screen.getAllByRole('alert')).toContain(screen.getByTestId('cluster-error'));
+  });
+  it('withdraws its editor problem from the host on unmount', () => {
+    const setEditorProblem = vi.fn();
+    const view = render(<ClusterParamsBody sheet={sheet} request={{ scope: { kind: 'sheet_rows', sheet_id: 7 }, output_names: {} }} params={{ source: 'name' }} setParams={vi.fn()}
+      errors={{}} Field={() => null} setEditorProblem={setEditorProblem} />);
+    expect(setEditorProblem).toHaveBeenLastCalledWith('Preview the groups before writing.');
+    view.unmount();
+    expect(setEditorProblem).toHaveBeenLastCalledWith(null);
   });
   it('locks source and method while preview is pending', async () => {
     let complete!: (value: typeof PREVIEW) => void;
@@ -160,6 +177,7 @@ describe('generated cluster review', () => {
     const { rerenderRunning } = form(); await preview();
     await userEvent.clear(screen.getByTestId('cluster-canonical-input'));
     expect(screen.getByTestId('cluster-canonical-blank')).toBeVisible();
+    expect(screen.getAllByRole('alert')).toContain(screen.getByTestId('cluster-canonical-blank'));
     expect(screen.getByTestId('cluster-commit-button')).toBeDisabled();
     fireEvent.change(screen.getByTestId('cluster-canonical-input'), { target: { value: 'Name' } });
     await waitFor(() => expect(screen.getByTestId('cluster-commit-button')).toBeEnabled());

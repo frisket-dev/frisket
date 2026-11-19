@@ -123,3 +123,13 @@ it('preserves an explicit saved list source and custom options without a current
   fireEvent.click(screen.getByTestId('generated-action-preview'));
   expect(onExecute).toHaveBeenCalledWith({ ...initialDraft, idempotency_key: expect.any(String) }, 'preview');
 });
+
+it('announces that extraction is unavailable when no extraction action is served', () => {
+  render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive}
+    actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!}
+    sheet={sheetMeta([columnDef({ id: '1', name: 'headline', type: 'text' })], { id: '7' })}
+    running={false} onClose={vi.fn()}
+    resolveParams={async () => ({ diagnostics: {}, logical_outputs: [] })}
+    onExecute={vi.fn()} onCompositeRun={vi.fn()} />);
+  expect(screen.getByRole('alert')).toHaveTextContent('Extraction is unavailable.');
+});
