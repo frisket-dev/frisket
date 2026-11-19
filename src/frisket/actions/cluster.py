@@ -26,5 +26,5 @@ CLUSTER_VALUES = action(
     description="Group a column's duplicate values and save their reviewed canonical forms.",
     category=ActionCategory.CLEANUP,
     run=cluster_values,
-    examples=(ClusterParams(source="name"),),
+    examples=(ClusterParams(source=ClusterColumn("name")),),
 )

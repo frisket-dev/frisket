@@ -28,6 +28,6 @@ FETCH_URL = action(
     title="Download file",
     description="Download a URL into a blob-backed file; enabled media plugins retain their native downloader.",
     category=ActionCategory.SOURCES,
-    examples=(FetchParams(source="url"),),
+    examples=(FetchParams(source=UrlColumn("url")),),
     run=map_rows(fetch_file),
 )

@@ -93,8 +93,8 @@ async def extract_metadata(
 
 EXTRACT_METADATA = action(
     examples=(
-        MetadataParams(source="media_source"),
-        MetadataParams(source="media_source", output_mode="object"),
+        MetadataParams(source=MediaColumn("media_source")),
+        MetadataParams(source=MediaColumn("media_source"), output_mode="object"),
     ),
     name="extract_metadata",
     title="Extract media metadata",

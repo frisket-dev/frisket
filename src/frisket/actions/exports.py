@@ -12,12 +12,17 @@ from frisket.actions.core import (
     action,
     google_sheets_export,
 )
-from frisket.actions.google_sheets_types import GoogleSheetsExportRequest
+from frisket.actions.google_sheets_types import (
+    GoogleSheetsDestination,
+    GoogleSheetsExportRequest,
+    GoogleSheetsSource,
+)
 from frisket.actions.types import (
     ActionParams,
     ColumnTablesDestination,
     ColumnTablesExport,
     ColumnTablesExporter,
+    ColumnTablesProjectFileDestination,
     ExportedCsvSheetFile,
     ExportedJsonlSheetFile,
     ExportedParquetSheetFile,
@@ -169,7 +174,9 @@ COLUMN_TABLES = action(
         ExportColumnTablesParams(
             sheet_id=1,
             column_id=1,
-            destination={"kind": "project_file", "prefix": "tables"},
+            destination=ColumnTablesProjectFileDestination(
+                kind="project_file", prefix="tables"
+            ),
         ),
     ),
     name="column_tables",
@@ -283,12 +290,12 @@ GOOGLE_SHEETS = action(
     examples=(
         GoogleSheetsExportRequest(
             connection_id="conn_google_1",
-            source={"kind": "current_sheet", "sheet_id": 1},
-            destination={
-                "kind": "google_sheets",
-                "mode": "new_spreadsheet",
-                "spreadsheet_title": "Frisket export",
-            },
+            source=GoogleSheetsSource(kind="current_sheet", sheet_id=1),
+            destination=GoogleSheetsDestination(
+                kind="google_sheets",
+                mode="new_spreadsheet",
+                spreadsheet_title="Frisket export",
+            ),
         ),
     ),
 )

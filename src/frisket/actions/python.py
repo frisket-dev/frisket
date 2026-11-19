@@ -8,6 +8,7 @@ from pydantic import Field, field_validator, model_validator
 
 from frisket.actions.core import ActionCategory, action, map_rows
 from frisket.actions.python_types import (
+    ColumnTarget,
     PythonEvaluator,
     PythonOutputRoute,
     RoutedOutput,
@@ -100,18 +101,18 @@ PYTHON = action(
     run=map_rows(run_python, dynamic_outputs=python_outputs),
     examples=(
         PythonParams(
-            input_columns=["transcript"],
+            input_columns=[ColumnRef[Any]("transcript")],
             code="result = {'excerpt': ' '.join(row['transcript'].split()[:25])}",
             return_schema={
                 "type": "object",
                 "properties": {"excerpt": {"type": "string"}},
             },
             output_routes=[
-                {
-                    "name": "excerpt",
-                    "path": "$.excerpt",
-                    "target": {"kind": "column", "type": "text"},
-                }
+                PythonOutputRoute(
+                    name="excerpt",
+                    path="$.excerpt",
+                    target=ColumnTarget(kind="column", type="text"),
+                )
             ],
         ),
     ),

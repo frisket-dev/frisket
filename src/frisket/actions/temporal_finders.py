@@ -44,7 +44,7 @@ FIND_VISUAL_CUTS = action(
     ),
     category=ActionCategory.EXTRACT,
     run=map_rows(find_visual_cuts),
-    examples=(VisualCutsParams(source="video"),),
+    examples=(VisualCutsParams(source=VideoColumn("video")),),
 )
 
 
@@ -100,5 +100,5 @@ FIND_TOPIC_SECTIONS = action(
     ),
     category=ActionCategory.EXTRACT,
     run=map_rows(find_topic_sections),
-    examples=(TopicSectionsParams(source="transcript"),),
+    examples=(TopicSectionsParams(source=TranscriptColumn("transcript")),),
 )

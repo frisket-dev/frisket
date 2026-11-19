@@ -98,7 +98,7 @@ def definition():
         run=create_sheet(extract_documents, columns_from=extraction_columns),
         examples=(
             DocumentExtractParams(
-                source="document",
+                source=DocumentColumn("document"),
                 template=ExtractionTemplate(
                     reference_blob_id="a" * 64,
                     reference_fingerprint="example-positioned-document",

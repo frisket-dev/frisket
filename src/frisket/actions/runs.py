@@ -31,7 +31,7 @@ BACKFILL = action(
     category=ActionCategory.CONVERT,
     run=backfill,
     form="run_backfill",
-    examples=(BackfillParams(column="answer"),),
+    examples=(BackfillParams(column=ColumnRef[Any]("answer")),),
 )
 
 

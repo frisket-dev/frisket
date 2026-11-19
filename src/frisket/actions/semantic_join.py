@@ -58,7 +58,7 @@ SEMANTIC_JOIN = action(
     run=semantic_join(match_one),
     examples=(
         SemanticJoinParams(
-            source="organization",
+            source=ColumnRef[Any]("organization"),
             target=SheetColumnRef(sheet_id=2, column="name"),
         ),
     ),

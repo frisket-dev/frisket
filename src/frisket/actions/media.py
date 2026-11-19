@@ -89,7 +89,7 @@ OCR = action(
     title="OCR",
     description="Read text from images and documents with the selected OCR engine.",
     category=ActionCategory.EXTRACT,
-    examples=(OcrParams(source="document"),),
+    examples=(OcrParams(source=OcrColumn("document")),),
     run=map_rows(ocr, engine_options=ocr_options, active_outputs=_ocr_outputs),
 )
 
@@ -98,7 +98,7 @@ TRANSCRIBE = action(
     title="Transcribe",
     description="Transcribe audio and video with timestamps using the selected speech engine.",
     category=ActionCategory.EXTRACT,
-    examples=(TranscribeParams(source="recording"),),
+    examples=(TranscribeParams(source=AudioColumn("recording")),),
     run=map_rows(
         transcribe,
         engine_options=transcribe_options,

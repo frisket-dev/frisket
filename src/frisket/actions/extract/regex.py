@@ -136,7 +136,9 @@ def regex_extract(
 
 
 REGEX_EXTRACT = action(
-    examples=(RegexExtractParams(input_columns=["source"], pattern=r"\b\d{4}\b"),),
+    examples=(
+        RegexExtractParams(input_columns=[RegexSource("source")], pattern=r"\b\d{4}\b"),
+    ),
     name="regex_extract",
     title="Extract text with regex",
     description="Extract a regex match from one or more text columns.",

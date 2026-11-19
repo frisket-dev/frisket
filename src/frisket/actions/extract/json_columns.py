@@ -68,7 +68,8 @@ def columns_from_json(
 COLUMNS_FROM_JSON = action(
     examples=(
         ColumnsFromJsonParams(
-            source_column="json_source", routes=[JsonRoute(name="city", path="$.city")]
+            source_column=ColumnRef[dict[str, Any] | list[Any]]("json_source"),
+            routes=[JsonRoute(name="city", path="$.city")],
         ),
     ),
     name="columns_from_json",

@@ -67,6 +67,6 @@ TO_MARKDOWN = action(
         "'datalab' (remote Marker API, pay-per-call)."
     ),
     category=ActionCategory.EXTRACT,
-    examples=(ToMarkdownParams(source="document"),),
+    examples=(ToMarkdownParams(source=DocumentColumn("document")),),
     run=map_rows(to_markdown, active_outputs=_to_markdown_outputs),
 )
