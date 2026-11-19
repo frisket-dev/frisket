@@ -938,6 +938,47 @@ describe('GeneratedActionForm', () => {
     expect(onExecute).not.toHaveBeenCalled();
   });
 
+  it('keeps edits when a row selection appears under an open launch and defaults the scope to it', async () => {
+    const entry = generatedEntry('map.template');
+    const catalog = completeCatalogPayload([entry]);
+    stores = createWorkspaceStores('project-one', createProjectApi('project-one'));
+    stores.actionCatalog.store.set(() => ({
+      status: 'ready',
+      error: null,
+      catalog,
+      resolvedTemplates: actionTemplatesFromCatalog(catalog),
+      version: 1,
+    }));
+    const panel = (selectedRowIds: string[]) => (
+      <WorkspaceStoresContext.Provider value={stores!}>
+        <ActionPanel
+          sheet={sheetMeta(SHEET.columns, { id: '7', rowCount: 3 })}
+          running={false}
+          routeActionKind="map.template"
+          routeActionLaunchId={1}
+          routeActionInitial={{ sourceColumn: 'name' }}
+          selectedRowIds={selectedRowIds}
+          hasExactRowScopeInitializer={selectedRowIds.length > 0}
+          onRun={vi.fn()}
+          onExecuteRegisteredAction={vi.fn()}
+        />
+      </WorkspaceStoresContext.Provider>
+    );
+
+    const view = render(panel([]));
+    expect(await screen.findByTestId('generated-action-form')).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId('field-template'), { target: { value: 'Keep {{name}}' } });
+    expect(screen.getByText('All 3 rows will run')).toBeInTheDocument();
+
+    view.rerender(panel(['2']));
+    expect(screen.getByTestId('field-template')).toHaveValue('Keep {{name}}');
+    expect(screen.getByText('1 selected rows will run')).toBeInTheDocument();
+
+    view.rerender(panel([]));
+    expect(screen.getByTestId('field-template')).toHaveValue('Keep {{name}}');
+    expect(screen.getByText('All 3 rows will run')).toBeInTheDocument();
+  });
+
   it('inspects a Ask draft with its exact params, outputs, and row scope', async () => {
     const entry = generatedEntry('map.template');
     const catalog = completeCatalogPayload([entry]);

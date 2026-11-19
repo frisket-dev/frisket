@@ -93,7 +93,6 @@ interface ActionPanelProps {
   selectedRowIds?: string[];
   viewSelection?: ViewSelection | null;
   hasExactRowScopeInitializer?: boolean;
-  rowScopeInitializerKey?: string;
   /** Active Detail row used by literal temporal drafts when row markers are
    * not selected. Temporal actions never guess an all-row scope. */
   activeRowId?: string;
@@ -155,7 +154,6 @@ export function ActionPanel({
   selectedRowIds = EMPTY_SELECTED_ROW_IDS,
   viewSelection = null,
   hasExactRowScopeInitializer = false,
-  rowScopeInitializerKey = 'all',
   activeRowId,
   inspectProposal,
   routeActionKind,
@@ -603,7 +601,7 @@ export function ActionPanel({
             projectId={chromePreferences.projectId}
             extractEntry={catalogSnapshot.catalog?.actions.find((entry) => entry.kind === 'map.extract' && isGeneratedActionCatalogEntry(entry)) as GeneratedActionCatalogEntry | undefined}
             onCompositeRun={onRun}
-            key={`${sheet?.id ?? 'project'}:${generatedCatalogEntry.kind}:${openAction.launchId}:${rowScopeInitializerKey}`}
+            key={`${sheet?.id ?? 'project'}:${generatedCatalogEntry.kind}:${openAction.launchId}`}
             catalogEntry={generatedCatalogEntry}
             actionTemplate={openAction.actionTemplate}
             title={openAction.title}

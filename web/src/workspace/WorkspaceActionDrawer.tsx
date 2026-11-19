@@ -87,7 +87,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
   if (!actionPanelVisible) return null;
   if (!routeActionKind && !proposalInspect) return null;
   const hasExactRowScopeInitializer = selectedRowIdsForSheet.length > 0 || viewSelection !== null;
-  const rowScopeInitializerKey = selectedRowIdsForSheet.length > 0 ? 'selection' : viewSelection ? `view:${JSON.stringify(viewSelection)}` : 'all';
 
   return (
     <ActionDrawer onClose={closeDrawer}>
@@ -107,7 +106,6 @@ export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRe
           selectedRowIds={selectedRowIdsForSheet}
           viewSelection={viewSelection}
           hasExactRowScopeInitializer={hasExactRowScopeInitializer}
-          rowScopeInitializerKey={rowScopeInitializerKey}
           activeRowId={activeDetailRowId ?? undefined}
           inspectProposal={proposalInspect}
           routeActionKind={routeActionKind ?? undefined}
