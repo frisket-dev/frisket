@@ -58,7 +58,7 @@ finally:
   });
 }
 
-test('retained PDF evidence renders its two pages lazily through the authenticated API', async ({ page }) => {
+test('retained PDF evidence renders both pages of the cited PDF from the authenticated blob', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('lazy-ocr-evidence'));
   const imported = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=documents`, {
     multipart: { files: { name: 'source.pdf', mimeType: 'application/pdf', buffer: textPdf([
@@ -70,10 +70,10 @@ test('retained PDF evidence renders its two pages lazily through the authenticat
   const sheet = sheets.find((candidate: { name: string }) => candidate.name === 'documents');
   seedLazyEvidence(pid, sheet.id);
   const columns = await sheetColumns(page.request, pid, sheet.id);
-  const pageResponses: string[] = [];
+  const blobResponses: string[] = [];
   page.on('response', (response) => {
-    if (response.url().includes('/pages/') && response.url().endsWith('/image') && response.ok()) {
-      pageResponses.push(response.url());
+    if (response.url().includes(`/api/projects/${pid}/blobs/`) && response.ok()) {
+      blobResponses.push(response.url());
     }
   });
 
@@ -82,31 +82,12 @@ test('retained PDF evidence renders its two pages lazily through the authenticat
   await page.getByTestId('cell-evidence-open-Text').click();
   const viewer = page.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
-  const pages = viewer.getByTestId('evidence-page');
+  const pdf = viewer.getByRole('document', { name: 'Cited PDF: source.pdf' });
+  await expect(pdf.getByTestId('document-pdf')).toHaveAttribute('data-page-count', '2', { timeout: 20_000 });
+  const pages = pdf.getByTestId('document-pdf-page');
   await expect(pages).toHaveCount(2);
-  const page1 = pages.filter({ hasText: 'Page 1' });
-  await page1.evaluate((node) => node.scrollIntoView());
-  const image1 = page1.getByTestId('evidence-page-image');
-  await expect(image1).toBeVisible();
-  await expect.poll(() => image1.evaluate((node) => ({
-    loaded: (node as HTMLImageElement).complete
-      && (node as HTMLImageElement).naturalWidth > 0,
-    source: (node as HTMLImageElement).src,
-  }))).toEqual(expect.objectContaining({
-    loaded: true, source: expect.stringContaining('/pages/1/image'),
-  }));
-  await expect.poll(() => pageResponses.some((url) => url.includes('/pages/1/image'))).toBe(true);
-
-  const page2 = pages.filter({ hasText: 'Page 2' });
-  await page2.evaluate((node) => node.scrollIntoView());
-  const image2 = page2.getByTestId('evidence-page-image');
-  await expect(image2).toBeVisible();
-  await expect.poll(() => image2.evaluate((node) => ({
-    loaded: (node as HTMLImageElement).complete
-      && (node as HTMLImageElement).naturalWidth > 0,
-    source: (node as HTMLImageElement).src,
-  }))).toEqual(expect.objectContaining({
-    loaded: true, source: expect.stringContaining('/pages/2/image'),
-  }));
-  await expect.poll(() => pageResponses.some((url) => url.includes('/pages/2/image'))).toBe(true);
+  await expect(pages.nth(0).getByText('Page one', { exact: true })).toBeVisible();
+  expect(blobResponses.length).toBeGreaterThan(0);
+  await pages.nth(1).scrollIntoViewIfNeeded();
+  await expect(pages.nth(1).getByText('Page two', { exact: true })).toBeVisible();
 });

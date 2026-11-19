@@ -44,15 +44,11 @@ test('PDF table extraction queues media.extract_pdf_tables for selected file row
   await openProject(page, pid, sheetId);
   await selectRow(page, 0);
   await openAction(page, 'media.extract_pdf_tables');
-  // Exactly ONE
-  // column field renders — the generic media-source picker (backend
-  // source_requirements, label "PDF column"), not a second bespoke
-  // `field-input_column`.
+  // Exactly one column field renders: the generic media-source picker driven
+  // by the action's source requirements.
   await expect(page.getByTestId('field-input_column')).toHaveCount(0);
   await expect(page.getByTestId('field-source')).toHaveValue('document');
   await page.getByTestId('field-output-pdf_tables').fill('bid_tables');
-  // A10: `shape_policy` (dead, single fixed choice) is gone; `table_mode`
-  // (auto|stream|lattice) replaces it.
   await page.getByTestId('field-table_mode').selectOption('lattice');
   await page.getByTestId('generated-action-run').click();
 
@@ -68,8 +64,8 @@ test('PDF table extraction queues media.extract_pdf_tables for selected file row
     source: 'document',
     mode: 'extract_table',
     table_mode: 'lattice',
-    extract_table: {},
   });
+  expect(params).not.toHaveProperty('extract_table');
   expect(params).not.toHaveProperty('target_sheet_name');
   expect(params).not.toHaveProperty('source_columns');
 
