@@ -16,17 +16,18 @@ const FIELD_TYPES: readonly ExtractField['type'][] = [
   'text', 'score', 'integer', 'number', 'boolean', 'category', 'date', 'list', 'json',
 ];
 
-function ExtractFieldsEditor({ fields, onChange, optional = false,
+function ExtractFieldsEditor({ fields, onChange, optional = false, error,
   structureLocked = false, lockReason }: {
   fields: ExtractField[];
   onChange(fields: ExtractField[]): void;
   optional?: boolean;
+  error?: string;
   structureLocked?: boolean;
   lockReason?: string;
 }) {
   return <StructuredFieldsEditor actionKind={optional ? 'map.find' : 'map.extract'}
     fieldTypes={FIELD_TYPES} maxFields={optional ? 63 : 64} minFields={optional ? 0 : 1}
-    structureLocked={structureLocked} lockReason={lockReason}
+    structureLocked={structureLocked} lockReason={lockReason} error={error}
     value={fields.map((field) => ({
       name: field.name, type: field.type, description: field.description ?? '',
       ...(field.labels?.length ? { labels: field.labels } : {}),
@@ -82,8 +83,7 @@ export function ExtractParamsBody({ params, setParams, errors, Field, engine,
     {engine?.description && <p className="form-hint">{engine.description}</p>}
     <ExtractFieldsEditor fields={params.fields ?? []}
       structureLocked={structureLocked} lockReason={lockReason}
-      onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
+      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
     <Field name="instruction" />
     <Field name="include_confidence" />
     <label className="field-group form-field">
@@ -119,8 +119,7 @@ export function FindParamsBody({ params, setParams, errors, Field,
     <Field name="instruction" />
     <ExtractFieldsEditor fields={params.fields ?? []} optional
       structureLocked={structureLocked} lockReason={lockReason}
-      onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
+      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
     <Field name="model" />
   </>;
 }
@@ -142,8 +141,7 @@ export function McpExtractParamsBody({ params, setParams, errors, Field,
     <Field name="source" />
     <ExtractFieldsEditor fields={params.fields ?? []}
       structureLocked={structureLocked} lockReason={lockReason}
-      onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
+      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
     <Field name="instruction" />
     <McpToolsSelector servers={servers} mcpServerIds={params.mcp_server_ids ?? []}
       onMcpServerIdsChange={(mcp_server_ids) => setParams({ ...params, mcp_server_ids })} />
@@ -164,8 +162,7 @@ export function ResearchExtractParamsBody({ params, setParams, errors, Field,
     <Field name="question" />
     <ExtractFieldsEditor fields={params.fields ?? []}
       structureLocked={structureLocked} lockReason={lockReason}
-      onChange={(fields) => setParams({ ...params, fields })} />
-    {errors.fields?.message && <p className="panel-error" role="alert">{errors.fields.message}</p>}
+      error={errors.fields?.message} onChange={(fields) => setParams({ ...params, fields })} />
     <Field name="model" />
     <Field name="include_confidence" />
     <Field name="include_sources" />

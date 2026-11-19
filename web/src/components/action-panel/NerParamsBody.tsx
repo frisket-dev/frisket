@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { NerEngineFields } from './NerEngineFields';
+import { useEditorProblem } from './useEditorProblem';
 import { nerLabelsOk, normalizeSpacyLabels } from './nerLabelModel';
 
 export function NerParamsBody({
@@ -36,10 +37,7 @@ export function NerParamsBody({
   const labelsProblem = engine === 'spacy' && (params.labels?.length ?? 0) > 0
     && !nerLabelsOk(engine, params.labels ?? [])
     ? 'Pick at least one entity type.' : null;
-  useEffect(() => {
-    setEditorProblem?.(labelsProblem);
-    return () => setEditorProblem?.(null);
-  }, [labelsProblem, setEditorProblem]);
+  useEditorProblem(setEditorProblem, labelsProblem);
 
   return <>
     <Field name="source" />

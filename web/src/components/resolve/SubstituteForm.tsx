@@ -26,6 +26,7 @@ import { Plus, X } from 'lucide-react';
 import { PanelSelect } from '../PanelSelect';
 import { SegmentedToggle } from '../PanelPrimitives';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import {
   useColumnValuesPreview,
 } from './useColumnValuesPreview';
@@ -206,17 +207,14 @@ function TargetEditor({
   );
 }
 
-export function SubstituteForm(props: SubstituteFormProps) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <SubstituteFormForSheet {...props} sheet={props.sheet} />;
-}
+export const SubstituteForm = sheetRequired(SubstituteFormForSheet);
 
 function SubstituteFormForSheet({
   sheet,
   params: canonical,
   setParams,
   Field,
-}: SubstituteFormProps & { sheet: NonNullable<SubstituteFormProps['sheet']> }) {
+}: SheetBoundParamsBodyProps<'resolve.substitute'>) {
   const canonicalMapping = canonical?.mapping
     && typeof canonical.mapping === 'object'
     && !Array.isArray(canonical.mapping)

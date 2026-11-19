@@ -24,6 +24,7 @@ import {
 } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import './replace-form.css';
 
 type ReplaceFormProps = GeneratedActionParamsBodyProps<'resolve.replace'>;
@@ -115,17 +116,14 @@ function sameEval(a: SentRule, b: SentRule): boolean {
   );
 }
 
-export function ReplaceForm(props: ReplaceFormProps) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <ReplaceFormForSheet {...props} sheet={props.sheet} />;
-}
+export const ReplaceForm = sheetRequired(ReplaceFormForSheet);
 
 function ReplaceFormForSheet({
   sheet,
   params: canonical,
   setParams,
   Field,
-}: ReplaceFormProps & { sheet: NonNullable<ReplaceFormProps['sheet']> }) {
+}: SheetBoundParamsBodyProps<'resolve.replace'>) {
   const { projectApi: api } = useWorkspaceStores();
   const canonicalRuleCount = Array.isArray(canonical?.rules)
     ? canonical.rules.length

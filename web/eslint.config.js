@@ -121,6 +121,12 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      'react-refresh/only-export-components': ['error', {
+        allowConstantExport: true,
+        extraHOCs: ['sheetRequired'],
+      }],
+    },
   },
   // Boundary rules for the workspace state substrate: core/ is framework-free.
   {

@@ -6,18 +6,13 @@ import { Button } from '../Button';
 import { useEffect } from 'react';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
-import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
+import { useEditorProblem } from './useEditorProblem';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
-export function SemanticJoinParamsBody(props: GeneratedActionParamsBodyProps<'join.semantic'>) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <SemanticJoinParamsBodyForSheet {...props} sheet={props.sheet} />;
-}
+export const SemanticJoinParamsBody = sheetRequired(SemanticJoinParamsBodyForSheet);
 
-function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }:
-  GeneratedActionParamsBodyProps<'join.semantic'> & {
-    sheet: NonNullable<GeneratedActionParamsBodyProps<'join.semantic'>['sheet']>;
-  }) {
+function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }: SheetBoundParamsBodyProps<'join.semantic'>) {
   const { sheets, loading, error, refresh } = useJoinSheets(sheet);
   const blocked = loading || Boolean(error);
   const primary = sheets.find((item) => item.id === sheet.id) ?? sheet;
@@ -38,11 +33,8 @@ function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, s
       column: names.get('target') ?? params.target.column } }),
     ...(params.carry == null ? {} : { carry: carry.map((name, index) => names.get(`carry-${index}`) ?? name) }),
   }));
-  useEffect(() => {
-    setEditorProblem?.(loading ? 'Loading join source sheets…' : error
-      ?? (!target ? 'Choose an available target sheet.' : missing.length ? 'Repair missing join sources.' : null));
-    return () => setEditorProblem?.(null);
-  }, [loading, error, target, missing.length, setEditorProblem]);
+  useEditorProblem(setEditorProblem, loading ? 'Loading join source sheets…' : error
+    ?? (!target ? 'Choose an available target sheet.' : missing.length ? 'Repair missing join sources.' : null));
   return <div className="action-io-summary" data-testid="semantic-join-form">
     <Button type="button" className="btn-ghost" data-testid="semantic-join-refresh-sheets"
       onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>

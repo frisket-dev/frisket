@@ -9,18 +9,13 @@ import '../EditorRows.css';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
 import { ToggleRow } from '../PanelPrimitives';
-import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
+import { useEditorProblem } from './useEditorProblem';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
-export function JoinParamsBody(props: GeneratedActionParamsBodyProps<'derive.join'>) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <JoinParamsBodyForSheet {...props} sheet={props.sheet} />;
-}
+export const JoinParamsBody = sheetRequired(JoinParamsBodyForSheet);
 
-function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }:
-  GeneratedActionParamsBodyProps<'derive.join'> & {
-    sheet: NonNullable<GeneratedActionParamsBodyProps<'derive.join'>['sheet']>;
-  }) {
+function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }: SheetBoundParamsBodyProps<'derive.join'>) {
   const { sheets, loading, error, refresh } = useJoinSheets(sheet);
   const blocked = loading || Boolean(error);
   const left = sheets.find((item) => item.id === sheet.id) ?? sheet;
@@ -61,11 +56,8 @@ function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Fi
     [next[index], next[index + delta]] = [next[index + delta], next[index]];
     setParams({ ...params, columns: next });
   };
-  useEffect(() => {
-    setEditorProblem?.(loading ? 'Loading join source sheets…' : error
-      ?? (!right ? 'Choose an available right sheet.' : missing.length ? 'Repair missing join sources.' : null));
-    return () => setEditorProblem?.(null);
-  }, [loading, error, right, missing.length, setEditorProblem]);
+  useEditorProblem(setEditorProblem, loading ? 'Loading join source sheets…' : error
+    ?? (!right ? 'Choose an available right sheet.' : missing.length ? 'Repair missing join sources.' : null));
   return <div className="form-stack" data-testid="tabular-join-form">
     <Button type="button" className="btn-ghost" data-testid="tabular-join-refresh-sheets"
       onClick={refresh}>{error ? 'Retry' : 'Refresh sheets'}</Button>
