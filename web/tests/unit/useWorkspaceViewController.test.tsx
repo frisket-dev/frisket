@@ -65,4 +65,16 @@ describe('work view switch', () => {
     act(() => result.current.setWorkView('grid'));
     expect(stores.selection.store.get().selectedRows).toEqual(selected);
   });
+
+  it('keeps the row selection when switching to the Document view and back', () => {
+    const selected = { sheetId: 'sheet-1', rowIds: ['r1', 'r3'], rowIndexes: [0, 2] };
+    stores.selection.setSelectedRows(selected);
+    const { result } = renderController();
+
+    act(() => result.current.setWorkView('document'));
+    expect(stores.selection.store.get().selectedRows).toEqual(selected);
+
+    act(() => result.current.setWorkView('grid'));
+    expect(stores.selection.store.get().selectedRows).toEqual(selected);
+  });
 });
