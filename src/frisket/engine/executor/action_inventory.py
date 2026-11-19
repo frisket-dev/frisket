@@ -8,7 +8,7 @@ from typing import Any, BinaryIO, Callable, ContextManager, Literal, Mapping, Pr
 
 from pydantic import BaseModel
 
-from frisket.actions.types import EmailInput
+from frisket.actions.types import EmailInput, ProjectScope, SheetRows
 from frisket.contracts.action import (
     ActionError,
     ActionResult,
@@ -55,7 +55,7 @@ class _TypedProjectEnvelope:
     kind: str
     idempotency_key: str
     params: Mapping[str, Any]
-    row_scope: None = None
+    row_scope: ProjectScope | SheetRows | None = None
     confirmation: str | None = None
 
 

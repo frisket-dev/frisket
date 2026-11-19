@@ -10,7 +10,7 @@ import secrets
 import shutil
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, Sequence
 
 from filelock import BaseFileLock, FileLock
 
@@ -180,7 +180,7 @@ def compact_terminal_inventory(directory: Path) -> None:
 def append_inventory_batch(
     inventory: ImportInventory,
     batch_id: str,
-    items: list[Mapping[str, Any]],
+    items: Sequence[Mapping[str, Any]],
 ) -> tuple[int, bool]:
     """Atomically append one bounded batch and its retry marker.
 
@@ -236,7 +236,7 @@ def append_inventory_batch(
 
 
 def inventory_batch_through(
-    inventory: ImportInventory, batch_id: str, items: list[Mapping[str, Any]]
+    inventory: ImportInventory, batch_id: str, items: Sequence[Mapping[str, Any]]
 ) -> int | None:
     """Return a matching bounded retry marker; reject batch-id payload changes."""
 
@@ -258,7 +258,7 @@ def inventory_batch_through(
     return int(existing["through_ordinal"])
 
 
-def _batch_payload_hash(items: list[Mapping[str, Any]]) -> str:
+def _batch_payload_hash(items: Sequence[Mapping[str, Any]]) -> str:
     payload = json.dumps(
         [dict(item) for item in items],
         sort_keys=True,

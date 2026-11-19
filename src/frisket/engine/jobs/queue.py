@@ -35,9 +35,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.event import listens_for
 from filelock import FileLock
 
 from frisket.project_identity import ProjectStorageKey
@@ -174,6 +176,14 @@ def _now() -> datetime:
 def _iso(dt: datetime) -> str:
     # fixed-width microseconds so ISO strings compare correctly in SQL
     return dt.isoformat(timespec="microseconds")
+
+
+@overload
+def _parse(ts: str | datetime) -> datetime: ...
+
+
+@overload
+def _parse(ts: None) -> None: ...
 
 
 def _parse(ts: str | datetime | None) -> datetime | None:
@@ -566,14 +576,14 @@ def _install_sqlite_begin_immediate(engine: sa.engine.Engine) -> None:
     reintroduces a cold-boot race.  In-memory engines intentionally skip WAL.
     """
 
-    @sa.event.listens_for(engine, "connect")
+    @listens_for(engine, "connect")
     def _configure(dbapi_connection, _record):  # pragma: no cover - trivial
         dbapi_connection.isolation_level = None
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA busy_timeout=10000")
         cursor.close()
 
-    @sa.event.listens_for(engine, "begin")
+    @listens_for(engine, "begin")
     def _begin(connection):  # pragma: no cover - trivial
         if connection.get_execution_options().get(_SQLITE_BEGIN_IMMEDIATE_OPT):
             connection.exec_driver_sql("BEGIN IMMEDIATE")
@@ -868,7 +878,7 @@ class JobQueue:
                     )
                 )
                 return inserted_id(inserted)
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             # Return the concurrent winner of the active-job dedupe race.
             if refs["dedupe_key"] is None or refs["project_id"] is None:
                 raise
@@ -965,7 +975,7 @@ class JobQueue:
                         claimed_at=now,
                     )
                 )
-        except sa.exc.OperationalError:
+        except OperationalError:
             if self._is_sqlite:
                 return None  # lock contention past busy_timeout — poll again
             raise

@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import sqlalchemy as sa
+from sqlalchemy.exc import SQLAlchemyError
 
 from frisket.execution.attempt import TERMINAL_ATTEMPT_STATES
 
@@ -268,7 +269,7 @@ def inspect_base_reset_drain(
     report = _empty_report()
     try:
         jobs_by_status, authorities = _queue_counts(queue_locator)
-    except (OSError, RuntimeError, ValueError, sa.exc.SQLAlchemyError):
+    except (OSError, RuntimeError, ValueError, SQLAlchemyError):
         report["errors"].append({"scope": "queue", "code": "queue_inspection_failed"})
     else:
         report["queue"] = {

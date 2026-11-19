@@ -1222,23 +1222,23 @@ def _run_bounded(
             if stdin_path is not None
             else None
         )
-        popen_kwargs: dict[str, Any] = {
-            "cwd": scratch,
-            "env": _adapter_env(scratch),
+        proc = subprocess.Popen(  # noqa: S603
+            supervised_argv,
+            cwd=scratch,
+            env=_adapter_env(scratch),
             # A regular inherited descriptor remains seekable. This lets
             # ffprobe use its fd-only protocol without learning the blob path
             # or gaining access to file/network protocols.
-            "stdin": input_source if input_source is not None else subprocess.DEVNULL,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "shell": False,
-            "close_fds": True,
-        }
-        if os.name == "nt":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            popen_kwargs["start_new_session"] = True
-        proc = subprocess.Popen(supervised_argv, **popen_kwargs)  # noqa: S603
+            stdin=input_source if input_source is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=False,
+            close_fds=True,
+            creationflags=(
+                subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            ),
+            start_new_session=os.name != "nt",
+        )
         try:
             # The shared controller gives native Windows a fail-closed Job
             # Object and gives every POSIX host a process-group identity that
@@ -2410,8 +2410,8 @@ def _hdr_side_data_summaries(
 
 def _stream_disposition(stream: Mapping[str, Any]) -> dict[str, bool]:
     raw = (
-        stream.get("disposition")
-        if isinstance(stream.get("disposition"), Mapping)
+        stream_disposition
+        if isinstance(stream_disposition := stream.get("disposition"), Mapping)
         else {}
     )
     return {
@@ -2422,7 +2422,7 @@ def _stream_disposition(stream: Mapping[str, Any]) -> dict[str, bool]:
 
 
 def _stream_rotation_candidate(stream: Mapping[str, Any]) -> Any:
-    tags = stream.get("tags") if isinstance(stream.get("tags"), Mapping) else {}
+    tags = stream_tags if isinstance(stream_tags := stream.get("tags"), Mapping) else {}
     candidate = tags.get("rotate")
     if candidate is None:
         side_data = stream.get("side_data_list")
@@ -2671,7 +2671,7 @@ def _artwork_descriptor_from_stream(
         return None
     codec = normalize_metadata_string(stream.get("codec") or "", maximum=64).lower()
     mime = MEDIA_METADATA_FORMAT_REGISTRY["artwork_codec_mimes"].get(codec)
-    tags = stream.get("tags") if isinstance(stream.get("tags"), Mapping) else {}
+    tags = stream_tags if isinstance(stream_tags := stream.get("tags"), Mapping) else {}
     description = next(
         (
             normalize_metadata_string(value, maximum=1024).strip()
@@ -2854,11 +2854,13 @@ def _ffprobe_adapter(
                 )
             ],
         )
-    raw_streams = body.get("streams") if isinstance(body.get("streams"), list) else []
+    raw_streams = (
+        body_streams if isinstance(body_streams := body.get("streams"), list) else []
+    )
     streams: list[Mapping[str, Any]] = [
         stream for stream in raw_streams if isinstance(stream, Mapping)
     ]
-    fmt = body.get("format") if isinstance(body.get("format"), Mapping) else {}
+    fmt = body_format if isinstance(body_format := body.get("format"), Mapping) else {}
     omitted = _empty_omitted()
     warnings: list[dict[str, Any]] = []
     tag_budget = {"seen": 0}
@@ -3050,7 +3052,7 @@ def _ffprobe_adapter(
     )
     chapters: list[dict[str, Any]] = []
     raw_chapters = (
-        body.get("chapters") if isinstance(body.get("chapters"), list) else []
+        body_chapters if isinstance(body_chapters := body.get("chapters"), list) else []
     )
     for position, chapter in enumerate(raw_chapters):
         if not isinstance(chapter, Mapping):
@@ -3264,7 +3266,11 @@ def _pypdf_adapter(
             ],
         )
     omitted = _empty_omitted()
-    metadata = body.get("metadata") if isinstance(body.get("metadata"), Mapping) else {}
+    metadata = (
+        body_metadata
+        if isinstance(body_metadata := body.get("metadata"), Mapping)
+        else {}
+    )
     source: dict[str, Any] = {}
     key_map = {
         "/Title": "title",
@@ -3289,7 +3295,7 @@ def _pypdf_adapter(
     source["encrypted"] = encrypted
     page_count = _integer(body.get("page_count"))
     source["page_count"] = page_count
-    pages = body.get("pages") if isinstance(body.get("pages"), list) else []
+    pages = body_pages if isinstance(body_pages := body.get("pages"), list) else []
     page_descriptors: list[dict[str, Any]] = []
     bounded_pages = pages[:MAX_PAGE_DESCRIPTORS]
     for position, page in enumerate(bounded_pages):
@@ -3957,7 +3963,9 @@ def _normalize(
         lineage["fields"]["format"] = _lineage_entry("sources.blob.detected_format")
         lineage["fields"]["mime"] = _lineage_entry("sources.blob.detected_mime")
     streams = (
-        structure.get("streams") if isinstance(structure.get("streams"), list) else []
+        structure_streams
+        if isinstance(structure_streams := structure.get("streams"), list)
+        else []
     )
     primary_audio = _primary_stream(streams, "audio")
     primary_video = _primary_stream(streams, "video")
@@ -4387,8 +4395,8 @@ def _normalize(
         )
     if kind == "pdf":
         pages = (
-            structure.get("pages")
-            if isinstance(structure.get("pages"), Mapping)
+            structure_pages
+            if isinstance(structure_pages := structure.get("pages"), Mapping)
             else {}
         )
         normalized["page_count"] = _integer(pages.get("count"))
@@ -5323,7 +5331,9 @@ def extract_media_metadata(
 
     normalization_reserved_values = 2 + (3 if recognition else 0)
     reservable_streams = (
-        structure.get("streams") if isinstance(structure.get("streams"), list) else []
+        structure_streams
+        if isinstance(structure_streams := structure.get("streams"), list)
+        else []
     )
     normalization_reserved_values += int(
         _primary_stream(reservable_streams, "audio") is not None
@@ -5503,8 +5513,8 @@ def projection_values(envelope: Mapping[str, Any]) -> dict[str, Any]:
     """Return all 23 typed values plus the byte-equivalent details object."""
 
     normalized = (
-        envelope.get("normalized")
-        if isinstance(envelope.get("normalized"), Mapping)
+        envelope_normalized
+        if isinstance(envelope_normalized := envelope.get("normalized"), Mapping)
         else {}
     )
     return {

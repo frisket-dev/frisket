@@ -5,13 +5,14 @@ from __future__ import annotations
 from frisket.engine.store.transactions import inserted_rowid
 import json
 import logging
-from typing import Any, Mapping
+from typing import Any, Mapping, TypeGuard
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.mutations import COLUMN_DISPLAY_FORMATS
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import (
     AcceptedReplayColumn,
+    require_sheet_rows,
     AcceptedReplayValue,
     CellEditor,
     ColumnCreator,
@@ -483,8 +484,7 @@ class _RowsAppender(_CallOnce):
         source: Mapping[str, Any],
     ) -> AppendedRows:
         self._begin()
-        scope = self._action.row_scope
-        sheet_id = int(scope.sheet_id)
+        sheet_id = require_sheet_rows(self._action.row_scope).sheet_id
         sheet = self._cur.execute(
             "SELECT id,parent_sheet_id FROM sheets WHERE id=? AND hidden=0", (sheet_id,)
         ).fetchone()
@@ -1187,7 +1187,9 @@ _CAPABILITY_IMPL = {
 }
 
 
-def supports_typed_mutation_action(terminal: object) -> bool:
+def supports_typed_mutation_action(
+    terminal: object,
+) -> TypeGuard[_ProjectAction]:
     from frisket.engine.executor.review_replay_action import CAPABILITY_IMPL
 
     return isinstance(terminal, _ProjectAction) and any(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, TypeGuard
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
@@ -199,7 +199,7 @@ _CAPABILITY_OPERATION = {
 }
 
 
-def supports_typed_feed_action(terminal: object) -> bool:
+def supports_typed_feed_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and any(
         terminal.capabilities == (cap,) for cap in _CAPABILITY_IMPL
     )

@@ -21,12 +21,13 @@ to the same row via ``pull_id``).
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, fields, replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any
 from collections.abc import Iterator
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from frisket.engine.jobs.queue import (
     _now,
@@ -174,18 +175,32 @@ def _truncate(text: str | None, limit: int = MAX_ERROR_MESSAGE_LENGTH) -> str | 
     return clean[: limit - 1].rstrip() + "…"
 
 
-_DATETIME_FIELDS = frozenset(
-    {"cancel_requested_at", "created_at", "started_at", "finished_at"}
-)
-
-
 def _row(raw: Any) -> ModelPullRow:
     return ModelPullRow(
-        **{
-            f.name: _parse(value) if f.name in _DATETIME_FIELDS else value
-            for f in fields(ModelPullRow)
-            for value in (getattr(raw, f.name),)
-        }
+        id=raw.id,
+        workspace_root=raw.workspace_root,
+        model_ref=raw.model_ref,
+        status=raw.status,
+        job_id=raw.job_id,
+        phase=raw.phase,
+        total_bytes=raw.total_bytes,
+        completed_bytes=raw.completed_bytes,
+        error_code=raw.error_code,
+        error_message=raw.error_message,
+        correlation_id=raw.correlation_id,
+        resolved_digest=raw.resolved_digest,
+        resolved_size=raw.resolved_size,
+        cancel_requested_at=_parse(raw.cancel_requested_at),
+        created_at=_parse(raw.created_at),
+        started_at=_parse(raw.started_at),
+        finished_at=_parse(raw.finished_at),
+        endpoint_origin=raw.endpoint_origin,
+        endpoint_id=raw.endpoint_id,
+        initiated_by=raw.initiated_by,
+        artifact_kind=raw.artifact_kind,
+        artifact_source_url=raw.artifact_source_url,
+        artifact_license=raw.artifact_license,
+        artifact_manifest_version=raw.artifact_manifest_version,
     )
 
 
@@ -428,7 +443,7 @@ def create_or_get_active(
                     )
                 )
                 new_id = inserted_id(result)
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             same_ref = _active_row(
                 engine, workspace_root=workspace_root, model_ref=model_ref
             )

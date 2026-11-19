@@ -14,7 +14,12 @@ from typing import Any, BinaryIO, cast
 from frisket.actions.types import PdfDocument, PdfPage, StagedFile, TableError
 from frisket.engine.executor.local_file_read import _ReadOnlyBinary
 from frisket.engine.store.blob_backend import ProjectBlobStore, validate_blob_digest
-from frisket.engine.store.import_blobs import ImportBlob, ImportBlobCell, ImportBlobPlan
+from frisket.engine.store.import_blobs import (
+    ImportBlob,
+    ImportBlobCell,
+    ImportBlobPlan,
+    PacketPages,
+)
 from frisket.engine.store.prepared_content import PreparedPageDraft
 from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
@@ -310,10 +315,12 @@ class AdmittedImportBlobStager:
         )
         self._manifest[child] = replace(
             derived,
-            packet_source_id=source.occurrence_id,
-            packet_page_start=page_start,
-            packet_page_end=page_end,
-            packet_sibling_count=sibling_count,
+            packet=PacketPages(
+                source_id=source.occurrence_id,
+                page_start=page_start,
+                page_end=page_end,
+                sibling_count=sibling_count,
+            ),
             prepared_pages=tuple(drafts),
             prepared_engine=engine,
             prepared_token_granularity=token_granularity,

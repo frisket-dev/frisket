@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Mapping, Sequence
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from frisket.engine.jobs.queue import (
     _now,
@@ -267,7 +268,7 @@ class SearchPreparationStore:
         try:
             with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             existing = (
                 self._for_intent(
                     storage_org_id=storage_org_id,
@@ -319,7 +320,7 @@ class SearchPreparationStore:
         try:
             with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             existing = self._for_intent(
                 storage_org_id=storage_org_id,
                 project_id=project_id,
@@ -413,7 +414,7 @@ class SearchPreparationStore:
                                 updated_at=_now(),
                             )
                         )
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             # Concurrent PostgreSQL insertion has the same durable identity;
             # SQLite's BEGIN IMMEDIATE already serializes this boundary.
             existing_batch = self._for_intent(
@@ -462,7 +463,7 @@ class SearchPreparationStore:
         try:
             with engine_write_transaction(self.engine) as cx:
                 cx.execute(search_preparation_batches_table.insert().values(**values))
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             existing = self._for_intent(
                 storage_org_id=storage_org_id,
                 project_id=project_id,

@@ -29,6 +29,7 @@ from frisket.engine.store.import_blobs import (
     ImportBlob,
     ImportBlobCell,
     ImportBlobPlan,
+    PacketPages,
     prepare_import_blobs,
 )
 from frisket.engine.store.import_intake import (
@@ -399,10 +400,12 @@ def _source_plan(
                 provider=source.get("provider"),
                 owner=project.blob_store if child.get("keep_original") else None,
                 preserve_original=bool(child.get("keep_original")),
-                packet_source_id=0,
-                packet_page_start=start,
-                packet_page_end=end,
-                packet_sibling_count=len(source["children"]),
+                packet=PacketPages(
+                    source_id=0,
+                    page_start=start,
+                    page_end=end,
+                    sibling_count=len(source["children"]),
+                ),
                 prepared_column_name=roles["text"],
                 prepared_pages=tuple(page_drafts),
                 prepared_source_ref_id=source.get("prepared_ref_id"),

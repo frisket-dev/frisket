@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
 from frisket.actions.core import _ProjectAction
@@ -36,7 +36,7 @@ from frisket.plugins.load_validation import (
 )
 
 
-def supports_typed_plugin_load_action(terminal: Any) -> bool:
+def supports_typed_plugin_load_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         PluginManifestLoader,
     )

@@ -27,6 +27,16 @@ from frisket.engine.store.grounding import normalize_bbox
 
 
 @dataclass(frozen=True)
+class PacketPages:
+    """The page range a packet split child takes from its source document."""
+
+    source_id: int
+    page_start: int
+    page_end: int
+    sibling_count: int
+
+
+@dataclass(frozen=True)
 class ImportBlob:
     occurrence_id: int
     path: Path | None
@@ -47,10 +57,7 @@ class ImportBlob:
     owner: ProjectBlobStore | None = field(default=None, repr=False, compare=False)
     occurrence_ref: dict[str, Any] | None = None
     page_count: int | None = None
-    packet_source_id: int | None = None
-    packet_page_start: int | None = None
-    packet_page_end: int | None = None
-    packet_sibling_count: int | None = None
+    packet: PacketPages | None = None
     prepared_pages: tuple[PreparedPageDraft, ...] = ()
     prepared_engine: str | None = None
     prepared_token_granularity: str | None = None
@@ -112,18 +119,19 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
                 raise ValueError("invalid staged PDF page association")
             if blob.role == "document_page" and blob.path is not None:
                 raise ValueError("native PDF page reference must not duplicate bytes")
-        if blob.packet_source_id is not None:
-            source = records.get(blob.packet_source_id)
+        packet = blob.packet
+        if packet is not None:
+            source = records.get(packet.source_id)
             if (
                 source is None
                 or source.role != "document"
                 or blob.role != "attachment"
-                or type(blob.packet_page_start) is not int
-                or type(blob.packet_page_end) is not int
-                or blob.packet_page_start < 1
-                or blob.packet_page_end < blob.packet_page_start
+                or type(packet.page_start) is not int
+                or type(packet.page_end) is not int
+                or packet.page_start < 1
+                or packet.page_end < packet.page_start
                 or source.page_count is None
-                or blob.packet_page_end > source.page_count
+                or packet.page_end > source.page_count
             ):
                 raise ValueError("invalid staged packet split association")
     return records
@@ -248,7 +256,8 @@ def publish_import_blobs(
 
     packet_artifacts: dict[int, dict[str, Any]] = {}
     for blob in plan.blobs:
-        if blob.packet_source_id is None:
+        packet = blob.packet
+        if packet is None:
             continue
         cell = next(
             (cell for cell in plan.cells if cell.occurrence_id == blob.occurrence_id),
@@ -263,7 +272,7 @@ def publish_import_blobs(
             media_type=blob.mime,
             blob_hash=blob.digest,
             filename=blob.filename,
-            page_count=int(blob.packet_page_end) - int(blob.packet_page_start) + 1,
+            page_count=packet.page_end - packet.page_start + 1,
             source_sheet_id=sheet_id,
             source_row_id=cell.row_id,
             source_column_id=column_id,
@@ -316,11 +325,12 @@ def publish_import_blobs(
     for blob in plan.blobs:
         if not blob.prepared_pages and blob.prepared_source_ref_id is None:
             continue
+        packet = blob.packet
         artifact = packet_artifacts.get(blob.occurrence_id)
-        if artifact is None:
+        if packet is None or artifact is None:
             raise ValueError("prepared packet OCR has no child artifact")
         if blob.prepared_source_ref_id is not None:
-            source = records[blob.packet_source_id]
+            source = records[packet.source_id]
             original = project.db.execute(
                 "SELECT artifact.blob_hash FROM prepared_content_refs ref "
                 "JOIN prepared_content_sets content ON content.id=ref.set_id "
@@ -336,8 +346,8 @@ def publish_import_blobs(
                 base_ref_id=blob.prepared_source_ref_id,
                 source_artifact_id=int(artifact["id"]),
                 producing_op_id=op_id,
-                first_page=int(blob.packet_page_start),
-                last_page=int(blob.packet_page_end),
+                first_page=packet.page_start,
+                last_page=packet.page_end,
                 allow_partial=True,
             )
             if rebased is not None:
@@ -433,14 +443,15 @@ def publish_import_blobs(
         }
         if blob.source_url is not None:
             ref.update(source_url=blob.source_url, provider=blob.provider)
-        if blob.packet_source_id is not None:
-            source_artifact = artifacts[blob.packet_source_id]
-            page_start = int(blob.packet_page_start)
-            page_end = int(blob.packet_page_end)
+        packet = blob.packet
+        if packet is not None:
+            source_artifact = artifacts[packet.source_id]
+            page_start = packet.page_start
+            page_end = packet.page_end
             if not blob.preserve_original:
                 project.record_blob_derivation(
                     derived_hash=blob.digest,
-                    source_hash=records[blob.packet_source_id].digest,
+                    source_hash=records[packet.source_id].digest,
                     op="pdf_packet_split",
                     params={"page_start": page_start, "page_end": page_end},
                     commit=False,

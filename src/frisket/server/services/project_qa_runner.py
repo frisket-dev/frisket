@@ -15,10 +15,10 @@ if TYPE_CHECKING:
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, ModelRetry
-from pydantic_ai.exceptions import UnexpectedModelBehavior
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.instrumented import InstrumentationSettings
-from pydantic_ai.usage import UsageLimitExceeded, UsageLimits
+from pydantic_ai.usage import UsageLimits
 from pydantic_graph import End
 
 from frisket.ai.llm.structured import FrisketRouterModel
@@ -871,28 +871,28 @@ async def run_turn(
         )
         if instrumentation is not None:
             agent.instrument = instrumentation
-        agent.tool_plain(inspect_sheets, name="inspect_sheets")
-        agent.tool_plain(read_rows, name="read_rows")
-        agent.tool_plain(query_rows, name="query_rows")
-        agent.tool_plain(analytics, name="analytics")
-        agent.tool_plain(search_cells, name="search_cells")
-        agent.tool_plain(open_source, name="open_source")
-        agent.tool_plain(find_in_source, name="find_in_source")
-        agent.tool_plain(list_sources, name="list_sources")
+        agent.tool_plain(name="inspect_sheets")(inspect_sheets)
+        agent.tool_plain(name="read_rows")(read_rows)
+        agent.tool_plain(name="query_rows")(query_rows)
+        agent.tool_plain(name="analytics")(analytics)
+        agent.tool_plain(name="search_cells")(search_cells)
+        agent.tool_plain(name="open_source")(open_source)
+        agent.tool_plain(name="find_in_source")(find_in_source)
+        agent.tool_plain(name="list_sources")(list_sources)
         if turn["web"]:
-            agent.tool_plain(search_web, name="search_web", sequential=True)
-            agent.tool_plain(open_web_page, name="open_web_page")
+            agent.tool_plain(name="search_web", sequential=True)(search_web)
+            agent.tool_plain(name="open_web_page")(open_web_page)
         if turn["suggest_actions"] or execution is not None:
-            agent.tool_plain(search_actions, name="search_actions")
-            agent.tool_plain(describe_action, name="describe_action")
-            agent.tool_plain(propose_action, name="propose_action", sequential=True)
+            agent.tool_plain(name="search_actions")(search_actions)
+            agent.tool_plain(name="describe_action")(describe_action)
+            agent.tool_plain(name="propose_action", sequential=True)(propose_action)
         if execution is not None:
-            agent.tool_plain(prepare_action, name="prepare_action", sequential=True)
-            agent.tool_plain(execute_action, name="execute_action", sequential=True)
+            agent.tool_plain(name="prepare_action", sequential=True)(prepare_action)
+            agent.tool_plain(name="execute_action", sequential=True)(execute_action)
         if skill_authoring is not None:
-            agent.tool_plain(list_skills, name="list_skills")
-            agent.tool_plain(read_skill, name="read_skill")
-            agent.tool_plain(propose_skill, name="propose_skill", sequential=True)
+            agent.tool_plain(name="list_skills")(list_skills)
+            agent.tool_plain(name="read_skill")(read_skill)
+            agent.tool_plain(name="propose_skill", sequential=True)(propose_skill)
 
         @agent.output_validator
         def known_citations(

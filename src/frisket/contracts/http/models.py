@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Final, Literal, get_args
 
+from pydantic.config import JsonDict
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel
 
 from frisket.authoring.workbench.contracts import (
@@ -23,7 +24,7 @@ ACTION_JOB_SCHEMA_VERSION: Final[ActionJobSchemaVersion] = get_args(
 PROJECT_SCHEMA_VERSION = "frisket.project.v1"
 
 
-def _omit_query_defaults(schema: dict[str, object]) -> None:
+def _omit_query_defaults(schema: JsonDict) -> None:
     """Describe supplied query values; Python defaults are not wire values."""
 
     properties = schema.get("properties")
@@ -34,7 +35,7 @@ def _omit_query_defaults(schema: dict[str, object]) -> None:
             value.pop("default", None)
 
 
-def _omit_query_defaults_and_nulls(schema: dict[str, object]) -> None:
+def _omit_query_defaults_and_nulls(schema: JsonDict) -> None:
     """Strip defaults and null variants: ``None`` means an absent query value."""
 
     _omit_query_defaults(schema)

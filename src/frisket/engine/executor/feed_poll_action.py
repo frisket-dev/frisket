@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, TypeGuard
 
 from pydantic import TypeAdapter
 
@@ -62,7 +62,7 @@ from frisket.server.feeds.runtime import (
 logger = logging.getLogger("frisket.executor")
 
 
-def supports_typed_feed_poll_action(terminal: object) -> bool:
+def supports_typed_feed_poll_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and terminal.capabilities == (
         SourcePoller,
     )

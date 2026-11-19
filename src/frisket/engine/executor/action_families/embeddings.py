@@ -27,7 +27,7 @@ from functools import partial
 import asyncio
 import hashlib
 from contextlib import ExitStack
-from typing import Any
+from typing import Any, TypeGuard
 
 
 from frisket.engine.executor.action_inventory import _typed_params_envelope
@@ -3510,7 +3510,7 @@ class _IndexRefresher(_EmbeddingLifecycleCapability):
         )
 
 
-def supports_typed_embedding_action(terminal: object) -> bool:
+def supports_typed_embedding_action(terminal: object) -> TypeGuard[_ProjectAction]:
     return isinstance(terminal, _ProjectAction) and any(
         terminal.capabilities == (cap,)
         for cap in {
