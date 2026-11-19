@@ -104,6 +104,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils ffmpeg
       - run: uv sync --frozen --dev --extra standard --extra entities
       - run: uv run --no-sync python scripts/build_vec1.py
+      # The extras bring spaCy but not its pipeline; without the pinned model
+      # in the managed cache the entity action reports Setup needed.
+      - run: uv run --no-sync python scripts/e2e/fetch_spacy_model.py
       - run: npx playwright install --with-deps chromium
         working-directory: web
       # Test failures do not fail the shard: the verdict job judges them
