@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 
 from frisket.contracts.action import (
@@ -405,7 +405,10 @@ def _receipt_ops_are_applied(project: Any, op_ids: list[int]) -> bool:
     return all(by_id.get(op_id) == "applied" for op_id in op_ids)
 
 
-def receipt_status_from_failures(failed: int, total: int) -> str:
+FinishedWorkStatus = Literal["completed", "partial", "failed"]
+
+
+def receipt_status_from_failures(failed: int, total: int) -> FinishedWorkStatus:
     """A finished unit of work is failed when every item failed, else partial."""
     if total and failed >= total:
         return "failed"
