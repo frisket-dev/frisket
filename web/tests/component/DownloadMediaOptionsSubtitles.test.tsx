@@ -17,7 +17,7 @@ import { DownloadMediaOptions } from '../../src/components/action-panel/Download
 afterEach(cleanup);
 
 const bodyContext = {
-  sheet: sheetMeta([]), request: { scope: { kind: 'sheet_rows' as const, sheet_id: 1 } },
+  sheet: sheetMeta([]), request: { scope: { kind: 'sheet_rows' as const, sheet_id: 1 }, output_names: {} },
   errors: {}, Field: () => null,
 };
 type Params = GeneratedActionParams['media.ytdlp_download'];

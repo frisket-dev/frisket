@@ -33,5 +33,6 @@ export function ParamsBodyHarness<K extends keyof GeneratedActionParams>({
       </select>
     </label>
   ), [params, sheet.columns, updateParams]);
-  return <Body sheet={sheet} params={params} setParams={updateParams} errors={{}} Field={Field} />;
+  const request = { scope: { kind: 'sheet_rows' as const, sheet_id: Number(sheet.id) }, output_names: {} };
+  return <Body sheet={sheet} request={request} params={params} setParams={updateParams} errors={{}} Field={Field} />;
 }
