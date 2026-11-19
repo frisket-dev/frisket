@@ -1,8 +1,11 @@
 """The one owner of SQLite transaction boundaries for project stores."""
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from sqlite3 import Connection, Cursor
+
+_log = logging.getLogger(__name__)
 
 
 def inserted_rowid(cursor: Cursor) -> int:
@@ -60,3 +63,20 @@ def write_transaction(
     except BaseException:
         db.rollback()
         raise
+
+
+def roll_back_failed_work(db: Connection, *, before: str) -> None:
+    """End the transaction a failure handler inherited, before its own write.
+
+    A plain statement refused mid-way (``database is locked``) leaves the
+    implicit ``BEGIN`` that preceded it open, so the handler's owning write
+    would fail at its own ``BEGIN``. Failed work is rolled back, never
+    published. Only a handler whose work did not run inside a caller's
+    transaction may call this; one that did joins that transaction instead.
+    """
+    if db.in_transaction:
+        _log.warning(
+            "failed_work_rolled_back",
+            extra={"event": "failed_work_rolled_back", "before": before},
+        )
+        db.rollback()

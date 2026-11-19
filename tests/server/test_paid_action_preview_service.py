@@ -5,6 +5,7 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import hashlib
 import io
+import sqlite3
 import threading
 from dataclasses import replace
 
@@ -17,7 +18,9 @@ from frisket.contracts.http.action_preview_runs import ActionPreviewStatusRespon
 from frisket.engine.runner import MapRunner
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.server.services import action_preview_runs
 from frisket.server.services.action_preview_runs import ActionPreviewRunService
+import frisket.engine.runner.preview as preview_module
 from frisket.server.workspace import Workspace
 from frisket.preview.ocr import OcrComparePreviewError
 from tests.deterministic_time import controlled_time
@@ -443,6 +446,128 @@ def test_durable_scratch_receipt_prevents_rebuying_page_after_registry_restart(
             )
         finally:
             recovered._registry.shutdown()
+    finally:
+        service._registry.shutdown()
+        project.close()
+
+
+def test_refused_attempt_mint_fails_the_preview_receipt(tmp_path, monkeypatch):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    adapter = _Adapter()
+    service, project, body = _fixture(tmp_path, adapter)
+
+    class RefusedMint(RuntimeError):
+        pass
+
+    def refuse(self, **_kwargs):
+        raise RefusedMint("consent no longer covers this preview")
+
+    monkeypatch.setattr(action_preview_runs.AttemptAuthority, "mint", refuse)
+    try:
+        started = service.start_preview("paid", _confirm(service, body))
+        assert started.status_code == 202, started.payload
+        result = _wait(service, started.payload["preview_id"])
+
+        assert result["status"] == "error"
+        assert "consent no longer covers this preview" in str(result)
+        assert "requires a caller transaction" not in str(result)
+        receipt_id = result["accounting"]["receipt_id"]
+        assert ReceiptStore(project).parsed_by_id(receipt_id).status == "failed"
+        assert not adapter.calls
+    finally:
+        service._registry.shutdown()
+        project.close()
+
+
+def test_busy_row_write_still_records_row_outcomes_and_fails_receipt(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    adapter = _Adapter()
+    service, project, body = _fixture(tmp_path, adapter)
+
+    async def busy_row(*_args, **kwargs):
+        db = project.db
+        attempt = db.execute(
+            "SELECT id FROM execution_attempts WHERE state='dispatching'"
+        ).fetchone()
+        db.execute(
+            "INSERT OR IGNORE INTO attempt_row_authorizations "
+            "(attempt_id,row_id,quoted_quantity) VALUES (?,?,?)",
+            (attempt["id"], kwargs["row_id"], "1"),
+        )
+        db.commit()
+        db.execute("PRAGMA busy_timeout=50")
+        holder = sqlite3.connect(project.db_path, isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            db.execute("UPDATE sheets SET name=name")
+        finally:
+            holder.rollback()
+            holder.close()
+            db.execute("PRAGMA busy_timeout=10000")
+
+    monkeypatch.setattr(preview_module, "execute_row", busy_row)
+    try:
+        started = service.start_preview("paid", _confirm(service, body))
+        assert started.status_code == 202, started.payload
+        result = _wait(service, started.payload["preview_id"])
+
+        assert result["status"] == "error"
+        assert "database is locked" in str(result)
+        receipt_id = result["accounting"]["receipt_id"]
+        assert ReceiptStore(project).parsed_by_id(receipt_id).status == "failed"
+        outcomes = project.db.execute(
+            "SELECT terminal_outcome FROM attempt_row_authorizations"
+        ).fetchall()
+        assert outcomes and {row[0] for row in outcomes} == {"failed"}
+        assert not adapter.calls
+    finally:
+        service._registry.shutdown()
+        project.close()
+
+
+def test_scratch_start_refused_after_busy_write_releases_reservation(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
+    service, project, _ = _fixture(tmp_path, _Adapter())
+    plan, _source, router, composition, execution_context = service.prepare_ocr_scratch(
+        "paid",
+        _png(),
+        {"engine": "anthropic/claude-haiku-4-5", "filename": "scan.png"},
+    )
+
+    class RegistryFull(RuntimeError):
+        pass
+
+    def busy_start(*_args, **_kwargs):
+        project.db.execute("PRAGMA busy_timeout=50")
+        holder = sqlite3.connect(project.db_path, isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            with pytest.raises(sqlite3.OperationalError, match="database is locked"):
+                project.db.execute("UPDATE sheets SET name=name")
+        finally:
+            holder.rollback()
+            holder.close()
+            project.db.execute("PRAGMA busy_timeout=10000")
+        raise RegistryFull("preview registry refused the job")
+
+    try:
+        estimate = service.scratch_estimate("paid", plan)
+        monkeypatch.setattr(service._registry, "start", busy_start)
+        with pytest.raises(RegistryFull):
+            service.start_scratch_preview(
+                "paid",
+                plan,
+                confirmation=estimate["promise_set_hash"],
+                router=router,
+                composition=composition,
+                execution_context=execution_context,
+            )
+        assert not project.db.in_transaction
+        assert ReceiptStore(project).count() == 0
     finally:
         service._registry.shutdown()
         project.close()

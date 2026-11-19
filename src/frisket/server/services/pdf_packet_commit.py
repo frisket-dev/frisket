@@ -37,6 +37,7 @@ from frisket.engine.store.pdf_split_intake import (
     write_pdf_split_plan,
 )
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.engine.store.value_codec import encode_stored_value
 from frisket.pdf_packets.names import child_filename as _child_filename
 from frisket.pdf_packets.source_map import SourceMap, SourceRange
@@ -743,6 +744,7 @@ class PdfPacketCommitter:
             except BaseException:
                 current = ReceiptStore(project).find_by_id(envelope.receipt_id)
                 if current is not None and current.status == "running":
+                    roll_back_failed_work(project.db, before="split receipt failure")
                     ReceiptStore(project).update_body_status(
                         current.parsed().model_copy(update={"status": "failed"}),
                         require_status="running",

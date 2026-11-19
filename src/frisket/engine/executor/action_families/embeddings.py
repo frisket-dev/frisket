@@ -117,7 +117,10 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import (
+    roll_back_failed_work,
+    write_transaction,
+)
 from frisket.ai.models.metadata import ModelCallMeta
 
 from frisket.engine.executor.embedding_read import (
@@ -894,6 +897,7 @@ def _reserve_embedding_create_probe(
 
 
 def _delete_embedding_probe_reservation(project: Project, receipt_id: str) -> None:
+    roll_back_failed_work(project.db, before="embedding probe reservation release")
     ReceiptStore(project).delete_running(receipt_id)
 
 
@@ -1024,6 +1028,7 @@ def _run_paid_embedding_dimension_probe(
             scope=tuple(probe_row_ids),
         )
     except AttemptClaimRefused as exc:
+        roll_back_failed_work(project.db, before="embedding probe run close")
         run_store.finish_run(
             run_id,
             "cancelled" if run_store.cancellation_requested(run_id) else "failed",
@@ -2266,6 +2271,9 @@ def _do_refresh(
                     )
                 except AttemptClaimRefused as exc:
                     if replay_resume_admission is not None:
+                        roll_back_failed_work(
+                            project.db, before="embedding refresh resume revert"
+                        )
                         run_store.revert_run_resume(run_id, replay_resume_admission)
                     return _error(
                         action,

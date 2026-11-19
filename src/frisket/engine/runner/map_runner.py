@@ -86,6 +86,7 @@ from frisket.engine.runner.validation import (
 )
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import (
     ClaimLeaseRenewalFailed,
@@ -761,6 +762,9 @@ class MapRunner:
             raise ValueError(
                 "supply either admitted_attempt or admitted_attempt_id, not both"
             )
+        # Pre-dispatch failure cleanup joins a transaction the caller already
+        # held; it rolls back only failed work this run began itself.
+        caller_transaction = self.project.db.in_transaction
         prepared = prepared_run or self._prepare(
             spec,
             program=program,
@@ -1018,6 +1022,10 @@ class MapRunner:
                 # A coupled publisher already owns deterministic work under
                 # this writer. It retains recovery and terminalization.
                 return
+            if not caller_transaction:
+                roll_back_failed_work(
+                    self.project.db, before="pre-dispatch run close-out"
+                )
             if admission is not None:
                 self.run_store.revert_run_resume(run_id, admission)
                 return
