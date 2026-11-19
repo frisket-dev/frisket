@@ -429,12 +429,14 @@ def add_rows(
         return []
     owned_op = producer_id is None
     db = project.db
+    if not commit:
+        require_transaction(db, "row batch")
     nested = db.in_transaction
     savepoint = "add_rows"
     if nested:
         db.execute(f"SAVEPOINT {savepoint}")
     else:
-        _begin_owned_row_batch(db, commit=commit)
+        db.execute("BEGIN IMMEDIATE")
     try:
         cur = db.cursor()
         row_ids: list[int] = []
@@ -486,10 +488,7 @@ def add_rows(
 
             ChangeStore(project).start(op_id)
             ChangeStore(project).close(op_id)
-        if nested:
-            db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        else:
-            db.commit()
+        db.execute(f"RELEASE SAVEPOINT {savepoint}") if nested else db.commit()
         return row_ids
     except BaseException:
         if nested:
@@ -498,12 +497,6 @@ def add_rows(
         else:
             db.rollback()
         raise
-
-
-def _begin_owned_row_batch(db: sqlite3.Connection, *, commit: bool) -> None:
-    if not commit:
-        require_transaction(db, "row batch")
-    db.execute("BEGIN IMMEDIATE")
 
 
 def add_row_with_undo(
