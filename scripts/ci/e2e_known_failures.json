@@ -13,9 +13,6 @@
   "Review retains companion sources and honest absence wording when no trace was recorded": "stale-expectation",
   "Review shows renamed companion sources and recorded tool details at wide and narrow widths": "stale-expectation"
  },
- "ai-column-groups-native.spec.ts": {
-  "native Glide AI column groups rename and hide support columns as layout state": "stale-expectation"
- },
  "answers-view-docked-evidence.spec.ts": {
   "region-grounded citation: the DOCKED pane (not the modal) renders the page image + region highlight, auto-defaulted on open": "stale-expectation"
  },
