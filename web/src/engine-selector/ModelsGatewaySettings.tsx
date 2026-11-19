@@ -10,7 +10,7 @@ function ScopedModelsGatewaySettings({ scope }: { scope: ModelsGatewayScope }) {
   const reload = () => { void refetch(); };
   return <section className="content-stack" data-testid="models-gateway-settings">
     <div className="settings-section-subhead"><h2>Models gateway</h2>
-      <p>Attach a Frisket models server with its URL and bearer token.</p>
+      <p>Attach a Frisket model server with its URL and bearer token.</p>
     </div>
     {loading && <p role="status">Loading models gateway configuration…</p>}
     {error !== null && <p role="alert">Could not load models gateway configuration.</p>}

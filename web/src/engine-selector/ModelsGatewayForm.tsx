@@ -35,7 +35,7 @@ export function ModelsGatewayForm({ scope, initialOrigin = '', compact = false, 
       'Models gateway saved', () => { setToken(''); onSaved(); });
   };
   return <form className={`form-inline selector-setup-form${compact ? ' selector-setup-form--compact' : ''}`} autoComplete="off" onSubmit={compact ? flow.compactSubmit(submit, test) : submit} onFocus={() => editing(true)}>
-    <p className="form-hint"><a href="https://github.com/frisket-dev/frisket/blob/main/sidecar/README.md" target="_blank" rel="noreferrer">Models server setup guide</a></p>
+    <p className="form-hint"><a href="https://github.com/frisket-dev/frisket/blob/main/sidecar/README.md" target="_blank" rel="noreferrer">Model server setup guide</a></p>
     <label className="form-field"><span className={compact ? 'sr-only' : undefined}>Gateway URL</span><TextInput aria-label="Gateway URL" type="url" placeholder="https://models.example.org" value={origin} disabled={busy === 'save'} onChange={(event) => { edit(); setOrigin(event.currentTarget.value); }} /></label>
     <label className="form-field"><span className={compact ? 'sr-only' : undefined}>Gateway token</span><TextInput aria-label="Gateway token" placeholder={compact ? 'Gateway token' : undefined} type="password" autoComplete="new-password" value={token} disabled={busy === 'save'} onChange={(event) => { edit(); setToken(event.currentTarget.value); }} /></label>
     {!compact && <p className="form-hint">Use HTTPS or a loopback address. Test this URL and token before saving.</p>}

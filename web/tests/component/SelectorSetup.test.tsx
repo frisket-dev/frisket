@@ -247,7 +247,7 @@ describe('SelectorSetup', () => {
     ])} onChanged={vi.fn()} onEditingChange={editing} />);
 
     const keyAction = screen.getByRole('button', { name: /Use your own Google API key/ });
-    const gatewayAction = screen.getByRole('button', { name: 'Configure models server' });
+    const gatewayAction = screen.getByRole('button', { name: 'Configure model server' });
     await userEvent.click(keyAction);
     expect(editing).toHaveBeenCalledTimes(1);
     expect(editing).toHaveBeenLastCalledWith(true);
@@ -288,7 +288,7 @@ describe('SelectorSetup', () => {
     }])} onChanged={vi.fn()} onEditingChange={vi.fn()} />);
 
     expect(screen.queryByLabelText('Gateway URL')).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /Configure models server/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Configure model server/ }));
     expect(screen.getByLabelText('Gateway URL')).toBeVisible();
     expect(screen.getByLabelText('Gateway token')).toBeVisible();
   });
@@ -305,7 +305,7 @@ describe('SelectorSetup', () => {
     const form = origin.closest('form');
     expect(form).toHaveClass('selector-setup-form--compact');
     expect(Array.from(form?.children ?? [])).toEqual([
-      screen.getByRole('link', { name: 'Models server setup guide' }).closest('p'),
+      screen.getByRole('link', { name: 'Model server setup guide' }).closest('p'),
       origin.closest('label'),
       token.closest('label'),
       screen.getByRole('button', { name: 'Test' }),

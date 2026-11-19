@@ -54,7 +54,7 @@ function EngineRuntimeSetupGate({ setup, onChanged }: {
     });
   };
   return <section className="selector-setup" data-testid="runtime-setup-gate">
-    <p className="form-hint">This action needs Chromium to load pages in a browser. Set up browser tools on this computer before running.</p>
+    <p className="form-hint">This action needs Chromium to load pages in a browser. Set up browser tools on this device before running.</p>
     <div className="control-row">
       <Button type="button" className="btn-primary" disabled={starting || active || !setup.can_mutate || !setup.can_start}
         onClick={() => void start()}>{starting ? 'Starting…' : active ? matching ? 'Setting up browser tools…' : 'Another setup is running…' : 'Set up browser tools'}</Button>

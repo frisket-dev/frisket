@@ -14,7 +14,7 @@ export function projectProviderKeySource(
   if (provider.configured) {
     return {
       kind: 'local',
-      label: provider.hint ? `${provider.hint} · on this computer` : 'On this computer',
+      label: provider.hint ? `${provider.hint} · on this device` : 'On this device',
     };
   }
   const cloudKey = routing?.cloudProviderKeys.find((key) => (
