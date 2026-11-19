@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Collection
+from typing import NotRequired, TypedDict, Unpack
 
 from frisket.engine.runner.column_retirement import (
     hide_zero_success_created_columns,
@@ -19,6 +20,32 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
 from frisket.execution.attempt import set_attempt_state
+
+
+class RunFinalization(TypedDict):
+    """Keywords every caller of the finalize entry points supplies."""
+
+    op_id: int
+    status: str
+    out_cols: dict[str, int]
+    keep_zero_success_generated_columns: NotRequired[bool]
+    halted_code: NotRequired[str | None]
+    halted_reason: NotRequired[str | None]
+    auto_verify: NotRequired[bool]
+    defer_terminal_status: NotRequired[bool]
+    defer_generation_seal: NotRequired[bool]
+    never_point_column_ids: NotRequired[Collection[int]]
+
+
+class PreDispatchRunFinalization(RunFinalization):
+    """A pre-dispatch close also names the run and any attempt it settles."""
+
+    run_id: int
+    writer_attempt_id: NotRequired[str | None]
+    claimless_direct_effect: NotRequired[bool]
+    terminal_attempt_id: NotRequired[str | None]
+    terminal_attempt_state: NotRequired[str | None]
+    generation_claim_token: NotRequired[str | None]
 
 
 def _finalize_run_in_transaction(
@@ -142,10 +169,10 @@ def _finalize_run_in_transaction(
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:
-        op = project.db.execute(
+        undo_row = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (int(op_id),)
         ).fetchone()
-        info = json.loads(op["undo_info"] or "{}") if op is not None else {}
+        info = json.loads(undo_row["undo_info"] or "{}") if undo_row is not None else {}
         prior_pointers = info.get("column_pointers", {})
         after_pointers = info.get("column_pointers_after", {})
         changed_pointer_journal = False
@@ -218,7 +245,7 @@ def _finalize_run_in_transaction(
 def finalize_pre_dispatch_run(
     project: Project,
     run_store: RunResultStore,
-    **kwargs: object,
+    **kwargs: Unpack[PreDispatchRunFinalization],
 ) -> None:
     """Close a run that has not claimed dispatch authority."""
 
@@ -241,7 +268,7 @@ def finalize_dispatched_run(
     claim_token: str | None,
     claimless_direct_effect: bool,
     terminal_attempt_state: str | None,
-    **kwargs: object,
+    **kwargs: Unpack[RunFinalization],
 ) -> None:
     """Fence and close terminal run state in one serialized transaction.
 

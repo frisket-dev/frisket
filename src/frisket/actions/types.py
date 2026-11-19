@@ -17,6 +17,7 @@ from typing import (
     Literal,
     Protocol,
     TextIO,
+    TYPE_CHECKING,
     TypeVar,
 )
 
@@ -40,6 +41,9 @@ from frisket.contracts.actions.schemas._base import MAX_IMPORT_ROWS_COLUMNS
 from frisket.ai.model_defaults import DEFAULT_MAX_OUTPUT_TOKENS
 from frisket.actions.grounding_types import EvidenceClaim
 from frisket.contracts.actions.schemas._validators import nonblank, trimmed
+
+if TYPE_CHECKING:
+    from frisket.ai.llm.types import LLMResponse
 
 
 T = TypeVar("T")
@@ -264,6 +268,10 @@ class RowError(Exception):
         super().__init__(message)
         self.code = code
         self.message = message
+        # Facts of calls that already reached a provider before this row
+        # failed; the row owner records them instead of minting new ones.
+        self.accounting: dict[str, Any] | None = None
+        self.wire_calls: Sequence[LLMResponse] = ()
 
 
 class MediaMetadataReader(Protocol):

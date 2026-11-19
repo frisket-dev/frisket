@@ -12,6 +12,7 @@ from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
     DynamicTableResult,
+    ListColumnSource,
     ListCopiedColumn,
     ListItem,
     ListParentColumn,
@@ -299,7 +300,9 @@ def expand_list_table(
 
 TABLE_FROM_LIST = action(
     examples=(
-        ListTableParams(source={"kind": "column", "sheet_id": 1, "column_id": 1}),
+        ListTableParams(
+            source=ListColumnSource(kind="column", sheet_id=1, column_id=1)
+        ),
         ListTableParams(
             source=NamedListSource(
                 kind="named_result",

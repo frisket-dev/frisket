@@ -40,7 +40,7 @@ WEB_SEARCH = action(
     examples=(
         WebSearchParams(
             query=Template[str](text="{{source}} annual report"),
-            model="anthropic/claude-haiku-4-5",
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             max_results=5,
         ),
     ),

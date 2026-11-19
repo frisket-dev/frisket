@@ -25,6 +25,7 @@ from frisket.actions.types import (
 )
 from frisket.contracts.action import MAX_IMPORT_ROWS_COLUMNS
 from frisket.contracts.actions.schemas.imports import (
+    ImportRowsColumn,
     ImportRowsSource,
     ValidatedImportColumns,
     normalize_import_rows,
@@ -220,8 +221,8 @@ ROWS = action(
     examples=(
         ImportRowsParams(
             columns=[
-                {"name": "title", "type": "text"},
-                {"name": "count", "type": "integer"},
+                ImportRowsColumn(name="title", type="text"),
+                ImportRowsColumn(name="count", type="integer"),
             ],
             rows=[{"title": "Example document", "count": 3}],
         ),
@@ -237,7 +238,7 @@ ROWS = action(
 APPEND_ROWS = action(
     examples=(
         ImportRowsParams(
-            columns=[{"name": "title", "type": "text"}],
+            columns=[ImportRowsColumn(name="title", type="text")],
             rows=[{"title": "Example document"}],
         ),
     ),
@@ -254,8 +255,8 @@ UPDATE_ROWS = action(
     examples=(
         UpdateRowsParams(
             columns=[
-                {"name": "id", "type": "text"},
-                {"name": "title", "type": "text"},
+                ImportRowsColumn(name="id", type="text"),
+                ImportRowsColumn(name="title", type="text"),
             ],
             key_columns=["id"],
             rows=[{"id": "example-1", "title": "Updated title"}],
@@ -273,8 +274,8 @@ UPDATE_ROWS = action(
 APPEND_CSV = action(
     examples=(
         ImportCsvParams(
-            sources=[{"path": "examples/data.csv", "headers": ["title"]}],
-            columns=[{"name": "title", "type": "text"}],
+            sources=[CsvSource(path="examples/data.csv", headers=["title"])],
+            columns=[ImportRowsColumn(name="title", type="text")],
         ),
     ),
     name="append_csv",
@@ -293,8 +294,11 @@ def update_csv(params: UpdateCsvParams, updater: RowsUpdater) -> UpdatedImported
 UPDATE_CSV = action(
     examples=(
         UpdateCsvParams(
-            sources=[{"path": "examples/data.csv", "headers": ["id", "title"]}],
-            columns=[{"name": "id", "type": "text"}, {"name": "title", "type": "text"}],
+            sources=[CsvSource(path="examples/data.csv", headers=["id", "title"])],
+            columns=[
+                ImportRowsColumn(name="id", type="text"),
+                ImportRowsColumn(name="title", type="text"),
+            ],
             key_columns=["id"],
         ),
     ),
@@ -375,7 +379,7 @@ NDJSON = action(
     examples=(
         ImportNdjsonParams(
             source=FileSource(kind="file", path="examples/data.ndjson"),
-            columns=[{"name": "title", "type": "text"}],
+            columns=[ImportRowsColumn(name="title", type="text")],
         ),
     ),
     name="ndjson",
@@ -474,8 +478,8 @@ CSV = action(
         ImportCsvParams(
             sources=[CsvSource(path="examples/data.csv")],
             columns=[
-                {"name": "title", "type": "text"},
-                {"name": "count", "type": "integer"},
+                ImportRowsColumn(name="title", type="text"),
+                ImportRowsColumn(name="count", type="integer"),
             ],
         ),
     ),

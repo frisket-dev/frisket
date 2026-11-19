@@ -78,5 +78,5 @@ CENSUS_DEMOGRAPHICS = action(
     ),
     category=ActionCategory.EXTRACT,
     run=map_batch(demographics, active_outputs=census_outputs),
-    examples=(CensusParams(source="location"),),
+    examples=(CensusParams(source=ColumnRef[GeoPoint]("location")),),
 )

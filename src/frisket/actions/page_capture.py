@@ -27,5 +27,5 @@ CAPTURE_PAGE = action(
     description="Save HTML page artifacts or extract links from selected URL cells.",
     category=ActionCategory.SOURCES,
     run=capture_page,
-    examples=(CapturePageParams(source="source_url"),),
+    examples=(CapturePageParams(source=UrlColumn("source_url")),),
 )

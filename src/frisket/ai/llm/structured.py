@@ -94,6 +94,7 @@ from .types import (
     OutputLimitReached,
     ReasoningPolicy,
     SchemaViolation,
+    attach_wire_calls,
     provider_from_model_id,
     has_document_content,
     wire_responses,
@@ -938,10 +939,13 @@ class StructuredCompleter:
             # converting cancellation into an ordinary error or retry.
             prior = list(getattr(e, "wire_calls", []) or [])
             seen = {id(call) for call in model.wire_calls}
-            e.wire_calls = [
-                *model.wire_calls,
-                *(call for call in prior if id(call) not in seen),
-            ]
+            attach_wire_calls(
+                e,
+                [
+                    *model.wire_calls,
+                    *(call for call in prior if id(call) not in seen),
+                ],
+            )
             raise
 
         data = validated["items"] if was_wrapped else validated

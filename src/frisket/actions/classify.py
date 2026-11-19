@@ -16,7 +16,7 @@ from frisket.actions.core import (
     action,
     model_rows,
 )
-from frisket.actions.model_rows import RichSource
+from frisket.actions.model_rows import RichColumn, RichSource
 from frisket.actions.types import (
     ActionParams,
     DynamicOutput,
@@ -312,7 +312,7 @@ CLASSIFY = action(
     ),
     examples=(
         ClassifyParams(
-            source=["story"],
+            source=[RichColumn("story")],
             fields=[
                 ClassifyField(name="topic", labels=["housing", "transit", "other"])
             ],

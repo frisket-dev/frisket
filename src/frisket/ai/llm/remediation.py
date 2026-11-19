@@ -264,7 +264,9 @@ def classify_resumable_provider_error(
     if not isinstance(exc, LLMError):
         return None
     if exc.status in (401, 403):
-        details = dict(RESUMABLE_PROVIDER_ERROR_DETAILS[INVALID_PROVIDER_KEY])
+        details: dict[str, object] = dict(
+            RESUMABLE_PROVIDER_ERROR_DETAILS[INVALID_PROVIDER_KEY]
+        )
         if provider:
             details["provider"] = provider
         named = f"'{provider}'" if provider else "this provider"
@@ -280,7 +282,9 @@ def classify_resumable_provider_error(
     if exc.status == 429 and exc.retryable:
         provider_code = getattr(exc, "provider_code", None)
         if provider_code in KEY_EXHAUSTED_PROVIDER_CODES:
-            details = dict(RESUMABLE_PROVIDER_ERROR_DETAILS[PROVIDER_KEY_EXHAUSTED])
+            details: dict[str, object] = dict(
+                RESUMABLE_PROVIDER_ERROR_DETAILS[PROVIDER_KEY_EXHAUSTED]
+            )
             if provider:
                 details["provider"] = provider
             named = f"'{provider}'" if provider else "this provider"

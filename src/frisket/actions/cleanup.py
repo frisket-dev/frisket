@@ -469,7 +469,7 @@ def clean_column(
 
 
 CLEAN_COLUMN = action(
-    examples=(CleanColumnParams(source="source"),),
+    examples=(CleanColumnParams(source=CleanableColumn("source")),),
     name="clean_column",
     title="Clean one text column",
     description="Normalize values in a text-like column while preserving the source.",

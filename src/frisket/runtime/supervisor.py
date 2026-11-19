@@ -66,14 +66,10 @@ def spawn_service(
     runtime_exclusive: bool = False,
 ) -> subprocess.Popen:
     """Spawn a guarded service with optional explicit standard streams."""
-    options: dict[str, object] = {
-        "stdin": stdin,
-        "stdout": stdout,
-        "stderr": stderr,
-        "env": env,
-    }
+    start_new_session = False
+    creationflags = 0
     if os.name == "posix":
-        options["start_new_session"] = True
+        start_new_session = True
         argv = guarded_argv(
             argv,
             grace_seconds=8,
@@ -82,7 +78,7 @@ def spawn_service(
             runtime_exclusive=runtime_exclusive,
         )
     elif os.name == "nt":
-        options["creationflags"] = subprocess.CREATE_NO_WINDOW
+        creationflags = subprocess.CREATE_NO_WINDOW
         # Launch the existing kill-on-close Job guardian directly. Keeping its
         # stop/proof directory lets stop_service wait for tree cleanup rather
         # than merely observing an intermediate Python wrapper exit.
@@ -94,13 +90,29 @@ def spawn_service(
             runtime_exclusive=runtime_exclusive,
         )
         try:
-            process = subprocess.Popen(argv, **options)
+            process = subprocess.Popen(
+                argv,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                env=env,
+                start_new_session=start_new_session,
+                creationflags=creationflags,
+            )
         except BaseException:
             shutil.rmtree(control[0], ignore_errors=True)
             raise
         process._frisket_guard_control = control  # type: ignore[attr-defined]
         return process
-    return subprocess.Popen(argv, **options)
+    return subprocess.Popen(
+        argv,
+        stdin=stdin,
+        stdout=stdout,
+        stderr=stderr,
+        env=env,
+        start_new_session=start_new_session,
+        creationflags=creationflags,
+    )
 
 
 def guard_exit_proves_cleanup(returncode: int | None) -> bool:

@@ -14,6 +14,7 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from frisket.ai.llm.types import attach_wire_calls
 from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.vision.coordinates import (
     CoordinateProfile,
@@ -516,7 +517,7 @@ async def ocr_vlm(
                 call for call in page_wire_calls if id(call) not in known
             )
             if wire_history:
-                exc.wire_calls = list(wire_history)
+                attach_wire_calls(exc, wire_history)
             raise
         resp = result.response
         accumulate_vlm_response_usage(usage, resp)
@@ -538,7 +539,7 @@ async def ocr_vlm(
                 )
             )
         except Exception as exc:
-            exc.wire_calls = list(wire_history)
+            attach_wire_calls(exc, wire_history)
             raise
     return out
 

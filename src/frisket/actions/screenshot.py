@@ -45,5 +45,5 @@ CAPTURE_SCREENSHOT = action(
     description="Render link or text URL cells in Playwright and write one PNG image cell per row.",
     category=ActionCategory.SOURCES,
     run=map_rows(capture_screenshot),
-    examples=(ScreenshotParams(source="source_url"),),
+    examples=(ScreenshotParams(source=UrlColumn("source_url")),),
 )

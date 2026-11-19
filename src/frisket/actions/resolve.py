@@ -104,7 +104,11 @@ def substitute_values(
 
 
 SUBSTITUTE = action(
-    examples=(SubstituteParams(source="source", mapping={"NY": "New York"}),),
+    examples=(
+        SubstituteParams(
+            source=ResolveTextColumn("source"), mapping={"NY": "New York"}
+        ),
+    ),
     name="substitute",
     title="Substitute values",
     description=(
@@ -173,7 +177,7 @@ def replace_values(
 REPLACE = action(
     examples=(
         ReplaceParams(
-            source="source",
+            source=ResolveTextColumn("source"),
             rules=[ReplaceRule(match="exact", pattern="N/A", target=None)],
         ),
     ),
@@ -259,7 +263,7 @@ def combine_values(
 COMBINE = action(
     examples=(
         CombineParams(
-            source="source",
+            source=ResolveTextColumn("source"),
             groups=[CombineGroup(canonical="New York", members=["NY", "N.Y."])],
         ),
     ),
@@ -452,7 +456,7 @@ def fill_missing_values(
 
 
 FILL_MISSING = action(
-    examples=(FillMissingParams(source="source", method="down"),),
+    examples=(FillMissingParams(source=ColumnRef[Any]("source"), method="down"),),
     name="fill_missing",
     title="Fill missing values",
     description=(

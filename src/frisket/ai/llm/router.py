@@ -42,6 +42,7 @@ from .types import (
     OutputLimitReached,
     SchemaViolation,
     TransportKind,
+    attach_wire_calls,
     provider_from_model_id,
     validate_credential_source,
 )
@@ -896,7 +897,7 @@ class ModelRouter:
             # Cancellation, admission refusal and later transport failures must
             # not erase responses already returned by earlier purchases.
             if returned_calls:
-                error.wire_calls = list(returned_calls)
+                attach_wire_calls(error, returned_calls)
             raise
 
     def has_embedding_backend(self) -> bool:

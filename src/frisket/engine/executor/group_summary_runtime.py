@@ -940,7 +940,9 @@ def _reduce_group_summary_receipt(
             and len(typed_codes) == 1
         ):
             first = typed_provider_errors[0]
-            details = dict(RESUMABLE_PROVIDER_ERROR_DETAILS[first["error_code"]])
+            details: dict[str, object] = dict(
+                RESUMABLE_PROVIDER_ERROR_DETAILS[first["error_code"]]
+            )
             if first["error_code"] != "provider_rate_limited":
                 details["provider"] = params.model.split("/", 1)[0]
             errors.append(

@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping
 from frisket.actions.system import action_id_from_request
 from frisket.ai.llm import ModelRouter
 from frisket.contracts.action import (
+    ActionIdentity,
     ActionError as V1ActionError,
     ActionResult as V1ActionResult,
     Receipt as V1Receipt,
@@ -692,7 +693,7 @@ class ActionRunService:
         if error is None:
             return None
         return V1ActionResult(
-            action={"kind": kind, "action_id": _new_id("act")},
+            action=ActionIdentity(kind=kind, action_id=_new_id("act")),
             status="failed",
             project_id=project_id,
             errors=[error],
@@ -776,10 +777,7 @@ class ActionRunService:
             )
             if not router.has_provider(provider) and not exact_replay:
                 return V1ActionResult(
-                    action={
-                        "kind": kind,
-                        "action_id": _new_id("act"),
-                    },
+                    action=ActionIdentity(kind=kind, action_id=_new_id("act")),
                     status="failed",
                     project_id=project_id,
                     errors=[missing_provider_key_error(kind, provider)],
@@ -800,7 +798,7 @@ class ActionRunService:
         ):
             return None
         return V1ActionResult(
-            action={"kind": kind, "action_id": _new_id("act")},
+            action=ActionIdentity(kind=kind, action_id=_new_id("act")),
             status="failed",
             project_id=project_id,
             errors=[error],

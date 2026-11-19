@@ -19,6 +19,7 @@ from frisket.contracts.http.cloud_connection import (
     CloudCapabilitiesResponse,
     CloudCapabilityRoute,
     CloudLLMOptionSupport,
+    CloudOCROptionSupport,
     CloudTokenPrice,
     CloudUnitPrice,
 )
@@ -485,6 +486,8 @@ def _support(route: CloudCapabilityRoute, capability: str) -> TargetEngineSuppor
         )
     if capability == CAPABILITY_OCR:
         options = route.options
+        if not isinstance(options, CloudOCROptionSupport):
+            raise ValueError("Cloud OCR route has invalid option support")
         return TargetEngineSupport(
             engine=route.engine,
             transport=(

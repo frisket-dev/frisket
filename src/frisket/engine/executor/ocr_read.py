@@ -17,6 +17,7 @@ from frisket.execution.resolver import preview_resolution_in_scope
 from frisket.ai.models.metadata import model_calls_cost_actual
 from frisket.ai.models.usage_counts import model_call_token_counts
 from frisket.ai.models.accounting import merge_accounting_meta
+from frisket.ai.llm.types import attach_wire_calls
 from frisket.ops import ocr_engines as engines
 from frisket.engine.executor.blob_outputs import RowBlobOutput, RowBlobPlan
 from frisket.engine._workers.pdf_render_worker import (
@@ -512,11 +513,14 @@ class _BoundOcrReader:
                         # the row error handler mint them again as LLM facts.
                         if failure is not None and usage.get("_wire_calls"):
                             recorded = {id(call) for call in usage["_wire_calls"]}
-                            failure.wire_calls = [
-                                call
-                                for call in getattr(failure, "wire_calls", ())
-                                if id(call) not in recorded
-                            ]
+                            attach_wire_calls(
+                                failure,
+                                [
+                                    call
+                                    for call in getattr(failure, "wire_calls", ())
+                                    if id(call) not in recorded
+                                ],
+                            )
                 if selected_page is not None and len(pages) != 1:
                     raise RuntimeError("page-scoped OCR must return exactly one page")
                 owner._check_open()

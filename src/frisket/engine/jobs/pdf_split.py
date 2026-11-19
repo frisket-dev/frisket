@@ -461,6 +461,7 @@ def register_pdf_split_handler(
             or not context.handler_authority_id
         ):
             raise ValueError("PDF splitting requires a row-backed queue claim")
+        job_id = context.job_id
         project_id, _, path = claimed_project_location(
             payload,
             workspace_root=workspace_root,
@@ -477,7 +478,7 @@ def register_pdf_split_handler(
         directory = import_intake_dir(project.path, ref)
 
         def stopped():
-            current = queue.get(context.job_id)
+            current = queue.get(job_id)
             if (
                 read_import_header(directory).cancel_requested
                 or (cancelled is not None and cancelled())

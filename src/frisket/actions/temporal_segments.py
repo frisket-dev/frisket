@@ -2,6 +2,7 @@
 
 from frisket.actions.core import ActionCategory, action, create_sheet
 from frisket.actions.temporal_types import (
+    TemporalSelectionColumn,
     TemporalMediaColumn,
     TemporalMediaReader,
     TranscriptColumnSelection,
@@ -29,8 +30,10 @@ TEMPORAL_SEGMENTS = action(
     run=create_sheet(temporal_segments),
     examples=(
         TemporalSegmentsParams(
-            source="media",
-            selection=TranscriptColumnSelection(kind="column", column="sections"),
+            source=TemporalMediaColumn("media"),
+            selection=TranscriptColumnSelection(
+                kind="column", column=TemporalSelectionColumn("sections")
+            ),
         ),
     ),
 )

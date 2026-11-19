@@ -192,6 +192,8 @@ NER = action(
     title="Extract named entities",
     description="Extract labeled named entities with spaCy, GLiNER, or an LLM.",
     category=ActionCategory.EXTRACT,
-    examples=(NerParams(source=["text"], labels=list(RECOMMENDED_NER_LABELS)),),
+    examples=(
+        NerParams(source=[NerColumn("text")], labels=list(RECOMMENDED_NER_LABELS)),
+    ),
     run=model_rows(ner_prompt, direct=ner_direct, complete=ner_complete),
 )

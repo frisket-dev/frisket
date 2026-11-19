@@ -142,13 +142,14 @@ def _resolve_semantic_matches(
     source_column_id = _positive_ref_int(source_column_ref, "column_id")
     target_column_id = _positive_ref_int(target_column_ref, "column_id")
     source_run_id = _positive_ref_int(source_ref, "run_id")
-    if source_run_id != source_receipt.run_id or None in {
-        source_sheet_id,
-        target_sheet_id,
-        source_column_id,
-        target_column_id,
-        source_run_id,
-    }:
+    if (
+        source_run_id != source_receipt.run_id
+        or source_sheet_id is None
+        or target_sheet_id is None
+        or source_column_id is None
+        or target_column_id is None
+        or source_run_id is None
+    ):
         return _derive_link_table_input_error(
             "source receipt contains invalid semantic join ids",
             "params.source.receipt_id",
@@ -698,7 +699,7 @@ class AdmittedSemanticMatchReader:
     def validate_lineage(
         self, sources: tuple[RowSource, ...], parent: RowSource | None
     ) -> None:
-        match = self._matches.get(parent)
+        match = self._matches.get(parent) if parent is not None else None
         if match is None or set(sources) != (
             {match.source, match.target} if match.target is not None else {match.source}
         ):

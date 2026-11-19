@@ -39,7 +39,7 @@ READ_PDF_TEXT = action(
     title="Read PDF text",
     description="Read existing text from every selected PDF page without OCR.",
     category=ActionCategory.EXTRACT,
-    examples=(ReadPdfTextParams(source="document"),),
+    examples=(ReadPdfTextParams(source=PdfColumn("document")),),
     run=map_rows(read_pdf_text),
 )
 

@@ -70,7 +70,7 @@ VIDEO_FRAMES = action(
     title="Video frames",
     description="Extract still frames from each video with timestamps and optional downscaling.",
     category=ActionCategory.EXTRACT,
-    examples=(VideoFramesParams(source="video"),),
+    examples=(VideoFramesParams(source=VideoColumn("video")),),
     run=map_rows(video_frames),
 )
 
@@ -79,6 +79,6 @@ EXTRACT_FACES = action(
     title="Extract faces",
     description="Detect faces in each image and return pixel bounding boxes and cropped face images.",
     category=ActionCategory.EXTRACT,
-    examples=(ExtractFacesParams(source="image"),),
+    examples=(ExtractFacesParams(source=ImageColumn("image")),),
     run=map_rows(extract_faces),
 )

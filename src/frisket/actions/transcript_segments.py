@@ -7,6 +7,7 @@ from frisket.actions.transcript_types import (
     TranscriptReader,
     TranscriptSelection,
 )
+from frisket.actions.temporal_types import TemporalSelectionColumn
 from frisket.actions.types import ActionParams, DynamicTableResult
 
 
@@ -29,8 +30,10 @@ TRANSCRIPT_SEGMENTS = action(
     run=create_sheet(transcript_segments),
     examples=(
         TranscriptSegmentsParams(
-            source="transcript",
-            selection=TranscriptColumnSelection(kind="column", column="sections"),
+            source=TranscriptColumn("transcript"),
+            selection=TranscriptColumnSelection(
+                kind="column", column=TemporalSelectionColumn("sections")
+            ),
         ),
     ),
 )

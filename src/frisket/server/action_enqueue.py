@@ -18,6 +18,7 @@ from frisket.actions.types import RowError
 
 from frisket.contracts.action import (
     ActionError,
+    ActionIdentity,
     ActionResult,
 )
 from frisket.engine.executor.action_jobs import launch_queued_action_job
@@ -373,10 +374,9 @@ def _queue_v1_project_run_request(
                 receipt_id=reservation["receipt_id"],
             )
         return ActionResult(
-            action={
-                "kind": request.action.kind,
-                "action_id": reservation["action_id"],
-            },
+            action=ActionIdentity(
+                kind=request.action.kind, action_id=reservation["action_id"]
+            ),
             status=status,
             project_id=project_id,
             errors=[error],
@@ -617,10 +617,9 @@ def _queue_v1_project_run_request(
         },
     )
     return ActionResult(
-        action={
-            "kind": request.action.kind,
-            "action_id": reservation["action_id"],
-        },
+        action=ActionIdentity(
+            kind=request.action.kind, action_id=reservation["action_id"]
+        ),
         status="queued",
         project_id=project_id,
         run_id=progress.run_id,

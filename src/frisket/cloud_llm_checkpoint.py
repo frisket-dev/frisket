@@ -80,7 +80,7 @@ class CloudLLMCheckpointCoordinator:
         self.writer_attempt_id = writer_attempt_id
         self.claim_token = claim_token
         self.claimless_direct_effect = claimless_direct_effect
-        self.capability = capability
+        self.capability: CloudModelCapability = capability
         self._returned: dict[str, CloudLLMCheckpointRef] = {}
         self._accounting: dict[str, dict[str, Any]] = {}
 

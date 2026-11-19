@@ -14,7 +14,7 @@ from frisket.actions.core import (
     map_rows,
 )
 from frisket.actions.extraction_types import ExtractField, extraction_output_fields
-from frisket.actions.model_rows import RichSource
+from frisket.actions.model_rows import RichColumn, RichSource
 from frisket.actions.research_types import Researcher
 from frisket.actions.types import (
     ActionParams,
@@ -72,9 +72,9 @@ ANSWER = action(
     ),
     examples=(
         ResearchParams(
-            source=["company"],
+            source=[RichColumn("company")],
             question=Template(text="What does {{company}} manufacture?"),
-            model="anthropic/claude-haiku-4-5",
+            model=ModelRef("anthropic/claude-haiku-4-5"),
         ),
     ),
 )
@@ -131,9 +131,9 @@ EXTRACT = action(
     run=map_rows(extract, dynamic_outputs=structured_output_fields),
     examples=(
         StructuredResearchParams(
-            source=["company"],
+            source=[RichColumn("company")],
             question=Template(text="Research {{company}} using public filings."),
-            model="anthropic/claude-haiku-4-5",
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             fields=[
                 ExtractField(name="headquarters", type="text"),
                 ExtractField(name="employee_count", type="integer"),

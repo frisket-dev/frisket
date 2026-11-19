@@ -3,6 +3,7 @@
 from frisket.actions.core import ActionCategory, action
 from frisket.actions.types import ActionParams
 from frisket.actions.temporal_types import (
+    TemporalSelectionColumn,
     TemporalMediaColumn,
     TranscriptColumnSelection,
 )
@@ -31,8 +32,10 @@ EXTRACT_RANGE = action(
     category=ActionCategory.EXTRACT,
     examples=(
         ExtractRangeParams(
-            source="media",
-            selection=TranscriptColumnSelection(kind="column", column="range"),
+            source=TemporalMediaColumn("media"),
+            selection=TranscriptColumnSelection(
+                kind="column", column=TemporalSelectionColumn("range")
+            ),
         ),
     ),
     run=extract_range,

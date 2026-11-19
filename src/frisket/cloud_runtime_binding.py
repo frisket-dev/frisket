@@ -114,11 +114,11 @@ def cloud_runtime_binding(
         )
     estimate = cloud_estimate_authority_for_row(attempt.cost_basis, row_id=row_id)
 
-    if transport_kind == "frisket.cloud.media.v1" and capability in {
+    if transport_kind == "frisket.cloud.media.v1" and capability in (
         "ocr",
         "transcribe",
         "document.convert",
-    }:
+    ):
         return CloudRuntimeBinding(
             media_binding=CloudMediaExecutionBinding(
                 transport,
@@ -132,10 +132,10 @@ def cloud_runtime_binding(
             llm_coordinator=None,
             route=routed.route,
         )
-    if transport_kind == "frisket.cloud.llm.v1" and capability in {
+    if transport_kind == "frisket.cloud.llm.v1" and capability in (
         "llm.complete",
         "ocr",
-    }:
+    ):
         return CloudRuntimeBinding(
             media_binding=None,
             llm_coordinator=CloudLLMCheckpointCoordinator(

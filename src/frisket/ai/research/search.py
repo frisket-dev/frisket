@@ -178,7 +178,7 @@ class SearchService:
             for provider, value in effective_keys.items()
             if provider in _PAID_PROVIDERS and isinstance(value, str) and value.strip()
         }
-        self._provider = select_search_provider(preference, self._keys)
+        self._provider: SearchProvider = select_search_provider(preference, self._keys)
         self._http = http
         self._ddgs_factory = ddgs_factory
 

@@ -71,7 +71,10 @@ def to_geo_point(
 
 TO_GEO_POINT = action(
     examples=(
-        ToGeoPointParams(latitude_column="latitude", longitude_column="longitude"),
+        ToGeoPointParams(
+            latitude_column=ColumnRef[int | float | str]("latitude"),
+            longitude_column=ColumnRef[int | float | str]("longitude"),
+        ),
     ),
     name="to_geo_point",
     title="Convert latitude/longitude to geo_point",

@@ -46,6 +46,6 @@ EXTRACT_PDF_TABLES = action(
     title="Extract PDF tables",
     description="Extract normalized table rows and source/page metadata from each blob-backed PDF.",
     category=ActionCategory.EXTRACT,
-    examples=(PdfTablesParams(source="pdf"),),
+    examples=(PdfTablesParams(source=PdfColumn("pdf")),),
     run=map_rows(extract_pdf_tables),
 )

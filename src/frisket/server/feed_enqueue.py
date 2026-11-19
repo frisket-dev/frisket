@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from frisket.actions.system import typed_action_for_request
-from frisket.contracts.action import ActionOutput, ActionResult
+from frisket.contracts.action import ActionIdentity, ActionOutput, ActionResult
 from frisket.engine.executor.feed_poll_action import _feed_poll_sheet_id_in_txn
 from frisket.engine.store.feeds import FeedStore
 from frisket.feeds import ensure_rss_feed_checker, get_feed_checker
@@ -67,7 +67,9 @@ def queue_feed_poll(
         )
     )
     return ActionResult(
-        action={"kind": "source.poll", "action_id": bound.request.idempotency_key},
+        action=ActionIdentity(
+            kind="source.poll", action_id=bound.request.idempotency_key
+        ),
         status="queued",
         project_id=project_id,
         job_id=job_id,

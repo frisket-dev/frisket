@@ -13,7 +13,7 @@ from frisket.actions.core import (
     action,
     model_rows,
 )
-from frisket.actions.model_rows import RichSource
+from frisket.actions.model_rows import RichColumn, RichSource
 from frisket.actions.types import (
     ActionParams,
     GeneratedColumnRef,
@@ -111,9 +111,9 @@ def judge(
 JUDGE = action(
     examples=(
         JudgeParams(
-            source=["source"],
-            judged_column="answer",
-            model="openai/gpt-5-mini",
+            source=[RichColumn("source")],
+            judged_column=GeneratedColumnRef[Any]("answer"),
+            model=ModelRef("openai/gpt-5-mini"),
             guidelines="Every claim must be supported by the source.",
         ),
     ),

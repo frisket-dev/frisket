@@ -55,5 +55,5 @@ GEOCODE = action(
     description="Geocode an address column or composed address with the selected provider.",
     category=ActionCategory.EXTRACT,
     run=map_rows(geocode, active_outputs=geocode_outputs),
-    examples=(GeocodeParams(source="address"),),
+    examples=(GeocodeParams(source=ColumnRef[TextLike]("address")),),
 )

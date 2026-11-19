@@ -198,7 +198,7 @@ def clean_date(
 
 
 CLEAN_DATES = action(
-    examples=(CleanDatesParams(source="source", format="%d/%m/%Y"),),
+    examples=(CleanDatesParams(source=CleanDateSource("source"), format="%d/%m/%Y"),),
     name="clean_dates",
     title="Parse strict dates",
     description="Parse messy date strings into strict ISO dates.",

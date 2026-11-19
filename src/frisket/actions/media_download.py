@@ -51,7 +51,7 @@ YTDLP_DOWNLOAD = action(
     title="Download media",
     description="Download audio or video and optional subtitles, thumbnails, and metadata with yt-dlp.",
     category=ActionCategory.SOURCES,
-    examples=(MediaDownloadParams(source="url"),),
+    examples=(MediaDownloadParams(source=UrlColumn("url")),),
     run=map_rows(
         download_media,
         active_outputs=lambda params: download_outputs(

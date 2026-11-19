@@ -29,7 +29,10 @@ from frisket.engine.executor.action_families._errors import (
 from frisket.engine.executor.action_inventory import (
     _TypedProjectEnvelope,
 )
-from frisket.engine.executor.action_receipts import receipt_status_from_failures
+from frisket.engine.executor.action_receipts import (
+    FinishedWorkStatus,
+    receipt_status_from_failures,
+)
 from frisket.engine.executor.action_reservations import (
     _cleanup_reserved_receipt_on_failed_result,
     _finalize_reserved_action_receipt,
@@ -421,7 +424,7 @@ def _write_media_enclosure_receipt(
     row_ids: list[int],
     row_results: list[dict[str, Any]],
     network: list[dict[str, Any]],
-    status: str,
+    status: FinishedWorkStatus,
     errors: list[ActionError],
 ) -> ActionResult:
     op_ids = [
@@ -671,7 +674,7 @@ def _media_enclosure_receipt(
     params_hash: str,
     op_ids: list[int],
     refs: dict[str, Any],
-    status: str,
+    status: FinishedWorkStatus,
     errors: list[ActionError],
 ) -> Receipt:
     feedable_media_cells = _feedable_media_cell_refs(refs)
