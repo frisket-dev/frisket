@@ -8,13 +8,14 @@
   no action
 """
 
+from model_doubles import HttpClientRouter, RecordingSidecarHttp
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import zipfile
 
 import pytest
 
-from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm import ModelRouter
 from frisket.engine.store import Project
 from frisket.engine.executor import run_action_spec
@@ -242,43 +243,10 @@ def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
     POST /to-markdown with multipart blob bytes + bearer token. The sidecar
     egresses to the operator's own LAN service, but the known-free route
     remains below the confirmation threshold."""
-    captured = {}
-
-    class FakeResponse:
-        status_code = 200
-        text = ""
-
-        @staticmethod
-        def json():
-            return {
-                "documents": [{"markdown": "# From Sidecar", "ocr_used": [True, False]}]
-            }
-
-    class FakeHttp:
-        async def post(
-            self,
-            url,
-            files=None,
-            data=None,
-            headers=None,
-            follow_redirects=False,
-            timeout=None,
-        ):
-            captured.update(
-                url=url,
-                files=files,
-                data=data,
-                headers=headers,
-                follow_redirects=follow_redirects,
-                timeout=timeout,
-            )
-            return FakeResponse()
-
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = FakeHttp()
+    http = RecordingSidecarHttp(
+        {"documents": [{"markdown": "# From Sidecar", "ocr_used": [True, False]}]}
+    )
+    captured = http.captured
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
@@ -287,7 +255,7 @@ def test_convert_sidecar_posts_bytes_with_bearer(tmp_path, monkeypatch):
 
     pdf = _make_pdf(tmp_path / "scan.pdf")
     p, sheet = _project(tmp_path, [{"doc": str(pdf)}], coltype="file")
-    prog = _run(p, _spec(sheet, engine="docling"), StubRouter())
+    prog = _run(p, _spec(sheet, engine="docling"), HttpClientRouter(http))
     assert prog.status == "completed", prog.errors
     assert captured["url"] == "http://models:9000/to-markdown"
     assert captured["headers"]["Authorization"] == "Bearer sekrit"

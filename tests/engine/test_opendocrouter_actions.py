@@ -1,12 +1,13 @@
 """Public action execution: admission, actual HTTP adapter, evidence and cost."""
 
+from model_doubles import HttpClientRouter
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 from contextlib import closing
 import asyncio
 import io
 import json
-from types import SimpleNamespace
 from pathlib import Path
 
 import httpx
@@ -14,18 +15,12 @@ import pytest
 from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
-from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.engine.executor import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell, owned_media_metadata_document
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import run_attempt_receipts
 from tests.ops.test_opendocrouter import ENGINE, response
-
-
-class HttpRouter(SimpleNamespace):
-    def for_execution(self, execution):
-        return ExecutionModelRouter(self, execution)
 
 
 @pytest.mark.parametrize("pages", [1, 51])
@@ -51,7 +46,7 @@ def test_paid_remote_job_result_failure_halts_and_keeps_charge(
         return httpx.Response(200, json=body)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = HttpRouter(client=client)
+    router = HttpClientRouter(client)
     project = make_project("Async")
     sheet = project.add_sheet("Sources")
     column = project.add_column(sheet, "doc", type="file")
@@ -188,7 +183,7 @@ def test_paid_document_action(tmp_path, monkeypatch, action, scenario):
         return httpx.Response(200, json=result)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = HttpRouter(client=client)
+    router = HttpClientRouter(client)
     with closing(
         Project.create(tmp_path / "test.frisket", name="Documents")
     ) as project:
@@ -391,7 +386,7 @@ def test_searchable_pdf_from_live_layout_response(
         return httpx.Response(200, json=captured)
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    router = HttpRouter(client=client)
+    router = HttpClientRouter(client)
     source = io.BytesIO()
     Image.new("RGB", (1200, 650), "white").save(source, format="PDF", resolution=200)
     assert not PdfReader(io.BytesIO(source.getvalue())).pages[0].extract_text()

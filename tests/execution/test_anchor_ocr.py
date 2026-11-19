@@ -22,6 +22,8 @@ the durable consent between preparation and worker admission.
 
 from __future__ import annotations
 
+from model_doubles import HttpClientRouter
+
 from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
@@ -1005,13 +1007,11 @@ def _datalab_stub(monkeypatch):
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
+    stub_router = HttpClientRouter(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
 
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-
-    return StubRouter()
+    return stub_router
 
 
 def test_anchor_ocr_hosted_run_compiles_both_claims_gates_and_binds(
@@ -1134,14 +1134,12 @@ def test_anchor_ocr_accepted_job_finishes_accounting_after_cancellation(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    stub_router = HttpClientRouter(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
 
     try:
-        router = StubRouter()
+        router = stub_router
         deps = ExecutorDeps(
             map_runner_factory=lambda p, r: MapRunner(
                 p,
@@ -1290,11 +1288,9 @@ def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    stub_router = HttpClientRouter(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
 
     # The hosted organization composition, resolved for real: the resolver pins
     # credential_source='org_byok' and cost_posture='org_key' from ONE funding
@@ -1306,7 +1302,7 @@ def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
 
     try:
         spec = _request(sheet_id, engine="datalab")
-        router = StubRouter()
+        router = stub_router
         deployment = CredentialOwner.deployment("hosted-deployment")
         organization = CredentialOwner.organization("org-a")
         composition = ExecutionComposition(

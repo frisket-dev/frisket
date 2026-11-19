@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+from model_doubles import RecordingSidecarHttp
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import importlib.util
@@ -280,49 +282,24 @@ def test_public_sidecar_ocr_engines_are_registered():
 
 
 def _routes_to_sidecar(tmp_path, monkeypatch, engine):
-    captured = {}
+    http = RecordingSidecarHttp(
+        {
+            "pages": [
+                {
+                    "text": "FROM SIDECAR",
+                    "blocks": [
+                        {
+                            "text": "FROM SIDECAR",
+                            "bbox": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    captured = http.captured
 
-    class FakeResponse:
-        status_code = 200
-        text = ""
-
-        @staticmethod
-        def json():
-            return {
-                "pages": [
-                    {
-                        "text": "FROM SIDECAR",
-                        "blocks": [
-                            {
-                                "text": "FROM SIDECAR",
-                                "bbox": [[0, 0], [1, 0], [1, 1], [0, 1]],
-                            }
-                        ],
-                    }
-                ]
-            }
-
-    class FakeHttp:
-        async def post(
-            self,
-            url,
-            files=None,
-            data=None,
-            headers=None,
-            follow_redirects=False,
-            timeout=None,
-        ):
-            captured.update(
-                url=url,
-                files=files,
-                data=data,
-                headers=headers,
-                follow_redirects=follow_redirects,
-                timeout=timeout,
-            )
-            return FakeResponse()
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", FakeHttp.post)
+    monkeypatch.setattr(httpx.AsyncClient, "post", http.post)
 
     page = tmp_path / f"{engine.replace('/', '_')}.png"
     page.write_bytes(b"\x89PNG\r\n\x1a\n page-bytes")

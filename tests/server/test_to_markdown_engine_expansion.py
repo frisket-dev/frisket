@@ -5,11 +5,12 @@ experimental, no quality claim in copy (Hy-MT2 precedent). Mirrors
 test_ocr_engine_expansion.py's pattern for paddleocr-vl joining dots.mocr."""
 
 from __future__ import annotations
+
+from model_doubles import HttpClientRouter, RecordingSidecarHttp
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import pytest
 
-from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.ai.llm import ModelRouter
 from frisket.actions.registry import ACTION_REGISTRY
 from frisket.contracts.actions.schemas._engines import (
@@ -102,50 +103,19 @@ def test_chandra_needs_sidecar_url(tmp_path, monkeypatch):
 def test_document_models_route_to_sidecar_to_markdown(tmp_path, monkeypatch, engine):
     """engine='chandra' speaks the settled /to-markdown contract: POST
     multipart blob bytes + bearer token, same as docling."""
-    captured = {}
-
-    class FakeResponse:
-        status_code = 200
-        text = ""
-
-        @staticmethod
-        def json():
-            return {
-                "documents": [{"markdown": "# From Chandra", "ocr_used": [True, True]}]
-            }
-
-    class FakeHttp:
-        async def post(
-            self,
-            url,
-            files=None,
-            data=None,
-            headers=None,
-            follow_redirects=False,
-            timeout=None,
-        ):
-            captured.update(
-                url=url,
-                files=files,
-                data=data,
-                headers=headers,
-                follow_redirects=follow_redirects,
-                timeout=timeout,
-            )
-            return FakeResponse()
-
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = FakeHttp()
+    http = RecordingSidecarHttp(
+        {"documents": [{"markdown": "# From Chandra", "ocr_used": [True, True]}]}
+    )
+    captured = http.captured
 
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
     monkeypatch.setenv("FRISKET_TRANSCRIPTION_SIDECAR_TIMEOUT_SECONDS", "47")
 
     p, sheet = _project(tmp_path, [{"doc": "<html><body>hi</body></html>"}])
-    result = _run_with_exact_confirmation(p, _spec(sheet, engine), StubRouter())
+    result = _run_with_exact_confirmation(
+        p, _spec(sheet, engine), HttpClientRouter(http)
+    )
     assert result.status == "completed", result.errors
     assert captured["url"] == "http://models:9000/to-markdown"
     assert captured["headers"]["Authorization"] == "Bearer sekrit"

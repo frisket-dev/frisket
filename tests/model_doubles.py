@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
+from frisket.ai.llm.execution import ExecutionModelRouter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 
@@ -89,3 +90,54 @@ class ScriptedAdapter:
         if callable(outcome):
             return outcome(req)
         return outcome
+
+
+class HttpClientRouter:
+    """Router double for engines that only need the router's HTTP client."""
+
+    def __init__(self, client: Any) -> None:
+        self.client = client
+
+    def for_execution(self, execution: Any) -> ExecutionModelRouter:
+        return ExecutionModelRouter(self, execution)
+
+
+class SidecarResponse:
+    status_code = 200
+    text = ""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+
+    def json(self) -> dict[str, Any]:
+        return self.payload
+
+
+class RecordingSidecarHttp:
+    """Models-sidecar HTTP double: answers every POST with ``payload``.
+
+    The keyword arguments of the last POST land in ``captured``.
+    """
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.captured: dict[str, Any] = {}
+
+    async def post(
+        self,
+        url: str,
+        files: Any = None,
+        data: Any = None,
+        headers: Any = None,
+        follow_redirects: bool = False,
+        timeout: Any = None,
+    ) -> SidecarResponse:
+        self.captured.update(
+            url=url,
+            files=files,
+            data=data,
+            headers=headers,
+            follow_redirects=follow_redirects,
+            timeout=timeout,
+        )
+        return SidecarResponse(self.payload)

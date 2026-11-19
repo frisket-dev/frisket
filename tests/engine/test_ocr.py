@@ -5,6 +5,8 @@
 - engine param resolves local-light → sidecar (dots.mocr) → remote VLM (router)
 """
 
+from model_doubles import HttpClientRouter, RecordingSidecarHttp
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -288,55 +290,24 @@ def test_ocr_dots_mocr_needs_sidecar_url(tmp_path, monkeypatch):
 def test_ocr_sidecar_posts_pages_with_bearer(tmp_path, monkeypatch):
     """engine='dots.mocr' speaks the settled sidecar contract: POST /ocr with
     multipart page bytes + bearer token; per-page text/blocks come back."""
-    captured = {}
+    http = RecordingSidecarHttp(
+        {
+            "pages": [
+                {
+                    "text": "FROM SIDECAR",
+                    "blocks": [
+                        {
+                            "text": "FROM SIDECAR",
+                            "bbox": [[0, 0], [1, 0], [1, 1], [0, 1]],
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    captured = http.captured
 
-    class FakeResponse:
-        status_code = 200
-        text = ""
-
-        @staticmethod
-        def json():
-            return {
-                "pages": [
-                    {
-                        "text": "FROM SIDECAR",
-                        "blocks": [
-                            {
-                                "text": "FROM SIDECAR",
-                                "bbox": [[0, 0], [1, 0], [1, 1], [0, 1]],
-                            }
-                        ],
-                    }
-                ]
-            }
-
-    class FakeHttp:
-        async def post(
-            self,
-            url,
-            files=None,
-            data=None,
-            headers=None,
-            follow_redirects=False,
-            timeout=None,
-        ):
-            captured.update(
-                url=url,
-                files=files,
-                data=data,
-                headers=headers,
-                follow_redirects=follow_redirects,
-                timeout=timeout,
-            )
-            return FakeResponse()
-
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = FakeHttp()
-
-    router = StubRouter()
+    router = HttpClientRouter(http)
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models:9000")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "sekrit")
 

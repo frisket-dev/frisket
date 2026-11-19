@@ -17,7 +17,8 @@ makes "refuses PRE-EFFECT" a fact rather than a claim.
 
 from __future__ import annotations
 
-from frisket.ai.llm.execution import ExecutionModelRouter
+from model_doubles import HttpClientRouter
+
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
 import asyncio
@@ -113,11 +114,9 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
             return httpx.Response(200, json=submit)
         return httpx.Response(200, json=complete)
 
-    class StubRouter:
-        def for_execution(self, execution):
-            return ExecutionModelRouter(self, execution)
-
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    stub_router = HttpClientRouter(
+        httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
 
     # The hosted organization composition, resolved for real: the resolver pins
     # credential_source='org_byok' and cost_posture='org_key' from ONE
@@ -132,7 +131,7 @@ def test_anchor_to_markdown_organization_byok_consent_refuses_the_deployments_en
             project, typed_action_for_request(_request(sheet_id))
         )
         spec = plan.spec_dict()
-        router = StubRouter()
+        router = stub_router
         deployment = CredentialOwner.deployment("hosted-deployment")
         organization = CredentialOwner.organization("org-a")
         composition = ExecutionComposition(
