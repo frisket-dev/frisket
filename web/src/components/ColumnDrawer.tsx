@@ -120,13 +120,14 @@ interface ColumnDrawerProps {
 }
 
 /** Pull the human-readable prompt out of a run spec (current backend run specs name it differently). */
-/** A stored run records the invocation envelope; the action's own params
- *  (prompt, fields, target language) sit under its `params` key. */
+/** A stored run records the invocation envelope, with the action's own params
+ *  (prompt, fields, target language) under its `params` key; a run recorded
+ *  without the envelope carries them at the top level. */
 function runParams(spec: Record<string, unknown>): Record<string, unknown> {
   const params = spec.params;
   return params !== null && typeof params === 'object' && !Array.isArray(params)
     ? params as Record<string, unknown>
-    : {};
+    : spec;
 }
 
 function specPrompt(spec: Record<string, unknown>): string {
