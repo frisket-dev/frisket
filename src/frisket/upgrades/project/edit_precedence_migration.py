@@ -14,7 +14,7 @@ from frisket.upgrades.project._step import execute_ddl
 
 # Pinned endpoint: the payload installs the runtime change-schema views, so a
 # later schema change must extend this step explicitly.
-EDIT_PRECEDENCE_TO_DIGEST = "frisket.schema.v1:eaecc9145d3a2b2c8b8e202380ae8624"
+EDIT_PRECEDENCE_TO_DIGEST = "frisket.schema.v1:bd2b8aa51fcac3d5a7ba3753630a4fcd"
 
 _CHANGE_VIEWS = (
     "generated_result_candidates",

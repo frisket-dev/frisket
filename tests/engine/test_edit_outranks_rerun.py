@@ -8,13 +8,17 @@ descriptor supersedes every earlier edit.
 from __future__ import annotations
 
 from contextlib import closing
+from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.change_schema import canonical_heads_sql
 from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.schema import SCHEMA_DIGEST
+from frisket.server.services.sheet_grid import SheetGridService, sheet_columns_payload
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
 
 _PROJECT_ID = "proj-edit-precedence"
@@ -150,12 +154,110 @@ def test_whole_column_rerun_keeps_edits_and_offers_run_values(make_project):
     assert sheet.pending_fresh() == dict(zip(sheet.rows[:3], ["B0", "B1", "B2"]))
 
 
-def test_row_scoped_rerun_keeps_edits_inside_its_scope(make_project):
+def _assert_grid_treats_column_as_mixed(sheet: _Sheet) -> None:
+    """Every sheet read succeeds and offers no replay value for the column."""
+    service = SheetGridService(SimpleNamespace(get=lambda _: sheet.project))
+    for mode in ("exact", "bounded"):
+        data = service.sheet_data(_PROJECT_ID, sheet.sheet, value_mode=mode)
+        [column] = [c for c in data["columns"] if c["id"] == sheet.out]
+        assert column["mixed_origins"] is True
+        assert not column["replay_pending_count"]
+        cells = {row["id"]: row for row in data["rows"]}
+        assert [cells[row]["cells"][str(sheet.out)] for row in sheet.rows[:3]] == (
+            _EDITED
+        )
+        assert not any(
+            "pending_value" in cells[row]["meta"].get(str(sheet.out), {})
+            for row in sheet.rows
+        )
+    [column] = [
+        c
+        for c in sheet_columns_payload(sheet.project, sheet.sheet)
+        if c["id"] == sheet.out
+    ]
+    assert column["mixed_origins"] is True
+
+
+@pytest.mark.parametrize("scope", [[0], [0, 3]], ids=["edited-only", "mixed"])
+def test_row_scoped_rerun_keeps_edits_and_reads_as_mixed(make_project, scope):
     sheet = _Sheet(make_project("p"))
     sheet.edit_first_three()
-    sheet.run("B", row_ids=[sheet.rows[0], sheet.rows[3]])
-    assert sheet.values() == [*_EDITED, "B3", "A4", "A5"]
+    sheet.run("B", row_ids=[sheet.rows[i] for i in scope])
+    assert sheet.values() == [*_EDITED, "B3" if 3 in scope else "A3", "A4", "A5"]
+    assert sheet.origins()[:3] == ["manual_edit"] * 3
+    _assert_grid_treats_column_as_mixed(sheet)
+    refused = run_action_spec(
+        sheet.project,
+        {
+            "action_id": "replay.accept_column",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": sheet.sheet, "column_id": sheet.out},
+            "idempotency_key": "accept-mixed",
+        },
+        project_id=_PROJECT_ID,
+    )
+    assert [error.code for error in refused.errors] == [
+        "mixed_origin_column_unsupported"
+    ]
+
+
+def test_single_edited_cell_rerun_reads_as_mixed(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.act(
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {"row_id": sheet.rows[0], "column_id": sheet.out, "value": "E"}
+                ]
+            },
+        }
+    )
+    sheet.run("B", row_ids=[sheet.rows[0]])
+    assert sheet.values() == ["E", "A1", "A2", "A3", "A4", "A5"]
+    service = SheetGridService(SimpleNamespace(get=lambda _: sheet.project))
+    for mode in ("exact", "bounded"):
+        data = service.sheet_data(_PROJECT_ID, sheet.sheet, value_mode=mode)
+        [column] = [c for c in data["columns"] if c["id"] == sheet.out]
+        assert column["mixed_origins"] is True
+        assert not column["replay_pending_count"]
+
+
+def test_accepted_value_is_an_edit_that_a_later_rerun_keeps(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    sheet.replay_action("replay.accept", sheet.rows[0])
+    assert sheet.values()[0] == "B0"
+    sheet.run("C")
+    assert sheet.values()[:3] == ["B0", "EDIT1", "EDIT2"]
     assert sheet.origins()[0] == "manual_edit"
+    assert sheet.pending_fresh()[sheet.rows[0]] == "C0"
+
+
+def test_copy_after_an_edit_supersedes_it_for_later_reruns(make_project):
+    sheet = _Sheet(make_project("p"))
+    original = int(
+        sheet.project.db.execute(
+            "SELECT run_id FROM results WHERE column_id=? LIMIT 1", (sheet.out,)
+        ).fetchone()[0]
+    )
+    sheet.edit_first_three()
+    sheet.act(
+        {
+            "action_id": "run.reapply",
+            "scope": {"kind": "sheet_rows", "sheet_id": sheet.sheet},
+            "params": {"source_run_id": original},
+            "output_names": {"out": "out"},
+            "replace_existing": True,
+            "expected_output_columns": {"out": sheet.out},
+        }
+    )
+    assert sheet.values() == ["A0", "A1", "A2", "A3", "A4", "A5"]
+    sheet.run("B")
+    assert sheet.values() == ["B0", "B1", "B2", "B3", "B4", "B5"]
+    assert sheet.origins() == ["run_result"] * 6
 
 
 def test_accept_makes_the_run_value_current(make_project):

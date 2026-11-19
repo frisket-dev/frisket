@@ -69,7 +69,9 @@ def canonical_heads_sql(
     Later changes win, except that a human edit outranks every later run
     result on its cell: the run's value is offered for replay review instead.
     A later replacement that changes the column descriptor supersedes the
-    edit, and any later replacement supersedes a reject-clear edit.
+    edit, and any later replacement supersedes a reject-clear edit. A later
+    source write or copied result supersedes the edit as well, so a run after
+    it is again ordered by change alone.
     """
     return f"""
 SELECT payload.column_id,payload.row_id,
@@ -113,6 +115,7 @@ FROM (
     SELECT ordered.*,ROW_NUMBER() OVER (
       PARTITION BY ordered.column_id,ordered.row_id
       ORDER BY CASE WHEN ordered.origin_kind='manual_edit'
+            AND COALESCE(ordered.last_overwrite,-1)<ordered.change_order
             AND COALESCE(ordered.last_descriptor_replacement,-1)<ordered.change_order
             AND (ordered.edit_supersession=2
               OR COALESCE(ordered.last_replacement,-1)<ordered.change_order)
@@ -125,6 +128,8 @@ FROM (
       SELECT contribution.*,
         MAX(CASE WHEN contribution.origin_kind='run_result'
           THEN contribution.change_order END) OVER cell AS last_run,
+        MAX(CASE WHEN contribution.origin_kind IN ('source_cell','copied_result')
+          THEN contribution.change_order END) OVER cell AS last_overwrite,
         MAX(CASE WHEN contribution.origin_kind='run_result' AND contribution.edit_supersession>=1
           THEN contribution.change_order END) OVER cell AS last_replacement,
         MAX(CASE WHEN contribution.origin_kind='run_result' AND contribution.edit_supersession=2
