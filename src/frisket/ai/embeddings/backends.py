@@ -55,7 +55,7 @@ def _raise_if_fastembed_cache_miss(
     ):
         return
     raise LocalEmbeddingModelUnavailable(
-        f"Local {modality} embedding model {model_id!r} is not cached. "
+        f"Local {modality} model {model_id!r} is not cached. "
         "Run 'frisket doctor embeddings' to inspect the cache, then pre-populate "
         "FastEmbed's FASTEMBED_CACHE_PATH with this model before retrying."
     ) from error
@@ -190,7 +190,7 @@ def local_embedder(
                     model = TextEmbedding(resolved, **options)
                 except ValueError as exc:
                     _raise_if_fastembed_cache_miss(
-                        exc, model_id=resolved, modality="text"
+                        exc, model_id=resolved, modality="text embedding"
                     )
                     raise
                 _local_models[cache_key] = model
@@ -244,7 +244,7 @@ def local_image_embedder(
                     model = ImageEmbedding(resolved, local_files_only=True)
                 except ValueError as exc:
                     _raise_if_fastembed_cache_miss(
-                        exc, model_id=resolved, modality="image"
+                        exc, model_id=resolved, modality="image embedding"
                     )
                     raise
                 _local_image_models[resolved] = model
@@ -299,9 +299,15 @@ def local_reranker(
         def invoke():
             global _local_rerank_model
             if _local_rerank_model is None:
-                _local_rerank_model = TextCrossEncoder(
-                    RERANK_MODEL, local_files_only=True
-                )
+                try:
+                    _local_rerank_model = TextCrossEncoder(
+                        RERANK_MODEL, local_files_only=True
+                    )
+                except ValueError as exc:
+                    _raise_if_fastembed_cache_miss(
+                        exc, model_id=RERANK_MODEL, modality="reranking"
+                    )
+                    raise
             return [
                 float(value) for value in _local_rerank_model.rerank(query, documents)
             ]

@@ -76,6 +76,30 @@ def test_local_backends_refuse_an_absent_model_without_network(
     ]
 
 
+def test_local_reranker_refuses_an_absent_model_without_network(monkeypatch):
+    constructed = []
+
+    class MissingModel:
+        def __init__(self, model, **kwargs):
+            constructed.append((model, kwargs))
+            raise ValueError(f"Could not load model {model} from any source.")
+
+    cross_encoder = ModuleType("fastembed.rerank.cross_encoder")
+    monkeypatch.setattr(cross_encoder, "TextCrossEncoder", MissingModel, raising=False)
+    monkeypatch.setitem(sys.modules, "fastembed.rerank.cross_encoder", cross_encoder)
+    monkeypatch.setattr(backends, "_local_rerank_model", None)
+
+    score = backends.local_reranker(env={})
+
+    assert score is not None
+    with pytest.raises(
+        backends.LocalEmbeddingModelUnavailable,
+        match=r"reranking model .*FASTEMBED_CACHE_PATH",
+    ):
+        score("query", ["document"])
+    assert constructed == [(backends.RERANK_MODEL, {"local_files_only": True})]
+
+
 def test_gateway_reports_an_uncached_local_model_as_unavailable(monkeypatch):
     class MissingModel:
         def __init__(self, model, **_kwargs):
