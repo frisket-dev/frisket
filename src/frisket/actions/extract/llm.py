@@ -19,7 +19,7 @@ from frisket.actions.extraction_types import (
     ExtractGrounding,
     extraction_output_fields,
 )
-from frisket.actions.model_rows import _PdfModelRowsParams
+from frisket.actions.model_rows import PdfRichColumn, _PdfModelRowsParams
 from frisket.actions.types import (
     ColumnRef,
     DynamicOutput,
@@ -204,8 +204,8 @@ async def extract_row(
 EXTRACT = action(
     examples=(
         ExtractParams(
-            source=["source"],
-            model="anthropic/claude-haiku-4-5",
+            source=[PdfRichColumn("source")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             fields=[ExtractField(name="summary", type="text")],
         ),
     ),

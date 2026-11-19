@@ -7,6 +7,7 @@ from frisket.actions.find_types import (
     FindSourceColumn,
     PreparedFind,
 )
+from frisket.actions.types import ModelRef
 
 
 class FindParams(FindOptions):
@@ -28,8 +29,8 @@ FIND = action(
     run=find,
     examples=(
         FindParams(
-            source="transcript",
-            model="anthropic/claude-haiku-4-5",
+            source=FindSourceColumn("transcript"),
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             instruction="Find every mention of trade policy.",
         ),
     ),

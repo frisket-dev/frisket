@@ -21,6 +21,7 @@ from frisket.actions.types import (
 from frisket.authoring import column_types
 from frisket.contracts.action import MAX_IMPORT_ROWS_COLUMNS
 from frisket.contracts.actions.schemas.imports import (
+    ImportRowsColumn,
     ValidatedImportColumns,
     normalize_import_value,
 )
@@ -285,7 +286,7 @@ GEOJSON = action(
     examples=(
         ImportGeojsonParams(
             source=FileSource(kind="file", path="examples/places.geojson"),
-            property_columns=[{"name": "name", "type": "text"}],
+            property_columns=[ImportRowsColumn(name="name", type="text")],
             include_feature_id=True,
         ),
     ),

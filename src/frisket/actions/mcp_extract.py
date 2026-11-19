@@ -12,7 +12,7 @@ from frisket.actions.core import (
 )
 from frisket.actions.extraction_types import ExtractField, extraction_output_fields
 from frisket.actions.mcp_types import McpExtractor, McpServers
-from frisket.actions.model_rows import RichSource
+from frisket.actions.model_rows import RichColumn, RichSource
 from frisket.actions.row_research import source_values
 from frisket.actions.types import ActionParams, DynamicOutput, ModelRef, Row, RowResult
 
@@ -70,8 +70,8 @@ MCP_EXTRACT = action(
     run=map_rows(extract, dynamic_outputs=output_fields),
     examples=(
         McpExtractParams(
-            source=["company"],
-            model="anthropic/claude-haiku-4-5",
+            source=[RichColumn("company")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             fields=[ExtractField(name="company_name", type="text")],
             mcp_server_ids=McpServers(["local-crm"]),
         ),

@@ -22,7 +22,10 @@ from frisket.actions.types import (
     UpdatedImportedRows,
 )
 from frisket.contracts.action import MAX_IMPORT_ROWS_COLUMNS
-from frisket.contracts.actions.schemas.imports import ValidatedImportColumns
+from frisket.contracts.actions.schemas.imports import (
+    ImportRowsColumn,
+    ValidatedImportColumns,
+)
 from frisket.csv_values import parse_csv_value
 
 
@@ -182,7 +185,7 @@ XLSX = action(
     examples=(
         ImportXlsxParams(
             source=FileSource(kind="file", path="examples/data.xlsx"),
-            columns=[{"name": "title", "type": "text"}],
+            columns=[ImportRowsColumn(name="title", type="text")],
             worksheet="Sheet1",
         ),
     ),
@@ -201,8 +204,8 @@ def append_xlsx(params: ImportXlsxParams, appender: RowsAppender) -> AppendedRow
 APPEND_XLSX = action(
     examples=(
         ImportXlsxParams(
-            source={"kind": "file", "path": "examples/data.xlsx"},
-            columns=[{"name": "title", "type": "text"}],
+            source=FileSource(kind="file", path="examples/data.xlsx"),
+            columns=[ImportRowsColumn(name="title", type="text")],
         ),
     ),
     name="append_xlsx",
@@ -221,8 +224,11 @@ def update_xlsx(params: UpdateXlsxParams, updater: RowsUpdater) -> UpdatedImport
 UPDATE_XLSX = action(
     examples=(
         UpdateXlsxParams(
-            source={"kind": "file", "path": "examples/data.xlsx"},
-            columns=[{"name": "id", "type": "text"}, {"name": "title", "type": "text"}],
+            source=FileSource(kind="file", path="examples/data.xlsx"),
+            columns=[
+                ImportRowsColumn(name="id", type="text"),
+                ImportRowsColumn(name="title", type="text"),
+            ],
             key_columns=["id"],
         ),
     ),

@@ -186,7 +186,12 @@ TRANSLATE = action(
         ActionComparisonKind.ROW_OVERLAY,
         structural_params=("target_language", "save_detected_language"),
     ),
-    examples=(TranslateParams(source=["text"], model="anthropic/claude-haiku-4-5"),),
+    examples=(
+        TranslateParams(
+            source=[TranslationColumn("text")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
+        ),
+    ),
     run=model_rows(
         translate_prompt,
         direct=translate_direct,

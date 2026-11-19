@@ -199,8 +199,8 @@ def ask(params: AskParams, row: Row) -> ModelPrompt[DynamicOutput]:
 ASK = action(
     examples=(
         AskParams(
-            source=["source"],
-            model="anthropic/claude-haiku-4-5",
+            source=[PdfRichColumn("source")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             question="What does this row say?",
         ),
     ),
@@ -269,7 +269,12 @@ def summarize(params: SummarizeParams, row: Row) -> ModelPrompt[SummarizeOutput]
 
 
 SUMMARIZE = action(
-    examples=(SummarizeParams(source=["source"], model="anthropic/claude-haiku-4-5"),),
+    examples=(
+        SummarizeParams(
+            source=[PdfRichColumn("source")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
+        ),
+    ),
     name="summarize",
     title="Summarize rows",
     description=(

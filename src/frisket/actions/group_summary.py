@@ -4,6 +4,7 @@ from pydantic import Field, field_validator
 
 from frisket.actions.core import ActionCategory, action
 from frisket.actions.model_rows import FILE_SOURCE_CONVERSION_HINT
+from frisket.actions.types import ModelRef
 from frisket.actions.group_summary_types import (
     GroupSummarizer,
     GroupSummaryColumn,
@@ -44,8 +45,8 @@ GROUP_SUMMARY = action(
     run=group_summary,
     examples=(
         GroupSummaryParams(
-            source=["story"],
-            model="anthropic/claude-haiku-4-5",
+            source=[GroupSummaryColumn("story")],
+            model=ModelRef("anthropic/claude-haiku-4-5"),
             instruction="Summarize these stories.",
         ),
     ),
