@@ -14,9 +14,6 @@
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
  },
- "grid.spec.ts": {
-  "json array cell renders as a mini table in the row drawer": "seed:Local stories,Tariff impacts"
- },
  "local-model-walkthrough.spec.ts": {
   "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
  },
@@ -28,19 +25,6 @@
   "an import landing undownloaded YouTube URL rows prompts \"Download media?\"; Download closes and launches the matching action": "stale-expectation"
  },
  "media.spec.ts": {
-  "audio grid leading control opens one dismissible player without opening row detail": "seed:Council audio,Local stories",
-  "audio playback survives a run while new grid starts wait for terminal progress": "seed:Council audio",
-  "audio row controls the one app-level player and actually plays": "seed:Council audio"
- },
- "picker.spec.ts": {
-  "project dropdown switches projects": "seed:Local stories,Tariff impacts",
-  "the home screen lists the seeded projects": "seed:Local stories,Tariff impacts,Council audio"
- },
- "workbench-ia-document-view.spec.ts": {
-  "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio"
- },
- "workbench-ia-shell.spec.ts": {
-  "Home renders real project cards with real meta counts and navigates into the workbench": "seed:Local stories,Tariff impacts",
-  "the switcher menu recent-projects entry switches projects": "seed:Local stories,Tariff impacts"
+  "audio playback survives a run while new grid starts wait for terminal progress": "stale-expectation"
  }
 }

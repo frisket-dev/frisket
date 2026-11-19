@@ -57,3 +57,85 @@ def test_one_reply_per_scoped_row(make_project):
     project, action = _stories(make_project)
     with pytest.raises(ValueError, match="8 rows in scope, 7 replies given"):
         prime_map_rows_replies(project, action, seed_demo.STORIES_REPLIES[:7])
+
+
+def test_council_audio_summary_replies_fit_the_rendered_summarize_schema(
+    make_project,
+):
+    project = make_project("Council audio")
+    sheet_id = project.add_sheet("audio")
+    column_id = project.add_column(sheet_id, "transcript", "text")
+    project.add_rows(
+        sheet_id,
+        [{"transcript": "The committee will come to order."}],
+        {"transcript": column_id},
+    )
+    action = seed_demo.typed_action_request(
+        "map.summarize",
+        sheet_id=sheet_id,
+        params={
+            "model": seed_demo.MODEL,
+            "source": ["transcript"],
+            "preset": "one_line",
+        },
+        output_names={"summary": "one_line_summary"},
+    )
+    assert prime_map_rows_replies(project, action, seed_demo.AUDIO_SUMMARY_REPLIES) == 1
+
+
+def _countries(make_project, name: str, columns: dict[str, str], rows: list[dict]):
+    project = make_project(name)
+    sheet_id = project.add_sheet("countries")
+    ids = {
+        column: project.add_column(sheet_id, column, kind)
+        for column, kind in columns.items()
+    }
+    project.add_rows(sheet_id, rows, ids)
+    return project, sheet_id
+
+
+def test_tariff_summary_replies_fit_the_rendered_summarize_schema(make_project):
+    project, sheet_id = _countries(
+        make_project,
+        "Tariff impacts",
+        {"country": "text", "search_results": "json"},
+        [
+            {"country": country, "search_results": results}
+            for country, results in seed_demo.TARIFF_SEARCH_RESULTS.items()
+        ],
+    )
+    summarize = seed_demo.typed_action_request(
+        "map.summarize",
+        sheet_id=sheet_id,
+        params={
+            "model": seed_demo.MODEL,
+            "source": ["country", "search_results"],
+            "instruction": "Summarize.",
+        },
+        output_names={"summary": "summary"},
+    )
+    assert (
+        prime_map_rows_replies(project, summarize, seed_demo.TARIFF_SUMMARY_REPLIES)
+        == 6
+    )
+
+
+def test_tariff_score_replies_fit_the_rendered_score_schema(make_project):
+    project, sheet_id = _countries(
+        make_project,
+        "Tariff impacts",
+        {"country": "text", "summary": "text"},
+        [{"country": country, "summary": "fixture"} for country in seed_demo.COUNTRIES],
+    )
+    score = seed_demo.typed_action_request(
+        "map.classify",
+        sheet_id=sheet_id,
+        params={
+            "model": seed_demo.MODEL,
+            "engine": "llm",
+            "source": ["country", "summary"],
+            "fields": [{"name": "tariff_impact", "type": "score"}],
+            "include_justification": True,
+        },
+    )
+    assert prime_map_rows_replies(project, score, seed_demo.TARIFF_SCORE_REPLIES) == 6

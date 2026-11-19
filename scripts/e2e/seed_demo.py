@@ -3,20 +3,38 @@
 Usage:
     uv run python scripts/e2e/seed_demo.py http://localhost:8000 [session_cookie]
     uv run python scripts/e2e/seed_demo.py http://localhost:8000 --keyless <workspace>
+    ... [--status-file <path>] [--strict]
 
 Creates each of these that the server does not already hold:
   1. "Local stories" — classify demo (beats + justification)
-  2. "Council audio" — packaged CC0 council excerpt → transcribe → summarize
+  2. "Council audio" — packaged CC0 council excerpt → local Whisper base
+     transcription → summarize
   3. "Tariff impacts" — countries; web_search → summarize → score chain
   4. "People mentioned" — fixture rows → derived People sheet, model-free
-Runs are REAL model calls (the server's keys); total cost well under $0.25.
+Model and search calls are REAL (the server's keys); total cost well under
+$0.25. Transcription is local and needs the pinned Whisper base model in the
+Hugging Face cache (scripts/e2e/fetch_whisper_model.py, or the in-app setup);
+the keyless build does not transcribe.
 
-``--keyless`` builds only the projects that need no provider: "People
-mentioned", and "Local stories" with its classify replies taken from
-STORIES_REPLIES, stored in the project's response cache under the keys the
-run will look up (prime_replies.py) and replayed with the model routed to the
-project's own key, so the run succeeds under FRISKET_CACHE_MODE=replay_strict
-with no key at all. <workspace> is the server's workspace directory.
+``--keyless`` makes no provider call. Every model reply is a fixture
+(STORIES_REPLIES, AUDIO_SUMMARY_REPLIES, TARIFF_SUMMARY_REPLIES,
+TARIFF_SCORE_REPLIES) stored in the project's response cache under the keys
+the run will look up (prime_replies.py) and replayed with the model routed to
+the project's own key, so the runs succeed under
+FRISKET_CACHE_MODE=replay_strict with no key at all. Web search has no
+replay, so the keyless "Tariff impacts" imports TARIFF_SEARCH_RESULTS as its
+search_results column instead of running research.web_search, and the
+keyless "Council audio" writes the fixture AUDIO_TRANSCRIPT instead of
+transcribing, so it needs no speech model.
+<workspace> is the server's workspace directory.
+
+Each project is built on its own: a run that ends with failed rows leaves its
+project partial (the run records which rows failed), and a project that
+cannot be built is missing; neither stops the others. The seed ends by
+printing which projects are complete, partial, missing or already present,
+and ``--status-file`` writes the same as JSON
+({name: {"state": ..., "detail": ...}}). It exits 0 unless ``--strict`` is
+given and a project is partial or missing.
 """
 
 from __future__ import annotations
@@ -28,6 +46,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -45,9 +64,8 @@ STORIES_CSV = """snippet
 "The city's three remaining pharmacies in the northern district will close by March."
 """
 
-COUNTRIES_CSV = "country\n" + "\n".join(
-    ["Canada", "Mexico", "China", "Germany", "Vietnam", "Brazil"]
-)
+COUNTRIES = ["Canada", "Mexico", "China", "Germany", "Vietnam", "Brazil"]
+COUNTRIES_CSV = "country\n" + "\n".join(COUNTRIES)
 
 COUNCIL_AUDIO_PROJECT_NAME = "Council audio"
 COUNCIL_AUDIO_SAMPLE = SAMPLE_COUNCIL_AUDIO[0]
@@ -81,6 +99,40 @@ STORIES_CLASSIFY = {
     "include_justification": True,
     "include_confidence": True,
 }
+
+
+# Fixture data for the keyless build; it stands in for provider output and
+# measures nothing. The keyless "Council audio" writes AUDIO_TRANSCRIPT with
+# map.python instead of transcribing, so no speech model runs; it and
+# AUDIO_SUMMARY_REPLIES are for the one imported file.
+AUDIO_TRANSCRIPT = (
+    "Placeholder transcript standing in for the council committee excerpt."
+)
+AUDIO_SUMMARY_REPLIES = [
+    {"summary": "A city council committee discusses items on its agenda."}
+]
+TARIFF_SEARCH_RESULTS = {
+    country: [
+        {
+            "title": f"Fixture search result {n} on US tariffs and {country}",
+            "url": f"https://example.org/fixture/{country.lower()}/{n}",
+            "snippet": f"Placeholder text standing in for a search result about {country}.",
+        }
+        for n in (1, 2)
+    ]
+    for country in COUNTRIES
+}
+TARIFF_SUMMARY_REPLIES = [
+    {"summary": f"Placeholder summary of US tariff impacts on {country}."}
+    for country in COUNTRIES
+]
+TARIFF_SCORE_REPLIES = [
+    {
+        "tariff_impact": score,
+        "tariff_impact_justification": f"Placeholder score for {country}.",
+    }
+    for country, score in zip(COUNTRIES, (7, 8, 9, 4, 6, 5), strict=True)
+]
 
 
 def _story_reply(beat: str, why: str, score: int, weight: str, confidence: float):
@@ -196,6 +248,10 @@ def typed_action_request(
     }
 
 
+class RunIncomplete(RuntimeError):
+    """A run ended unsuccessfully or with failed rows; the run records which."""
+
+
 def wait_run(client: httpx.Client, pid: str, run_id: int, label: str) -> None:
     for _ in range(600):
         body = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status").json()
@@ -219,7 +275,7 @@ def wait_run(client: httpx.Client, pid: str, run_id: int, label: str) -> None:
                     context.append(("queue_error", queue["error"]))
                 details = "; ".join(f"{name}={value}" for name, value in context)
                 suffix = f"; {details}" if details else ""
-                raise RuntimeError(
+                raise RunIncomplete(
                     f"{label}: run {run_id} ended unsuccessfully: {summary}{suffix}"
                 )
             print(f"  {label}: {summary}")
@@ -275,6 +331,19 @@ def run(client: httpx.Client, pid: str, spec: dict, label: str) -> int | None:
     return run_id
 
 
+def create_project(client: httpx.Client, name: str) -> str:
+    response = client.post("/api/projects", json={"name": name})
+    response.raise_for_status()
+    return response.json()["id"]
+
+
+def import_sheet(client: httpx.Client, pid: str, kind: str, files: dict) -> int:
+    """Import ``files`` through ``/import/<kind>``; return the new sheet's id."""
+    response = client.post(f"/api/projects/{pid}/import/{kind}", files=files)
+    response.raise_for_status()
+    return response.json()["sheet_id"]
+
+
 def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) -> None:
     """Store fixture replies for ``action`` in the project's response cache."""
     subprocess.run(
@@ -290,47 +359,97 @@ def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) 
     )
 
 
+def route_model_to_own_key(client: httpx.Client, pid: str) -> None:
+    """Route MODEL to the project's own key so primed replies replay keyless."""
+    client.patch(
+        f"/api/projects/{pid}/model-routes",
+        json={"model_id": MODEL, "route": "own"},
+    ).raise_for_status()
+
+
+def run_model_action(
+    client: httpx.Client,
+    pid: str,
+    action: dict,
+    label: str,
+    keyless_workspace: Path | None,
+    replies: list[dict],
+) -> None:
+    """Run a model action; keyless, its replies come from ``replies``."""
+    if keyless_workspace is not None:
+        prime_replies(keyless_workspace, pid, action, replies)
+    run(client, pid, action, label)
+
+
 def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
-    pid = client.post("/api/projects", json={"name": "Local stories"}).json()["id"]
-    sheet = client.post(
-        f"/api/projects/{pid}/import/csv",
-        files={"file": ("stories.csv", STORIES_CSV, "text/csv")},
-    ).json()["sheet_id"]
+    pid = create_project(client, "Local stories")
+    sheet = import_sheet(
+        client, pid, "csv", {"file": ("stories.csv", STORIES_CSV, "text/csv")}
+    )
     action = typed_action_request(
         "map.classify", sheet_id=sheet, params=STORIES_CLASSIFY
     )
     if keyless_workspace is not None:
-        client.patch(
-            f"/api/projects/{pid}/model-routes",
-            json={"model_id": MODEL, "route": "own"},
-        ).raise_for_status()
-        prime_replies(keyless_workspace, pid, action, STORIES_REPLIES)
-    run(client, pid, action, "classify stories")
+        route_model_to_own_key(client, pid)
+    run_model_action(
+        client, pid, action, "classify stories", keyless_workspace, STORIES_REPLIES
+    )
     print(f"✓ Local stories → {pid}")
 
 
-def seed_tariff(client: httpx.Client) -> None:
-    pid = client.post("/api/projects", json={"name": "Tariff impacts"}).json()["id"]
-    sheet = client.post(
-        f"/api/projects/{pid}/import/csv",
-        files={"file": ("countries.csv", COUNTRIES_CSV, "text/csv")},
-    ).json()["sheet_id"]
+def import_fixture_search_results(client: httpx.Client, pid: str) -> int:
+    """The keyless stand-in for research.web_search: countries with fixture
+    search_results; returns the sheet's id."""
     run(
         client,
         pid,
         typed_action_request(
-            "research.web_search",
-            sheet_id=sheet,
+            "import.rows",
+            sheet_name="countries",
             params={
-                "query": {"text": "US tariff impacts on {{country}} economy 2026"},
-                "model": MODEL,
-                "max_results": 8,
+                "columns": [
+                    {"name": "country", "type": "text"},
+                    {"name": "search_results", "type": "json"},
+                ],
+                "rows": [
+                    {"country": country, "search_results": results}
+                    for country, results in TARIFF_SEARCH_RESULTS.items()
+                ],
+                "source": {"kind": "inline", "label": "seed_demo search results"},
             },
-            output_names={"search_results": "search_results"},
         ),
-        "web search",
+        "import fixture search results",
     )
-    run(
+    response = client.get(f"/api/projects/{pid}/sheets")
+    response.raise_for_status()
+    return next(s["id"] for s in response.json() if s["name"] == "countries")
+
+
+def seed_tariff(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
+    pid = create_project(client, "Tariff impacts")
+    if keyless_workspace is not None:
+        route_model_to_own_key(client, pid)
+        sheet = import_fixture_search_results(client, pid)
+    else:
+        sheet = import_sheet(
+            client, pid, "csv", {"file": ("countries.csv", COUNTRIES_CSV, "text/csv")}
+        )
+        run(
+            client,
+            pid,
+            typed_action_request(
+                "research.web_search",
+                sheet_id=sheet,
+                params={
+                    "query": {"text": "US tariff impacts on {{country}} economy 2026"},
+                    "model": MODEL,
+                    "max_results": 8,
+                },
+                output_names={"search_results": "search_results"},
+            ),
+            "web search",
+        )
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -345,8 +464,10 @@ def seed_tariff(client: httpx.Client) -> None:
             output_names={"summary": "summary"},
         ),
         "summarize",
+        keyless_workspace,
+        TARIFF_SUMMARY_REPLIES,
     )
-    run(
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -368,45 +489,64 @@ def seed_tariff(client: httpx.Client) -> None:
             },
         ),
         "score impacts",
+        keyless_workspace,
+        TARIFF_SCORE_REPLIES,
     )
     print(f"✓ Tariff impacts → {pid}")
 
 
-def seed_audio(client: httpx.Client) -> None:
-    pid = client.post(
-        "/api/projects", json={"name": COUNCIL_AUDIO_PROJECT_NAME}
-    ).json()["id"]
+def seed_audio(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
+    pid = create_project(client, COUNCIL_AUDIO_PROJECT_NAME)
+    if keyless_workspace is not None:
+        route_model_to_own_key(client, pid)
     audio = council_audio_bytes(COUNCIL_AUDIO_SAMPLE.filename)
-    sheet = client.post(
-        f"/api/projects/{pid}/import/files",
-        files={
+    sheet = import_sheet(
+        client,
+        pid,
+        "files",
+        {
             "files": (
                 COUNCIL_AUDIO_SAMPLE.filename,
                 io.BytesIO(audio),
                 "audio/mpeg",
             )
         },
-    ).json()["sheet_id"]
-    run(
-        client,
-        pid,
-        typed_action_request(
+    )
+    if keyless_workspace is not None:
+        transcribe = typed_action_request(
+            "map.python",
+            sheet_id=sheet,
+            params={
+                "input_columns": ["media"],
+                "code": f"result = {AUDIO_TRANSCRIPT!r}",
+                "return_schema": {"type": "string"},
+                "output_routes": [
+                    {
+                        "name": "transcript",
+                        "path": "$",
+                        "target": {"kind": "column", "type": "text"},
+                    }
+                ],
+            },
+            output_names={"transcript": "transcript"},
+        )
+    else:
+        transcribe = typed_action_request(
             "media.transcribe",
             sheet_id=sheet,
             params={
                 "source": "media",
                 "engine": "faster_whisper",
-                "model_size": "tiny",
+                "model_size": "base",
             },
             output_names={
                 "text": "transcript",
                 "segments": "transcript_segments",
                 "detected_language": "detected_language",
             },
-        ),
-        "transcribe",
-    )
-    run(
+        )
+    run(client, pid, transcribe, "transcribe")
+    run_model_action(
         client,
         pid,
         typed_action_request(
@@ -420,11 +560,58 @@ def seed_audio(client: httpx.Client) -> None:
             output_names={"summary": "one_line_summary"},
         ),
         "summarize transcript",
+        keyless_workspace,
+        AUDIO_SUMMARY_REPLIES,
     )
     print(f"✓ {COUNCIL_AUDIO_PROJECT_NAME} → {pid}")
 
 
-KEYLESS_PROJECTS = ("Local stories", "People mentioned")
+# Failures that end one project's build; the next project is still built.
+SEED_FAILURES = (
+    httpx.HTTPError,
+    RuntimeError,
+    TimeoutError,
+    subprocess.CalledProcessError,
+    KeyError,
+    StopIteration,
+)
+
+OUTCOME_STATES = ("complete", "partial", "missing", "present")
+
+
+def project_names(client: httpx.Client) -> set[str]:
+    response = client.get("/api/projects")
+    response.raise_for_status()
+    return {project["name"] for project in response.json()}
+
+
+def seed_one(
+    client: httpx.Client, name: str, seed: Callable[[httpx.Client], None]
+) -> dict:
+    """Build one project; return its outcome, ``{"state", "detail"}``."""
+    try:
+        seed(client)
+    except SEED_FAILURES as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        print(f"✗ {name}: {detail}")
+        try:
+            built = name in project_names(client)
+        except httpx.HTTPError:
+            built = False
+        return {"state": "partial" if built else "missing", "detail": detail}
+    return {"state": "complete", "detail": None}
+
+
+def report(outcomes: dict[str, dict]) -> None:
+    for state in OUTCOME_STATES:
+        names = [
+            name for name, outcome in outcomes.items() if outcome["state"] == state
+        ]
+        if names:
+            print(f"{state}: {', '.join(names)}")
+            for name in names:
+                if outcomes[name]["detail"]:
+                    print(f"  {name}: {outcomes[name]['detail']}")
 
 
 def main() -> None:
@@ -433,6 +620,16 @@ def main() -> None:
     parser.add_argument("session_cookie", nargs="?")
     parser.add_argument("basic_auth", nargs="?", help='"user:pass" for the Caddy fence')
     parser.add_argument("--keyless", type=Path, metavar="WORKSPACE")
+    parser.add_argument(
+        "--status-file",
+        type=Path,
+        help="write each project's outcome here as JSON",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit 1 when a project is partial or missing",
+    )
     args = parser.parse_args()
     cookies = {}
     if args.session_cookie:
@@ -441,23 +638,30 @@ def main() -> None:
     if args.basic_auth:
         u, _, pw = args.basic_auth.partition(":")
         auth = httpx.BasicAuth(u, pw)
-    seeders = {
+    seeders: dict[str, Callable[[httpx.Client], None]] = {
         "Local stories": lambda client: seed_stories(client, args.keyless),
-        COUNCIL_AUDIO_PROJECT_NAME: seed_audio,
-        "Tariff impacts": seed_tariff,
+        COUNCIL_AUDIO_PROJECT_NAME: lambda client: seed_audio(client, args.keyless),
+        "Tariff impacts": lambda client: seed_tariff(client, args.keyless),
         "People mentioned": seed_people_derive,
     }
+    outcomes: dict[str, dict] = {}
     with httpx.Client(
         base_url=args.base, cookies=cookies, timeout=180, auth=auth
     ) as client:
         health = client.get("/api/health").json()
         print(f"server OK: {health}")
-        present = {project["name"] for project in client.get("/api/projects").json()}
+        present = project_names(client)
         for name, seed in seeders.items():
-            if name in present or (args.keyless and name not in KEYLESS_PROJECTS):
+            if name in present:
+                outcomes[name] = {"state": "present", "detail": None}
                 continue
-            seed(client)
-    print("demo projects seeded")
+            outcomes[name] = seed_one(client, name, seed)
+    report(outcomes)
+    if args.status_file is not None:
+        args.status_file.write_text(json.dumps(outcomes, indent=1) + "\n")
+    incomplete = any(o["state"] in {"partial", "missing"} for o in outcomes.values())
+    if args.strict and incomplete:
+        raise SystemExit(1)
 
 
 PORTRAITS = [
@@ -481,7 +685,7 @@ def seed_people_derive(client: httpx.Client) -> None:
     child sheet. Uses import.rows + derive.table_from_list's column source —
     the whole fixture is deterministic and model-free (the People lists are
     fixture data, not a measured classification)."""
-    pid = client.post("/api/projects", json={"name": "People mentioned"}).json()["id"]
+    pid = create_project(client, "People mentioned")
     stories = [
         (
             "Mayor Linda Reyes met lobbyist Tom Quayle at the Capital Grille "

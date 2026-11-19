@@ -396,13 +396,21 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   cheap real calls.
 - About 50 tests read four demo projects (`scripts/e2e/seed_demo.py`) from a
   cache in `~/.frisket/e2e-ws`. The `seed` setup builds the ones the cache
-  lacks, then opens each one and records which are absent or unopenable (a
-  cache from an older schema); the specs that need them then fail at once
-  with that reason. Under `replay_strict` it builds only the keyless ones:
-  "People mentioned", and "Local stories" from fixture classify replies stored
-  in the project's response cache (`scripts/e2e/prime_replies.py`). "Council
-  audio" and "Tariff impacts" need one run with model keys and without
-  `replay_strict` (about $0.25). Delete a project from the cache to rebuild it.
+  lacks, each on its own (a failed row or project does not stop the others),
+  publishes only the completely built ones to the cache, then opens each one
+  and records which are absent, partially built or unopenable (a cache from
+  an older schema); the specs that need them then fail at once with that
+  reason. Run by hand, `seed_demo.py` prints which projects are complete,
+  partial or missing and exits 0; `--strict` exits 1 unless all are built.
+  Under `replay_strict` it builds all four without a provider call: fixture
+  model replies stored in each project's response cache
+  (`scripts/e2e/prime_replies.py`), fixture search results for "Tariff
+  impacts" in place of a web search (which has no replay), and a fixture
+  transcript for "Council audio", so no speech model runs. Without
+  `replay_strict` and with model keys it makes the real calls (about $0.25)
+  and transcribes "Council audio" locally with the pinned Whisper base
+  model, which `python scripts/e2e/fetch_whisper_model.py` puts in the
+  Hugging Face cache. Delete a project from the cache to rebuild it.
 - The entity specs run the pinned spaCy model; an environment that lacks it
   shows Setup needed on the entity action. `python
   scripts/e2e/fetch_spacy_model.py` installs it into Frisket's model cache.
@@ -433,7 +441,7 @@ that passes on retry counts as passing and is reported as flaky. Adding an
 entry is a hand edit naming its reason; fix the test instead when you can.
 A `seed` entry names the demo projects its test opens
 (`seed:Council audio,Local stories`) and is judged only when the seed setup
-found one of them unusable, as on CI for the paid-only ones; when all of them
+found one of them unusable (it could not be built); when all of them
 open it is reported, not judged.
 An `intermittent` entry is a test that passes some nights and fails others.
 It carries a note naming the suspected cause

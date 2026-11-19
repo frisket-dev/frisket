@@ -10,9 +10,9 @@ name: nightly-e2e
 # Keyless by construction: no secrets reach any job, and
 # FRISKET_CACHE_MODE=replay_strict makes every model call replay from the
 # committed response cache or fail as a cache miss, so no run can spend or
-# egress to a provider. The seed setup therefore never builds the paid demo
-# projects here; the specs that need them fail at once and stay listed under
-# the `seed` reason.
+# egress to a provider. The seed setup therefore builds every demo project
+# from fixture replies (scripts/e2e/seed_demo.py --keyless) and records in its
+# `seed-status` annotation which ones it could not build.
 #
 # A night whose verdict fails opens, or comments on, one issue labelled
 # `nightly-e2e`; the next passing night closes it. Dispatch it to judge the
