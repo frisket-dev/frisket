@@ -14,7 +14,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import ValidationError
 
@@ -1243,7 +1243,7 @@ def _map_point_to_source(
     return root_at - target.root_start_ms
 
 
-def media_kind(source: ResolvedTemporalSource) -> str:
+def media_kind(source: ResolvedTemporalSource) -> Literal["audio", "video"]:
     return source.lease.media_kind
 
 
