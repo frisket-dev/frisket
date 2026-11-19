@@ -9,18 +9,12 @@ import '../EditorRows.css';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
 import { ToggleRow } from '../PanelPrimitives';
-import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
-export function JoinParamsBody(props: GeneratedActionParamsBodyProps<'derive.join'>) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <JoinParamsBodyForSheet {...props} sheet={props.sheet} />;
-}
+export const JoinParamsBody = sheetRequired(JoinParamsBodyForSheet);
 
-function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }:
-  GeneratedActionParamsBodyProps<'derive.join'> & {
-    sheet: NonNullable<GeneratedActionParamsBodyProps<'derive.join'>['sheet']>;
-  }) {
+function JoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }: SheetBoundParamsBodyProps<'derive.join'>) {
   const { sheets, loading, error, refresh } = useJoinSheets(sheet);
   const blocked = loading || Boolean(error);
   const left = sheets.find((item) => item.id === sheet.id) ?? sheet;

@@ -6,18 +6,12 @@ import { Button } from '../Button';
 import { useEffect } from 'react';
 import { PanelSelect } from '../PanelSelect';
 import { MultiColumnPicker } from '../MultiColumnPicker';
-import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
 import { useJoinColumnPins, useJoinSheets } from './useJoinSheets';
 
-export function SemanticJoinParamsBody(props: GeneratedActionParamsBodyProps<'join.semantic'>) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <SemanticJoinParamsBodyForSheet {...props} sheet={props.sheet} />;
-}
+export const SemanticJoinParamsBody = sheetRequired(SemanticJoinParamsBodyForSheet);
 
-function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }:
-  GeneratedActionParamsBodyProps<'join.semantic'> & {
-    sheet: NonNullable<GeneratedActionParamsBodyProps<'join.semantic'>['sheet']>;
-  }) {
+function SemanticJoinParamsBodyForSheet({ params, setParams, setEditorProblem, sheet, Field }: SheetBoundParamsBodyProps<'join.semantic'>) {
   const { sheets, loading, error, refresh } = useJoinSheets(sheet);
   const blocked = loading || Boolean(error);
   const primary = sheets.find((item) => item.id === sheet.id) ?? sheet;

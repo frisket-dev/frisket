@@ -8,7 +8,7 @@ import { ApiError, type ClusterGroup, type ClusterValuesMethod } from '../../api
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import { PanelSelect } from '../PanelSelect';
 import type { GeneratedActionParams } from '../../generated/actionTypes';
-import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from './sheetRequiredParamsBody';
 import '../cluster-review.css';
 import { errorMessage } from '../../hooks/errorMessage';
 
@@ -40,15 +40,9 @@ function savedReviewIssue(review: Review, clusters: ClusterGroup[]): string | nu
 }
 
 /** Only the reviewed Params editor. The generated host owns naming and writing. */
-export function ClusterParamsBody(props: GeneratedActionParamsBodyProps<'cluster.values'>) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <ClusterParamsBodyForSheet {...props} sheet={props.sheet} />;
-}
+export const ClusterParamsBody = sheetRequired(ClusterParamsBodyForSheet);
 
-function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem }:
-  GeneratedActionParamsBodyProps<'cluster.values'> & {
-    sheet: NonNullable<GeneratedActionParamsBodyProps<'cluster.values'>['sheet']>;
-  }) {
+function ClusterParamsBodyForSheet({ sheet, params, setParams, setEditorProblem }: SheetBoundParamsBodyProps<'cluster.values'>) {
   const { projectApi: api } = useWorkspaceStores();
   const columns = useMemo(() => sheet.columns.filter((column) =>
     ['text', 'category', 'link'].includes(column.type)), [sheet.columns]);

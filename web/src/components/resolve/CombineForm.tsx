@@ -29,6 +29,7 @@ import {
 } from '../../api/open';
 import { useWorkspaceStores } from '../../bind/useWorkspaceStores';
 import type { GeneratedActionParamsBodyProps } from '../action-panel/GeneratedActionParamsBody';
+import { sheetRequired, type SheetBoundParamsBodyProps } from '../action-panel/sheetRequiredParamsBody';
 import { GroupCard } from './GroupCard';
 import { SelectionBar } from './SelectionBar';
 import { ValueList } from './ValueList';
@@ -61,17 +62,14 @@ const SEARCH_LIMIT = 50;
 
 type UnmatchedPolicy = 'keep' | 'null' | 'value';
 
-export function CombineForm(props: CombineFormProps) {
-  if (!props.sheet) return <p className="form-hint">Choose a source sheet to configure this action.</p>;
-  return <CombineFormForSheet {...props} sheet={props.sheet} />;
-}
+export const CombineForm = sheetRequired(CombineFormForSheet);
 
 function CombineFormForSheet({
   sheet,
   params: canonical,
   setParams,
   Field,
-}: CombineFormProps & { sheet: NonNullable<CombineFormProps['sheet']> }) {
+}: SheetBoundParamsBodyProps<'resolve.combine'>) {
   const canonicalGroups = Array.isArray(canonical?.groups)
     ? canonical.groups.flatMap((group) => {
         if (group === null || typeof group !== 'object' || Array.isArray(group)) return [];
