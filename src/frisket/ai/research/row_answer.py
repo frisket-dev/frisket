@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic_ai import Agent, ModelRetry
+from pydantic_ai import Agent, AgentRetries, ModelRetry
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.usage import UsageLimits
 
@@ -39,7 +39,7 @@ FETCH_TIMEOUT_SECONDS = 20.0
 # it (caught as UsageLimitExceeded below). One output retry lets the registered
 # validator correct a tool call emitted in the text channel. The same single
 # output budget also bounds pydantic-ai's native empty-output retry.
-RETRIES = {"tools": MAX_STEPS, "output": 1}
+RETRIES: AgentRetries = {"tools": MAX_STEPS, "output": 1}
 
 
 @dataclass(frozen=True)
@@ -228,7 +228,7 @@ async def run_research(
     )
     agent = Agent(model, output_type=str, instructions=system, retries=RETRIES)
     for tool in (search, fetch):
-        agent.tool_plain(tool, name=tool.__name__)
+        agent.tool_plain(name=tool.__name__)(tool)
 
     malformed_answer_count = 0
 
