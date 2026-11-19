@@ -2,11 +2,10 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import type { ProjectApi } from '../../src/api/ports';
 import type { NotificationItem } from '../../src/api/types';
 import { NotificationsPanel } from '../../src/components/NotificationsPanel';
 import { NOTIFICATIONS_CHANGED_EVENT } from '../../src/components/notifications/useNotificationSummary';
-import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { createWorkspaceTestHarness, projectApiWith } from '../support/workspaceTestHarness';
 
 function notification(id: number, state: NotificationItem['state'] = 'unseen'): NotificationItem {
   return {
@@ -19,7 +18,7 @@ function notification(id: number, state: NotificationItem['state'] = 'unseen'): 
 
 function renderNotifications(items: NotificationItem[]) {
   const projectApi = {
-    qa: { citation: vi.fn(), report: vi.fn() },
+    qa: { ...projectApiWith({}).qa, citation: vi.fn(), report: vi.fn() },
     listNotifications: vi.fn().mockResolvedValue({ notifications: items }),
     getNotificationsSummary: vi.fn().mockResolvedValue({ unseen: 1 }),
     markNotificationsSeen: vi.fn().mockResolvedValue({ seenCount: 1 }),
@@ -28,7 +27,7 @@ function renderNotifications(items: NotificationItem[]) {
     unackNotification: vi.fn(),
   };
   const harness = createWorkspaceTestHarness({
-    projectId: 'notification-actions', api: { projectApi: projectApi as unknown as ProjectApi },
+    projectId: 'notification-actions', api: { projectApi: projectApiWith(projectApi) },
   });
   harness.render(<NotificationsPanel />);
   return { ...harness, api: projectApi };

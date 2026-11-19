@@ -11,12 +11,11 @@ import type {
   SheetMeta,
   V1Receipt,
 } from '../../src/api/types';
-import type { ProjectApi } from '../../src/api/ports';
 
 
 import { ProjectExportModals } from '../../src/components/TopNav';
 import { createProjectApi } from '../../src/api/real';
-import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { createWorkspaceTestHarness, projectApiWith } from '../support/workspaceTestHarness';
 import { sheetMeta } from '../support/actionFormFixtures';
 
 const projectA: ProjectInfo = { id: 'project-a', name: 'Project A' };
@@ -26,7 +25,7 @@ const { render } = createWorkspaceTestHarness({
   projectId: projectA.id,
   api: { projectApi: api },
 });
-const projectApi = {} as unknown as ProjectApi;
+const projectApi = projectApiWith({});
 const currentSheet: SheetMeta = sheetMeta([{ id: '9', name: 'tables', type: 'json' }], {
   id: '7',
   name: 'Source data',
@@ -80,6 +79,7 @@ function modal(project: ProjectInfo) {
       modal="column_tables"
       project={project}
       projectApi={projectApi}
+      sheets={[currentSheet]}
       currentSheet={currentSheet}
       columnTablesExportEntry={catalogEntry}
       onClose={() => {}}

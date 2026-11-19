@@ -3,11 +3,10 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { NotificationSummary } from '../../src/api/open';
-import type { ProjectApi } from '../../src/api/ports';
 import { NotificationsPanel } from '../../src/components/NotificationsPanel';
 import { AlertsPanel } from '../../src/components/AlertsPanel';
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from '../../src/components/notifications/useNotificationSummary';
-import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { createWorkspaceTestHarness, projectApiWith } from '../support/workspaceTestHarness';
 
 afterEach(cleanup);
 
@@ -22,7 +21,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 function api() {
-  return { qa: { citation: vi.fn(), report: vi.fn() },
+  return { qa: { ...projectApiWith({}).qa, citation: vi.fn(), report: vi.fn() },
     getNotificationsSummary: vi.fn(), listAlerts: vi.fn().mockResolvedValue([]),
     listNotifications: vi.fn().mockResolvedValue({ notifications: [] }) };
 }
@@ -35,7 +34,7 @@ it('deduplicates co-mounted notification/watch reads and legacy event invalidati
   const projectApi = api();
   projectApi.getNotificationsSummary.mockResolvedValue(summary(5));
   const harness = createWorkspaceTestHarness({ projectId: 'summary-shared',
-    api: { projectApi: projectApi as unknown as ProjectApi } });
+    api: { projectApi: projectApiWith(projectApi) } });
   harness.render(<><NotificationsPanel /><AlertsPanel canEdit={false} /></>);
   expect(await screen.findByTestId('notifications-count')).toHaveTextContent('5');
   expect(await screen.findByTestId('alerts-notification-count')).toHaveTextContent('5');
@@ -51,7 +50,7 @@ it('rejects an older read after a newer invalidation completes', async () => {
   const next = deferred<NotificationSummary>();
   projectApi.getNotificationsSummary.mockReturnValueOnce(first.promise).mockReturnValueOnce(next.promise);
   const harness = createWorkspaceTestHarness({ projectId: 'summary-current',
-    api: { projectApi: projectApi as unknown as ProjectApi } });
+    api: { projectApi: projectApiWith(projectApi) } });
   harness.render(<><Readout name="one" /><Readout name="two" /></>);
   await waitFor(() => expect(projectApi.getNotificationsSummary).toHaveBeenCalledTimes(1));
   act(() => dispatchNotificationsChanged('summary-current'));
@@ -69,8 +68,8 @@ it('scopes identical API instances by project and retires reads on the final unm
   const oldB = deferred<NotificationSummary>();
   projectApi.getNotificationsSummary.mockReturnValueOnce(oldA.promise).mockReturnValueOnce(oldB.promise)
     .mockResolvedValue(summary(9));
-  const a = createWorkspaceTestHarness({ projectId: 'summary-A', api: { projectApi: projectApi as unknown as ProjectApi } });
-  const b = createWorkspaceTestHarness({ projectId: 'summary-B', api: { projectApi: projectApi as unknown as ProjectApi } });
+  const a = createWorkspaceTestHarness({ projectId: 'summary-A', api: { projectApi: projectApiWith(projectApi) } });
+  const b = createWorkspaceTestHarness({ projectId: 'summary-B', api: { projectApi: projectApiWith(projectApi) } });
   const mountedA = a.render(<Readout name="A" />);
   b.render(<Readout name="B" />);
   await waitFor(() => expect(projectApi.getNotificationsSummary).toHaveBeenCalledTimes(2));

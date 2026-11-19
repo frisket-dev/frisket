@@ -6,10 +6,19 @@ import {
 import { afterAll } from 'vitest';
 
 import type { ProjectApi } from '../../src/api/ports';
+import { createProjectApi } from '../../src/api/real';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { createWorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { EditionModuleProvider } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
+
+/** The production ProjectApi for `projectId` with `overrides` in place of
+ *  its methods. A method a test does not override is the real HTTP client,
+ *  so an unplanned call reaches the test's network stub rather than a
+ *  missing property. */
+export function projectApiWith(overrides: Partial<ProjectApi>, projectId = 'test-project'): ProjectApi {
+  return { ...createProjectApi(projectId), ...overrides };
+}
 
 type ExplicitTestApi =
   | { projectApi: ProjectApi }

@@ -3,11 +3,10 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectApi } from '../../src/api/ports';
 import type { ProjectQAApi } from '../../src/api/projectQA';
 import { ApiError, type AlertInfo, type AlertCheckResult } from '../../src/api/open';
 import { AlertsPanel } from '../../src/components/AlertsPanel';
-import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { createWorkspaceTestHarness, projectApiWith } from '../support/workspaceTestHarness';
 
 const emptyNotificationSummary = {
   schemaVersion: 'frisket.notifications_summary.v1',
@@ -22,8 +21,8 @@ const emptyNotificationSummary = {
 };
 const notificationSetupGuidance = 'You do not have Slack or email notifications set up. Visit settings to set them up.';
 
-function projectQAFixture(): Pick<ProjectQAApi, 'citation' | 'report'> {
-  return { citation: vi.fn(), report: vi.fn() };
+function projectQAFixture(): ProjectQAApi {
+  return { ...projectApiWith({}).qa, citation: vi.fn(), report: vi.fn() };
 }
 
 function alert(id: number, name: string): AlertInfo {
@@ -103,10 +102,10 @@ describe('AlertsPanel pending actions', () => {
     const item = alert(1, 'Threshold alert');
     item.detectionPolicy = { kind: 'conditions', entered: false, exited: false, count_changed: false,
       fields: [], threshold: { kind: 'threshold_crossed', metric: 'matched_rows', threshold: 10, direction: 'at_or_above' } };
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'threshold-alert', api: { projectApi } });
     harness.render(<AlertsPanel canEdit />);
     expect(await screen.findByText('Threshold crossings')).toBeInTheDocument();
@@ -115,11 +114,11 @@ describe('AlertsPanel pending actions', () => {
 
   it('changes independent alert conditions on the same saved View', async () => {
     const item = alert(1, 'Open contracts');
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([item]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateAlert: vi.fn(async (_id, patch) => ({ ...item, detectionPolicy: patch.detection_policy })),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'conditions', api: { projectApi } });
     harness.render(<AlertsPanel canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Conditions' }));
@@ -131,12 +130,12 @@ describe('AlertsPanel pending actions', () => {
   });
 
   it('keeps rename cancellation available for an invalid draft and retains a failed rename', async () => {
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alert(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateAlert: vi.fn().mockRejectedValue(new Error('Rename unavailable')),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'rename-validation', api: { projectApi } });
     harness.render(<AlertsPanel canEdit />);
     fireEvent.click(await screen.findByTestId('rename-alert'));
@@ -156,12 +155,12 @@ describe('AlertsPanel pending actions', () => {
   });
 
   it('creates an independent Alert from the captured current grid and shows local notification guidance', async () => {
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createAlert: vi.fn().mockResolvedValue(alert(10, 'Watch: Current')),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'current-grid-watch', api: { projectApi } });
     harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
     harness.render(
@@ -186,12 +185,12 @@ describe('AlertsPanel pending actions', () => {
   });
 
   it('retains an independent Alert draft after a failed create', async () => {
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alert(1, 'Open rows')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createAlert: vi.fn().mockRejectedValue(new ApiError(500, 'Watch service unavailable')),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'sheetless-watches', api: { projectApi } });
     harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
 
@@ -218,12 +217,12 @@ describe('AlertsPanel pending actions', () => {
     const beta = alert(2, 'Beta');
     const alphaRun = deferred<AlertCheckResult>();
     const betaRun = deferred<AlertCheckResult>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alpha, beta]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       checkAlert: vi.fn((alertId: number) => alertId === alpha.id ? alphaRun.promise : betaRun.promise),
-    } as unknown as ProjectApi;
+    });
     const { render } = createWorkspaceTestHarness({ projectId: 'pending-actions', api: { projectApi } });
 
     render(<AlertsPanel canEdit />);
@@ -255,12 +254,12 @@ describe('AlertsPanel pending actions', () => {
   it('keeps a draft claim across panel remounts and emits only one create request', async () => {
     const created = alert(3, 'View: Open rows');
     const create = deferred<AlertInfo>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createAlert: vi.fn(() => create.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'create-remount', api: { projectApi } });
     harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
 
@@ -282,12 +281,12 @@ describe('AlertsPanel pending actions', () => {
 
   it('retains a failed create outcome across remount', async () => {
     const create = deferred<AlertInfo>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       createAlert: vi.fn(() => create.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'create-failure-remount', api: { projectApi } });
     harness.stores.alertCheckLink.setPendingCreateDraft(currentGridDraft);
     const first = harness.render(<AlertsPanel canEdit />);
@@ -305,12 +304,12 @@ describe('AlertsPanel pending actions', () => {
   it('keeps an Alert row claim across panel remounts and refuses a duplicate run', async () => {
     const alpha = alert(1, 'Alpha');
     const run = deferred<AlertCheckResult>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       checkAlert: vi.fn(() => run.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'run-remount', api: { projectApi } });
 
     const first = harness.render(<AlertsPanel canEdit />);
@@ -333,12 +332,12 @@ describe('AlertsPanel pending actions', () => {
   it('shows a run failure settled while unmounted exactly once after remount', async () => {
     const alpha = alert(1, 'Alpha');
     const run = deferred<AlertCheckResult>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       checkAlert: vi.fn(() => run.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'run-outcome-remount', api: { projectApi } });
 
     const first = harness.render(<AlertsPanel canEdit />);
@@ -365,12 +364,12 @@ describe('AlertsPanel pending actions', () => {
     const renamed = alert(1, 'Renamed Alpha');
     const rename = deferred<AlertInfo>();
     let settled = false;
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn(() => Promise.resolve(settled ? [renamed] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateAlert: vi.fn(() => rename.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'rename-remount', api: { projectApi } });
 
     const first = harness.render(<AlertsPanel canEdit />);
@@ -393,11 +392,11 @@ describe('AlertsPanel pending actions', () => {
 
   it('keeps a pending delete confirmation open after forced closure and restores Cancel focus', async () => {
     const remove = deferred<void>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(), listAlerts: vi.fn().mockResolvedValue([alert(1, 'Alpha')]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       deleteAlert: vi.fn(() => remove.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'delete-dialog-owner', api: { projectApi } });
     harness.render(<AlertsPanel canEdit />);
     const trigger = await screen.findByTestId('delete-alert');
@@ -422,12 +421,12 @@ describe('AlertsPanel pending actions', () => {
     const alpha = alert(1, 'Alpha');
     const remove = deferred<void>();
     let settled = false;
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn(() => Promise.resolve(settled ? [] : [alpha])),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       deleteAlert: vi.fn(() => remove.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'delete-remount', api: { projectApi } });
 
     const first = harness.render(<AlertsPanel canEdit />);
@@ -454,7 +453,7 @@ describe('AlertsPanel pending actions', () => {
     const renamed = alert(1, 'Renamed Alpha');
     const staleList = deferred<AlertInfo[]>();
     const rename = deferred<AlertInfo>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn()
         .mockResolvedValueOnce([alpha])
@@ -462,7 +461,7 @@ describe('AlertsPanel pending actions', () => {
         .mockResolvedValue([renamed]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       updateAlert: vi.fn(() => rename.promise),
-    } as unknown as ProjectApi;
+    });
     const { render } = createWorkspaceTestHarness({ projectId: 'rename-list-race', api: { projectApi } });
 
     render(<AlertsPanel canEdit />);
@@ -482,15 +481,15 @@ describe('AlertsPanel pending actions', () => {
 
   it('refreshes a blocked embedding index before re-running the alert and pins each step', async () => {
     const alpha = blockedEmbeddingAlert(1, 'Alpha');
-    const refresh = deferred<unknown>();
+    const refresh = deferred<{ jobId: number | null; status: string }>();
     const run = deferred<AlertCheckResult>();
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       refreshEmbeddingIndex: vi.fn(() => refresh.promise),
       checkAlert: vi.fn(() => run.promise),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'refresh-index', api: { projectApi } });
     const { container } = harness.render(<AlertsPanel canEdit />);
     const button = await screen.findByTestId('alert-refresh-index-1');
@@ -504,7 +503,7 @@ describe('AlertsPanel pending actions', () => {
     await waitFor(() => expect(button).toHaveTextContent('Refreshing index…'));
     steps.push(container.innerHTML);
 
-    refresh.resolve(undefined);
+    refresh.resolve({ jobId: null, status: 'completed' });
     await waitFor(() => expect(projectApi.checkAlert).toHaveBeenCalledWith(1));
     steps.push(container.innerHTML);
 
@@ -516,13 +515,13 @@ describe('AlertsPanel pending actions', () => {
 
   it('settles a failed index refresh without running the alert', async () => {
     const alpha = blockedEmbeddingAlert(1, 'Alpha');
-    const projectApi = {
+    const projectApi = projectApiWith({
       qa: projectQAFixture(),
       listAlerts: vi.fn().mockResolvedValue([alpha]),
       getNotificationsSummary: vi.fn().mockResolvedValue(emptyNotificationSummary),
       refreshEmbeddingIndex: vi.fn().mockRejectedValue(new Error('Index refresh unavailable')),
       checkAlert: vi.fn(),
-    } as unknown as ProjectApi;
+    });
     const harness = createWorkspaceTestHarness({ projectId: 'refresh-index-failure', api: { projectApi } });
     const { container } = harness.render(<AlertsPanel canEdit />);
     fireEvent.click(await screen.findByTestId('alert-refresh-index-1'));
