@@ -345,3 +345,109 @@ def test_split_hash_preserves_selection_item_order_after_nested_trimming():
     reordered = deepcopy(base)
     reordered["params"]["selection"]["items"].reverse()
     assert _validated_hash(reordered)[0] != hash_value
+
+
+_CONTRACT_TIMELINE = {
+    "artifact_stable_id": "source_artifact:contract-fixture",
+    "fingerprint": "sha256:" + "a" * 64,
+    "duration_ms": 5000,
+}
+
+
+def _typed_value(schema_version, item):
+    return {
+        "kind": "typed_value",
+        "value": {
+            "schema_version": schema_version,
+            "timeline": _CONTRACT_TIMELINE,
+            "item": item,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [
+        _typed_value("frisket.timeline_point.v1", {"id": "cut", "at_ms": 1000}),
+        {"kind": "draft_points", "items": [{"at_ms": 1000}]},
+        _typed_value(
+            "frisket.timeline_range.v1", {"id": "quote", "start_ms": 0, "end_ms": 900}
+        ),
+        {"kind": "draft_range", "start_ms": 0, "end_ms": 900},
+    ],
+    ids=["typed-point", "draft-points", "typed-range", "draft-range"],
+)
+def test_temporal_selection_accepts_a_point_without_an_end_and_a_range_with_one(
+    selection,
+):
+    result = validate_root_action(_request("derive.temporal_segments", selection))
+    assert result.ok, result.error
+    _, params = _validated_hash(_request("derive.temporal_segments", selection))
+    if selection["kind"] == "typed_value":
+        item = params["selection"]["value"]["item"]
+        assert item.items() >= selection["value"]["item"].items()
+        expected_keys = (
+            {"at_ms"}
+            if selection["value"]["schema_version"] == "frisket.timeline_point.v1"
+            else {"start_ms", "end_ms"}
+        )
+        assert {"at_ms", "start_ms", "end_ms"} & set(item) == expected_keys
+
+
+@pytest.mark.parametrize(
+    "selection,expected",
+    [
+        (_typed_value("frisket.timeline_point.v1", {"id": "cut"}), "invalid_temporal"),
+        (
+            _typed_value(
+                "frisket.timeline_point.v1",
+                {"id": "cut", "at_ms": 1000, "end_ms": 2000},
+            ),
+            "invalid_temporal",
+        ),
+        (
+            _typed_value(
+                "frisket.timeline_point.v1",
+                {"id": "cut", "start_ms": 1000, "end_ms": 2000},
+            ),
+            "invalid_temporal",
+        ),
+        ({"kind": "draft_points", "items": [{}]}, "at_ms"),
+        (
+            {"kind": "draft_points", "items": [{"at_ms": 1000, "end_ms": 2000}]},
+            "end_ms",
+        ),
+        ({"kind": "draft_point", "at_ms": 1000}, "draft_point"),
+        (
+            _typed_value(
+                "frisket.timeline_range.v1", {"id": "quote", "start_ms": 1000}
+            ),
+            "invalid_temporal",
+        ),
+        (
+            _typed_value("frisket.timeline_range.v1", {"id": "quote", "at_ms": 1000}),
+            "invalid_temporal",
+        ),
+        ({"kind": "draft_range", "start_ms": 2000, "end_ms": 1000}, "invalid_range"),
+        ({"kind": "draft_range", "at_ms": 1000}, "start_ms"),
+    ],
+    ids=[
+        "typed-point-missing-time",
+        "typed-point-with-end",
+        "typed-point-given-range-fields",
+        "draft-point-missing-time",
+        "draft-point-with-end",
+        "single-point-draft-kind",
+        "typed-range-missing-end",
+        "typed-range-given-point-field",
+        "draft-range-inverted",
+        "draft-range-given-point-field",
+    ],
+)
+def test_temporal_selection_rejects_a_point_or_range_with_the_other_kinds_fields(
+    selection, expected
+):
+    result = validate_root_action(_request("derive.temporal_segments", selection))
+    assert not result.ok
+    assert result.error.code == "invalid_action_request"
+    assert expected in result.error.message

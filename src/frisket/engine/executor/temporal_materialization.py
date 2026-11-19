@@ -44,7 +44,10 @@ from frisket.engine.store.media_blobs import (
 )
 from frisket.contracts.temporal_values import (
     TimelinePointItem,
+    TimelinePointValue,
     TimelineRangeItem,
+    TimelineRangeValue,
+    TimelineRangesValue,
     normalize_temporal_value,
     parse_temporal_value,
 )
@@ -481,23 +484,11 @@ def prepare_bound_sources(
                     selection_type, selection_value
                 )
             if is_draft and isinstance(lease.anchor, EphemeralMediaClock):
-                item_model = (
-                    TimelinePointItem
-                    if selection_type == "timeline_points"
-                    else TimelineRangeItem
-                )
-                items = [
-                    item_model.model_validate(item)
-                    for item in selection_value.get(
-                        "items", [selection_value.get("item")]
-                    )
-                ]
-                ranges, warnings = _normalize_selection_items(
+                ranges, warnings = _normalize_preview_draft(
                     project,
-                    items,
+                    selection_value,
                     selection_type=selection_type,
-                    typed_anchor=lease.anchor,
-                    source_anchor=lease.anchor,
+                    clock=lease.anchor,
                     purpose=purpose,
                 )
             else:
@@ -740,58 +731,102 @@ def normalize_selection(
             ) from exc
         raise
     typed_anchor = validate_timeline_anchor(project, parsed.timeline.model_dump())
-    items = (
-        [parsed.item]
-        if selection_type in {"timeline_range", "timeline_point"}
-        else list(parsed.items)
-    )
-    return _normalize_selection_items(
+    if isinstance(parsed, (TimelineRangeValue, TimelineRangesValue)):
+        return _normalize_range_items(
+            project,
+            [parsed.item] if isinstance(parsed, TimelineRangeValue) else parsed.items,
+            typed_anchor=typed_anchor,
+            source_anchor=source_anchor,
+            purpose=purpose,
+        )
+    return _normalize_point_items(
         project,
-        items,
-        selection_type=selection_type,
+        [parsed.item] if isinstance(parsed, TimelinePointValue) else parsed.items,
         typed_anchor=typed_anchor,
         source_anchor=source_anchor,
         purpose=purpose,
     )
 
 
-def _normalize_selection_items(
+def _normalize_preview_draft(
     project: Any,
-    items: list[TimelineRangeItem] | list[TimelinePointItem],
+    value: dict[str, Any],
     *,
     selection_type: str,
-    typed_anchor: TimelineAnchor | EphemeralMediaClock,
-    source_anchor: TimelineAnchor | EphemeralMediaClock,
+    clock: EphemeralMediaClock,
     purpose: str,
 ) -> tuple[list[NormalizedRange], list[str]]:
-    points = selection_type in {"timeline_point", "timeline_points"}
-    if any(
-        (item.at_ms if points else item.end_ms) > typed_anchor.duration_ms
-        for item in items
-    ):
+    """Validate each draft item as its own kind against a preview clock.
+
+    A preview clock has no artifact identity, so the bound value cannot pass
+    the source-bound value models; its items are validated individually.
+    """
+
+    raw_items = value["items"] if "items" in value else [value["item"]]
+    if selection_type in {"timeline_point", "timeline_points"}:
+        return _normalize_point_items(
+            project,
+            [TimelinePointItem.model_validate(item) for item in raw_items],
+            typed_anchor=clock,
+            source_anchor=clock,
+            purpose=purpose,
+        )
+    return _normalize_range_items(
+        project,
+        [TimelineRangeItem.model_validate(item) for item in raw_items],
+        typed_anchor=clock,
+        source_anchor=clock,
+        purpose=purpose,
+    )
+
+
+def _require_within_duration(
+    coordinates: list[int], typed_anchor: TimelineAnchor | EphemeralMediaClock
+) -> None:
+    if any(ms > typed_anchor.duration_ms for ms in coordinates):
         raise TimelineError(
             "range_out_of_bounds",
             "The selected timestamp or range extends outside its timeline duration.",
         )
-    warnings: list[str] = []
-    if selection_type in {"timeline_range", "timeline_ranges"}:
-        if purpose == "extract" and len(items) != 1:
-            raise TimelineError("invalid_range", "Extract requires exactly one range")
-        ranges = [
-            _map_range_to_source(
-                project,
-                typed_anchor=typed_anchor,
-                source_anchor=source_anchor,
-                start_ms=item.start_ms,
-                end_ms=item.end_ms,
-                item_id=item.id,
-                label=item.label,
-                metadata=dict(item.metadata),
-            )
-            for item in items
-        ]
-        return ranges, warnings
 
+
+def _normalize_range_items(
+    project: Any,
+    items: list[TimelineRangeItem],
+    *,
+    typed_anchor: TimelineAnchor | EphemeralMediaClock,
+    source_anchor: TimelineAnchor | EphemeralMediaClock,
+    purpose: str,
+) -> tuple[list[NormalizedRange], list[str]]:
+    _require_within_duration([item.end_ms for item in items], typed_anchor)
+    if purpose == "extract" and len(items) != 1:
+        raise TimelineError("invalid_range", "Extract requires exactly one range")
+    ranges = [
+        _map_range_to_source(
+            project,
+            typed_anchor=typed_anchor,
+            source_anchor=source_anchor,
+            start_ms=item.start_ms,
+            end_ms=item.end_ms,
+            item_id=item.id,
+            label=item.label,
+            metadata=dict(item.metadata),
+        )
+        for item in items
+    ]
+    return ranges, []
+
+
+def _normalize_point_items(
+    project: Any,
+    items: list[TimelinePointItem],
+    *,
+    typed_anchor: TimelineAnchor | EphemeralMediaClock,
+    source_anchor: TimelineAnchor | EphemeralMediaClock,
+    purpose: str,
+) -> tuple[list[NormalizedRange], list[str]]:
+    _require_within_duration([item.at_ms for item in items], typed_anchor)
+    warnings: list[str] = []
     if purpose == "extract":
         raise TimelineError("invalid_range", "Extract requires one timeline_range")
     source_points: dict[int, list[str]] = {}
