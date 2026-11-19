@@ -506,8 +506,8 @@ enqueued again.
 Because the queue gates what lands, the PR run is fast feedback only. Every
 required check (`deterministic-source`, `ci-pass`, `docker-ci`,
 `desktop-macos-ci`, `desktop-windows-ci`, `macos-portability`,
-`windows-portability`) still reports on every PR and queue entry, passing when
-its heavy jobs are deliberately skipped. Its job summary says why: the diff
+`windows-portability`, `local-model-runtime`, `retrieval-native`) still
+reports on every PR and queue entry, passing when its heavy jobs are deliberately skipped. Its job summary says why: the diff
 changes one of the job's inputs, the job is "deferred to the nightly platform
 run on main", or the diff does "not affect" it at all.
 
@@ -520,6 +520,7 @@ run on main", or the diff does "not affect" it at all.
 | `deploy-smoke`, `e2e-cassette-core` | when the e2e specs, Playwright configs, `scripts/e2e/`, `web/package*.json` or `ci.yml` changed | yes | no |
 | Full browser suite (`nightly-e2e`), judged by `scripts/ci/e2e_known_failures.py` | no | no | yes, when `main` moved |
 | Docker build and Compose smoke | when an image input changed | when an image input changed | no (weekly, and every release) |
+| Local model runtime install proofs, native vec1 wheels | when an input listed in the workflow's `changes` filter changed | same | no (every release builds the wheels) |
 | macOS and Windows installed-app proofs, macOS and Windows portability smokes | when the job's own inputs changed (below) | when the job's own inputs changed | always, in full |
 | macOS managed-Python slice (not required) | when `src/frisket/`, `tests/`, `pyproject.toml`, `uv.lock`, `.python-version`, the vec1 build or its workflow changed | same | always |
 

@@ -1,48 +1,78 @@
 name: local-model-runtime
 
+# Pull requests and merge queue entries always run this workflow so the
+# `local-model-runtime` check reports on every change; the `changes` job
+# decides whether the install proofs below are needed.
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - '.github/workflows/local-model-runtime.yml'
-      - 'src/frisket/runtime/model_*.py'
-      - 'src/frisket/runtime/classifier_install.py'
-      - 'src/frisket/runtime/embeddinggemma_install.py'
-      - 'src/frisket/runtime/_bootstrap.py'
-      - 'src/frisket/runtime/_environment_use.py'
-      - 'src/frisket/runtime/launch.py'
-      - 'src/frisket/engine/_workers/classifier_*.py'
-      - 'src/frisket/engine/_workers/embeddinggemma_*.py'
-      - 'src/frisket/engine/_workers/framing.py'
-      - 'src/frisket/retrieval/encoding.py'
-      - 'src/frisket/runtime/supervisor.py'
-      - 'src/frisket/runtime/_guard*'
-      - 'sidecar/src/frisket_models/local.py'
-      - 'sidecar/src/frisket_models/engines.py'
-      - 'sidecar/src/frisket_models/classification/**'
-      - 'sidecar/classify-constraints.txt'
-      - 'sidecar/retrieval-constraints.txt'
-      - 'sidecar/retrieval-runtime/**'
-      - 'sidecar/uv.lock'
-      - 'sidecar/pyproject.toml'
-      - 'scripts/smoke/retrieval_runtime.py'
-      - 'scripts/smoke/local_model_server.py'
-      - 'scripts/smoke/prefetch_docling_models.py'
-      - 'pyproject.toml'
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
+# Each merge group has its own queue ref; a queue run is never cancelled.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 env:
   # A dependency download slower than uv's 30-second default must not fail the job.
   UV_HTTP_TIMEOUT: "120"
 
 jobs:
+  # Decides whether this run needs the install proofs: on pull requests and
+  # in the merge queue only when the diff changes one of their inputs (the
+  # pattern below), otherwise always.
+  changes:
+    runs-on: ubuntu-26.04
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+      reason: ${{ steps.paths.outputs.reason }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # The proofs' inputs: the model runtime installers, launcher and
+          # supervisor, the native model workers, the sidecar model packages
+          # and their constraints and lock, the smoke scripts, the package
+          # metadata, and this workflow.
+          inputs='^(\.github/workflows/local-model-runtime\.yml|src/frisket/runtime/(model_[^/]*\.py|classifier_install\.py|embeddinggemma_install\.py|_bootstrap\.py|_environment_use\.py|launch\.py|supervisor\.py|_guard[^/]*)|src/frisket/engine/_workers/(classifier_[^/]*\.py|embeddinggemma_[^/]*\.py|framing\.py)|src/frisket/retrieval/encoding\.py|sidecar/src/frisket_models/(local\.py|engines\.py|classification/.*)|sidecar/(classify-constraints\.txt|retrieval-constraints\.txt|retrieval-runtime/.*|uv\.lock|pyproject\.toml)|scripts/smoke/(retrieval_runtime|local_model_server|prefetch_docling_models)\.py|pyproject\.toml)$'
+          relevant=true
+          if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
+            reason="this $EVENT_NAME run proves the revision in full"
+          else
+            if [ "$EVENT_NAME" = merge_group ]; then base="${QUEUE_BASE_SHA:-}"; else base="${BASE_SHA:-}"; fi
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              reason="the diff base is unavailable, so the proofs run"
+            else
+              files="$(git diff --name-only "$base" HEAD)"
+              if hit="$(grep -E "$inputs" <<< "$files")"; then
+                reason="this diff changes an input of the proofs: ${hit%%$'\n'*}"
+              else
+                relevant=false
+                reason="not affected: this diff changes no input of the install proofs"
+              fi
+            fi
+          fi
+          {
+            echo "relevant=$relevant"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+          echo "### local-model-runtime ($EVENT_NAME): $reason" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
   retrieval:
+    needs: changes
+    if: ${{ needs.changes.outputs.relevant == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -97,6 +127,8 @@ jobs:
           )
 
   classifiers:
+    needs: changes
+    if: ${{ needs.changes.outputs.relevant == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -151,6 +183,8 @@ jobs:
           ])], check=True)
 
   docling:
+    needs: changes
+    if: ${{ needs.changes.outputs.relevant == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -192,3 +226,18 @@ jobs:
               "--lifecycle-install", "--text-pdf",
               str(repo / "tests/fixtures/pdf_tables/simple_table.pdf"),
           ], check=True)
+
+  # The required check. It fails unless `changes` succeeded and every proof
+  # passed or was deliberately skipped; its summary says why they skipped.
+  local-model-runtime:
+    name: local-model-runtime
+    if: ${{ always() }}
+    needs: [changes, retrieval, classifiers, docling]
+    runs-on: ubuntu-26.04
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          echo "### $GITHUB_JOB: ${REASON:-the change filter did not finish}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
