@@ -6,6 +6,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from typing import Any
 
 from frisket.engine.store.changes import ChangeStore
 from frisket.engine.store.current_value_windows import read_current_column
@@ -40,18 +41,47 @@ class GroupPublicationError(RuntimeError):
 
 
 class GroupPublication:
+    """One grouped publication; ``start`` records its envelope, write and config.
+
+    ``envelope`` stays ``None`` until ``start`` is attempted, which callers read
+    as "nothing was reserved yet". Code that runs only after ``start`` reads
+    the ``_started_*`` properties, which refuse an unstarted publication.
+    """
+
+    # Set by ``_start``/``_resume``; ``None`` when the parent op has no
+    # derived refresh configuration.
+    config: dict[str, Any] | None
+
     def __init__(self, project, params, *, receipt_id, params_hash, recovery_run=None):
         self.project, self.params = project, params
         self.receipt_id, self.params_hash = receipt_id, params_hash
         self.stage = DerivedRefreshStage(keyed=True)
-        self.write = None
+        self.write: AggregateSheetWrite | None = None
         self.before = {}
         self.positions = {}
         self.claim_token = f"output-claim:{receipt_id}"
-        self.envelope = None
+        self.envelope: dict[str, Any] | None = None
         self.completed = 0
         self.recovery_run = recovery_run
         self._lease_failure = None
+
+    @property
+    def _started_envelope(self) -> dict[str, Any]:
+        if self.envelope is None:
+            raise TypeError("grouped publication has not started")
+        return self.envelope
+
+    @property
+    def _started_write(self) -> AggregateSheetWrite:
+        if self.write is None:
+            raise TypeError("grouped publication has no output sheet")
+        return self.write
+
+    @property
+    def _started_config(self) -> dict[str, Any]:
+        if self.config is None:
+            raise TypeError("grouped publication has no derived refresh config")
+        return self.config
 
     def recovery_claim_token(self):
         if self.recovery_run is None:
@@ -102,11 +132,11 @@ class GroupPublication:
                 )
             terminal = terminalize_project_run(
                 self.project,
-                run_id=int(self.envelope["run_id"]),
+                run_id=int(self._started_envelope["run_id"]),
                 receipt_id=self.receipt_id,
                 status="cancelled",
                 authority=CurrentWriterTerminalAuthority(
-                    writer_attempt_id=str(self.envelope["attempt_id"]),
+                    writer_attempt_id=str(self._started_envelope["attempt_id"]),
                     claim_token=self.claim_token,
                 ),
                 commit=False,
@@ -315,7 +345,9 @@ class GroupPublication:
                             {}
                             if cell is None or not cell.value_present
                             else {field: cell.value},
-                            observation(db, self.config["relationship_id"], row_id),
+                            observation(
+                                db, self._started_config["relationship_id"], row_id
+                            ),
                             bool(
                                 db.execute(
                                     "SELECT hidden FROM rows WHERE id=?", (row_id,)
@@ -368,7 +400,7 @@ class GroupPublication:
                 token=self.receipt_id,
             )
         claims = OutputColumnClaimStore(self.project)
-        run_id = int(self.envelope["run_id"])
+        run_id = int(self._started_envelope["run_id"])
         existing = self.project.db.execute(
             "SELECT claim_token FROM output_column_claims WHERE run_id=? AND status='active'",
             (run_id,),
@@ -383,12 +415,12 @@ class GroupPublication:
             )
         else:
             acquired, conflict = claims.acquire(
-                sheet_id=self.write.sheet_id,
+                sheet_id=self._started_write.sheet_id,
                 output_names=[self.params.summary_column_name],
                 action_kind=self.params.action_kind,
                 receipt_id=self.receipt_id,
                 run_id=run_id,
-                op_id=self.write.op_id,
+                op_id=self._started_write.op_id,
                 claim_token=self.claim_token,
                 lease_seconds=300,
                 details={
@@ -414,11 +446,11 @@ class GroupPublication:
             raise GroupPublicationError(
                 "Grouped refresh lease renewal failed"
             ) from self._lease_failure
-        ChangeStore(self.project).require_publication(self.write.op_id)
+        ChangeStore(self.project).require_publication(self._started_write.op_id)
         OutputColumnClaimStore.require_current_writer(
             self.project.db,
-            run_id=int(self.envelope["run_id"]),
-            writer_attempt_id=str(self.envelope["attempt_id"]),
+            run_id=int(self._started_envelope["run_id"]),
+            writer_attempt_id=str(self._started_envelope["attempt_id"]),
             claim_token=self.claim_token,
         )
         if self.params.refresh_target is not None:
@@ -427,12 +459,12 @@ class GroupPublication:
                 self.project,
                 sheet_id=target.sheet_id,
                 parent_op_id=target.parent_op_id,
-                op_id=self.write.op_id,
+                op_id=self._started_write.op_id,
                 token=self.receipt_id,
             )
         OutputColumnClaimStore(self.project).renew(
             claim_token=self.claim_token,
-            run_id=int(self.envelope["run_id"]),
+            run_id=int(self._started_envelope["run_id"]),
             lease_seconds=300,
             commit=False,
         )
@@ -478,7 +510,7 @@ class GroupPublication:
         return AggregateSheetWrite(
             op_id=op_id,
             sheet_id=sheet_id,
-            column_ids=self.config["columns"],
+            column_ids=self._started_config["columns"],
             row_ids=list(row_ids),
             source_row_ids_by_row=list(source_row_ids),
             membership_rows=[],
@@ -503,6 +535,8 @@ class GroupPublication:
         if any(binding.state == "sealed" for binding in bindings):
             raise ValueError("A closed grouped generation cannot resume")
         run = RunResultStore(project).get_run(run_id)
+        if run is None:
+            raise ValueError("A grouped generation cannot resume without its run")
         sheet_id = int(run["sheet_id"])
         self.config = refresh_config(
             db.execute("SELECT * FROM ops WHERE id=?", (op_id,)).fetchone()
@@ -510,7 +544,7 @@ class GroupPublication:
         rows = RunResultStore(project).run_row_scope(run_id)
         for row in db.execute(
             "SELECT row_id,key FROM keyed_observations WHERE relationship_id=?",
-            (self.config["relationship_id"],),
+            (self._started_config["relationship_id"],),
         ):
             if row["row_id"] in rows:
                 self.positions[str(row["key"])] = int(row["row_id"])
@@ -541,7 +575,7 @@ class GroupPublication:
             raise
         if params.refresh_target:
             self._recover_working_values(
-                rows, self.config["columns"][params.summary_column_name], op_id
+                rows, self._started_config["columns"][params.summary_column_name], op_id
             )
 
     def _recover_working_values(self, rows, column_id, op_id):
@@ -549,7 +583,7 @@ class GroupPublication:
         # value. Recovery reads the canonical contributions excluding itself.
         current = read_current_column(
             self.project.db,
-            sheet_id=self.write.sheet_id,
+            sheet_id=self._started_write.sheet_id,
             column_id=column_id,
             row_ids=rows,
             bounded=False,
@@ -562,7 +596,9 @@ class GroupPublication:
             cell = current.get(row_id)
             self.before[row_id] = (
                 {} if cell is None or not cell.value_present else {field: cell.value},
-                observation(self.project.db, self.config["relationship_id"], row_id),
+                observation(
+                    self.project.db, self._started_config["relationship_id"], row_id
+                ),
                 bool(
                     self.project.db.execute(
                         "SELECT hidden FROM rows WHERE id=?", (row_id,)
@@ -575,9 +611,9 @@ class GroupPublication:
         result = self.project.db.execute(
             "SELECT error,error_code FROM results WHERE run_id=? AND row_id=? AND column_id=?",
             (
-                self.envelope["run_id"],
+                self._started_envelope["run_id"],
                 row_id,
-                self.write.column_ids[self.params.summary_column_name],
+                self._started_write.column_ids[self.params.summary_column_name],
             ),
         ).fetchone()
         if result is None:
@@ -601,8 +637,8 @@ class GroupPublication:
                 self._require_writer()
                 complete_derived_membership(
                     db,
-                    op_id=self.write.op_id,
-                    sheet_id=self.write.sheet_id,
+                    op_id=self._started_write.op_id,
+                    sheet_id=self._started_write.sheet_id,
                     config=self.config,
                     observed_rows=batch,
                 )
