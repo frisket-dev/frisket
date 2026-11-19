@@ -404,10 +404,11 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   partial or missing and exits 0; `--strict` exits 1 unless all are built.
   Under `replay_strict` it builds all four without a provider call: fixture
   model replies stored in each project's response cache
-  (`scripts/e2e/prime_replies.py`), and for "Tariff impacts" fixture search
-  results imported in place of a web search, which has no replay. Without
-  `replay_strict` and with model keys it makes the real calls (about $0.25).
-  Either way "Council audio" transcribes locally with the pinned Whisper base
+  (`scripts/e2e/prime_replies.py`), fixture search results for "Tariff
+  impacts" in place of a web search (which has no replay), and a fixture
+  transcript for "Council audio", so no speech model runs. Without
+  `replay_strict` and with model keys it makes the real calls (about $0.25)
+  and transcribes "Council audio" locally with the pinned Whisper base
   model, which `python scripts/e2e/fetch_whisper_model.py` puts in the
   Hugging Face cache. Delete a project from the cache to rebuild it.
 - The entity specs run the pinned spaCy model; an environment that lacks it

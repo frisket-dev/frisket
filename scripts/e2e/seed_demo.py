@@ -13,7 +13,8 @@ Creates each of these that the server does not already hold:
   4. "People mentioned" — fixture rows → derived People sheet, model-free
 Model and search calls are REAL (the server's keys); total cost well under
 $0.25. Transcription is local and needs the pinned Whisper base model in the
-Hugging Face cache (scripts/e2e/fetch_whisper_model.py, or the in-app setup).
+Hugging Face cache (scripts/e2e/fetch_whisper_model.py, or the in-app setup);
+the keyless build does not transcribe.
 
 ``--keyless`` makes no provider call. Every model reply is a fixture
 (STORIES_REPLIES, AUDIO_SUMMARY_REPLIES, TARIFF_SUMMARY_REPLIES,
@@ -22,7 +23,9 @@ the run will look up (prime_replies.py) and replayed with the model routed to
 the project's own key, so the runs succeed under
 FRISKET_CACHE_MODE=replay_strict with no key at all. Web search has no
 replay, so the keyless "Tariff impacts" imports TARIFF_SEARCH_RESULTS as its
-search_results column instead of running research.web_search.
+search_results column instead of running research.web_search, and the
+keyless "Council audio" writes the fixture AUDIO_TRANSCRIPT instead of
+transcribing, so it needs no speech model.
 <workspace> is the server's workspace directory.
 
 Each project is built on its own: a run that ends with failed rows leaves its
@@ -99,7 +102,12 @@ STORIES_CLASSIFY = {
 
 
 # Fixture data for the keyless build; it stands in for provider output and
-# measures nothing. AUDIO_SUMMARY_REPLIES has one reply per imported file.
+# measures nothing. The keyless "Council audio" writes AUDIO_TRANSCRIPT with
+# map.python instead of transcribing, so no speech model runs; it and
+# AUDIO_SUMMARY_REPLIES are for the one imported file.
+AUDIO_TRANSCRIPT = (
+    "Placeholder transcript standing in for the council committee excerpt."
+)
 AUDIO_SUMMARY_REPLIES = [
     {"summary": "A city council committee discusses items on its agenda."}
 ]
@@ -504,10 +512,26 @@ def seed_audio(client: httpx.Client, keyless_workspace: Path | None = None) -> N
             )
         },
     )
-    run(
-        client,
-        pid,
-        typed_action_request(
+    if keyless_workspace is not None:
+        transcribe = typed_action_request(
+            "map.python",
+            sheet_id=sheet,
+            params={
+                "input_columns": ["media"],
+                "code": f"result = {AUDIO_TRANSCRIPT!r}",
+                "return_schema": {"type": "string"},
+                "output_routes": [
+                    {
+                        "name": "transcript",
+                        "path": "$",
+                        "target": {"kind": "column", "type": "text"},
+                    }
+                ],
+            },
+            output_names={"transcript": "transcript"},
+        )
+    else:
+        transcribe = typed_action_request(
             "media.transcribe",
             sheet_id=sheet,
             params={
@@ -520,9 +544,8 @@ def seed_audio(client: httpx.Client, keyless_workspace: Path | None = None) -> N
                 "segments": "transcript_segments",
                 "detected_language": "detected_language",
             },
-        ),
-        "transcribe",
-    )
+        )
+    run(client, pid, transcribe, "transcribe")
     run_model_action(
         client,
         pid,

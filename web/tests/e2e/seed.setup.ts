@@ -3,8 +3,7 @@
 // projects the workspace lacks, each on its own, and reports each one as
 // complete, partial or missing; only complete ones are published to the
 // persistent e2e workspace. With FRISKET_CACHE_MODE=replay_strict it builds
-// them from fixture replies with no provider call ("Council audio" also needs
-// the pinned Whisper base model, scripts/e2e/fetch_whisper_model.py);
+// them from fixture data with no provider call and no local model;
 // otherwise it makes real model and search calls (~$0.25). Either way the
 // setup then opens each seeded project and records which ones are unusable
 // (absent, partially built, or created by an incompatible build), so the specs

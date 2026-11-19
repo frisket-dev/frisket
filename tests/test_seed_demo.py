@@ -559,7 +559,7 @@ def test_typed_output_placement_participates_in_demo_idempotency_key():
     [
         (seed_demo.seed_stories, ["map.classify"]),
         (seed_demo.seed_tariff, ["import.rows", "map.summarize", "map.classify"]),
-        (seed_demo.seed_audio, ["media.transcribe", "map.summarize"]),
+        (seed_demo.seed_audio, ["map.python", "map.summarize"]),
     ],
 )
 def test_keyless_demo_actions_pass_real_root_validation(
@@ -602,5 +602,7 @@ def test_keyless_demo_actions_pass_real_root_validation(
         seed(client, tmp_path)
     assert emitted == expected_actions
     assert primed == [
-        (tmp_path, action) for action in expected_actions if action.startswith("map.")
+        (tmp_path, action)
+        for action in expected_actions
+        if action in {"map.classify", "map.summarize"}
     ]

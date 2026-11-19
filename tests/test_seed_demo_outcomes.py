@@ -243,6 +243,8 @@ def test_keyless_builds_every_project_from_fixture_replies(monkeypatch, tmp_path
     rows = server.params[("Tariff impacts", "import.rows")]["rows"]
     assert [row["country"] for row in rows] == seed_demo.COUNTRIES
     assert all(row["search_results"] for row in rows)
-    transcribe = server.params[("Council audio", "media.transcribe")]
-    assert transcribe["engine"] == "faster_whisper"
-    assert transcribe["model_size"] == "base"
+    # No speech model runs keyless: the transcript is a fixture.
+    assert ("Council audio", "media.transcribe") not in server.actions
+    transcript = server.params[("Council audio", "map.python")]
+    assert transcript["code"] == f"result = {seed_demo.AUDIO_TRANSCRIPT!r}"
+    assert transcript["output_routes"][0]["name"] == "transcript"

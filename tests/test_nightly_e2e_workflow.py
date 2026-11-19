@@ -173,13 +173,3 @@ def test_the_pinned_spacy_model_is_in_the_cache_before_the_suite_runs():
     assert "--extra standard" in runs[synced]
     assert synced < fetched < suite
     assert (REPO / "scripts/e2e/fetch_spacy_model.py").is_file()
-
-
-def test_the_pinned_whisper_model_is_in_the_cache_before_the_suite_runs():
-    runs = [s.get("run", "") for s in workflow()["jobs"]["shard"]["steps"]]
-    synced = next(i for i, run in enumerate(runs) if "uv sync" in run)
-    fetched = runs.index("uv run --no-sync python scripts/e2e/fetch_whisper_model.py")
-    suite = next(i for i, run in enumerate(runs) if "npx playwright test" in run)
-    assert "--extra standard" in runs[synced]
-    assert synced < fetched < suite
-    assert (REPO / "scripts/e2e/fetch_whisper_model.py").is_file()

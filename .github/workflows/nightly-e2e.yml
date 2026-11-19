@@ -107,9 +107,6 @@ jobs:
       # The extras bring spaCy but not its pipeline; without the pinned model
       # in the managed cache the entity action reports Setup needed.
       - run: uv run --no-sync python scripts/e2e/fetch_spacy_model.py
-      # The seeded "Council audio" transcribes locally; the no-network worker
-      # loads only the pinned Whisper base snapshot from the Hub cache.
-      - run: uv run --no-sync python scripts/e2e/fetch_whisper_model.py
       - run: npx playwright install --with-deps chromium
         working-directory: web
       # Test failures do not fail the shard: the verdict job judges them
