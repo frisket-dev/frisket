@@ -311,7 +311,7 @@ def test_projection_preserves_explicit_result_null_error_and_edit_clear_heads() 
     }
 
 
-def test_later_replacement_supersedes_edit_and_reject_clear_by_change_order() -> None:
+def test_edit_outranks_later_replacement_unless_reject_clear_or_retyped() -> None:
     db = _database()
     db.execute("BEGIN")
     _op(db, 1)
@@ -345,16 +345,10 @@ def test_later_replacement_supersedes_edit_and_reject_clear_by_change_order() ->
         write_mode="replace_scope",
         additional=[(101, '"replacement two"', "publish_value", None)],
     )
-    # Logical Change order supersedes old edits, including reject-clear. No
-    # descriptor-change marker or hand-written head cache grants precedence.
     refresh_current_cells(db, column_ids=[10])
-    assert [
-        tuple(row)
-        for row in db.execute(
-            "SELECT row_id,value,origin_kind FROM current_cell_values ORDER BY row_id"
-        )
-    ] == [
-        (100, "replacement", "run_result"),
+    current = "SELECT row_id,value,origin_kind FROM current_cell_values ORDER BY row_id"
+    assert [tuple(row) for row in db.execute(current)] == [
+        (100, "old edit", "manual_edit"),
         (101, "replacement two", "run_result"),
     ]
 
@@ -366,6 +360,25 @@ def test_later_replacement_supersedes_edit_and_reject_clear_by_change_order() ->
             "WHERE column_id=10 AND row_id=100"
         ).fetchone()
     ) == ("after", "manual_edit", 5)
+
+    # A replacement that changes the column descriptor supersedes every edit.
+    _result_head(
+        db,
+        op_id=6,
+        run_id=60,
+        row_id=100,
+        value='"retyped"',
+        effect="publish_value",
+        write_mode="replace_scope",
+    )
+    db.execute(
+        'UPDATE ops SET undo_info=\'{"column_formats_after":{"10":null}}\' WHERE id=6'
+    )
+    refresh_current_cells(db, column_ids=[10])
+    assert [tuple(row) for row in db.execute(current)] == [
+        (100, "retyped", "run_result"),
+        (101, "replacement two", "run_result"),
+    ]
 
 
 def test_replace_remove_and_rebuild_share_the_same_projector() -> None:

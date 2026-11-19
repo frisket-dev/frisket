@@ -67,9 +67,9 @@ def _managed_replay_origin_run_id(
     generation_store = ResultGenerationStore(project)
     if not generation_store.is_generation_managed(column_id):
         return False, None
-    origins = generation_store.origin_run_ids(column_id, limit=2)
-    if len(origins) > 1:
+    if generation_store.has_mixed_origins(column_id):
         raise MixedOriginReplayUnsupported(column_id)
+    origins = generation_store.origin_run_ids(column_id, limit=1)
     return True, origins[0] if origins else None
 
 

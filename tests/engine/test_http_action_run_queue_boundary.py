@@ -3117,7 +3117,7 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
         .items()
     }
     assert raw_details[target_row]["normalized"]["filename"] == "queued-after.png"
-    assert details[target_row] == raw_details[target_row]
+    assert details[target_row] == target_manual_value
     assert details[untargeted_row] == manual_value
 
     receipt = json.loads(
@@ -3147,7 +3147,7 @@ def test_v1_queued_targeted_metadata_rerun_preserves_untargeted_family_rows(
         column_id=details_id,
         row_ids=[target_row],
     )
-    assert details_ref["value_hash"] == output_column_value_hash(
+    assert details_ref["value_hash"] != output_column_value_hash(
         project,
         sheet_id=sheet_id,
         column_id=details_id,

@@ -60,10 +60,6 @@
   "project dropdown switches projects": "seed:Local stories,Tariff impacts",
   "the home screen lists the seeded projects": "seed:Local stories,Tariff impacts,Council audio"
  },
- "replay-accept-chrome.spec.ts": {
-  "accept-all-in-column clears every pending cell in one click": "stale-expectation",
-  "the replay chip surfaces pending cells; Review + Accept/Keep auto-advance, decrement, and keep-edit is durable": "stale-expectation"
- },
  "replay-mode-banner.spec.ts": {
   "with no providers, the setup link opens organization AI provider settings with no project open": "stale-expectation",
   "with no providers, the setup link opens project AI provider settings when a project is open": "stale-expectation"

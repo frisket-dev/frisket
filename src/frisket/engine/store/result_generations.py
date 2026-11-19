@@ -1470,19 +1470,32 @@ class ResultGenerationStore:
     def has_mixed_origins(
         self, column_id: int, row_ids: Collection[int] | None = None
     ) -> bool:
-        """Whether actual current generated cells have multiple producing runs."""
+        """Whether the column's generated results come from more than one run.
+
+        This is ``origin_run_ids`` for the same scope: a generated result is
+        either a current head or hidden beneath a hand edit. Reading the
+        current heads first keeps a clean column off the full history.
+        """
         from .current_read_sql import current_heads_sql
 
         heads = current_heads_sql(self.db, [int(column_id)], row_ids)
-        return (
-            len(
-                self.db.execute(
-                    f"SELECT DISTINCT origin_run_id FROM {heads} "
-                    "WHERE origin_kind='run_result' AND outcome IN ('completed','failed') LIMIT 2"
-                ).fetchall()
+        origins = {
+            int(row[0])
+            for row in self.db.execute(
+                f"SELECT DISTINCT origin_run_id FROM {heads} "
+                "WHERE origin_kind='run_result' AND outcome IN ('completed','failed') "
+                "LIMIT 2"
             )
-            > 1
-        )
+        }
+        edited = [
+            int(row[0])
+            for row in self.db.execute(
+                f"SELECT row_id FROM {heads} WHERE origin_kind='manual_edit'"
+            )
+        ]
+        if len(origins) < 2 and edited:
+            origins.update(self.origin_run_ids(column_id, edited, limit=2))
+        return len(origins) > 1
 
     @contextmanager
     def _empty_key_table(self) -> Iterator[str]:

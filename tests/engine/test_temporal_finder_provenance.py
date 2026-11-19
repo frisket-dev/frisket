@@ -422,29 +422,26 @@ def test_later_topic_run_never_claims_an_older_manual_edit(tmp_path: Path) -> No
         seed.selection_column_id,
         row_ids=[row_id],
     )
+    assert live_values[row_id] == _ranges(split_at_ms=2_500)
+    assert live_refs[row_id]["kind"] == "manual_edit"
+    assert _resolve(seed) is None
+
+    # Reverting the edit exposes the later run with its own provenance.
+    from frisket.engine.store.op_log import step_operation
+
+    with seed.project.transaction_scope():
+        step_operation(
+            seed.project, "revert", change_id=int(live_refs[row_id]["op_id"])
+        )
+    live_values, live_refs = seed.project.get_values_with_refs(
+        seed.sheet_id, seed.selection_column_id, row_ids=[row_id]
+    )
     assert live_values[row_id] == _ranges(split_at_ms=3_000)
     assert live_refs[row_id]["kind"] == "run_result"
-    assert live_refs[row_id]["run_id"] == later_run_id
     resolved_b = _resolve(seed)
     assert resolved_b is not None
     assert resolved_b.run_id == later_run_id
     assert resolved_b.payload == later_payload
-
-    # Ordinary replacement supersedes the old edit. Selectively reverting that
-    # replacement restores the old edit together with its original provenance.
-    from frisket.engine.store.op_log import step_operation
-
-    with seed.project.transaction_scope():
-        step_operation(seed.project, "revert", change_id=later_op_id)
-    live_values, live_refs = seed.project.get_values_with_refs(
-        seed.sheet_id, seed.selection_column_id, row_ids=[row_id]
-    )
-    assert live_values[row_id] == _ranges(split_at_ms=2_500)
-    assert live_refs[row_id]["kind"] == "manual_edit"
-    restored_a = _resolve(seed)
-    assert restored_a is not None
-    assert restored_a.run_id == seed.run_id
-    assert restored_a.payload == seed.payload
 
 
 def test_copied_manual_or_missing_base_value_is_not_attributable(

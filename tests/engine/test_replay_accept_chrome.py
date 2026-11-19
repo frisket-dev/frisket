@@ -263,9 +263,7 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
         assert reopened.pending_replay_values(fx.sheet, fx.col) == {}, (
             "the same generated value stays suppressed across future runs"
         )
-        # Ordinary replacement supersedes the old edit. A later manual change
-        # is compared against the new result, and its distinct hash is not
-        # suppressed by the dismissal of the previous generated value.
+        # A newer generated value (new hash) re-surfaces the kept edit.
         op_id = reopened.append_change("run", {"kind": "map"}, label="re-run")
         new_run = store.start_run(
             op_id,
@@ -283,9 +281,7 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
             "UPDATE columns SET current_run_id=? WHERE id=?", (new_run, fx.col)
         )
         reopened.db.commit()
-        assert reopened.get_values(fx.sheet, fx.col)[r[0]] == "lion"
-        assert reopened.pending_replay_values(fx.sheet, fx.col) == {}
-        reopened.apply_edits([{"row_id": r[0], "column_id": fx.col, "value": "feline"}])
+        assert reopened.get_values(fx.sheet, fx.col)[r[0]] == "feline"
         assert set(reopened.pending_replay_values(fx.sheet, fx.col)) == {r[0]}, (
             "a newer, different fresh value re-surfaces past a value-identity "
             "dismissal (dispositions #3)"
