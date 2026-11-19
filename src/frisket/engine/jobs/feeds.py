@@ -17,8 +17,8 @@ from typing import Any
 from frisket.ops.enclosures import ENCLOSURE_DOWNLOAD_KIND, mark_enclosure_queued
 from frisket.engine.executor import run_action_spec
 from frisket.engine.jobs.queue import JobQueue
-from frisket.server.feeds.rss import ensure_rss_feed_checker
-from frisket.server.feeds.runtime import get_feed_checker
+from frisket.feeds.rss import ensure_rss_feed_checker
+from frisket.feeds.runtime import get_feed_checker
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore

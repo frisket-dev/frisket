@@ -12,7 +12,7 @@ from frisket.contracts.http.project_sources import (
 )
 from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.workspace import Workspace
-from frisket.server.feeds.health import FeedHealthNotFound, build_feed_health
+from frisket.feeds.health import FeedHealthNotFound, build_feed_health
 from frisket.engine.store.feeds import FeedStore
 
 

@@ -203,7 +203,7 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         _materialize_registered_feed_poll_in_txn,
     )
     from frisket.engine.store.feeds import FeedStore
-    from frisket.server.feeds.runtime import FeedItem, FeedCheckResult
+    from frisket.feeds.runtime import FeedItem, FeedCheckResult
 
     project, sheet, col, row, op = _project(tmp_path)
     with closing(project):

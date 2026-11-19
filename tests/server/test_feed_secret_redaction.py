@@ -17,14 +17,14 @@ from datetime import UTC, datetime
 import pytest
 
 from frisket.redaction import redact_text
-from frisket.server.feeds.api_list_dicts import ApiListDictsFeedChecker
-from frisket.server.feeds.courtlistener import (
+from frisket.feeds.api_list_dicts import ApiListDictsFeedChecker
+from frisket.feeds.courtlistener import (
     CourtListenerDocketListing,
     CourtListenerDocketFeedChecker,
 )
-from frisket.server.feeds.runtime import FeedCheckContext, provider_error_text
-from frisket.server.feeds.tiktok import TikTokProfileFeedChecker
-from frisket.server.feeds.youtube import (
+from frisket.feeds.runtime import FeedCheckContext, provider_error_text
+from frisket.feeds.tiktok import TikTokProfileFeedChecker
+from frisket.feeds.youtube import (
     YOUTUBE_CHANNEL,
     YOUTUBE_PLAYLIST,
     YouTubeChannelListing,

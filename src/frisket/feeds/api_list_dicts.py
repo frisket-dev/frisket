@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlparse
 
 from frisket.ops.netguard import url_is_safe
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     FeedItem,
     FeedCheckResult,

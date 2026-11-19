@@ -93,7 +93,7 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export/source families -> server.exports/server.sources; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export family -> server.exports; jobs -> server.provider_config/server.notifications/server.services.table_imports/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
@@ -101,13 +101,10 @@
       "exclude": [
         "frisket.engine.executor.action_families.exports",
         "frisket.engine.executor.action_families.exports_column_tables",
-        "frisket.engine.executor.collection_read",
-        "frisket.engine.executor.feed_poll_action",
         "frisket.engine.jobs.model_pull",
         "frisket.engine.jobs.worker",
         "frisket.engine.jobs.ports",
         "frisket.engine.jobs.notifications_digest",
-        "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.notifications_delivery",
         "frisket.engine.jobs.runs",
         "frisket.engine.store.credentials"
@@ -126,6 +123,21 @@
       "modules": [
         "frisket.notifications",
         "frisket.notifications.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "feeds-do-not-import-server",
+      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server or team layers.",
+      "modules": [
+        "frisket.feeds",
+        "frisket.feeds.*"
       ],
       "forbidden_imports": [
         "frisket.server",

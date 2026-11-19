@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 
 from frisket.engine.store.feeds import FeedStore
 from frisket.server.app import create_app
-from frisket.server.feeds.health import _job_feed_id
+from frisket.feeds.health import _job_feed_id
 
 
 def _seed(tmp_path: Path) -> tuple[TestClient, str, int, int]:

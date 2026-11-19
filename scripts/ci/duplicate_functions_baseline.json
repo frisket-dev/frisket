@@ -372,8 +372,8 @@
    "src/frisket/server/services/project_debug.py::_spec"
   ],
   [
-   "src/frisket/server/feeds/api_list_dicts.py::_record_scalar_text",
-   "src/frisket/server/feeds/api_list_dicts.py::_record_source_item_id"
+   "src/frisket/feeds/api_list_dicts.py::_record_scalar_text",
+   "src/frisket/feeds/api_list_dicts.py::_record_source_item_id"
   ],
   [
    "src/frisket/server/notifications/providers.py::_required_secret",
@@ -484,7 +484,7 @@
   ],
   [
    "src/frisket/engine/jobs/queue.py::_mapping",
-   "src/frisket/server/feeds/health.py::_mapping",
+   "src/frisket/feeds/health.py::_mapping",
    "src/frisket/server/services/selector_choices_projection.py::_mapping"
   ],
   [

@@ -17,12 +17,12 @@ from frisket.engine.jobs import (
     enqueue_due_feed_polls,
     register_feed_poll_handler,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     get_feed_checker,
     register_feed_checker,
     unregister_feed_checker,
 )
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
     YOUTUBE_PLAYLIST,

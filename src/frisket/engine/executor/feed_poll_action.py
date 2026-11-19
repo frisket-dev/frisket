@@ -47,11 +47,11 @@ from frisket.engine.store.keyed_publication import (
 from frisket.engine.store.op_log import append_change, set_undo_info
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
-from frisket.server.feeds.rss import (
+from frisket.feeds.rss import (
     ensure_rss_feed_checker,
     rss_feed_checker_for_fetch_override,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     FeedItem,
     FeedCheckResult,

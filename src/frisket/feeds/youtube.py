@@ -13,14 +13,14 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from frisket.server.feeds.media_metadata import (
+from frisket.feeds.media_metadata import (
     entry_published_at as _entry_published_at,
     thumbnail_url as _thumbnail_url,
     string_value as _string_value,
 )
 from frisket.redaction import redact_text
-from frisket.server.feeds.progress import listing_progress_options
-from frisket.server.feeds.runtime import (
+from frisket.feeds.progress import listing_progress_options
+from frisket.feeds.runtime import (
     FeedCheckContext,
     FeedItem,
     FeedCheckResult,

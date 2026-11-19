@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 from frisket.engine.executor import actions as executor_actions
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     YouTubePlaylistListing,
     collection_display_name,
     enumerate_youtube_collection,

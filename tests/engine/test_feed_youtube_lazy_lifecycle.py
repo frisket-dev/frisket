@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     YouTubeProviderError,
     list_youtube_channel_with_ytdlp,
     list_youtube_playlist_with_ytdlp,

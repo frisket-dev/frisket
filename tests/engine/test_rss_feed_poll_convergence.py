@@ -6,11 +6,11 @@ from typing import Any
 import pytest
 
 from frisket.engine.executor.actions import run_action_spec
-from frisket.server.feeds.rss import (
+from frisket.feeds.rss import (
     RssFeedChecker,
     register_rss_feed_checker,
 )
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     register_feed_checker,
 )
 from frisket.engine.store import Project

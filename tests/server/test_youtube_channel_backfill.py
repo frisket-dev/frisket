@@ -33,12 +33,12 @@ import pytest
 from frisket.engine.executor import run_action_spec
 import frisket.ops.ytdlp as youtube_ops
 from frisket.ai.llm import ModelRouter
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     get_feed_checker,
     register_feed_checker,
     unregister_feed_checker,
 )
-from frisket.server.feeds.youtube import (
+from frisket.feeds.youtube import (
     YOUTUBE_PLAYLIST_KIND,
     YouTubePlaylistListing,
     YOUTUBE_PLAYLIST,

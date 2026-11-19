@@ -18,7 +18,7 @@ from frisket.actions.types import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 
-from frisket.server.feeds.runtime import (
+from frisket.feeds.runtime import (
     FeedCheckContext,
     FeedItem,
     FeedCheckResult,
