@@ -1029,7 +1029,7 @@ export interface ActionTemplate {
    *  blocks Run while this is non-empty. */
   missingCredentials?: string[];
   /** True for catalog actions whose generated columns are DECLARED by the action
-   *  itself (plugin @plugin.op writes, core recipe output contracts), not
+   *  itself (plugin @plugin.op writes, core program output contracts), not
    *  defined by the user. The output-fields builder renders them read-only:
    *  no add/remove/rename, no extraction placeholder copy. Only genuinely
    *  field-defining actions (extract/classify) keep the editable builder. */
@@ -1253,7 +1253,7 @@ export interface ActionCatalogFormParam {
   /** Optional grouping label carried for future grouped layouts. */
   group?: string;
   /** Row-clustering key for the compact dense-grid layout (any input type).
-   *  Passed through untouched from a recipe's `params()` dict. */
+   *  Passed through untouched from an action program's `params()` dict. */
   dense_group?: string;
   /** Grid tracks a dense-grid item occupies (1 or 2). */
   dense_span?: 1 | 2;
@@ -2626,7 +2626,7 @@ export interface RunProgress {
   } | null;
   /** Reconciler's reason a run is stalled/orphaned (e.g. 'no_live_worker'). */
   staleReason?: string | null;
-  /** A typed recipe/session halt behind a resumable 'cancelled' (e.g.
+  /** A typed program/session halt behind a resumable 'cancelled' (e.g.
    *  'local_artifact_unavailable' when a local model was not yet cached).
    *  `haltedReason` is the human sentence; a retry is the fix. */
   haltedCode?: string | null;

@@ -52,7 +52,7 @@ _nominatim_locks: dict[int, asyncio.Lock] = {}  # one lock per event loop
 
 
 class GeocodeEngineError(HostedEngineError, RuntimeError):
-    """Hosted geocoder failure that keeps the recipe's RuntimeError API."""
+    """Hosted geocoder failure that keeps the program's RuntimeError API."""
 
 
 def _user_agent() -> str:
@@ -212,8 +212,7 @@ class AdmittedGeocoder:
         route: Any | None = None,
     ) -> dict[str, Any]:
         """``route`` is the admitted route row, or ``None`` for
-        an unrouted call (previews, direct dispatch) — the same optional the
-        recipe was always missing before geocode joined the seam. When
+        an unrouted call (previews, direct dispatch). When
         present, every fact this mint produces carries the §6 binding
         observation (``bind_fact_to_route``) BEFORE it leaves this function,
         so ``RunResultStore``'s epoch invariant (geocode is in

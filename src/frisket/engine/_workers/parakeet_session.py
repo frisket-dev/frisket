@@ -281,7 +281,7 @@ def validate_parakeet_result_data(data: Any) -> dict[str, Any]:
 
 
 class ParakeetProcessSession:
-    """Lazy, serial, one-process session owned by one recipe invocation."""
+    """Lazy, serial, one-process session owned by one program invocation."""
 
     def __init__(
         self,

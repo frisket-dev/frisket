@@ -1,6 +1,6 @@
 """Per-row execution for the map runner (extracted from
 ``MapRunner._execute_row``/``MapRunner._llm_row``/``MapRunner._maybe_throttle``):
-render one row's model/recipe call, classify its failure into a typed cell
+render one row's model/program call, classify its failure into a typed cell
 error, and adapt concurrency-wide throttle state to 429s. Operates on explicit
 ``project``/``router``/``throttle`` rather than an implicit ``self`` so leaf
 callers (including ``preview``) need not import the engine. Also carries
@@ -372,7 +372,7 @@ async def _execute_row(
                     continue
                 missing = safe_error(
                     "invalid_output",
-                    f"recipe did not return declared output field {name!r}",
+                    f"action did not return declared output field {name!r}",
                     max_chars=500,
                 )
                 cell["error"] = missing.detail

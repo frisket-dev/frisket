@@ -504,7 +504,7 @@ async def run_ocr_engine_preview(
     scratch: Path,
 ) -> OcrEnginePreviewOutput:
     """Run one OCR engine against already rendered page images through the
-    recipe's public dispatch (``OcrEngines.run_engine_on_pages`` — the same
+    program's public dispatch (``OcrEngines.run_engine_on_pages`` — the same
     path the durable action takes; no shadow dispatch table).
 
     The preview supplies only request-local context, and deliberately no

@@ -1,4 +1,4 @@
-"""Execute a recipe over rows as a parallel,
+"""Execute a program over rows as a parallel,
 partial-failure-tolerant, resumable map.
 
 Guarantees under test:
@@ -366,7 +366,7 @@ async def _cancel_and_join_owned_task(task: asyncio.Task[Any]) -> None:
         try:
             await asyncio.shield(task)
         except asyncio.CancelledError:
-            # A repeated outer cancellation must not detach recipe cleanup.
+            # A repeated outer cancellation must not detach program cleanup.
             continue
     if task.cancelled():
         return
@@ -392,7 +392,7 @@ class RunProgress:
     # Set only when the durable ``should_cancel`` projection requested the
     # stop.  A queued caller uses this to leave the exact dispatching attempt
     # open until its run/receipt/claim terminal transaction lands; circuit
-    # breakers and typed recipe halts retain their existing close paths.
+    # breakers and typed program halts retain their existing close paths.
     cancel_requested: bool = False
     # Circuit breaker: consecutive-failure streak (successes reset it) and,
     # when the breaker trips, the reason. A tripped breaker cancels through
@@ -474,8 +474,8 @@ class MapRunner:
 
     def _row_worker_count(self, program: ActionProgram, spec: dict) -> int:
         configured = max(1, int(self.concurrency or 1))
-        # ``max_concurrency`` remains the established static recipe cap used
-        # by existing temporal/media recipes. ``max_row_concurrency`` adds a
+        # ``max_concurrency`` remains the established static program cap used
+        # by existing temporal/media programs. ``max_row_concurrency`` adds a
         # spec-dependent cap for run-scoped local workers (for example,
         # Parakeet). Both are independent safety limits.
         caps = [configured]
@@ -666,7 +666,7 @@ class MapRunner:
             and not self.allow_action_lifecycle_only_programs
         ):
             raise ValueError(
-                f"recipe '{action_program.name}' must be run through its supported action"
+                f"action program '{action_program.name}' must be run through its supported action"
             )
         return validation.validate_spec(
             self.project,
@@ -739,7 +739,7 @@ class MapRunner:
             RoutedAdmission,
         ):
             raise DependentChoiceRefusal(
-                f"recipe '{prepared.program.name}' consumes execution resolution "
+                f"action program '{prepared.program.name}' consumes execution resolution "
                 "but its attempt was admitted UNROUTED; routed dispatch never "
                 "executes unverified"
             )
@@ -1154,7 +1154,7 @@ class MapRunner:
                     attempt.admission, RoutedAdmission
                 ):
                     raise DependentChoiceRefusal(
-                        f"recipe '{action_program.name}' consumes execution resolution "
+                        f"action program '{action_program.name}' consumes execution resolution "
                         "but its attempt was admitted UNROUTED; routed "
                         "dispatch never executes unverified"
                     )
@@ -1297,7 +1297,7 @@ class MapRunner:
                 "report_work_progress": report_work_progress,
                 "source_column_types": source_column_types,
                 "output_columns": dict(out_cols),
-                # Shared only by row contexts in this run; recipe singletons
+                # Shared only by row contexts in this run; program singletons
                 # must not hold mutable execution state.
                 "run_state": {},
             },
@@ -1307,7 +1307,7 @@ class MapRunner:
 
             ctx.extras["router"] = self.router.for_execution(dispatch_for_context(ctx))
         if not action_program.is_llm(spec) and hasattr(action_program, "execute_batch"):
-            # Batch recipes intentionally keep whole-run semantics here rather
+            # Batch programs intentionally keep whole-run semantics here rather
             # than any page-local execution shape: clean_column needs global
             # canonical grouping, and census demographics needs global dedupe.
             if prepared.run_scope_run_id is not None and not row_ids:
@@ -1317,7 +1317,7 @@ class MapRunner:
             try:
                 if not cancelled():
                     # The claim happens here too, before the batch branch
-                    # returns — a batch recipe that consumes resolution is
+                    # returns — a batch program that consumes resolution is
                     # authorized exactly like a row-oriented one.
                     claim_the_attempt()
                 batch_task = asyncio.create_task(
@@ -2247,8 +2247,8 @@ class MapRunner:
 
             await _await_owned_tasks(*(pull_worker() for _ in range(worker_count)))
 
-        # Give an already-latched operator cancellation precedence over recipe
-        # admission.  Tasks are created inside the scope so task-local recipe
+        # Give an already-latched operator cancellation precedence over program
+        # admission.  Tasks are created inside the scope so task-local program
         # resources (ContextVars) are inherited by every row worker.
         teardown_error: SandboxTeardownError | None = None
         outer_cancellation: asyncio.CancelledError | None = None
@@ -2315,7 +2315,7 @@ class MapRunner:
                 )
                 progress.cancel()
                 teardown_error = exc
-        # Preserve the deterministic-recipe review behavior, but never mark
+        # Preserve the deterministic-program review behavior, but never mark
         # results verified after an invocation/session halt or an unprovable
         # sandbox teardown.
         # a cancelled run keeps its partial results and lands in
@@ -2544,15 +2544,15 @@ class MapRunner:
         admitted_work_scope: Mapping[str, Any] | None = None,
         cancelled: Callable[[], bool] | None = None,
     ) -> RunProgress:
-        """Execute a deterministic recipe that can batch its own external I/O.
+        """Execute a deterministic program that can batch its own external I/O.
 
-        Most recipes stay row-oriented. This hook exists for ops like Census
+        Most programs stay row-oriented. This hook exists for ops like Census
         demographics where correctness and cost depend on deduping a whole run
         before making external API calls.
         """
         # ``out_cols`` is the persisted preparation/claim enumeration.  A
         # resumed worker must not recompute dynamic descriptors from changed
-        # recipe code after authority was published.
+        # program code after authority was published.
         batch_size = getattr(program, "batch_size", None)
         if batch_size is not None and len(row_ids) > batch_size:
             for start in range(0, len(row_ids), batch_size):

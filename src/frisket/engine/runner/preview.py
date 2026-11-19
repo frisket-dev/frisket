@@ -365,11 +365,11 @@ async def run_preview(
     call facts survive failed or cancelled publication. Receipt lifecycle
     remains with the caller, after this function joins all owned work.
     ``progress_cb(done, total)`` fires per completed row; ``cancel_event``
-    (a ``threading.Event``) is checked between rows and surfaced to recipes
+    (a ``threading.Event``) is checked between rows and surfaced to programs
     via ``ActionContext.extras['cancelled']``. ``row_worker_count`` is the
-    engine's ``_row_worker_count`` bound method — the recipe-dependent
+    engine's ``_row_worker_count`` bound method — the program-dependent
     concurrency cap logic stays defined once, in the engine, and is invoked
-    here only once ``validate_spec`` has resolved the recipe."""
+    here only once ``validate_spec`` has resolved the program."""
     validated = _preview_validated(
         project,
         router,
@@ -540,7 +540,7 @@ async def run_preview(
                     "promise_violation",
                     "Cloud preview batch execution has no admitted effect identity",
                 )
-            # Batch recipes compute the whole sample at once; cancel is checked
+            # Batch programs compute the whole sample at once; cancel is checked
             # before dispatch and while collecting per-row results.
             values_by_row = {
                 row_id: {}

@@ -37,9 +37,9 @@ if TYPE_CHECKING:
     from frisket.execution.provider import ExecutionLimits
 
 
-# What an ABSENT estimate means for a recipe (the cost-declaration axis).
+# What an ABSENT estimate means for a program (the cost-declaration axis).
 #
-# Every recipe declares one of these three cost classes:
+# Every program declares one of these three cost classes:
 #
 # - "free"        — no money moves. An absent estimate IS $0.00, honestly, and
 #                   the run proceeds with no dialog (regex_extract, clean_dates,
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 # "metered" and "unpriceable" differ in remedy, not in gate: both estimate
 # ``cost: None`` when no number was produced, which the cost gate treats exactly
 # like an over-budget estimate. The distinction is what the closure test checks
-# each recipe's catalog ``CostPolicy`` against.
+# each program's catalog ``CostPolicy`` against.
 CostClass = Literal["free", "metered", "unpriceable"]
 
 
@@ -111,7 +111,7 @@ class ActionProgramInvocationHalt(Exception):
 def normalize_action_program_invocation_halt(code: Any, detail: Any) -> tuple[str, str]:
     """Return the bounded public halt identity a runner may persist.
 
-    Recipe adapters should raise only parent-owned codes.  This is also the
+    Program adapters should raise only parent-owned codes.  This is also the
     fail-closed boundary for a buggy adapter: an unknown code is never copied
     into durable state and instead becomes the v1 session-failure category.
     This module is shared across every local-model engine, so the fail-closed
@@ -316,16 +316,16 @@ class ActionProgram:
     allow_all_empty_input: bool = False
     # Row-local data errors should not trip the provider-failure breaker.
     disable_failure_halt: bool = False
-    # Optional per-recipe cap applied in addition to runner configuration.
+    # Optional per-program cap applied in addition to runner configuration.
     max_concurrency: int | None = None
     # Create or exactly reuse the complete declared output set in one
     # transaction. On exact reuse, MapRunner also preserves prior result cells
     # outside a targeted rerun's immutable row scope when it switches pointers.
     atomic_output_columns: bool = False
-    # Recipes whose output ownership depends on an action receipt/claim must be
+    # Programs whose output ownership depends on an action receipt/claim must be
     # launched through the canonical action lifecycle.
     action_lifecycle_only: bool = False
-    # Most recipes hide freshly-created columns when every row fails. Some
+    # Most programs hide freshly-created columns when every row fails. Some
     # deterministic families retain useful, retryable per-row errors instead.
     keep_zero_success_generated_columns: bool = False
     # Private runner-facing error location for the source control. Typed
@@ -333,28 +333,28 @@ class ActionProgram:
     empty_input_error_field: str = "params.input_columns"
     # REQUIRED DECLARATION — annotated, deliberately NOT defaulted (E-3).
     #
-    # Whether this recipe composes with the execution seam: whether its runs
+    # Whether this program composes with the execution seam: whether its runs
     # resolve a route, compile promises, gate on claims, and get verified at
     # the effect site. Six consumers ask (execution/resolve_for_action.py,
     # engine/jobs/runs.py, engine/runner/map_runner.py, and three sites in
     # engine/runner/validation.py), and every one of them used to ask through
-    # ``getattr(recipe, "consumes_resolution", False)`` — six copies of a
-    # default that silently answered "no" for any recipe that forgot to
-    # declare, which is exactly how a resolution-aware recipe ships with its
+    # ``getattr(program, "consumes_resolution", False)`` — six copies of a
+    # default that silently answered "no" for any program that forgot to
+    # declare, which is exactly how a resolution-aware program ships with its
     # consent machinery dormant and nothing complains. A ClassVar with no
     # value makes the omission an AttributeError at the first consumer
     # instead: undeclared is unanswerable, not "no".
     #
     # ClassVar (not a dataclass field): this is a per-CLASS declaration about
-    # what the recipe IS, never per-instance state, and a required dataclass
+    # what the program IS, never per-instance state, and a required dataclass
     # field could not follow the defaulted ones above anyway. Sibling
     # behavioral booleans keep their defaults on purpose — they tune behavior
     # a caller can observe; this one decides composition.
     consumes_resolution: ClassVar[bool]
 
-    # The execution capability this recipe's runs resolve for — "transcribe",
+    # The execution capability this program's runs resolve for — "transcribe",
     # "ocr" (``frisket.execution.targets.EXECUTION_CAPABILITIES``). Required
-    # of, and read ONLY from, recipes that declare ``consumes_resolution =
+    # of, and read ONLY from, programs that declare ``consumes_resolution =
     # True``: it decides which roster canonicalizes the authored engine, which
     # target rows are candidates, which option keys are authored options, and
     # which meter the price book quotes. A default would have made every
@@ -362,22 +362,22 @@ class ActionProgram:
     # transcription roster would simply not know their engine and the run
     # would refuse with a confusing message.
     #
-    # ``None`` is the honest value for the (many) recipes that consume no
+    # ``None`` is the honest value for the (many) programs that consume no
     # resolution at all, which is why this one CAN carry a default: the
     # question "what capability does this route resolve?" has no answer for a
-    # recipe with no route.
+    # program with no route.
     execution_capability: ClassVar[str | None] = None
 
     # REQUIRED DECLARATION — annotated, deliberately NOT defaulted, for the same
     # reason as ``consumes_resolution`` above: a default here answers a money
-    # question for a recipe that never thought about it. The default that used
+    # question for a program that never thought about it. The default that used
     # to exist was implicit and lived at the consumer — ``estimate_run`` turned
-    # every ``estimate() -> None`` into ``{"cost": 0.0}`` — so a recipe shipped
+    # every ``estimate() -> None`` into ``{"cost": 0.0}`` — so a program shipped
     # unpriced and priced at $0.00, which is below every gate. Undeclared is now
     # an AttributeError at the first estimate instead of a silent free run.
     #
-    # ClassVar, per-CLASS: what the recipe IS. The per-SPEC question (an engine
-    # axis where one recipe is local-free or provider-metered depending on the
+    # ClassVar, per-CLASS: what the program IS. The per-SPEC question (an engine
+    # axis where one program is local-free or provider-metered depending on the
     # authored engine) is ``cost_class_for`` below, exactly as ``llm`` /
     # ``is_llm(spec)`` split the same way.
     cost_class: ClassVar[CostClass]
@@ -387,12 +387,12 @@ class ActionProgram:
 
     def cost_class_for(self, spec: dict) -> "CostClass":
         """Per-run cost class. Defaults to the static ``cost_class``
-        declaration; overridden by recipes whose engine axis decides (map.ner
+        declaration; overridden by programs whose engine axis decides (map.ner
         runs spaCy/GLiNER locally for free and the LLM engine on a meter), so a
-        genuinely free run of a metered-capable recipe still runs dialog-free.
+        genuinely free run of a metered-capable program still runs dialog-free.
 
         Read by ``engine/runner/validation.py`` when — and only when — the
-        recipe produced NO estimate."""
+        program produced NO estimate."""
         del spec
         return self.cost_class
 
@@ -411,28 +411,28 @@ class ActionProgram:
 
     def is_llm(self, spec: dict) -> bool:
         """Per-run LLM-ness. Defaults to the static ``llm`` flag; overridden by
-        recipes whose engine axis picks per-spec (map.ner's engine="llm"
+        programs whose engine axis picks per-spec (map.ner's engine="llm"
         dispatches through the same render()/structured-completer path as an
-        LLM recipe while spacy/gliner stay the non-LLM execute() path,
+        LLM program while spacy/gliner stay the non-LLM execute() path,
         entities-llm-dispatch-v1). The runner (``MapRunner``) asks this
-        instead of reading ``.llm`` directly so a single recipe instance can
+        instead of reading ``.llm`` directly so a single program instance can
         answer differently per spec."""
         return self.llm
 
     def max_row_concurrency(self, spec: dict) -> int | None:
-        """Optional cap for this recipe's row-local MapRunner workers.
+        """Optional cap for this program's row-local MapRunner workers.
 
-        ``None`` preserves the runner's configured concurrency. Recipes whose
+        ``None`` preserves the runner's configured concurrency. Programs whose
         selected engine cannot safely execute several rows at once may return
         a positive integer without imposing a global runner limit. Batch
-        recipes keep their existing whole-batch execution path.
+        programs keep their existing whole-batch execution path.
         """
         return None
 
     def requires_row_effect_checkpoint(self, spec: dict) -> bool:
         """Whether every row must be durably fenced before execution.
 
-        Most recipes derive this from provider/cost classification. Recipes
+        Most programs derive this from provider/cost classification. Programs
         with independently effectful tools may opt in even when model replay
         proves that the model transport itself cannot go live.
         """
@@ -470,7 +470,7 @@ class ActionProgram:
         return data
 
     def params(self) -> list[dict]:
-        """Recipe-declared spec parameters beyond fields/prompt —
+        """Program-declared spec parameters beyond fields/prompt —
         [{name, type, choices?, default?, description}]. The v1 action catalog
         projects this metadata into ui_hints so the UI can build selects (e.g.
         the transcribe/ocr 'engine' choice) instead of hardcoding
@@ -485,12 +485,12 @@ class ActionProgram:
     ) -> dict[str, Any] | None:
         """Optional non-LLM cost estimate hook.
 
-        LLM recipes are estimated by the runner's token sampler. Non-LLM
-        recipes that still call billable providers (for example remote or
+        LLM programs are estimated by the runner's token sampler. Non-LLM
+        programs that still call billable providers (for example remote or
         hosted transcription) can return the same estimate envelope here.
 
         ``None`` means "I produced no estimate" — NOT "free". The runner reads
-        this recipe's ``cost_class_for(spec)`` to decide what absence means:
+        this program's ``cost_class_for(spec)`` to decide what absence means:
         free declares $0.00, metered/unpriceable declare ``cost: None`` and gate.
         """
         return None
@@ -551,11 +551,11 @@ class ActionProgram:
         return fields
 
     def retired_output_names(self, spec: dict) -> list[str]:
-        """Output-column names a PRIOR run of this recipe's output emitted but
+        """Output-column names a PRIOR run of this program's output emitted but
         the current `spec` no longer does. On a
         fresh run MapRunner hides any of these that still exist as ai_generated
         columns (hide-by-default + a provenance note) instead of stranding stale
-        values. The recipe owns its "output family" knowledge; MapRunner owns
+        values. The program owns its "output family" knowledge; MapRunner owns
         the generic hide+provenance hook. Default: nothing to retire."""
         return []
 
@@ -591,13 +591,13 @@ class ActionProgram:
     async def execute(
         self, row_values: dict[str, Any], spec: dict, ctx: "ActionContext"
     ) -> dict[str, Any]:
-        """Non-LLM recipes override this. Returns {field_name: value}."""
+        """Non-LLM programs override this. Returns {field_name: value}."""
         raise NotImplementedError
 
 
 @dataclass
 class ActionContext:
-    """Runtime services available to non-LLM recipes."""
+    """Runtime services available to non-LLM programs."""
 
     project: Any = None
     http: Any = None  # shared httpx client

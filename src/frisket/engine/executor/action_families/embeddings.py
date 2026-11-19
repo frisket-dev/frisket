@@ -1923,7 +1923,7 @@ def _refresh_index(
         )
     if remote:
         # The refresh calls the same project-owned provider key as chat/media
-        # paths, even though embeddings are not a MapRunner LLM recipe.  Check
+        # paths, even though embeddings are not a MapRunner LLM program.  Check
         # the durable key ledger at this final pre-claim/pre-egress choke point.
         from frisket.engine.runner.validation import (
             ProviderKeyRefusal,

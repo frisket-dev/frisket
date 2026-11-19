@@ -38,7 +38,7 @@ class UnencodableTextError(ValueError):
 
 @dataclass(frozen=True)
 class PageComposeResult:
-    """Per-page outcome of compositing (feeds the recipe's degraded-page list).
+    """Per-page outcome of compositing (feeds the program's degraded-page list).
 
     ``degraded`` is True whenever recognized text failed to reach the layer
     (skipped blocks) or the whole page overlay errored; an empty page (nothing to
@@ -55,7 +55,7 @@ class PageComposeResult:
 
 def _page_blocks(page: object) -> list[Mapping]:
     """Accept a page as either a bare block list or the ops/ocr.py page mapping
-    ``{"text": ..., "blocks": [...]}`` so the recipe can pass ``pages`` straight."""
+    ``{"text": ..., "blocks": [...]}`` so the program can pass ``pages`` straight."""
     if isinstance(page, Mapping):
         blocks = page.get("blocks", [])
     else:

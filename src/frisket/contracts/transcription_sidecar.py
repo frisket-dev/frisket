@@ -3,7 +3,7 @@
 The sidecar is a separately packaged service, so the product cannot import its
 Python models.  These closed models deliberately duplicate Boundary A and make
 contract drift a loud validation failure instead of allowing a partial legacy
-response to pass through the recipe.
+response to pass through the program.
 
 This is a live consumer contract. ``TranscriptionV1Adapter`` uses it for the gateway
 multipart metadata and response, while local Faster Whisper uses the same

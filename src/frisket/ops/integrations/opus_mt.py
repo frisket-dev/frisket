@@ -19,7 +19,7 @@ FIRST_USE_PREPARATION_MESSAGE = (
 )
 
 # name (lowercased) -> ISO-639-1 code, inverted from the shared roster so the
-# recipe can accept either a code ("es") or an English name ("Spanish") for the
+# program can accept either a code ("es") or an English name ("Spanish") for the
 # target while the pair id stays code-based.
 _NAME_TO_CODE = {name.lower(): code for code, name in SUPPORTED_LANGUAGE_NAMES.items()}
 
@@ -50,7 +50,7 @@ def resolve_pair_codes(source: str, target: str) -> tuple[str, str]:
     """Map a (source, target) selection to a ``(src, tgt)`` ISO-639-1 pair.
 
     Accepts either an ISO code ("es") or an English name ("Spanish") on each
-    side. Raises ``ValueError`` if either side is unrecognized (the recipe
+    side. Raises ``ValueError`` if either side is unrecognized (the program
     surfaces this as ``invalid_source``/``invalid_target``)."""
 
     def _code(value: str, role: str) -> str:

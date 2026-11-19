@@ -266,7 +266,7 @@ class _MapTerminalPolicy:
 
 
 class _TypedMapRowsProgram(ActionProgram):
-    """Generic Recipe protocol adapter; never registered or action-specific."""
+    """Generic Program protocol adapter; never registered or action-specific."""
 
     consumes_resolution = False
     cost_class = "free"

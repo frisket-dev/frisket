@@ -219,7 +219,7 @@ class _ReservedMaprunnerActionSpec:
     # and extends the existing run's row scope.
     resume_run_id_fn: Callable[[Any, Any, dict[str, Any]], int | None] | None = None
     # Optional private-program reconstruction for stored runner specs whose
-    # executable is intentionally absent from the legacy Recipe registry.
+    # executable is intentionally absent from the action-program registry.
     program_fn: Callable[[Any, dict[str, Any]], Any | ActionError | None] | None = None
     replay_error_fn: (
         Callable[[Any, Any, Receipt, _ActionExecutionEnvelope], ActionError | None]

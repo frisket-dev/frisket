@@ -312,7 +312,7 @@ not need separate deployments.
 | `FRISKET_MODELS_EMBED` | `BAAI/bge-small-en-v1.5` | /v1/embeddings model |
 
 App-side: set `FRISKET_MODELS_URL` + `FRISKET_MODELS_TOKEN` on the frisket app
-or run the repo compose stack with `--profile models`. Recipes route here when
+or run the repo compose stack with `--profile models`. Actions route here when
 their engine is one of the sidecar tiers: `ocr` uses `engine='dots.mocr'`,
 `engine='glm-ocr'`, `engine='surya2'`, `engine='pp-ocrv6'`, or
 `engine='paddleocr-vl'`,
@@ -320,8 +320,8 @@ their engine is one of the sidecar tiers: `ocr` uses `engine='dots.mocr'`,
 `engine='whisper-turbo'`; hosted Parakeet uses `engine='parakeet-tdt'` through
 the same gateway. The app keeps the public run API `run_id`-centric;
 work is finished by the app worker queue, while this service only reports
-capacity with `429 + Retry-After`. The web recipe picker reads
-`GET /api/recipes`, which probes `/capabilities` and disables unavailable
+capacity with `429 + Retry-After`. The web action picker reads
+`GET /api/actions/v1/catalog`, which probes `/capabilities` and disables unavailable
 sidecar engines with the reported error.
 
 ### VibeVoice-ASR GPU worker

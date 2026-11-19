@@ -112,7 +112,7 @@ def row_effect_spends_or_meters(program: Any, spec: dict, router: Any) -> bool:
     True iff a remote capability resolves for the spec (server-owned
     classification below — catalog tags, engine tier tables, the LLM
     provider table keyed on ``spec["model"]``'s provider prefix, all
-    fail-closed for unknowns) OR the recipe's own money declaration
+    fail-closed for unknowns) OR the program's own money declaration
     (``cost_class_for``) is not "free" — locally-routed METERED work is
     deliberately included because the hosted GPU meter books at checkpoint
     completion. The one carve-out: a MODEL CALL the router provably cannot
@@ -120,7 +120,7 @@ def row_effect_spends_or_meters(program: Any, spec: dict, router: Any) -> bool:
     attached, so a miss raises ``CacheMiss`` before egress) can neither spend
     nor meter.
 
-    That carve-out is scoped to the model subeffect, not to the recipe. Two
+    That carve-out is scoped to the model subeffect, not to the program. Two
     halves, both load-bearing:
 
     - The mode string alone is not the proof. ``_complete_transport``'s strict
@@ -131,7 +131,7 @@ def row_effect_spends_or_meters(program: Any, spec: dict, router: Any) -> bool:
       provider's return and the result transaction left nothing durable, so
       the resume bought the row a second time.
     - An exempt model call does not make the whole effect graph free. Only the
-      model-provider contribution and the recipe's (model-priced) cost class
+      model-provider contribution and the program's (model-priced) cost class
       are suppressed; a remote capability from a NON-model source still counts.
       ``research.answer`` is the live case: its catalog tag is
       ``external:web_search`` and its agent loop performs live search/fetch

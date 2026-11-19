@@ -10,7 +10,7 @@ and ``cache_hit`` are facts about a call that already happened and can never
 appear in a pre-run quote. Same name, different meaning; keep them apart.
 
 ``sdk/ops/ocr.py``, ``sdk/ops/transcribe_engines.py``, and ``sdk/ops/translate.py``'s
-``TranslateRecipe`` each independently hand-rolled the same small string
+translate program each independently hand-rolled the same small string
 vocabulary: a genuinely-free local/sidecar engine (``"free_local"``), a
 billable engine whose exact pre-run cost can't be known yet
 (``"unknown"``), and an invalid/unrecognized engine name that should fail
@@ -69,7 +69,7 @@ def cost_estimate(
 ) -> dict[str, Any]:
     """Build one estimate dict, with its discriminator checked.
 
-    ``engine`` is omitted from the result when it is ``None`` — a recipe
+    ``engine`` is omitted from the result when it is ``None`` — a program
     with no engine axis (``enrich.to_geo_point``, ``join.semantic``) still
     gets a truthful ``cost_source``
     without inventing an engine name for the consent hash to bind.

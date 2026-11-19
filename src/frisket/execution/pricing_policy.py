@@ -282,7 +282,7 @@ IDENTITY_PRICING_POLICY = IdentityPricingPolicy()
 # cannot use any of them, because the fourteen sites that mint a money
 # confirmation share NO object:
 #
-#   * the recipe lane rates inside ``validate_spec``, reached from
+#   * the program lane rates inside ``validate_spec``, reached from
 #     ``MapRunner`` — nine production constructions, five of which are built
 #     inside base with no deployment-supplied parameter;
 #   * the five executor-family mints (``entities``, ``action_lifecycle``,

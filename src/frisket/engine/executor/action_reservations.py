@@ -136,7 +136,7 @@ def _acquire_output_claims_for_runner(
                 else {}
             ),
             # Freeze the producer descriptors with the claim. Queue recovery
-            # must not rebuild a compatibility key from whatever recipe code
+            # must not rebuild a compatibility key from whatever program code
             # happens to be installed later.
             "output_fields": [dict(field) for field in output_fields],
         },

@@ -25,7 +25,7 @@ def grounding_enabled(spec: dict[str, Any]) -> bool:
 
 def looks_like_segment_list(value: Any) -> bool:
     """A transcribe-shaped segment list (``[{text, start, ...}]``) — the shape
-    ExtractRecipe already numbers via the sibling-column W2.3 path. Kept in sync
+    the extract program already numbers via the sibling-column path. Kept in sync
     with ``sdk.ops.extract._segment_stream_columns``'s detection."""
     return (
         isinstance(value, list)
@@ -67,7 +67,7 @@ def unwrap_grounded_value(
 
 
 def image_part(project: Project, val: Any, *, max_image_bytes: int) -> dict | None:
-    """Image columns reach LLM recipes as base64 parts, not text."""
+    """Image columns reach LLM programs as base64 parts, not text."""
     mime = "image/jpeg"
     if isinstance(val, dict) and val.get("blob"):
         mime = val.get("mime", mime)

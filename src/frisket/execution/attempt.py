@@ -94,7 +94,7 @@ STALE_DISPATCHING_AGE = timedelta(hours=6)
 
 @dataclass(frozen=True)
 class UnroutedAdmission:
-    """The recipe does not consume resolution, so there is no head to pin.
+    """The program does not consume resolution, so there is no head to pin.
     A sum-type member, never ``None``: "unrouted" is a decided answer."""
 
     reason: Literal["recipe_does_not_consume_resolution"] = (

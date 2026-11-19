@@ -4,14 +4,14 @@ One table per drifted media family (ocr, transcribe, to_markdown). Every
 other surface DERIVES from these tables instead of restating them:
 
 - the ops module's engine constants (``LOCAL_ENGINES``/``SIDECAR_ENGINES``/
-  ``ENGINE_ALIASES``) — dispatch still lives in the recipe;
+  ``ENGINE_ALIASES``) — dispatch still lives in the program;
 - the contract symbolic sets (``OCR_SYMBOLIC_ENGINES`` et al., media.py);
 - the catalog hints roster labels/tiers (server/action_catalog_hints.py);
 - the receipt provider maps (sdk/ops/{ocr,to_markdown,transcribe}.py);
 - the compare-preview engine descriptors and comparability gates.
 
 Deliberately dependency-light (stdlib only), the ``_language.py`` precedent:
-the contract layer, the ops recipes, the catalog projection, and the compare
+the contract layer, the ops programs, the catalog projection, and the compare
 previews can all import it without heavy runtime deps — and without the
 ops<->contracts cycle a table inside an ops module would force (ops modules
 import ``frisket.contracts.action``).
@@ -653,7 +653,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 #: a translate route resolve to a venue whose meter the cost basis cannot
 #: express, which is a fabricated quote, not a missing feature. So an
 #: ``engine="llm"`` translate spec canonicalizes to nothing and refuses
-#: loudly — and ``TranslateRecipe`` cannot declare ``consumes_resolution``
+#: loudly — and the translate program cannot declare ``consumes_resolution``
 #: until the multi-unit pricing ruling lands.
 #:
 #: ``maps.TRANSLATE_ENGINES`` stays the contract's authoritative axis; this
@@ -689,7 +689,7 @@ TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 
 
 #: The geocode capability's seam roster. ``auto`` is NOT an engine and is
-#: deliberately absent: it is a selection sentinel the recipe resolves from
+#: deliberately absent: it is a selection sentinel the program resolves from
 #: credential presence BEFORE the seam is asked, and an alias must name exactly
 #: one canonical id — mapping ``auto`` to ``opencage`` would resolve an
 #: unkeyed deployment onto a venue it cannot reach, and mapping it to
@@ -716,7 +716,7 @@ GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 )
 
 
-#: The census capability's seam roster: one venue, one engine. The recipe
+#: The census capability's seam roster: one venue, one engine. The program
 #: spells its selector ``provider``, not ``engine`` — a same-name-different-
 #: meaning hazard the seam does not inherit, because the seam asks for an
 #: ENGINE symbol and this table is the only thing that answers.

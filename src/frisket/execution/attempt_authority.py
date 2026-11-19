@@ -18,7 +18,7 @@ handler no longer pre-loads the binding — the typed
 ``RouteBindingUnavailable`` -> ``no_live_target`` mapping lives HERE now.
 
 **Two variants.** :class:`AttemptAuthority` can admit routed work.
-:class:`UnroutedOnlyAuthority` cannot: its ``mint`` refuses when the recipe
+:class:`UnroutedOnlyAuthority` cannot: its ``mint`` refuses when the program
 consumes resolution. That is the type-level half of dependent-choice
 enforcement; the runtime half is the single ``isinstance`` check in
 ``MapRunner.run`` immediately after the mint. Together they replace
@@ -462,7 +462,7 @@ class AttemptAuthority:
                 #     record's problem, so it proves nothing and a sibling
                 #     consent still gets its turn;
                 #   * anything else is the LIVE estimate refusing to project
-                #     (a recipe now emitting a non-finite cost). That is
+                #     (a program now emitting a non-finite cost). That is
                 #     run-fatal and must escape to the caller, which turns it
                 #     into the ``consent_missing`` that NAMES the offending
                 #     key — swallowing it here would replace a precise
@@ -557,7 +557,7 @@ class AttemptAuthority:
                 else authorized_scope
             )
             # Recomputing the live quote is the whole verification, and it
-            # runs recipe code (estimate(), the work-scope binding, the
+            # runs program code (estimate(), the work-scope binding, the
             # canonical encoder). Validation can refuse a bad estimate
             # outright, because a 400 is something a user can act on; here
             # the ONLY modeled outcome is refuse-and-re-confirm, and an
@@ -772,13 +772,13 @@ class UnroutedOnlyAuthority:
         """Refuse routed work by TYPE; mint ordinary unrouted work normally.
 
         The refusal is the whole point of the variant, but it is scoped to
-        the one question the variant answers: does this recipe consume
-        execution resolution? Everything else — every local recipe these
+        the one question the variant answers: does this program consume
+        execution resolution? Everything else — every local program these
         surfaces legitimately run — mints exactly as it would anywhere else.
         """
         if program.consumes_resolution:
             raise DependentChoiceRefusal(
-                f"recipe '{getattr(program, 'name', program)}' consumes execution "
+                f"action program '{getattr(program, 'name', program)}' consumes execution "
                 "resolution, but this dispatch surface is wired with an "
                 "unrouted-only attempt authority and can never authorize a "
                 "routed run; routed dispatch never executes unverified"

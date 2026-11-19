@@ -111,7 +111,7 @@ def run_spacy_ner_default(
 ) -> list[list[dict[str, Any]]]:
     """Real-pipeline entrypoint: loads (and caches) the available spaCy model
     then runs `run_spacy_ner`. Raises if the engine is not available -- callers
-    (NerRecipe.execute) should check `spacy_available()` first and surface an
+    (the entities program's ``execute``) should check `spacy_available()` first and surface an
     honest per-row error instead of calling this blind."""
     target_model = model or SPACY_MODEL
     nlp = _load_pipeline(target_model)

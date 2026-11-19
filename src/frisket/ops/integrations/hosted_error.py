@@ -17,7 +17,7 @@ and ``frisket.integrations.datalab.DatalabEngineError`` remain importable
 under their original names — both are now literally this class (not a
 subclass), so ``except TranslateEngineError`` / ``except DatalabEngineError``
 / ``isinstance`` checks at existing call sites (MapRunner's per-row boundary,
-recipe dispatch) keep working unchanged.
+program dispatch) keep working unchanged.
 """
 
 from __future__ import annotations

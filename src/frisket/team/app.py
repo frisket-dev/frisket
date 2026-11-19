@@ -965,7 +965,7 @@ def create_team_app(
     # A configured run-queue locator must be the SAME queue the standalone
     # self-host worker polls (`frisket worker --database-url ...` /
     # FRISKET_RUN_QUEUE_DATABASE_URL), or every enqueued job (OCR,
-    # transcribe, recipes, digests, alerts, model pulls) sits forever
+    # transcribe, action runs, digests, alerts, model pulls) sits forever
     # unclaimed. `hosted=False` always: the open team server -- single organization,
     # workspace root IS the storage directory, no claimed ProjectStorageKey
     # routing -- is never the multi-tenant hosted posture an external

@@ -1,6 +1,6 @@
 """Per-row source-value assembly for the map runner (extracted from
-``MapRunner._row_values``): resolve each recipe source column's value for one
-row, swap in image pixels for LLM recipes, and apply ``input_template`` when
+``MapRunner._row_values``): resolve each program source column's value for one
+row, swap in image pixels for LLM programs, and apply ``input_template`` when
 the spec declares one."""
 
 from __future__ import annotations
@@ -282,7 +282,7 @@ def row_values(
             }
         if name not in prompt_source_names:
             continue
-        # LLM recipes get image pixels; non-LLM recipes (faces, ffmpeg)
+        # LLM programs get image pixels; non-LLM programs (faces, ffmpeg)
         # need the raw blob reference/path untouched
         if for_model and col_types.get(name) == "image" and val is not None:
             val = image_part(project, val, max_image_bytes=MAX_IMAGE_BYTES) or val
@@ -350,7 +350,7 @@ def row_values(
     if template and not spec.get("evaluation_context"):
         # input_template composes the selected columns into one deliberate
         # source value; media parts still ride alongside the rendered text
-        # so multimodal recipes do not stringify blobs out of the prompt.
+        # so multimodal programs do not stringify blobs out of the prompt.
         template_values = {
             name: f"[PDF attachment: {value.get('filename', 'document.pdf')}]"
             if isinstance(value, dict) and value.get("__pdf_b64__")

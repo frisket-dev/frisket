@@ -1,10 +1,9 @@
 """Invocation-owned implementations of the direct ``Classifier`` capability.
 
-FastEmbed cosine winner over owned local embedding batches. The algorithm is the retired
-``ClassifyRecipe.execute`` local path, moved verbatim: bounded deterministic
+FastEmbed cosine winner over owned local embedding batches: bounded deterministic
 chunking, a normalized mean row vector, and the highest-cosine label with the
-lowest index winning ties. The retired recipe ran with ``max_concurrency=1``;
-one admitted instance serializes its rows the same way so the label-vector
+lowest index winning ties. One admitted instance serializes its rows
+(``max_concurrency=1``) so the label-vector
 cache is filled exactly once per label set.
 
 The host also binds this class for admitted ``gliclass`` and ``jeff`` engines;

@@ -396,7 +396,7 @@ class FrisketRouterModel(Model):
         # ride
         # LLMRequest.tools, orthogonal to `schema` -- mutually exclusive in
         # every caller today (a StructuredCompleter run never registers
-        # tools; sdk/ops/research_answer.py's AgentRecipe never sets
+        # tools; the research-answer agent program never sets
         # output_type=StructuredDict),
         # but resolved independently here so a request only carries `tools`
         # when the Agent actually registered function tools.
@@ -605,7 +605,7 @@ class FrisketRouterModel(Model):
         (``params.declared_function_tools``) to ``LLMRequest.tools``. Distinct from
         ``output_tools`` (the single forced structured-output
         tool, resolved by ``_resolve_schema`` above) -- these are the tools a
-        multi-step Agent dispatches mid-run (AgentRecipe search/fetch)."""
+        multi-step Agent dispatches mid-run (research-answer search/fetch)."""
         declared_function_tools = params.declared_function_tools
         if not declared_function_tools:
             tools: list[dict[str, Any]] = []

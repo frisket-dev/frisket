@@ -34,8 +34,8 @@ variant tag is hashed, so the three architectures can never collide:
 Two projection policies, and they differ for a reason (see
 :func:`action_program_confirmation` and :func:`action_confirmation`):
 
-  * The recipe lane DROPS rostered display keys. Adding a page count or a
-    warning to a recipe's ``estimate()`` must not invalidate every persisted
+  * The program lane DROPS rostered display keys. Adding a page count or a
+    warning to a program's ``estimate()`` must not invalidate every persisted
     consent — that is the defect ``ConsentEstimate`` was introduced to fix — so
     the roster is a closed classification and an unclassified key REFUSES at
     mint rather than silently changing (or silently not changing) the quote.
@@ -164,7 +164,7 @@ def _estimate_micros(estimate: Mapping[str, Any], key: str) -> int | None:
     """A rated money figure, in integer micro-dollars.
 
     Stricter than :func:`_estimate_amount` on purpose: a rated figure is minted
-    by a pricing policy through :func:`usd_to_micros`, never typed by a recipe
+    by a pricing policy through :func:`usd_to_micros`, never typed by a program
     author, so a float or a negative here is a broken policy rather than a
     sloppy estimate — and both would put a number the user never saw inside
     their consent.
@@ -194,7 +194,7 @@ def _estimate_flag(estimate: Mapping[str, Any], key: str) -> bool:
 # this is a CLOSED classification of the estimate envelope: a key in neither
 # set refuses at mint (see ``from_estimate``), which is what makes the
 # projection mechanically complete instead of remembered. Adding a key to a
-# recipe's estimate() therefore forces one decision — money (a field above)
+# program's estimate() therefore forces one decision — money (a field above)
 # or display (a line here) — at the moment the key appears, not at the
 # moment somebody notices a mispriced consent.
 KNOWN_DISPLAY_KEYS = frozenset(
@@ -580,7 +580,7 @@ def action_program_confirmation(
     scope: RunnerScope,
     estimate: Mapping[str, Any],
 ) -> MoneyConfirmationContext:
-    """The recipe lane's money gate: the estimate projects through
+    """The program lane's money gate: the estimate projects through
     ``ConsentEstimate`` and rostered display keys are DROPPED.
 
     Programs reach this lane through the registry lookup by action kind, so
@@ -608,7 +608,7 @@ def action_confirmation(
 
     These families hash their whole estimate today and this keeps that
     property exactly, with the money-bearing half now reaching the same
-    typed projection the recipe lane uses. Nothing is dropped, so a new
+    typed projection the program lane uses. Nothing is dropped, so a new
     fact — money-bearing or not — added to one of these estimates changes
     the hash and forces a fresh 402. That is why this lane needs no display
     roster: the roster protects keys that would otherwise be dropped, and

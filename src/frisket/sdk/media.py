@@ -22,7 +22,7 @@ def media_text_hash(text: str) -> str:
 
 
 def media_halt_error(action: ActionSpec | str, run: Any) -> ActionError | None:
-    """The typed receipt error for a run the RECIPE halted, or ``None`` when
+    """The typed receipt error for a run the PROGRAM halted, or ``None`` when
     the run carries no halt marker (an operator cancellation).
 
     One construction, shared by every routed media action. A terminal

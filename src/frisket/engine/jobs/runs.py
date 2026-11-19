@@ -1,4 +1,4 @@
-"""Queue job handlers for project recipe runs.
+"""Queue job handlers for project action runs.
 
 The public API remains run-id centric. Queue job ids are operational only: a
 ``project.run`` job carries the project id, the already-created run id, and the
@@ -251,7 +251,7 @@ def verify_execution_route(
     if program is None:
         try:
             program = validation.action_program_for_spec(spec)
-        except Exception:  # noqa: BLE001 — unknown recipes fail in the runner's own path
+        except Exception:  # noqa: BLE001 — unknown programs fail in the runner's own path
             return
     if not program.consumes_resolution:
         return

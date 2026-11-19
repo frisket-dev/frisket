@@ -1,5 +1,5 @@
 """Pure validation, estimation, and cache-replay-probe guards for the map
-runner: recipe resolution, row-scope
+runner: program resolution, row-scope
 derivation, and the batch/cost/provider-key/network guards used by both
 ``run()`` (via ``_prepare``) and ``preview()`` — extracted as free functions
 so the guards run identically whether or not the caller persists anything."""
@@ -165,7 +165,7 @@ def confirmation_context(
 ) -> MoneyConfirmationContext:
     """Bind a 402 approval to action identity, exact scope, and full quote.
 
-    The recipe lane's scope binding, and nothing else: the payload shape,
+    The program lane's scope binding, and nothing else: the payload shape,
     the money projection, and the hash itself belong to
     ``engine/runner/confirmation_context.py``, which every other family
     mints through too.
@@ -191,7 +191,7 @@ def confirmation_context(
         }
     }
     return action_program_confirmation(
-        # The canonical public action kind is the family. The private Recipe
+        # The canonical public action kind is the family. The private Program
         # object is an implementation selected only after that kind passes
         # strict runner-spec admission.
         family_kind=str(spec["action_kind"]),
@@ -216,7 +216,7 @@ def confirmation_context_hash(
     row_ids: list[int],
     estimate: dict[str, Any],
 ) -> str:
-    """The digest of :func:`confirmation_context` — THE recipe lane's 402
+    """The digest of :func:`confirmation_context` — THE program lane's 402
     hash, and the value dispatch compares against a persisted consent."""
 
     return mint_confirmation_hash(
@@ -289,7 +289,7 @@ def confirmation_estimate(
     """The exact estimate shape hashed by validation — neutral facts, RATED.
 
     ``policy`` is required and keyword-only. It is the deployment's pricing
-    policy, and this is the one place in the recipe lane that asks it: the
+    policy, and this is the one place in the program lane that asks it: the
     402's message, the estimate payload, and the consent hash all read the
     single answer it returns. A caller that has no policy of its own is not
     entitled to a default here — it takes :func:`default_pricing_policy`
@@ -314,7 +314,7 @@ def consented_confirmation_estimate(
 
     The split this function exists for, stated once:
 
-    * **Recomputed live** — every neutral fact: the recipe's ``estimate()``
+    * **Recomputed live** — every neutral fact: the program's ``estimate()``
       output (cost, rows, cost_source, pricing_key, engine), the egress
       verdict, the row scope, and the canonical work-scope binding. That is
       dispatch's actual job, and it is what catches a provider price change,
@@ -531,8 +531,8 @@ class ProviderSpendCapUnenforceable(ProviderKeyRefusal):
 def assert_provider_spend_cap(project: Project, provider: str) -> None:
     """Refuse a provider whose project-owned key can no longer spend.
 
-    Credential caps apply to the provider effect, not to the recipe taxonomy:
-    remote media and embedding operations are non-LLM recipes but charge the
+    Credential caps apply to the provider effect, not to the program taxonomy:
+    remote media and embedding operations are non-LLM programs but charge the
     same project key and must pass the same pre-egress check.
     """
 
@@ -556,7 +556,7 @@ def assert_provider_spend_cap(project: Project, provider: str) -> None:
 
 class BatchRowLimitExceeded(ValueError):
     def __init__(self, *, row_count: int, max_rows: int) -> None:
-        super().__init__(f"batch recipe row count {row_count} exceeds cap {max_rows}")
+        super().__init__(f"batch action row count {row_count} exceeds cap {max_rows}")
         self.row_count = row_count
         self.max_rows = max_rows
 
@@ -573,12 +573,12 @@ class EmptyInputColumns(ValueError):
     target row".
 
     Genre-wide by construction: this lives in ``_validate_spec``, the ONE
-    seam every recipe kind (LLM and non-LLM, direct and queued) passes
+    seam every program kind (LLM and non-LLM, direct and queued) passes
     through before any row work or `runs` row is created — not a per-kind
     check like ``media.*``'s blob resolver.
 
     Deliberately NOT raised when only SOME rows are empty (that is normal,
-    legitimate per-row emptiness the recipe already handles) — only when
+    legitimate per-row emptiness the program already handles) — only when
     literally nothing resolves anywhere is a full refusal warranted."""
 
     def __init__(self, columns: list[str]):
@@ -838,23 +838,23 @@ def assert_selected_egress_policy(project: Project, egress_class: str) -> None:
 
 
 def unestimated_cost(program: ActionProgram, spec: dict) -> dict[str, Any]:
-    """What a recipe that produced NO estimate costs — the one site that used
-    to answer ``{"cost": 0.0}`` for every recipe alike.
+    """What a program that produced NO estimate costs — the one site that used
+    to answer ``{"cost": 0.0}`` for every program alike.
 
     That answer made the gate below unreachable for anything unpriced: an
-    unestimated recipe priced at $0.00, which is under every threshold, so the
+    unestimated program priced at $0.00, which is under every threshold, so the
     ``est["cost"] is None`` branch never fired and a run that spends real money
     launched without a word. Absence and zero shared one representation.
 
-    They no longer do. The recipe's own ``cost_class_for(spec)`` declaration
-    says what absence means, and only a recipe that DECLARED itself free gets a
+    They no longer do. The program's own ``cost_class_for(spec)`` declaration
+    says what absence means, and only a program that DECLARED itself free gets a
     number here (``cost_source: "free_local"`` — the same vocabulary
     to_markdown/ocr already stamp when they price a local engine). Metered and
     unpriceable both estimate ``cost: None``: the gate treats that exactly like
     an over-budget estimate, and ``requires_confirmation`` rides along so a
     client rendering the estimate shows UNKNOWN rather than $0.00.
 
-    ``cost_class`` is an undefaulted ClassVar, so a recipe that never declared
+    ``cost_class`` is an undefaulted ClassVar, so a program that never declared
     raises AttributeError here rather than quietly pricing itself free."""
     if program.cost_class_for(spec) == "free":
         return {"cost": 0.0, "cost_source": "free_local"}
@@ -920,11 +920,11 @@ def estimate_run(
     """Pre-run estimate for the cost gate. Token math is crude but stable.
 
     ``validate_spec`` passes its single per-invocation resolution here
-    so a resolution-aware recipe (marker ``consumes_resolution = True``)
+    so a resolution-aware program (marker ``consumes_resolution = True``)
     estimates from the resolution's basis instead of re-reading env; called
     standalone (the /estimate endpoint, workbench facades) with no
-    resolution, such a recipe resolves once here, EPHEMERALLY — estimates
-    never persist routes. The returned dict for a resolution-aware recipe
+    resolution, such a program resolves once here, EPHEMERALLY — estimates
+    never persist routes. The returned dict for a resolution-aware program
     additionally carries ``claims`` + ``promise_set_hash`` when uncovered
     user claims exist (the RunEstimate additive fields, §5.2).
 
@@ -935,7 +935,7 @@ def estimate_run(
     kept the resume gate's cost half unreachable.
     """
     action_program = program if program is not None else action_program_for_spec(spec)
-    # Model-backed recipes can select Cloud without consumes_resolution.
+    # Model-backed programs can select Cloud without consumes_resolution.
     # Standalone previews need the same route quote admission resolves; the
     # legacy list-price estimate may describe a different purchase entirely.
     if resolution is None and action_program.is_llm(spec) and composition is not None:
@@ -1042,7 +1042,7 @@ def _estimate_run(
             )
         if isinstance(resolution, Refusal):
             # An unavailable route has no executable quote. Do not discard its
-            # reason and ask the recipe to invent a second, unrouted estimate.
+            # reason and ask the program to invent a second, unrouted estimate.
             raise ExecutionResolutionRefused(resolution)
         if (
             not action_program.consumes_resolution
@@ -1173,7 +1173,7 @@ def exact_replay_available(
     """Prove every selected LLM row has its exact canonical cache key.
 
     This is a pure admission probe: it uses the execution renderer, row
-    scope, source-value loader, request shape, recipe version, and cache
+    scope, source-value loader, request shape, program version, and cache
     key builder without creating an op, run, receipt, claim, or queue row.
     Unknown/non-map shapes fail closed.
     """
@@ -1234,7 +1234,7 @@ def validate_spec(
     trusted_consent_authorizer: TrustedConsentAuthorizer | None = None,
 ) -> _ValidatedSpec:
     """Pure guards, no writes. Resolves the
-    recipe + row scope and raises BatchRowLimitExceeded / CostGate /
+    program + row scope and raises BatchRowLimitExceeded / CostGate /
     MissingProviderKey exactly as the pre-split ``_prepare`` did. Both
     ``run()`` (via ``_prepare``) and ``preview()`` call this so the guards
     run identically whether or not the sample is persisted.
@@ -1457,7 +1457,7 @@ def validate_spec(
         elif trusted_consent_authorizer is not None:
             raise TrustedConsentRefused("trusted consent requires a resolved execution")
         else:
-            # Unrouted recipes use their existing cost-confirmation path;
+            # Unrouted programs use their existing cost-confirmation path;
             # unavailable routed executions have already refused in estimate_run.
             gate_usd = float(consent_coverage.threshold_usd)
             est = confirmation_estimate(
@@ -1747,7 +1747,7 @@ def persist_resolved_execution(
       against, so the worker admits against what the user just confirmed
       rather than against the head that predated it.
 
-    No-op for non-resolution recipes and for resumes that re-asked nothing;
+    No-op for non-resolution programs and for resumes that re-asked nothing;
     ephemeral objects are refused by both writers' type checks. Accounted
     previews use a fresh receipt owner, never a resume or a synthetic run.
     """

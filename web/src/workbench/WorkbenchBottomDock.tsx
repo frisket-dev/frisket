@@ -210,7 +210,7 @@ function openPluginSettingsFromError(job: DockActionJob, projectId: string | und
   }
 }
 
-// Ruling 4 (a retry is a resume): a run the recipe HALTED must keep its way
+// A retry is a resume: a run the program HALTED must keep its way
 // back at the surface that reports the halt — before this the dock said
 // "Stopped because …" and left the user to hunt for the column drawer. The
 // resume routes through the workspace model's cost-gated run.backfill door

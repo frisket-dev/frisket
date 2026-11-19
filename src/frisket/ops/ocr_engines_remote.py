@@ -202,7 +202,7 @@ async def ocr_datalab(pages: list[Path], ctx: ActionContext, usage: dict) -> lis
 
     Every page's actual reported cost
     (``datalab_ocr``'s ``cost_usd``) accumulates into ``usage["cost"]``
-    and ``usage["calls"]`` increments per page, so the recipe's
+    and ``usage["calls"]`` increments per page, so the program's
     ``(data, meta)`` return carries the REAL spend into MapRunner/
     receipts instead of the silent-zero default. A page whose response
     omitted cost fields (``cost_usd is None``) falls back to the

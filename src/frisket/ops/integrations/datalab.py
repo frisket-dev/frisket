@@ -359,7 +359,7 @@ def _accepted_submission_accounting(
     cancellation or timeout after that point cannot turn it back into "no
     call".  The check URL is the stable provider-job identity even when the
     optional request id is absent, so it also makes the fact idempotent when a
-    recipe persists it once at acceptance and again at its row-error boundary.
+    program persists it once at acceptance and again at its row-error boundary.
     """
     check_url = str(submitted["request_check_url"])
     fact = ModelCallMeta.provider_call(
@@ -432,7 +432,7 @@ def _complete_submission_accounting(
 ) -> None:
     """Monotonically enrich the accepted fact after a completed poll.
 
-    The dict is deliberately mutated in place: a recipe's acceptance callback
+    The dict is deliberately mutated in place: a program's acceptance callback
     holds this same envelope after durably writing its unknown form, then
     returns the enriched form through MapRunner so the fact writer can
     reconcile the one call rather than minting a second call. ``duration_ms``

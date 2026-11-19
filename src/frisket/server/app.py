@@ -1030,10 +1030,10 @@ def create_app(
         service=ImportUrlsPrepareService(ws, pdf_import_service=pdf_import_service),
     )
 
-    # ---------- recipes / runs ----------
+    # ---------- actions / runs ----------
 
     def _sidecar_capabilities() -> dict[str, Any]:
-        """Best-effort frisket-models discovery for recipe metadata.
+        """Best-effort frisket-models discovery for action catalog metadata.
 
         The action catalog is UI-critical, so a missing or unhealthy sidecar
         must surface as disabled engine metadata rather than taking /catalog

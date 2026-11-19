@@ -627,7 +627,7 @@ class ActionRunPublicStatus(WireModel):
     timing: ActionRunTiming
     queue: ActionRunQueue | ActionRunMissingQueue | None = None
     stalled_reason: str | None = None
-    # A typed recipe/session halt behind a resumable 'cancelled' (e.g.
+    # A typed program/session halt behind a resumable 'cancelled' (e.g.
     # Parakeet's local_artifact_unavailable): the code is stable for UI
     # branching, the reason is the human sentence to show.
     halted_code: str | None = None

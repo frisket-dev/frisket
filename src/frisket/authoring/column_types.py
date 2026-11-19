@@ -50,7 +50,7 @@ class ColumnTypeSpec:
         Optional predicate over a single cell value. ``None`` cell values are
         always allowed (an empty cell has no type). The current-cell projection
         uses it to mark incompatible values invalid without rewriting them;
-        recipes/plugins may also use it for their own output checks.
+        programs/plugins may also use it for their own output checks.
     parse
         Optional converter for newly-entered values. Parsers run before cell
         edit validation, but column.set_type intentionally validates existing
@@ -259,7 +259,7 @@ class TypeNamesView:
 
 # ---------------------------------------------------------------------------
 # Core types — migrated onto the same seam plugins use. Validators are
-# intentionally permissive about coercible inputs (the store/recipes coerce);
+# intentionally permissive about coercible inputs (the store/programs coerce);
 # they reject only values that can't possibly belong to the type.
 
 

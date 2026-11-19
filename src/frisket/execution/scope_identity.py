@@ -29,7 +29,7 @@ def canonical_work_scope_binding(
     """Return a bounded, receipt-safe binding to the current source cells.
 
     ``row_ids`` are a set for authorization purposes, so their canonical form
-    is sorted and duplicate-free. Source-column order remains the recipe's
+    is sorted and duplicate-free. Source-column order remains the program's
     order because it is part of how the provider input is assembled.
     """
 
@@ -57,7 +57,7 @@ def canonical_work_scope_binding_for_columns(
 ) -> dict[str, Any]:
     """Bind current cells for an already-resolved source-column projection.
 
-    Most recipes resolve source names themselves and use
+    Most programs resolve source names themselves and use
     :func:`canonical_work_scope_binding`.  Boundaries such as direct plugin
     actions already hold exact column ids after their own validation.  This
     lower-level form lets those boundaries share the same value/revision

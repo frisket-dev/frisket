@@ -776,7 +776,7 @@ def _proxy_gatewayports_note(target: str, bind_host: str) -> None:
     default ``GatewayPorts no`` it silently rebinds a non-loopback remote
     forward to loopback — the forward "succeeds", ExitOnForwardFailure never
     fires, and the server can never reach it. Only the operator can fix
-    that, so print the exact one-time server-side recipe."""
+    that, so print the exact one-time server-side fix."""
     user = target.split("@", 1)[0] if "@" in target else "root"
     _warn(
         "frisket: if the tunnel is running but stays unreachable, the "

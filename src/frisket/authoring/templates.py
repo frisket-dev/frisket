@@ -1,4 +1,4 @@
-"""Column-value template rendering for recipe specs.
+"""Column-value template rendering for program specs.
 
 Canonical user-authored syntax is ``{{column_name}}``.
 
@@ -7,7 +7,7 @@ expressions, no arithmetic, no nesting, no function calls — a token is a name
 lookup and (for the cluster-key dialect below) at most one blessed one-argument
 string transform from a fixed allow-list. Anything outside that tiny grammar is
 a validation error, never silently-executed authored input. Keep it that way:
-the safety of every recipe/spec that renders user text through here rests on
+the safety of every program/spec that renders user text through here rests on
 this file having no way to *run* what it reads.
 """
 

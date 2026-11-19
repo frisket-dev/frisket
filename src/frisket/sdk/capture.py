@@ -58,7 +58,7 @@ class MixedOriginInputProvenanceUnsupported(ValueError):
 
 @dataclass(frozen=True)
 class OutputFact:
-    """One generated column: the recipe field def + the live column."""
+    """One generated column: the program field def + the live column."""
 
     field: dict[str, Any]
     name: str
@@ -225,7 +225,7 @@ def _output_columns_by_name(
     binding_roles = set(bindings_by_role)
     if binding_roles != expected_roles:
         raise GenerationStateError(
-            f"run {run_id} output binding roles do not match its recipe fields: "
+            f"run {run_id} output binding roles do not match its output fields: "
             f"missing={sorted(expected_roles - binding_roles)}, "
             f"unexpected={sorted(binding_roles - expected_roles)}"
         )

@@ -83,7 +83,7 @@ function FieldRow({
   showRequired?: boolean;
   required?: boolean;
   /** Declared, non-editable generated column (plugin @plugin.op writes, core
-   *  recipe output contract): name/type/description render as static text and
+   *  program output contract): name/type/description render as static text and
    *  there is no delete affordance — the action owns its outputs. */
   readOnly?: boolean;
   /** Keep the typed output shape fixed while descriptions remain editable. */

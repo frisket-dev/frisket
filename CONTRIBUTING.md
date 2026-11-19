@@ -161,7 +161,7 @@ Plugin actions are ordinary actions: an installed `action(...)` declares its
 source columns in its own typed Params, exactly as a built-in one does, and
 runs on the same native hosts.
 
-Do not hand-write `ui_hints.source_requirements`, add a parallel recipe method,
+Do not hand-write `ui_hints.source_requirements`, add a parallel program method,
 or repeat source-selection policy in runtime code. The action catalog and
 runtime column resolution are projections of the typed Params. Operation code
 still owns non-source domain rules, such as whether two output names collide.
@@ -547,7 +547,7 @@ The four platform jobs' own inputs, stated in full beside each workflow's
 - portability smokes: the tests each smoke runs, `conftest.py`, and the
   modules those tests prove on that OS (store leases and blob paths, bulk
   import; on Windows also the job queue and worker, project lifecycle, the
-  recipe registry and team bootstrap).
+  action registry and team bootstrap).
 
 A diff whose base cannot be resolved runs everything.
 
