@@ -260,9 +260,18 @@ def record_text_surface(
         raise ValueError(f"invalid offset_unit: {offset_unit!r}")
     if not _CONTENT_HASH_RE.fullmatch(content_hash or ""):
         raise ValueError(f"invalid content_hash: {content_hash!r}")
+    cell_locator: dict[str, int] | None = None
+    if surface_kind == "cell":
+        if text_sheet_id is None or text_row_id is None or text_column_id is None:
+            raise ValueError(
+                "cell surface requires a full (sheet, row, column) locator"
+            )
+        cell_locator = {
+            "sheet_id": int(text_sheet_id),
+            "row_id": int(text_row_id),
+            "column_id": int(text_column_id),
+        }
     locator = (text_sheet_id, text_row_id, text_column_id)
-    if surface_kind == "cell" and any(part is None for part in locator):
-        raise ValueError("cell surface requires a full (sheet, row, column) locator")
     if surface_kind == "composite" and any(part is not None for part in locator):
         raise ValueError("composite surface must not carry a cell locator")
     if surface_kind == "composite" and value_ref is not None:
@@ -274,18 +283,14 @@ def record_text_surface(
         "content_hash": content_hash,
         "offset_unit": offset_unit,
     }
-    if surface_kind == "cell":
+    if cell_locator is not None:
         # value_ref is deliberately NOT in the identity: content_hash + locator
         # already fully define the coordinate space the offsets index, and no
         # reader consumes the surface's value_ref. Including it only forks the
         # append-only row across reruns of identical text — extra orphan surfaces
         # for a field nothing observes. It is retained only as a non-authoritative
         # first-capture diagnostic, not value-revision identity.
-        identity["locator"] = {
-            "sheet_id": int(text_sheet_id),
-            "row_id": int(text_row_id),
-            "column_id": int(text_column_id),
-        }
+        identity["locator"] = cell_locator
     else:
         composite_identity = surface_ref.get("identity")
         if not composite_identity:
@@ -985,18 +990,20 @@ def resolve_citation_viewer(
         )
         if stale:
             stale_artifacts.add(int(artifact["id"]))
-        artifact["text_context"] = (
+        text_context = (
             _artifact_text_context(artifact, passage["text"], passage=passage)
             if passage is not None
             else None
         )
-        if artifact["text_context"] is not None and passage["window"] is not None:
-            artifact["text_context"].update(
-                {
-                    "evidence_link_id": str(link["stable_id"]),
-                    "artifact_stable_id": str(artifact["stable_id"]),
-                }
-            )
+        if text_context is not None and passage is not None:
+            if passage["window"] is not None:
+                text_context.update(
+                    {
+                        "evidence_link_id": str(link["stable_id"]),
+                        "artifact_stable_id": str(artifact["stable_id"]),
+                    }
+                )
+        artifact["text_context"] = text_context
         artifact["text_context_status"] = (
             "stale" if stale else "available" if passage is not None else None
         )
@@ -1135,12 +1142,15 @@ def mark_citations_stale_for_cell_refs(
     with write_transaction(project.db, commit=not project.db.in_transaction):
         for target in targets:
             ref = target.get("current_value_ref")
-            match_all = bool(target.get("match_all_active"))
-            if not match_all and not isinstance(ref, dict):
+            if target.get("match_all_active"):
+                subject_ref_json = None
+            elif isinstance(ref, dict):
+                subject_ref_json = citation_subject_ref_json(ref)
+            else:
                 continue
             row_id = int(target["row_id"])
             column_id = int(target["column_id"])
-            if match_all:
+            if subject_ref_json is None:
                 select_sql = (
                     "SELECT stable_id FROM evidence_links "
                     "WHERE status='active' AND row_id=? AND column_id=?"
@@ -1172,7 +1182,7 @@ def mark_citations_stale_for_cell_refs(
                 select_params = (
                     row_id,
                     column_id,
-                    citation_subject_ref_json(ref),
+                    subject_ref_json,
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1189,7 +1199,7 @@ def mark_citations_stale_for_cell_refs(
                     reason,
                     row_id,
                     column_id,
-                    citation_subject_ref_json(ref),
+                    subject_ref_json,
                     *(
                         (_MAP_EXTRACT_ITEM_EVIDENCE_SCHEMA_VERSION,)
                         if preserve_map_extract_item_links
@@ -1355,7 +1365,9 @@ def _artifact_text_context(
             else {}
         ),
     }
-    raw_transcript = metadata.get("timestamped_transcript")
+    raw_transcript = (
+        metadata.get("timestamped_transcript") if isinstance(metadata, dict) else None
+    )
     if (
         isinstance(raw_transcript, dict)
         and raw_transcript.get("schema_version")
