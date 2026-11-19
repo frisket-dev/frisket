@@ -1825,15 +1825,16 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     ]
     # Provider facts alone are not proof a quoted row completed. Before the
     # terminal result write, preserve actual usage but refuse any debit.
-    RunResultStore(project).write_model_calls(
-        run_id,
-        successes,
-        **_writer_authority(
-            project,
+    with write_transaction(project.db):
+        RunResultStore(project).write_model_calls(
             run_id,
-            attempt_id=attempt.attempt_id,
-        ),
-    )
+            successes,
+            **_writer_authority(
+                project,
+                run_id,
+                attempt_id=attempt.attempt_id,
+            ),
+        )
     incomplete = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert incomplete["rated_charge_usd"] == "1.52"
     assert incomplete["charge_usd"] is None

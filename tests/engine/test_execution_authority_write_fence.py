@@ -798,6 +798,7 @@ def test_resume_writer_preserves_original_checkpoint_fact_owner(
                 writer_attempt_id="attempt_a",
                 claim_token=claim_token,
                 authorized_attempt_id=checkpoint["authorized_attempt_id"],
+                commit=False,
             )
             return 0.0
 

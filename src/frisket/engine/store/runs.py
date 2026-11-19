@@ -907,11 +907,11 @@ class RunResultStore:
     ) -> None:
         """Atomically persist a result batch and its accounting evidence.
 
-        A nested savepoint makes the batch atomic inside either transaction
-        mode: a rejected fact, terminal outcome, or counter update cannot
-        leave a sibling result mutation for a later commit to publish.
-        ``commit=False`` leaves the surrounding transaction and its earlier
-        mutations under caller ownership.
+        ``commit`` names the transaction owner (see ``write_transaction``).
+        A nested savepoint makes the batch atomic inside a joined transaction:
+        a rejected fact, terminal outcome, or counter update cannot leave a
+        sibling result mutation for the caller's commit to publish, and the
+        caller's earlier mutations survive.
         """
         if not batch:
             return
@@ -928,50 +928,43 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
                 commit=not self.db.in_transaction,
             )
-        started_transaction = not self.db.in_transaction
-        if started_transaction:
-            # Releasing an outermost SQLite savepoint commits it.  Start an
-            # explicit transaction first so commit=False still hands an open,
-            # uncommitted transaction back to its caller.
-            self.db.execute("BEGIN IMMEDIATE")
-        savepoint = f"write_results_{uuid.uuid4().hex}"
-        self.db.execute(f"SAVEPOINT {savepoint}")
+        from frisket.engine.store.changes import ChangePublicationClosed
+
         try:
-            self._write_results_uncommitted(
+            with write_transaction(self.db, commit=commit, what="result batch"):
+                savepoint = f"write_results_{uuid.uuid4().hex}"
+                self.db.execute(f"SAVEPOINT {savepoint}")
+                try:
+                    self._write_results_uncommitted(
+                        run_id,
+                        batch,
+                        writer_attempt_id=writer_attempt_id,
+                        claim_token=claim_token,
+                        claimless_direct_effect=claimless_direct_effect,
+                        authorized_attempt_id=authorized_attempt_id,
+                        project_heads=project_heads,
+                    )
+                except BaseException:
+                    self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    raise
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+        except ChangePublicationClosed:
+            # Provider usage is historical fact even when Undo closed the
+            # Change while its request was in flight. Reinsert it after
+            # rolling back the result savepoint so only cells/heads are
+            # refused. Call IDs make this safe when a caller already
+            # persisted the returned usage before attempting publication.
+            self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
+                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id,
-                project_heads=project_heads,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=commit,
             )
-        except BaseException as exc:
-            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-            if commit and started_transaction:
-                self.db.rollback()
-            from frisket.engine.store.changes import ChangePublicationClosed
-
-            if isinstance(exc, ChangePublicationClosed):
-                # Provider usage is historical fact even when Undo closed the
-                # Change while its request was in flight. Reinsert it after
-                # rolling back the result savepoint so only cells/heads are
-                # refused. Call IDs make this safe when a caller already
-                # persisted the returned usage before attempting publication.
-                self.write_returned_call_accounting(
-                    run_id,
-                    batch,
-                    writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
-                    commit=bool(commit and started_transaction),
-                )
             raise
-        self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit:
-            self.db.commit()
 
     def publish_result_batch(
         self,
@@ -1593,7 +1586,10 @@ class RunResultStore:
         commit: bool = True,
     ) -> None:
         """Record consent-bound retail outcomes without materializing preview cells."""
-        with self._atomic_fact_batch():
+        with (
+            write_transaction(self.db, commit=commit, what="receipt row outcomes"),
+            self._atomic_fact_batch(),
+        ):
             self._fence_receipt_accounting(receipt_id, writer_attempt_id, batch)
             attempt_id, outcomes = self._attempt_row_outcomes_for_batch(
                 None,
@@ -1602,8 +1598,6 @@ class RunResultStore:
                 receipt_id=receipt_id,
             )
             self._write_attempt_row_outcomes(attempt_id, outcomes)
-        if commit:
-            self.db.commit()
 
     def write_returned_call_accounting(
         self,
@@ -1632,25 +1626,23 @@ class RunResultStore:
         no run or generated columns. Their reservation and dispatching attempt
         are the writer authority; returned preview values remain ephemeral.
 
+        ``commit`` names the transaction owner (see ``write_transaction``).
         The batch is atomic because ``write_model_calls`` owns a savepoint:
-        this path commits, so a mid-batch constraint failure must leave
-        nothing behind to publish.
+        a mid-batch constraint failure leaves nothing behind to publish.
         """
         if not batch:
             return 0.0
-        cost_delta = self.write_model_calls(
-            run_id,
-            batch,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
-            receipt_id=receipt_id,
-            _require_current_writer=False,
-        )
-        if commit:
-            self.db.commit()
-        return cost_delta
+        with write_transaction(self.db, commit=commit, what="returned call accounting"):
+            return self.write_model_calls(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                receipt_id=receipt_id,
+                _require_current_writer=False,
+            )
 
     def result_row_failure_states(
         self, run_id: int, row_ids: set[int]
@@ -2320,7 +2312,7 @@ class RunResultStore:
         ``row_id`` and ``column_id`` are explicit even though either may be
         ``None``: an unscoped caller must deliberately choose the best durable
         source refs rather than inheriting a made-up run/result coordinate.
-        With ``commit=False`` the caller owns the surrounding transaction.
+        ``commit`` names the transaction owner (see ``write_transaction``).
         """
         rows: list[tuple[Any, ...]] = []
         spend_facts: list[tuple[str, str, str, Any]] = []
@@ -2370,27 +2362,23 @@ class RunResultStore:
         if not rows:
             return 0.0
 
-        try:
-            with self._atomic_fact_batch():
-                inserted = self._insert_model_call_rows(rows)
-                # Same rule as the scoped writer: money follows the rows the
-                # database ACCEPTED, so a constraint-rejected fact can never
-                # leave an accrual behind with no fact to explain it — and the
-                # savepoint makes the converse true too, so a row that landed
-                # before a later row was refused cannot become durable with no
-                # accrual.
-                newly_recorded_spend = [
-                    fact
-                    for fact, was_inserted in zip(spend_facts, inserted, strict=True)
-                    if was_inserted
-                ]
-                self._accrue_project_key_spend(newly_recorded_spend)
-            if commit:
-                self.db.commit()
-        except BaseException:
-            if commit:
-                self.db.rollback()
-            raise
+        with (
+            write_transaction(self.db, commit=commit, what="unscoped model calls"),
+            self._atomic_fact_batch(),
+        ):
+            inserted = self._insert_model_call_rows(rows)
+            # Same rule as the scoped writer: money follows the rows the
+            # database ACCEPTED, so a constraint-rejected fact can never
+            # leave an accrual behind with no fact to explain it — and the
+            # savepoint makes the converse true too, so a row that landed
+            # before a later row was refused cannot become durable with no
+            # accrual.
+            newly_recorded_spend = [
+                fact
+                for fact, was_inserted in zip(spend_facts, inserted, strict=True)
+                if was_inserted
+            ]
+            self._accrue_project_key_spend(newly_recorded_spend)
 
         return sum(
             float(cost_usd)

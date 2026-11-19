@@ -639,3 +639,100 @@ def test_running_receipt_delete_joined_rolls_back_with_the_caller(project):
 
     project.db.rollback()
     assert _committed_receipt_status(project) == "running"
+
+
+# -- provider facts and spend ------------------------------------------------
+
+
+def _unscoped_call(call_id: str) -> dict:
+    return {
+        "id": call_id,
+        "fact_version": "frisket.model-call-fact.v1",
+        "capability": "llm.complete",
+        "engine": "anthropic/test-model",
+        "provider": "anthropic",
+        "provider_kind": "chat_api",
+        "credential_source": "platform_key",
+        "provider_reported_cost_usd": 0.5,
+        "provider_cost_usd": 0.5,
+        "cost_source": "pricing_data",
+        "units": {"tokens_in": 10, "tokens_out": 5},
+    }
+
+
+def _committed_call_ids(project) -> set[str]:
+    return {row[0] for row in _committed(project, "SELECT id FROM model_calls")}
+
+
+def _write_unscoped(project, call_id, **kwargs):
+    return RunResultStore(project).write_unscoped_model_calls(
+        [_unscoped_call(call_id)], row_id=None, column_id=None, **kwargs
+    )
+
+
+def test_unscoped_facts_owned_are_durable_on_return(project):
+    _write_unscoped(project, "call-owned")
+
+    assert not project.db.in_transaction
+    assert _committed_call_ids(project) == {"call-owned"}
+
+
+def test_unscoped_facts_commit_true_inside_caller_transaction_refuse(project):
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        _write_unscoped(project, "call-refused")
+
+    assert project.db.in_transaction
+    assert _committed_sheet_name(project) == "Source"
+    assert _committed_call_ids(project) == set()
+
+
+def test_unscoped_facts_joined_roll_back_with_the_caller(project):
+    _open_caller_transaction(project)
+
+    _write_unscoped(project, "call-joined", commit=False)
+
+    assert _committed_call_ids(project) == set()
+    project.db.rollback()
+    assert _committed_call_ids(project) == set()
+
+
+def test_unscoped_facts_commit_false_require_caller_transaction(project):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        _write_unscoped(project, "call-unowned", commit=False)
+
+    assert not project.db.in_transaction
+    assert _committed_call_ids(project) == set()
+
+
+def test_returned_accounting_commit_true_inside_caller_transaction_refuses(
+    project,
+):
+    run_id = _running_run(project)
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).write_returned_call_accounting(
+            run_id,
+            [{"row_id": 1, "column_id": None, "model_calls": [_unscoped_call("c")]}],
+            claimless_direct_effect=True,
+        )
+
+    assert _committed_sheet_name(project) == "Source"
+    assert _committed_call_ids(project) == set()
+
+
+def test_result_batch_commit_true_inside_caller_transaction_refuses(
+    project, review_target
+):
+    run_id, row_id, column_id = review_target
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        RunResultStore(project).write_results(
+            run_id,
+            [{"row_id": row_id, "column_id": column_id, "value": "x"}],
+        )
+
+    assert _committed_sheet_name(project) == "Source"
