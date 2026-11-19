@@ -60,6 +60,7 @@ from frisket.execution.pricing_policy import usd_to_micros
 from frisket.redaction import safe_error
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from frisket.server.services.project_qa_research import ResearchSkillsUnavailable
+from frisket.server.unit_of_work import ends_unit_of_work
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
@@ -1098,7 +1099,7 @@ class ProjectQAService:
         finally:
             if tracing is not None:
                 try:
-                    await asyncio.to_thread(tracing.shutdown)
+                    await asyncio.to_thread(ends_unit_of_work(tracing.shutdown))
                 except Exception:
                     logger.error("Project Ask tracing shutdown failed")
 

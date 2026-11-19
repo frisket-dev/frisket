@@ -29,6 +29,7 @@ from frisket.server.route_errors import (
     reject_unknown_query_parameters,
 )
 from frisket.server.services.sheet_grid import SheetGridService
+from frisket.server.unit_of_work import ends_unit_of_work
 
 
 class _CellValueDownloadResponse(StreamingResponse):
@@ -43,7 +44,7 @@ class _CellValueDownloadResponse(StreamingResponse):
             await super().__call__(scope, receive, send)
         finally:
             with CancelScope(shield=True):
-                await run_in_threadpool(self._close)
+                await run_in_threadpool(ends_unit_of_work(self._close))
 
 
 def register_sheet_grid_routes(

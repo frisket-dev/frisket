@@ -119,6 +119,19 @@ guards a write that must land inside its caller's transaction.
 `scripts/ci/check_cell_write_ownership.py` refuses a new `"BEGIN IMMEDIATE"`
 literal there; its `HAND_WRITTEN_TRANSACTIONS` list only shrinks.
 
+Every HTTP endpoint call is one unit of work (`server/unit_of_work.py`):
+when it returns or raises, a transaction still open on that thread's project
+connections is rolled back and logged as `unfinished_work_rolled_back`, so
+work that never committed is not published by a later request. Work handed
+to another thread is its own unit of work there: `await_thread_worker`
+(`server/thread_worker.py`) ends it with the same rollback when the handed-off
+callable returns or raises, and any other hand-off in `src/frisket/server`
+or `src/frisket/team` wraps its callable in `ends_unit_of_work` (the checker
+below refuses a bare `asyncio.to_thread`, `run_in_threadpool` or
+`run_in_executor`). Keep project transactions from spanning an `await`.
+The same checker keeps explicit `.cursor()` calls to its exact
+`EXPLICIT_CURSORS` counts: write through the connection's `execute`.
+
 ### Shared UI controls
 
 Use shared controls for ordinary inputs, segmented choices, icon buttons,

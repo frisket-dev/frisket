@@ -49,6 +49,7 @@ from frisket.server.notifications.delivery import NotificationDeliveryRuntime
 from frisket.server.notifications.secrets import NotificationSecretResolver
 from frisket.server import workspace as server_workspace
 from frisket.server.route_errors import register_route_error_handler
+from frisket.server.unit_of_work import UnitOfWorkRoute, ends_unit_of_work
 from frisket.server.import_admission import (
     IMPORT_ADMISSION_LEASE_STATE_KEY,
     ImportAdmission,
@@ -433,6 +434,7 @@ def create_app(
     if plugin_composition_policy is not None:
         install_plugin_composition_policy(plugin_composition_policy)
     app = FastAPI(title="frisket", version="0.1.0")
+    app.router.route_class = UnitOfWorkRoute
     install_fastapi_logging(app)
     register_route_error_handler(app)
     managed_models_catalog = (
@@ -649,7 +651,7 @@ def create_app(
     async def _shutdown_action_preview_jobs() -> None:
         # Joining process-owning preview workers can take until their bounded
         # sandbox teardown completes; keep that wait off the ASGI event loop.
-        await asyncio.to_thread(action_preview_job_registry.shutdown)
+        await asyncio.to_thread(ends_unit_of_work(action_preview_job_registry.shutdown))
 
     app.router.add_event_handler("shutdown", _shutdown_action_preview_jobs)
     from frisket.operability.telemetry import build_product_telemetry_runtime
@@ -806,8 +808,8 @@ def create_app(
     app.state.pdf_packet_split_service = pdf_packet_split_service
 
     async def _shutdown_pdf_packet_jobs() -> None:
-        await asyncio.to_thread(pdf_packet_split_service.shutdown)
-        await asyncio.to_thread(pdf_packet_job_registry.shutdown)
+        await asyncio.to_thread(ends_unit_of_work(pdf_packet_split_service.shutdown))
+        await asyncio.to_thread(ends_unit_of_work(pdf_packet_job_registry.shutdown))
 
     app.router.add_event_handler("shutdown", _shutdown_pdf_packet_jobs)
     register_preview_routes(
@@ -850,13 +852,15 @@ def create_app(
         service=DocumentPriorityService(ws),
         capabilities_for=selector_capabilities_for,
     )
-    search_preparation_service.recover()
+    ends_unit_of_work(search_preparation_service.recover)()
 
     async def _reconcile_search_preparation() -> None:
         while True:
             await asyncio.sleep(2.0)
             try:
-                await asyncio.to_thread(search_preparation_service.recover)
+                await asyncio.to_thread(
+                    ends_unit_of_work(search_preparation_service.recover)
+                )
             except asyncio.CancelledError:
                 raise
             except Exception:

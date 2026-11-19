@@ -52,6 +52,7 @@ from frisket.engine.jobs.queue import inserted_id
 from frisket.server.app import create_app
 from frisket.server.routes.skills import register_skill_routes
 from frisket.server.services.skills import SkillLibrary
+from frisket.server.unit_of_work import UnitOfWorkRoute, ends_unit_of_work
 from frisket.server.services.project_qa_authority import BackgroundAskContext
 from frisket.server.services.selector_choices import SelectorCapabilities
 from frisket.team.gateway_routes import (
@@ -1162,6 +1163,7 @@ def create_team_app(
         organization_role=lambda user_id, oid: _membership_role(engine, user_id, oid),
     )
     app = FastAPI(title="frisket team", version="0.1.0")
+    app.router.route_class = UnitOfWorkRoute
     app.state.control_engine = engine
     app.state.team_organization_id = org_id
     app.state.workspace = core.state.workspace
@@ -1177,7 +1179,7 @@ def create_team_app(
     app.state.action_preview_job_registry = action_preview_job_registry
 
     async def _shutdown_action_preview_jobs() -> None:
-        await asyncio.to_thread(action_preview_job_registry.shutdown)
+        await asyncio.to_thread(ends_unit_of_work(action_preview_job_registry.shutdown))
 
     app.router.add_event_handler("shutdown", _shutdown_action_preview_jobs)
     app.state.identity_session_service = identity_session
