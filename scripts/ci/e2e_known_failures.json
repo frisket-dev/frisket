@@ -257,9 +257,6 @@
  "search.spec.ts": {
   "clicking a hit in another sheet switches to that sheet": "stale-expectation"
  },
- "semantic-join.spec.ts": {
-  "semantic join form creates a linkage child sheet": "stale-expectation"
- },
  "settings-billing-token-polish.spec.ts": {
   "organization API key creation has a one-time copyable reveal and redacted list": "stale-expectation"
  },
