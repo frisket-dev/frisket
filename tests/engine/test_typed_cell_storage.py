@@ -4,7 +4,7 @@ import math
 import sqlite3
 
 import pytest
-from helpers import stored_output_descriptor
+from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 from frisket.engine.store import Project
 from frisket.upgrades.project._step import run_rebuild_step
@@ -17,6 +17,8 @@ from frisket.engine.store.cell_writes import (
     insert_edits,
 )
 from frisket.engine.store.current_cells import register_current_cell_functions
+from frisket.engine.store.op_log import append_change
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
 from frisket.engine.store.schema import SCHEMA, SCHEMA_DIGEST_META_KEY
@@ -317,15 +319,17 @@ def test_project_open_reads_migrated_surrogate_as_replacement_text(tmp_path) -> 
 def test_current_cell_values_resolves_native_source_and_edit_payloads() -> None:
     db = _database()
     db.execute("BEGIN")
-    db.execute("INSERT INTO ops (id,kind,spec) VALUES (1,'source.write','{}')")
-    producer_id = create_base_cell_producer(db, stage_id="op:1", op_id=1)
+    source_op = append_change(_Project(db), "source.write", commit=False)
+    producer_id = create_base_cell_producer(
+        db, stage_id=f"op:{source_op}", op_id=source_op
+    )
     initialize_base_cells(
         db,
         producer_id=producer_id,
         cells=[BaseCellWrite(100, 10, "0012"), BaseCellWrite(101, 10, 7)],
     )
-    db.execute("INSERT INTO ops (id,kind,spec) VALUES (2,'edit','{}')")
-    insert_edits(db, op_id=2, edits=[EditCellWrite(101, 10, None)])
+    edit_op = append_change(_Project(db), "edit", commit=False)
+    insert_edits(db, op_id=edit_op, edits=[EditCellWrite(101, 10, None)])
 
     rows = db.execute(
         "SELECT row_id,value_kind,value,typeof(value),origin_kind,validity "
@@ -371,69 +375,80 @@ class _Project:
         self.db = db
 
 
-def test_decoded_result_rows_batches_coordinates_and_preserves_metadata() -> None:
-    db = _database()
-    db.execute("INSERT INTO ops (id,kind,spec) VALUES (1,'map.test','{}')")
-    db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,1,1,'map.test')"
-    )
-    db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (20,10,'value','test','create','active','claim',?)",
-        (stored_output_descriptor(db, 10),),
-    )
-    number_kind, number_value = encode_stored_value(4.5)
-    null_kind, null_value = encode_stored_value(None)
-    db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,confidence,outcome,publication_effect) "
-        "VALUES (20,?,10,?,?,?,?,?)",
+def test_decoded_result_rows_batches_coordinates_and_preserves_metadata(
+    make_project,
+) -> None:
+    project = make_project("decoded")
+    sheet = project.add_sheet("Sheet")
+    column = project.add_column(sheet, "value", type="number", ai_generated=True)
+    number_row, null_row = project.add_rows(sheet, [{}, {}], {})
+    runs = RunResultStore(project)
+    run = runs.start_run(project.append_change("map.test"), sheet, "map.test")
+    write_claimed_test_results(
+        project,
+        run,
         [
-            (100, number_kind, number_value, 0.75, "ok", "publish_value"),
-            (101, null_kind, null_value, None, "empty", "publish_null"),
+            {
+                "row_id": number_row,
+                "column_id": column,
+                "value": 4.5,
+                "confidence": 0.75,
+            },
+            {"row_id": null_row, "column_id": column, "value": None},
         ],
     )
-    rows = RunResultStore(_Project(db)).decoded_result_rows(
-        [(20, 101, 10), (20, 100, 10), (20, 100, 10), (404, 1, 2)]
-    )
-    assert set(rows) == {(20, 100, 10), (20, 101, 10)}
-    assert rows[(20, 100, 10)]["value"] == 4.5
-    assert rows[(20, 100, 10)]["value_kind"] == "real"
-    assert rows[(20, 100, 10)]["confidence"] == 0.75
-    assert rows[(20, 101, 10)]["value"] is None
-    assert rows[(20, 101, 10)]["value_kind"] == "null"
-    assert rows[(20, 101, 10)]["publication_effect"] == "publish_null"
+    number, null = (run, number_row, column), (run, null_row, column)
+    rows = runs.decoded_result_rows([null, number, number, (run + 404, 1, 2)])
+    assert set(rows) == {number, null}
+    assert rows[number]["value"] == 4.5
+    assert rows[number]["value_kind"] == "real"
+    assert rows[number]["confidence"] == 0.75
+    assert rows[null]["value"] is None
+    assert rows[null]["value_kind"] == "null"
+    assert rows[null]["publication_effect"] == "publish_null"
 
 
-def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_raw() -> (
-    None
-):
-    db = _database()
-    db.executemany(
-        "INSERT INTO rows (id,sheet_id,position) VALUES (?,1,?)",
-        [(102, 3), (103, 4)],
+def test_tolerant_historical_rows_decode_valid_legacy_json_and_keep_malformed_raw(
+    make_project,
+) -> None:
+    project = make_project("legacy results")
+    sheet = project.add_sheet("Sheet")
+    column = project.add_column(sheet, "value", ai_generated=True)
+    surrogate_row, malformed_row = project.add_rows(sheet, [{}, {}], {})
+    run = RunResultStore(project).start_run(
+        project.append_change("map.test"),
+        sheet,
+        "map.test",
+        row_ids=[surrogate_row, malformed_row],
+        total_rows=2,
     )
-    db.execute("INSERT INTO ops (id,kind,spec) VALUES (1,'map.test','{}')")
-    db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,1,1,'map.test')"
+    authority = run_writer_authority_fixture(project, run, output_column_ids={column})
+    ResultGenerationStore(project).declare(
+        run,
+        column,
+        output_role="value",
+        compatibility_key="test",
+        write_mode="create",
+        claim_token=authority.claim_token,
     )
-    db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (20,10,'value','test','create','active','claim',?)",
-        (stored_output_descriptor(db, 10),),
-    )
-    db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (20,?,10,'legacy_invalid',?,'ok','publish_value')",
-        [(102, '"\\ud800"'), (103, '{"broken":')],
+    # legacy_invalid payloads come only from writers older than the typed
+    # value codec; current writers cannot store them.
+    with project.db:
+        project.db.execute("BEGIN IMMEDIATE")
+        project.db.executemany(
+            "INSERT INTO results "
+            "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
+            "VALUES (?,?,?,'legacy_invalid',?,'ok','publish_value')",
+            [
+                (run, surrogate_row, column, '"\\ud800"'),
+                (run, malformed_row, column, '{"broken":'),
+            ],
+        )
+
+    rows = RunResultStore(project).decoded_result_rows(
+        [(run, surrogate_row, column), (run, malformed_row, column)],
+        tolerate_decode_errors=True,
     )
 
-    rows = RunResultStore(_Project(db)).decoded_result_rows(
-        [(20, 102, 10), (20, 103, 10)], tolerate_decode_errors=True
-    )
-
-    assert rows[(20, 102, 10)]["value"] == "�"
-    assert rows[(20, 103, 10)]["value"] == '{"broken":'
+    assert rows[(run, surrogate_row, column)]["value"] == "�"
+    assert rows[(run, malformed_row, column)]["value"] == '{"broken":'
