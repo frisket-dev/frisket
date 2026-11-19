@@ -630,13 +630,6 @@ class SearchPreparationStore:
             ).first()
         return None if row is None else self._batch(row)
 
-    def _planned(
-        self, batch_id: str, *, project_id: str, storage_org_id: int | None
-    ) -> PlannedSearchPreparationBatchRow:
-        return _require_planned(
-            self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
-        )
-
     def get(
         self, batch_id: str, *, project_id: str, storage_org_id: int | None
     ) -> SearchPreparationBatchRow:
@@ -799,8 +792,8 @@ class SearchPreparationStore:
                     updated_at=now,
                 )
             )
-        return self._planned(
-            batch_id, project_id=project_id, storage_org_id=storage_org_id
+        return _require_planned(
+            self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
         )
 
     def replace_undecided(
@@ -898,8 +891,8 @@ class SearchPreparationStore:
                     updated_at=now,
                 )
             )
-        return self._planned(
-            new_id, project_id=project_id, storage_org_id=storage_org_id
+        return _require_planned(
+            self.get(new_id, project_id=project_id, storage_org_id=storage_org_id)
         )
 
     def replan(
@@ -938,8 +931,8 @@ class SearchPreparationStore:
             )
             if result.rowcount != 1:
                 raise ValueError("search preparation plan can no longer be refreshed")
-        return self._planned(
-            batch_id, project_id=project_id, storage_org_id=storage_org_id
+        return _require_planned(
+            self.get(batch_id, project_id=project_id, storage_org_id=storage_org_id)
         )
 
     def request_stop(
