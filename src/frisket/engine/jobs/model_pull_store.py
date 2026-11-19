@@ -27,6 +27,7 @@ from typing import Any
 from collections.abc import Iterator
 
 import sqlalchemy as sa
+from sqlalchemy.exc import IntegrityError
 
 from frisket.engine.jobs.queue import (
     _now,
@@ -442,7 +443,7 @@ def create_or_get_active(
                     )
                 )
                 new_id = inserted_id(result)
-        except sa.exc.IntegrityError:
+        except IntegrityError:
             same_ref = _active_row(
                 engine, workspace_root=workspace_root, model_ref=model_ref
             )
