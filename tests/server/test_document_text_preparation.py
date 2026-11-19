@@ -264,6 +264,7 @@ def test_designated_text_name_is_unique_without_claiming_a_collision(
         project.db.execute(
             "UPDATE columns SET hidden=? WHERE id=?", (int(hidden), column_id)
         )
+        project.db.commit()
         occupied.append(column_id)
     project.db.commit()
 
