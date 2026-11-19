@@ -22,6 +22,9 @@ from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.server.services.sheet_grid import SheetGridService, sheet_columns_payload
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
+from frisket.upgrades.project.edit_precedence_migration import (
+    EDIT_PRECEDENCE_TO_DIGEST,
+)
 from helpers import make_client
 
 _PROJECT_ID = "proj-edit-precedence"
@@ -561,3 +564,42 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
         values = reopened.get_values(sheet.sheet, sheet.out)
         assert [values[row] for row in sheet.rows] == [*_EDITED, "B3", "B4", "B5"]
         assert reopened.pending_replay_count(sheet.sheet, sheet.out) == 3
+
+
+def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.reapply(sheet.first_run)
+    db = sheet.project.db
+    # Recreate the cache the previous schema wrote: the later copy won.
+    copy_heads = canonical_heads_sql(
+        "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
+    )
+    db.execute("BEGIN")
+    db.execute(
+        "INSERT OR REPLACE INTO current_cells SELECT * FROM "
+        f"({copy_heads}) WHERE column_id=?",
+        (sheet.out,),
+    )
+    db.execute(
+        "UPDATE meta SET value=? WHERE key='schema_digest'",
+        (EDIT_PRECEDENCE_TO_DIGEST,),
+    )
+    db.commit()
+    assert sheet.values()[:3] == ["A0", "A1", "A2"]
+    path = sheet.project.path
+    sheet.project.close()
+
+    with closing(Project(path)) as reopened:
+        assert (
+            reopened.db.execute(
+                "SELECT value FROM meta WHERE key='schema_digest'"
+            ).fetchone()[0]
+            == SCHEMA_DIGEST
+        )
+        values = reopened.get_values(sheet.sheet, sheet.out)
+        assert [values[row] for row in sheet.rows] == [*_EDITED, "A3", "A4", "A5"]
+        refs = reopened.get_values_with_refs(sheet.sheet, sheet.out, row_ids=sheet.rows)
+        assert [refs[1][row]["kind"] for row in sheet.rows] == (
+            ["manual_edit"] * 3 + ["copied_result"] * 3
+        )
