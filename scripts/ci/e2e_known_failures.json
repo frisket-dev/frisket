@@ -339,10 +339,6 @@
  "workbench-resolved-layout-renderer.spec.ts": {
   "workbench regions are populated by a resolved layout tree": "stale-expectation"
  },
- "workbench-sidebar-contributions.spec.ts": {
-  "embeddings panel remounts per sheet with activeSheet gating preserved": "stale-expectation",
-  "the palette hides a re-homed panel (Alerts) and it recovers": "stale-expectation"
- },
  "workbench-structured-workspace.spec.ts": {
   "mainView tabs are visible and prototype map move controls stay out of daily UI": "stale-expectation"
  }
