@@ -2,11 +2,13 @@ import '../Modal.css';
 import '../FormControls.css';
 import './ImportWorkspaceDialog.css';
 import './ImportModeRail.css';
+import '../ActivityProgress.css';
 import { AtSign, ListVideo } from 'lucide-react';
 import { Button } from '../Button';
 import { describeColumns, type NerImportOffer } from '../nerImportPromptModel';
+import type { ImportFollowup } from './importFollowup';
 
-export function MediaDownloadPrompt({
+function MediaDownloadPrompt({
   columnName,
   onRun,
   onDismiss,
@@ -49,7 +51,7 @@ export function MediaDownloadPrompt({
   );
 }
 
-export function NerExtractPrompt({
+function NerExtractPrompt({
   offer,
   onRun,
   onDismiss,
@@ -93,5 +95,33 @@ export function NerExtractPrompt({
         </Button>
       </div>
     </div>
+  );
+}
+
+export function ImportFollowupPrompt({
+  followup,
+  onRun,
+  onDismiss,
+}: {
+  followup: ImportFollowup;
+  onRun(): void;
+  onDismiss(): void;
+}) {
+  return followup.kind === 'download'
+    ? <MediaDownloadPrompt columnName={followup.columnName} onRun={onRun} onDismiss={onDismiss} />
+    : <NerExtractPrompt offer={followup.offer} onRun={onRun} onDismiss={onDismiss} />;
+}
+
+/** The follow-up for an import that finished after its dialog closed, shown
+ *  with the workspace's other notices rather than over the person's work. */
+export function ImportFollowupNotice(props: {
+  followup: ImportFollowup;
+  onRun(): void;
+  onDismiss(): void;
+}) {
+  return (
+    <section className="activity-progress-card import-followup-notice" aria-label="Import finished">
+      <ImportFollowupPrompt {...props} />
+    </section>
   );
 }

@@ -27,7 +27,7 @@ import { usePoll } from '../../../hooks/usePoll';
 import { formatBytes } from '../../../format';
 import { CostGateModal } from '../../CostGateModal';
 import { DiscardImportConfirm } from './DiscardImportConfirm';
-import { notifyImportSessionChanged } from '../../importProgressSession';
+import { expectImportFollowup, notifyImportSessionChanged } from '../../importProgressSession';
 import {
   PDF_BATCH_STAGES,
   pdfBatchStages,
@@ -855,6 +855,7 @@ export function PdfBatchImportFlow({
         expected_revision: snapshot.revision,
         ...(ocrConfirmation ? { ocr_confirmation: ocrConfirmation } : {}),
       });
+      if (accepted.job) expectImportFollowup(accepted.job.import_ref);
       const refreshed = await refresh();
       const importRef = accepted.job?.import_ref ?? refreshed?.commit?.result?.import_ref;
       const sheetId = accepted.job?.sheet_id;

@@ -27,6 +27,7 @@ import { useViewsHandle } from '../bind/useViewsHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useActionCatalogHandle } from '../bind/useActionCatalogHandle';
+import { selectNerTemplate, useImportFollowup } from '../components/importWorkspace/importFollowup';
 import { usePluginLayoutHandle } from '../bind/usePluginLayoutHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
@@ -256,10 +257,13 @@ export function useWorkspaceModel({
     void refreshSheets();
     void job.refresh();
   }, [job, projectData, refreshSheets]);
+  const nerTemplate = useSelector(actionCatalog.store, selectNerTemplate);
+  const importFollowup = useImportFollowup({ projectApi, nerTemplate });
   const importProgress = useImportProgress({
     projectId: project.id,
     onChanged: handleImportSessionChanged,
     onError: showError,
+    onFinished: importFollowup.offer,
   });
   const activeImportActivity = sheet ? preferredImportActivity(
     importProgress.activities.filter((activity) => activity.session.sheet_id === Number(sheet.id)),
@@ -1206,6 +1210,7 @@ export function useWorkspaceModel({
       commitReviewDecision: projectData.commitReviewDecision,
       workbenchHostContext,
       importProgress,
+      importFollowup,
     }),
     [
       navigation.overlays,
@@ -1239,6 +1244,7 @@ export function useWorkspaceModel({
       projectData,
       workbenchHostContext,
       importProgress,
+      importFollowup,
     ],
   );
 

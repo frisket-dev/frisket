@@ -10,7 +10,7 @@ import type { TableImportDraft, TableImportMappingRequest, TableImportsApi } fro
 import { TableImportFlow } from '../../src/components/importWorkspace/tableImport';
 import { CheckRowsStep, ColumnsStep, ImportTableStep } from '../../src/components/importWorkspace/tableImport/TableImportSteps';
 import { draft } from '../fixtures/tableImport';
-import { importSessionSnapshot } from '../../src/components/importProgressSession';
+import { claimImportFollowup, importSessionSnapshot } from '../../src/components/importProgressSession';
 
 const telemetry = vi.hoisted(() => vi.fn());
 vi.mock('../../src/telemetry/productTelemetry', async (original) => ({
@@ -105,6 +105,9 @@ describe('TableImportFlow', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Import 2 rows' }));
     await waitFor(() => expect(onImported).toHaveBeenCalledWith(41));
     expect(importSessionSnapshot()).toBeGreaterThan(progressVersion);
+    // Rows land in the background, so the follow-up prompt waits for the
+    // import to finish rather than classifying the empty sheet now.
+    expect(claimImportFollowup('table-import-1')).toBe(true);
   });
 
   it.each(['file', 'paste'] as const)('keeps the server-suggested name for a new %s import', async (inputKind) => {

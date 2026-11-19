@@ -4,6 +4,7 @@ import './WorkspaceChrome.css';
 import { memo, useEffect, useMemo, useState } from 'react';
 import { MENTIONS_EXTRACT_ACTION_KIND } from '../components/mentionsPanelModel';
 import { ImportWorkspaceDialog } from '../components/importWorkspace/ImportWorkspaceDialog';
+import { selectNerTemplate } from '../components/importWorkspace/importFollowup';
 import { SampleProjectOnboarding } from '../workbench/SampleProjectOnboarding';
 import { ChromeBar } from '../workbench/ChromeBar';
 import { useWalkthrough } from '../walkthrough/context';
@@ -133,11 +134,7 @@ export const WorkspaceActRegion = memo(function WorkspaceActRegion() {
     actSurface.store,
     (s) => s.importPreparationBatchId,
   );
-  const nerTemplate = useSelector(actionCatalog.store, (state) =>
-    state.status === 'ready'
-      ? state.resolvedTemplates.find((template) => template.kind === 'map.ner')
-      : undefined,
-  );
+  const nerTemplate = useSelector(actionCatalog.store, selectNerTemplate);
   const ftmImportEnabled = useSelector(actionCatalog.store, (state) =>
     state.status === 'ready'
       && state.resolvedTemplates.some((template) => template.kind === 'frisket.ftm.ftm_import'),
