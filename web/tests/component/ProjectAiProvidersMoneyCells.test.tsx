@@ -101,7 +101,7 @@ describe('AI Providers money cells', () => {
     await userEvent.selectOptions(screen.getByLabelText('Provider'), 'datalab');
     expect(screen.queryByLabelText('Spend cap in US dollars')).not.toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Project provider key'), 'candidate-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Test', exact: true }));
+    await userEvent.click(screen.getByRole('button', { name: 'Test' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(save).toHaveBeenCalledWith(

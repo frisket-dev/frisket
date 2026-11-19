@@ -11,6 +11,7 @@ import { ReviewQueue } from '../../src/components/ReviewQueue';
 import { ReviewShell } from '../../src/components/review/ReviewPresentation';
 import { installDialogPolyfill } from '../support/domPolyfills';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 vi.mock('../../src/components/review/ReviewSourcePreview', () => ({ ReviewSourcePreview: () => <aside>Source viewer</aside> }));
 
@@ -79,7 +80,7 @@ it.each([true, false])('reapplies saved results into new columns with retry capa
       outputs: [{ key: 'answer', columnId: '4', columnName: 'Answer', columnType: 'text' }],
       fields: [{ columnId: '4', columnName: 'Answer', columnType: 'text', ...counts }] }],
   });
-  vi.spyOn(stores.projectApi, 'listSheets').mockResolvedValue([{ id: '2', name: 'Stories', rowCount: 1, columns: [{ id: '4', name: 'Answer', type: 'text' }] }]);
+  vi.spyOn(stores.projectApi, 'listSheets').mockResolvedValue([sheetMeta([{ id: '4', name: 'Answer', type: 'text' }], { id: '2', name: 'Stories', rowCount: 1 })]);
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('first'));
   const submit = vi.spyOn(stores.projectApi, 'runAction').mockResolvedValue({
     runId: null, jobId: null, receiptId: 'saved', status: 'completed', outputSheetId: '2',
@@ -89,13 +90,13 @@ it.each([true, false])('reapplies saved results into new columns with retry capa
     <ReviewQueue onClose={vi.fn()} onChanged={changed} runId="9" />
   </WorkspaceStoresContext.Provider>);
   await screen.findByTestId('review-card');
-  fireEvent.click(await screen.findByRole('button', { name: 'Results', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Results' }));
   expect(screen.queryByRole('button', { name: 'Retry unfinished' }) !== null).toBe(retrySupported);
   fireEvent.click(await screen.findByRole('button', { name: 'Reapply saved results' }));
   expect(submit).not.toHaveBeenCalled();
   expect(await screen.findByRole('dialog', { name: 'Reapply saved results?' })).toHaveTextContent('does not call a provider');
   await waitFor(() => expect(screen.getByTestId('reapply-output-answer')).toHaveValue('Answer_2'));
-  fireEvent.click(screen.getByRole('button', { name: 'Reapply results', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reapply results' }));
   await waitFor(() => expect(submit).toHaveBeenCalledWith(expect.objectContaining({
     action_id: 'run.reapply', params: { source_run_id: 9 }, replace_existing: false,
     output_names: { answer: 'Answer_2' }, expected_output_columns: { Answer_2: null },
@@ -291,13 +292,13 @@ it('edits the field whose pencil was clicked without judging or replacing the sa
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
   const edit = vi.spyOn(stores.projectApi, 'editCells').mockResolvedValue();
   mount();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit second', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit second' }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Edit proposed second value' }), { target: { value: 'Fixed' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
   await waitFor(() => expect(edit).toHaveBeenCalledWith([{ rowId: '3', columnId: '5', value: 'Fixed' }]));
   expect(screen.getByTestId('review-field-second')).not.toHaveTextContent('Fixed');
   expect(decide).not.toHaveBeenCalled();
-  expect(screen.getByRole('button', { name: 'Edit second', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  expect(screen.getByRole('button', { name: 'Edit second' })).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByRole('button', { name: 'Accept second' })).toHaveAttribute('aria-pressed', 'false');
   expect(screen.getByTestId('review-field-second')).not.toHaveAttribute('data-review-decision', 'edit');
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).not.toBeInTheDocument();
@@ -311,13 +312,13 @@ it('keeps historical decisions and notes available while explaining why edit is 
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
   mount();
 
-  const edit = await screen.findByRole('button', { name: 'Edit replaced', exact: true });
+  const edit = await screen.findByRole('button', { name: 'Edit replaced' });
   expect(edit).toBeDisabled();
   expect(edit).toHaveAttribute('title', expect.stringContaining('replaced or edited after the run'));
   expect(screen.getByText(/Accept, reject, clear, and notes are still available/)).toBeVisible();
   expect(screen.getByTestId('review-note-input')).toBeEnabled();
 
-  const reject = screen.getByRole('button', { name: 'Reject replaced', exact: true });
+  const reject = screen.getByRole('button', { name: 'Reject replaced' });
   expect(reject).toBeEnabled();
   fireEvent.click(reject);
   await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'reject', undefined));
@@ -331,7 +332,7 @@ it('refuses an edit over 64 KiB in UTF-8 while keeping the draft available', asy
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(page('text'));
   const decide = vi.spyOn(stores.projectApi, 'reviewItem').mockResolvedValue();
   mount();
-  fireEvent.click(await screen.findByRole('button', { name: 'Edit text', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit text' }));
   const input = screen.getByRole('textbox', { name: 'Edit proposed text value' });
   fireEvent.change(input, { target: { value: 'é'.repeat(32_769) } });
   fireEvent.click(screen.getByRole('button', { name: 'Save edit' }));
@@ -352,7 +353,7 @@ it('keeps excerpted output read-only for the pencil and E shortcut while allowin
   vi.spyOn(stores.projectApi, 'getReviewCount').mockResolvedValue(1);
   mount();
 
-  const edit = await screen.findByRole('button', { name: 'Edit excerpt', exact: true });
+  const edit = await screen.findByRole('button', { name: 'Edit excerpt' });
   expect(edit).toBeDisabled();
   expect(edit).toHaveAttribute('title', 'Only an excerpt is shown; editing is unavailable.');
   expect(screen.queryByText(/replaced or edited after the run/)).toBeNull();
@@ -362,9 +363,9 @@ it('keeps excerpted output read-only for the pencil and E shortcut while allowin
   expect(screen.queryByTestId('review-edit-input')).toBeNull();
   expect(decide).not.toHaveBeenCalled();
   expect(screen.getByTestId('review-note-input')).toBeEnabled();
-  fireEvent.click(screen.getByRole('button', { name: 'Accept excerpt', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Accept excerpt' }));
   await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'accept', undefined));
-  fireEvent.click(screen.getByRole('button', { name: 'Reject excerpt', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Reject excerpt' }));
   await waitFor(() => expect(decide).toHaveBeenLastCalledWith('9:3:4', 'reject', undefined));
   expect(screen.queryByRole('button', { name: 'Reject and clear' })).toBeNull();
 });
@@ -379,7 +380,7 @@ it('allows edits only for plain text results through both buttons and keyboard s
   vi.spyOn(stores.projectApi, 'getReviewBundles').mockResolvedValue(value);
   mount();
 
-  const structuredEdit = await screen.findByRole('button', { name: 'Edit second', exact: true });
+  const structuredEdit = await screen.findByRole('button', { name: 'Edit second' });
   expect(structuredEdit).toBeDisabled();
   const structuredSelect = screen.getByRole('button', { name: 'Select second review field' });
   expect(structuredSelect.querySelector('table, a, img, audio, video')).toBeNull();
@@ -453,12 +454,12 @@ it('keeps random history stable, excludes shown rows, and refreshes decisions on
   mount();
 
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
   expect(screen.getByRole('button', { name: 'Accept first' })).toHaveAttribute('aria-pressed', 'true');
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
 
   expect(load.mock.calls).toEqual([
@@ -486,7 +487,7 @@ it('retries a failed random frontier request instead of reloading the displayed 
   mount();
 
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
 
@@ -514,7 +515,7 @@ it('uses row cursors for stable next and previous pages', async () => {
   mount(vi.fn(), { order: 'row' });
 
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('1 / 2'));
@@ -548,12 +549,12 @@ it('resamples an empty history page after a run becomes available again', async 
   mount();
 
   await screen.findByTestId('review-card');
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   await screen.findByTestId('review-empty');
   expect(screen.getByTestId('review-page-status')).toHaveTextContent('0 / 0');
   fireEvent.click(screen.getByRole('button', { name: 'Previous row' }));
   await screen.findByTestId('review-card');
-  fireEvent.click(screen.getAllByRole('button', { name: 'Next row', exact: true })[0]);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Next row' })[0]);
   await waitFor(() => expect(screen.getByTestId('review-page-status')).toHaveTextContent('2 / 2'));
   expect(load).toHaveBeenLastCalledWith(0, 25, '9', true, {
     fieldId: undefined, order: 'shuffle', excludeRowIds: ['3'],

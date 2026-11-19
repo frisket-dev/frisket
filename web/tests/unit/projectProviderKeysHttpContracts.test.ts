@@ -31,11 +31,10 @@ import { EditionModuleProvider } from '../../src/editions/module';
 import { LOCAL_EDITION_MODULE } from '../../src/editions/openModules';
 
 const renderBanner = () => render(
-  createElement(
-    EditionModuleProvider,
-    { edition: LOCAL_EDITION_MODULE },
-    createElement(ReplayModeBanner),
-  ),
+  createElement(EditionModuleProvider, {
+    edition: LOCAL_EDITION_MODULE,
+    children: createElement(ReplayModeBanner),
+  }),
 );
 
 const catalog = {

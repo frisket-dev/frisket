@@ -259,10 +259,10 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     expect(await screen.findByLabelText('Check rows')).toBeVisible();
     await waitFor(() => expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull());
     expect(workspace).not.toHaveClass('table-import-workspace-mode-selection');
-    fireEvent.click(screen.getByRole('button', { name: 'Back', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByLabelText('Add data')).toBeVisible();
     expect(screen.queryByRole('tablist', { name: 'Import type' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(await screen.findByTestId('table-import-discard-dialog')).toBeVisible();
   });
 
@@ -992,7 +992,7 @@ describe('ImportWorkspaceDialog controlled open session', () => {
     const onClose = vi.fn();
     renderDialog(true, vi.fn(), onClose);
     fireEvent.click(screen.getByTestId(`import-mode-${mode}`));
-    const cancel = screen.getByRole('button', { name: 'Cancel', exact: true });
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
     expect(cancel).toBeEnabled();
     fireEvent.click(cancel);
     expect(onClose).toHaveBeenCalledOnce();

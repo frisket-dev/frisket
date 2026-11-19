@@ -714,8 +714,8 @@ describe('PDF batch import flow', () => {
       onBack={vi.fn()} onContinue={vi.fn()} />);
     expect(screen.getByText('3 rows from 1 file')).toBeVisible();
     const pdfRow = screen.getByRole('row', { name: /PDFs with a text layer/ });
-    expect(within(pdfRow).getByRole('cell', { name: '1', exact: true })).toBeVisible();
-    expect(within(pdfRow).getByRole('cell', { name: '3 pages', exact: true })).toBeVisible();
+    expect(within(pdfRow).getByRole('cell', { name: '1' })).toBeVisible();
+    expect(within(pdfRow).getByRole('cell', { name: '3 pages' })).toBeVisible();
     expect(screen.queryByText('8 pages')).not.toBeInTheDocument();
     expect(screen.getByText('1 file already in Archive and left as is')).toBeVisible();
   });
