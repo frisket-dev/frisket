@@ -33,14 +33,14 @@ class ListItemStage(Sequence[ListItem]):
         self._cleanup = finalize(self, _cleanup, self.db, directory)
         self._owner = ref(owner)
         self.sheet_id = sheet_id
-        self.count = 0
+        self.staged = 0
         self._tokens = WeakValueDictionary()
 
     def add(self, row_id, value, parents, evidence, *, position):
         self.db.execute(
             "INSERT INTO items VALUES(?,?,?,?,?,?)",
             (
-                self.count,
+                self.staged,
                 row_id,
                 position,
                 json.dumps(value, allow_nan=False),
@@ -48,8 +48,8 @@ class ListItemStage(Sequence[ListItem]):
                 json.dumps(evidence, allow_nan=False),
             ),
         )
-        self.count += 1
-        if self.count % 256 == 0:
+        self.staged += 1
+        if self.staged % 256 == 0:
             self.db.commit()
 
     def seal(self):
@@ -63,7 +63,7 @@ class ListItemStage(Sequence[ListItem]):
         self._cleanup()
 
     def __len__(self):
-        return self.count
+        return self.staged
 
     def _item(self, row):
         index, row_id, value, parents, evidence = row
@@ -88,9 +88,9 @@ class ListItemStage(Sequence[ListItem]):
 
     def __getitem__(self, index):
         if isinstance(index, slice):
-            return tuple(self[i] for i in range(*index.indices(self.count)))
+            return tuple(self[i] for i in range(*index.indices(self.staged)))
         if index < 0:
-            index += self.count
+            index += self.staged
         row = self.db.execute(
             "SELECT i.id,i.row_id,i.value,i.parents,i.evidence FROM ordering o JOIN items i ON i.id=o.id WHERE o.ordinal=?",
             (index,),

@@ -591,27 +591,26 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             or provider_config.load_local_provider_keys(root).get(normalized)
         )
         if not key:
-            return {
-                "provider": normalized,
-                "ok": False,
-                "reachable": False,
-                "status": None,
-                "detail": "no key configured",
-            }
-        result = provider_config.probe_provider(normalized, key)
+            return ProviderValidationResponse(
+                provider=normalized,
+                ok=False,
+                reachable=False,
+                status=None,
+                detail="no key configured",
+            )
+        probed = provider_config.probe_provider(normalized, key)
         # The live probe always supplies these, but retain the complete typed
         # response contract for injected/legacy probe implementations too.
-        result = {
-            "provider": normalized,
-            "detail": None,
-            **result,
-        }
-        if body.key and result.get("ok") is True:
-            result = {
-                **result,
-                "validation_token": provider_config.issue_validation_token(
-                    normalized,
-                    body.key,
-                ),
-            }
-        return result
+        response = ProviderValidationResponse.model_validate(
+            {"provider": normalized, "detail": None, **probed}
+        )
+        if body.key and probed.get("ok") is True:
+            response = response.model_copy(
+                update={
+                    "validation_token": provider_config.issue_validation_token(
+                        normalized,
+                        body.key,
+                    )
+                }
+            )
+        return response

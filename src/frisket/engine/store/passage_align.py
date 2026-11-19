@@ -256,23 +256,27 @@ def _group_line_boxes(
     Baseline-band grouping; degrades to one box per token on an implausible line
     count (orphan rate > 0.3) rather than a wrong merged band (W1.7)."""
 
-    positioned = [
-        i for i in covered if tokens[i].box is not None and tokens[i].page is not None
-    ]
+    boxes: dict[int, tuple[float, float, float, float]] = {}
+    pages: dict[int, int] = {}
+    positioned: list[int] = []
+    for i in covered:
+        box, page = tokens[i].box, tokens[i].page
+        if box is not None and page is not None:
+            boxes[i] = box
+            pages[i] = page
+            positioned.append(i)
     if not positioned:
         return [], ""
 
     def y_center(i: int) -> float:
-        b = tokens[i].box
+        b = boxes[i]
         return (b[1] + b[3]) / 2.0
 
     def height(i: int) -> float:
-        b = tokens[i].box
+        b = boxes[i]
         return abs(b[3] - b[1])
 
-    ordered = sorted(
-        positioned, key=lambda i: (tokens[i].page, y_center(i), tokens[i].box[0])
-    )
+    ordered = sorted(positioned, key=lambda i: (pages[i], y_center(i), boxes[i][0]))
     heights = sorted(height(i) for i in ordered)
     median_h = heights[len(heights) // 2] if heights else 0.0
     band = 0.6 * median_h if median_h > 0 else 0.0
@@ -282,7 +286,7 @@ def _group_line_boxes(
         placed = False
         if lines:
             last = lines[-1]
-            same_page = tokens[i].page == tokens[last[0]].page
+            same_page = pages[i] == pages[last[0]]
             baseline = sum(y_center(j) for j in last) / len(last)
             if same_page and (band == 0.0 or abs(y_center(i) - baseline) <= band):
                 last.append(i)
@@ -291,11 +295,11 @@ def _group_line_boxes(
             lines.append([i])
 
     def line_box(members: list[int]) -> LineBox:
-        page = tokens[members[0]].page
-        xs0 = [tokens[j].box[0] for j in members]
-        ys0 = [tokens[j].box[1] for j in members]
-        xs1 = [tokens[j].box[2] for j in members]
-        ys1 = [tokens[j].box[3] for j in members]
+        page = pages[members[0]]
+        xs0 = [boxes[j][0] for j in members]
+        ys0 = [boxes[j][1] for j in members]
+        xs1 = [boxes[j][2] for j in members]
+        ys1 = [boxes[j][3] for j in members]
         lo = min(members)
         hi = max(members) + 1
         return LineBox(
@@ -317,8 +321,8 @@ def _group_line_boxes(
     ):
         per_token = [
             LineBox(
-                page=int(tokens[i].page),
-                bbox=tuple(tokens[i].box),  # type: ignore[arg-type]
+                page=int(pages[i]),
+                bbox=(boxes[i][0], boxes[i][1], boxes[i][2], boxes[i][3]),
                 token_index_range=(i, i + 1),
                 token_indices=(i,),
             )
@@ -332,13 +336,15 @@ def _group_line_boxes(
     gutter = _COLUMN_GUTTER_HEIGHT_FACTOR * median_h if median_h > 0 else 0.0
     segments: list[list[int]] = []
     for members in lines:
-        segments.extend(_split_line_by_gutter(members, tokens, gutter))
+        segments.extend(_split_line_by_gutter(members, boxes, gutter))
 
     return [line_box(members) for members in segments], ""
 
 
 def _split_line_by_gutter(
-    members: list[int], tokens: Sequence[Token], gutter: float
+    members: list[int],
+    boxes: dict[int, tuple[float, float, float, float]],
+    gutter: float,
 ) -> list[list[int]]:
     """Split one baseline line into per-column segments at horizontal gaps wider
     than ``gutter`` (see :data:`_COLUMN_GUTTER_HEIGHT_FACTOR`). ``gutter <= 0``
@@ -346,10 +352,10 @@ def _split_line_by_gutter(
 
     if gutter <= 0.0 or len(members) <= 1:
         return [list(members)]
-    ordered_x = sorted(members, key=lambda i: tokens[i].box[0])  # type: ignore[index]
+    ordered_x = sorted(members, key=lambda i: boxes[i][0])
     segments: list[list[int]] = [[ordered_x[0]]]
     for prev, cur in zip(ordered_x, ordered_x[1:]):
-        gap = tokens[cur].box[0] - tokens[prev].box[2]  # type: ignore[index]
+        gap = boxes[cur][0] - boxes[prev][2]
         if gap > gutter:
             segments.append([cur])
         else:
@@ -379,13 +385,13 @@ def _temporal_result(
     char_start: int | None,
     char_end: int | None,
 ) -> AlignResult:
-    starts = [tokens[i].start_ms for i in covered if tokens[i].start_ms is not None]
-    ends = [tokens[i].end_ms for i in covered if tokens[i].end_ms is not None]
+    starts = [ms for i in covered if (ms := tokens[i].start_ms) is not None]
+    ends = [ms for i in covered if (ms := tokens[i].end_ms) is not None]
     # Emit the SOURCE segment indexes the covered tokens carry, NOT their stream
     # positions — the two differ whenever the stream is a scoped slice. Fall back
     # to the position only when a token carries no explicit index.
     segment_indices = sorted(
-        tokens[i].index if tokens[i].index is not None else i for i in covered
+        index if (index := tokens[i].index) is not None else i for i in covered
     )
     return AlignResult(
         score=score,

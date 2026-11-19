@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import hashlib
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -129,7 +130,7 @@ ENV_MODEL_PULL_ENABLED = "FRISKET_ENABLE_MODEL_PULL"
 
 
 def resolve_env_local_endpoint(
-    env: dict[str, str] | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig | None, list[str]]:
     """The env bundle candidate ONLY (no file/default fallback) — shared by
     ``frisket.server.provider_config.resolve_local_endpoints``, the organization-run

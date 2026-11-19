@@ -117,7 +117,7 @@ def test_discovery_probes_only_fixed_local_origins_and_adds_qualified_servers(
         (origin, provider_config.LOCAL_ENDPOINT_DISCOVERY_TIMEOUT_SECONDS)
         for _label, origin in provider_config.LOCAL_ENDPOINT_DISCOVERY_CANDIDATES
     }
-    assert result == {
+    assert result.model_dump() == {
         "candidates": [
             {
                 "label": "Ollama",
@@ -178,7 +178,7 @@ def test_discovery_does_not_probe_or_rewrite_an_already_configured_origin(
 
     assert "http://localhost:1234" not in seen
     assert len(seen) == len(provider_config.LOCAL_ENDPOINT_DISCOVERY_CANDIDATES) - 1
-    assert result["candidates"][1] == {
+    assert result.candidates[1].model_dump() == {
         "label": "LM Studio",
         "origin": "http://localhost:1234",
         "outcome": "already_added",

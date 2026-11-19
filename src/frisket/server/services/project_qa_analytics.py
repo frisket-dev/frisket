@@ -81,6 +81,13 @@ class AnalyticsMetric(_ClosedModel):
             raise ValueError("percent_of_total is available only for count and sum")
         return self
 
+    @property
+    def measured_column_id(self) -> int:
+        """The column a non-count metric reads; the validator requires it."""
+        if self.column_id is None:
+            raise ValueError(f"{self.kind} requires column_id")
+        return self.column_id
+
 
 class AnalyticsGroup(_ClosedModel):
     column_id: int = Field(ge=1)
@@ -584,17 +591,17 @@ def _aggregate_fields(
             metric_fields.append(f"COUNT(*) AS {alias}")
         elif metric.kind == "value_count":
             metric_fields.append(
-                f"COALESCE(SUM({_valid_present(request, metric.column_id)}), 0) AS {alias}"
+                f"COALESCE(SUM({_valid_present(request, metric.measured_column_id)}), 0) AS {alias}"
             )
         elif metric.kind == "missing_count":
-            pos = _column_pos(request, metric.column_id)
+            pos = _column_pos(request, metric.measured_column_id)
             metric_fields.append(
                 f"COALESCE(SUM(q{pos}='missing' OR q{pos} IS NULL "
                 f"OR (q{pos}='valid' AND (k{pos}='null' OR v{pos} IS NULL))), 0) "
                 f"AS {alias}"
             )
         elif metric.kind == "distinct_count":
-            pos = _column_pos(request, metric.column_id)
+            pos = _column_pos(request, metric.measured_column_id)
             distinct_key = (
                 f"CASE WHEN k{pos}='integer' THEN 'number:' || CAST(v{pos} AS TEXT) "
                 f"WHEN k{pos}='real' AND v{pos}=CAST(v{pos} AS INTEGER) "
@@ -603,23 +610,23 @@ def _aggregate_fields(
                 f"ELSE k{pos} || ':' || CAST(v{pos} AS TEXT) END"
             )
             metric_fields.append(
-                f"COUNT(DISTINCT CASE WHEN {_valid_present(request, metric.column_id)} "
+                f"COUNT(DISTINCT CASE WHEN {_valid_present(request, metric.measured_column_id)} "
                 f"THEN {distinct_key} END) AS {alias}"
             )
         elif metric.kind == "sum":
             metric_fields.append(
-                f"SUM({_numeric_value(request, metric.column_id)}) AS {alias}"
+                f"SUM({_numeric_value(request, metric.measured_column_id)}) AS {alias}"
             )
         elif metric.kind == "mean":
             metric_fields.append(
-                f"AVG({_numeric_value(request, metric.column_id)}) AS {alias}"
+                f"AVG({_numeric_value(request, metric.measured_column_id)}) AS {alias}"
             )
         elif metric.kind == "median":
             # Filled from its window CTE below.
             continue
         elif metric.kind in {"min", "max"}:
             metric_fields.append(
-                f"{metric.kind.upper()}({_value_expr(request, metric.column_id, columns)}) AS {alias}"
+                f"{metric.kind.upper()}({_value_expr(request, metric.measured_column_id, columns)}) AS {alias}"
             )
         else:  # pragma: no cover - Literal/model validation closes this.
             raise AssertionError(metric.kind)
@@ -654,7 +661,7 @@ def _median_ctes(
     for index, metric in enumerate(request.metrics):
         if metric.kind != "median":
             continue
-        numeric = _numeric_value(request, metric.column_id)
+        numeric = _numeric_value(request, metric.measured_column_id)
         partition = f"PARTITION BY {partitions} " if partitions else ""
         group_select = ", ".join(group_fields)
         comma = ", " if group_select else ""
@@ -692,11 +699,11 @@ def _denominator_fields(
         if metric.kind == "count":
             fields.append(f"COUNT(*) AS d{index}")
         else:
-            numeric = _numeric_value(request, metric.column_id)
+            numeric = _numeric_value(request, metric.measured_column_id)
             fields.extend(
                 (
                     f"SUM({numeric}) AS d{index}",
-                    f"COALESCE(SUM({_valid_present(request, metric.column_id)}), 0) "
+                    f"COALESCE(SUM({_valid_present(request, metric.measured_column_id)}), 0) "
                     f"AS d{index}_present",
                     f"MIN({numeric}) < 0 AND MAX({numeric}) > 0 AS d{index}_mixed",
                 )
@@ -720,7 +727,7 @@ def _and_sql(left: str, right: str) -> str:
 def _order_sql(request: AnalyticsRequest, group_fields: list[str]) -> str:
     parts: list[str] = []
     for item in request.sort:
-        if item.kind == "metric":
+        if item.metric_id is not None:
             value = _metric_ref(request, item.metric_id)
             parts.extend((f"{value} IS NULL ASC", f"{value} {item.direction.upper()}"))
         else:
@@ -840,14 +847,13 @@ def _attach_percentages(
                 continue
             denominator = denominators[metric.id]["value"]
             value = group["metrics"][metric.id]
-            percentages[metric.id] = (
+            percentage = (
                 None
                 if denominator in (None, 0) or value is None
                 else float(value) * 100.0 / float(denominator)
             )
-            if percentages[metric.id] is not None and not math.isfinite(
-                percentages[metric.id]
-            ):
+            percentages[metric.id] = percentage
+            if percentage is not None and not math.isfinite(percentage):
                 raise NumericOverflowError("numeric_overflow: " + metric.id)
         if percentages:
             group["percentages"] = percentages
@@ -860,7 +866,7 @@ def _finite_checks(request: AnalyticsRequest) -> tuple[list[str], list[float]]:
         if metric.kind not in _NUMERIC_METRICS:
             continue
         value = _metric_ref(request, metric.id)
-        pos = _column_pos(request, metric.column_id)
+        pos = _column_pos(request, metric.measured_column_id)
         checks.append(
             f"(({value} IS NULL AND a.q{pos}_present > 0) OR "
             f"({value} IS NOT NULL AND NOT ({value} BETWEEN ? AND ?)))"

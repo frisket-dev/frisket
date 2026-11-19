@@ -150,7 +150,7 @@ def test_preparation_pages_and_spools_a_large_corpus_without_retaining_payloads(
         first = next(lazy)
         assert first.messages[1]["content"].count('"row_id"') == 100
         assert first.messages[1]["content"].count("x") == 100 * width
-        assert resolved["groups"].count == count
+        assert resolved["groups"].staged == count
         lazy.close()
         _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()

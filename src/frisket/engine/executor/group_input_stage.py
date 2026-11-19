@@ -53,7 +53,7 @@ class GroupInputStage(Sequence):
         self.db.commit()
         self._cleanup = finalize(self, _cleanup, self.db, directory)
         self.source, self.group_by, self.group_type = source, group_by, group_type
-        self.count = 0
+        self.staged = 0
 
     def add(self, row_id, values):
         ordinal = self.db.execute(
@@ -86,8 +86,8 @@ class GroupInputStage(Sequence):
                 json.dumps(payload, ensure_ascii=False, allow_nan=False),
             ),
         )
-        self.count += 1
-        if self.count % 256 == 0:
+        self.staged += 1
+        if self.staged % 256 == 0:
             self.db.commit()
 
     def seal(self):

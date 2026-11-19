@@ -963,6 +963,7 @@ def _run_paid_embedding_dimension_probe(
     action: _TypedProjectEnvelope,
     params: IndexCreateParams,
     *,
+    sheet_id: int,
     cap: dict[str, Any],
     modality: str,
     project_id: str,
@@ -999,7 +1000,7 @@ def _run_paid_embedding_dimension_probe(
         run_store = RunResultStore(project)
         run_id = run_store.start_run(
             op_id,
-            int(params.sheet_id),
+            sheet_id,
             action.kind,
             model=str(params.model or cap["model_id"]),
             params=action.params,
@@ -1014,7 +1015,7 @@ def _run_paid_embedding_dimension_probe(
             "embedding probe accounting envelope could not be written",
         )
 
-    probe_row_ids = project.visible_row_ids(int(params.sheet_id))[:1]
+    probe_row_ids = project.visible_row_ids(sheet_id)[:1]
     try:
         commitment = mint_direct_effect_attempt(
             project,
@@ -1180,7 +1181,7 @@ def _run_paid_embedding_dimension_probe(
                 run_store=run_store,
                 run_id=run_id,
                 fact=provider_fact,
-                sheet_id=int(params.sheet_id),
+                sheet_id=sheet_id,
                 row_ids=probe_row_ids,
                 commit=False,
                 writer_attempt_id=attempt_id,
@@ -1234,7 +1235,7 @@ def _run_paid_embedding_dimension_probe(
                 name="source",
                 ref={
                     "kind": "embedding_source",
-                    "sheet_id": params.sheet_id,
+                    "sheet_id": sheet_id,
                     "source_columns": params.source_columns,
                     "modality": modality,
                 },
@@ -1260,7 +1261,7 @@ def _run_paid_embedding_dimension_probe(
             run_store=run_store,
             run_id=run_id,
             fact=provider_fact,
-            sheet_id=int(params.sheet_id),
+            sheet_id=sheet_id,
             row_ids=probe_row_ids,
             commit=False,
             writer_attempt_id=attempt_id,
@@ -1313,7 +1314,7 @@ def _run_paid_embedding_dimension_probe(
                 run_store=run_store,
                 run_id=run_id,
                 fact=provider_fact,
-                sheet_id=int(params.sheet_id),
+                sheet_id=sheet_id,
                 row_ids=probe_row_ids,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
@@ -1493,6 +1494,15 @@ def _create_index(
                 },
             )
         if checkpoint_state is None:
+            probe_sheet_id = params.sheet_id
+            if probe_sheet_id is None:
+                return _error(
+                    action,
+                    project_id,
+                    "invalid_params",
+                    "a dimension-discovery probe embeds a row, so it requires a sheet_id",
+                    field="params.sheet_id",
+                )
             if provider_network_blocked(
                 cap["provider_kind"],
                 network_off=project.effective_network_policy() == "off",
@@ -1522,6 +1532,7 @@ def _create_index(
                     project,
                     action,
                     params,
+                    sheet_id=probe_sheet_id,
                     cap=cap,
                     modality=modality,
                     project_id=project_id,

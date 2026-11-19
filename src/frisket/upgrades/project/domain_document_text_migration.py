@@ -3,6 +3,8 @@
 from __future__ import annotations
 import sqlite3
 
+from frisket.engine.store.transactions import inserted_rowid
+
 
 # Pinned pre-cutover selection relation. Do not import the new runtime resolver:
 # migration preserves the old effective choice before removing that fallback.
@@ -213,22 +215,22 @@ def adopt_legacy_document_text(db: sqlite3.Connection) -> dict[int, int]:
                     "SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?",
                     (sheet,),
                 ).fetchone()[0]
-                text_column = int(
+                text_column = inserted_rowid(
                     db.execute(
                         "INSERT INTO columns(sheet_id,name,type,position) VALUES(?,?,'text',?)",
                         (sheet, name, position),
-                    ).lastrowid
+                    )
                 )
                 db.execute(
                     "INSERT INTO document_text_column_roles(source_column_id,text_column_id) VALUES (?,?)",
                     (source, text_column),
                 )
                 if migration_op is None:
-                    migration_op = int(
+                    migration_op = inserted_rowid(
                         db.execute(
                             "INSERT INTO ops(kind,label,spec,undo_info,barrier) "
                             "VALUES('migration.document_text','Preserve selected document text','{}',NULL,1)"
-                        ).lastrowid
+                        )
                     )
                     producer = db.execute(
                         "INSERT INTO base_cell_producers(stage_id,op_id) VALUES (?,?)",
