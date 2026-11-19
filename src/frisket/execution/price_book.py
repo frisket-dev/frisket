@@ -42,6 +42,7 @@ from frisket.execution.targets import (
     CAPABILITY_TRANSLATE,
     DATALAB_TARGET_ID,
     CLOUDFLARE_CLEF_TARGET_ID,
+    CostPosture,
     DEEPL_TARGET_ID,
     GOOGLE_TRANSLATE_TARGET_ID,
     OPENCAGE_TARGET_ID,
@@ -82,14 +83,14 @@ Funding = Union[OperatorBorne, PlatformMetered, ByokZero]
 # ``cost_posture`` is the route row's projection of the same fact — one
 # authority, two spellings, mapped HERE so the prefix-dispatch that used to
 # answer "who pays" from a target-id string has no second home.
-_FUNDING_TO_COST_POSTURE: dict[type, str] = {
+_FUNDING_TO_COST_POSTURE: dict[type, CostPosture] = {
     OperatorBorne: "operator_borne",
     PlatformMetered: "platform_metered",
     ByokZero: "org_key",
 }
 
 
-def cost_posture_for(funding: Funding) -> str:
+def cost_posture_for(funding: Funding) -> CostPosture:
     """The route row's ``cost_posture`` for a funding class."""
     try:
         return _FUNDING_TO_COST_POSTURE[type(funding)]
