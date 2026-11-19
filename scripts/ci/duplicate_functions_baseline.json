@@ -298,14 +298,6 @@
    "src/frisket/engine/store/output_claims.py::OutputColumnClaimStore.release_for_receipt"
   ],
   [
-   "src/frisket/engine/store/project.py::Project.set_meta",
-   "src/frisket/engine/store/runs.py::RunResultStore.set_worker_version"
-  ],
-  [
-   "src/frisket/engine/store/runs.py::RunResultStore.increment_total_rows",
-   "src/frisket/engine/store/runs.py::RunResultStore.set_total_rows"
-  ],
-  [
    "src/frisket/execution/attempt.py::_decimal_text",
    "src/frisket/execution/promise_compiler.py::_decimal_string"
   ],
