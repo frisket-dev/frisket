@@ -270,6 +270,18 @@ def test_create_without_allow_remote_blocks_before_probe(project):
     assert _counts(project) == (0, 0)
 
 
+def test_create_dimension_probe_without_sheet_is_invalid_params(project):
+    gw = FakeProbeGateway(dim=_PROBE_DIM)
+    res = _run(project, _create_action(None, key="cr_nosheet@1"), gateway=gw)
+    assert res.status == "failed"
+    assert res.errors[0].code == "invalid_params"
+    assert res.errors[0].field == "params.sheet_id"
+    assert gw.calls == []
+    assert _counts(project) == (0, 0)
+    receipts = project.db.execute("SELECT COUNT(*) AS n FROM receipts").fetchone()
+    assert receipts["n"] == 0
+
+
 def test_create_string_allow_remote_never_probes(project):
     gw = FakeProbeGateway(dim=_PROBE_DIM)
     result = _run(
