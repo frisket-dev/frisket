@@ -278,9 +278,6 @@
   "C6: a PanelEmpty renders identically in a dock tab and a Discover tab": "stale-expectation",
   "R1: every dock tab body shares one frame class with identical computed padding": "stale-expectation"
  },
- "workbench-ia-ribbon.spec.ts": {
-  "contextual categories are keyed to column types in both ribbon and compact mode": "stale-expectation"
- },
  "workbench-ia-right-edge.spec.ts": {
   "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment",
   "the » overflow menu OPENS and switches to a hidden tab (regression: clipped by overflow:hidden)": "stale-expectation"

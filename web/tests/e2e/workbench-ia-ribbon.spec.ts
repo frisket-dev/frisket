@@ -231,7 +231,7 @@ test('contextual categories are keyed to column types in both ribbon and compact
   await page.getByTestId('ribbon-tab-ctx-pdf').click();
   const ribbonPdfLeaves = await orderedActLeaves(page.getByTestId('act-ribbon-band'));
   expect(ribbonPdfLeaves.length, 'PDF tools must expose at least one contextual leaf').toBeGreaterThan(0);
-  expect(ribbonPdfLeaves.map((leaf) => leaf.identity)).toContain('action:ocr');
+  expect(ribbonPdfLeaves.map((leaf) => leaf.identity)).toContain('action:media.ocr');
 
   // Compact mode renders the same contextual category and ordered items; it
   // does not discard context just because the surface density changed.
