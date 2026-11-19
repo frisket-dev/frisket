@@ -44,6 +44,7 @@ from frisket.engine.runner.confirmation_context import estimated_usd
 from frisket.server.run_status import public_run_progress
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.server.unit_of_work import ends_unit_of_work
 
 # mirror GET /sheets/{id}/data's server-side cap — sheets can be 100k rows,
 # a tool call must never return one wholesale
@@ -439,7 +440,7 @@ class LocalBackend:
             response = service.run_action(project_id, prepared)
         else:
             response = await asyncio.to_thread(
-                service.run_action,
+                ends_unit_of_work(service.run_action),
                 project_id,
                 prepared,
             )
@@ -457,7 +458,9 @@ class LocalBackend:
             worker = Worker(self.ws.queue, self.ws.registry)
             stop = threading.Event()
             task = asyncio.create_task(
-                asyncio.to_thread(worker.run_forever, stop, drain=True)
+                asyncio.to_thread(
+                    ends_unit_of_work(worker.run_forever), stop, drain=True
+                )
             )
             self._tasks.add(task)
             self._worker_stops[task] = stop
@@ -511,7 +514,7 @@ class LocalBackend:
         # Project db handles are per-thread, and the HTTP server runs this same
         # call in FastAPI's threadpool.
         result = await asyncio.to_thread(
-            run_action_spec,
+            ends_unit_of_work(run_action_spec),
             p,
             action,
             project_id=project_id,

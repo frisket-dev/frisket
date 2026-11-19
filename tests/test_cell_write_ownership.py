@@ -276,3 +276,28 @@ def test_explicit_cursors_are_an_exact_list(tmp_path: Path):
         "EXPLICIT_CURSORS count",
         "src/pkg/gone.py: no explicit .cursor() calls; delete it from EXPLICIT_CURSORS",
     ]
+
+
+def test_server_thread_handoffs_end_a_unit_of_work(tmp_path: Path):
+    # rule19: synthetic modules verify the hand-off gate without a repo.
+    server = tmp_path / "src/server"
+    server.mkdir(parents=True)
+    (server / "thread_worker.py").write_text(
+        "loop.run_in_executor(None, ctx.run, work)\n"
+    )
+    (server / "routes.py").write_text(
+        "await asyncio.to_thread(ends_unit_of_work(work), 1)\n"
+        "await run_in_threadpool(ends_unit_of_work(work))\n"
+        "await asyncio.to_thread(work)\n"
+        "await run_in_threadpool(work)\n"
+        "loop.run_in_executor(None, work)\n"
+        "await anyio.to_thread.run_sync(work)\n"
+    )
+    problems = checker.check_thread_handoffs(
+        root=tmp_path, scope=("src/server",), owner="src/server/thread_worker.py"
+    )
+    suffix = (
+        ": thread hand-off without a unit of work; use await_thread_worker "
+        "or wrap the callable in ends_unit_of_work"
+    )
+    assert problems == [f"src/server/routes.py:{line}{suffix}" for line in (3, 4, 5, 6)]

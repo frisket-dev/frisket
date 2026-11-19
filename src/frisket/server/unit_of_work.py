@@ -12,19 +12,23 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
-def ends_unit_of_work(call: Callable[_P, _R], *, unit: str) -> Callable[_P, _R]:
+def ends_unit_of_work(
+    call: Callable[_P, _R], *, unit: str | None = None
+) -> Callable[_P, _R]:
     """``call`` as one unit of work: work it leaves uncommitted is rolled back.
 
     The rollback runs on the thread that ran ``call``, because project
-    connections are per thread.
+    connections are per thread. Work handed to another thread is its own
+    unit of work there; ``unit`` names it in the log.
     """
+    name = unit or getattr(call, "__qualname__", None) or repr(call)
 
     @wraps(call)
     def run(*args: _P.args, **kwargs: _P.kwargs) -> _R:
         try:
             return call(*args, **kwargs)
         finally:
-            roll_back_unfinished_work(unit=unit)
+            roll_back_unfinished_work(unit=name)
 
     return run
 
@@ -53,6 +57,11 @@ class UnitOfWorkRoute(APIRoute):
     share its transaction with every request the loop ran meanwhile). A
     streaming endpoint keeps running after its call returns and is left as
     it is.
+
+    A project transaction must not span an ``await`` on the server loop: the
+    rollback at the end of an ``async def`` endpoint covers every project
+    connection of the loop thread. ``unfinished_work_rolled_back`` logged
+    for a request that succeeded means some coroutine holds one.
     """
 
     def get_route_handler(self):

@@ -13,7 +13,10 @@ the ``"BEGIN IMMEDIATE"`` literal belongs to ``store/transactions.py``; the
 remaining hand-written boundaries are an exact, shrink-only list. Explicit
 ``.cursor()`` calls are an exact, shrink-only list as well: the project
 connection rolls back the implicit transaction a failing ``execute`` opened,
-and a cursor's statements bypass that rule.
+and a cursor's statements bypass that rule. Server work handed to another
+thread ends its unit of work there: a hand-off in the server and team
+packages goes through ``await_thread_worker`` or wraps its callable in
+``ends_unit_of_work``.
 """
 
 from __future__ import annotations
@@ -160,6 +163,14 @@ EXPLICIT_CURSORS: Mapping[str, int] = {
     "src/frisket/engine/jobs/queue.py": 2,
     "src/frisket/engine/jobs/queue_provision.py": 1,
 }
+
+
+HANDOFF_SCOPE = ("src/frisket/server", "src/frisket/team")
+# The one module that hands work to the executor itself.
+HANDOFF_OWNER = "src/frisket/server/thread_worker.py"
+_HANDOFF_CALLS = frozenset(
+    {"to_thread", "run_in_threadpool", "run_in_executor", "run_sync"}
+)
 
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
@@ -435,6 +446,53 @@ def check_explicit_cursors(
     return problems
 
 
+def _call_name(func: ast.expr) -> str | None:
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return None
+
+
+def _bare_handoff_lines(path: Path) -> list[int]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if (
+            not isinstance(node, ast.Call)
+            or _call_name(node.func) not in _HANDOFF_CALLS
+        ):
+            continue
+        callable_index = 1 if _call_name(node.func) == "run_in_executor" else 0
+        target = node.args[callable_index] if len(node.args) > callable_index else None
+        if not (
+            isinstance(target, ast.Call)
+            and _call_name(target.func) == "ends_unit_of_work"
+        ):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def check_thread_handoffs(
+    *,
+    root: Path,
+    scope: Iterable[str] = HANDOFF_SCOPE,
+    owner: str = HANDOFF_OWNER,
+) -> list[str]:
+    problems: list[str] = []
+    for directory in scope:
+        for path in sorted((root / directory).rglob("*.py")):
+            relative = path.relative_to(root).as_posix()
+            if relative == owner:
+                continue
+            problems.extend(
+                f"{relative}:{line}: thread hand-off without a unit of work; use "
+                "await_thread_worker or wrap the callable in ends_unit_of_work"
+                for line in _bare_handoff_lines(path)
+            )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -461,6 +519,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.paths
         else check_transaction_owners(root=args.root)
         + check_explicit_cursors(root=args.root)
+        + check_thread_handoffs(root=args.root)
     )
     for problem in problems:
         print(problem)

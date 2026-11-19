@@ -12,6 +12,7 @@ import httpx
 import jwt
 
 from frisket.team.config import TeamConfig
+from frisket.server.unit_of_work import ends_unit_of_work
 
 
 def smtp_sender(config: TeamConfig):
@@ -34,7 +35,7 @@ def smtp_sender(config: TeamConfig):
                     smtp.login(config.smtp_username, config.smtp_password or "")
                 smtp.send_message(message)
 
-        await asyncio.to_thread(_send)
+        await asyncio.to_thread(ends_unit_of_work(_send))
         return True
 
     return send
@@ -111,7 +112,9 @@ def production_oidc_exchange(config: TeamConfig):
 async def validate_provider_credential(provider: str, secret: str) -> bool:
     from frisket.server.provider_config import probe_provider
 
-    result = await asyncio.to_thread(probe_provider, provider, secret, timeout=10.0)
+    result = await asyncio.to_thread(
+        ends_unit_of_work(probe_provider), provider, secret, timeout=10.0
+    )
     if not result["reachable"]:
         raise RuntimeError("Provider could not be reached")
     return bool(result["ok"])

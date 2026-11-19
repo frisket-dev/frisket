@@ -14,13 +14,15 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from fastapi import HTTPException
+from fastapi import APIRouter, HTTPException
 from fastapi.testclient import TestClient
 
 from frisket.engine.jobs.queue import SqliteJobQueue
 from frisket.engine.jobs.worker import HandlerRegistry, Worker
 from frisket.engine.store import Project
 from frisket.engine.store.transactions import write_transaction
+from frisket.server.routes.models_gateway import ModelsGatewayAPIRoute
+from frisket.server.thread_worker import await_thread_worker
 from tests.helpers import make_client
 
 
@@ -30,6 +32,18 @@ def _write_op(project: Project, label: str) -> None:
         "VALUES ('unit_of_work_probe', ?, '{}', '{}', 0)",
         (label,),
     )
+
+
+def _write_lock_is_free(db_path: Path) -> bool:
+    peer = sqlite3.connect(db_path, isolation_level=None, timeout=0)
+    try:
+        peer.execute("BEGIN IMMEDIATE")
+        peer.execute("ROLLBACK")
+        return True
+    except sqlite3.OperationalError:
+        return False
+    finally:
+        peer.close()
 
 
 def _committed_labels(db_path: Path) -> list[str]:
@@ -86,6 +100,32 @@ def _with_probe_routes(client: TestClient) -> tuple[TestClient, str, Path]:
             _write_op(workspace.get(pid), "nested checkout")
         return {"status": "ok"}
 
+    @app.post("/probe/{pid}/handed-off-write-then-fail")
+    async def handed_off_write_then_fail(pid: str) -> dict[str, str]:
+        def work() -> None:
+            _write_op(workspace.get(pid), "failed hand-off")
+            raise HTTPException(409, "refused after a write")
+
+        return await await_thread_worker(work)
+
+    @app.post("/probe/{pid}/handed-off-owned-write")
+    async def handed_off_owned_write(pid: str) -> dict[str, str]:
+        def work() -> dict[str, str]:
+            project = workspace.get(pid)
+            with write_transaction(project.db):
+                _write_op(project, "handed-off owned")
+            return {"status": "ok"}
+
+        return await await_thread_worker(work)
+
+    gateway = APIRouter(route_class=ModelsGatewayAPIRoute)
+
+    @gateway.post("/probe/{pid}/gateway-write-then-fail")
+    def gateway_write_then_fail(pid: str) -> dict[str, str]:
+        _write_op(workspace.get(pid), "failed gateway")
+        raise HTTPException(409, "refused after a write")
+
+    app.include_router(gateway)
     return client, project_id, workspace.get(project_id).db_path
 
 
@@ -121,6 +161,32 @@ def test_a_request_that_never_commits_its_write_does_not_publish_it(probe_client
     assert client.post(f"/probe/{pid}/owned-write").status_code == 200
 
     assert _committed_labels(db_path) == ["first owned", "nested checkout"]
+
+
+def test_handed_off_work_that_fails_after_a_write_leaves_nothing_behind(
+    probe_client,
+):
+    client, pid, db_path = probe_client
+
+    failed = client.post(f"/probe/{pid}/handed-off-write-then-fail")
+
+    assert failed.status_code == 409
+    assert _committed_labels(db_path) == []
+    assert _write_lock_is_free(db_path)
+    for _ in range(4):
+        following = client.post(f"/probe/{pid}/handed-off-owned-write")
+        assert following.status_code == 200, following.text
+    assert _committed_labels(db_path) == ["handed-off owned"] * 4
+
+
+def test_a_route_class_built_on_the_unit_of_work_route_ends_its_unit(probe_client):
+    client, pid, db_path = probe_client
+
+    failed = client.post(f"/probe/{pid}/gateway-write-then-fail")
+
+    assert failed.status_code == 409
+    assert _committed_labels(db_path) == []
+    assert _write_lock_is_free(db_path)
 
 
 def test_a_job_that_fails_after_a_write_leaves_nothing_behind(tmp_path):
