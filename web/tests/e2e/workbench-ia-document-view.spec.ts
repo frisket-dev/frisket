@@ -3,7 +3,7 @@
 //
 // Bound here: (1) '▣ Document' joins the SAME view switcher,
 // data-keyed to a media/file column, and REPLACES the grid region (not a split);
-// switching views clears view-local row selection without changing sort/filter. (2) Left doc
+// switching views keeps the row selection and sort/filter. (2) Left doc
 // list = the collection in the sheet's CURRENT order. (3) Center reader: pdf.js
 // continuous pages, self-hosted worker (NO CDN). (4) Two nexts: list click/keys
 // change the DOCUMENT, header ‹ › change the PAGE. (5) Document focus stays local
@@ -350,7 +350,6 @@ test('document browsing does not become a hidden Run-selected scope', async ({ p
   const { pid, sheetId } = await seedDocSheet(page, { extraDocs: true });
   await openProject(page, pid, sheetId);
 
-  await selectRow(page, 0);
   await page.getByTestId('view-switch-document').click();
   await page.getByTestId('document-list-item').nth(1).click();
   await page.getByTestId('view-switch-grid').click();
@@ -361,6 +360,21 @@ test('document browsing does not become a hidden Run-selected scope', async ({ p
   await drawer.getByTestId('generated-action-run-scope-menu-button').click();
   await expect(page.getByTestId('generated-action-run-scope-menu')).toBeVisible();
   await expect(page.getByTestId('generated-action-row-scope-selected')).toHaveCount(0);
+});
+
+test('a grid selection survives document browsing unchanged as the Run-selected scope', async ({ page }) => {
+  const { pid, sheetId } = await seedDocSheet(page, { extraDocs: true });
+  await openProject(page, pid, sheetId);
+
+  await selectRow(page, 0);
+  await selectRow(page, 2);
+  await page.getByTestId('view-switch-document').click();
+  await page.getByTestId('document-list-item').nth(1).click();
+  await page.getByTestId('view-switch-grid').click();
+
+  await openAction(page, 'media.to_markdown');
+  const drawer = page.getByTestId('action-drawer');
+  await expect(drawer.locator('.run-scope-summary')).toHaveText('2 selected rows will run');
 });
 
 test('the ⚙ view options popover exposes document controls persisted per project', async ({

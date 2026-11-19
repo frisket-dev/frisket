@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Response } from '@playwright/test';
+import type { ProjectSearchRequestWire, ProjectSearchResponseWire } from '../../src/api/projectSearch';
 import { openPalette, openProject, projectIdByName } from './helpers';
 
 test('search panel exposes semantic mode + rerank and sends those params to search', async ({ page }) => {
@@ -6,43 +7,50 @@ test('search panel exposes semantic mode + rerank and sends those params to sear
   const query = 'listeria';
   await openProject(page, pid);
 
+  const searchSent = (rerank: 'on' | 'off') => (response: Response) => {
+    const request = response.request();
+    if (request.method() !== 'POST') return false;
+    if (new URL(request.url()).pathname !== `/api/projects/${pid}/search`) return false;
+    const body: ProjectSearchRequestWire = request.postDataJSON();
+    return body.mode === 'semantic'
+      && body.ranking?.rerank === rerank
+      && body.query.kind === 'text'
+      && body.query.text === query;
+  };
+
   // Search folded into the ⌘K palette's SEARCH section (workbench-ia-focus-v1);
   // its mode + rerank knobs live in that section's header.
-  await openPalette(page);
+  const palette = await openPalette(page);
 
   // Mode control switches keyword <-> semantic; a rerank toggle sits beside it.
   await page.getByTestId('search-mode-select').selectOption('semantic');
-  await page.getByTestId('search-rerank-toggle').check();
-
-  const searchResponse = page.waitForResponse((response) => {
-    const request = response.request();
-    if (request.method() !== 'POST') return false;
-    const url = new URL(request.url());
-    if (url.pathname !== `/api/projects/${pid}/search`) return false;
-    const body = request.postDataJSON() as Record<string, unknown>;
-    return body.mode === 'semantic'
-      && (body.ranking as { rerank?: string }).rerank === 'on'
-      && (body.query as { kind?: string; text?: string }).kind === 'text'
-      && (body.query as { text?: string }).text === query;
-  });
-
-  // The knobs are visible in the wire request. Rerank "on" requires the local
-  // reranker, which no setup step installs: without it the palette names the
-  // missing model instead of showing unreranked hits.
+  const semanticResponse = page.waitForResponse(searchSent('off'));
   await page.getByTestId('command-palette-input').fill(query);
-  const reranked = await searchResponse;
-  if (reranked.ok()) {
-    await expect(page.getByTestId('search-results')).toBeVisible();
-  } else {
-    expect(reranked.status()).toBe(422);
-    await expect(page.getByTestId('workbench-region-commandPalette'))
-      .toContainText('reranking model');
-  }
+  const semantic = await semanticResponse;
+  expect(semantic.ok()).toBe(true);
 
-  // Semantic mode without a required rerank returns ranked hits.
-  await page.getByTestId('search-rerank-toggle').uncheck();
+  // Semantic mode without rerank returns ranked hits.
   await expect(page.getByTestId('search-results')).toBeVisible();
   expect(await page.getByTestId('search-hit').count()).toBeGreaterThan(0);
+
+  // The server's answer decides whether Rerank can run. No setup step installs
+  // the local reranker model, so where it is missing the toggle is disabled and
+  // names what is missing as its tooltip and accessible description.
+  const response: ProjectSearchResponseWire = await semantic.json();
+  const reason = response.coverage.rerank_unavailable_reason ?? null;
+  const toggle = page.getByRole('checkbox', { name: 'Rerank' });
+  if (reason !== null) {
+    expect(reason).toContain('Rerank');
+    await expect(toggle).toBeDisabled();
+    await expect(toggle).not.toBeChecked();
+    await expect(toggle).toHaveAccessibleDescription(reason);
+    await expect(palette.locator('label.palette-search-rerank')).toHaveAttribute('title', reason);
+  } else {
+    const rerankedResponse = page.waitForResponse(searchSent('on'));
+    await toggle.check();
+    expect((await rerankedResponse).ok()).toBe(true);
+    await expect(page.getByTestId('search-results')).toBeVisible();
+  }
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('workbench-region-commandPalette')).toBeHidden();

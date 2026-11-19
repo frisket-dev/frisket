@@ -1,7 +1,4 @@
 {
- "answers-view-shell.spec.ts": {
-  "selection syncs BOTH ways through SelectedGridRows, matching the Document view contract": "stale-expectation"
- },
  "column-format.spec.ts": {
   "AI-generated text columns can be saved as markdown from the column drawer": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
