@@ -1025,10 +1025,7 @@ def launch_queued_action_job(
             job_kind=job_kind,
         )
     return ActionResult(
-        action={
-            "kind": envelope.action_kind,
-            "action_id": envelope.action_id,
-        },
+        action=ActionIdentity(kind=envelope.action_kind, action_id=envelope.action_id),
         status="queued",
         project_id=envelope.project_id,
         run_id=None,
