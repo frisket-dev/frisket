@@ -17,6 +17,7 @@ from frisket.execution.action_admission import (
 from frisket.actions.types import RowError
 
 from frisket.contracts.action import (
+    ActionResultStatus,
     ActionError,
     ActionIdentity,
     ActionResult,
@@ -356,7 +357,7 @@ def _queue_v1_project_run_request(
     def abort_prepare(
         error: ActionError,
         *,
-        status: str = "failed",
+        status: ActionResultStatus = "failed",
     ) -> ActionResult:
         """Close a failed pre-enqueue preparation without changing ownership.
 

@@ -8,11 +8,12 @@ import logging
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from frisket.ops.capture import url as url_capture
 from frisket.contracts.action import (
+    ActionResultStatus,
     ActionError,
     ActionResult,
     Receipt,
@@ -761,7 +762,7 @@ def _finalize_web_capture_page_links(
     row_ids: list[int],
     input_column: dict[str, Any],
     row_results: list[dict[str, Any]],
-    status: str,
+    status: ActionResultStatus,
     status_counts: dict[str, int],
     errors: list[ActionError],
 ) -> ActionResult:
@@ -1137,7 +1138,7 @@ def _web_capture_page_links_receipt(
     input_column: dict[str, Any],
     row_results: list[dict[str, Any]],
     write: Any,
-    status: str,
+    status: ActionResultStatus,
     status_counts: dict[str, int],
     errors: list[ActionError],
 ) -> Receipt:
@@ -1252,7 +1253,7 @@ def _web_capture_page_receipt(
     row_results: list[dict[str, Any]],
     evidence_refs: list[dict[str, Any]],
     op_id: int,
-    status: str,
+    status: ActionResultStatus,
     status_counts: dict[str, int],
     errors: list[ActionError],
 ) -> Receipt:
@@ -1750,7 +1751,9 @@ def _capture_page_failure_details(
     return details
 
 
-def _capture_page_action_status(status_counts: dict[str, int]) -> str:
+def _capture_page_action_status(
+    status_counts: dict[str, int],
+) -> Literal["completed", "partial", "failed"]:
     successes = status_counts.get("captured", 0)
     errors = status_counts.get("error", 0)
     if successes <= 0 and errors > 0:

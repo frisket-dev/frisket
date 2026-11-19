@@ -18,6 +18,7 @@ from frisket.actions.core import _ProjectAction
 from frisket.actions.system import BoundTypedActionRequest
 from frisket.actions.types import PolledSource, SourcePoller, SourcePollSelector
 from frisket.contracts.action import (
+    ActionResultStatus,
     ActionError,
     ActionIdentity,
     ActionOutput,
@@ -1090,7 +1091,7 @@ def _feed_poll_receipt(
     params_hash: str,
     op_ids: list[int],
     refs: dict[str, dict[str, Any]],
-    status: str,
+    status: ActionResultStatus,
     warnings: list[str],
     provider_use: list[dict[str, Any]],
     errors: list[ActionError],

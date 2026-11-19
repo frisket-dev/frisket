@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from frisket.contracts.action import ActionError
 from frisket.engine.store.runs import FAILURE_OUTCOMES, outcome_sql_list
@@ -474,7 +474,9 @@ def row_failure_errors(
     ]
 
 
-def model_run_status(facts: CapturedFacts) -> str:
+def model_run_status(
+    facts: CapturedFacts,
+) -> Literal["completed", "partial", "failed"]:
     total, failed = facts.total_rows, facts.failed_rows
     if total > 0 and failed >= total:
         return "failed"
