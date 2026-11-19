@@ -99,14 +99,12 @@ function refreshPolicyLabel(
     return 'Manual refresh. Remote refreshes will ask again before sending data.';
   }
   const maxCost = Number(form.maxCost);
-  // An empty field is `Number('') === 0` and a junk one is NaN; neither is a
-  // ceiling the user typed. Composing "pre-authorized up to no cost limit"
-  // out of a blank input stated an unbounded standing spend authorization
-  // the user never granted. No figure, no authorization sentence.
+  // An empty field is `Number('') === 0` and a junk one is NaN; neither is an
+  // allowance the user typed, so no sentence states one.
   if (!(maxCost > 0)) {
-    return `Unattended remote refresh needs a per-refresh cost limit before ${providerLabel(form.provider)} is pre-authorized.`;
+    return `Unattended remote refresh with ${providerLabel(form.provider)} needs an allowance per refresh.`;
   }
-  return `Unattended remote refresh is pre-authorized up to ${formatUsd(maxCost)} per refresh with ${providerLabel(form.provider)}.`;
+  return `Unattended remote refresh runs without asking within an allowance of ${formatUsd(maxCost)} per refresh with ${providerLabel(form.provider)}.`;
 }
 
 interface CustomEmbeddingModelDetailProps {
@@ -416,17 +414,17 @@ export function CreateEmbeddingIndexDialog({
                 checked={form.allowRemoteAutomaticRefresh}
                 onChange={(e) => onAllowAutoRefreshChange(e.target.checked)}
               />
-              Pre-authorize unattended remote refresh
+              Allow unattended remote refresh within an allowance
             </label>
             <p className="form-hint" data-testid="embedding-auto-refresh-note">
-              This only pre-authorizes cost + data egress so a future scheduled
-              or on-new-rows refresh can run without re-confirming. It does not
-              enable a schedule here. Refresh stays manual until you set one.
+              This only sets an allowance, so a future scheduled or on-new-rows
+              refresh can send data and spend within it without asking. It does
+              not enable a schedule here. Refresh stays manual until you set one.
             </p>
             {autoRefreshOn && (
               <div className="content-stack" data-testid="embedding-auto-confirm">
                 <label className="form-label" htmlFor="embedding-max-cost">
-                  Max cost per refresh (USD)
+                  Allowance per refresh (USD)
                 </label>
                 <TextInput
                   id="embedding-max-cost"
