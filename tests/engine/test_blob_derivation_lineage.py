@@ -35,12 +35,8 @@ def _clip_source(blob_hash: str, *, duration_ms: int = 5000) -> ClipSource:
     )
 
 
-def _new_project(tmp_path: Path, name: str = "lineage") -> Project:
-    return Project.create(tmp_path / f"{name}.frisket")
-
-
-def test_creating_a_clip_records_a_lineage_row(tmp_path: Path) -> None:
-    project = _new_project(tmp_path)
+def test_creating_a_clip_records_a_lineage_row(make_project) -> None:
+    project = make_project("lineage")
     source_hash = project.add_blob(
         _wav_bytes(5.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -69,8 +65,8 @@ def test_creating_a_clip_records_a_lineage_row(tmp_path: Path) -> None:
     assert chain[0]["params"]["end_ms"] == 2000
 
 
-def test_lineage_survives_project_reopen(tmp_path: Path) -> None:
-    project = _new_project(tmp_path)
+def test_lineage_survives_project_reopen(tmp_path: Path, make_project) -> None:
+    project = make_project("lineage")
     source_hash = project.add_blob(
         _wav_bytes(5.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -89,8 +85,8 @@ def test_lineage_survives_project_reopen(tmp_path: Path) -> None:
     assert chain[0]["source_hash"] == source_hash
 
 
-def test_a_clip_of_a_clip_chains(tmp_path: Path) -> None:
-    project = _new_project(tmp_path)
+def test_a_clip_of_a_clip_chains(make_project) -> None:
+    project = make_project("lineage")
     source_hash = project.add_blob(
         _wav_bytes(5.0), filename="hearing.wav", mime="audio/wav"
     )
@@ -128,9 +124,9 @@ def test_a_clip_of_a_clip_chains(tmp_path: Path) -> None:
 
 
 def test_recording_derivation_fails_closed_when_source_blob_missing(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project = _new_project(tmp_path)
+    project = make_project("lineage")
     # A derived blob DOES exist in the store...
     derived_hash = project.add_blob(
         _wav_bytes(1.0), filename="clip.wav", mime="audio/wav"

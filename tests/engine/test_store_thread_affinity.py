@@ -25,19 +25,13 @@ import inspect
 import pkgutil
 import sqlite3
 import threading
-from pathlib import Path
 from typing import Any
 
 import pytest
 
 import frisket.ai.embeddings.store as embeddings_store
 import frisket.engine.store as store_package
-from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
-
-
-def _project(tmp_path: Path) -> Project:
-    return Project.create(tmp_path / "affinity.frisket", name="affinity")
 
 
 def _in_new_thread(call: Any) -> Any:
@@ -96,10 +90,10 @@ def _project_backed_store_classes() -> list[type]:
 
 
 def test_run_result_store_serves_the_calling_threads_connection(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """The exact seam the queued run flaked on."""
-    project = _project(tmp_path)
+    project = make_project("affinity")
     store = RunResultStore(project)
     main_connection = project.db
 
@@ -109,11 +103,11 @@ def test_run_result_store_serves_the_calling_threads_connection(
     assert store_db is not main_connection
 
 
-def test_run_result_store_reads_do_not_race_across_threads(tmp_path: Path) -> None:
+def test_run_result_store_reads_do_not_race_across_threads(make_project) -> None:
     """Two threads driving the same store must not corrupt sqlite's statement
     cache. Before the fix this raised ``sqlite3.InterfaceError: bad parameter
     or other API misuse`` well inside the first few hundred iterations."""
-    project = _project(tmp_path)
+    project = make_project("affinity")
     sheet_id = project.add_sheet("rows")
     op_id = project.append_change("map.template", {"kind": "map.template"})
     store = RunResultStore(project)
@@ -150,14 +144,14 @@ def test_run_result_store_reads_do_not_race_across_threads(tmp_path: Path) -> No
     ids=lambda cls: f"{cls.__module__.rsplit('.', 1)[-1]}.{cls.__name__}",
 )
 def test_project_backed_stores_never_cache_a_connection(
-    store_class: type, tmp_path: Path
+    store_class: type, make_project
 ) -> None:
     """Closure fence: no project-backed store may pin one thread's connection.
 
     A new store that writes ``self.db = project.db`` in ``__init__`` fails
     here the moment it is added, without anyone re-enumerating the list.
     """
-    project = _project(tmp_path)
+    project = make_project("affinity")
     store = store_class(project)
     if not hasattr(store, "db"):
         pytest.skip(f"{store_class.__name__} exposes no connection attribute")

@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
     record_citation,
@@ -19,17 +18,13 @@ _HASH = _text_hash("hello world")
 _HASH2 = _text_hash("something else")
 
 
-def _project(tmp_path):
-    return Project.create(tmp_path / "s.frisket", name="s")
-
-
 def _artifact(p):
     return record_source_artifact(p, artifact_kind="text", media_type="text/plain")
 
 
 class TestRecordTextSurface:
-    def test_cell_surface_round_trips(self, tmp_path):
-        p = _project(tmp_path)
+    def test_cell_surface_round_trips(self, make_project):
+        p = make_project("s")
         try:
             s = record_text_surface(
                 p,
@@ -52,8 +47,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_dedup_same_identity_returns_same_row(self, tmp_path):
-        p = _project(tmp_path)
+    def test_dedup_same_identity_returns_same_row(self, make_project):
+        p = make_project("s")
         try:
             a = record_text_surface(
                 p,
@@ -81,8 +76,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_different_content_hash_is_a_new_surface(self, tmp_path):
-        p = _project(tmp_path)
+    def test_different_content_hash_is_a_new_surface(self, make_project):
+        p = make_project("s")
         try:
             a = record_text_surface(
                 p,
@@ -106,8 +101,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_composite_surface_and_identity(self, tmp_path):
-        p = _project(tmp_path)
+    def test_composite_surface_and_identity(self, make_project):
+        p = make_project("s")
         try:
             s = record_text_surface(
                 p,
@@ -122,10 +117,10 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_composite_diagnostics_do_not_change_identity(self, tmp_path):
+    def test_composite_diagnostics_do_not_change_identity(self, make_project):
         """Only surface_ref['identity'] enters the stable id — a diagnostics note
         must not fork the surface."""
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             a = record_text_surface(
                 p,
@@ -151,8 +146,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_cell_without_locator_raises(self, tmp_path):
-        p = _project(tmp_path)
+    def test_cell_without_locator_raises(self, make_project):
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -166,8 +161,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_composite_with_locator_raises(self, tmp_path):
-        p = _project(tmp_path)
+    def test_composite_with_locator_raises(self, make_project):
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -180,8 +175,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_composite_with_value_ref_raises(self, tmp_path):
-        p = _project(tmp_path)
+    def test_composite_with_value_ref_raises(self, make_project):
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -195,8 +190,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_invalid_kind_raises(self, tmp_path):
-        p = _project(tmp_path)
+    def test_invalid_kind_raises(self, make_project):
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -208,10 +203,10 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_composite_without_identity_raises(self, tmp_path):
+    def test_composite_without_identity_raises(self, make_project):
         """A composite must carry its provenance, or distinct compositions with the
         same text would silently collapse to one row."""
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -231,8 +226,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_invalid_offset_unit_raises_valueerror(self, tmp_path):
-        p = _project(tmp_path)
+    def test_invalid_offset_unit_raises_valueerror(self, make_project):
+        p = make_project("s")
         try:
             with pytest.raises(ValueError):
                 record_text_surface(
@@ -247,10 +242,10 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_invalid_content_hash_raises_valueerror(self, tmp_path):
+    def test_invalid_content_hash_raises_valueerror(self, make_project):
         """A malformed hash is a clean ValueError, not a raw IntegrityError leaking
         through the concurrent-insert handler."""
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             for bad in ("deadbeef", "sha256:NOTHEX", "sha256:" + "A" * 64):
                 with pytest.raises(ValueError):
@@ -266,11 +261,11 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_same_cell_differing_value_ref_dedups(self, tmp_path):
+    def test_same_cell_differing_value_ref_dedups(self, make_project):
         """content_hash + locator fully define the coordinate space, and no reader
         consumes the surface's value_ref — so the same cell text at different value
         refs is ONE surface. value_ref must not fork the append-only row."""
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             a = record_text_surface(
                 p,
@@ -296,8 +291,8 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_different_locator_is_new_surface(self, tmp_path):
-        p = _project(tmp_path)
+    def test_different_locator_is_new_surface(self, make_project):
+        p = make_project("s")
         try:
             a = record_text_surface(
                 p,
@@ -321,9 +316,9 @@ class TestRecordTextSurface:
         finally:
             p.close()
 
-    def test_ensure_inside_caller_transaction_is_usable(self, tmp_path):
+    def test_ensure_inside_caller_transaction_is_usable(self, make_project):
         """A surface recorded inside a caller-owned transaction commits with it."""
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             p.db.execute("BEGIN")
             s = record_text_surface(
@@ -348,8 +343,8 @@ class TestRecordTextSurface:
 
 
 class TestSpanAndLinkThreading:
-    def test_span_carries_surface_id(self, tmp_path):
-        p = _project(tmp_path)
+    def test_span_carries_surface_id(self, make_project):
+        p = make_project("s")
         try:
             art = _artifact(p)
             surf = record_text_surface(
@@ -387,9 +382,9 @@ class TestSpanAndLinkThreading:
         ],
     )
     def test_invalid_character_range_raises_cleanly(
-        self, tmp_path, start, end, surface, layer_hash
+        self, make_project, start, end, surface, layer_hash
     ):
-        p = _project(tmp_path)
+        p = make_project("s")
         try:
             art = _artifact(p)
             with pytest.raises(ValueError):
@@ -406,8 +401,8 @@ class TestSpanAndLinkThreading:
         finally:
             p.close()
 
-    def test_surface_hash_mismatch_raises_cleanly(self, tmp_path):
-        p = _project(tmp_path)
+    def test_surface_hash_mismatch_raises_cleanly(self, make_project):
+        p = make_project("s")
         try:
             art = _artifact(p)
             surf = record_text_surface(
@@ -432,8 +427,8 @@ class TestSpanAndLinkThreading:
         finally:
             p.close()
 
-    def test_link_carries_layer_family(self, tmp_path):
-        p = _project(tmp_path)
+    def test_link_carries_layer_family(self, make_project):
+        p = make_project("s")
         try:
             art = _artifact(p)
             span = record_source_span(
@@ -464,8 +459,8 @@ class TestSpanAndLinkThreading:
     @pytest.mark.parametrize(
         "bad", ["Entities", " entities", "x" * 65, "", "foo bar", "a/b", "1abc", "x!"]
     )
-    def test_invalid_layer_family_rejected(self, tmp_path, bad):
-        p = _project(tmp_path)
+    def test_invalid_layer_family_rejected(self, make_project, bad):
+        p = make_project("s")
         try:
             art = _artifact(p)
             span = record_source_span(
@@ -485,8 +480,8 @@ class TestSpanAndLinkThreading:
         finally:
             p.close()
 
-    def test_link_without_family_stays_null(self, tmp_path):
-        p = _project(tmp_path)
+    def test_link_without_family_stays_null(self, make_project):
+        p = make_project("s")
         try:
             art = _artifact(p)
             span = record_source_span(

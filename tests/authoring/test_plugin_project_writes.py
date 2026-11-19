@@ -26,12 +26,6 @@ def _attr(module, name: str):
     return getattr(module, name)
 
 
-def _make_project(tmp_path):
-    from frisket.engine.store.project import Project
-
-    return Project.create(tmp_path / "writes.frisket", name="writes")
-
-
 # --------------------------------------------------------------------------- #
 # 1. The closed WritePlan schema: three ops, plan-local refs, unknown-field
 #    rejection and schema-declared bounds.
@@ -137,14 +131,14 @@ def test_write_plan_bounds_are_schema_declared_constants() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_undeclared_capability_is_a_loud_rejection(tmp_path) -> None:
+def test_undeclared_capability_is_a_loud_rejection(make_project) -> None:
     apply_mod = _module(APPLY_MODULE)
     contracts = _module(CONTRACTS_MODULE)
     apply_write_plan = _attr(apply_mod, "apply_write_plan")
     writes_cap = _attr(contracts, "PROJECT_WRITES_CAPABILITY")
     assert writes_cap == "plugin:project_writes"
 
-    project = _make_project(tmp_path)
+    project = make_project("writes")
     plan = {
         "schema_version": _attr(contracts, "WRITE_PLAN_SCHEMA_VERSION"),
         "ops": [{"op": "create_sheet", "sheet_ref": "s1", "name": "People"}],
@@ -161,13 +155,13 @@ def test_undeclared_capability_is_a_loud_rejection(tmp_path) -> None:
     assert project.sheets() == []
 
 
-def test_collision_hard_fails_and_applies_nothing(tmp_path) -> None:
+def test_collision_hard_fails_and_applies_nothing(make_project) -> None:
     apply_mod = _module(APPLY_MODULE)
     contracts = _module(CONTRACTS_MODULE)
     apply_write_plan = _attr(apply_mod, "apply_write_plan")
     writes_cap = _attr(contracts, "PROJECT_WRITES_CAPABILITY")
 
-    project = _make_project(tmp_path)
+    project = make_project("writes")
     project.add_sheet("People")  # pre-existing name
     before = {row["name"] for row in project.sheets()}
 
@@ -186,7 +180,7 @@ def test_collision_hard_fails_and_applies_nothing(tmp_path) -> None:
     assert {row["name"] for row in project.sheets()} == before
 
 
-def test_atomicity_nth_invalid_op_applies_nothing(tmp_path) -> None:
+def test_atomicity_nth_invalid_op_applies_nothing(make_project) -> None:
     """Disposition #2: a plan whose later op is invalid leaves ZERO partial state —
     proven by store inspection (no sheet, no op row, op_cursor unmoved)."""
     apply_mod = _module(APPLY_MODULE)
@@ -194,7 +188,7 @@ def test_atomicity_nth_invalid_op_applies_nothing(tmp_path) -> None:
     apply_write_plan = _attr(apply_mod, "apply_write_plan")
     writes_cap = _attr(contracts, "PROJECT_WRITES_CAPABILITY")
 
-    project = _make_project(tmp_path)
+    project = make_project("writes")
     cursor_before = project.get_meta("op_cursor")
     op_rows_before = project.db.execute("SELECT COUNT(*) AS n FROM ops").fetchone()["n"]
 
@@ -223,14 +217,14 @@ def test_atomicity_nth_invalid_op_applies_nothing(tmp_path) -> None:
 
 
 def test_success_applies_atomically_records_one_undoable_op_and_a_receipt(
-    tmp_path,
+    make_project,
 ) -> None:
     apply_mod = _module(APPLY_MODULE)
     contracts = _module(CONTRACTS_MODULE)
     apply_write_plan = _attr(apply_mod, "apply_write_plan")
     writes_cap = _attr(contracts, "PROJECT_WRITES_CAPABILITY")
 
-    project = _make_project(tmp_path)
+    project = make_project("writes")
     plan = {
         "schema_version": _attr(contracts, "WRITE_PLAN_SCHEMA_VERSION"),
         "ops": [
