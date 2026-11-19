@@ -309,8 +309,10 @@ export function createGridViewStore(currentSheet: () => SheetMeta | undefined = 
     },
     setHiddenColumns(sheetId, names) {
       store.set((s) => {
-        const previous = s.hiddenColumnsBySheet[sheetId] ?? [];
-        if (JSON.stringify(previous) === JSON.stringify(names)) return s;
+        // An absent entry means the sheet still reads its persisted list, so
+        // an empty list is a change for it.
+        const previous = s.hiddenColumnsBySheet[sheetId];
+        if (previous && JSON.stringify(previous) === JSON.stringify(names)) return s;
         return {
           ...s,
           hiddenColumnsBySheet: { ...s.hiddenColumnsBySheet, [sheetId]: names },

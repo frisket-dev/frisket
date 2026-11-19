@@ -73,9 +73,6 @@
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
  },
- "grid-column-hide.spec.ts": {
-  "hide via caret removes the column from the grid but not from Detail; the boundary chevron revives it; state persists": "stale-expectation"
- },
  "grid-column-layout.spec.ts": {
   "grid column layout: drag reorder persists as default layout and saved-view columns": "stale-expectation"
  },
