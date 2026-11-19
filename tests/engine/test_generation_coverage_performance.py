@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import json
-import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from frisket.engine.store.current_cells import register_current_cell_functions
+from frisket.engine.executor.actions import run_action_spec
+from frisket.engine.store.cell_projection import repair_current_cells
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.schema import SCHEMA
 from test_result_generation_store import (
     _declare,
     _publish_initial_generation,
@@ -20,79 +17,6 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
-
-
-def _production_shaped_database(row_count: int) -> sqlite3.Connection:
-    db = sqlite3.connect(":memory:")
-    db.row_factory = sqlite3.Row
-    register_current_cell_functions(db)
-    db.executescript(SCHEMA)
-    db.execute("DELETE FROM search_dirty_scopes")
-    db.execute("INSERT INTO sheets (id,name) VALUES (1,'Rows')")
-    db.execute(
-        "INSERT INTO columns (id,sheet_id,name,type,ai_generated) "
-        "VALUES (10,1,'generated','integer',1)"
-    )
-    db.execute(
-        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order) "
-        "VALUES (1,'source.write','source','{}','{}',1)"
-    )
-    db.execute(
-        "INSERT INTO base_cell_producers (id,stage_id,op_id) VALUES (1,'op:1',1)"
-    )
-    db.execute(
-        "INSERT INTO ops (id,kind,label,spec,undo_info,change_order,publication_closed) "
-        "VALUES (2,'map.test','generated','{}','{}',2,0)"
-    )
-    db.execute(
-        "INSERT INTO runs (id,op_id,sheet_id,action_kind) VALUES (20,2,1,'map.test')"
-    )
-    db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (20,10,'value','integer-v1','create','active','claim-20',?)",
-        (
-            json.dumps(
-                {
-                    "column_type": "integer",
-                    "schema": {},
-                    "format": None,
-                    "semantic_type": None,
-                }
-            ),
-        ),
-    )
-    rows = [(row_id, 1, row_id) for row_id in range(1, row_count + 1)]
-    db.executemany("INSERT INTO rows (id,sheet_id,position) VALUES (?,?,?)", rows)
-    db.executemany(
-        "INSERT INTO run_rows(run_id,row_id,position) VALUES (20,?,?)",
-        ((row_id, row_id - 1) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO cells (row_id,column_id,value_kind,value,producer_id) "
-        "VALUES (?,10,'integer',?,1)",
-        ((row_id, -row_id) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect,published) "
-        "VALUES (20,?,10,'integer',?,'ok','publish_value',1)",
-        ((row_id, row_id) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO cell_result_heads (column_id,row_id,run_id) VALUES (10,?,20)",
-        ((row_id,) for row_id in range(1, row_count + 1)),
-    )
-    db.executemany(
-        "INSERT INTO current_cells "
-        "(column_id,row_id,retrieval_revision,origin_kind,origin_op_id,"
-        "origin_run_id,validity) "
-        "VALUES (10,?,1,'run_result',2,20,'valid')",
-        ((row_id,) for row_id in range(1, row_count + 1)),
-    )
-    db.commit()
-    db.execute("ANALYZE")
-    return db
 
 
 @contextmanager
@@ -110,59 +34,127 @@ def _vm_work(db):
         db.set_progress_handler(None, 0)
 
 
+# Rows 1-3 sit on "Rows" (row 3 deleted), rows 4-5 on "Other"; "Empty" has
+# no rows and "missing" names no column.
 @pytest.mark.parametrize(
     ("columns", "keys", "expected"),
     [
         ([], [], True),
-        ([10], [], False),
-        ([999], [], False),
-        ([999], [(1, 999)], False),
-        ([40], [], False),
-        ([10], [(1, 10), (2, 10)], False),
-        ([10], [(1, 10), (2, 10), (3, 10)], True),
-        ([10], [(1, 10), (2, 10), (3, 10), (4, 10)], False),
-        ([10, 10], [(1, 10), (2, 10), (3, 10)], True),
-        ([10, 20], [(1, 10), (2, 10), (3, 10)], False),
-        ([10, 20], [(r, c) for r in (1, 2, 3) for c in (10, 20)], True),
-        ([10, 30], [(1, 10), (2, 10), (3, 10), (4, 30), (5, 30)], True),
-        ([10, 30], [(1, 10), (2, 10), (3, 10), (4, 30)], False),
+        (["generated"], [], False),
+        (["missing"], [], False),
+        (["missing"], [(1, "missing")], False),
+        (["empty"], [], False),
+        (["generated"], [(1, "generated"), (2, "generated")], False),
+        (["generated"], [(1, "generated"), (2, "generated"), (3, "generated")], True),
+        (
+            ["generated"],
+            [(1, "generated"), (2, "generated"), (3, "generated"), (4, "generated")],
+            False,
+        ),
+        (
+            ["generated", "generated"],
+            [(1, "generated"), (2, "generated"), (3, "generated")],
+            True,
+        ),
+        (
+            ["generated", "second"],
+            [(1, "generated"), (2, "generated"), (3, "generated")],
+            False,
+        ),
+        (
+            ["generated", "second"],
+            [(r, c) for r in (1, 2, 3) for c in ("generated", "second")],
+            True,
+        ),
+        (
+            ["generated", "other"],
+            [
+                (1, "generated"),
+                (2, "generated"),
+                (3, "generated"),
+                (4, "other"),
+                (5, "other"),
+            ],
+            True,
+        ),
+        (
+            ["generated", "other"],
+            [(1, "generated"), (2, "generated"), (3, "generated"), (4, "other")],
+            False,
+        ),
     ],
 )
 def test_generation_coverage_preserves_column_and_hidden_row_semantics(
-    columns, keys, expected
+    make_project, columns, keys, expected
 ):
-    db = _production_shaped_database(3)
-    try:
-        db.execute("INSERT INTO sheets(id,name) VALUES (2,'Other'),(3,'Empty')")
-        db.execute(
-            "INSERT INTO columns(id,sheet_id,name,type) VALUES "
-            "(20,1,'second','text'),(30,2,'other','text'),(40,3,'empty','text')"
+    project = make_project("coverage")
+    rows_sheet = project.add_sheet("Rows")
+    other_sheet = project.add_sheet("Other")
+    empty_sheet = project.add_sheet("Empty")
+    column_ids = {
+        "generated": project.add_column(
+            rows_sheet, "generated", type="integer", ai_generated=True
+        ),
+        "second": project.add_column(rows_sheet, "second"),
+        "other": project.add_column(other_sheet, "other"),
+        "empty": project.add_column(empty_sheet, "empty"),
+    }
+    column_ids["missing"] = max(column_ids.values()) + 1
+    row_ids = project.add_rows(
+        rows_sheet,
+        [{"generated": value} for value in (1, 2, 3)],
+        {"generated": column_ids["generated"]},
+    ) + project.add_rows(
+        other_sheet, [{"other": "a"}, {"other": "b"}], {"other": column_ids["other"]}
+    )
+    deleted = run_action_spec(
+        project,
+        {
+            "action_id": "row.delete",
+            "scope": {"kind": "project"},
+            "params": {"sheet_id": rows_sheet, "row_ids": [row_ids[2]]},
+            "idempotency_key": "delete-third-row",
+        },
+        project_id="test",
+    )
+    assert deleted.status == "completed", deleted.errors
+    store = ResultGenerationStore(project)
+    with store._empty_key_table() as table:
+        project.db.executemany(
+            f"INSERT INTO {table} VALUES (?,?)",
+            [(row_ids[row - 1], column_ids[name]) for row, name in keys],
         )
-        db.execute("INSERT INTO rows(id,sheet_id,position) VALUES (4,2,0),(5,2,1)")
-        db.execute("UPDATE rows SET hidden=1 WHERE id=3")
-        store = ResultGenerationStore(SimpleNamespace(db=db))
-        with store._empty_key_table() as table:
-            db.executemany(f"INSERT INTO {table} VALUES (?,?)", keys)
-            assert store.key_table_covers_columns(table, columns) is expected
-    finally:
-        db.close()
+        assert (
+            store.key_table_covers_columns(table, [column_ids[c] for c in columns])
+            is expected
+        )
 
 
-def _coverage_work(row_count):
-    db = _production_shaped_database(row_count)
+def _coverage_work(root: Path, row_count: int) -> int:
+    project, sheet_id, column_id, row_ids = _seed_project(root, row_count=row_count)
     try:
-        store = ResultGenerationStore(SimpleNamespace(db=db))
+        _publish_initial_generation(project, sheet_id, column_id, row_ids)
+        while repair_current_cells(project):
+            pass
+        project.db.execute("ANALYZE")
+        project.db.commit()
+        store = ResultGenerationStore(project)
         with store._empty_key_table() as table:
-            db.execute(f"INSERT INTO {table} VALUES (?,10)", (row_count,))
-            with _vm_work(db) as work:
-                assert not store.key_table_covers_columns(table, [10])
+            project.db.execute(
+                f"INSERT INTO {table} VALUES (?,?)", (row_ids[-1], column_id)
+            )
+            with _vm_work(project.db) as work:
+                assert not store.key_table_covers_columns(table, [column_id])
             return work[0]
     finally:
-        db.close()
+        project.close()
 
 
-def test_sparse_generation_coverage_work_is_independent_of_sheet_size(record_property):
-    small, large = _coverage_work(1_000), _coverage_work(10_000)
+def test_sparse_generation_coverage_work_is_independent_of_sheet_size(
+    tmp_path, record_property
+):
+    small = _coverage_work(tmp_path / "small", 1_000)
+    large = _coverage_work(tmp_path / "large", 10_000)
     record_property("coverage_steps_1000", small)
     record_property("coverage_steps_10000", large)
     assert large <= small * 2 + 500, (small, large)
