@@ -412,10 +412,6 @@
    "src/frisket/server/services/projections.py::_runtime_projection_error_detail"
   ],
   [
-   "src/frisket/server/services/pdf_imports/service.py::PdfImportService._commit_inventory_path",
-   "src/frisket/server/services/pdf_imports/service.py::PdfImportService._files_root"
-  ],
-  [
    "src/frisket/server/services/pdf_imports/service.py::PdfImportService._source",
    "src/frisket/server/services/pdf_packet_splits.py::PdfPacketSplitService._upload_source",
    "src/frisket/server/services/table_imports/source.py::_upload_source"
