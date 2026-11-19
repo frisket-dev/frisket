@@ -1515,8 +1515,8 @@ def _web_capture_page_replay_error(
             row_ids=row_ids,
         ):
             return stale(replay + "output values changed", column_id=column_id)
-    for evidence in receipt.evidence:
-        ref = evidence.ref
+    for supporting_record in receipt.evidence:
+        ref = supporting_record.ref
         if ref.get("kind") in {
             "web_capture_page_artifact",
             "web_capture_page_supplemental_artifact",
@@ -1568,9 +1568,9 @@ def _web_capture_page_links_replay_error(
         if output.ref.get("kind") == "materialized_rows"
     ]
     lineage_evidence = [
-        evidence
-        for evidence in receipt.evidence
-        if evidence.ref.get("kind") == "lineage_parent_rows"
+        supporting_record
+        for supporting_record in receipt.evidence
+        if supporting_record.ref.get("kind") == "lineage_parent_rows"
     ]
     if not any((sheet_outputs, column_outputs, rows_outputs, lineage_evidence)):
         return None

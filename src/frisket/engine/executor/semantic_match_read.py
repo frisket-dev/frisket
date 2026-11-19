@@ -716,7 +716,7 @@ class AdmittedSemanticMatchReader:
             }
             for row_id, lineage in zip(write.row_ids, lineages, strict=True)
         ]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "semantic_link_table_edges",
@@ -731,7 +731,7 @@ class AdmittedSemanticMatchReader:
             )
         ]
         for read in self._reads:
-            evidence.extend(
+            supporting_records.extend(
                 [
                     ReceiptEvidence(
                         ref={
@@ -747,4 +747,4 @@ class AdmittedSemanticMatchReader:
                     ReceiptEvidence(ref=read["review_refs"], retention="pinned"),
                 ]
             )
-        return evidence
+        return supporting_records

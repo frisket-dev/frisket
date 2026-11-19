@@ -44,11 +44,11 @@ def unwrap_grounded_value(
     if isinstance(raw_value, dict) and (
         "value" in raw_value or "evidence" in raw_value or "warnings" in raw_value
     ):
-        evidence = raw_value.get("evidence")
+        citations = raw_value.get("evidence")
         warnings = raw_value.get("warnings")
         return raw_value.get("value"), {
             "field": field_name,
-            "evidence": evidence if isinstance(evidence, list) else [],
+            "evidence": citations if isinstance(citations, list) else [],
             "warnings": warnings if isinstance(warnings, list) else [],
             "raw": {
                 key: value

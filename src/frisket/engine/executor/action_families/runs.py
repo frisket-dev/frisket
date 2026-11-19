@@ -48,10 +48,10 @@ def typed_run_has_matching_producer_receipt(
         return False
     try:
         return any(
-            evidence.ref.get("kind") == "backfill_source_generation"
-            and evidence.ref.get("successor_run_id") == run_id
-            and evidence.ref.get("successor_request_hash") == expected_hash
-            for evidence in successor.parsed().evidence
+            supporting_record.ref.get("kind") == "backfill_source_generation"
+            and supporting_record.ref.get("successor_run_id") == run_id
+            and supporting_record.ref.get("successor_request_hash") == expected_hash
+            for supporting_record in successor.parsed().evidence
         )
     except ValueError:
         return False

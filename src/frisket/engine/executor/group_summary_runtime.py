@@ -843,7 +843,7 @@ def _reduce_group_summary_receipt(
     ]
     model_call_ids = [call["id"] for call in model_calls]
     receipt_cost_actual = model_calls_cost_actual(model_calls)
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(
             ref={
                 "kind": "reduce_group_summary_groups",
@@ -983,7 +983,7 @@ def _reduce_group_summary_receipt(
             model=params.model,
             run=run,
         ),
-        evidence=evidence,
+        evidence=supporting_records,
         errors=errors,
     )
 

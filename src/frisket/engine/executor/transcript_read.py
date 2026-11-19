@@ -727,7 +727,7 @@ class AdmittedTranscriptReader:
         return values
 
     def publication_supporting_records(self, write, rows, *, receipt_id):
-        evidence = []
+        supporting_records = []
         producer_id = create_base_cell_producer(
             self.project.db, stage_id=f"op:{write.op_id}", op_id=write.op_id
         )
@@ -736,7 +736,7 @@ class AdmittedTranscriptReader:
         ):
             for handle, name, annotation_names in occurrence["projections"]:
                 item, _source = self.projections[handle]
-                evidence.extend(
+                supporting_records.extend(
                     _publish_projection(
                         self.project,
                         item,
@@ -750,7 +750,7 @@ class AdmittedTranscriptReader:
                         producer_id=producer_id,
                     )
                 )
-        return evidence
+        return supporting_records
 
     def generated_columns(self):
         return {
@@ -786,7 +786,7 @@ def _publish_projection(
     row,
     producer_id,
 ):
-    evidence = []
+    supporting_records = []
     duration_ms = item.locked.end_ms - item.locked.start_ms
     artifact = record_source_artifact(
         project,
@@ -835,7 +835,7 @@ def _publish_projection(
                     value=annotation_projection.value,
                 )
             )
-            evidence.append(
+            supporting_records.append(
                 ReceiptEvidence(
                     ref={
                         "kind": "temporal_annotation_projection",
@@ -867,7 +867,7 @@ def _publish_projection(
         receipt_id=receipt_id,
         op_id=write.op_id,
     )
-    evidence.append(
+    supporting_records.append(
         ReceiptEvidence(
             ref={
                 "kind": "derived_transcript_timeline",
@@ -890,6 +890,8 @@ def _publish_projection(
         )
     )
     if projected is not None:
-        evidence.append(ReceiptEvidence(ref=projected, retention="materialized"))
+        supporting_records.append(
+            ReceiptEvidence(ref=projected, retention="materialized")
+        )
 
-    return evidence
+    return supporting_records

@@ -370,7 +370,7 @@ class AdmittedTemporalMediaReader:
         return {name: value for name, value in row.items() if name not in deferred}
 
     def publication_supporting_records(self, write, rows, *, receipt_id):
-        evidence = []
+        supporting_records = []
         producer_id = create_base_cell_producer(
             self.project.db, stage_id=f"op:{write.op_id}", op_id=write.op_id
         )
@@ -381,7 +381,7 @@ class AdmittedTemporalMediaReader:
             if clip is None:
                 continue
             item, _role, _column, name = clip
-            evidence.extend(
+            supporting_records.extend(
                 publish_split_clip(
                     self.project,
                     item,
@@ -405,7 +405,7 @@ class AdmittedTemporalMediaReader:
                     producer_id=producer_id,
                 )
             )
-        return evidence
+        return supporting_records
 
 
 def _planned_schema(plan, *, cancelled=None):

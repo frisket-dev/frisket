@@ -355,7 +355,7 @@ def topic_supporting_records(project, facts, output_refs, hidden_refs):
     """Read back committed values: Params and author returns supply no facts."""
     from frisket.engine.store.runs import RunResultStore
 
-    evidence = []
+    supporting_records = []
     store = RunResultStore(project)
     for hidden in hidden_refs:
         saved = store.decoded_result_rows(
@@ -430,7 +430,7 @@ def topic_supporting_records(project, facts, output_refs, hidden_refs):
                     ),
                 }
             )
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": "topic_segmentation_analysis",
@@ -440,4 +440,4 @@ def topic_supporting_records(project, facts, output_refs, hidden_refs):
                 }
             )
         )
-    return evidence
+    return supporting_records
