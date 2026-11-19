@@ -16,18 +16,6 @@ const deleteProject = vi.fn();
 const getProject = vi.fn();
 const navigate = vi.fn();
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      getProject: (...args: unknown[]) => getProject(...args),
-      deleteProject: (...args: unknown[]) => deleteProject(...args),
-    },
-  };
-});
-
 vi.mock('../../src/routes', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/routes')>();
   return { ...actual, navigate: (...args: unknown[]) => navigate(...args) };

@@ -15,14 +15,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: { ...actual.api, listAttemptReceipts: vi.fn() },
-  };
-});
-
 import { AttemptReceiptList } from '../../src/components/AttemptReceiptList';
 
 import type { AttemptReceipt, AttemptReceiptsPage } from '../../src/api/open';

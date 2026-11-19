@@ -7,18 +7,6 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      listAlerts: vi.fn(),
-      getNotificationsSummary: vi.fn(),
-    },
-  };
-});
-
 import { CascadeConfirmDialog } from '../../src/workbench/LineagePanel';
 import { AlertsPanel } from '../../src/components/AlertsPanel';
 

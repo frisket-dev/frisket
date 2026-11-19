@@ -19,20 +19,6 @@ import type {
   ProjectProviderKeys,
 } from '../../src/api/types';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      getProjectProviderKeys: vi.fn(),
-      validateProjectProviderKey: vi.fn(),
-      setProjectProviderKey: vi.fn(),
-      deleteProjectProviderKey: vi.fn(),
-    },
-  };
-});
-
 import { ProjectAiProvidersSettings } from '../../src/settings/AiProviderSettings';
 import { createProjectApi } from '../../src/api/real';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';

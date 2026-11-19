@@ -6,14 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getEvidenceViewer = vi.hoisted(() => vi.fn());
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: { ...actual.api, getEvidenceViewer },
-  };
-});
-
 vi.mock('../../src/media/PdfViewer', () => ({
   PdfViewer: ({ currentPage, renderPageOverlay }: { currentPage: number; renderPageOverlay(page: number): import('react').ReactNode }) => (
     <div data-testid="native-pdf-viewer" data-current-page={currentPage}>{renderPageOverlay(currentPage)}</div>

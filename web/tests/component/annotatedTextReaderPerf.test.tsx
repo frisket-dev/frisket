@@ -19,11 +19,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return { ...actual, api: { ...actual.api, getTextAnnotations: vi.fn() } };
-});
-
 import { AnnotatedTextReader } from '../../src/workbench/AnnotatedTextReader';
 import {
   collectMarks,

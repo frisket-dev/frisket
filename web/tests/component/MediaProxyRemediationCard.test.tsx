@@ -18,10 +18,6 @@ vi.mock('../../src/api/open', async (importOriginal) => {
   return {
     ...actual,
     getMediaProxyStatus,
-    api: {
-      ...actual.api,
-      getMediaProxyStatus,
-    },
   };
 });
 

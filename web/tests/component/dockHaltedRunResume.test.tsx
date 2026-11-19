@@ -22,23 +22,6 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/api/open', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/api/open')>();
-  return {
-    ...actual,
-    api: {
-      ...actual.api,
-      // The detail pane's Charges section (AttemptReceiptList) loads per run;
-      // an empty page renders its honest "no charges" state.
-      listAttemptReceipts: vi.fn().mockResolvedValue({
-        attempts: [],
-        total: 0,
-        has_more: false,
-      }),
-    },
-  };
-});
-
 import { WorkbenchJobSplitPanel, type DockActionJob } from '../../src/workbench/WorkbenchBottomDock';
 import type { RunProgress } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
