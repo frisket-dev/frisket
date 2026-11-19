@@ -316,8 +316,9 @@ def ingest_rss(
     sheet_ids = {s["id"] for s in project.sheets()}
     if sheet_id is None or sheet_id not in sheet_ids:
         title = (getattr(parsed, "feed", {}) or {}).get("title") or source["name"]
-        sheet_id = project.add_sheet(str(title)[:80] or "feed")
-        FeedStore(project).update_feed(source_id, sheet_id=sheet_id)
+        with write_transaction(project.db, what="feed sheet"):
+            sheet_id = project.add_sheet(str(title)[:80] or "feed", commit=False)
+            FeedStore(project).update_feed(source_id, sheet_id=sheet_id)
 
     seen = _load_cursor(source)
 
@@ -399,20 +400,21 @@ def ingest_rss(
             producer_id=producer_id,
             commit=False,
         )
+        # The dedup cursor advances with the rows it covers, so a re-poll
+        # after a failure neither duplicates nor skips them.
+        run_id = FeedStore(project).record_feed_check(
+            source_id,
+            new_rows=total_new,
+            status="ok",
+            cursor=json.dumps(seen),
+            op_id=op_id,
+            commit=False,
+        )
     enclosure_row_ids = [
         row_id
         for row_id, rec in zip(row_ids, inserted_records, strict=True)
         if rec.get("enclosure_url")
     ]
-
-    # --- advance bookkeeping + persist dedup cursor ---
-    run_id = FeedStore(project).record_feed_check(
-        source_id,
-        new_rows=total_new,
-        status="ok",
-        cursor=json.dumps(seen),
-        op_id=op_id,
-    )
 
     return {
         "new_rows": len(new_records),

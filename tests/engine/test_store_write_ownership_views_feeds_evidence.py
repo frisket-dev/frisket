@@ -15,6 +15,7 @@ import sqlite3
 import pytest
 
 from frisket.engine.store import alerts
+from frisket.engine.store.feeds import FeedStore
 
 CALLER_SHEET_NAME = "Caller edit"
 
@@ -157,3 +158,95 @@ def test_alert_row_delete_joins_and_rolls_back_with_its_caller(project):
     project.db.rollback()
 
     assert _committed_count(project, "watches") == 1
+
+
+# -- feeds -------------------------------------------------------------------
+
+
+def _add_feed(project) -> int:
+    return FeedStore(project).add_feed("Probe feed", kind="rss")
+
+
+OWNING_FEED_WRITES = {
+    "add_feed": lambda project, _feed_id: _add_feed(project),
+    "delete_feed": lambda project, feed_id: FeedStore(project).delete_feed(feed_id),
+    "record_feed_check": lambda project, feed_id: FeedStore(project).record_feed_check(
+        feed_id
+    ),
+}
+
+
+@pytest.mark.parametrize("write", sorted(OWNING_FEED_WRITES))
+def test_owning_feed_write_inside_caller_transaction_refuses_and_keeps_it(
+    project, write
+):
+    feed_id = _add_feed(project)
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        OWNING_FEED_WRITES[write](project, feed_id)
+
+    _assert_caller_work_kept_uncommitted(project)
+
+
+JOINING_FEED_WRITES = {
+    "update_feed": lambda project, feed_id: FeedStore(project).update_feed(
+        feed_id, name="Renamed"
+    ),
+    "start_feed_check": lambda project, feed_id: FeedStore(project).start_feed_check(
+        feed_id
+    ),
+    "finish_feed_check": lambda project, _feed_id: FeedStore(project).finish_feed_check(
+        1, status="ok"
+    ),
+    "add_feed": lambda project, _feed_id: FeedStore(project).add_feed(
+        "Joined", commit=False
+    ),
+    "record_feed_check": lambda project, feed_id: FeedStore(project).record_feed_check(
+        feed_id, commit=False
+    ),
+}
+
+
+@pytest.mark.parametrize("write", sorted(JOINING_FEED_WRITES))
+def test_joining_feed_write_requires_caller_transaction(project, write):
+    feed_id = _add_feed(project)
+
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        JOINING_FEED_WRITES[write](project, feed_id)
+
+    assert not project.db.in_transaction
+
+
+def test_joined_feed_check_rolls_back_with_its_caller(project):
+    feed_id = _add_feed(project)
+    _open_caller_transaction(project)
+
+    store = FeedStore(project)
+    store.finish_feed_check(store.start_feed_check(feed_id), status="ok")
+    project.db.rollback()
+
+    assert _committed_count(project, "source_runs") == 0
+    assert _committed(project, "SELECT last_status FROM sources")[0][0] == "never"
+
+
+def test_feed_check_whose_feed_update_fails_leaves_no_check(project):
+    feed_id = _add_feed(project)
+    _refuse(project, "UPDATE", "sources")
+
+    with pytest.raises(sqlite3.IntegrityError, match="refused"):
+        FeedStore(project).record_feed_check(feed_id)
+
+    _assert_nothing_left_behind(project)
+    assert _committed_count(project, "source_runs") == 0
+
+
+def test_feed_delete_whose_feed_row_delete_fails_leaves_nothing_pending(project):
+    feed_id = _add_feed(project)
+    _refuse(project, "DELETE", "sources")
+
+    with pytest.raises(sqlite3.IntegrityError, match="refused"):
+        FeedStore(project).delete_feed(feed_id)
+
+    _assert_nothing_left_behind(project)
+    assert _committed_count(project, "sources") == 1

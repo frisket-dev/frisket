@@ -303,7 +303,6 @@ def _perform_feed_poll_in_txn(
     feed_check_id = feed_store.start_feed_check(
         feed_id,
         cursor_before=cursor_before_text,
-        commit=False,
     )
 
     poll_result = resolved["poll_result"]
@@ -380,7 +379,6 @@ def _perform_feed_poll_in_txn(
                     else {}
                 ),
             },
-            commit=False,
         )
         return ActionResult(
             action=ActionIdentity(kind=action.kind, action_id=action_id),
@@ -456,7 +454,6 @@ def _perform_feed_poll_in_txn(
         warning_count=int(summary["warning_count"]),
         cost_micro=int(summary["cost_micro"]),
         summary=summary,
-        commit=False,
     )
     return ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
@@ -689,11 +686,7 @@ def _rename_default_media_feed_in_txn(
     if not resolved_name:
         return
     resolved_name = resolved_name[:160]
-    feed_store.update_feed(
-        int(feed_before["id"]),
-        name=resolved_name,
-        commit=False,
-    )
+    feed_store.update_feed(int(feed_before["id"]), name=resolved_name)
     cur.execute("UPDATE sheets SET name=? WHERE id=?", (resolved_name[:80], sheet_id))
 
 
@@ -777,11 +770,10 @@ def _feed_poll_sheet_id_in_txn(project: Project, cur: Any, feed: dict[str, Any])
         (name,),
     )
     created = inserted_rowid(cur)
-    # Raw SQL against `sources` stays in the store layer; commit=False so this
-    # joins the core's open transaction on the same connection (cur =
-    # project.db.cursor(), FeedStore.db = project.db) — the core commits once
-    # at the end.
-    FeedStore(project).update_feed(int(feed["id"]), sheet_id=created, commit=False)
+    # Raw SQL against `sources` stays in the store layer; the update joins the
+    # core's open transaction on the same connection (cur = project.db.cursor(),
+    # FeedStore.db = project.db) — the core commits once at the end.
+    FeedStore(project).update_feed(int(feed["id"]), sheet_id=created)
     return created
 
 

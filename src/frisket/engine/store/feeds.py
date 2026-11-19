@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 import json
 import sqlite3
 from typing import Any
@@ -41,25 +45,26 @@ class FeedStore:
         enabled: bool = True,
         commit: bool = True,
     ) -> int:
-        cur = self.db.execute(
-            "INSERT INTO sources (name, kind, url, config, sheet_id, schedule, "
-            "enabled, last_status) VALUES (?,?,?,?,?,?,?, 'never')",
-            (
-                name,
-                kind,
-                url,
-                json.dumps(config or {}),
-                sheet_id,
-                schedule,
-                int(enabled),
-            ),
-        )
-        if commit:
-            self.db.commit()
+        """Create a feed; ``commit=False`` joins the caller's transaction."""
+        with write_transaction(self.db, commit=commit, what="feed add"):
+            cur = self.db.execute(
+                "INSERT INTO sources (name, kind, url, config, sheet_id, schedule, "
+                "enabled, last_status) VALUES (?,?,?,?,?,?,?, 'never')",
+                (
+                    name,
+                    kind,
+                    url,
+                    json.dumps(config or {}),
+                    sheet_id,
+                    schedule,
+                    int(enabled),
+                ),
+            )
         return inserted_rowid(cur)
 
-    def update_feed(self, feed_id: int, *, commit: bool = True, **fields: Any) -> None:
-        """Patch a subset of mutable source columns."""
+    def update_feed(self, feed_id: int, **fields: Any) -> None:
+        """Patch a subset of mutable source columns in the caller's transaction."""
+        require_transaction(self.db, "feed update")
         allowed = {
             "name",
             "kind",
@@ -84,16 +89,15 @@ class FeedStore:
             return
         vals.append(feed_id)
         self.db.execute(f"UPDATE sources SET {', '.join(sets)} WHERE id=?", vals)
-        if commit:
-            self.db.commit()
 
     def delete_feed(self, feed_id: int, *, commit: bool = True) -> None:
-        self.db.execute(
-            "DELETE FROM keyed_relationships WHERE id=?", (f"source:{feed_id}",)
-        )
-        self.db.execute("DELETE FROM sources WHERE id=?", (feed_id,))
-        if commit:
-            self.db.commit()
+        """Delete a feed and its key relationship together; ``commit=False``
+        joins the caller's transaction."""
+        with write_transaction(self.db, commit=commit, what="feed delete"):
+            self.db.execute(
+                "DELETE FROM keyed_relationships WHERE id=?", (f"source:{feed_id}",)
+            )
+            self.db.execute("DELETE FROM sources WHERE id=?", (feed_id,))
 
     def record_feed_check(
         self,
@@ -105,20 +109,20 @@ class FeedStore:
         op_id: int | None = None,
         commit: bool = True,
     ) -> int:
-        """Log one poll and advance the source monitoring state."""
-        cur = self.db.execute(
-            "INSERT INTO source_runs (source_id, op_id, status, new_rows, error, "
-            "finished_at) VALUES (?,?,?,?,?, datetime('now'))",
-            (feed_id, op_id, status, new_rows, error),
-        )
-        self.db.execute(
-            "UPDATE sources SET last_checked_at=datetime('now'), "
-            "last_status=?, new_rows_total=new_rows_total+?, "
-            "cursor=COALESCE(?, cursor) WHERE id=?",
-            (status, new_rows, cursor, feed_id),
-        )
-        if commit:
-            self.db.commit()
+        """Log one poll and advance the source monitoring state together;
+        ``commit=False`` joins the caller's transaction."""
+        with write_transaction(self.db, commit=commit, what="feed check record"):
+            cur = self.db.execute(
+                "INSERT INTO source_runs (source_id, op_id, status, new_rows, error, "
+                "finished_at) VALUES (?,?,?,?,?, datetime('now'))",
+                (feed_id, op_id, status, new_rows, error),
+            )
+            self.db.execute(
+                "UPDATE sources SET last_checked_at=datetime('now'), "
+                "last_status=?, new_rows_total=new_rows_total+?, "
+                "cursor=COALESCE(?, cursor) WHERE id=?",
+                (status, new_rows, cursor, feed_id),
+            )
         return inserted_rowid(cur)
 
     def start_feed_check(
@@ -126,15 +130,14 @@ class FeedStore:
         feed_id: int,
         *,
         cursor_before: str | None = None,
-        commit: bool = True,
     ) -> int:
+        """Open a running feed check in the caller's transaction."""
+        require_transaction(self.db, "feed check start")
         cur = self.db.execute(
             "INSERT INTO source_runs (source_id, status, new_rows, "
             "cursor_before) VALUES (?, 'running', 0, ?)",
             (feed_id, cursor_before),
         )
-        if commit:
-            self.db.commit()
         return inserted_rowid(cur)
 
     def finish_feed_check(
@@ -154,8 +157,9 @@ class FeedStore:
         warning_count: int = 0,
         cost_micro: int = 0,
         summary: dict[str, Any] | None = None,
-        commit: bool = True,
     ) -> None:
+        """Finish a feed check and advance its feed in the caller's transaction."""
+        require_transaction(self.db, "feed check finish")
         self.db.execute(
             "UPDATE source_runs SET receipt_id=?, op_id=?, status=?, "
             "new_rows=?, skipped_rows=?, changed_rows=?, revisions=?, error=?, "
@@ -195,8 +199,6 @@ class FeedStore:
                     int(row["source_id"]),
                 ),
             )
-        if commit:
-            self.db.commit()
 
     def feed_checks_page(
         self,

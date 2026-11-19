@@ -3,6 +3,7 @@ from contextlib import closing
 import pytest
 
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.keyed_updates import (
     ValidatedKeyedInput,
     changed_fields,
@@ -211,9 +212,9 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         source = sources.add_feed("Test", kind="rss", sheet_id=sheet)
 
         def poll(items):
-            run = sources.start_feed_check(source)
             with project.db:
                 project.db.execute("BEGIN IMMEDIATE")
+                run = sources.start_feed_check(source)
                 return _materialize_registered_feed_poll_in_txn(
                     project,
                     project.db.cursor(),
@@ -250,7 +251,8 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         assert duplicate["row_ids"] == []
         assert duplicate["skipped_rows"] == 2
         assert observation(project.db, f"source:{source}", target) == baseline
-        sources.update_feed(source, config={"update_policy": "incoming_wins"})
+        with write_transaction(project.db):
+            sources.update_feed(source, config={"update_policy": "incoming_wins"})
         latest = poll([FeedItem("item-a", {"title": "latest"})])
         assert latest["row_ids"] == [target]
         assert project.get_values(sheet, title, [target])[target] == "latest"
@@ -259,7 +261,8 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
         repeated = poll([FeedItem("item-a", {"title": "latest"})])
         assert repeated["row_ids"] == []
         assert repeated["op_id"] is None
-        sources.update_feed(source, config={"update_policy": "keep_changes"})
+        with write_transaction(project.db):
+            sources.update_feed(source, config={"update_policy": "keep_changes"})
         # A hidden association cannot steal a newly visible current-key row.
         project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (target,))
         project.db.commit()
