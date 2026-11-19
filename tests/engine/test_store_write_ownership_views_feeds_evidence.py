@@ -14,8 +14,11 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import alerts
+from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
+from frisket.engine.store import alerts, evidence, extraction_layouts
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.transactions import write_transaction
 
 CALLER_SHEET_NAME = "Caller edit"
 
@@ -250,3 +253,209 @@ def test_feed_delete_whose_feed_row_delete_fails_leaves_nothing_pending(project)
 
     _assert_nothing_left_behind(project)
     assert _committed_count(project, "sources") == 1
+
+
+# -- embedding spaces and indexes --------------------------------------------
+
+
+def _space_descriptor() -> dict:
+    return make_space_descriptor(
+        provider_id="frisket-models",
+        provider_kind="local_http",
+        requested_model="default-text",
+        actual_model_id="probe/text",
+        modality="text",
+        dimension=8,
+        dtype="float32",
+        distance_metric="cosine",
+        normalization="l2",
+        vector_options={},
+    )
+
+
+def _add_index(project) -> tuple[str, str]:
+    store = EmbeddingStore(project)
+    space_id = store.create_space(_space_descriptor())
+    with write_transaction(project.db):
+        index_id = store.create_index(
+            name="probe",
+            space_id=space_id,
+            sheet_id=_sheet_id(project),
+            source_query={},
+            source_columns=["value"],
+            source_policy={"kind": "text_cell"},
+        )
+    return space_id, index_id
+
+
+OWNING_EMBEDDING_WRITES = {
+    "create_space": lambda store, _space_id, _index_id: store.create_space(
+        _space_descriptor()
+    ),
+    "update_index_counts": lambda store, _space_id, index_id: store.update_index_counts(
+        index_id, total=1
+    ),
+}
+
+
+@pytest.mark.parametrize("write", sorted(OWNING_EMBEDDING_WRITES))
+def test_owning_embedding_write_inside_caller_transaction_refuses_and_keeps_it(
+    project, write
+):
+    space_id, index_id = _add_index(project)
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        OWNING_EMBEDDING_WRITES[write](EmbeddingStore(project), space_id, index_id)
+
+    _assert_caller_work_kept_uncommitted(project)
+
+
+JOINING_EMBEDDING_WRITES = {
+    "create_space": lambda store, _space_id, _index_id: store.create_space(
+        _space_descriptor(), commit=False
+    ),
+    "create_index": lambda store, space_id, _index_id: store.create_index(
+        name="joined",
+        space_id=space_id,
+        sheet_id=None,
+        source_query={},
+        source_columns=["value"],
+        source_policy={"kind": "text_cell"},
+    ),
+    "delete_index": lambda store, _space_id, index_id: store.delete_index(index_id),
+    "update_index_policy": lambda store, _space_id, index_id: store.update_index_policy(
+        index_id, provider_policy={"allow_remote": False}
+    ),
+    "delete_space_if_orphan": lambda store, space_id, _index_id: (
+        store.delete_space_if_orphan(space_id)
+    ),
+    "update_index_counts": lambda store, _space_id, index_id: store.update_index_counts(
+        index_id, total=1, commit=False
+    ),
+}
+
+
+@pytest.mark.parametrize("write", sorted(JOINING_EMBEDDING_WRITES))
+def test_joining_embedding_write_requires_caller_transaction(project, write):
+    space_id, index_id = _add_index(project)
+
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        JOINING_EMBEDDING_WRITES[write](EmbeddingStore(project), space_id, index_id)
+
+    assert not project.db.in_transaction
+
+
+def test_joined_index_delete_rolls_back_with_its_caller(project):
+    space_id, index_id = _add_index(project)
+    store = EmbeddingStore(project)
+    _open_caller_transaction(project)
+
+    assert store.delete_index(index_id) is True
+    assert store.delete_space_if_orphan(space_id) is True
+    project.db.rollback()
+
+    assert _committed_count(project, "embedding_indexes") == 1
+    assert _committed_count(project, "embedding_spaces") == 1
+
+
+# -- writes whose every production caller joins ------------------------------
+
+_HASH = "sha256:" + "0" * 64
+
+
+def _artifact(project) -> dict:
+    return evidence.record_source_artifact(
+        project, artifact_kind="web_page", media_type="text/html"
+    )
+
+
+JOINING_ONLY_WRITES = {
+    "record_source_artifact": _artifact,
+    "record_source_span": lambda project: evidence.record_source_span(
+        project, artifact_id=1, span_kind="page"
+    ),
+    "record_text_surface": lambda project: evidence.record_text_surface(
+        project,
+        surface_kind="composite",
+        content_hash=_HASH,
+        offset_unit="unicode_codepoint",
+        surface_ref={"identity": {"probe": 1}},
+    ),
+    "merge_artifact_metadata": lambda project: evidence.merge_artifact_metadata(
+        project, 1, {"probe": True}
+    ),
+    "bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
+        claim_token="claim:none", run_id=1
+    ),
+    "set_provider_key": lambda project: project.set_provider_key(
+        provider="openai", encrypted="ciphertext", hint="…key", spend_cap_micro=None
+    ),
+    "delete_provider_key": lambda project: project.delete_provider_key("openai"),
+    "remember_success": lambda project: extraction_layouts.remember_success(
+        project, 1, []
+    ),
+}
+
+
+@pytest.mark.parametrize("write", sorted(JOINING_ONLY_WRITES))
+def test_write_every_caller_joins_refuses_without_a_caller_transaction(project, write):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        JOINING_ONLY_WRITES[write](project)
+
+    assert not project.db.in_transaction
+
+
+def test_joined_evidence_rolls_back_with_its_caller(project):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        _artifact(project)
+    _open_caller_transaction(project)
+
+    artifact = _artifact(project)
+    surface = evidence.record_text_surface(
+        project,
+        surface_kind="composite",
+        content_hash=_HASH,
+        offset_unit="unicode_codepoint",
+        surface_ref={"identity": {"probe": 1}},
+    )
+    evidence.record_source_span(
+        project,
+        artifact_id=int(artifact["id"]),
+        span_kind="text",
+        char_start=0,
+        char_end=1,
+        text_surface_id=int(surface["id"]),
+        text_layer_hash=_HASH,
+    )
+    evidence.merge_artifact_metadata(project, int(artifact["id"]), {"probe": True})
+    project.db.rollback()
+
+    for table in ("source_artifacts", "text_surfaces", "source_spans"):
+        assert _committed_count(project, table) == 0
+
+
+def test_joined_provider_key_rolls_back_with_its_caller(project):
+    _open_caller_transaction(project)
+
+    project.set_provider_key(
+        provider="openai", encrypted="ciphertext", hint="…key", spend_cap_micro=None
+    )
+    project.db.rollback()
+
+    assert _committed_count(project, "project_provider_keys") == 0
+
+
+def test_layout_selection_inside_caller_transaction_refuses_and_keeps_it(project):
+    project.add_column(_sheet_id(project), "PDF", type="file")
+    layout = extraction_layouts.save_layout(
+        project, sheet_id=_sheet_id(project), source="PDF", draft={"fields": []}
+    )
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        extraction_layouts.select_layout(
+            project, sheet_id=_sheet_id(project), source="PDF", layout_id=layout["id"]
+        )
+
+    _assert_caller_work_kept_uncommitted(project)

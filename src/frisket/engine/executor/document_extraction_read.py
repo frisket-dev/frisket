@@ -891,6 +891,5 @@ class AdmittedPositionedDocumentReader:
                 self.project,
                 self.params.layout_id,
                 self.successful_row_ids,
-                commit=False,
             )
         return supporting_records
