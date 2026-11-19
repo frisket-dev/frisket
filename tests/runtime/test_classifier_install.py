@@ -18,7 +18,7 @@ def test_sidecar_classifier_extra_is_exact_and_cpu_only() -> None:
         "torch==2.14.0",
         "torchvision==0.29.0",
         "transformers==5.17.0",
-        "pillow==12.3.0",
+        "pillow==13.0.0",
         "safetensors==0.8.0",
         "numpy==2.5.3",
         "huggingface-hub==1.31.0",

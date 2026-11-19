@@ -46,7 +46,7 @@ def test_preprocessing_identity_pins_enforced_runtime_and_audio_limit():
     assert "transformers-5.19.0" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
     assert "torch-2.14.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
     assert "torchvision-0.29.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
-    assert "pillow-12.1.1" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
+    assert "pillow-13.0.0" in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID
     assert (
         f"max-samples-{EMBEDDINGGEMMA2_MAX_AUDIO_SAMPLES}"
         in EMBEDDINGGEMMA2_PREPROCESSING_BASE_ID

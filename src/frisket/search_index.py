@@ -16,6 +16,7 @@ from frisket.engine.store.search_index_work import (
     read_dirty_scopes,
 )
 from frisket.retrieval.preparation import (
+    DEFAULT_TEXT_SPACE,
     PreparationPolicy,
     dispatch_resolved_blob_source,
     dispatch_resolved_cited_source,
@@ -64,6 +65,10 @@ class IndexProgress:
 
 _SQLITE_ROW_ID_CHUNK = 900
 
+# Prepared vectors are only searchable in the embedding space that produced
+# them, so a project bound under another space rebuilds its sidecar targets.
+RETRIEVAL_SPACE_META_KEY = "retrieval_space_id"
+
 
 def _raise_if_cancelled(cancel_event: threading.Event | None) -> None:
     if cancel_event is not None and cancel_event.is_set():
@@ -86,7 +91,7 @@ def index_needs_work(project: Project) -> bool:
     if read_dirty_scopes(project.db, limit=1):
         return True
     sidecar_id = read_sidecar_id(path)
-    if sidecar_id is None or project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
+    if sidecar_id is None or not retrieval_binding_is_current(project, sidecar_id):
         return True
     db = None
     try:
@@ -116,15 +121,27 @@ def analyze_retrieval_store(project: Project) -> None:
         retrieval.db.execute("ANALYZE")
 
 
+def retrieval_binding_is_current(project: Project, sidecar_id: str) -> bool:
+    """Whether the project is bound to this sidecar and the current space."""
+
+    return (
+        project.get_meta(RETRIEVAL_SIDECAR_META_KEY) == sidecar_id
+        and project.get_meta(RETRIEVAL_SPACE_META_KEY) == DEFAULT_TEXT_SPACE.identity
+    )
+
+
 def bind_retrieval_sidecar(project: Project) -> str:
     """Bind the project to one sidecar incarnation and schedule its rebuild."""
 
     with RetrievalStore(project).open() as retrieval:
         sidecar_id = retrieval.sidecar_id()
     with project.transaction_scope():
-        if project.get_meta(RETRIEVAL_SIDECAR_META_KEY) != sidecar_id:
+        if not retrieval_binding_is_current(project, sidecar_id):
             enqueue_dirty_scope(project.db)
             project.set_meta(RETRIEVAL_SIDECAR_META_KEY, sidecar_id, commit=False)
+            project.set_meta(
+                RETRIEVAL_SPACE_META_KEY, DEFAULT_TEXT_SPACE.identity, commit=False
+            )
     return sidecar_id
 
 

@@ -17,7 +17,7 @@ def test_retrieval_runtime_lock_owns_only_the_evaluated_dependencies() -> None:
 
     assert project["project"]["dependencies"] == [
         "numpy==2.4.3",
-        "pillow==12.1.1",
+        "pillow==13.0.0",
         "safetensors==0.8.0",
         "tokenizers==0.23.3",
         "torch==2.14.1",
@@ -95,7 +95,7 @@ def test_embeddinggemma_installs_the_frozen_requirements_directly(
         should_cancel=lambda: False, progress=lambda _message: None
     )
 
-    profile = tmp_path / "runtimes" / "embeddinggemma-v1"
+    profile = tmp_path / "runtimes" / "embeddinggemma-v2"
     expected_python = (
         profile
         / "venv"
@@ -144,3 +144,16 @@ def test_embeddinggemma_refuses_missing_frozen_requirements(
         embeddinggemma_install.install_embeddinggemma(
             should_cancel=lambda: False, progress=lambda _message: None
         )
+
+
+def test_runtime_installed_with_the_pillow_12_dependency_set_is_not_current(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("FRISKET_MODEL_RUNTIME_DIR", str(tmp_path / "runtimes"))
+    previous = tmp_path / "runtimes" / "embeddinggemma-v1"
+    python = model_install._runtime_python(previous)
+    python.parent.mkdir(parents=True)
+    python.touch()
+    (previous / ".ready").touch()
+
+    assert not embeddinggemma_install.is_installed()

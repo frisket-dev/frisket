@@ -7,9 +7,12 @@ MODEL_ID = "google/embeddinggemma-2"
 MODEL_REVISION = "914f7f89142e33e77833254d9c9b90c3cef7303b"
 MODEL_REF = f"hf-snapshot:{MODEL_ID}@{MODEL_REVISION}"
 SETUP_REF = "engine-setup:embeddinggemma-2.local@1"
-RUNTIME_PROFILE = "embeddinggemma-v1"
+# The profile directory names one immutable dependency set: changing any
+# version pinned below needs a new profile, so a runtime installed with the
+# previous set reads as not installed and setup offers the install again.
+RUNTIME_PROFILE = "embeddinggemma-v2"
 TRANSFORMERS_VERSION = "5.19.0"
-PILLOW_VERSION = "12.1.1"
+PILLOW_VERSION = "13.0.0"
 TORCH_VERSION = "2.14.1"
 TORCHVISION_VERSION = "0.29.1"
 MODEL_SAFETENSORS_SHA256 = (

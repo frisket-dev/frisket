@@ -6,8 +6,10 @@ import threading
 
 import pytest
 
-from frisket.engine.jobs.search_index import process_index_batches
+from frisket.engine.jobs.search_index import index_work_marker, process_index_batches
 from frisket.engine.store.project import ProjectReadSnapshot
+from frisket.retrieval.preparation import DEFAULT_TEXT_SPACE
+from frisket.retrieval.recovery import prepare_retrieval_on_open
 from frisket.retrieval.store import RETRIEVAL_DB_NAME, RetrievalStore
 from frisket.search import SearchIndexNotReady, drain_index, index_batch, search_project
 import frisket.search_index as maintenance
@@ -228,8 +230,6 @@ def test_concurrent_edit_during_publication_remains_dirty_and_is_reconciled(
 
 
 def test_removing_last_content_still_schedules_existing_index_cleanup(documents):
-    from frisket.engine.jobs.search_index import index_work_marker
-
     project, *_ = documents
     drain_index(project)
     assert search_project(project, "needle", rerank="off")
@@ -238,3 +238,56 @@ def test_removing_last_content_still_schedules_existing_index_cleanup(documents)
     drain_index(project)
     assert search_project(project, "needle", rerank="off") == []
     assert index_work_marker(project, include_preparation=False) is None
+
+
+def test_index_prepared_under_another_embedding_space_is_prepared_again(documents):
+    project, *_ = documents
+    encoded: list[int] = []
+
+    class Encoder:
+        def available(self):
+            return True
+
+        def encode(self, inputs, *, purpose, space, cancelled=None):
+            encoded.append(len(inputs))
+            return [tuple([1.0] + [0.0] * (space.dimensions - 1)) for _ in inputs]
+
+    def drain() -> None:
+        for _ in range(20):
+            _processed, complete = process_index_batches(
+                project, embedding_encoder=Encoder()
+            )
+            if complete:
+                return
+        pytest.fail("retrieval maintenance never completed")
+
+    drain()
+    assert sum(encoded) == 7
+    # A project indexed before this release: its vectors belong to the
+    # previous space and its binding names no space.
+    with RetrievalStore(project).open() as store:
+        store.db.execute(
+            "UPDATE preparation SET space_id='emb_previous' WHERE space_id IS NOT NULL"
+        )
+        store.db.execute(
+            "UPDATE representations SET space_id='emb_previous',"
+            "representation_id='previous-'||representation_id"
+        )
+    with project.transaction_scope():
+        project.db.execute("DELETE FROM meta WHERE key='retrieval_space_id'")
+    encoded.clear()
+
+    prepare_retrieval_on_open(project)
+    assert index_work_marker(project) is not None
+    drain()
+
+    assert sum(encoded) == 7
+    with RetrievalStore(project).open() as store:
+        rows = store.db.execute(
+            "SELECT space_id,status FROM preparation WHERE space_id IS NOT NULL"
+        ).fetchall()
+    assert rows
+    assert {(row["space_id"], row["status"]) for row in rows} == {
+        (DEFAULT_TEXT_SPACE.identity, "ready")
+    }
+    assert index_work_marker(project) is None

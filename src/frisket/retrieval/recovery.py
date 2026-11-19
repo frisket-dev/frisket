@@ -11,7 +11,7 @@ from typing import Any
 from filelock import FileLock, Timeout
 
 from frisket.engine.store.search_index_work import enqueue_dirty_scope
-from .store import PROJECT_SIDECAR_META_KEY, RetrievalStore, UnsupportedRetrievalSchema
+from .store import RetrievalStore, UnsupportedRetrievalSchema
 
 _UPGRADE_LOCK_NAME = ".retrieval-upgrade.lock"
 _LOG = logging.getLogger(__name__)
@@ -20,7 +20,10 @@ _LOG = logging.getLogger(__name__)
 def prepare_retrieval_on_open(project: Any) -> None:
     """Recover disposable retrieval storage under the bundle-open lock."""
 
-    from frisket.search_index import bind_retrieval_sidecar
+    from frisket.search_index import (
+        bind_retrieval_sidecar,
+        retrieval_binding_is_current,
+    )
 
     project_path = Path(project.path)
     sidecar_exists = (project_path / "project.retrieval.db").is_file()
@@ -37,7 +40,7 @@ def prepare_retrieval_on_open(project: Any) -> None:
             if sidecar_id is None:
                 _queue_retrieval_repair(project)
                 return
-            if project.get_meta(PROJECT_SIDECAR_META_KEY) != sidecar_id:
+            if not retrieval_binding_is_current(project, sidecar_id):
                 # Project-database failures happen outside sidecar recovery so a
                 # healthy derived database is never quarantined for the wrong file.
                 bind_retrieval_sidecar(project)
