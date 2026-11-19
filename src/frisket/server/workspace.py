@@ -231,7 +231,7 @@ class Workspace:
         # seeds a fresh workspace; a deliberate Preferences change persists in
         # the workspace and wins on later starts. Injected routers retain their
         # composition-owned mode and are never mutated through this local seam.
-        self._local_cache_mode = resolve_workspace_cache_mode(self.root)
+        self._local_cache_mode: CacheMode = resolve_workspace_cache_mode(self.root)
         self._local_allowance_usd = resolve_workspace_allowance_usd(self.root)
         self._runtime_settings_lock = threading.RLock()
         self._provider_keys_resolver = provider_keys_resolver
