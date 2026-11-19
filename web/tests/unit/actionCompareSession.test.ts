@@ -58,7 +58,7 @@ function context(baselineMode: 'preview' | 'current_values' = 'current_values'):
     },
     output_columns: [{
       logical_key: 'answer', column_id: 13, current_name: 'answer',
-      column_type: 'text', format: null, hidden: false, schema: null,
+      column_type: 'text', format: null, hidden: false, schema: {},
     }],
     expected_output_signature: 'output-v1',
     replacement_targets: [{ logical_key: 'answer', current_name: 'answer', column_id: 13 }],
@@ -120,7 +120,7 @@ describe('action comparison session', () => {
   });
 
   it('reuses the first free shelf letter after removal and bounds restored variants', () => {
-    const session = createActionCompareSession({ context: context() }, { runVariant: vi.fn() });
+    const session = createActionCompareSession({ context: context() }, { runVariant: vi.fn<ActionCompareVariantRun>() });
     const saved = (id: number) => ({ savedId: id, label: `Saved ${id}`, draft: context().draft, result: { rows: {} } });
     const first = session.restoreVariant(saved(1))!;
     session.restoreVariant(saved(2)); session.removeVariant(first); session.restoreVariant(saved(3));
@@ -467,7 +467,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi);
     const captureComparison = vi.fn(async () => { events.push('captured'); return { items: [{ id: 81 }] }; });
     const controller = new AbortController(); const onCaptured = vi.fn();
-    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn<ActionCompareVariantRun>() }).getSnapshot().variants[0];
     const running = createActionCompareRunner(api, vi.fn(), { captureComparison, discardCapture: vi.fn() } as never)({
       context: context('preview'), variant, signal: controller.signal, onStarted: vi.fn(), onCaptured,
     });
@@ -514,7 +514,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi);
     const captureComparison = vi.fn().mockResolvedValue({ items: [{ id: 71 }] });
     const onCaptured = vi.fn();
-    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn<ActionCompareVariantRun>() }).getSnapshot().variants[0];
     const outcome = await createActionCompareRunner(api, vi.fn(), { captureComparison, discardCapture: vi.fn() } as never)({ context: context('preview'), variant, signal: new AbortController().signal, onStarted: vi.fn(), onCaptured });
     expect(outcome).toMatchObject({ status: 'failed', error: 'Provider failed' });
     expect(captureComparison).toHaveBeenCalledWith(expect.objectContaining({ comparison: expect.objectContaining({ variants: [expect.objectContaining({ source: { kind: 'preview', preview_ids: ['failed-output'] } })] }) }));
@@ -538,7 +538,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi);
     const captureComparison = vi.fn(async () => { events.push(`capture-${requests.length}`); return { items: [{ id: 77 }] }; });
     const onCaptured = vi.fn();
-    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn<ActionCompareVariantRun>() }).getSnapshot().variants[0];
     const outcome = await createActionCompareRunner(api, vi.fn(), { captureComparison, discardCapture: vi.fn() } as never)({ context: seed, variant, signal: new AbortController().signal, onStarted: vi.fn(), onCaptured });
     expect(outcome.status).toBe('ready');
     expect(events).toEqual(['start-1', 'capture-1', 'start-2', 'capture-2']);
@@ -581,7 +581,7 @@ describe('createActionCompareRunner', () => {
       })), cancelPreview: vi.fn(),
     } as unknown as ActionComparisonApi;
     const onStarted = vi.fn();
-    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn() }).getSnapshot().variants[0];
+    const variant = createActionCompareSession({ context: seed }, { runVariant: vi.fn<ActionCompareVariantRun>() }).getSnapshot().variants[0];
     const outcome = await createActionCompareRunner(withFreeEstimates(api), vi.fn())({ context: seed, variant, signal: new AbortController().signal, onStarted });
     expect(requests.map((rows) => rows.length)).toEqual([20, 18]);
     expect(requests.flat()).toEqual(seed.sample_row_ids);
@@ -609,7 +609,7 @@ describe('createActionCompareRunner', () => {
 
     const outcome = await runner({
       context: context('preview'),
-      variant: createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() })
+      variant: createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn<ActionCompareVariantRun>() })
         .getSnapshot().variants[0],
       signal: new AbortController().signal,
       onStarted: started,
@@ -651,7 +651,7 @@ describe('createActionCompareRunner', () => {
       }),
       cancelPreview: vi.fn(),
     } as unknown as ActionComparisonApi;
-    const variant = createActionCompareSession({ context: renamed }, { runVariant: vi.fn() })
+    const variant = createActionCompareSession({ context: renamed }, { runVariant: vi.fn<ActionCompareVariantRun>() })
       .getSnapshot().variants[0];
 
     const outcome = await createActionCompareRunner(withFreeEstimates(api), vi.fn())({
@@ -684,7 +684,7 @@ describe('createActionCompareRunner', () => {
       }),
       cancelPreview: vi.fn(),
     } as unknown as ActionComparisonApi;
-    const variant = createActionCompareSession({ context: base }, { runVariant: vi.fn() })
+    const variant = createActionCompareSession({ context: base }, { runVariant: vi.fn<ActionCompareVariantRun>() })
       .getSnapshot().variants[0];
 
     const unknown = await createActionCompareRunner(withFreeEstimates(api), vi.fn())({
@@ -701,7 +701,7 @@ describe('createActionCompareRunner', () => {
       ...ambiguous.output_columns[0], logical_key: 'reason', current_name: 'answer',
     });
     const ambiguousVariant = createActionCompareSession(
-      { context: ambiguous }, { runVariant: vi.fn() },
+      { context: ambiguous }, { runVariant: vi.fn<ActionCompareVariantRun>() },
     ).getSnapshot().variants[0];
     const collision = await createActionCompareRunner(withFreeEstimates(api), vi.fn())({
       context: ambiguous, variant: ambiguousVariant,
@@ -727,7 +727,7 @@ describe('createActionCompareRunner', () => {
     } as unknown as ActionComparisonApi;
     const confirm = vi.fn().mockResolvedValue(true);
     const runner = createActionCompareRunner(withFreeEstimates(api), confirm);
-    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn() })
+    const variant = createActionCompareSession({ context: context('preview') }, { runVariant: vi.fn<ActionCompareVariantRun>() })
       .getSnapshot().variants[0];
 
     await runner({ context: context('preview'), variant, signal: new AbortController().signal, onStarted: vi.fn() });
@@ -801,7 +801,7 @@ describe('createActionCompareRunner', () => {
         cancelPreview: vi.fn().mockResolvedValue(undefined),
       } as unknown as ActionComparisonApi;
       const variant = createActionCompareSession(
-        { context: context('preview') }, { runVariant: vi.fn() },
+        { context: context('preview') }, { runVariant: vi.fn<ActionCompareVariantRun>() },
       ).getSnapshot().variants[0];
       const unavailable = createActionCompareRunner(withFreeEstimates(unavailableApi), vi.fn())({
         context: context('preview'), variant, signal: new AbortController().signal,
