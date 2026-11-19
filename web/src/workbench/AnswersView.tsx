@@ -132,10 +132,14 @@ export function AnswersView({
     [citedColumns, chosenColumnId],
   );
 
-  const listColumnIds = useMemo(() => {
-    const title = resolveTitleColumn(sheet, { columnOrder: titleColumnOrder });
-    return [...new Set([chosenColumn?.id, title?.id].filter((id): id is string => Boolean(id)))];
-  }, [chosenColumn?.id, sheet, titleColumnOrder]);
+  // Hosts pass a fresh `titleColumnOrder` array on every render, so the list
+  // query is keyed on the resolved column ids alone: a host re-render must not
+  // reload (and briefly empty) the row list under the keyboard cursor.
+  const titleColumnId = resolveTitleColumn(sheet, { columnOrder: titleColumnOrder })?.id;
+  const listColumnIds = useMemo(
+    () => [...new Set([chosenColumn?.id, titleColumnId].filter((id): id is string => Boolean(id)))],
+    [chosenColumn?.id, titleColumnId],
+  );
   const listKey = `${sheet.id}:${orderKey}:${listColumnIds.join(',')}`;
   const [list, setList] = useState<ListState>({
     key: listKey,
