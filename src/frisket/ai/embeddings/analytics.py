@@ -153,9 +153,7 @@ def ensure_legacy_analytical_space(
         model_id, dimension=dimension, normalization=normalization
     )
     space = DescriptorEmbeddingSpace.from_descriptor(descriptor)
-    stored = EmbeddingStore(project).create_space(
-        descriptor, commit=not project.db.in_transaction
-    )
+    stored = EmbeddingStore(project).create_space(descriptor)
     if stored != space.identity:
         raise RuntimeError("analytical embedding space identity changed while storing")
     return space

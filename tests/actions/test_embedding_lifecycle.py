@@ -28,6 +28,7 @@ from frisket.engine.executor.action_jobs import (
 )
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import write_transaction
 
 
 class Creation(ActionParams):
@@ -123,7 +124,8 @@ def test_derived_create_receipt_owns_arguments_and_result(source):
     # Creation replay validates the persisted index definition and space, not
     # continuing source freshness. Exercise that same invariant for a reused
     # capability under a different action ID.
-    assert EmbeddingStore(project).delete_index(ref["index_id"])
+    with write_transaction(project.db):
+        assert EmbeddingStore(project).delete_index(ref["index_id"])
     stale = run_typed_embedding_action(project, "p", bound)
     assert stale.status == "failed"
     assert stale.errors[0].code == "stale_replay"

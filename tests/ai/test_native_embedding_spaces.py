@@ -20,6 +20,7 @@ from frisket.ai.embeddings import (
     descriptor_hash,
     vector_options_hash,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _descriptor(**over):
@@ -154,19 +155,20 @@ class TestSpaceStorage:
         store = EmbeddingStore(project)
         sid = store.create_space(_descriptor(modality="text", provider_id="fastembed"))
         sheet_id = project.add_sheet("data")
-        idx_id = store.create_index(
-            name="headlines",
-            space_id=sid,
-            sheet_id=sheet_id,
-            source_query={
-                "version": "frisket.query.v1",
-                "scope": {"sheet_id": sheet_id},
-            },
-            source_columns=["title"],
-            source_policy={"kind": "text_cell", "normalization": "nfc"},
-            maintenance_policy={"mode": "manual", "on_source_append": False},
-            provider_policy={"allow_remote": False},
-        )
+        with write_transaction(store.db):
+            idx_id = store.create_index(
+                name="headlines",
+                space_id=sid,
+                sheet_id=sheet_id,
+                source_query={
+                    "version": "frisket.query.v1",
+                    "scope": {"sheet_id": sheet_id},
+                },
+                source_columns=["title"],
+                source_policy={"kind": "text_cell", "normalization": "nfc"},
+                maintenance_policy={"mode": "manual", "on_source_append": False},
+                provider_policy={"allow_remote": False},
+            )
         assert idx_id.startswith("embidx_")
         idx = store.get_index(idx_id)
         assert idx["name"] == "headlines"
@@ -182,26 +184,28 @@ class TestSpaceStorage:
         store = EmbeddingStore(project)
         sheet_id = project.add_sheet("data")
         with pytest.raises((ValueError, sqlite3.IntegrityError)):
-            store.create_index(
-                name="bad",
-                space_id="emb_does_not_exist",
-                sheet_id=sheet_id,
-                source_query={},
-                source_columns=["title"],
-                source_policy={"kind": "text_cell"},
-            )
+            with write_transaction(store.db):
+                store.create_index(
+                    name="bad",
+                    space_id="emb_does_not_exist",
+                    sheet_id=sheet_id,
+                    source_query={},
+                    source_columns=["title"],
+                    source_policy={"kind": "text_cell"},
+                )
 
     def test_update_index_counts(self, project):
         store = EmbeddingStore(project)
         sid = store.create_space(_descriptor())
-        idx_id = store.create_index(
-            name="x",
-            space_id=sid,
-            sheet_id=None,
-            source_query={},
-            source_columns=["c"],
-            source_policy={"kind": "image_blob"},
-        )
+        with write_transaction(store.db):
+            idx_id = store.create_index(
+                name="x",
+                space_id=sid,
+                sheet_id=None,
+                source_query={},
+                source_columns=["c"],
+                source_policy={"kind": "image_blob"},
+            )
         store.update_index_counts(
             idx_id, total=10, ready=7, stale=2, error=1, status="ready"
         )
