@@ -3,10 +3,11 @@
 // guide. The fake server speaks Ollama's model-list protocol plus the real
 // OpenAI-compatible completion protocol, so CI drives Frisket's actual
 // Settings, router, queue worker, and result materialization without installing
-// Ollama or downloading a model.
+// Ollama or downloading a model. Strict replay refuses every uncached call,
+// including one to a local endpoint, so this spec runs on the replay stack.
 
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 import {
   LOCAL_MODEL_LAB_ENDPOINT_NAME,
@@ -20,6 +21,7 @@ import {
   sheetData,
   uniqueName,
 } from './helpers';
+import { expect, test } from './replayStack';
 
 const MODEL = 'qwen3:0.6b';
 const ENDPOINT_NAME = LOCAL_MODEL_LAB_ENDPOINT_NAME;

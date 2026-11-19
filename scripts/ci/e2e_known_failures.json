@@ -5,17 +5,11 @@
  "column-format.spec.ts": {
   "AI-generated text columns can be saved as markdown from the column drawer": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
- "costgate.spec.ts": {
-  "expensive run trips the 402 cost gate modal": "stale-expectation"
- },
  "golden-ntsb.spec.ts": {
   "NTSB reports: PDFs → markdown → structured lat/lon extraction vs answer key": "stale-expectation"
  },
  "golden-tariff.spec.ts": {
   "tariff country search: CSV → web search → summarize → score → sort → export": "stale-expectation"
- },
- "local-model-walkthrough.spec.ts": {
-  "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
  },
  "markdown.spec.ts": {
   "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
