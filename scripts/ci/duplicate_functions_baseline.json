@@ -31,10 +31,6 @@
    "src/frisket/ops/markdown_plain.py::_PlainText.handle_startendtag"
   ],
   [
-   "sidecar/src/frisket_models/markdown_plain.py::_PlainText.handle_starttag",
-   "src/frisket/ops/markdown_plain.py::_PlainText.handle_starttag"
-  ],
-  [
    "sidecar/src/frisket_models/markdown_plain.py::_preserve_block_angle_text",
    "src/frisket/ops/markdown_plain.py::_preserve_block_angle_text"
   ],
