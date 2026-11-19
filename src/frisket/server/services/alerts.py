@@ -14,7 +14,7 @@ from frisket.contracts.http.alerts import (
     WatchRunsPage,
 )
 from frisket.engine.jobs import enqueue_notification_emit_result
-from frisket.server.paging import offset_page_meta
+from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 from frisket.features.alerts.events import (

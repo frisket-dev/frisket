@@ -40,7 +40,7 @@ from frisket.server.notifications.service import (
     public_actor_state,
     public_notification_item,
 )
-from frisket.server.paging import offset_page_meta
+from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.workspace import Workspace
 from frisket.engine.store.notifications import require_notification_channel
 

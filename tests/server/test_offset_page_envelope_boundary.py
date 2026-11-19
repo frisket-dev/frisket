@@ -103,7 +103,7 @@ def _assert_forward_page(
 
 
 def test_offset_page_payload_helper_uses_returned_item_count() -> None:
-    from frisket.server.paging import offset_page_payload
+    from frisket.contracts.http.paging import offset_page_payload
 
     page = offset_page_payload(
         "frisket.test_page.v1",

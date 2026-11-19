@@ -93,13 +93,12 @@
     },
     {
       "id": "engine-does-not-import-server-or-team",
-      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (runner.review -> server.paging; executor export/source families -> server.exports/server.sources; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the web/server or team layers. The exclude list is the frozen set of pre-existing edges (executor export/source families -> server.exports/server.sources; jobs -> server.provider_config/server.notifications/server.sources/team.control_plane; store.credentials -> team.security). No new engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
-        "frisket.engine.runner.review",
         "frisket.engine.executor.action_families.exports",
         "frisket.engine.executor.action_families.exports_column_tables",
         "frisket.engine.executor.collection_read",

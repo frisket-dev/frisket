@@ -10,7 +10,7 @@ from frisket.authoring.action_metadata import (
     run_row_action_kind,
 )
 from frisket.engine.executor.action_reservations import QUEUED_ACTION_RUN_MARKER_PARAM
-from frisket.server.paging import offset_page_meta
+from frisket.contracts.http.paging import offset_page_meta
 from frisket.engine.store import Project
 from frisket.engine.store.op_log import history_index, operation_target
 from frisket.engine.store.result_generations import ResultGenerationStore
