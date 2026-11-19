@@ -210,6 +210,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -294,38 +295,38 @@ try:
         "investigative-evidence.txt",
         "text/plain",
     )
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="capture" if producer_kind in {"media.capture_url", "web.capture_page"} else "file",
-        media_type="text/plain",
-        blob_hash=blob_hash,
-        title="Investigative evidence fixture",
-        filename="investigative-evidence.txt",
-        source_url="https://example.test/evidence",
-    )
-    span = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="text",
-        quote="Fixture evidence",
-        snippet="Fixture evidence for investigative action UI.",
-    )
-    link = record_citation(
-        project,
-        subject_kind=subject_kind,
-        subject_ref=subject_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id=f"receipt-{producer_kind}",
-        link_role="primary_support",
-        confidence=0.9,
-        producer={"action_kind": producer_kind, "grounding_method": "fixture"},
-        spans=[{"span_id": span["id"], "rank": 0, "span_role": "support"}],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="capture" if producer_kind in {"media.capture_url", "web.capture_page"} else "file",
+            media_type="text/plain",
+            blob_hash=blob_hash,
+            title="Investigative evidence fixture",
+            filename="investigative-evidence.txt",
+            source_url="https://example.test/evidence",
+        )
+        span = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="text",
+            quote="Fixture evidence",
+            snippet="Fixture evidence for investigative action UI.",
+        )
+        link = record_citation(
+            project,
+            subject_kind=subject_kind,
+            subject_ref=subject_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id=f"receipt-{producer_kind}",
+            link_role="primary_support",
+            confidence=0.9,
+            producer={"action_kind": producer_kind, "grounding_method": "fixture"},
+            spans=[{"span_id": span["id"], "rank": 0, "span_role": "support"}],
+        )
     print(json.dumps({"rowId": row_id, "columnId": column_id, "stableId": link["stable_id"]}))
 finally:
     project.close()

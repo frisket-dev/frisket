@@ -25,6 +25,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 workspace, pid = sys.argv[1:3]
 project = Project(Path(workspace) / f"{pid}.frisket")
@@ -76,38 +77,41 @@ try:
     # Sparse legacy run, then a success, then two failures so health can show
     # both missing-metadata warnings and consecutive failure state.
     feed_store.record_feed_check(failing, status="ok", new_rows=1)
-    success = feed_store.start_feed_check(failing)
-    feed_store.finish_feed_check(
-        success,
-        status="ok",
-        new_rows=3,
-        skipped_rows=4,
-        changed_rows=1,
-        revisions=0,
-        cursor_after=json.dumps({"cursor": "secret-body-not-returned"}),
-        duration_ms=215,
-        warning_count=1,
-        cost_micro=4200,
-        summary={"materialized_rows": 3},
-    )
-    first_failure = feed_store.start_feed_check(failing)
-    feed_store.finish_feed_check(
-        first_failure,
-        status="error",
-        error="provider failed token=SECRETabc",
-        duration_ms=50,
-        warning_count=1,
-        summary={"failed": True},
-    )
-    second_failure = feed_store.start_feed_check(failing)
-    feed_store.finish_feed_check(
-        second_failure,
-        status="error",
-        error="provider failed authorization=Bearer SECRETdef",
-        duration_ms=48,
-        warning_count=1,
-        summary={"failed": True},
-    )
+    with write_transaction(project.db):
+        success = feed_store.start_feed_check(failing)
+        feed_store.finish_feed_check(
+            success,
+            status="ok",
+            new_rows=3,
+            skipped_rows=4,
+            changed_rows=1,
+            revisions=0,
+            cursor_after=json.dumps({"cursor": "secret-body-not-returned"}),
+            duration_ms=215,
+            warning_count=1,
+            cost_micro=4200,
+            summary={"materialized_rows": 3},
+        )
+    with write_transaction(project.db):
+        first_failure = feed_store.start_feed_check(failing)
+        feed_store.finish_feed_check(
+            first_failure,
+            status="error",
+            error="provider failed token=SECRETabc",
+            duration_ms=50,
+            warning_count=1,
+            summary={"failed": True},
+        )
+    with write_transaction(project.db):
+        second_failure = feed_store.start_feed_check(failing)
+        feed_store.finish_feed_check(
+            second_failure,
+            status="error",
+            error="provider failed authorization=Bearer SECRETdef",
+            duration_ms=48,
+            warning_count=1,
+            summary={"failed": True},
+        )
     print(json.dumps({"failingId": failing, "disabledId": disabled, "neverId": never}))
 finally:
     project.close()

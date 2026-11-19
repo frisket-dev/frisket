@@ -51,6 +51,7 @@ import io
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -108,52 +109,52 @@ try:
         handle.writeframes(b"\x00\x00" * int(duration_ms / 1000 * 8000))
     blob_hash = project.add_blob(buf.getvalue(), "hearing.wav", "audio/wav")
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash=blob_hash,
-        filename="hearing.wav",
-        duration_ms=duration_ms,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-        metadata={"engine": "faster_whisper", "output_name": "transcript"},
-    )
-    span_refs = []
-    rank = 0
-    for run in spans_spec:
-        for start_ms, end_ms in run:
-            span = record_source_span(
-                project,
-                artifact_id=artifact["id"],
-                span_kind="temporal",
-                start_ms=start_ms,
-                end_ms=end_ms,
-                quote=f"segment at {start_ms}ms",
-            )
-            span_refs.append({"span_id": span["id"], "rank": rank, "span_role": "support", "required": True})
-            rank += 1
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=transcript_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-transcribe",
-        link_role="primary_support",
-        confidence=0.88,
-        producer={
-            "action_kind": "media.transcribe",
-            "model": "local/faster_whisper",
-            "grounding_method": "temporal_segment",
-        },
-        spans=span_refs,
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=blob_hash,
+            filename="hearing.wav",
+            duration_ms=duration_ms,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=source_column_id,
+            metadata={"engine": "faster_whisper", "output_name": "transcript"},
+        )
+        span_refs = []
+        rank = 0
+        for run in spans_spec:
+            for start_ms, end_ms in run:
+                span = record_source_span(
+                    project,
+                    artifact_id=artifact["id"],
+                    span_kind="temporal",
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    quote=f"segment at {start_ms}ms",
+                )
+                span_refs.append({"span_id": span["id"], "rank": rank, "span_role": "support", "required": True})
+                rank += 1
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=transcript_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-transcribe",
+            link_role="primary_support",
+            confidence=0.88,
+            producer={
+                "action_kind": "media.transcribe",
+                "model": "local/faster_whisper",
+                "grounding_method": "temporal_segment",
+            },
+            spans=span_refs,
+        )
     print(json.dumps({
         "sheetId": sheet_id,
         "rowId": row_id,

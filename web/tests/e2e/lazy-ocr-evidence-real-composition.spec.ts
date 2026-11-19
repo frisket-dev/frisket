@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from frisket.engine.store import Project
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
 
@@ -32,24 +33,24 @@ try:
     runs.finish_run(run_id)
     runs.point_column_at_run(op_id, text_column_id, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, text_column_id, row_ids=[row_id])
-    artifact = record_source_artifact(
-        project, artifact_kind="file", media_type="application/pdf", blob_hash=blob_hash,
-        filename="source.pdf", page_count=2, source_sheet_id=sheet_id,
-        source_row_id=row_id, source_column_id=source_column_id,
-        metadata={"engine": "fixture", "output_name": "Text", "page_images": {
-            "1": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
-            "2": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
-        }},
-    )
-    spans = [record_source_span(project, artifact_id=artifact["id"], span_kind="page_range", page_start=page, page_end=page, snippet=f"page {page}", metadata={"engine": "fixture"}) for page in (1, 2)]
-    record_citation(
-        project, subject_kind="cell", subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"], "rank": index} for index, span in enumerate(spans)],
-        sheet_id=sheet_id, row_id=row_id, column_id=text_column_id, run_id=run_id,
-        op_id=op_id, receipt_id="receipt-lazy-pdf", link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "fixture"},
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="file", media_type="application/pdf", blob_hash=blob_hash,
+            filename="source.pdf", page_count=2, source_sheet_id=sheet_id,
+            source_row_id=row_id, source_column_id=source_column_id,
+            metadata={"engine": "fixture", "output_name": "Text", "page_images": {
+                "1": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
+                "2": {"mime": "application/pdf", "source_width": 1224, "source_height": 1584},
+            }},
+        )
+        spans = [record_source_span(project, artifact_id=artifact["id"], span_kind="page_range", page_start=page, page_end=page, snippet=f"page {page}", metadata={"engine": "fixture"}) for page in (1, 2)]
+        record_citation(
+            project, subject_kind="cell", subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"], "rank": index} for index, span in enumerate(spans)],
+            sheet_id=sheet_id, row_id=row_id, column_id=text_column_id, run_id=run_id,
+            op_id=op_id, receipt_id="receipt-lazy-pdf", link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "fixture"},
+        )
 finally:
     project.close()
 `;

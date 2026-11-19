@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MEDIA_ACQUISITION_NAMESPACE
 from frisket.engine.store.runs import RunResultStore
@@ -96,47 +97,47 @@ try:
         metadata={MEDIA_ACQUISITION_NAMESPACE: blob_metadata} if blob_metadata else None,
     )
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash=blob_hash,
-        filename="hearing.wav",
-        duration_ms=2000,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-        metadata={"engine": "faster_whisper", "output_name": "transcript"},
-    )
-    span0 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=1900,
-        quote="THE MERIDIAN REPORT",
-        selector={"segment_index": 1},
-    )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=transcript_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-transcribe",
-        link_role="primary_support",
-        confidence=0.88,
-        producer={
-            "action_kind": "media.transcribe",
-            "model": "local/faster_whisper",
-            "grounding_method": "temporal_segment",
-        },
-        spans=[{"span_id": span0["id"], "rank": 0, "span_role": "support", "required": True}],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=blob_hash,
+            filename="hearing.wav",
+            duration_ms=2000,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=source_column_id,
+            metadata={"engine": "faster_whisper", "output_name": "transcript"},
+        )
+        span0 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=1900,
+            quote="THE MERIDIAN REPORT",
+            selector={"segment_index": 1},
+        )
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=transcript_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-transcribe",
+            link_role="primary_support",
+            confidence=0.88,
+            producer={
+                "action_kind": "media.transcribe",
+                "model": "local/faster_whisper",
+                "grounding_method": "temporal_segment",
+            },
+            spans=[{"span_id": span0["id"], "rank": 0, "span_role": "support", "required": True}],
+        )
     print(json.dumps({
         "sheetId": sheet_id,
         "rowId": row_id,
