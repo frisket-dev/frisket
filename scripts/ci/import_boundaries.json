@@ -137,24 +137,19 @@
     },
     {
       "id": "engine-does-not-import-features",
-      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers, including entity_package (the admitted FollowTheMoney dataset/package adapter), typed mutation_action, file_fetch (the admitted adapter replacing the SDK fetch classifier), and visual_cuts_read/topic_sections_read (the admitted temporal adapters replacing SDK finder orchestration), executor temporal/url_classification/watchlists/geometry/topic_segmentation consumers; jobs watchlists; store url_classification/watchlists — the store edge now lives in store.watches after the project.py split. No unrelated engine module may add such an import. The store.bundle_migrations exception is gone with the migration layer: its only features import was the watch-spec metadata backfill.",
+      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: entity_package (the FollowTheMoney dataset/package adapter), file_fetch and collection_read (URL classification), visual_cuts_read, topic_sections_read, temporal_annotations and temporal_finder_provenance (temporal and topic-segmentation adapters), jobs feeds/alerts and store alerts (alert events and triggers), and store media_download_candidates (URL classification). No other engine module may add such an import.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
       ],
       "exclude": [
         "frisket.engine.executor.entity_package",
-        "frisket.engine.executor.transcript_read",
         "frisket.engine.executor.file_fetch",
-        "frisket.engine.executor.temporal_materialization",
         "frisket.engine.executor.temporal_annotations",
-        "frisket.engine.executor.plugin_write_apply",
-        "frisket.engine.executor.mutation_action",
         "frisket.engine.executor.temporal_finder_provenance",
         "frisket.engine.executor.visual_cuts_read",
         "frisket.engine.executor.topic_sections_read",
         "frisket.engine.executor.collection_read",
-        "frisket.engine.executor.action_families.imports",
         "frisket.engine.jobs.feeds",
         "frisket.engine.jobs.alerts",
         "frisket.engine.store.media_download_candidates",
