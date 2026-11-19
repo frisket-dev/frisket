@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import queue
-import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +21,7 @@ from frisket.engine.store.review_stats import (
 from tests.engine.historical_schema import restore_pre_domain_schema
 from frisket.upgrades.project._step import run_step
 from frisket.upgrades.project.review_stats_migration import REVIEW_STATS_FROM_DIGEST
+from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.schema import (
     REVIEW_OUTPUT_ROLES_META_KEY,
@@ -31,20 +31,7 @@ from frisket.engine.store.schema import (
 )
 from frisket.engine.store.value_codec import encode_stored_value
 from tests.engine.test_bundle_schema_fence import _remove_extraction_layouts
-
-
-def _output_descriptor(project: Project, column_id: int) -> str:
-    column = project.db.execute(
-        "SELECT type,format,semantic_type FROM columns WHERE id=?", (column_id,)
-    ).fetchone()
-    return json.dumps(
-        {
-            "column_type": column["type"],
-            "schema": {},
-            "format": column["format"],
-            "semantic_type": column["semantic_type"],
-        }
-    )
+from helpers import run_writer_authority_fixture, write_claimed_test_results
 
 
 def _managed_run(
@@ -67,53 +54,37 @@ def _managed_run(
         row_ids=row_ids,
         total_rows=len(row_ids),
     )
-    project.db.executemany(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,"
-        "claim_token,output_descriptor_json) VALUES (?,?,?,?,?,?,?,?)",
+    write_claimed_test_results(
+        project,
+        run_id,
         [
-            (
-                run_id,
-                column_id,
-                f"output:{column_id}",
-                f"review-stats:{column_id}",
-                "create",
-                "active",
-                f"claim:{run_id}",
-                _output_descriptor(project, column_id),
-            )
-            for column_id in columns
-        ],
-    )
-    project.db.executemany(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?,?)",
-        [
-            (
-                run_id,
-                row_id,
-                column_id,
-                *encode_stored_value(f"{run_id}:{row_id}:{column_id}"),
-                "ok",
-                "publish_value",
-            )
+            {
+                "row_id": row_id,
+                "column_id": column_id,
+                "value": f"{run_id}:{row_id}:{column_id}",
+            }
             for row_id in row_ids
             for column_id in columns
         ],
+        output_roles={column_id: f"output:{column_id}" for column_id in columns},
     )
-    project.db.executemany(
-        "INSERT INTO cell_result_heads(column_id,row_id,run_id) VALUES (?,?,?) "
-        "ON CONFLICT(column_id,row_id) DO UPDATE SET run_id=excluded.run_id",
-        [(column_id, row_id, run_id) for row_id in row_ids for column_id in columns],
-    )
-    from frisket.engine.store.changes import start_change
-
-    start_change(project.db, op_id)
-    project.db.execute("UPDATE results SET published=1 WHERE run_id=?", (run_id,))
-    project.db.commit()
     store.finish_run(run_id)
     return run_id
+
+
+def _review(
+    project: Project,
+    run_id: int,
+    row_id: int,
+    column_id: int,
+    state: str,
+    decision: str | None = None,
+) -> None:
+    store = RunResultStore(project)
+    with write_transaction(project.db):
+        store.set_result_review_state(run_id, row_id, column_id, state)
+        if decision is not None:
+            store.set_result_review_metadata(run_id, row_id, column_id, decision, None)
 
 
 _OCR_REVIEW_ROLES_PRIOR_DIGEST = "frisket.schema.v1:ce1bc34b85c900fad11f0fdc948a0ce8"
@@ -237,11 +208,7 @@ def test_review_stats_distinguish_resolved_unknown_from_human_decisions(
 
     # A migrated verified result has resolved work but no invented human
     # decision. Rebuilding preserves that distinction.
-    project.db.execute(
-        "UPDATE results SET review_state='verified' "
-        "WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, row_ids[0], second),
-    )
+    _review(project, run_id, row_ids[0], second, "verified")
     mark_run_review_stats_dirty(project.db, run_id)
     rebuild_run_review_stats(project.db, run_id)
     project.db.commit()
@@ -494,8 +461,12 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
     project = make_project("stable-review-run")
     sheet_id = project.add_sheet("Rows")
     first = project.add_column(sheet_id, "answer", ai_generated=True)
-    second = project.add_column(sheet_id, "category", ai_generated=True)
-    support = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    # Named-result columns can be hidden implementation details while
+    # their outputs remain current and reviewable.
+    second = project.add_column(sheet_id, "category", ai_generated=True, hidden=True)
+    support = project.add_column(
+        sheet_id, "answer_confidence", ai_generated=True, hidden=True
+    )
     row_ids = project.add_rows(sheet_id, [{}, {}], {})
     original = _managed_run(
         project,
@@ -511,9 +482,12 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
         ).fetchone()
     )
 
-    project.db.execute(
-        "UPDATE columns SET name='renamed_primary_looking' WHERE id=?", (support,)
-    )
+    # No production writer renames a column; the frozen review field must
+    # still keep the name it was counted under.
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE columns SET name='renamed_primary_looking' WHERE id=?", (support,)
+        )
     mark_run_review_stats_dirty(project.db, original)
     rebuild_run_review_stats(project.db, original)
     frozen_support = _field(project, original, support)
@@ -525,11 +499,6 @@ def test_primary_membership_and_totals_survive_rename_and_partial_replacement(
         sheet_id=sheet_id,
         columns=[first],
         row_ids=row_ids,
-    )
-    # Named-result columns can be hidden implementation details while
-    # their outputs remain current and reviewable.
-    project.db.execute(
-        "UPDATE columns SET hidden=1 WHERE id IN (?,?)", (second, support)
     )
     predicate = current_review_run_predicate("candidate")
     still_current = project.db.execute(
@@ -596,12 +565,7 @@ def test_review_stats_migration_backfills_history_and_rolls_back_as_one_unit(
     output = project.add_column(sheet_id, "answer", ai_generated=True)
     rows = project.add_rows(sheet_id, [{}, {}], {})
     run_id = _managed_run(project, sheet_id=sheet_id, columns=[output], row_ids=rows)
-    project.db.execute(
-        "UPDATE results SET review_state='verified',review_decision='accept' "
-        "WHERE run_id=? AND row_id=? AND column_id=?",
-        (run_id, rows[0], output),
-    )
-    project.db.commit()
+    _review(project, run_id, rows[0], output, "verified", "accept")
     project.close()
     _downgrade_review_stats_schema(path)
 
@@ -664,37 +628,31 @@ def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(
         row_ids=rows,
         total_rows=len(rows),
     )
-    project.db.execute(
-        "INSERT INTO run_output_generations "
-        "(run_id,column_id,output_role,compatibility_key,write_mode,state,claim_token,output_descriptor_json) "
-        "VALUES (?,?,?,?,?,?,?,?)",
-        (
-            run_id,
-            output,
-            "output:answer",
-            "migration:answer",
-            "create",
-            "active",
-            "claim",
-            _output_descriptor(project, output),
-        ),
+    # The run is still writing when the project is downgraded: one result
+    # published under an open generation, the second row still to come.
+    authority = run_writer_authority_fixture(
+        project, run_id, output_column_ids={output}
     )
-    project.db.execute(
-        "INSERT INTO results "
-        "(run_id,row_id,column_id,value_kind,value,outcome,publication_effect) "
-        "VALUES (?,?,?,?,?,?,?)",
-        (
-            run_id,
-            rows[0],
-            output,
-            *encode_stored_value("first"),
-            "ok",
-            "publish_value",
-        ),
+    assert authority.claim_token is not None
+    ResultGenerationStore(project).declare(
+        run_id,
+        output,
+        output_role="output:answer",
+        compatibility_key="migration:answer",
+        write_mode="create",
+        claim_token=authority.claim_token,
     )
-    project.db.execute(
-        "INSERT INTO cell_result_heads(column_id,row_id,run_id) VALUES (?,?,?)",
-        (output, rows[0], run_id),
+    store.write_results(
+        run_id,
+        [
+            {
+                "row_id": rows[0],
+                "column_id": output,
+                "value": "first",
+                "publication_effect": "publish_value",
+            }
+        ],
+        **authority.kwargs(),
     )
     project.db.commit()
     project.close()
