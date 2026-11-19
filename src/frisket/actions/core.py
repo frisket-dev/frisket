@@ -3559,7 +3559,7 @@ def action(
         | ColumnTransform[P, OutputT]
         | CreateSheet[P, OutputT]
         | GoogleSheetsExport[P]
-        | Callable[..., OutputT]
+        | Callable[..., object]
     ),
     row_scope: RowScope = RowScope.SELECTABLE_ROWS,
     export_target: ExportTarget | None = None,
