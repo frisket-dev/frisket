@@ -22,7 +22,7 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 
 
 def _valid_review_metadata(value: Any) -> bool:
@@ -44,49 +44,50 @@ def append_change(
     undo_info: Mapping[str, Any] | None = None,
     commit: bool = True,
 ) -> int:
-    """Prepare an operation; its first mutation starts Change navigation."""
-    cur = project.db.execute(
-        "INSERT INTO ops (kind, label, spec, undo_info, barrier) VALUES (?, ?, ?, ?, ?)",
-        (
-            kind,
-            label,
-            json.dumps(spec or {}),
-            json.dumps(dict(undo_info or {})),
-            int(barrier),
-        ),
-    )
-    change_id = cur.lastrowid
-    if undo_info:
-        from .column_descriptors import record_descriptor_changes
-        from .structural_changes import record_structural_changes
+    """Prepare an operation; its first mutation starts Change navigation.
 
-        record_descriptor_changes(project.db, change_id, undo_info)
-        from .review_judgments import record_judgment_changes
-
-        record_judgment_changes(project.db, change_id, undo_info)
-        record_structural_changes(project.db, change_id, undo_info)
-    if commit:
-        project.db.commit()
+    ``commit=True`` owns the transaction that inserts the operation and its
+    undo records; ``commit=False`` joins the caller's open transaction.
+    """
+    with write_transaction(project.db, commit=commit, what="change append"):
+        cur = project.db.execute(
+            "INSERT INTO ops (kind, label, spec, undo_info, barrier) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                kind,
+                label,
+                json.dumps(spec or {}),
+                json.dumps(dict(undo_info or {})),
+                int(barrier),
+            ),
+        )
+        change_id = inserted_rowid(cur)
+        if undo_info:
+            _record_undo_records(project.db, change_id, undo_info)
     return change_id
+
+
+def _record_undo_records(
+    db: sqlite3.Connection, change_id: int, undo_info: Mapping[str, Any]
+) -> None:
+    from .column_descriptors import record_descriptor_changes
+    from .review_judgments import record_judgment_changes
+    from .structural_changes import record_structural_changes
+
+    record_descriptor_changes(db, change_id, undo_info)
+    record_judgment_changes(db, change_id, undo_info)
+    record_structural_changes(db, change_id, undo_info)
 
 
 def set_undo_info(
     project: Any, change_id: int, undo_info: dict[str, Any], *, commit: bool = True
 ) -> None:
-    project.db.execute(
-        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), change_id)
-    )
-    from .column_descriptors import record_descriptor_changes
-
-    record_descriptor_changes(project.db, change_id, undo_info)
-    from .review_judgments import record_judgment_changes
-
-    record_judgment_changes(project.db, change_id, undo_info)
-    from .structural_changes import record_structural_changes
-
-    record_structural_changes(project.db, change_id, undo_info)
-    if commit:
-        project.db.commit()
+    """Replace an operation's undo info and the undo records derived from it."""
+    with write_transaction(project.db, commit=commit, what="change undo info"):
+        project.db.execute(
+            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), change_id)
+        )
+        _record_undo_records(project.db, change_id, undo_info)
 
 
 HISTORY_ORDER = "COALESCE(change_order,0),id"

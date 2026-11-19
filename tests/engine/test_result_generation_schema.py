@@ -235,6 +235,7 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
         ),
     )
 
+    project.db.commit()
     other_op_id = project.append_change("map.regex_extract", {"pattern": "(.*)"})
     other_run_id = RunResultStore(project).start_run(
         other_op_id,
@@ -366,6 +367,7 @@ def test_generation_managed_results_require_an_explicit_effect(
             (run_id, other_row_id, legacy_column_id, "legacy"),
         )
 
+    project.db.commit()
     legacy_op_id = project.append_change("legacy")
     legacy_run_id = RunResultStore(project).start_run(
         legacy_op_id, sheet_id, "test.legacy"

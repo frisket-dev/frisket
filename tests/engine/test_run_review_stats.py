@@ -56,6 +56,7 @@ def _managed_run(
     action_kind: str = "map.extract",
     params: dict | None = None,
 ) -> int:
+    project.db.commit()
     op_id = project.append_change(action_kind, {"fixture": "review stats"})
     store = RunResultStore(project)
     run_id = store.start_run(

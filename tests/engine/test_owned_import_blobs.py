@@ -2,6 +2,7 @@ from contextlib import closing
 
 import pytest
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.executor.import_blob_stage import AdmittedImportBlobStager
 from frisket.engine.store import Project, op_log
 from frisket.engine.store.import_blobs import prepare_import_blobs, publish_import_blobs
@@ -47,7 +48,7 @@ def test_owned_inventory_reuses_bytes_and_preserves_distinct_occurrences(
                 "b.pdf",
             ]
             prepared = prepare_import_blobs(project, plan)
-            with project.db:
+            with write_transaction(project.db):
                 op = op_log.append_change(
                     project, "import.files", spec={}, commit=False
                 )

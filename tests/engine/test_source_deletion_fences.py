@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.changes import ChangePublicationClosed, ChangeStore
 from frisket.engine.store.source_dependencies import (
     SOURCE_BINDING,
@@ -226,7 +227,7 @@ def test_revert_source_column_creation_cancels_direct_consumer_only(make_project
     project = make_project("column")
     sheet = project.add_sheet("data")
     source = project.add_column(sheet, "source")
-    with project.db:
+    with write_transaction(project.db):
         creator = append_change(
             project, "create", undo_info={"created_columns": [source]}, commit=False
         )

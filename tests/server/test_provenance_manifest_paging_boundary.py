@@ -37,6 +37,7 @@ def _seed_provenance_history(
     run_ids: list[int] = []
     receipt_ids: list[str] = []
     for index in range(64):
+        project.db.commit()
         op_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "seed": index},
@@ -184,6 +185,7 @@ def test_provenance_manifest_reports_unknown_costs_honestly(client) -> None:
     base = datetime(2026, 6, 19, 12, 0, tzinfo=UTC)
     costs = [1.25, None, 0.0]  # known, unknown, known-free
     for index, cost in enumerate(costs):
+        project.db.commit()
         op_id = project.append_change(
             "map",
             {"action_kind": "map.classify", "seed": index},
