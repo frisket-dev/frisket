@@ -41,9 +41,6 @@
  "discover-notifications-tab.spec.ts": {
   "notifications tab reveals from a run notification opened while viewing Notifications": "stale-expectation"
  },
- "editable-grid.spec.ts": {
-  "the in-place editor wraps a long unbroken text value": "stale-expectation"
- },
  "engine-selection-layout.spec.ts": {
   "Markdown uses an anchored native selector that restores trigger focus after dismissal": "stale-expectation"
  },
