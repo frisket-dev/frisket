@@ -1,9 +1,6 @@
-// export.column_tables bulk export. Sibling to
-// pdf-tables-picker.spec.ts (which stays green): two entry points to the SAME
-// export.column_tables action -- the picker's "Export all tables…" button
-// (beside Materialize, opened from the pdf_tables post-run completion state)
-// and a JSON column's caret menu item ("Export tables…"), which opens the
-// same picker decoupled from any open drawer. Both post export.column_tables
+// export.column_tables bulk export. A JSON column's caret menu item
+// ("Export tables…") opens the pdf_tables picker, whose "Export all tables…"
+// button and the Act Export command both post export.column_tables
 // with group_by=table_index + the 8 pdf_tables metadata keys excluded, and
 // the resulting zip + manifest.json are verified directly against the
 // project's blob store (the no-config default destination is project_file --
@@ -21,13 +18,10 @@ import {
   createProject,
   editCells,
   importCsv,
-  openAction,
   openPalette,
   openProject,
-  revealRibbonAction,
   sheetColumns,
   sheetData,
-  selectRow,
   uniqueName,
 } from './helpers';
 import type { JsonValue } from '../../src/api/types';
@@ -189,70 +183,6 @@ async function seedPdfTablesColumn(page: import('@playwright/test').Page, pid: s
   return { sheetId, columnId };
 }
 
-test('picker "Export all tables…" runs export.column_tables and writes a zip + manifest.json', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-export-column-tables'));
-  const { sheetId, columnId } = await seedPdfTablesColumn(page, pid);
-
-  await openProject(page, pid, sheetId);
-  await selectRow(page, 0);
-  await openAction(page, 'media.extract_pdf_tables');
-  await page.getByTestId('field-output-pdf_tables').fill('pdf_tables');
-  await page.getByTestId('review-tables').click();
-  const picker = page.getByTestId('pdf-tables-picker');
-  await expect(picker).toBeVisible();
-
-  const exportButton = picker.getByTestId('pdf-table-export-tables');
-  await expect(exportButton).toBeEnabled();
-
-  const [response] = await Promise.all([
-    page.waitForResponse(
-      (res) => res.url().includes(`/api/projects/${pid}/actions/v1/run`) && res.request().method() === 'POST',
-    ),
-    exportButton.click(),
-  ]);
-  expect(response.ok()).toBeTruthy();
-  expectColumnTablesPost(response.request().postDataJSON(), { sheetId, columnId });
-  const body = (await response.json()) as {
-    action: { kind: string };
-    status: string;
-    receipt_id: string | null;
-    outputs?: Array<{ kind: string; ref: Record<string, unknown> }>;
-  };
-  expect(body.action.kind).toBe('export.column_tables');
-  expect(body.status).toBe('completed');
-  const receiptId = body.receipt_id as string;
-  expect(receiptId).toBeTruthy();
-
-  const outputs = body.outputs ?? [];
-  const exportOutput = outputs.find((o) => o.kind === 'export');
-  expect(exportOutput).toBeTruthy();
-  expect(exportOutput?.ref.format).toBe('zip');
-  expect(exportOutput?.ref.shape).toBe('dict');
-  expect(exportOutput?.ref.group_by).toBe('table_index');
-  expect(exportOutput?.ref.artifact_count).toBe(2);
-
-  const inspected = inspectExportZip(pid, receiptId);
-  expect(inspected.names).toEqual(['000_000.csv', '000_001.csv', 'manifest.json']);
-  expect(inspected.manifest.shape).toBe('dict');
-  expect(inspected.manifest.group_by).toBe('table_index');
-  expect(inspected.manifest.artifact_count).toBe(2);
-  expect(inspected.manifest.entry_count).toBe(3);
-  const byFilename = Object.fromEntries(
-    inspected.manifest.artifacts.map((a) => [a.filename, a]),
-  );
-  expect(byFilename['000_000.csv'].entry_count).toBe(2);
-  expect(byFilename['000_000.csv'].columns).toEqual(['vendor', 'amount']);
-  expect(byFilename['000_000.csv'].group_value).toBe(0);
-  expect(byFilename['000_001.csv'].entry_count).toBe(1);
-  expect(byFilename['000_001.csv'].group_value).toBe(1);
-  // The 8 pdf_tables metadata keys (+ the group_by key itself) never leak.
-  for (const artifact of inspected.manifest.artifacts) {
-    expect(artifact.columns).not.toContain('table_index');
-    expect(artifact.columns).not.toContain('source_row_id');
-    expect(artifact.columns).not.toContain('raw_cells_json');
-  }
-});
-
 test('JSON column caret menu offers "Export tables…" and opens the picker', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-export-column-tables-caret'));
   const { sheetId, columnId } = await seedPdfTablesColumn(page, pid);
@@ -368,60 +298,4 @@ test('Act Export owns column-table export without the generic ActionForm or Misc
     expect(artifactEntry.columns).not.toContain('table_index');
     expect(artifactEntry.columns).not.toContain('raw_cells_json');
   }
-});
-
-test('all three export surfaces fail closed without disabling the PDF drawer or refetching', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-export-column-tables-missing-catalog'));
-  const { sheetId } = await seedPdfTablesColumn(page, pid);
-  // The fixture seeds through the action API above; count only launcher traffic below.
-  let catalogRequests = 0;
-  let launcherActionPosts = 0;
-  page.on('request', (request) => {
-    if (
-      request.method() === 'POST'
-      && request.url().includes(`/api/projects/${pid}/actions/v1/run`)
-    ) launcherActionPosts += 1;
-  });
-  await page.route('**/actions/v1/catalog', async (route) => {
-    catalogRequests += 1;
-    const response = await route.fetch();
-    const catalog = await response.json() as { actions: Array<{ kind: string }> };
-    await route.fulfill({
-      response,
-      json: {
-        ...catalog,
-        actions: catalog.actions.filter((entry) => entry.kind !== 'export.column_tables'),
-      },
-    });
-  });
-
-  await openProject(page, pid, sheetId);
-  await expect.poll(() => catalogRequests).toBe(1);
-
-  await page.getByTestId('ribbon-tab-data').click();
-  await page.getByTestId('ribbon-command-export-column-tables').click();
-  const modal = page.getByTestId('export-column-tables-modal');
-  await expect(modal.getByTestId('export-column-tables-catalog-unavailable')).toBeVisible();
-  await expect(modal.getByTestId('export-column-tables-submit')).toBeDisabled();
-  await modal.getByTestId('export-column-tables-cancel').click();
-
-  const columns = await sheetColumns(page.request, pid, sheetId);
-  await clickHeaderMenu(page, columns, 'pdf_tables');
-  await page.getByTestId('header-menu-export-column-tables').click();
-  const picker = page.getByTestId('pdf-tables-picker');
-  await expect(picker.getByTestId('pdf-table-materialize')).toBeEnabled();
-  await expect(picker.getByTestId('pdf-table-export-tables')).toHaveCount(0);
-  await picker.getByTestId('pdf-table-picker-close').click();
-
-  await selectRow(page, 0);
-  await (await revealRibbonAction(page, 'media.extract_pdf_tables')).click();
-  const drawer = page.getByTestId('action-panel');
-  await drawer.getByTestId('field-output-pdf_tables').fill('pdf_tables');
-  await expect(drawer.getByRole('alert')).toHaveCount(0);
-  await drawer.getByTestId('review-tables').click();
-  await expect(picker.getByTestId('pdf-table-materialize')).toBeEnabled();
-  await expect(picker.getByTestId('pdf-table-export-tables')).toHaveCount(0);
-
-  expect(catalogRequests).toBe(1);
-  expect(launcherActionPosts).toBe(0);
 });

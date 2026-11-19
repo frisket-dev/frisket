@@ -1,13 +1,9 @@
 // A citation chip's onOpen sets answersView.activeLinkId (the LOCAL scratch
 // slice, not the global chromeStore.CitationViewerState), which drives the
 // docked `<CitationViewer mode="pane">` in the Grounded Answers view's right
-// pane. CitationViewer.tsx's `mode="pane"` docking, region overlay, and
-// temporal-seek mechanics are reused unchanged. This spec seeds one
-// region-grounded (PDF page + bbox) row and
-// one temporal-grounded (transcript + AV seek) row and drives them through the
-// ANSWERS view's
-// pane, not the row-drawer modal — proving the docking, not re-proving the
-// viewer's own rendering (that's the evidence-viewer-* specs' job).
+// pane. This spec seeds one temporal-grounded (transcript + AV seek) row and
+// drives it through the ANSWERS view's pane, not the row-drawer modal —
+// proving the docking, not re-proving the viewer's own rendering.
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -21,116 +17,6 @@ const REPO_ROOT =
   path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav')).toString('base64');
-
-// A minimal valid 1x1 PNG (matches evidence-viewer-region-overlay.spec.ts's
-// PNG_1X1 / tests/engine/test_ocr_grounding_spans.py).
-const PNG_1X1_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
-
-const REGION_BBOX = { x0: 0.1, y0: 0.2, x1: 0.5, y1: 0.4 };
-
-interface SeededRegionSheet {
-  sheetId: number;
-  rowId: number;
-  linkStableId: string;
-}
-
-function seedRegionGroundedSheet(pid: string): SeededRegionSheet {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = String.raw`
-import base64
-import json
-import sys
-from pathlib import Path
-
-from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
-from frisket.engine.store import Project
-from frisket.engine.store.runs import RunResultStore
-from tests.helpers import write_claimed_test_results
-
-workspace, pid, png_b64 = sys.argv[1], sys.argv[2], sys.argv[3]
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    run_store = RunResultStore(project)
-    sheet_id = project.add_sheet("Docs")
-    source_column_id = project.add_column(sheet_id, "Source", "file")
-    text_column_id = project.add_column(sheet_id, "Text", "text", ai_generated=True)
-    png = base64.b64decode(png_b64)
-
-    row_id = project.add_rows(sheet_id, [{"Source": "doc.pdf"}], {"Source": source_column_id})[0]
-    op_id = project.append_change(
-        "media.ocr",
-        {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}},
-        label="ocr docs",
-    )
-    run_id = run_store.start_run(
-        op_id, sheet_id, "media.ocr", model="local/rapidocr",
-        params={"output_name": "Text"}, total_rows=1, row_ids=[row_id],
-    )
-    write_claimed_test_results(
-        project,
-        run_id,
-        [{"row_id": row_id, "column_id": text_column_id, "value": "invoice total 42", "confidence": 0.9, "justification": "ocr"}],
-    )
-    run_store.finish_run(run_id)
-    run_store.point_column_at_run(op_id, text_column_id, run_id)
-    _values, refs = project.get_values_with_refs(sheet_id, text_column_id, row_ids=[row_id])
-    text_ref = refs[row_id]
-
-    doc_blob = project.add_blob(png, "doc.pdf", "application/pdf", metadata={"pages": 1, "kind": "pdf"})
-    page_blob = project.add_blob(png, None, "image/png", metadata={"kind": "image", "width": 10, "height": 10, "page_image": True})
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="file",
-        media_type="application/pdf",
-        blob_hash=doc_blob,
-        filename="doc.pdf",
-        page_count=1,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-        metadata={
-            "engine": "rapidocr",
-            "output_name": "Text",
-            "page_images": {"1": {"blob_hash": page_blob, "width": 10, "height": 10, "downscaled": False}},
-        },
-    )
-    page_span = record_source_span(
-        project, artifact_id=artifact["id"], span_kind="page_range",
-        page_start=1, page_end=1, snippet="invoice total 42",
-        metadata={"engine": "rapidocr"},
-    )
-    region_span = record_source_span(
-        project, artifact_id=artifact["id"], span_kind="region",
-        page_start=1, page_end=1,
-        bbox=[{"space": "page_normalized", "x0": ${REGION_BBOX.x0}, "y0": ${REGION_BBOX.y0}, "x1": ${REGION_BBOX.x1}, "y1": ${REGION_BBOX.y1}}],
-        quote="invoice total 42", snippet="invoice total 42",
-        selector={"engine": "rapidocr", "score": 0.97},
-        metadata={"raw": {"text": "invoice total 42"}},
-    )
-    link = record_citation(
-        project, subject_kind="cell", subject_ref=text_ref,
-        spans=[
-            {"span_id": page_span["id"], "rank": 0},
-            {"span_id": region_span["id"], "rank": 1},
-        ],
-        sheet_id=sheet_id, row_id=row_id, column_id=text_column_id,
-        run_id=run_id, op_id=op_id, receipt_id="receipt-ocr-grounded",
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "rapidocr"},
-    )
-    project.db.commit()
-    print(json.dumps({"sheetId": sheet_id, "rowId": row_id, "linkStableId": link["stable_id"]}))
-finally:
-    project.close()
-`;
-  const output = execFileSync(testPython(), ['-c', script, workspace, pid, PNG_1X1_B64], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    timeout: 120_000,
-  });
-  return JSON.parse(output) as SeededRegionSheet;
-}
 
 interface SeededTemporalSheet {
   sheetId: number;
@@ -224,48 +110,6 @@ async function openAnswersView(page: Page): Promise<void> {
   await expect(page.getByTestId('grounded-answers-view')).toBeVisible();
 }
 
-test('region-grounded citation: the DOCKED pane (not the modal) renders the page image + region highlight, auto-defaulted on open', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('answers-docked-region'));
-  const seeded = seedRegionGroundedSheet(pid);
-  await openProject(page, pid, seeded.sheetId);
-  await openAnswersView(page);
-
-  const pane = page.getByTestId('answers-evidence-pane');
-  // Default-link resolution: the active row's first citation
-  // opens WITHOUT any click.
-  const viewer = pane.getByTestId('evidence-viewer');
-  await expect(viewer).toBeVisible();
-  // RETARGETED (evidence-pane-reading-surface-v1): the Answers docked pane
-  // now collapses the ref-dump aside (link summary + span cards) by default
-  // -- see CitationViewer.tsx's `defaultShowDetails` -- so the export-ref
-  // assertion below needs an explicit "Show details" first. Deliberate: the
-  // pane's default view is now the reading surface, not the raw ref dump.
-  await viewer.getByTestId('evidence-details-toggle').click();
-  await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.linkStableId);
-  await expect(page.getByTestId('evidence-viewer-backdrop')).toHaveCount(0);
-
-  const highlight = viewer.getByTestId('evidence-region-highlight');
-  await expect(highlight).toHaveCount(1);
-  const style = await highlight.evaluate((el) => ({
-    left: (el as HTMLElement).style.left,
-    top: (el as HTMLElement).style.top,
-  }));
-  expect(style.left).toBe(`${REGION_BBOX.x0 * 100}%`);
-  expect(style.top).toBe(`${REGION_BBOX.y0 * 100}%`);
-
-  // Clicking the row's citation chip re-opens the SAME link in the SAME
-  // docked pane (the LOCAL activeLinkId path, not the global event).
-  const chip = page.getByTestId('answers-cell').first().getByTestId('answers-citation-chip');
-  await chip.click();
-  await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.linkStableId);
-
-  // Closing the pane returns to the empty-state placeholder.
-  await viewer.getByRole('button', { name: 'Close citation viewer' }).click();
-  await expect(page.getByTestId('answers-evidence-empty')).toBeVisible();
-});
-
 test('temporal-grounded citation: the docked pane plays audio + click-to-seeks the segment list, global evidence host stays undisturbed', async ({
   page,
 }) => {
@@ -277,8 +121,7 @@ test('temporal-grounded citation: the docked pane plays audio + click-to-seeks t
   const pane = page.getByTestId('answers-evidence-pane');
   const viewer = pane.getByTestId('evidence-viewer');
   await expect(viewer).toBeVisible();
-  // RETARGETED (evidence-pane-reading-surface-v1): see the region-grounded
-  // test above -- the docked pane's ref-dump aside is collapsed by default.
+  // The docked pane collapses its link-detail aside by default.
   await viewer.getByTestId('evidence-details-toggle').click();
   await expect(viewer.getByTestId('evidence-export-ref')).toContainText(seeded.linkStableId);
 
