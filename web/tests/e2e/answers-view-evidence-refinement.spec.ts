@@ -56,6 +56,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -95,19 +96,20 @@ try:
 
     def make_artifact(row_id, filename, quotes):
         blob_hash = project.add_blob(media_bytes, filename, "audio/wav")
-        artifact = record_source_artifact(
-            project, artifact_kind="av", media_type="audio/wav", blob_hash=blob_hash,
-            filename=filename, duration_ms=2000,
-            source_sheet_id=sheet_id, source_row_id=row_id, source_column_id=source_col,
-            metadata={"engine": "faster_whisper", "output_name": "transcript"},
-        )
-        spans = []
-        for idx, quote in enumerate(quotes):
-            spans.append(record_source_span(
-                project, artifact_id=artifact["id"], span_kind="temporal",
-                start_ms=idx * 1000, end_ms=idx * 1000 + 900, quote=quote,
-                selector={"segment_index": idx},
-            ))
+        with write_transaction(project.db):
+            artifact = record_source_artifact(
+                project, artifact_kind="av", media_type="audio/wav", blob_hash=blob_hash,
+                filename=filename, duration_ms=2000,
+                source_sheet_id=sheet_id, source_row_id=row_id, source_column_id=source_col,
+                metadata={"engine": "faster_whisper", "output_name": "transcript"},
+            )
+            spans = []
+            for idx, quote in enumerate(quotes):
+                spans.append(record_source_span(
+                    project, artifact_id=artifact["id"], span_kind="temporal",
+                    start_ms=idx * 1000, end_ms=idx * 1000 + 900, quote=quote,
+                    selector={"segment_index": idx},
+                ))
         return spans
 
     # Two distinct transcripts. Segment index 1 is the "relevant" (cited) one.
@@ -118,33 +120,33 @@ try:
     # bug). Rank 0 = that row's own cited segment, so the link snippet (first by
     # rank) is the citation quote; the other row's spans are the foreign noise
     # scopeRowId must drop.
-    link_a = record_citation(
-        project, subject_kind="cell_value", subject_ref=refs[row_a],
-        sheet_id=sheet_id, row_id=row_a, column_id=finding_col,
-        run_id=run_id, op_id=op_id, receipt_id="receipt-a",
-        link_role="primary_support", confidence=0.9,
-        producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
-        spans=[
-            {"span_id": spans_a[1]["id"], "rank": 0, "span_role": "support", "required": True},
-            {"span_id": spans_a[0]["id"], "rank": 1, "span_role": "support", "required": False},
-            {"span_id": spans_b[0]["id"], "rank": 2, "span_role": "support", "required": False},
-            {"span_id": spans_b[1]["id"], "rank": 3, "span_role": "support", "required": False},
-        ],
-    )
-    link_b = record_citation(
-        project, subject_kind="cell_value", subject_ref=refs[row_b],
-        sheet_id=sheet_id, row_id=row_b, column_id=finding_col,
-        run_id=run_id, op_id=op_id, receipt_id="receipt-b",
-        link_role="primary_support", confidence=0.9,
-        producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
-        spans=[
-            {"span_id": spans_b[1]["id"], "rank": 0, "span_role": "support", "required": True},
-            {"span_id": spans_b[0]["id"], "rank": 1, "span_role": "support", "required": False},
-            {"span_id": spans_a[0]["id"], "rank": 2, "span_role": "support", "required": False},
-            {"span_id": spans_a[1]["id"], "rank": 3, "span_role": "support", "required": False},
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        link_a = record_citation(
+            project, subject_kind="cell_value", subject_ref=refs[row_a],
+            sheet_id=sheet_id, row_id=row_a, column_id=finding_col,
+            run_id=run_id, op_id=op_id, receipt_id="receipt-a",
+            link_role="primary_support", confidence=0.9,
+            producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
+            spans=[
+                {"span_id": spans_a[1]["id"], "rank": 0, "span_role": "support", "required": True},
+                {"span_id": spans_a[0]["id"], "rank": 1, "span_role": "support", "required": False},
+                {"span_id": spans_b[0]["id"], "rank": 2, "span_role": "support", "required": False},
+                {"span_id": spans_b[1]["id"], "rank": 3, "span_role": "support", "required": False},
+            ],
+        )
+        link_b = record_citation(
+            project, subject_kind="cell_value", subject_ref=refs[row_b],
+            sheet_id=sheet_id, row_id=row_b, column_id=finding_col,
+            run_id=run_id, op_id=op_id, receipt_id="receipt-b",
+            link_role="primary_support", confidence=0.9,
+            producer={"action_kind": "map.extract", "grounding_method": "segment_indices"},
+            spans=[
+                {"span_id": spans_b[1]["id"], "rank": 0, "span_role": "support", "required": True},
+                {"span_id": spans_b[0]["id"], "rank": 1, "span_role": "support", "required": False},
+                {"span_id": spans_a[0]["id"], "rank": 2, "span_role": "support", "required": False},
+                {"span_id": spans_a[1]["id"], "rank": 3, "span_role": "support", "required": False},
+            ],
+        )
     print(json.dumps({
         "sheetId": sheet_id, "rowA": row_a, "rowB": row_b,
         "linkA": link_a["stable_id"], "linkB": link_b["stable_id"],

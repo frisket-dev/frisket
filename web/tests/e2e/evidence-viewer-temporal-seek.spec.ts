@@ -44,6 +44,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -100,76 +101,76 @@ try:
 
     # duration_ms=2000 matches the real fixture (both tiny-audio.wav and
     # tiny-video.mp4 are exactly 2.0s) so seeking within the clip is real.
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type=mime,
-        blob_hash=blob_hash,
-        filename=filename,
-        duration_ms=2000,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-        metadata={"engine": "faster_whisper", "output_name": "transcript"},
-    )
-    span0 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=0,
-        end_ms=900,
-        quote="PANEL DISCUSSION OPENING",
-        selector={"segment_index": 0},
-    )
-    span1 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=1900,
-        quote="THE MERIDIAN REPORT",
-        selector={"segment_index": 1},
-    )
-    # Pre-clamped the way the transcribe writer's overrun clamp
-    # (transcribe.py:485-495) leaves a span: end_ms clamped to duration_ms,
-    # raw unclamped value kept in metadata.raw, warning flagged.
-    span2 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1800,
-        end_ms=2000,
-        quote="CLOSING REMARKS",
-        selector={"segment_index": 2},
-        metadata={
-            "raw": {"raw_end_ms": 2600},
-            "warnings": ["temporal_span_clamped_to_artifact_duration_ms"],
-        },
-    )
-    spans = [span0, span1, span2]
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=transcript_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-transcribe",
-        link_role="primary_support",
-        confidence=0.88,
-        producer={
-            "action_kind": "media.transcribe",
-            "model": "local/faster_whisper",
-            "grounding_method": "temporal_segment",
-        },
-        spans=[
-            {"span_id": s["id"], "rank": i, "span_role": "support", "required": i == 0}
-            for i, s in enumerate(spans)
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type=mime,
+            blob_hash=blob_hash,
+            filename=filename,
+            duration_ms=2000,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=source_column_id,
+            metadata={"engine": "faster_whisper", "output_name": "transcript"},
+        )
+        span0 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=0,
+            end_ms=900,
+            quote="PANEL DISCUSSION OPENING",
+            selector={"segment_index": 0},
+        )
+        span1 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=1900,
+            quote="THE MERIDIAN REPORT",
+            selector={"segment_index": 1},
+        )
+        # Pre-clamped the way the transcribe writer's overrun clamp
+        # (transcribe.py:485-495) leaves a span: end_ms clamped to duration_ms,
+        # raw unclamped value kept in metadata.raw, warning flagged.
+        span2 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1800,
+            end_ms=2000,
+            quote="CLOSING REMARKS",
+            selector={"segment_index": 2},
+            metadata={
+                "raw": {"raw_end_ms": 2600},
+                "warnings": ["temporal_span_clamped_to_artifact_duration_ms"],
+            },
+        )
+        spans = [span0, span1, span2]
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=transcript_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-transcribe",
+            link_role="primary_support",
+            confidence=0.88,
+            producer={
+                "action_kind": "media.transcribe",
+                "model": "local/faster_whisper",
+                "grounding_method": "temporal_segment",
+            },
+            spans=[
+                {"span_id": s["id"], "rank": i, "span_role": "support", "required": i == 0}
+                for i, s in enumerate(spans)
+            ],
+        )
     print(json.dumps({
         "sheetId": sheet_id,
         "rowId": row_id,
@@ -280,6 +281,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -332,56 +334,56 @@ try:
     media_bytes = base64.b64decode(media_b64)
     blob_hash = project.add_blob(media_bytes, "hearing.wav", "audio/wav")
 
-    artifact = record_source_artifact(
-        project,
-        artifact_kind="av",
-        media_type="audio/wav",
-        blob_hash=blob_hash,
-        filename="hearing.wav",
-        duration_ms=2000,
-        source_sheet_id=sheet_id,
-        source_row_id=row_id,
-        source_column_id=source_column_id,
-        metadata={"engine": "faster_whisper", "output_name": "transcript"},
-    )
-    # Neither span starts at 0ms -- proves genuine auto-seek, not "already there".
-    span0 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1000,
-        end_ms=1400,
-        quote="COMMITTEE VOTE ON THE AMENDMENT",
-        selector={"segment_index": 4},
-    )
-    span1 = record_source_span(
-        project,
-        artifact_id=artifact["id"],
-        span_kind="temporal",
-        start_ms=1500,
-        end_ms=1900,
-        quote="CLOSING REMARKS",
-        selector={"segment_index": 5},
-    )
-    spans = [span0, span1]
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=transcript_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-citation",
-        link_role="citation",
-        producer={"action_kind": "map.extract"},
-        spans=[
-            {"span_id": s["id"], "rank": i, "span_role": "citation", "required": True}
-            for i, s in enumerate(spans)
-        ],
-    )
-    project.db.commit()
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project,
+            artifact_kind="av",
+            media_type="audio/wav",
+            blob_hash=blob_hash,
+            filename="hearing.wav",
+            duration_ms=2000,
+            source_sheet_id=sheet_id,
+            source_row_id=row_id,
+            source_column_id=source_column_id,
+            metadata={"engine": "faster_whisper", "output_name": "transcript"},
+        )
+        # Neither span starts at 0ms -- proves genuine auto-seek, not "already there".
+        span0 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1000,
+            end_ms=1400,
+            quote="COMMITTEE VOTE ON THE AMENDMENT",
+            selector={"segment_index": 4},
+        )
+        span1 = record_source_span(
+            project,
+            artifact_id=artifact["id"],
+            span_kind="temporal",
+            start_ms=1500,
+            end_ms=1900,
+            quote="CLOSING REMARKS",
+            selector={"segment_index": 5},
+        )
+        spans = [span0, span1]
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=transcript_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-citation",
+            link_role="citation",
+            producer={"action_kind": "map.extract"},
+            spans=[
+                {"span_id": s["id"], "rank": i, "span_role": "citation", "required": True}
+                for i, s in enumerate(spans)
+            ],
+        )
     print(json.dumps({
         "sheetId": sheet_id,
         "rowId": row_id,

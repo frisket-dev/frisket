@@ -49,6 +49,7 @@ import sys
 from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
@@ -89,20 +90,20 @@ try:
     run_store.finish_run(run_id)
     run_store.point_column_at_run(op_id, summary_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, summary_col, row_ids=row_ids)
-    artifact = record_source_artifact(
-        project, artifact_kind="file", media_type="application/pdf", title="Contract", filename="doc.pdf",
-    )
-    for rid, v in zip(row_ids, summary_values):
-        span = record_source_span(
-            project, artifact_id=artifact["id"], span_kind="region", page_start=1, page_end=1, quote=v, snippet=v,
+    with write_transaction(project.db):
+        artifact = record_source_artifact(
+            project, artifact_kind="file", media_type="application/pdf", title="Contract", filename="doc.pdf",
         )
-        record_citation(
-            project, subject_kind="cell_value", subject_ref=refs[rid],
-            sheet_id=sheet_id, row_id=rid, column_id=summary_col, run_id=run_id, op_id=op_id,
-            link_role="primary_support", confidence=0.9, spans=[{"span_id": span["id"], "rank": 0}],
-        )
+        for rid, v in zip(row_ids, summary_values):
+            span = record_source_span(
+                project, artifact_id=artifact["id"], span_kind="region", page_start=1, page_end=1, quote=v, snippet=v,
+            )
+            record_citation(
+                project, subject_kind="cell_value", subject_ref=refs[rid],
+                sheet_id=sheet_id, row_id=rid, column_id=summary_col, run_id=run_id, op_id=op_id,
+                link_role="primary_support", confidence=0.9, spans=[{"span_id": span["id"], "rank": 0}],
+            )
 
-    project.db.commit()
     print(json.dumps({
         "sheetId": sheet_id,
         "rowIds": row_ids,

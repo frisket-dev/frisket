@@ -54,6 +54,7 @@ from pathlib import Path
 
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 workspace, pid, raw_source_id, kind = sys.argv[1:5]
 source_id = int(raw_source_id)
@@ -66,7 +67,8 @@ try:
     sheet_id = source["sheet_id"]
     if sheet_id is None:
         sheet_id = project.add_sheet(f"{source['name']} rows")
-        feed_store.update_feed(source_id, sheet_id=sheet_id)
+        with write_transaction(project.db):
+            feed_store.update_feed(source_id, sheet_id=sheet_id)
     columns = {row["name"]: row["id"] for row in project.columns(sheet_id)}
     column_types = {
         "source_item_id": "text",
@@ -87,7 +89,8 @@ try:
     for name, column_type in column_types.items():
         if name not in columns:
             columns[name] = project.add_column(sheet_id, name, column_type)
-    run_id = feed_store.start_feed_check(source_id)
+    with write_transaction(project.db):
+        run_id = feed_store.start_feed_check(source_id)
     if kind.startswith("youtube"):
         record = {
             "source_item_id": "youtube:video:video123",
@@ -123,19 +126,20 @@ try:
             "source_raw": {"provider": "fake-courtlistener"},
         }
     row_id = project.add_rows(sheet_id, [record], columns)[0]
-    feed_store.finish_feed_check(
-        run_id,
-        status="ok",
-        new_rows=1,
-        skipped_rows=2,
-        changed_rows=1,
-        revisions=0,
-        cursor_after=json.dumps({"fixture_cursor": True}),
-        duration_ms=120,
-        warning_count=1,
-        cost_micro=1234,
-        summary={"materialized_rows": 1, "fixture": kind},
-    )
+    with write_transaction(project.db):
+        feed_store.finish_feed_check(
+            run_id,
+            status="ok",
+            new_rows=1,
+            skipped_rows=2,
+            changed_rows=1,
+            revisions=0,
+            cursor_after=json.dumps({"fixture_cursor": True}),
+            duration_ms=120,
+            warning_count=1,
+            cost_micro=1234,
+            summary={"materialized_rows": 1, "fixture": kind},
+        )
     print(json.dumps({"runId": run_id, "sheetId": sheet_id, "rowId": row_id}))
 finally:
     project.close()
