@@ -1420,8 +1420,8 @@ def register_action_run_handler(
                             queue is not None
                             and handler_context.job_id is not None
                             and (
-                                queue.get(handler_context.job_id) is None
-                                or queue.get(handler_context.job_id).status != "running"
+                                (job := queue.get(handler_context.job_id)) is None
+                                or job.status != "running"
                             )
                         ),
                     )
@@ -1434,8 +1434,8 @@ def register_action_run_handler(
                         queue is not None
                         and handler_context.job_id is not None
                         and (
-                            queue.get(handler_context.job_id) is None
-                            or queue.get(handler_context.job_id).status != "running"
+                            (job := queue.get(handler_context.job_id)) is None
+                            or job.status != "running"
                         )
                     ),
                 )

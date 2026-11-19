@@ -603,9 +603,10 @@ def register_import_table_handler(
             or not context.handler_authority_id
         ):
             raise ValueError("table import requires a row-backed queue claim")
+        job_id = context.job_id
 
         def live() -> bool:
-            current = queue.get(context.job_id)
+            current = queue.get(job_id)
             return (
                 current is not None
                 and current.status == "running"
