@@ -229,9 +229,12 @@ test('contextual categories are keyed to column types in both ribbon and compact
   await expect(page.getByTestId('ribbon-tab-ctx-pdf')).toBeVisible();
 
   await page.getByTestId('ribbon-tab-ctx-pdf').click();
+  // The band shows its commands at once and its actions when the catalog
+  // arrives, so the leaves are read once the catalog's action is among them.
+  await expect.poll(async () => (
+    await orderedActLeaves(page.getByTestId('act-ribbon-band'))
+  ).map((leaf) => leaf.identity)).toContain('action:media.ocr');
   const ribbonPdfLeaves = await orderedActLeaves(page.getByTestId('act-ribbon-band'));
-  expect(ribbonPdfLeaves.length, 'PDF tools must expose at least one contextual leaf').toBeGreaterThan(0);
-  expect(ribbonPdfLeaves.map((leaf) => leaf.identity)).toContain('action:media.ocr');
 
   // Compact mode renders the same contextual category and ordered items; it
   // does not discard context just because the surface density changed.
