@@ -169,10 +169,10 @@ def _finalize_run_in_transaction(
         )
     never_point = {int(column_id) for column_id in never_point_column_ids}
     if never_point:
-        op = project.db.execute(
+        undo_row = project.db.execute(
             "SELECT undo_info FROM ops WHERE id=?", (int(op_id),)
         ).fetchone()
-        info = json.loads(op["undo_info"] or "{}") if op is not None else {}
+        info = json.loads(undo_row["undo_info"] or "{}") if undo_row is not None else {}
         prior_pointers = info.get("column_pointers", {})
         after_pointers = info.get("column_pointers_after", {})
         changed_pointer_journal = False
