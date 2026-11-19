@@ -422,12 +422,14 @@ def test_publication_refuses_invalid_source_page_without_destroying_saved_text(
                 RunResultStore(project).write_results(
                     run_id, result, **authority.kwargs()
                 )
-        # Progressive work masks its scope, but explicitly deferred work
-        # leaves the old prepared reference visible until successful sealing.
-        assert project.db.execute(
-            "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
-            (text_id,),
-        ).fetchone()[0] == (previous_ref if deferred else None)
+        # The saved Text is an edit, which a later run never hides.
+        assert (
+            project.db.execute(
+                "SELECT prepared_ref_id FROM current_cell_values WHERE column_id=?",
+                (text_id,),
+            ).fetchone()[0]
+            == previous_ref
+        )
         assert (
             project.db.execute(
                 "SELECT COUNT(*) FROM cell_result_heads WHERE column_id=?", (text_id,)

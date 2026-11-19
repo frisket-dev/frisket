@@ -337,8 +337,10 @@ def test_upgrade_poll_tracks_latest_legacy_revision_without_changing_old_rows(
 
 
 def test_full_cutover_preserves_values_and_starts_new_history(old_db):
-    from frisket.upgrades.project.domain_migration import migrate_domain
-    from frisket.engine.store.schema import SCHEMA_DIGEST
+    from frisket.upgrades.project.domain_migration import (
+        DOMAIN_TO_DIGEST,
+        migrate_domain,
+    )
 
     db = old_db
     _stamp_old(db)
@@ -363,7 +365,7 @@ def test_full_cutover_preserves_values_and_starts_new_history(old_db):
     )
     assert (
         db.execute("SELECT value FROM meta WHERE key='schema_digest'").fetchone()[0]
-        == SCHEMA_DIGEST
+        == DOMAIN_TO_DIGEST
     )
     assert (
         db.execute(

@@ -1,0 +1,296 @@
+"""A hand edit stays current when a later re-run replaces its cell.
+
+The re-run's value is offered for replay review instead. A reject-clear edit
+yields to a later replacement, and a replacement that changes the column
+descriptor supersedes every earlier edit.
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+from typing import Any
+
+from frisket.engine.executor.actions import run_action_spec
+from frisket.engine.store import Project
+from frisket.engine.store.change_schema import canonical_heads_sql
+from frisket.engine.store.current_cells import rebuild_current_cells
+from frisket.engine.store.schema import SCHEMA_DIGEST
+from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
+
+_PROJECT_ID = "proj-edit-precedence"
+
+
+class _Sheet:
+    def __init__(self, project: Project) -> None:
+        self.project = project
+        self.sheet = project.add_sheet("s")
+        source = project.add_column(self.sheet, "n", type="text")
+        self.rows = project.add_rows(
+            self.sheet, [{"n": str(i)} for i in range(6)], {"n": source}
+        )
+        self._keys = 0
+        self.run("A", replace=False)
+        self.out = int(
+            project.db.execute(
+                "SELECT id FROM columns WHERE sheet_id=? AND name='out'",
+                (self.sheet,),
+            ).fetchone()[0]
+        )
+
+    def act(self, spec: dict[str, Any]) -> Any:
+        self._keys += 1
+        result = run_action_spec(
+            self.project,
+            {**spec, "idempotency_key": f"k{self._keys}"},
+            project_id=_PROJECT_ID,
+        )
+        assert result.status == "completed", result.errors
+        return result
+
+    def run(
+        self,
+        prefix: str,
+        *,
+        replace: bool = True,
+        row_ids: list[int] | None = None,
+        column_type: str = "text",
+    ) -> int:
+        code = (
+            "result = len(row['n'])"
+            if column_type == "integer"
+            else f"result = {prefix!r} + row['n']"
+        )
+        self.act(
+            {
+                "action_id": "map.python",
+                "scope": {
+                    "kind": "sheet_rows",
+                    "sheet_id": self.sheet,
+                    **({"row_ids": row_ids} if row_ids else {}),
+                },
+                "params": {
+                    "input_columns": ["n"],
+                    "code": code,
+                    "return_schema": {
+                        "type": "integer" if column_type == "integer" else "string"
+                    },
+                    "output_routes": [
+                        {
+                            "name": "out",
+                            "path": "$",
+                            "target": {"kind": "column", "type": column_type},
+                        }
+                    ],
+                },
+                "output_names": {"out": "out"},
+                **({"replace_existing": True} if replace else {}),
+            }
+        )
+        return int(self.project.db.execute("SELECT MAX(id) FROM ops").fetchone()[0])
+
+    def edit_first_three(self) -> None:
+        self.act(
+            {
+                "action_id": "cell.edit",
+                "scope": {"kind": "project"},
+                "params": {
+                    "edits": [
+                        {"row_id": row, "column_id": self.out, "value": f"EDIT{i}"}
+                        for i, row in enumerate(self.rows[:3])
+                    ]
+                },
+            }
+        )
+
+    def replay_action(self, action_id: str, row_id: int) -> None:
+        pending = self.pending()[row_id]
+        self.act(
+            {
+                "action_id": action_id,
+                "scope": {"kind": "project"},
+                "params": {
+                    "sheet_id": self.sheet,
+                    "row_id": row_id,
+                    "column_id": self.out,
+                    "run_id": pending["run_id"],
+                    "generated_value_hash": pending["generated_value_hash"],
+                },
+            }
+        )
+
+    def values(self) -> list[Any]:
+        current = self.project.get_values(self.sheet, self.out)
+        return [current[row] for row in self.rows]
+
+    def origins(self) -> list[str]:
+        refs = self.project.get_values_with_refs(
+            self.sheet, self.out, row_ids=self.rows
+        )[1]
+        return [refs[row]["kind"] for row in self.rows]
+
+    def pending(self) -> dict[int, dict[str, Any]]:
+        return self.project.pending_replay_values(
+            self.sheet, self.out, row_ids=self.rows
+        )
+
+    def pending_fresh(self) -> dict[int, Any]:
+        return {row: entry["fresh_value"] for row, entry in self.pending().items()}
+
+
+_EDITED = ["EDIT0", "EDIT1", "EDIT2"]
+
+
+def test_whole_column_rerun_keeps_edits_and_offers_run_values(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    assert sheet.values() == [*_EDITED, "B3", "B4", "B5"]
+    assert sheet.origins() == ["manual_edit"] * 3 + ["run_result"] * 3
+    assert sheet.project.pending_replay_count(sheet.sheet, sheet.out) == 3
+    assert sheet.pending_fresh() == dict(zip(sheet.rows[:3], ["B0", "B1", "B2"]))
+
+
+def test_row_scoped_rerun_keeps_edits_inside_its_scope(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B", row_ids=[sheet.rows[0], sheet.rows[3]])
+    assert sheet.values() == [*_EDITED, "B3", "A4", "A5"]
+    assert sheet.origins()[0] == "manual_edit"
+
+
+def test_accept_makes_the_run_value_current(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    sheet.replay_action("replay.accept", sheet.rows[1])
+    assert sheet.values()[:3] == ["EDIT0", "B1", "EDIT2"]
+    assert sheet.project.pending_replay_count(sheet.sheet, sheet.out) == 2
+
+
+def test_keep_edit_dismisses_until_a_newer_rerun(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    sheet.replay_action("replay.dismiss", sheet.rows[0])
+    assert sheet.values()[:3] == _EDITED
+    assert sheet.pending_fresh() == dict(zip(sheet.rows[1:3], ["B1", "B2"]))
+    sheet.run("C")
+    assert sheet.values() == [*_EDITED, "C3", "C4", "C5"]
+    assert sheet.pending_fresh() == dict(zip(sheet.rows[:3], ["C0", "C1", "C2"]))
+
+
+def test_undo_of_the_rerun_keeps_edits_and_offers_the_earlier_values(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    sheet.project.undo()
+    assert sheet.values() == [*_EDITED, "A3", "A4", "A5"]
+    assert sheet.pending_fresh() == dict(zip(sheet.rows[:3], ["A0", "A1", "A2"]))
+    sheet.project.redo()
+    assert sheet.values() == [*_EDITED, "B3", "B4", "B5"]
+
+
+def test_reject_clear_yields_to_a_later_rerun_but_an_edit_does_not(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.act(
+        {
+            "action_id": "cell.edit",
+            "scope": {"kind": "project"},
+            "params": {
+                "edits": [
+                    {"row_id": sheet.rows[0], "column_id": sheet.out, "value": "E"}
+                ]
+            },
+        }
+    )
+    run_id = int(
+        sheet.project.db.execute(
+            "SELECT run_id FROM results WHERE column_id=? LIMIT 1", (sheet.out,)
+        ).fetchone()[0]
+    )
+    sheet.act(
+        {
+            "action_id": "review.decision",
+            "scope": {"kind": "project"},
+            "params": {
+                "run_id": run_id,
+                "row_id": sheet.rows[1],
+                "column_id": sheet.out,
+                "decision": "reject_clear",
+            },
+        }
+    )
+    assert sheet.values()[1] is None
+    sheet.run("B")
+    assert sheet.values()[:2] == ["E", "B1"]
+    assert sheet.origins()[:2] == ["manual_edit", "run_result"]
+
+
+def test_descriptor_changing_rerun_supersedes_edits(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    assert sheet.values()[:3] == _EDITED
+    sheet.run("", column_type="integer")
+    assert sheet.values() == [1] * 6
+    assert sheet.origins() == ["run_result"] * 6
+
+
+def test_projection_rebuild_resolves_the_same_heads(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    db = sheet.project.db
+    columns = "column_id,row_id,origin_kind,origin_op_id,origin_run_id"
+    cached = db.execute(
+        f"SELECT {columns} FROM current_cells WHERE column_id=? ORDER BY row_id",
+        (sheet.out,),
+    ).fetchall()
+    canonical = db.execute(
+        f"SELECT {columns} FROM canonical_cell_heads WHERE column_id=? ORDER BY row_id",
+        (sheet.out,),
+    ).fetchall()
+    db.execute("BEGIN")
+    db.execute("DELETE FROM current_cells")
+    rebuild_current_cells(db)
+    db.commit()
+    rebuilt = db.execute(
+        f"SELECT {columns} FROM current_cells WHERE column_id=? ORDER BY row_id",
+        (sheet.out,),
+    ).fetchall()
+    assert [tuple(row) for row in cached] == [tuple(row) for row in canonical]
+    assert [tuple(row) for row in rebuilt] == [tuple(row) for row in canonical]
+    assert sheet.values() == [*_EDITED, "B3", "B4", "B5"]
+
+
+def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
+    sheet = _Sheet(make_project("p"))
+    sheet.edit_first_three()
+    sheet.run("B")
+    db = sheet.project.db
+    # Recreate the cache the previous schema wrote: the latest run won.
+    run_heads = canonical_heads_sql(
+        "cell_contributions contribution WHERE contribution.origin_kind!='manual_edit'"
+    )
+    db.execute("BEGIN")
+    db.execute(
+        "INSERT OR REPLACE INTO current_cells SELECT * FROM "
+        f"({run_heads}) WHERE column_id=?",
+        (sheet.out,),
+    )
+    db.execute("UPDATE meta SET value=? WHERE key='schema_digest'", (DOMAIN_TO_DIGEST,))
+    db.commit()
+    assert sheet.values()[:3] == ["B0", "B1", "B2"]
+    path = sheet.project.path
+    sheet.project.close()
+
+    with closing(Project(path)) as reopened:
+        assert (
+            reopened.db.execute(
+                "SELECT value FROM meta WHERE key='schema_digest'"
+            ).fetchone()[0]
+            == SCHEMA_DIGEST
+        )
+        values = reopened.get_values(sheet.sheet, sheet.out)
+        assert [values[row] for row in sheet.rows] == [*_EDITED, "B3", "B4", "B5"]
+        assert reopened.pending_replay_count(sheet.sheet, sheet.out) == 3

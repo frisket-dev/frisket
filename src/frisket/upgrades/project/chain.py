@@ -49,7 +49,11 @@ from frisket.upgrades.project.evaluation_migration import EVALUATION_STEP
 from frisket.upgrades.project.action_submissions_migration import (
     ACTION_SUBMISSIONS_STEP,
 )
-from frisket.upgrades.project.domain_migration import migrate_domain
+from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST, migrate_domain
+from frisket.upgrades.project.edit_precedence_migration import (
+    EDIT_PRECEDENCE_TO_DIGEST,
+    apply_edit_precedence,
+)
 
 
 # v0.1.1a62 (907a324c) -> v0.1.1a64's receipt-owned execution attempts.
@@ -146,6 +150,7 @@ def upgrade_project_schema(db: sqlite3.Connection, *, bundle_path: Path) -> None
     for step in _STEPS_BEFORE_DOMAIN:
         run_step(db, *step)
     migrate_domain(db)
+    run_step(db, DOMAIN_TO_DIGEST, EDIT_PRECEDENCE_TO_DIGEST, apply_edit_precedence)
 
 
 def _apply_ocr_review_roles(db: sqlite3.Connection) -> None:
