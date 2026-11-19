@@ -17,9 +17,6 @@
  "grid.spec.ts": {
   "json array cell renders as a mini table in the row drawer": "seed:Local stories,Tariff impacts"
  },
- "large-sheet-scale.spec.ts": {
-  "large sheet product paths use bounded browser traffic": "stale-expectation"
- },
  "local-model-walkthrough.spec.ts": {
   "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
  },
