@@ -263,3 +263,51 @@ def test_nightly_skips_only_a_scheduled_night_on_an_already_green_head(
     out = dict(line.split("=", 1) for line in output.read_text().splitlines())
     assert out["run"] == run
     assert out["last_green"] == (last_green or "")
+
+
+PATH_GATED = {
+    "local-model-runtime.yml": (
+        "local-model-runtime",
+        {"changes", "retrieval", "classifiers", "docling"},
+        "sidecar/retrieval-runtime/pyproject.toml",
+    ),
+    "retrieval-native.yml": (
+        "retrieval-native",
+        {"changes", "wheel"},
+        "vendor/sqlite-vec1/vec1.c",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", PATH_GATED)
+def test_path_gated_proofs_always_report_one_check(name):
+    gate, proofs, _ = PATH_GATED[name]
+    config = workflow(name)
+    assert config["on"]["pull_request"] == ""
+    assert config["on"]["merge_group"] == {"types": ["checks_requested"]}
+    jobs = config["jobs"]
+    assert set(jobs) == proofs | {gate}
+    for job in proofs - {"changes"}:
+        assert jobs[job]["needs"] == "changes"
+    assert jobs[gate]["if"] == "${{ always() }}"
+    assert set(jobs[gate]["needs"]) == proofs
+    assert jobs[gate]["steps"][0]["env"]["REASON"] == (
+        "${{ needs.changes.outputs.reason }}"
+    )
+
+
+@pytest.mark.parametrize("name", PATH_GATED)
+@pytest.mark.parametrize("event", ["pull_request", "merge_group"])
+def test_path_gated_proofs_run_only_when_their_inputs_change(tmp_path, name, event):
+    _, _, input_path = PATH_GATED[name]
+    touched = run_filter(
+        tmp_path, name, files=["docs/a.md", input_path], EVENT_NAME=event
+    )
+    assert touched["relevant"] == "true"
+    assert input_path in touched["reason"]
+    untouched = run_filter(tmp_path, name, files=["docs/a.md"], EVENT_NAME=event)
+    assert untouched["relevant"] == "false"
+    assert "not affected" in untouched["reason"]
+    assert run_filter(tmp_path, name, EVENT_NAME="workflow_dispatch")["relevant"] == (
+        "true"
+    )

@@ -1,16 +1,12 @@
 name: retrieval-native
 
+# Pull requests and merge queue entries always run this workflow so the
+# `retrieval-native` check reports on every change; the `changes` job decides
+# whether the wheel builds below are needed.
 on:
   pull_request:
-    paths:
-      - 'vendor/sqlite-vec1/**'
-      - 'hatch_build.py'
-      - 'scripts/build_vec1.py'
-      - 'src/frisket/retrieval/native.py'
-      - 'tests/retrieval/test_native.py'
-      - 'pyproject.toml'
-      - '.github/workflows/retrieval-native.yml'
-      - '.github/workflows/release-public-artifacts.yml'
+  merge_group:
+    types: [checks_requested]
   workflow_call:
     inputs:
       ref:
@@ -32,8 +28,57 @@ env:
   UV_HTTP_TIMEOUT: "120"
 
 jobs:
+  # Decides whether this run needs the wheel builds: on pull requests and in
+  # the merge queue only when the diff changes one of their inputs (the
+  # pattern below), otherwise always, including the release call.
+  changes:
+    runs-on: ubuntu-26.04
+    outputs:
+      relevant: ${{ steps.paths.outputs.relevant }}
+      reason: ${{ steps.paths.outputs.reason }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          QUEUE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+        run: |
+          set -euo pipefail
+          # The wheel builds' inputs: the vendored vec1 sources and their
+          # build hook, the native loader and its test, the package metadata,
+          # this workflow and the release workflow that calls it.
+          inputs='^(vendor/sqlite-vec1/.*|hatch_build\.py|scripts/build_vec1\.py|src/frisket/retrieval/native\.py|tests/retrieval/test_native\.py|pyproject\.toml|\.github/workflows/(retrieval-native|release-public-artifacts)\.yml)$'
+          relevant=true
+          if [ "$EVENT_NAME" != pull_request ] && [ "$EVENT_NAME" != merge_group ]; then
+            reason="this $EVENT_NAME run proves the revision in full"
+          else
+            if [ "$EVENT_NAME" = merge_group ]; then base="${QUEUE_BASE_SHA:-}"; else base="${BASE_SHA:-}"; fi
+            if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              reason="the diff base is unavailable, so the wheels build"
+            else
+              files="$(git diff --name-only "$base" HEAD)"
+              if hit="$(grep -E "$inputs" <<< "$files")"; then
+                reason="this diff changes an input of the wheel builds: ${hit%%$'\n'*}"
+              else
+                relevant=false
+                reason="not affected: this diff changes no input of the wheel builds"
+              fi
+            fi
+          fi
+          {
+            echo "relevant=$relevant"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+          echo "### retrieval-native ($EVENT_NAME): $reason" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
   wheel:
     name: Vec1 wheel (${{ matrix.target }})
+    needs: changes
+    if: ${{ needs.changes.outputs.relevant == 'true' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     strategy:
@@ -200,3 +245,18 @@ jobs:
           path: dist/*.whl
           retention-days: 1
           if-no-files-found: error
+
+  # The required check. It fails unless `changes` succeeded and every wheel
+  # passed or was deliberately skipped; its summary says why they skipped.
+  retrieval-native:
+    name: retrieval-native
+    if: ${{ always() }}
+    needs: [changes, wheel]
+    runs-on: ubuntu-26.04
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+          REASON: ${{ needs.changes.outputs.reason }}
+        run: |
+          echo "### $GITHUB_JOB: ${REASON:-the change filter did not finish}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          jq -e '.changes.result == "success" and ([.[] .result] | all(. == "success" or . == "skipped"))' <<< "$RESULTS"
