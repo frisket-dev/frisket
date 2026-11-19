@@ -43,8 +43,8 @@ describe('EmbeddingIndexPolicyDetail cost cap', () => {
     });
     fireEvent.click(screen.getByTestId('embedding-policy-save-idx_1'));
 
-    expect(await screen.findByText('Max $/refresh must be a positive finite number or blank.'))
-      .toBeInTheDocument();
+    expect(await screen.findByRole('alert'))
+      .toHaveTextContent('Max $/refresh must be a positive finite number or blank.');
     expect(updateEmbeddingIndexPolicy).not.toHaveBeenCalled();
   });
 

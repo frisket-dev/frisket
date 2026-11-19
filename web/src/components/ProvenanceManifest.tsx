@@ -593,7 +593,7 @@ export function ProvenanceManifest({ projectName, onClose, onCreateEntityTable }
         <PanelLoading testId="provenance-loading" label="loading..." />
       )}
       {state.status === 'error' && (
-        <div className="panel-error" data-testid="provenance-error">{state.error}</div>
+        <div className="panel-error" role="alert" data-testid="provenance-error">{state.error}</div>
       )}
 
       {manifest && (

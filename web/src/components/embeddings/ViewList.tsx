@@ -75,7 +75,7 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
   if (sheetId == null) return null;
   if (error) {
     return (
-      <p className="panel-error" data-testid={`embedding-lens-list-error-${index.indexId}`}>
+      <p className="panel-error" role="alert" data-testid={`embedding-lens-list-error-${index.indexId}`}>
         {error}
       </p>
     );
@@ -101,7 +101,7 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
               </Button>
             </div>
             {openId === view.id && resolveAction.error && (
-              <p className="panel-error" data-testid={`embedding-lens-resolve-error-${view.id}`}>
+              <p className="panel-error" role="alert" data-testid={`embedding-lens-resolve-error-${view.id}`}>
                 {resolveAction.error}
               </p>
             )}

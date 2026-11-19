@@ -75,7 +75,7 @@ export function ReceiptInspector({ receiptId, onCreateEntityTable }: ReceiptInsp
       )}
 
       {loader.error !== null && (
-        <div className="panel-error" data-testid="receipt-error">{loader.error}</div>
+        <div className="panel-error" role="alert" data-testid="receipt-error">{loader.error}</div>
       )}
 
       {receipt && (

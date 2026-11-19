@@ -84,3 +84,15 @@ it('ignores a mount completion that lands after unmount', async () => {
   request.resolve(manifest(0, 0)); await flush();
   expect(errors).not.toHaveBeenCalled();
 });
+
+it('announces a manifest load failure as an alert', async () => {
+  const projectApi = {
+    getProvenanceManifest: vi.fn(() => Promise.reject(new Error('Provenance unavailable'))),
+    qa: { citation: vi.fn(), report: vi.fn() },
+    listAttemptReceipts: vi.fn(() => new Promise(() => {})),
+  } as unknown as ProjectApi;
+  const harness = createWorkspaceTestHarness({ projectId: 'paging-error', api: { projectApi } });
+  harness.render(<ProvenanceManifest projectName="Paging" onClose={vi.fn()} />);
+  await flush();
+  expect(screen.getByRole('alert')).toBe(screen.getByTestId('provenance-error'));
+});

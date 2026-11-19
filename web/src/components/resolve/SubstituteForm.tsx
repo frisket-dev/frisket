@@ -566,7 +566,7 @@ function SubstituteFormBody({
         </div>
       )}
       {error && (
-        <div className="panel-error" data-testid="resolve-substitute-error">{error}</div>
+        <div className="panel-error" role="alert" data-testid="resolve-substitute-error">{error}</div>
       )}
 
       {overThreshold && preview && (

@@ -300,7 +300,7 @@ function IndexAnalysis({
         </Button>
       </div>
       {error && (
-        <p className="panel-error" data-testid={`embedding-analysis-error-${index.indexId}`}>
+        <p className="panel-error" role="alert" data-testid={`embedding-analysis-error-${index.indexId}`}>
           {error}
         </p>
       )}
@@ -352,7 +352,7 @@ function ExportControl({
       >
         <Download size={11} /> {exportAction.busy ? 'Exporting…' : 'Export'}
       </Button>
-      {exportAction.error && <p className="panel-error">{exportAction.error}</p>}
+      {exportAction.error && <p className="panel-error" role="alert">{exportAction.error}</p>}
       {result && (
         <ul
           className="panel-list"
