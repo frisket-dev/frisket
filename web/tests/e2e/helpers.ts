@@ -157,7 +157,7 @@ type ActionId = keyof GeneratedActionParams;
 
 /** A run request as the endpoint takes it; params stay whatever the action's
  *  generated params type says. */
-type ActionRequest = RegisteredActionDraft<unknown>
+export type ActionRequest = RegisteredActionDraft<unknown>
   & Pick<RegisteredActionRequest, 'idempotency_key' | 'confirmation'>;
 
 /** The run endpoint's typed request for one catalog action: its generated
