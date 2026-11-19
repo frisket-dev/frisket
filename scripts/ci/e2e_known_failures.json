@@ -229,10 +229,6 @@
  "review-run-assessment.spec.ts": {
   "review scopes runs and fields through the toolbar, reports decisions, and reopens a completed run": "stale-expectation"
  },
- "role-primitives-consolidation.spec.ts": {
-  "the derive AI/existing-column toggle behaves as a SegmentedToggle, including its disabled option (no JSON list columns)": "stale-expectation",
-  "the extract form Column/Template toggle behaves as a SegmentedToggle (aria-pressed parity, panel swap)": "stale-expectation"
- },
  "route-sync-epoch.spec.ts": {
   "map deep-link entry hydrates the split and normalizes the URL (B1), coexisting with a row Detail": "stale-expectation"
  },

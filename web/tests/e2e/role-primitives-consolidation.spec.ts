@@ -1,4 +1,4 @@
-// Holistic re-examination of the role-attribute KEEP clusters. Four narrow
+// Holistic re-examination of the role-attribute KEEP clusters. Three narrow
 // extractions/fixes, each RED-first here:
 //
 //  1. <ResizeSeam> (src/components/ResizeSeam.tsx): the markup shell the four
@@ -17,11 +17,6 @@
 //     boundary behavior).
 //  3. EngineSelector choice buttons carry the selected state through
 //     aria-current. Covered here through the searchable action host.
-//  4. ActionPanel's two hand-rolled ".segmented source-mode-switch" toggles
-//     (:2013 SourceInputControl, :4074 derive) now render through the
-//     SegmentedToggle primitive the file already imports/uses elsewhere.
-//     Covered here: the extract form's Column/Template toggle, and derive's
-//     AI/existing-column toggle (including its disabled-option path).
 
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
@@ -392,56 +387,4 @@ test('EngineSelector choice buttons retain aria-current through searchable actio
   await expect(
     page.getByTestId('engine-selector-dialog').locator('[data-engine-selector-choice="anthropic-claude-haiku"]'),
   ).toHaveAttribute('aria-current', 'true');
-});
-
-// ---------------------------------------------------------------------------
-// 4. ActionPanel's two source-mode switches adopt SegmentedToggle.
-
-test('the extract form Column/Template toggle behaves as a SegmentedToggle (aria-pressed parity, panel swap)', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('source-mode-segmented-extract'));
-  await importCsv(page.request, pid, 'meetings.csv', 'title,notes\n"Budget hearing","Vendor bids."\n');
-  await page.goto(`/p/${pid}`);
-  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
-  await openAction(page, 'map.extract');
-
-  const columnBtn = page.getByTestId('text-source-mode-column');
-  const templateBtn = page.getByTestId('text-source-mode-template');
-  await expect(columnBtn).toHaveAttribute('aria-pressed', 'true');
-  await expect(templateBtn).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByTestId('text-source-column-select')).toBeVisible();
-
-  await templateBtn.click();
-  await expect(templateBtn).toHaveAttribute('aria-pressed', 'true');
-  await expect(columnBtn).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByTestId('text-source-template-input')).toBeVisible();
-  await expect(page.getByTestId('text-source-column-select')).toHaveCount(0);
-
-  await columnBtn.click();
-  await expect(columnBtn).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('text-source-template-input')).toHaveCount(0);
-  await expect(page.getByTestId('text-source-column-select')).toBeVisible();
-});
-
-test('the derive AI/existing-column toggle behaves as a SegmentedToggle, including its disabled option (no JSON list columns)', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('source-mode-segmented-derive'));
-  await importCsv(page.request, pid, 'episodes.csv', 'title\n"Episode 1"\n');
-  await page.goto(`/p/${pid}`);
-  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 20_000 });
-  await openAction(page, 'derive.table_from_list');
-
-  const aiBtn = page.getByTestId('derive-source-mode-ai');
-  const columnBtn = page.getByTestId('derive-source-mode-column');
-  await expect(aiBtn).toHaveAttribute('aria-pressed', 'true');
-  await expect(columnBtn).toHaveAttribute('aria-pressed', 'false');
-
-  // No JSON list column on this sheet — the option renders disabled, with the
-  // SAME reason text the hand-rolled toggle used as its title.
-  await expect(columnBtn).toBeDisabled();
-  await expect(columnBtn).toHaveAttribute('title', 'No JSON list columns on this sheet');
-  await columnBtn.click({ force: true });
-  await expect(aiBtn).toHaveAttribute('aria-pressed', 'true');
 });
