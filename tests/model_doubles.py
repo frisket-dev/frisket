@@ -64,7 +64,7 @@ def canned_reply_router(
     adapter = CannedReplyAdapter(
         reply, tokens_in=tokens_in, tokens_out=tokens_out, cost=cost
     )
-    router._adapters["anthropic"] = adapter  # noqa: SLF001
+    router._adapters["anthropic"] = adapter
     return router, adapter
 
 

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field, ValidationError
 
 from executor_harness import run_action_with_confirmation
+from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS
 from frisket.ai.llm import LLMResponse, ModelRouter
 from frisket.actions.extract import ExtractParams
 from frisket.actions.core import model_rows
@@ -361,7 +362,6 @@ def test_grounding_references_validate_missing_sources_and_refuse_required_pdf_c
 def test_grounding_only_transcript_never_augments_model_prompt(
     tmp_path, monkeypatch, template
 ):
-    from tests.engine.transcript_doubles import TRANSCRIPT_SEGMENTS
     from test_extract_scalar_temporal_anchors import (
         _run_transcribe,
         _seed_transcript_project,
