@@ -57,6 +57,7 @@ from frisket.contracts.actions.schemas._engines import (
     EngineDeclaration,
     find_engine,
 )
+from frisket.contracts.transcription_sidecar import TranscriptionOptionSupport
 from frisket.execution.credential_use import pinned_credential_source
 from frisket.execution.price_book import (
     ByokZero,
@@ -362,6 +363,12 @@ def _transcription_inability(
     there.
     """
     declared = support.options
+    if not isinstance(declared, TranscriptionOptionSupport):  # pragma: no cover
+        # Unreachable by construction, as in ``_ocr_inability``.
+        raise ValueError(
+            f"transcribe support row for {support.engine!r} carries "
+            f"{type(declared).__name__} options"
+        )
     if options.get("diarize") is True and declared.diarization_mode == "none":
         return "diarization"
     if declared.speaker_hint == "none" and any(
