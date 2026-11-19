@@ -8,7 +8,7 @@ import math
 import struct
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeAlias
+from typing import Any, Generic, Protocol, TypeAlias, TypeVar
 
 from frisket.retrieval.encoding import (
     EMBEDDINGGEMMA2_DOCUMENT_PREFIX,
@@ -29,12 +29,13 @@ from frisket.retrieval.store import CachedRepresentation
 
 MAX_CACHED_BATCH = 1000
 RawEmbeddingResult: TypeAlias = Sequence[Sequence[float]] | Mapping[str, Any]
-FreshEncoder: TypeAlias = Callable[
-    ...,
-    RawEmbeddingResult | Awaitable[RawEmbeddingResult],
-]
-BeforeFreshBatch: TypeAlias = Callable[[list[EncodingInput]], None]
-OnFreshBatch: TypeAlias = Callable[[RawEmbeddingResult, list[EncodingInput]], None]
+# A caller's inputs and its encoder's result flow through the facade unchanged,
+# so its callbacks receive the input and result types it supplied.
+InputT = TypeVar("InputT", bound=EncodingInput)
+ResultT = TypeVar("ResultT", bound=RawEmbeddingResult)
+FreshEncoder: TypeAlias = Callable[..., ResultT | Awaitable[ResultT]]
+BeforeFreshBatch: TypeAlias = Callable[[list[InputT]], None]
+OnFreshBatch: TypeAlias = Callable[[ResultT, list[InputT]], None]
 
 
 class RepresentationCache(Protocol):
@@ -50,9 +51,14 @@ class RepresentationCache(Protocol):
 class EmbeddingSpace(Protocol):
     """The vector facts needed to validate and address cached representations."""
 
-    dimensions: int
-    identity: str
-    normalized: bool
+    @property
+    def dimensions(self) -> int: ...
+
+    @property
+    def identity(self) -> str: ...
+
+    @property
+    def normalized(self) -> bool: ...
 
 
 def embedding_input_hash(
@@ -211,24 +217,24 @@ def _validated_fresh(
 
 
 @dataclass
-class _PreparedBatch:
+class _PreparedBatch(Generic[InputT]):
     hashes: list[str]
     cached: dict[str, EmbeddingVector]
     missing_hashes: list[str]
-    fresh_inputs: list[EncodingInput]
+    fresh_inputs: list[InputT]
     space: EmbeddingSpace
     space_id: str
 
 
 def _prepare_batch(
     cache: RepresentationCache,
-    inputs: Sequence[EncodingInput],
+    inputs: Sequence[InputT],
     *,
     purpose: EncodingPurpose,
     space: EmbeddingSpace,
     space_id: str | None,
     cache_payloads: Sequence[bytes | str] | None,
-) -> _PreparedBatch:
+) -> _PreparedBatch[InputT]:
     values = list(inputs)
     if not values:
         return _PreparedBatch([], {}, [], [], space, "")
@@ -280,10 +286,10 @@ def _prepare_batch(
 
 def _complete_batch(
     cache: RepresentationCache,
-    prepared: _PreparedBatch,
-    result: RawEmbeddingResult,
+    prepared: _PreparedBatch[InputT],
+    result: ResultT,
     *,
-    on_fresh_batch: OnFreshBatch | None,
+    on_fresh_batch: OnFreshBatch[ResultT, InputT] | None,
 ) -> list[EmbeddingVector]:
     if on_fresh_batch is not None:
         on_fresh_batch(result, prepared.fresh_inputs)
@@ -318,15 +324,15 @@ class EmbeddingFacade:
 
     async def encode_async(
         self,
-        inputs: Sequence[EncodingInput],
+        inputs: Sequence[InputT],
         *,
-        encoder: FreshEncoder,
+        encoder: FreshEncoder[ResultT],
         purpose: EncodingPurpose,
         space: EmbeddingSpace,
         space_id: str | None = None,
         cache_payloads: Sequence[bytes | str] | None = None,
-        before_fresh_batch: BeforeFreshBatch | None = None,
-        on_fresh_batch: OnFreshBatch | None = None,
+        before_fresh_batch: BeforeFreshBatch[InputT] | None = None,
+        on_fresh_batch: OnFreshBatch[ResultT, InputT] | None = None,
     ) -> list[EmbeddingVector]:
         """Return cached/fresh vectors in input order, embedding unique misses once.
 
@@ -358,15 +364,15 @@ class EmbeddingFacade:
 
     def encode(
         self,
-        inputs: Sequence[EncodingInput],
+        inputs: Sequence[InputT],
         *,
-        encoder: FreshEncoder,
+        encoder: FreshEncoder[ResultT],
         purpose: EncodingPurpose,
         space: EmbeddingSpace,
         space_id: str | None = None,
         cache_payloads: Sequence[bytes | str] | None = None,
-        before_fresh_batch: BeforeFreshBatch | None = None,
-        on_fresh_batch: OnFreshBatch | None = None,
+        before_fresh_batch: BeforeFreshBatch[InputT] | None = None,
+        on_fresh_batch: OnFreshBatch[ResultT, InputT] | None = None,
     ) -> list[EmbeddingVector]:
         """Synchronous facade for worker-thread and CLI callers."""
 

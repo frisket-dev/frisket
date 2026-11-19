@@ -27,6 +27,7 @@ from frisket.contracts.http.search_preparation import (
 from frisket.engine.jobs.search_index import index_work_marker
 from frisket.engine.store.search_index_work import read_dirty_scopes
 from frisket.engine.jobs.search_preparation_store import (
+    PlannedSearchPreparationBatchRow,
     SearchPreparationBatchRow,
     SearchPreparationChildRow,
     SearchPreparationStore,
@@ -82,7 +83,8 @@ _LOCAL_TRANSCRIBE_TARGET = ExactExecutionMatch(
 _SEMANTIC_REF = "engine-setup:embeddinggemma-2.local@1"
 LOG = logging.getLogger(__name__)
 
-_RECEIPT_TO_CHILD_STATE = {
+_JobState = Literal["queued", "running", "done", "failed", "cancelled"]
+_RECEIPT_TO_CHILD_STATE: dict[str, _JobState] = {
     "queued": "queued",
     "running": "running",
     "completed": "done",
@@ -90,7 +92,7 @@ _RECEIPT_TO_CHILD_STATE = {
     "failed": "failed",
     "cancelled": "cancelled",
 }
-_JOB_TO_CHILD_STATE = {
+_JOB_TO_CHILD_STATE: dict[str, _JobState] = {
     "queued": "queued",
     "running": "running",
     "done": "done",
@@ -413,7 +415,10 @@ class SearchPreparationService:
             batch.stop_requested_at is not None
             or batch.decision == "not_now"
             or batch.errors
-            or (batch.plan is not None and self._project(batch).status == "failed")
+            or (
+                isinstance(batch, PlannedSearchPreparationBatchRow)
+                and self._project(batch).status == "failed"
+            )
         ):
             batch = self.store.create(
                 storage_org_id=self.workspace.queue_storage_organization_id,
@@ -448,9 +453,9 @@ class SearchPreparationService:
         )
 
     def _planned_batch(
-        self, project_id: str, batch_id: str, *required: str
-    ) -> SearchPreparationBatchRow:
-        """Load a planned batch, 404 when absent or missing ``required`` facts."""
+        self, project_id: str, batch_id: str
+    ) -> PlannedSearchPreparationBatchRow:
+        """Load a planned batch, 404 when absent or not yet planned."""
         try:
             row = self.store.get(
                 batch_id,
@@ -459,7 +464,7 @@ class SearchPreparationService:
             )
         except KeyError as exc:
             raise RouteError(404, "search preparation batch was not found") from exc
-        if row.plan is None or any(getattr(row, name) is None for name in required):
+        if not isinstance(row, PlannedSearchPreparationBatchRow):
             raise RouteError(404, "search preparation batch was not found")
         return row
 
@@ -541,7 +546,8 @@ class SearchPreparationService:
                 else:
                     parent_current = True
             if (
-                parent_current
+                session is not None
+                and parent_current
                 and session.state in {"kept", "completed"}
                 and not header.cancel_requested
             ):
@@ -555,7 +561,8 @@ class SearchPreparationService:
                         import_ref=import_ref,
                     )
             if (
-                parent_current
+                session is not None
+                and parent_current
                 and session.state in {"kept", "completed"}
                 and not header.cancel_requested
             ):
@@ -764,9 +771,10 @@ class SearchPreparationService:
             plan=plan,
             error_message=planning_error,
         )
-        if batch.plan is not None and planning_error is None:
+        planned = isinstance(batch, PlannedSearchPreparationBatchRow)
+        if planned and planning_error is None:
             self._advance(batch)
-        return batch.id if batch.plan is not None else None
+        return batch.id if planned else None
 
     def reserve_import(
         self, project_id: str, *, receipt_id: str, import_ref: str
@@ -977,7 +985,7 @@ class SearchPreparationService:
         may_setup_models: bool = True,
         may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
-        row = self._planned_batch(project_id, batch_id, "sheet_id")
+        row = self._planned_batch(project_id, batch_id)
         if (
             row.plan_hash != plan_hash
             or row.decision is not None
@@ -1037,7 +1045,7 @@ class SearchPreparationService:
         initiated_by: str | None,
         may_run_actions: bool = True,
     ) -> SearchPreparationBatch:
-        row = self._planned_batch(project_id, batch_id, "sheet_id", "plan_hash")
+        row = self._planned_batch(project_id, batch_id)
         if row.stop_requested_at is not None:
             raise RouteError(409, "search preparation was stopped")
         if row.errors:
@@ -1129,9 +1137,8 @@ class SearchPreparationService:
         )
 
     def _current_decision_plan(
-        self, project: Any, row: SearchPreparationBatchRow
+        self, project: Any, row: PlannedSearchPreparationBatchRow
     ) -> dict[str, Any]:
-        assert row.plan is not None and row.sheet_id is not None
         current = self._plan(
             project,
             sheet_id=row.sheet_id,
@@ -1174,7 +1181,9 @@ class SearchPreparationService:
         )
 
     @staticmethod
-    def _consent_facts_current(project: Any, row: SearchPreparationBatchRow) -> bool:
+    def _consent_facts_current(
+        project: Any, row: PlannedSearchPreparationBatchRow
+    ) -> bool:
         live_requirements = {item.setup_ref: item for item in _requirements()}
         for planned in row.plan["models"]:
             live = live_requirements.get(planned["setup_ref"])
@@ -1214,6 +1223,8 @@ class SearchPreparationService:
                 receipt_id = receipt.id if receipt is not None else None
             if receipt_id is not None:
                 self._cancel_action_receipt(row, receipt_id)
+        if not isinstance(row, PlannedSearchPreparationBatchRow):
+            raise RouteError(404, "search preparation batch was not found")
         return self._project(
             row, may_setup_models=may_setup_models, may_run_actions=may_run_actions
         )
@@ -1282,7 +1293,7 @@ class SearchPreparationService:
             )
             for row in rows:
                 try:
-                    if row.plan is None:
+                    if not isinstance(row, PlannedSearchPreparationBatchRow):
                         self._recover_pending(row)
                     else:
                         self._start_next_setup(row)
@@ -1414,7 +1425,7 @@ class SearchPreparationService:
         page_number: int | None,
         column_id: int | None = None,
     ) -> SearchPreparationTextSamples:
-        row = self._planned_batch(project_id, batch_id, "sheet_id")
+        row = self._planned_batch(project_id, batch_id)
         project = self.workspace.get(project_id)
         samples: list[SearchPreparationTextSample] = []
         for item in row.plan.get("items", []):
@@ -1474,7 +1485,9 @@ class SearchPreparationService:
             include_transcription=include_transcription,
         )
 
-    def _automatic_transcription_disabled(self, row: SearchPreparationBatchRow) -> bool:
+    def _automatic_transcription_disabled(
+        self, row: PlannedSearchPreparationBatchRow
+    ) -> bool:
         # Explicitly reviewed preparation retains the user's transcription choice.
         if row.decision is not None or not row.plan:
             return False
@@ -1495,7 +1508,7 @@ class SearchPreparationService:
 
     def _awaiting_decision(
         self,
-        row: SearchPreparationBatchRow,
+        row: PlannedSearchPreparationBatchRow,
         children: Sequence[SearchPreparationChildRow],
     ) -> bool:
         if row.decision is not None or not row.plan:
@@ -1529,7 +1542,7 @@ class SearchPreparationService:
         *,
         setup: _SetupSnapshot | None = None,
     ) -> None:
-        if row.plan is None or row.sheet_id is None:
+        if not isinstance(row, PlannedSearchPreparationBatchRow):
             return
         if row.stop_requested_at is not None or row.errors:
             self._settle(row)
@@ -1772,7 +1785,7 @@ class SearchPreparationService:
 
     def _settle_if_coordinated(
         self,
-        row: SearchPreparationBatchRow,
+        row: PlannedSearchPreparationBatchRow,
         *,
         setup: _SetupSnapshot | None = None,
     ) -> None:
@@ -1857,7 +1870,7 @@ class SearchPreparationService:
     def _action_body(
         self,
         project: Any,
-        row: SearchPreparationBatchRow,
+        row: PlannedSearchPreparationBatchRow,
         kind: str,
         column_name: str,
         items: Sequence[Mapping[str, Any]],
@@ -1934,7 +1947,7 @@ class SearchPreparationService:
 
     def _start_next_setup(
         self,
-        row: SearchPreparationBatchRow,
+        row: PlannedSearchPreparationBatchRow,
         *,
         setup: _SetupSnapshot | None = None,
     ) -> None:
@@ -1962,7 +1975,7 @@ class SearchPreparationService:
 
     def _project(
         self,
-        row: SearchPreparationBatchRow,
+        row: PlannedSearchPreparationBatchRow,
         *,
         may_setup_models: bool = True,
         may_run_actions: bool = True,
@@ -1995,7 +2008,7 @@ class SearchPreparationService:
                 if child.receipt_id is not None
                 else None
             )
-            state = (
+            state: _JobState | Literal["planning"] = (
                 "planning"
                 if child.receipt_id is None
                 else "failed"
@@ -2034,9 +2047,11 @@ class SearchPreparationService:
                                 else "done"
                             )
                     else:
-                        state = _JOB_TO_CHILD_STATE.get(
-                            str(live_job.get("status") or ""), state
+                        job_state = _JOB_TO_CHILD_STATE.get(
+                            str(live_job.get("status") or "")
                         )
+                        if job_state is not None:
+                            state = job_state
             child_states[child.id] = state
             if stored is not None and state in {"done", "failed", "cancelled"}:
                 try:

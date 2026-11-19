@@ -10,6 +10,7 @@ from functools import partial
 from typing import Any
 
 from frisket.contracts.action import (
+    ActionResultStatus,
     ActionError,
     ActionIdentity,
     ActionOutput,
@@ -785,7 +786,7 @@ def _reduce_group_summary_receipt(
     project_id: str,
     receipt_id: str,
     params_hash: str,
-    status: str,
+    status: ActionResultStatus,
     op_id: int,
     run_id: int,
     params: GroupSummaryPlan,

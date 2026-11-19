@@ -315,6 +315,7 @@ class PdfPacketCommitter:
             )
             if (
                 admitted is None
+                or source_map is None
                 or item.occurrence not in source_map.occurrences
                 or not admitted.page_start
                 <= item.start
@@ -437,12 +438,18 @@ class PdfPacketCommitter:
             planned = []
             for ordinal, source_key in enumerate(ordered_keys):
                 source = by_key[source_key]
-                is_pdf = isinstance(source, AdmittedPacketSource)
+                pdf_source = (
+                    source if isinstance(source, AdmittedPacketSource) else None
+                )
+                file_source = (
+                    None if isinstance(source, AdmittedPacketSource) else source
+                )
+                is_pdf = pdf_source is not None
                 is_image = (
-                    not is_pdf
-                    and source.sha256 is not None
-                    and source.mime.startswith("image/")
-                    and source.error is None
+                    file_source is not None
+                    and file_source.sha256 is not None
+                    and file_source.mime.startswith("image/")
+                    and file_source.error is None
                 )
                 if is_image and source.page_count not in (None, 1):
                     raise ValueError("image source must designate one page")
@@ -453,18 +460,21 @@ class PdfPacketCommitter:
                 ).fetchone()
                 if source.sha256 is None:
                     if (
-                        is_pdf
-                        or not source.error
-                        or source.size != 0
-                        or source.open_source is not None
+                        file_source is None
+                        or not file_source.error
+                        or file_source.size != 0
+                        or file_source.open_source is not None
                     ):
                         raise ValueError("an acquisition error must have no file bytes")
                 elif canonical is None:
                     staged = directory / "staged" / source.sha256
                     digest = hashlib.sha256()
                     size = 0
+                    open_source = source.open_source
+                    if open_source is None:
+                        raise TypeError("admitted source bytes have no reader")
                     with (
-                        source.open_source() as path,
+                        open_source() as path,
                         Path(path).open("rb") as reader,
                         staged.open("wb") as sink,
                     ):
@@ -479,15 +489,15 @@ class PdfPacketCommitter:
                 elif int(canonical[0]) != source.size:
                     raise ValueError("admitted source size changed")
                 context = {}
-                if is_pdf and source.source_row_id is not None:
+                if pdf_source is not None and pdf_source.source_row_id is not None:
                     for column_id, output_name in carried.items():
                         values = project.get_values(
-                            source.source_sheet_id,
+                            pdf_source.source_sheet_id,
                             int(column_id),
-                            [source.source_row_id],
+                            [pdf_source.source_row_id],
                         )
                         kind, value = encode_stored_value(
-                            values.get(source.source_row_id)
+                            values.get(pdf_source.source_row_id)
                         )
                         if isinstance(value, str) and len(value) > 4096:
                             relative = f"snapshots/{ordinal}-{column_id}.txt"
@@ -575,31 +585,43 @@ class PdfPacketCommitter:
                         "size": source.size,
                         "mime": source.mime,
                         "source_url": source.source_url,
-                        "source_sheet_id": source.source_sheet_id if is_pdf else None,
-                        "source_row_id": source.source_row_id if is_pdf else None,
-                        "source_column_id": source.source_column_id if is_pdf else None,
-                        "frozen_value": source.frozen_value if is_pdf else None,
+                        "source_sheet_id": pdf_source.source_sheet_id
+                        if pdf_source is not None
+                        else None,
+                        "source_row_id": pdf_source.source_row_id
+                        if pdf_source is not None
+                        else None,
+                        "source_column_id": pdf_source.source_column_id
+                        if pdf_source is not None
+                        else None,
+                        "frozen_value": pdf_source.frozen_value
+                        if pdf_source is not None
+                        else None,
                         "page_count": source.page_count
                         if is_pdf
                         else 1
                         if is_image
                         else None,
-                        "prepared_ref_id": source.prepared_ref_id if is_pdf else None,
-                        "prepared_pages": list(source.prepared_pages) if is_pdf else [],
+                        "prepared_ref_id": pdf_source.prepared_ref_id
+                        if pdf_source is not None
+                        else None,
+                        "prepared_pages": list(pdf_source.prepared_pages)
+                        if pdf_source is not None
+                        else [],
                         "children": children,
                         "context": context,
                         "cache": cache,
-                        "error": None if is_pdf else source.error,
+                        "error": None if file_source is None else file_source.error,
                         "provider": source.provider,
                         "metadata": dict(source.metadata),
                     }
                 )
-                if is_pdf and source.prepared_ref_id is not None:
+                if pdf_source is not None and pdf_source.prepared_ref_id is not None:
                     prepared = project.db.execute(
                         "SELECT artifact.metadata FROM prepared_content_refs ref "
                         "JOIN prepared_content_sets content ON content.id=ref.set_id "
                         "JOIN source_artifacts artifact ON artifact.id=content.source_artifact_id WHERE ref.id=?",
-                        (source.prepared_ref_id,),
+                        (pdf_source.prepared_ref_id,),
                     ).fetchone()
                     metadata = (
                         {} if prepared is None else json.loads(prepared[0] or "{}")

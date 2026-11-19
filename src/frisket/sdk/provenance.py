@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from frisket.contracts.action import Receipt, ReceiptIO
+from frisket.contracts.action import ActionResultStatus, Receipt, ReceiptIO
 from frisket.sdk.capture import CapturedFacts
 
 
@@ -24,7 +24,7 @@ class Provenance:
     output_refs: list[dict[str, Any]]
     provider_use: list[dict[str, Any]]
     evidence: list[Any]  # list[ReceiptEvidence]
-    status: str
+    status: ActionResultStatus
     errors: list[Any] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     named_result_refs: list[dict[str, Any]] = field(default_factory=list)

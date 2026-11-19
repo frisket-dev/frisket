@@ -274,13 +274,15 @@ class _BufferedFresh:
         elif self.after_callback is not None:
             self.after_callback(result, batch)
 
-    def sync_embed(self, batch: list[str]):
+    def sync_embed(
+        self, batch: list[str]
+    ) -> EmbeddingResult | Awaitable[EmbeddingResult]:
         if self.result is not None:
             result, self.result = self.result, None
             return result
         return self.embed(batch)
 
-    async def async_embed(self, batch: list[str]):
+    async def async_embed(self, batch: list[str]) -> EmbeddingResult:
         if self.result is not None:
             result, self.result = self.result, None
             return result
@@ -297,10 +299,17 @@ def _text_inputs(texts: Sequence[str]) -> tuple[list[str], list[TextEncodingInpu
     return values, [TextEncodingInput(value) for value in values]
 
 
-def _fresh_adapter(embed: AsyncTextEmbedder):
-    def encode(inputs, **_space_facts):
+def _fresh_adapter(
+    embed: AsyncTextEmbedder,
+) -> Callable[..., EmbeddingResult | Awaitable[EmbeddingResult]]:
+    def encode(
+        inputs: list[TextEncodingInput], **_space_facts: object
+    ) -> EmbeddingResult | Awaitable[EmbeddingResult]:
         texts = [value.text for value in inputs]
-        async_embed = getattr(embed, "embed_batch_async", None)
+        # Embedders may also offer a native async batch call (RouterRemoteEmbedder).
+        async_embed: Callable[[list[str]], Awaitable[EmbeddingResult]] | None = getattr(
+            embed, "embed_batch_async", None
+        )
         return async_embed(texts) if callable(async_embed) else embed(texts)
 
     return encode
@@ -310,12 +319,15 @@ def encode_legacy_texts(
     cache: RepresentationCache,
     texts: Sequence[str],
     *,
-    embed: Embedder,
+    embed: AsyncTextEmbedder,
     space: DescriptorEmbeddingSpace,
     before_fresh_batch: BeforeFreshTexts | None = None,
     on_fresh_batch: OnFreshTexts | None = None,
 ) -> list[list[float]]:
-    """Synchronously resolve raw-text vectors through an injected cache."""
+    """Synchronously resolve raw-text vectors through an injected cache.
+
+    An ``embed`` whose result is awaitable is refused by the synchronous facade.
+    """
 
     values, inputs = _text_inputs(texts)
     vectors: list[EmbeddingVector] = []
@@ -419,15 +431,17 @@ def encode_project_legacy_texts(
         if before_fresh_batch is not None:
             before_fresh_batch(discovery)
         inputs = [TextEncodingInput(value) for value in discovery]
-        buffered_result = _fresh_adapter(embed)(inputs)
-        if inspect.isawaitable(buffered_result):
-            buffered_result = asyncio.run(buffered_result)
+        fresh = _fresh_adapter(embed)(inputs)
+        if inspect.isawaitable(fresh) and not inspect.iscoroutine(fresh):
+            raise ValueError(f"a coroutine was expected, got {fresh!r}")
+        discovered = asyncio.run(fresh) if inspect.iscoroutine(fresh) else fresh
+        buffered_result = discovered
         if on_fresh_batch is not None:
-            on_fresh_batch(buffered_result, discovery)
+            on_fresh_batch(discovered, discovery)
         space = ensure_legacy_analytical_space(
             project,
             model_id,
-            dimension=_discovered_dimension(buffered_result, len(discovery)),
+            dimension=_discovered_dimension(discovered, len(discovery)),
             normalization=normalization,
         )
     if space is None:
@@ -475,15 +489,15 @@ async def encode_project_legacy_texts_async(
         if before_fresh_batch is not None:
             before_fresh_batch(discovery)
         inputs = [TextEncodingInput(value) for value in discovery]
-        buffered_result = _fresh_adapter(embed)(inputs)
-        if inspect.isawaitable(buffered_result):
-            buffered_result = await buffered_result
+        fresh = _fresh_adapter(embed)(inputs)
+        discovered = await fresh if inspect.isawaitable(fresh) else fresh
+        buffered_result = discovered
         if on_fresh_batch is not None:
-            on_fresh_batch(buffered_result, discovery)
+            on_fresh_batch(discovered, discovery)
         space = ensure_legacy_analytical_space(
             project,
             model_id,
-            dimension=_discovered_dimension(buffered_result, len(discovery)),
+            dimension=_discovered_dimension(discovered, len(discovery)),
             normalization=normalization,
         )
     if space is None:
