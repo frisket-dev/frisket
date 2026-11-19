@@ -9,11 +9,10 @@ import { resolvePluginPanelAvailability } from '../workbench/pluginPanelContext'
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelectionHandle } from '../bind/useSelectionHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useWorkspaceShell, useWorkspaceRowWalk, useWorkspacePluginDetailRender, useResolvedWorkbenchLayout, useCurrentSheet, useTitleColumnOrder, resolveRegionContributions, useWorkbenchHostContext } from './WorkspaceContext';
+import { useWorkspaceShell, useWorkspaceRowWalk, useWorkspacePluginDetailRender, useResolvedWorkbenchLayout, useCurrentSheet, useTitleColumnOrder, resolveRegionContributions, useWorkbenchHostContext } from './WorkspaceContext';
 import { telemetryPanelKind, useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetailRegion() {
-  useRenderCount('inspectDetail');
   const {
     project,
     closeRoutePanel,
@@ -106,7 +105,6 @@ export const WorkspaceInspectDetailRegion = memo(function WorkspaceInspectDetail
 });
 
 export const WorkspaceRightInspectorRegion = memo(function WorkspaceRightInspectorRegion() {
-  useRenderCount('rightInspector');
   const { project, rightInspectorPluginPanelDescriptors } = useWorkspaceShell();
   const workbenchHostContext = useWorkbenchHostContext();
   const resolvedWorkbenchLayout = useResolvedWorkbenchLayout();

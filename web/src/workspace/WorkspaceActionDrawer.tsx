@@ -9,7 +9,7 @@ import { useRouteHandle } from '../bind/useRouteHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
+import { useWorkspaceShell, useRun, useSelectedRowIdsForSheet, useCurrentSheet } from './WorkspaceContext';
 import { useWorkspaceNavigationTelemetry } from '../telemetry/navigationTelemetry';
 
 const LazyActionPanel = lazy(() => (
@@ -17,7 +17,6 @@ const LazyActionPanel = lazy(() => (
 ));
 
 export const WorkspaceActionDrawerRegion = memo(function WorkspaceActionDrawerRegion() {
-  useRenderCount('actionDrawer');
   const {
     actionPanelVisible,
     closeActionRoute,

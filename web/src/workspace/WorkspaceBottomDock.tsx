@@ -11,10 +11,9 @@ import { useChromeHandle } from '../bind/useChromeHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { usePluginLayoutHandle } from '../bind/usePluginLayoutHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useWorkspaceShell, useWorkbenchHostContext, useResolvedWorkbenchLayout, useCurrentSheet, resolveRegionContributions } from './WorkspaceContext';
+import { useWorkspaceShell, useWorkbenchHostContext, useResolvedWorkbenchLayout, useCurrentSheet, resolveRegionContributions } from './WorkspaceContext';
 
 export const WorkspaceBottomDockRegion = memo(function WorkspaceBottomDockRegion() {
-  useRenderCount('bottomDock');
   const {
     project,
     bottomDockPluginPanelDescriptors,

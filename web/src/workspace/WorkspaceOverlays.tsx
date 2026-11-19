@@ -26,7 +26,7 @@ import { useChromeHandle } from '../bind/useChromeHandle';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useJobsHandle } from '../bind/useJobsHandle';
 import { useSelector } from '../bind/useSelector';
-import { useRenderCount, useWorkspaceShell, useOverlayModel } from './WorkspaceContext';
+import { useWorkspaceShell, useOverlayModel } from './WorkspaceContext';
 import { useWorkspaceNavigationTelemetry, type WorkspaceTelemetryPanel } from '../telemetry/navigationTelemetry';
 
 export const LazyCitationViewer = lazy(() => (
@@ -35,7 +35,6 @@ export const LazyCitationViewer = lazy(() => (
 
 export const WorkspaceOverlayRegion = memo(function WorkspaceOverlayRegion() {
   const { identityMode } = useShellIdentity();
-  useRenderCount('overlay');
   const overlayChrome = useChromeHandle();
   const projectionStatus = useSelector(overlayChrome.store, (s) => s.projectionStatus);
   const {
