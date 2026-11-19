@@ -296,8 +296,8 @@ def test_interrupted_intent_reservation_rolls_back_before_reraise(
     bound = _confirmed(project, bound, deps)
     insert = ReceiptStore.insert_queued
 
-    def interrupted(store, receipt, *, commit=True):
-        insert(store, receipt, commit=commit)
+    def interrupted(store, receipt):
+        insert(store, receipt)
         raise failure("interrupted after receipt write")
 
     monkeypatch.setattr(ReceiptStore, "insert_queued", interrupted)

@@ -139,8 +139,8 @@ def test_reservation_after_insert_interrupt_respects_transaction_owner(
     )
     inserted = ReceiptStore.insert_queued
 
-    def insert_then_interrupt(self, receipt, *, commit=True):
-        inserted(self, receipt, commit=commit)
+    def insert_then_interrupt(self, receipt):
+        inserted(self, receipt)
         assert self.project.db.in_transaction
         raise interrupt("after actual receipt insertion")
 

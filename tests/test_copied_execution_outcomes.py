@@ -9,6 +9,7 @@ from frisket.engine.store.copied_results import (
     copy_staged_outcomes,
 )
 from frisket.engine.store.changes import ChangeStore, ChangePublicationClosed
+from frisket.engine.store.transactions import write_transaction
 
 
 work = recovery.work
@@ -309,7 +310,8 @@ def test_queued_retry_blocks_copy_before_a_successor_run_exists(work):
         params_hash="retry",
         status="queued",
     )
-    ReceiptStore(project).insert_queued(receipt)
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(receipt)
     assert (
         _acquire_output_claims_for_runner(
             project,

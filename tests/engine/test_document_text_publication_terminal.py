@@ -21,6 +21,7 @@ from frisket.team.security.secrets import encrypt_secret
 from test_native_pdf_text_action import _pdf_bytes, _request, _source
 from test_document_text_authority import _project_with_selection, _OTHER_BLOB
 from helpers import run_writer_authority_fixture
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.mark.parametrize(
@@ -115,9 +116,10 @@ def test_source_changed_publication_refusal_closes_exact_worker(
     receipts = ReceiptStore(project)
     stored = receipts.find_by_id(receipt_id).parsed()
     provider_use = [{"provider": "recorded-provider", "cost_usd": "0.125"}]
-    assert receipts.update_if_status_in(
-        stored.model_copy(update={"provider_use": provider_use}), {"queued"}
-    )
+    with write_transaction(receipts.db):
+        assert receipts.update_if_status_in(
+            stored.model_copy(update={"provider_use": provider_use}), {"queued"}
+        )
     actual = RunResultStore.publish_result_batch
     changed = False
     published_rows = []

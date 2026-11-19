@@ -458,39 +458,32 @@ class RunResultStore:
             (json.dumps(params, sort_keys=True), run_id),
         )
 
-    def set_worker_version(
-        self, run_id: int, worker_version: str, *, commit: bool = True
-    ) -> None:
+    def set_worker_version(self, run_id: int, worker_version: str) -> None:
         """Stamp the code identity of the worker claiming this run
         (worker-version-guard-v1). Called by the project.run/action.run
         handlers as soon as they claim a run, so even a run that fails
         immediately after still shows which code touched it."""
-        self.db.execute(
-            "UPDATE runs SET worker_version=? WHERE id=?",
-            (worker_version, run_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db):
+            self.db.execute(
+                "UPDATE runs SET worker_version=? WHERE id=?",
+                (worker_version, run_id),
+            )
 
-    def set_total_rows(
-        self, run_id: int, total_rows: int, *, commit: bool = True
-    ) -> None:
+    def set_total_rows(self, run_id: int, total_rows: int) -> None:
+        """Set the run's row total in the caller's transaction."""
+        require_transaction(self.db, "run row total")
         self.db.execute(
             "UPDATE runs SET total_rows=? WHERE id=?",
             (int(total_rows), run_id),
         )
-        if commit:
-            self.db.commit()
 
-    def increment_total_rows(
-        self, run_id: int, delta: int, *, commit: bool = True
-    ) -> None:
+    def increment_total_rows(self, run_id: int, delta: int) -> None:
+        """Grow the run's row total in the caller's transaction."""
+        require_transaction(self.db, "run row total")
         self.db.execute(
             "UPDATE runs SET total_rows = total_rows + ? WHERE id=?",
             (int(delta), run_id),
         )
-        if commit:
-            self.db.commit()
 
     def record_run_row_scope(self, run_id: int, row_ids: list[int]) -> None:
         """Record immutable run scope inside the caller's transaction."""
@@ -755,15 +748,15 @@ class RunResultStore:
         *,
         commit: bool = True,
     ) -> None:
-        self._require_run_sheet_mutable(run_id)
-        self.db.execute(
-            "UPDATE results SET value_kind=NULL, value=NULL, error=?, justification=NULL, "
-            "outcome='model_error', publication_effect='publish_error' "
-            "WHERE run_id=? AND row_id=? AND column_id=?",
-            (_safe_result_error(error, "model_error"), run_id, row_id, column_id),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="result failure"):
+            self._require_run_sheet_mutable(run_id)
+            self.db.execute(
+                "UPDATE results SET value_kind=NULL, value=NULL, error=?, "
+                "justification=NULL, outcome='model_error', "
+                "publication_effect='publish_error' "
+                "WHERE run_id=? AND row_id=? AND column_id=?",
+                (_safe_result_error(error, "model_error"), run_id, row_id, column_id),
+            )
 
     def retain_unpublished_result(
         self, run_id: int, row_id: int, column_id: int
@@ -907,11 +900,11 @@ class RunResultStore:
     ) -> None:
         """Atomically persist a result batch and its accounting evidence.
 
-        A nested savepoint makes the batch atomic inside either transaction
-        mode: a rejected fact, terminal outcome, or counter update cannot
-        leave a sibling result mutation for a later commit to publish.
-        ``commit=False`` leaves the surrounding transaction and its earlier
-        mutations under caller ownership.
+        ``commit`` names the transaction owner (see ``write_transaction``).
+        A nested savepoint makes the batch atomic inside a joined transaction:
+        a rejected fact, terminal outcome, or counter update cannot leave a
+        sibling result mutation for the caller's commit to publish, and the
+        caller's earlier mutations survive.
         """
         if not batch:
             return
@@ -928,50 +921,43 @@ class RunResultStore:
                 authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
                 commit=not self.db.in_transaction,
             )
-        started_transaction = not self.db.in_transaction
-        if started_transaction:
-            # Releasing an outermost SQLite savepoint commits it.  Start an
-            # explicit transaction first so commit=False still hands an open,
-            # uncommitted transaction back to its caller.
-            self.db.execute("BEGIN IMMEDIATE")
-        savepoint = f"write_results_{uuid.uuid4().hex}"
-        self.db.execute(f"SAVEPOINT {savepoint}")
+        from frisket.engine.store.changes import ChangePublicationClosed
+
         try:
-            self._write_results_uncommitted(
+            with write_transaction(self.db, commit=commit, what="result batch"):
+                savepoint = f"write_results_{uuid.uuid4().hex}"
+                self.db.execute(f"SAVEPOINT {savepoint}")
+                try:
+                    self._write_results_uncommitted(
+                        run_id,
+                        batch,
+                        writer_attempt_id=writer_attempt_id,
+                        claim_token=claim_token,
+                        claimless_direct_effect=claimless_direct_effect,
+                        authorized_attempt_id=authorized_attempt_id,
+                        project_heads=project_heads,
+                    )
+                except BaseException:
+                    self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+                    raise
+                self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+        except ChangePublicationClosed:
+            # Provider usage is historical fact even when Undo closed the
+            # Change while its request was in flight. Reinsert it after
+            # rolling back the result savepoint so only cells/heads are
+            # refused. Call IDs make this safe when a caller already
+            # persisted the returned usage before attempting publication.
+            self.write_returned_call_accounting(
                 run_id,
                 batch,
-                writer_attempt_id=writer_attempt_id,
+                writer_attempt_id=authorized_attempt_id or writer_attempt_id,
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=authorized_attempt_id,
-                project_heads=project_heads,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                commit=commit,
             )
-        except BaseException as exc:
-            self.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-            self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-            if commit and started_transaction:
-                self.db.rollback()
-            from frisket.engine.store.changes import ChangePublicationClosed
-
-            if isinstance(exc, ChangePublicationClosed):
-                # Provider usage is historical fact even when Undo closed the
-                # Change while its request was in flight. Reinsert it after
-                # rolling back the result savepoint so only cells/heads are
-                # refused. Call IDs make this safe when a caller already
-                # persisted the returned usage before attempting publication.
-                self.write_returned_call_accounting(
-                    run_id,
-                    batch,
-                    writer_attempt_id=authorized_attempt_id or writer_attempt_id,
-                    claim_token=claim_token,
-                    claimless_direct_effect=claimless_direct_effect,
-                    authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
-                    commit=bool(commit and started_transaction),
-                )
             raise
-        self.db.execute(f"RELEASE SAVEPOINT {savepoint}")
-        if commit:
-            self.db.commit()
 
     def publish_result_batch(
         self,
@@ -1593,7 +1579,10 @@ class RunResultStore:
         commit: bool = True,
     ) -> None:
         """Record consent-bound retail outcomes without materializing preview cells."""
-        with self._atomic_fact_batch():
+        with (
+            write_transaction(self.db, commit=commit, what="receipt row outcomes"),
+            self._atomic_fact_batch(),
+        ):
             self._fence_receipt_accounting(receipt_id, writer_attempt_id, batch)
             attempt_id, outcomes = self._attempt_row_outcomes_for_batch(
                 None,
@@ -1602,8 +1591,6 @@ class RunResultStore:
                 receipt_id=receipt_id,
             )
             self._write_attempt_row_outcomes(attempt_id, outcomes)
-        if commit:
-            self.db.commit()
 
     def write_returned_call_accounting(
         self,
@@ -1632,25 +1619,23 @@ class RunResultStore:
         no run or generated columns. Their reservation and dispatching attempt
         are the writer authority; returned preview values remain ephemeral.
 
+        ``commit`` names the transaction owner (see ``write_transaction``).
         The batch is atomic because ``write_model_calls`` owns a savepoint:
-        this path commits, so a mid-batch constraint failure must leave
-        nothing behind to publish.
+        a mid-batch constraint failure leaves nothing behind to publish.
         """
         if not batch:
             return 0.0
-        cost_delta = self.write_model_calls(
-            run_id,
-            batch,
-            writer_attempt_id=writer_attempt_id,
-            claim_token=claim_token,
-            claimless_direct_effect=claimless_direct_effect,
-            authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
-            receipt_id=receipt_id,
-            _require_current_writer=False,
-        )
-        if commit:
-            self.db.commit()
-        return cost_delta
+        with write_transaction(self.db, commit=commit, what="returned call accounting"):
+            return self.write_model_calls(
+                run_id,
+                batch,
+                writer_attempt_id=writer_attempt_id,
+                claim_token=claim_token,
+                claimless_direct_effect=claimless_direct_effect,
+                authorized_attempt_id=authorized_attempt_id or writer_attempt_id,
+                receipt_id=receipt_id,
+                _require_current_writer=False,
+            )
 
     def result_row_failure_states(
         self, run_id: int, row_ids: set[int]
@@ -2320,7 +2305,7 @@ class RunResultStore:
         ``row_id`` and ``column_id`` are explicit even though either may be
         ``None``: an unscoped caller must deliberately choose the best durable
         source refs rather than inheriting a made-up run/result coordinate.
-        With ``commit=False`` the caller owns the surrounding transaction.
+        ``commit`` names the transaction owner (see ``write_transaction``).
         """
         rows: list[tuple[Any, ...]] = []
         spend_facts: list[tuple[str, str, str, Any]] = []
@@ -2370,27 +2355,23 @@ class RunResultStore:
         if not rows:
             return 0.0
 
-        try:
-            with self._atomic_fact_batch():
-                inserted = self._insert_model_call_rows(rows)
-                # Same rule as the scoped writer: money follows the rows the
-                # database ACCEPTED, so a constraint-rejected fact can never
-                # leave an accrual behind with no fact to explain it — and the
-                # savepoint makes the converse true too, so a row that landed
-                # before a later row was refused cannot become durable with no
-                # accrual.
-                newly_recorded_spend = [
-                    fact
-                    for fact, was_inserted in zip(spend_facts, inserted, strict=True)
-                    if was_inserted
-                ]
-                self._accrue_project_key_spend(newly_recorded_spend)
-            if commit:
-                self.db.commit()
-        except BaseException:
-            if commit:
-                self.db.rollback()
-            raise
+        with (
+            write_transaction(self.db, commit=commit, what="unscoped model calls"),
+            self._atomic_fact_batch(),
+        ):
+            inserted = self._insert_model_call_rows(rows)
+            # Same rule as the scoped writer: money follows the rows the
+            # database ACCEPTED, so a constraint-rejected fact can never
+            # leave an accrual behind with no fact to explain it — and the
+            # savepoint makes the converse true too, so a row that landed
+            # before a later row was refused cannot become durable with no
+            # accrual.
+            newly_recorded_spend = [
+                fact
+                for fact, was_inserted in zip(spend_facts, inserted, strict=True)
+                if was_inserted
+            ]
+            self._accrue_project_key_spend(newly_recorded_spend)
 
         return sum(
             float(cost_usd)
@@ -3045,6 +3026,7 @@ class RunResultStore:
         status: str = "completed",
         *,
         commit: bool = True,
+        rebuild_review_stats: bool = True,
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
@@ -3058,6 +3040,11 @@ class RunResultStore:
         are accepted only when the durable run has no live attempt or claim.
         Coupled publishers call this only after sealing and materializing their
         output family in the same transaction.
+
+        ``commit`` names the transaction owner (see ``write_transaction``).
+        The run's review stats are always marked stale; ``rebuild_review_stats``
+        also recounts them in the same transaction, which a caller finishing
+        the run inside a larger publication may defer to the next reader.
         """
         from frisket.execution.attempt import StaleAttemptWriter
 
@@ -3171,7 +3158,7 @@ class RunResultStore:
             )
 
             mark_run_review_stats_dirty(self.db, run_id)
-            if commit:
+            if rebuild_review_stats:
                 rebuild_run_review_stats(self.db, run_id)
 
     def request_cancel(self, run_id: int, *, commit: bool = True) -> bool:
@@ -3183,20 +3170,19 @@ class RunResultStore:
         run is still live; a terminal run refuses a new request.
         """
 
-        requested = self.db.execute(
-            "UPDATE runs SET cancel_requested_at="
-            "COALESCE(cancel_requested_at, datetime('now')) "
-            "WHERE id=? AND status='running'",
-            (run_id,),
-        )
-        if requested.rowcount == 1:
-            # Stop withdraws publication immediately; the exact attempt still
-            # owns returned facts and terminal drain, like source deletion.
-            from .run_lifecycle import close_run_change
+        with write_transaction(self.db, commit=commit, what="run cancellation request"):
+            requested = self.db.execute(
+                "UPDATE runs SET cancel_requested_at="
+                "COALESCE(cancel_requested_at, datetime('now')) "
+                "WHERE id=? AND status='running'",
+                (run_id,),
+            )
+            if requested.rowcount == 1:
+                # Stop withdraws publication immediately; the exact attempt still
+                # owns returned facts and terminal drain, like source deletion.
+                from .run_lifecycle import close_run_change
 
-            close_run_change(self.project, run_id)
-        if commit:
-            self.db.commit()
+                close_run_change(self.project, run_id)
         return requested.rowcount == 1
 
     def has_cancel_intent(self, run_id: int) -> bool:
@@ -3326,9 +3312,7 @@ class RunResultStore:
                 transient_cancel_requested_at=transient_cancel_requested_at,
             )
 
-    def revert_run_resume(
-        self, run_id: int, admission: RunResumeAdmission, *, commit: bool = True
-    ) -> None:
+    def revert_run_resume(self, run_id: int, admission: RunResumeAdmission) -> None:
         """Undo :meth:`begin_run_resume` for a resume that never dispatched.
 
         Restores status, ``finished_at`` AND ``params`` (the halt markers
@@ -3352,54 +3336,53 @@ class RunResultStore:
         # winner or any other concurrent transition, and match every field
         # begin_run_resume itself wrote so an unrelated update cannot be
         # erased.
-        self.db.execute(
-            "UPDATE runs SET status=?, finished_at=?, params=?, "
-            "cancel_requested_at=?, halted_code=?, halted_reason=? WHERE id=? "
-            "AND status='running' AND finished_at IS NULL AND params=? "
-            "AND cancel_requested_at IS ? "
-            "AND halted_code IS NULL AND halted_reason IS NULL "
-            "AND current_attempt_id IS NULL "
-            "AND NOT EXISTS ("
-            "SELECT 1 FROM execution_attempts "
-            "WHERE run_id=? AND state='dispatching'"
-            ")",
-            (
-                admission.prior_status,
-                admission.prior_finished_at,
-                admission.prior_params,
-                admission.prior_cancel_requested_at,
-                admission.prior_halted_code,
-                admission.prior_halted_reason,
-                run_id,
-                admission.transient_params,
-                admission.transient_cancel_requested_at,
-                run_id,
-            ),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, what="run resume revert"):
+            self.db.execute(
+                "UPDATE runs SET status=?, finished_at=?, params=?, "
+                "cancel_requested_at=?, halted_code=?, halted_reason=? WHERE id=? "
+                "AND status='running' AND finished_at IS NULL AND params=? "
+                "AND cancel_requested_at IS ? "
+                "AND halted_code IS NULL AND halted_reason IS NULL "
+                "AND current_attempt_id IS NULL "
+                "AND NOT EXISTS ("
+                "SELECT 1 FROM execution_attempts "
+                "WHERE run_id=? AND state='dispatching'"
+                ")",
+                (
+                    admission.prior_status,
+                    admission.prior_finished_at,
+                    admission.prior_params,
+                    admission.prior_cancel_requested_at,
+                    admission.prior_halted_code,
+                    admission.prior_halted_reason,
+                    run_id,
+                    admission.transient_params,
+                    admission.transient_cancel_requested_at,
+                    run_id,
+                ),
+            )
 
     def point_column_at_run(
         self, op_id: int, column_id: int, run_id: int, *, commit: bool = True
     ) -> None:
         """Move a column pointer, capturing prior state for undo."""
-        prev = self.db.execute(
-            "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
-        ).fetchone()[0]
-        op = self.db.execute(
-            "SELECT undo_info FROM ops WHERE id=?", (op_id,)
-        ).fetchone()
-        info = json.loads(op["undo_info"] or "{}") if op else {}
-        # keep the FIRST prior pointer: repeat pointing within one op must
-        # undo to the pre-op state, not an intermediate run
-        info.setdefault("column_pointers", {}).setdefault(str(column_id), prev)
-        info.setdefault("column_pointers_after", {})[str(column_id)] = run_id
-        self.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
-        )
-        self.db.execute(
-            "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, column_id)
-        )
+        with write_transaction(self.db, commit=commit, what="column run pointer"):
+            prev = self.db.execute(
+                "SELECT current_run_id FROM columns WHERE id=?", (column_id,)
+            ).fetchone()[0]
+            op = self.db.execute(
+                "SELECT undo_info FROM ops WHERE id=?", (op_id,)
+            ).fetchone()
+            info = json.loads(op["undo_info"] or "{}") if op else {}
+            # keep the FIRST prior pointer: repeat pointing within one op must
+            # undo to the pre-op state, not an intermediate run
+            info.setdefault("column_pointers", {}).setdefault(str(column_id), prev)
+            info.setdefault("column_pointers_after", {})[str(column_id)] = run_id
+            self.db.execute(
+                "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
+            )
+            self.db.execute(
+                "UPDATE columns SET current_run_id=? WHERE id=?", (run_id, column_id)
+            )
         if commit:
-            self.db.commit()
             self.project.refresh_pending_review_summary()

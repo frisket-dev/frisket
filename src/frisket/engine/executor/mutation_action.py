@@ -1819,7 +1819,7 @@ def _perform(
 
     for op_id in result.op_ids:
         ChangeStore(project).close(op_id)
-    ReceiptStore(project).insert_completed(receipt, commit=False)
+    ReceiptStore(project).insert_completed(receipt)
     return result
 
 

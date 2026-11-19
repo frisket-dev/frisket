@@ -51,6 +51,10 @@ from frisket.engine.runner.preview import _has_exact_free_local_terms
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import (
+    roll_back_failed_work,
+    write_transaction,
+)
 from frisket.execution.attempt import claim, set_attempt_state
 from frisket.execution.attempt_authority import AttemptAuthority, attempt_identity
 from frisket.ops.base import ActionProgramInvocationHalt
@@ -458,6 +462,7 @@ class ActionPreviewRunService:
             )
         except BaseException:
             if receipt is not None:
+                roll_back_failed_work(project.db, before="preview reservation release")
                 ReceiptStore(project).delete_running(receipt.receipt_id)
             raise
         return ActionPreviewRunResponse(
@@ -497,7 +502,8 @@ class ActionPreviewRunService:
                 else receipt.run_id,
             }
         )
-        with project.db:
+        roll_back_failed_work(project.db, before="preview receipt finish")
+        with write_transaction(project.db, what="preview receipt finish"):
             if attempt is not None and stamp_scratch_unit:
                 attempt_calls = [
                     call for call in calls if call["attempt_id"] == attempt.attempt_id

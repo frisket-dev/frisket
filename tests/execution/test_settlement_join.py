@@ -49,6 +49,7 @@ from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import CompositionFacts, ExecutionComposition
 from frisket.execution.resolve_for_action import action_identity_hash
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
+from frisket.engine.store.transactions import write_transaction
 
 TRANSCRIPTION_PLAN = _typed_map_rows_plan(
     BoundTypedActionRequest.bind(
@@ -819,6 +820,7 @@ def test_rejected_result_batch_rolls_back_to_commit_false_caller_savepoint(
         run_id,
         "completed",
         commit=False,
+        rebuild_review_stats=False,
         writer_attempt_id=terminal["writer_attempt_id"],
         claim_token=terminal["claim_token"],
     )
@@ -1168,16 +1170,17 @@ def _terminal_success_fact(call_id: str, *, audio_seconds: float) -> dict:
 
 def _terminalize_cancelled_attempt(project, run_id: int, attempt_id: str) -> None:
     receipt_id = f"receipt_cancelled_settlement_{attempt_id}"
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id="cancelled-settlement-project",
-            action_id=f"action_{attempt_id}",
-            action_kind="media.transcribe",
-            run_id=run_id,
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id="cancelled-settlement-project",
+                action_id=f"action_{attempt_id}",
+                action_kind="media.transcribe",
+                run_id=run_id,
+                status="queued",
+            )
         )
-    )
     claim = project.db.execute(
         "SELECT claim_token FROM output_column_claims "
         "WHERE run_id=? AND status='active' LIMIT 1",
@@ -1355,6 +1358,7 @@ def test_terminalizer_excludes_cancelled_partial_fact_before_completed_row_settl
         **authority,
     )
 
+    project.db.commit()
     _terminalize_cancelled_attempt(
         project,
         run_id,
@@ -1386,6 +1390,7 @@ def test_terminalizer_proves_pre_effect_all_cancelled_zero_settlement(
     attempt = _mint(project, run_id)
     _claim_output_attempt(project, attempt)
 
+    project.db.commit()
     _terminalize_cancelled_attempt(
         project,
         run_id,
@@ -1820,15 +1825,16 @@ def test_injected_row_terms_charge_only_successful_estimated_allocations(
     ]
     # Provider facts alone are not proof a quoted row completed. Before the
     # terminal result write, preserve actual usage but refuse any debit.
-    RunResultStore(project).write_model_calls(
-        run_id,
-        successes,
-        **_writer_authority(
-            project,
+    with write_transaction(project.db):
+        RunResultStore(project).write_model_calls(
             run_id,
-            attempt_id=attempt.attempt_id,
-        ),
-    )
+            successes,
+            **_writer_authority(
+                project,
+                run_id,
+                attempt_id=attempt.attempt_id,
+            ),
+        )
     incomplete = attempt_receipt(project, attempt.attempt_id)["settlement"]
     assert incomplete["rated_charge_usd"] == "1.52"
     assert incomplete["charge_usd"] is None

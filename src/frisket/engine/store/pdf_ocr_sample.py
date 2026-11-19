@@ -376,7 +376,13 @@ def publish_pdf_ocr_sample(
             terminal_disposition="completed",
             commit=False,
         )
-        runs.finish_run(run_id, "completed", commit=False, claim_token=token)
+        runs.finish_run(
+            run_id,
+            "completed",
+            commit=False,
+            rebuild_review_stats=False,
+            claim_token=token,
+        )
         OutputColumnClaimStore(project).release(claim_token=token, commit=False)
     return {
         "operation_id": op_id,

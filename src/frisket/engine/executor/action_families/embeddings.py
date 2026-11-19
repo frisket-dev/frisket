@@ -117,7 +117,10 @@ from frisket.engine.store.blob_backend import BlobNotFoundError
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import (
+    roll_back_failed_work,
+    write_transaction,
+)
 from frisket.ai.models.metadata import ModelCallMeta
 
 from frisket.engine.executor.embedding_read import (
@@ -894,6 +897,7 @@ def _reserve_embedding_create_probe(
 
 
 def _delete_embedding_probe_reservation(project: Project, receipt_id: str) -> None:
+    roll_back_failed_work(project.db, before="embedding probe reservation release")
     ReceiptStore(project).delete_running(receipt_id)
 
 
@@ -1024,6 +1028,7 @@ def _run_paid_embedding_dimension_probe(
             scope=tuple(probe_row_ids),
         )
     except AttemptClaimRefused as exc:
+        roll_back_failed_work(project.db, before="embedding probe run close")
         run_store.finish_run(
             run_id,
             "cancelled" if run_store.cancellation_requested(run_id) else "failed",
@@ -1055,6 +1060,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1089,6 +1095,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1104,6 +1111,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1192,6 +1200,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1291,6 +1300,7 @@ def _run_paid_embedding_dimension_probe(
             run_id,
             "cancelled" if cancelled_after_return else "completed",
             commit=False,
+            rebuild_review_stats=False,
             writer_attempt_id=attempt_id,
             claimless_direct_effect=True,
         )
@@ -1325,6 +1335,7 @@ def _run_paid_embedding_dimension_probe(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
                 commit=False,
+                rebuild_review_stats=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
@@ -1783,7 +1794,9 @@ def _create_index(
                     raise RuntimeError(
                         "embedding probe run disappeared or changed scope before completion"
                     )
-                probe_run_store.finish_run(probe_run_id, "completed", commit=False)
+                probe_run_store.finish_run(
+                    probe_run_id, "completed", commit=False, rebuild_review_stats=False
+                )
         project.db.commit()
     except BaseException as exc:
         project.db.rollback()
@@ -2258,6 +2271,9 @@ def _do_refresh(
                     )
                 except AttemptClaimRefused as exc:
                     if replay_resume_admission is not None:
+                        roll_back_failed_work(
+                            project.db, before="embedding refresh resume revert"
+                        )
                         run_store.revert_run_resume(run_id, replay_resume_admission)
                     return _error(
                         action,
@@ -2718,7 +2734,6 @@ def _do_refresh(
                     landed = ReceiptStore(project).update_if_status_in(
                         receipt,
                         {"queued", "running"},
-                        commit=False,
                     )
                     if not landed:
                         raise RuntimeError(
@@ -2852,6 +2867,7 @@ def _do_refresh(
                                 attempt_id and not attempt_closed
                             ),
                             commit=False,
+                            rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:
                             set_attempt_state(

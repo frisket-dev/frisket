@@ -8,6 +8,7 @@ from frisket.contracts.action import Receipt
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_prepared_recovery_rejects_recreated_output_target(
@@ -81,17 +82,18 @@ def test_admission_lookup_keeps_receipt_without_run_and_scopes_identity(
     identity = {"action_kind": "map.regex_extract", "idempotency_key": "reserved@1"}
     assert service.lookup_admission(project_id, **identity) is None
 
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id="reserved-receipt",
-            project_id=project_id,
-            action_id="reserved-action",
-            action_kind=identity["action_kind"],
-            idempotency_key=identity["idempotency_key"],
-            params_hash="reserved-params",
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id="reserved-receipt",
+                project_id=project_id,
+                action_id="reserved-action",
+                action_kind=identity["action_kind"],
+                idempotency_key=identity["idempotency_key"],
+                params_hash="reserved-params",
+                status="queued",
+            )
         )
-    )
     admission = service.lookup_admission(project_id, **identity)
     assert admission is not None
     assert admission.receipt.id == "reserved-receipt"

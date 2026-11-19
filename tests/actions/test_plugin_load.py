@@ -246,9 +246,9 @@ def test_receipt_insertion_failure_rolls_back_without_activation(
     try:
         insert = ReceiptStore.insert_completed
 
-        def fail_after_insert(self, receipt, *, commit=True):
-            assert commit is False
-            insert(self, receipt, commit=commit)
+        def fail_after_insert(self, receipt):
+            assert project.db.in_transaction
+            insert(self, receipt)
             raise RuntimeError("private fault details")
 
         monkeypatch.setattr(ReceiptStore, "insert_completed", fail_after_insert)

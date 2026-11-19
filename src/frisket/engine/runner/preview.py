@@ -43,6 +43,7 @@ from frisket.engine.runner.row_inputs import row_values
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.execution.pricing_policy import PricingPolicy
 from frisket.execution.provider import ExecutionComposition
@@ -751,6 +752,7 @@ async def run_preview(
             ]
             if remainder:
                 try:
+                    roll_back_failed_work(project.db, before="preview row outcomes")
                     run_store.write_receipt_row_outcomes(
                         attempt.receipt_id,
                         remainder,

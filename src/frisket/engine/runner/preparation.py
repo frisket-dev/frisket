@@ -28,6 +28,7 @@ from frisket.engine.store.result_generations import (
     RunOutputGeneration,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 PREPARED_ATOMIC_GENERATED_COLUMNS_KEY = "prepared_atomic_output_columns"
 
@@ -710,8 +711,11 @@ def prepare_validated(
             if has_stored_run_scope and explicit_resume_scope is not None:
                 assert stored_run_scope_count is not None
                 if len(row_ids) != stored_run_scope_count:
-                    run_store.record_run_row_scope(run_id, row_ids)
-                    run_store.set_total_rows(run_id, len(row_ids))
+                    with write_transaction(
+                        project.db, commit=not defer_commits, what="resumed run scope"
+                    ):
+                        run_store.record_run_row_scope(run_id, row_ids)
+                        run_store.set_total_rows(run_id, len(row_ids))
             if row_ids:
                 row_ids = [r for r in row_ids if r not in done_rows]
             if (
@@ -719,7 +723,10 @@ def prepare_validated(
                 and row_ids
                 and run_row["completed_rows"] >= run_row["total_rows"]
             ):
-                run_store.increment_total_rows(run_id, len(row_ids))
+                with write_transaction(
+                    project.db, commit=not defer_commits, what="resumed run total"
+                ):
+                    run_store.increment_total_rows(run_id, len(row_ids))
     else:
         persisted_spec = persistable_spec(spec)
         from frisket.engine.store.source_dependencies import (
@@ -771,19 +778,25 @@ def prepare_validated(
         )
         # Point only fresh columns early for streaming; reused columns retain
         # their prior values until terminal publication.
-        for created_cid in created_columns:
-            # Managed history publishes its compatibility pointer atomically.
-            has_managed_history = (
-                project.db.execute(
-                    "SELECT 1 FROM run_output_generations WHERE column_id=? LIMIT 1",
-                    (int(created_cid),),
-                ).fetchone()
-                is not None
-            )
-            if not has_managed_history:
-                run_store.point_column_at_run(op_id, created_cid, run_id, commit=False)
-        if created_columns and not defer_commits:
-            project.db.commit()
+        if created_columns:
+            with write_transaction(
+                project.db, commit=not defer_commits, what="fresh column pointers"
+            ):
+                for created_cid in created_columns:
+                    # Managed history publishes its compatibility pointer
+                    # atomically.
+                    has_managed_history = (
+                        project.db.execute(
+                            "SELECT 1 FROM run_output_generations "
+                            "WHERE column_id=? LIMIT 1",
+                            (int(created_cid),),
+                        ).fetchone()
+                        is not None
+                    )
+                    if not has_managed_history:
+                        run_store.point_column_at_run(
+                            op_id, created_cid, run_id, commit=False
+                        )
         # Retire dropped output roles instead of exposing stale values.
         retire_dropped_generated_columns(
             project,

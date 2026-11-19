@@ -28,6 +28,7 @@ from frisket.sdk import (
     action,
     create_sheet,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 class TabSeparatedParams(ActionParams):
@@ -183,23 +184,24 @@ def test_retired_ndjson_wire_cannot_replay_a_stored_receipt(tmp_path, make_proje
     }
     request_hash = legacy_params_hash(ActionSpec.model_validate(retired))
     project = make_project("project")
-    ReceiptStore(project).insert_completed(
-        Receipt(
-            receipt_id="retired-receipt",
-            project_id="p",
-            action_id="retired-action",
-            action_kind="import.ndjson",
-            idempotency_key="retired-import",
-            params_hash=request_hash,
-            status="completed",
-            inputs=[
-                ReceiptIO(
-                    name="ndjson_rows",
-                    ref={"kind": "ndjson_rows", "request_hash": request_hash},
-                )
-            ],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_completed(
+            Receipt(
+                receipt_id="retired-receipt",
+                project_id="p",
+                action_id="retired-action",
+                action_kind="import.ndjson",
+                idempotency_key="retired-import",
+                params_hash=request_hash,
+                status="completed",
+                inputs=[
+                    ReceiptIO(
+                        name="ndjson_rows",
+                        ref={"kind": "ndjson_rows", "request_hash": request_hash},
+                    )
+                ],
+            )
         )
-    )
     result = run_action_spec(project, retired, project_id="p")
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"

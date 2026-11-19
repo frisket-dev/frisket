@@ -1749,7 +1749,7 @@ def _perform_table_in_txn(
         ):
             raise ActionJobTerminalizationError("table receipt completion did not land")
     else:
-        ReceiptStore(project).insert_completed(receipt, commit=False)
+        ReceiptStore(project).insert_completed(receipt)
     from frisket.engine.store.changes import ChangeStore
 
     # Annotation cells, evidence and blobs are part of this same atomic write.

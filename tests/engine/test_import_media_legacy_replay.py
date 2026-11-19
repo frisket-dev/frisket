@@ -7,6 +7,7 @@ from frisket.contracts.action import ActionSpec, Receipt, ReceiptEvidence, Recei
 from frisket.engine.executor import run_action_spec
 from action_test_helpers import legacy_params_hash
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.mark.parametrize("kind", ["import.files", "import.pdf"])
@@ -43,7 +44,8 @@ def test_legacy_import_cannot_replay_a_receipt_when_source_is_missing(
     )
     project = make_project("project")
     store = ReceiptStore(project)
-    store.insert_completed(receipt)
+    with write_transaction(store.db):
+        store.insert_completed(receipt)
     original_body = store.body_by_id(receipt.receipt_id)
 
     result = run_action_spec(project, request, project_id="p")

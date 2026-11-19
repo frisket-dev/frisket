@@ -63,7 +63,7 @@ from .blob_backend import (
     FilesystemProjectBlobStore,
     ProjectBlobStore,
 )
-from .transactions import write_transaction
+from .transactions import StatementScopedConnection, write_transaction
 
 
 class _ThreadConnection:
@@ -240,7 +240,11 @@ class Project:
             self._local, "connection", None
         )
         if thread_connection is None:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn = sqlite3.connect(
+                self.db_path,
+                check_same_thread=False,
+                factory=StatementScopedConnection,
+            )
             conn.row_factory = sqlite3.Row
             from .current_cells import register_current_cell_functions
 

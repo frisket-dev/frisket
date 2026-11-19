@@ -390,7 +390,7 @@ def _perform(
             ],
             evidence=[ReceiptEvidence(ref=refs["cursor"])],
         )
-        ReceiptStore(project).insert_completed(receipt, commit=False)
+        ReceiptStore(project).insert_completed(receipt)
         return ActionResult(
             action=ActionIdentity(kind=action.kind, action_id=action_id),
             status="completed",
@@ -466,7 +466,7 @@ def _perform(
         outputs=[ReceiptIO(name="source", ref=ref)],
         evidence=[ReceiptEvidence(ref=evidence_ref)],
     )
-    ReceiptStore(project).insert_completed(receipt, commit=False)
+    ReceiptStore(project).insert_completed(receipt)
     return ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),
         status="completed",

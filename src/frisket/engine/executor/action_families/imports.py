@@ -260,7 +260,7 @@ def _perform_import_rows_in_txn(
         },
         commit=False,
     )
-    ReceiptStore(project).insert_completed(receipt, commit=False)
+    ReceiptStore(project).insert_completed(receipt)
     changes.close(op_id)
     return result
 

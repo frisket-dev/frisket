@@ -29,6 +29,7 @@ from frisket.engine.executor.action_support import (
 from frisket.engine.executor.group_summary_plan import GroupSummaryPlan
 from frisket.engine.executor import group_summary_runtime as runtime
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import roll_back_failed_work
 from frisket.execution.attempt import StaleAttemptWriter
 
 
@@ -309,6 +310,9 @@ def run_typed_group_summary_action(
         )
         if isinstance(computations, ActionError):
             if publication.envelope is None and recovery_run is None:
+                roll_back_failed_work(
+                    project.db, before="group summary reservation release"
+                )
                 ReceiptStore(project).delete_running(reservation["receipt_id"])
             return ActionCtx(project_id, action.kind).failed(computations)
         result = runtime._write_reduce_group_summary_result(
@@ -328,6 +332,9 @@ def run_typed_group_summary_action(
         if publication.stopped():
             return publication.finish_cancelled()
         if publication.envelope is None:
+            roll_back_failed_work(
+                project.db, before="group summary reservation release"
+            )
             ReceiptStore(project).delete_running(reservation["receipt_id"])
         code = (
             "stale_attempt_writer"
@@ -345,5 +352,6 @@ def run_typed_group_summary_action(
         and result.receipt_id is None
         and publication.envelope is None
     ):
+        roll_back_failed_work(project.db, before="group summary reservation release")
         ReceiptStore(project).delete_running(reservation["receipt_id"])
     return result
