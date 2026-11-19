@@ -7,56 +7,56 @@ import type { EngineOption } from '../api/types';
 export const OCR_ENGINE_FALLBACK_GENERATED = [
   {
     "id": "rapidocr",
-    "label": "RapidOCR (local, default)",
+    "label": "RapidOCR (default)",
     "tier": "local",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "tesseract",
-    "label": "Tesseract OCR (local, system binary)",
+    "label": "Tesseract OCR (system binary)",
     "tier": "local",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "indra-ocr",
-    "label": "Indra OCR (local CPU)",
+    "label": "Indra OCR (CPU)",
     "tier": "local",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "paddleocr-vl",
-    "label": "PaddleOCR-VL document VLM (sidecar)",
+    "label": "PaddleOCR-VL document VLM",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "dots.mocr",
-    "label": "dots.mocr multilingual document parser (sidecar)",
+    "label": "dots.mocr multilingual document parser",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "pp-ocrv6",
-    "label": "PP-OCRv6 fast text OCR (sidecar)",
+    "label": "PP-OCRv6 fast text OCR",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "glm-ocr",
-    "label": "GLM-OCR 0.9B multilingual OCR (sidecar)",
+    "label": "GLM-OCR 0.9B multilingual OCR",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"
   },
   {
     "id": "surya2",
-    "label": "Surya 2.5 document OCR (local sidecar)",
+    "label": "Surya 2.5 document OCR",
     "tier": "sidecar",
     "available": false,
     "error": "Action catalog unavailable"
@@ -811,7 +811,7 @@ export const OCR_ENGINE_FALLBACK_GENERATED = [
   },
   {
     "id": "datalab",
-    "label": "Datalab OCR (remote, pay-per-call)",
+    "label": "Datalab OCR (pay-per-call)",
     "tier": "hosted",
     "billable": true,
     "available": false,

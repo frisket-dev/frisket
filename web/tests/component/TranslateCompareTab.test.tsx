@@ -56,10 +56,10 @@ function catalog(): ActionCatalogPayload {
         ui_hints: {
           engines: [
             { id: 'llm', label: 'LLM translation', tier: 'hosted', billable: true, available: true },
-            { id: 'deepl', label: 'DeepL API (remote)', tier: 'hosted', billable: true, available: true },
+            { id: 'deepl', label: 'DeepL API', tier: 'hosted', billable: true, available: true },
             {
               id: 'google_translate',
-              label: 'Google Cloud Translation (remote)',
+              label: 'Google Cloud Translation',
               tier: 'hosted',
               billable: true,
               available: true,
@@ -128,8 +128,8 @@ describe('TranslateCompareTab', () => {
     // not silently shorter than the catalog.
     const note = screen.getByTestId('translate-compare-billable-note');
     expect(note).toHaveTextContent('LLM translation');
-    expect(note).toHaveTextContent('DeepL API (remote)');
-    expect(note).toHaveTextContent('Google Cloud Translation (remote)');
+    expect(note).toHaveTextContent('DeepL API');
+    expect(note).toHaveTextContent('Google Cloud Translation');
     expect(note).toHaveTextContent('the Translate action');
 
     const selector = screen.getByTestId('translate-compare-selector');

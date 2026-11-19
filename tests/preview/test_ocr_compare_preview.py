@@ -197,13 +197,13 @@ def test_ocr_compare_preview_http_route_is_read_only_and_returns_contract(
     assert payload["engines"] == [
         {
             "id": "rapidocr",
-            "label": "RapidOCR (local, default)",
+            "label": "RapidOCR (default)",
             "tier": "local",
             "billable": False,
         },
         {
             "id": "dots.mocr",
-            "label": "dots.mocr multilingual document parser (sidecar)",
+            "label": "dots.mocr multilingual document parser",
             "tier": "sidecar",
             "billable": False,
         },

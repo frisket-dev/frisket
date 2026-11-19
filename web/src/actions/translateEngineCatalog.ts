@@ -65,7 +65,7 @@ export const TRANSLATE_ENGINE_FALLBACK: EngineOption[] = [
   { id: 'llm', label: 'LLM translation (uses your model)', tier: 'hosted', billable: true, available: false, error: 'Action catalog unavailable', language: TRANSLATE_SINGLE_DETECTS },
   {
     id: 'deepl',
-    label: 'DeepL API (remote)',
+    label: 'DeepL API',
     tier: 'hosted',
     billable: true,
     available: false,
@@ -74,7 +74,7 @@ export const TRANSLATE_ENGINE_FALLBACK: EngineOption[] = [
   },
   {
     id: 'google_translate',
-    label: 'Google Cloud Translation (remote)',
+    label: 'Google Cloud Translation',
     tier: 'hosted',
     billable: true,
     available: false,

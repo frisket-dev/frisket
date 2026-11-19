@@ -1223,7 +1223,7 @@ def _action_engines(
             ),
             _engine(
                 "deepl",
-                "DeepL API (remote)",
+                "DeepL API",
                 tier="hosted",
                 billable=True,
                 available=bool(deepl_key),
@@ -1236,7 +1236,7 @@ def _action_engines(
             ),
             _engine(
                 "google_translate",
-                "Google Cloud Translation (remote)",
+                "Google Cloud Translation",
                 tier="hosted",
                 billable=True,
                 available=bool(google_key),
@@ -1399,7 +1399,7 @@ def _action_engines(
         )
         openai_engine = _engine(
             "openai/whisper-1",
-            "OpenAI Whisper (remote provider API)",
+            "OpenAI Whisper",
             tier="hosted",
             billable=True,
             available=openai_available,
@@ -1666,7 +1666,7 @@ def _action_engines(
         )
         spacy_engine = _engine(
             "spacy",
-            "spaCy named-entity extraction (local, fixed labels)",
+            "spaCy named-entity extraction (fixed labels)",
             tier="local",
             available=spacy_ok,
             error=spacy_err,
@@ -1692,7 +1692,7 @@ def _action_engines(
             spacy_engine,
             _engine(
                 "gliner",
-                "GLiNER named-entity extraction (sidecar)",
+                "GLiNER named-entity extraction",
                 tier="sidecar",
                 available=ok,
                 error=err,
@@ -1700,7 +1700,7 @@ def _action_engines(
             ),
             _engine(
                 "llm",
-                "LLM named-entity extraction (remote, extract-shaped)",
+                "LLM named-entity extraction (extract-shaped)",
                 tier="hosted",
                 billable=True,
                 available=bool(llm_providers),

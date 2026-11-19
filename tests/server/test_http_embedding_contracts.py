@@ -32,7 +32,7 @@ CATALOG_PAYLOAD = {
             "provider_id": "fastembed",
             "provider_kind": "local_process",
             "model_id": "BAAI/bge-small-en-v1.5",
-            "label": "Local · bge-small",
+            "label": "bge-small",
             "modalities": ["text", "row"],
             "dimensions": [384],
             "distance_metrics": ["cosine"],

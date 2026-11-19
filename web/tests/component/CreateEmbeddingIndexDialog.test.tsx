@@ -187,10 +187,10 @@ describe('CreateEmbeddingIndexDialog custom model', () => {
   });
 
   it.each([
-    ['gemini', 'Gemini · multilingual (remote)', 'Gemini'],
-    ['openrouter', 'OpenRouter · custom remote model (dimension discovered at create)', 'OpenRouter'],
-    ['openrouter', 'Remote · openrouter/acme/embed (dimension discovered at create)', 'OpenRouter'],
-    ['acme-embed', 'Remote · acme-embed/large (dimension discovered at create)', 'acme-embed'],
+    ['gemini', 'Gemini · multilingual', 'Gemini'],
+    ['openrouter', 'OpenRouter · custom model (dimension discovered at create)', 'OpenRouter'],
+    ['openrouter', 'openrouter/acme/embed (dimension discovered at create)', 'OpenRouter'],
+    ['acme-embed', 'acme-embed/large (dimension discovered at create)', 'acme-embed'],
   ])('names the %s provider, not the model label %s, in remote copy', async (provider, label, name) => {
     serveChoices();
     const card: EmbeddingProvider = {

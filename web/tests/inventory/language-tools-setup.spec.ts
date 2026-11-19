@@ -6,7 +6,7 @@ import { selectorChoicesResponse } from '../e2e/selectorChoicesFixture';
 
 const PAIR_DISCLOSURE = 'Downloads the required language model on first use.';
 for (const engine of [
-  { id: 'spacy', action: 'map.ner', label: 'spaCy named-entity extraction (local, fixed labels)',
+  { id: 'spacy', action: 'map.ner', label: 'spaCy named-entity extraction (fixed labels)',
     display: 'spaCy', setup: 'engine-setup:spacy.local@1', phase: 'Installing the spaCy runtime',
     missing: 'spaCy is not installed. Set up spaCy in the engine picker. For a command-line installation, install frisket-data[standard].' },
   { id: 'opus_mt', action: 'map.translate', label: 'Opus-MT local translation (per-language-pair)',

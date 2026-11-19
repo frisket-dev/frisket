@@ -364,7 +364,7 @@ def test_openai_whisper_1_availability_follows_effective_provider_keys(
     assert whisper1["tier"] == "hosted"
     assert whisper1["billable"] is True
     assert whisper1["available"] is False
-    assert whisper1["label"] == "OpenAI Whisper (remote provider API)"
+    assert whisper1["label"] == "OpenAI Whisper"
     assert whisper1["language"]["mode"] == "single"
     assert whisper1["language"]["detects"] is True
     assert whisper1["diarization"] == {"supported": False, "mode": "none"}

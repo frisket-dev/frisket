@@ -258,7 +258,7 @@ LIGHTONOCR_ENGINES: tuple[EngineDeclaration, ...] = tuple(
 OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="rapidocr",
-        label="RapidOCR (local, default)",
+        label="RapidOCR (default)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="local",
@@ -269,7 +269,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="tesseract",
-        label="Tesseract OCR (local, system binary)",
+        label="Tesseract OCR (system binary)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="local",
@@ -278,7 +278,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="indra-ocr",
-        label="Indra OCR (local CPU)",
+        label="Indra OCR (CPU)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="local",
@@ -287,7 +287,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="paddleocr-vl",
         sidecar_route="/ocr",
-        label="PaddleOCR-VL document VLM (sidecar)",
+        label="PaddleOCR-VL document VLM",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="sidecar",
@@ -297,7 +297,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="dots.mocr",
         sidecar_route="/ocr",
-        label="dots.mocr multilingual document parser (sidecar)",
+        label="dots.mocr multilingual document parser",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="sidecar",
@@ -308,7 +308,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="pp-ocrv6",
         sidecar_route="/ocr",
-        label="PP-OCRv6 fast text OCR (sidecar)",
+        label="PP-OCRv6 fast text OCR",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="sidecar",
@@ -317,7 +317,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="glm-ocr",
         sidecar_route="/ocr",
-        label="GLM-OCR 0.9B multilingual OCR (sidecar)",
+        label="GLM-OCR 0.9B multilingual OCR",
         ocr_geometry=False,
         tier="sidecar",
         provider="frisket-sidecar",
@@ -325,7 +325,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="surya2",
         sidecar_route="/ocr",
-        label="Surya 2.5 document OCR (local sidecar)",
+        label="Surya 2.5 document OCR",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="sidecar",
@@ -333,7 +333,7 @@ OCR_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="datalab",
-        label="Datalab OCR (remote, pay-per-call)",
+        label="Datalab OCR (pay-per-call)",
         ocr_geometry=True,
         ocr_searchable_pdf=True,
         tier="hosted",
@@ -607,7 +607,7 @@ CLASSIFY_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="markitdown",
-        label="MarkItDown (local, default)",
+        label="MarkItDown (default)",
         tier="local",
         provider="local",
         # Retired venue/tier words ("light"/"local") are listed in
@@ -615,14 +615,14 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     ),
     EngineDeclaration(
         id="trafilatura_html",
-        label="Trafilatura HTML extraction (local)",
+        label="Trafilatura HTML extraction",
         tier="local",
         provider="local",
     ),
     EngineDeclaration(
         id="docling",
         sidecar_route="/to-markdown",
-        label="Docling layout/OCR quality tier (sidecar)",
+        label="Docling layout/OCR quality tier",
         tier="sidecar",
         provider="frisket-sidecar",
         # Retired venue/tier words ("quality"/"sidecar") are listed in
@@ -631,7 +631,7 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="chandra",
         sidecar_route="/to-markdown",
-        label="Chandra 2 document VLM (sidecar, experimental)",
+        label="Chandra 2 document VLM (experimental)",
         tier="sidecar",
         provider="frisket-sidecar",
     ),
@@ -661,27 +661,27 @@ TO_MARKDOWN_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="deepl",
-        label="DeepL API translation (remote, pay-per-character)",
+        label="DeepL API translation (pay-per-character)",
         tier="hosted",
         provider="deepl",
         billable=True,
     ),
     EngineDeclaration(
         id="google_translate",
-        label="Google Cloud Translation v2 (remote, pay-per-character)",
+        label="Google Cloud Translation v2 (pay-per-character)",
         tier="hosted",
         provider="google",
         billable=True,
     ),
     EngineDeclaration(
         id="opus_mt",
-        label="OPUS-MT CTranslate2 (local, per language pair)",
+        label="OPUS-MT CTranslate2 (per language pair)",
         tier="local",
         provider="local",
     ),
     EngineDeclaration(
         id="hy_mt2",
-        label="Hunyuan MT2 GGUF (local, experimental)",
+        label="Hunyuan MT2 GGUF (experimental)",
         tier="local",
         provider="local",
     ),
@@ -698,14 +698,14 @@ TRANSLATE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="opencage",
-        label="OpenCage geocoder (remote, pay-per-row)",
+        label="OpenCage geocoder (pay-per-row)",
         tier="hosted",
         provider="opencage",
         billable=True,
     ),
     EngineDeclaration(
         id="nominatim",
-        label="Nominatim geocoder (remote, rate-limited)",
+        label="Nominatim geocoder (rate-limited)",
         tier="hosted",
         provider="nominatim",
         # This request leaves the box, but Nominatim's public API is not a
@@ -723,7 +723,7 @@ GEOCODE_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
 CENSUS_ENGINE_TABLE: tuple[EngineDeclaration, ...] = (
     EngineDeclaration(
         id="us_census_acs",
-        label="US Census ACS 5-year enrichment (remote)",
+        label="US Census ACS 5-year enrichment",
         tier="hosted",
         provider="us_census_acs",
         billable=False,

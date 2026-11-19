@@ -154,7 +154,7 @@ export const TRANSCRIBE_ENGINE_FALLBACK: EngineOption[] = [
     // language hint only). Hosted + billable, so honestly unavailable until
     // the live catalog loads, like every hosted fallback entry.
     id: 'openai/whisper-1',
-    label: 'OpenAI Whisper (remote provider API)',
+    label: 'OpenAI Whisper',
     tier: 'hosted',
     billable: true,
     available: false,
