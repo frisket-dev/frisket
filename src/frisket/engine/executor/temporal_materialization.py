@@ -1011,22 +1011,25 @@ def resolve_source_timeline(
         ensure_media_timeline,
     )
 
-    arguments = dict(
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        value=value,
-        current_value_ref=current_value_ref,
-    )
+    def read_source():
+        return read_timeline_source(
+            project,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            value=value,
+            current_value_ref=current_value_ref,
+        )
+
     try:
-        source = read_timeline_source(project, **arguments)
+        source = read_source()
     except TimelineError as exc:
         if exc.code != "timeline_duration_required":
             raise
         from frisket.engine.store.media_blobs import update_blob_metadata
 
         update_blob_metadata(project, value["blob"], force=True)
-        source = read_timeline_source(project, **arguments)
+        source = read_source()
     anchor = ensure_media_timeline(
         project,
         blob_hash=source.blob_hash,
