@@ -3,6 +3,7 @@
 Usage:
     uv run python scripts/e2e/seed_demo.py http://localhost:8000 [session_cookie]
     uv run python scripts/e2e/seed_demo.py http://localhost:8000 --keyless <workspace>
+    ... [--status-file <path>] [--strict]
 
 Creates each of these that the server does not already hold:
   1. "Local stories" — classify demo (beats + justification)
@@ -17,6 +18,14 @@ STORIES_REPLIES, stored in the project's response cache under the keys the
 run will look up (prime_replies.py) and replayed with the model routed to the
 project's own key, so the run succeeds under FRISKET_CACHE_MODE=replay_strict
 with no key at all. <workspace> is the server's workspace directory.
+
+Each project is built on its own: a run that ends with failed rows leaves its
+project partial (the run records which rows failed), and a project that
+cannot be built is missing; neither stops the others. The seed ends by
+printing which projects are complete, partial, missing or already present,
+and ``--status-file`` writes the same as JSON
+({name: {"state": ..., "detail": ...}}). It exits 0 unless ``--strict`` is
+given and a project is partial or missing.
 """
 
 from __future__ import annotations
@@ -28,6 +37,7 @@ import json
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -45,9 +55,8 @@ STORIES_CSV = """snippet
 "The city's three remaining pharmacies in the northern district will close by March."
 """
 
-COUNTRIES_CSV = "country\n" + "\n".join(
-    ["Canada", "Mexico", "China", "Germany", "Vietnam", "Brazil"]
-)
+COUNTRIES = ["Canada", "Mexico", "China", "Germany", "Vietnam", "Brazil"]
+COUNTRIES_CSV = "country\n" + "\n".join(COUNTRIES)
 
 COUNCIL_AUDIO_PROJECT_NAME = "Council audio"
 COUNCIL_AUDIO_SAMPLE = SAMPLE_COUNCIL_AUDIO[0]
@@ -196,6 +205,10 @@ def typed_action_request(
     }
 
 
+class RunIncomplete(RuntimeError):
+    """A run ended unsuccessfully or with failed rows; the run records which."""
+
+
 def wait_run(client: httpx.Client, pid: str, run_id: int, label: str) -> None:
     for _ in range(600):
         body = client.get(f"/api/projects/{pid}/actions/runs/{run_id}/status").json()
@@ -219,7 +232,7 @@ def wait_run(client: httpx.Client, pid: str, run_id: int, label: str) -> None:
                     context.append(("queue_error", queue["error"]))
                 details = "; ".join(f"{name}={value}" for name, value in context)
                 suffix = f"; {details}" if details else ""
-                raise RuntimeError(
+                raise RunIncomplete(
                     f"{label}: run {run_id} ended unsuccessfully: {summary}{suffix}"
                 )
             print(f"  {label}: {summary}")
@@ -275,6 +288,19 @@ def run(client: httpx.Client, pid: str, spec: dict, label: str) -> int | None:
     return run_id
 
 
+def create_project(client: httpx.Client, name: str) -> str:
+    response = client.post("/api/projects", json={"name": name})
+    response.raise_for_status()
+    return response.json()["id"]
+
+
+def import_sheet(client: httpx.Client, pid: str, kind: str, files: dict) -> int:
+    """Import ``files`` through ``/import/<kind>``; return the new sheet's id."""
+    response = client.post(f"/api/projects/{pid}/import/{kind}", files=files)
+    response.raise_for_status()
+    return response.json()["sheet_id"]
+
+
 def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) -> None:
     """Store fixture replies for ``action`` in the project's response cache."""
     subprocess.run(
@@ -291,11 +317,10 @@ def prime_replies(workspace: Path, pid: str, action: dict, replies: list[dict]) 
 
 
 def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) -> None:
-    pid = client.post("/api/projects", json={"name": "Local stories"}).json()["id"]
-    sheet = client.post(
-        f"/api/projects/{pid}/import/csv",
-        files={"file": ("stories.csv", STORIES_CSV, "text/csv")},
-    ).json()["sheet_id"]
+    pid = create_project(client, "Local stories")
+    sheet = import_sheet(
+        client, pid, "csv", {"file": ("stories.csv", STORIES_CSV, "text/csv")}
+    )
     action = typed_action_request(
         "map.classify", sheet_id=sheet, params=STORIES_CLASSIFY
     )
@@ -310,11 +335,10 @@ def seed_stories(client: httpx.Client, keyless_workspace: Path | None = None) ->
 
 
 def seed_tariff(client: httpx.Client) -> None:
-    pid = client.post("/api/projects", json={"name": "Tariff impacts"}).json()["id"]
-    sheet = client.post(
-        f"/api/projects/{pid}/import/csv",
-        files={"file": ("countries.csv", COUNTRIES_CSV, "text/csv")},
-    ).json()["sheet_id"]
+    pid = create_project(client, "Tariff impacts")
+    sheet = import_sheet(
+        client, pid, "csv", {"file": ("countries.csv", COUNTRIES_CSV, "text/csv")}
+    )
     run(
         client,
         pid,
@@ -373,20 +397,20 @@ def seed_tariff(client: httpx.Client) -> None:
 
 
 def seed_audio(client: httpx.Client) -> None:
-    pid = client.post(
-        "/api/projects", json={"name": COUNCIL_AUDIO_PROJECT_NAME}
-    ).json()["id"]
+    pid = create_project(client, COUNCIL_AUDIO_PROJECT_NAME)
     audio = council_audio_bytes(COUNCIL_AUDIO_SAMPLE.filename)
-    sheet = client.post(
-        f"/api/projects/{pid}/import/files",
-        files={
+    sheet = import_sheet(
+        client,
+        pid,
+        "files",
+        {
             "files": (
                 COUNCIL_AUDIO_SAMPLE.filename,
                 io.BytesIO(audio),
                 "audio/mpeg",
             )
         },
-    ).json()["sheet_id"]
+    )
     run(
         client,
         pid,
@@ -426,6 +450,53 @@ def seed_audio(client: httpx.Client) -> None:
 
 KEYLESS_PROJECTS = ("Local stories", "People mentioned")
 
+# Failures that end one project's build; the next project is still built.
+SEED_FAILURES = (
+    httpx.HTTPError,
+    RuntimeError,
+    TimeoutError,
+    subprocess.CalledProcessError,
+    KeyError,
+    StopIteration,
+)
+
+OUTCOME_STATES = ("complete", "partial", "missing", "present")
+
+
+def project_names(client: httpx.Client) -> set[str]:
+    response = client.get("/api/projects")
+    response.raise_for_status()
+    return {project["name"] for project in response.json()}
+
+
+def seed_one(
+    client: httpx.Client, name: str, seed: Callable[[httpx.Client], None]
+) -> dict:
+    """Build one project; return its outcome, ``{"state", "detail"}``."""
+    try:
+        seed(client)
+    except SEED_FAILURES as exc:
+        detail = f"{type(exc).__name__}: {exc}"
+        print(f"✗ {name}: {detail}")
+        try:
+            built = name in project_names(client)
+        except httpx.HTTPError:
+            built = False
+        return {"state": "partial" if built else "missing", "detail": detail}
+    return {"state": "complete", "detail": None}
+
+
+def report(outcomes: dict[str, dict]) -> None:
+    for state in OUTCOME_STATES:
+        names = [
+            name for name, outcome in outcomes.items() if outcome["state"] == state
+        ]
+        if names:
+            print(f"{state}: {', '.join(names)}")
+            for name in names:
+                if outcomes[name]["detail"]:
+                    print(f"  {name}: {outcomes[name]['detail']}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -433,6 +504,16 @@ def main() -> None:
     parser.add_argument("session_cookie", nargs="?")
     parser.add_argument("basic_auth", nargs="?", help='"user:pass" for the Caddy fence')
     parser.add_argument("--keyless", type=Path, metavar="WORKSPACE")
+    parser.add_argument(
+        "--status-file",
+        type=Path,
+        help="write each project's outcome here as JSON",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit 1 when a project is partial or missing",
+    )
     args = parser.parse_args()
     cookies = {}
     if args.session_cookie:
@@ -441,23 +522,32 @@ def main() -> None:
     if args.basic_auth:
         u, _, pw = args.basic_auth.partition(":")
         auth = httpx.BasicAuth(u, pw)
-    seeders = {
+    seeders: dict[str, Callable[[httpx.Client], None]] = {
         "Local stories": lambda client: seed_stories(client, args.keyless),
         COUNCIL_AUDIO_PROJECT_NAME: seed_audio,
         "Tariff impacts": seed_tariff,
         "People mentioned": seed_people_derive,
     }
+    outcomes: dict[str, dict] = {}
     with httpx.Client(
         base_url=args.base, cookies=cookies, timeout=180, auth=auth
     ) as client:
         health = client.get("/api/health").json()
         print(f"server OK: {health}")
-        present = {project["name"] for project in client.get("/api/projects").json()}
+        present = project_names(client)
         for name, seed in seeders.items():
-            if name in present or (args.keyless and name not in KEYLESS_PROJECTS):
+            if name in present:
+                outcomes[name] = {"state": "present", "detail": None}
                 continue
-            seed(client)
-    print("demo projects seeded")
+            if args.keyless and name not in KEYLESS_PROJECTS:
+                continue
+            outcomes[name] = seed_one(client, name, seed)
+    report(outcomes)
+    if args.status_file is not None:
+        args.status_file.write_text(json.dumps(outcomes, indent=1) + "\n")
+    incomplete = any(o["state"] in {"partial", "missing"} for o in outcomes.values())
+    if args.strict and incomplete:
+        raise SystemExit(1)
 
 
 PORTRAITS = [
@@ -481,7 +571,7 @@ def seed_people_derive(client: httpx.Client) -> None:
     child sheet. Uses import.rows + derive.table_from_list's column source —
     the whole fixture is deterministic and model-free (the People lists are
     fixture data, not a measured classification)."""
-    pid = client.post("/api/projects", json={"name": "People mentioned"}).json()["id"]
+    pid = create_project(client, "People mentioned")
     stories = [
         (
             "Mayor Linda Reyes met lobbyist Tom Quayle at the Capital Grille "

@@ -396,9 +396,12 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   cheap real calls.
 - About 50 tests read four demo projects (`scripts/e2e/seed_demo.py`) from a
   cache in `~/.frisket/e2e-ws`. The `seed` setup builds the ones the cache
-  lacks, then opens each one and records which are absent or unopenable (a
-  cache from an older schema); the specs that need them then fail at once
-  with that reason. Under `replay_strict` it builds only the keyless ones:
+  lacks, each on its own (a failed row or project does not stop the others),
+  publishes only the completely built ones to the cache, then opens each one
+  and records which are absent, partially built or unopenable (a cache from
+  an older schema); the specs that need them then fail at once with that
+  reason. Run by hand, `seed_demo.py` prints which projects are complete,
+  partial or missing and exits 0; `--strict` exits 1 unless all are built. Under `replay_strict` it builds only the keyless ones:
   "People mentioned", and "Local stories" from fixture classify replies stored
   in the project's response cache (`scripts/e2e/prime_replies.py`). "Council
   audio" and "Tariff impacts" need one run with model keys and without

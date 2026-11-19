@@ -1,14 +1,17 @@
 // Idempotent seeding: the read-only specs (search, review, ...) expect the
 // demo projects from scripts/e2e/seed_demo.py. The seeder builds only the
-// projects the workspace lacks and publishes them to the persistent e2e
-// workspace. With FRISKET_CACHE_MODE=replay_strict it builds only the keyless
-// ones ("Local stories" from fixture replies, "People mentioned"); otherwise it
-// makes real model calls (~$0.25). Either way the setup then opens each seeded
-// project and records which ones are unusable (absent, or created by an
-// incompatible build), so the specs that need them fail at once with that
-// reason while every other spec still runs.
+// projects the workspace lacks, each on its own, and reports each one as
+// complete, partial or missing; only complete ones are published to the
+// persistent e2e workspace. With FRISKET_CACHE_MODE=replay_strict it builds
+// only the keyless ones ("Local stories" from fixture replies, "People
+// mentioned"); otherwise it makes real model calls (~$0.25). Either way the
+// setup then opens each seeded project and records which ones are unusable
+// (absent, partially built, or created by an incompatible build), so the specs
+// that need them fail at once with that reason while every other spec still
+// runs.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test as setup, type APIRequestContext } from '@playwright/test';
@@ -25,13 +28,18 @@ function sleep(ms: number) {
   });
 }
 
-function isSeededProjectDir(dir: string): boolean {
+// The seeder's report on one project (seed_demo.py --status-file).
+type SeedOutcome = { state: 'complete' | 'partial' | 'missing' | 'present'; detail: string | null };
+// project name -> why it is unusable after seeding, else null
+type SeedVerdict = (name: string) => string | null;
+
+function isPublishableProjectDir(dir: string, publishable: ReadonlySet<string>): boolean {
   if (!dir.endsWith('.frisket')) return false;
   try {
     const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8')) as {
       name?: string;
     };
-    return (SEEDED_PROJECTS as readonly string[]).includes(manifest.name ?? '');
+    return publishable.has(manifest.name ?? '');
   } catch {
     return false;
   }
@@ -66,9 +74,10 @@ async function acquireSeedPublishLock(lockPath: string): Promise<() => void> {
   throw new Error(`Timed out waiting for e2e seed publish lock: ${lockPath}`);
 }
 
-// Copy the seeded projects (and workspace files) the base workspace lacks, so
-// the next isolated run starts from them. Existing base entries are kept.
-async function publishSeedToBaseWorkspace() {
+// Copy the completely built projects (and workspace files) the base workspace
+// lacks, so the next isolated run starts from them; a partial project stays
+// out so the next run builds it again. Existing base entries are kept.
+async function publishSeedToBaseWorkspace(publishable: ReadonlySet<string>) {
   const workspace = process.env.FRISKET_E2E_WS;
   const baseWorkspace = process.env.FRISKET_E2E_BASE_WS;
   if (process.env.FRISKET_E2E_ISOLATED !== '1' || !workspace || !baseWorkspace) return;
@@ -80,7 +89,7 @@ async function publishSeedToBaseWorkspace() {
       const source = path.join(workspace, entry.name);
       const target = path.join(baseWorkspace, entry.name);
       if (fs.existsSync(target) || isRunLocalFile(entry.name)) continue;
-      if (entry.isDirectory() && !isSeededProjectDir(source)) continue;
+      if (entry.isDirectory() && !isPublishableProjectDir(source, publishable)) continue;
       fs.cpSync(source, target, { recursive: true });
     }
   } finally {
@@ -98,34 +107,52 @@ async function projectIds(request: APIRequestContext): Promise<Map<string, strin
   return ids;
 }
 
-// Runs the seeder for the projects the workspace lacks; returns why they are
-// still missing when it cannot build them.
-async function seed(): Promise<string | null> {
+function outcomeFailure(outcome: SeedOutcome | undefined, keyless: boolean): string | null {
+  if (outcome === undefined) return keyless ? KEYLESS_ABSENT : 'absent: the seeder did not report it';
+  if (outcome.state === 'partial') return `partially built: ${outcome.detail ?? 'a run did not complete'}`;
+  if (outcome.state === 'missing') return `absent: building it failed (${outcome.detail ?? 'no detail'})`;
+  return null;
+}
+
+// Runs the seeder for the projects the workspace lacks; returns why each
+// project is still unusable afterwards.
+async function seed(): Promise<SeedVerdict> {
   const backendURL = process.env.FRISKET_E2E_BACKEND_URL ?? 'http://127.0.0.1:8000';
   const keyless = process.env.FRISKET_CACHE_MODE === 'replay_strict';
   const workspace = process.env.FRISKET_E2E_WS;
-  if (keyless && !workspace) return 'absent, and keyless seeding needs FRISKET_E2E_WS';
-  const args = ['scripts/e2e/seed_demo.py', backendURL];
+  if (keyless && !workspace) return () => 'absent, and keyless seeding needs FRISKET_E2E_WS';
+  const reportDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frisket-seed-'));
+  const statusFile = path.join(reportDir, 'outcomes.json');
+  const args = ['scripts/e2e/seed_demo.py', backendURL, '--status-file', statusFile];
   if (keyless && workspace) args.push('--keyless', workspace);
+  let outcomes: Record<string, SeedOutcome>;
   try {
     execFileSync(testPython(), args, {
       cwd: path.resolve(here, '../../..'),
       stdio: 'inherit',
       timeout: 600_000,
     });
+    outcomes = JSON.parse(fs.readFileSync(statusFile, 'utf8')) as Record<string, SeedOutcome>;
   } catch (error) {
-    return `seeding failed (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`;
+    const why = `seeding failed (${error instanceof Error ? error.message.split('\n')[0] : String(error)})`;
+    return () => why;
+  } finally {
+    fs.rmSync(reportDir, { recursive: true, force: true });
   }
-  await publishSeedToBaseWorkspace();
-  return keyless ? KEYLESS_ABSENT : null;
+  const complete = Object.entries(outcomes)
+    .filter(([, outcome]) => outcome.state === 'complete')
+    .map(([name]) => name);
+  await publishSeedToBaseWorkspace(new Set(complete));
+  return (name) => outcomeFailure(outcomes[name], keyless);
 }
 
 async function openFailure(
   request: APIRequestContext,
   id: string | undefined,
-  whyAbsent: string | null,
+  whyUnusable: string | null,
 ): Promise<string | null> {
-  if (id === undefined) return whyAbsent ?? 'absent from the seeded workspace';
+  if (whyUnusable) return whyUnusable;
+  if (id === undefined) return 'absent from the seeded workspace';
   const res = await request.get(`/api/projects/${encodeURIComponent(id)}/sheets`);
   if (res.ok()) return null;
   const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
@@ -136,14 +163,14 @@ async function openFailure(
 setup('seed demo projects (once per workspace)', async ({ request }) => {
   setup.setTimeout(600_000); // first-ever seed: model runs + local transcription
   let ids = await projectIds(request);
-  let whyAbsent: string | null = null;
+  let verdict: SeedVerdict = () => null;
   if (SEEDED_PROJECTS.some((name) => !ids.has(name))) {
-    whyAbsent = await seed();
+    verdict = await seed();
     ids = await projectIds(request);
   }
   const status: SeedStatus = {};
   for (const name of SEEDED_PROJECTS) {
-    status[name] = await openFailure(request, ids.get(name), whyAbsent);
+    status[name] = await openFailure(request, ids.get(name), verdict(name));
   }
   writeSeedStatus(status);
   // The known-failures ratchet (scripts/ci/e2e_known_failures.py) reads this
