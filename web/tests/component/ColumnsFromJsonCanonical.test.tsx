@@ -13,7 +13,7 @@ import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { completeCatalogPayload, sheetMeta } from '../support/actionFormFixtures';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
-import { columnDef } from '../support/domainFixtures';
+import { columnDef, runtimeConfig } from '../support/domainFixtures';
 
 const ENTRY = syntheticActionCatalogEntry('map.columns_from_json');
 const CATALOG = completeCatalogPayload([ENTRY]);
@@ -31,10 +31,7 @@ let stores: WorkspaceStores | null = null;
 
 beforeEach(() => {
   vi.stubGlobal('crypto', { randomUUID: () => 'columns-json-request' });
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay', live_calls_possible: true, cache_mode_editable: false,
-    email_from_address: null, email_from_name: null, recipe_fence_posture: 'enforced',
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
   stores = createWorkspaceStores('columns-from-json-canonical');
   vi.spyOn(stores.projectApi, 'resolveActionParams').mockImplementation(async ({ params }) => {
     const routes = Array.isArray(params.routes) ? params.routes : [];

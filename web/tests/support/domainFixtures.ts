@@ -6,7 +6,7 @@
 // of letting a stale mock drift. Every field is a real type field; callers
 // override only what their assertion cares about.
 
-import type { CellValue, ColumnAiMeta, ColumnDef, ColumnType, Row } from '../../src/api/types';
+import type { CellValue, ColumnAiMeta, ColumnDef, ColumnType, Row, RuntimeConfig } from '../../src/api/types';
 
 export function aiMeta(overrides: Partial<ColumnAiMeta> = {}): ColumnAiMeta {
   return {
@@ -34,6 +34,21 @@ export function row(cells: Record<string, CellValue>, overrides: Partial<Row> = 
     index: overrides.index ?? 0,
     cells,
     provenance: overrides.provenance ?? {},
+    ...overrides,
+  };
+}
+
+export function runtimeConfig(overrides: Partial<RuntimeConfig> = {}): RuntimeConfig {
+  return {
+    cache_mode: 'replay',
+    live_calls_possible: true,
+    cache_mode_editable: false,
+    email_from_address: null,
+    email_from_name: null,
+    auth_methods: { password: true, magic_link: false, oidc: [] },
+    plugins_available: false,
+    plugin_management_available: false,
+    product_telemetry_available: false,
     ...overrides,
   };
 }

@@ -10,13 +10,11 @@ import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { API_CALL_CATALOG, API_CALL_SHEET, API_CALL_TEMPLATES,
   resolveApiCallParams } from '../support/apiCallActionFixture';
+import { runtimeConfig } from '../support/domainFixtures';
 
 let stores: WorkspaceStores | null = null;
 beforeEach(() => {
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay', live_calls_possible: true, cache_mode_editable: false,
-    email_from_address: null, email_from_name: null, recipe_fence_posture: 'enforced',
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
   stores = createWorkspaceStores('api-call-canonical');
   stores.actionCatalog.store.set(() => ({ status: 'ready', error: null,
     catalog: API_CALL_CATALOG, resolvedTemplates: API_CALL_TEMPLATES, version: 1 }));

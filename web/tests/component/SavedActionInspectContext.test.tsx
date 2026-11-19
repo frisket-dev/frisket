@@ -14,7 +14,7 @@ import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { syntheticActionCatalogEntry } from '../support/actionCatalogFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
-import { columnDef } from '../support/domainFixtures';
+import { columnDef, runtimeConfig } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
@@ -196,14 +196,7 @@ beforeEach(() => {
     resolvedTemplates: TEMPLATES,
     version: 1,
   }));
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay',
-    live_calls_possible: true,
-    cache_mode_editable: false,
-    email_from_address: null,
-    email_from_name: null,
-    recipe_fence_posture: 'enforced',
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
   vi.spyOn(projectApi, 'estimateAction').mockResolvedValue({ cost: 0, rows: 3, llm: false });
   vi.spyOn(apiModule, 'listProviders').mockResolvedValue({ schemaVersion: 'frisket.providers.v1', tier: 'local',
     providers: [{ id: 'test', label: 'Test', kind: 'platform_api', configured: true, source: 'env', hint: null,

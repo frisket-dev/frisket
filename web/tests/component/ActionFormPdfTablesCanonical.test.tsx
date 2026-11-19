@@ -11,7 +11,7 @@ import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createWorkspaceStores, type WorkspaceStores } from '../../src/state/createWorkspaceStores';
 import { sheetMeta } from '../support/actionFormFixtures';
-import { columnDef } from '../support/domainFixtures';
+import { columnDef, runtimeConfig } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import type { PdfTablesPickerProps } from '../../src/components/PdfTablesPicker';
 
@@ -34,10 +34,7 @@ const SHEET = sheetMeta([
 ], { id: '7', rowCount: 2 });
 let stores: WorkspaceStores;
 beforeEach(() => {
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay', live_calls_possible: true, cache_mode_editable: false,
-    email_from_address: null, email_from_name: null, recipe_fence_posture: 'enforced',
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
   stores = createWorkspaceStores('pdf-canonical');
   stores.actionCatalog.store.set(() => ({ status: 'ready', error: null,
     catalog: CATALOG, resolvedTemplates: TEMPLATES, version: 1 }));

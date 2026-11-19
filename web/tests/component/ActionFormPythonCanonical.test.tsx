@@ -13,14 +13,12 @@ import { PYTHON_CATALOG, PYTHON_SHEET, PYTHON_TEMPLATES, renderPythonForm,
   resolvePythonParams } from '../support/pythonActionFixture';
 
 import { installPopoverPolyfill } from '../support/domPolyfills';
+import { runtimeConfig } from '../support/domainFixtures';
 
 beforeAll(installPopoverPolyfill);
 let stores: WorkspaceStores | null = null;
 beforeEach(() => {
-  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue({
-    cache_mode: 'replay', live_calls_possible: true, cache_mode_editable: false,
-    email_from_address: null, email_from_name: null, recipe_fence_posture: 'enforced',
-  });
+  vi.spyOn(apiModule, 'getRuntimeConfig').mockResolvedValue(runtimeConfig({ recipe_fence_posture: 'enforced' }));
 });
 afterEach(() => { cleanup(); stores?.dispose(); stores = null; vi.restoreAllMocks(); });
 
