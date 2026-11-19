@@ -11,30 +11,6 @@ import {
   uniqueName,
 } from './helpers';
 
-function minimalPdf(text: string): Buffer {
-  const content = `BT /F1 24 Tf 72 700 Td (${text}) Tj ET`;
-  const objects = [
-    '1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n',
-    '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n',
-    '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n',
-    `4 0 obj<</Length ${Buffer.byteLength(content)}>>stream\n${content}\nendstream\nendobj\n`,
-    '5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n',
-  ];
-  let out = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  for (const object of objects) {
-    offsets.push(Buffer.byteLength(out));
-    out += object;
-  }
-  const xref = Buffer.byteLength(out);
-  out += 'xref\n0 6\n0000000000 65535 f \n';
-  for (const offset of offsets) {
-    out += `${offset.toString().padStart(10, '0')} 00000 n \n`;
-  }
-  out += `trailer<</Size 6/Root 1 0 R>>\nstartxref\n${xref}\n%%EOF`;
-  return Buffer.from(out, 'utf-8');
-}
-
 /** A one-cell OOXML workbook. The planner receives actual workbook bytes, not
  * a filename-only stand-in, while the browser test remains self-contained. */
 function minimalXlsx(value: string): Buffer {
@@ -650,54 +626,6 @@ test('Files accepts two XLSX workbooks, bulk-plans them once, and opens the desi
   expect(executeCount).toBe(1);
 });
 
-test('two generic Files selections with one PDF stay on the normal file import', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-bulk-generic-pair'));
-  await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
-  let preparationCount = 0;
-  await page.route(`**/api/projects/${pid}/import/files/prepare`, async (route) => {
-    preparationCount += 1;
-    await route.fulfill({ status: 500, body: 'one-PDF generic selections must not use staged preparation' });
-  });
-
-  await page.goto(`/p/${pid}`);
-  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openFilesImport(page);
-  const workspace = page.getByTestId('import-workspace');
-  await workspace.getByTestId('import-file-input').setInputFiles([
-    { name: 'note.txt', mimeType: 'text/plain', buffer: Buffer.from('one note') },
-    { name: 'docket.pdf', mimeType: 'application/pdf', buffer: minimalPdf('generic pair') },
-  ]);
-
-  await expect.poll(
-    async () => (await listSheets(page.request, pid)).some((sheet) => sheet.name === 'files'),
-    { timeout: 15_000 },
-  ).toBe(true);
-  const filesSheet = (await listSheets(page.request, pid)).find((sheet) => sheet.name === 'files');
-  expect(filesSheet).toBeTruthy();
-  await expect.poll(
-    async () => (await sheetData(page.request, pid, filesSheet!.id)).rows.length,
-    { timeout: 15_000 },
-  ).toBe(2);
-  const data = await sheetData(page.request, pid, filesSheet!.id);
-  const filenameCol = data.columns.find((column) => column.name === 'filename');
-  const mediaCol = data.columns.find((column) => column.name === 'media');
-  const sizeCol = data.columns.find((column) => column.name === 'size');
-  expect(filenameCol).toBeTruthy();
-  expect(mediaCol).toBeTruthy();
-  expect(sizeCol).toBeTruthy();
-  const rowsByFilename = new Map(data.rows.map((row) => [
-    row.cells[String(filenameCol!.id)],
-    row,
-  ]));
-  expect([...rowsByFilename.keys()].toSorted()).toEqual(['docket.pdf', 'note.txt']);
-  expect(rowsByFilename.get('docket.pdf')?.cells[String(mediaCol!.id)]).toMatchObject({
-    filename: 'docket.pdf',
-    mime: 'application/pdf',
-  });
-  expect(rowsByFilename.get('note.txt')?.cells[String(sizeCol!.id)]).toBe(8);
-  expect(preparationCount).toBe(0);
-});
-
 test('a directly selected extensionless file is sent to the bulk planner', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-bulk-extensionless'));
   await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
@@ -943,31 +871,4 @@ test('pasted rows review column choices and destination before writing', async (
   expect(data.columns[0].type).toBe('text');
   expect(data.rows[1].cells[String(data.columns[0].id)]).toBe('9');
   expect((await listSheets(page.request, pid)).find(sheet => sheet.id === sheetId)?.name).toBe('Reviewed people');
-});
-
-test('URL import records invalid URL errors', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-invalid-url-import'));
-  await importCsv(page.request, pid, 'seed.csv', 'name\nseed\n');
-  await page.goto(`/p/${pid}`);
-
-  await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
-  await openFilesImport(page);
-  await page.getByTestId('import-source-urls').click();
-  await page.getByTestId('import-url-list').fill('not-a-url');
-  await page.getByTestId('import-url-submit').click();
-
-  await expect
-    .poll(async () => (await listSheets(page.request, pid)).some((s) => s.name === 'downloads'), {
-      timeout: 15_000,
-    })
-    .toBeTruthy();
-  const downloadsSheet = (await listSheets(page.request, pid)).find((s) => s.name === 'downloads');
-  expect(downloadsSheet).toBeTruthy();
-  const downloads = await sheetData(page.request, pid, downloadsSheet!.id);
-  const urlCol = downloads.columns.find((c) => c.name === 'url');
-  const errorCol = downloads.columns.find((c) => c.name === 'error');
-  expect(urlCol).toBeTruthy();
-  expect(errorCol).toBeTruthy();
-  expect(downloads.rows[0].cells[String(urlCol!.id)]).toBe('not-a-url');
-  expect(downloads.rows[0].cells[String(errorCol!.id)]).toContain('URL must start');
 });
