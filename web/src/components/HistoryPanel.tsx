@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import type { HistoryChange, HistoryChangeRun, HistoryState } from '../api/open';
 import { formatUsd } from '../actions/model';
-import { routePath, useRoute } from '../routes';
+import { runLinkHref, useRoute } from '../routes';
 import {
   ListDetailGrid,
   ListDetailHeader,
@@ -32,6 +32,8 @@ export interface HistoryPanelProps {
   onRevert(changeId: string): Promise<void>;
   onRestore(changeId: string): Promise<void>;
   onLoadPage(offset: number, limit: number): Promise<void>;
+  /** The change a run link asked for; selected instead of the cursor change. */
+  focusChangeId: string | null;
 }
 
 function changeStateLabel(change: HistoryChange): string {
@@ -70,7 +72,7 @@ function generatedColumnsSummary(run: HistoryChangeRun): string {
  * change, then explicitly revert or restore it without walking the Undo cursor.
  * Older/Newer paging surfaces above/below the list.
  */
-export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: HistoryPanelProps) {
+export function HistoryPanel({ history, onRevert, onRestore, onLoadPage, focusChangeId }: HistoryPanelProps) {
   const [pendingOperation, setPendingOperation] = useState<string | null>(null);
   const [loadingPage, setLoadingPage] = useState<'older' | 'newer' | null>(null);
   const loadPage = (offset: number, limit: number, direction: 'older' | 'newer') => {
@@ -79,20 +81,15 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
     void onLoadPage(offset, limit).catch(() => undefined).finally(() => setLoadingPage(null));
   };
 
-  // The deep link reuses the SAME route helpers the app navigates with
-  // (routes.ts) rather than hand-building a path — project/sheet form plus a
-  // ?run= query param, since the Route type has no dedicated run panel kind.
   const route = useRoute();
-  const deepLinkFor = (runId: string): string | null => {
-    if (route.kind !== 'project') return null;
-    const path = routePath({ kind: 'project', projectId: route.projectId, sheetId: route.sheetId });
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${origin}${path}?run=${encodeURIComponent(runId)}`;
-  };
+  const deepLinkFor = (runId: string): string | null => (route.kind === 'project'
+    ? runLinkHref(route.projectId, route.sheetId, runId, window.location.origin)
+    : null);
 
   const changes = history?.changes ?? EMPTY_HISTORY_CHANGES;
   const pointer = history?.cursorIndex ?? -1;
   const currentChangeId = changes.find((change) => change.index === pointer)?.id ?? null;
+  const focusedChangeId = changes.some((change) => change.id === focusChangeId) ? focusChangeId : null;
 
   const columns: Array<ListDetailColumn<HistoryChange>> = [
     {
@@ -298,6 +295,8 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
 
   return (
     <WorkbenchListDetailPanel
+      // A new run-link focus replaces whatever row the reader picked before.
+      key={focusedChangeId ?? 'cursor'}
       items={changes}
       getRowId={(change) => change.id}
       columns={columns}
@@ -311,7 +310,7 @@ export function HistoryPanel({ history, onRevert, onRestore, onLoadPage }: Histo
       listTestId="history-list"
       rowTestId={(change) => `history-step-op-${change.id}`}
       rowClassName={(change) => `history-state-${change.status}`}
-      defaultSelectedId={() => currentChangeId}
+      defaultSelectedId={() => focusedChangeId ?? currentChangeId}
       activeRowId={currentChangeId}
       listHeader={listHeader}
       listFooter={listFooter}

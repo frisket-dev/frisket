@@ -25,7 +25,7 @@ it('uses actual application state and never infers it from the navigation cursor
     offset: 0, limit: 50, total: 2, hasMoreBefore: false, hasMoreAfter: false, prevOffset: null, nextOffset: null,
     revision: { total: 2, maxChangeId: '11', changeCursor: '11' },
   };
-  render(<HistoryPanel history={history} onRevert={revert} onRestore={restore} onLoadPage={async () => {}} />);
+  render(<HistoryPanel history={history} onRevert={revert} onRestore={restore} onLoadPage={async () => {}} focusChangeId={null} />);
   fireEvent.click(screen.getByTestId('history-revert-op-11'));
   await waitFor(() => expect(revert).toHaveBeenCalledWith('11'));
   fireEvent.click(screen.getByTestId('history-step-op-10').querySelector('button')!);
@@ -84,3 +84,23 @@ it('reuses a prior update source with its exact mapped keys and can start a new 
   fireEvent.change(screen.getByLabelText('Update source'), { target: { value: '' } });
   expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ update: { key_source_indices: [], policy: 'keep_changes', relationship_id: null } }));
 });
+
+it('selects the change a run link focused instead of the cursor change', () => {
+  const history: HistoryState = {
+    changes: [
+      { id: '20', index: 0, label: 'Extract names', kind: 'map', at: '2026-11-15T00:00:00Z', rowsAffected: 1, status: 'applied', executable: true },
+      { id: '21', index: 1, label: 'Later edit', kind: 'edit', at: '2026-11-15T00:01:00Z', rowsAffected: 1, status: 'applied', executable: true },
+    ],
+    cursorIndex: 1, cursorChange: null, cursorChangeLoaded: true, undoTarget: null, redoTarget: null,
+    offset: 0, limit: 50, total: 2, hasMoreBefore: false, hasMoreAfter: false, prevOffset: null, nextOffset: null,
+    revision: { total: 2, maxChangeId: '21', changeCursor: '21' },
+  };
+  const panel = (focusChangeId: string | null) => (
+    <HistoryPanel history={history} onRevert={async () => {}} onRestore={async () => {}} onLoadPage={async () => {}} focusChangeId={focusChangeId} />
+  );
+  const { rerender } = render(panel(null));
+  expect(screen.getByTestId('history-step-detail-op-21')).toBeInTheDocument();
+  rerender(panel('20'));
+  expect(screen.getByTestId('history-step-detail-op-20')).toBeInTheDocument();
+});
+

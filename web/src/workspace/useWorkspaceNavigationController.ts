@@ -12,7 +12,7 @@ import { promoteDocumentPriority } from '../api/documentPriority';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
-import { useRouteHandle } from '../bind/useRouteHandle';
+import { useProjectDataResource, useRouteHandle } from '../bind/useRouteHandle';
 import { useRouteProjection } from '../bind/useRouteProjection';
 import { useRouteRowFetch } from '../bind/useRouteRowFetch';
 import { useRouteSyncController } from '../bind/useRouteSyncController';
@@ -23,7 +23,7 @@ import type { ChromeHandle } from '../core/route/projectRouteState';
 import { routeStateToRoute, type RouteState } from '../core/route/RouteState';
 import { activateSourceLink, openSourceLink, parseSourceLink } from '../components/evidence/sourceLink';
 import { requestGridCellReveal } from '../grid/gridCellReveal';
-import { navigate, replaceRoute, type RoutePanel } from '../routes';
+import { navigate, replaceRoute, takeRunLinkParam, type RoutePanel } from '../routes';
 import type { CitationViewerFocus, CitationViewerHost } from '../state/chromeStore';
 import {
   runActionFromSurfaceTransition, openRowPanelTransition, openSearchTextHitTransition,
@@ -36,7 +36,7 @@ import type { PaletteSearchSeed } from '../workbench/usePaletteSearch';
 import { isSupportedWorkbenchVisibilityTarget, type WorkbenchVisibilityTarget } from '../workbench/visibility';
 import { CITATION_CONTRIBUTION_ID, GRAPH_NEIGHBORHOOD_CONTRIBUTION_ID, FEED_HEALTH_CONTRIBUTION_ID } from './contributionIds';
 import type { ChildFilter } from './workspaceState';
-import { OPEN_RUN_REVIEW_EVENT } from '../components/review/openRunReview';
+import { HISTORY_DESCRIPTOR } from '../workbench/descriptors';
 import type { useWorkspaceChromeState } from './useWorkspaceChromeState';
 import type { useWorkspaceGridController } from './useWorkspaceGridController';
 import type { useWorkbenchContributionVisibility } from './useWorkbenchContributionVisibility';
@@ -63,6 +63,7 @@ export function useWorkspaceNavigationController({
   showError: (message: string) => void;
 }) {
   const { projectApi } = useWorkspaceStores();
+  const projectData = useProjectDataResource();
   const viewSelection = useCurrentViewSelection(sheet);
   const route = useRouteHandle();
   const detail = useDetailHandle();
@@ -766,14 +767,37 @@ export function useWorkspaceNavigationController({
     setReviewRunId(runId ?? null);
     writeRoute({ ...routeStateBase(), review: true });
   }, [writeRoute, routeStateBase]);
+  // A run link opens Review when the run has results to review, otherwise the
+  // run's History change; an unknown run leaves the project view as it is.
+  const openRunLink = useCallback(async (runId: string) => {
+    if (!/^[1-9][0-9]*$/.test(runId)) throw new Error('not a run id');
+    const reviewable = await projectApi.listReviewRuns(0, 1, { runId });
+    if (reviewable.runs.length > 0) {
+      openReview(runId);
+      return;
+    }
+    await projectData.refresh('history');
+    const change = projectData.store.get().history?.changes.find((candidate) => candidate.run?.runId === runId);
+    if (!change) throw new Error('run not in history');
+    revealContribution(HISTORY_DESCRIPTOR.id);
+    chrome.focusHistoryChange(change.id);
+  }, [chrome, openReview, projectApi, projectData, revealContribution]);
   useEffect(() => {
-    const onOpenRunReview = (event: Event) => {
-      const runId = (event as CustomEvent<{ runId?: unknown }>).detail?.runId;
-      if (typeof runId === 'string' && runId) openReview(runId);
+    let alive = true;
+    const onLocation = () => {
+      const runId = takeRunLinkParam(project.id);
+      if (runId === null) return;
+      openRunLink(runId).catch(() => {
+        if (alive) showError(`Run #${runId} could not be opened from this project.`);
+      });
     };
-    window.addEventListener(OPEN_RUN_REVIEW_EVENT, onOpenRunReview);
-    return () => window.removeEventListener(OPEN_RUN_REVIEW_EVENT, onOpenRunReview);
-  }, [openReview]);
+    onLocation();
+    window.addEventListener('popstate', onLocation);
+    return () => {
+      alive = false;
+      window.removeEventListener('popstate', onLocation);
+    };
+  }, [openRunLink, project.id, showError]);
   const closeReview = useCallback(() => {
     setReviewRunId(null);
     // Review-close alone intentionally uses history.back().

@@ -14,6 +14,7 @@ import type { WorkViewKind } from '../core/selectors/workView';
 export type { WorkViewKind } from '../core/selectors/workView';
 
 const BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID = 'jobs';
+const HISTORY_TAB_PLACEMENT_ID = 'history';
 
 export type CitationViewerHost = 'modalOrPeek' | 'mainView';
 
@@ -110,6 +111,8 @@ interface ChromeState {
   // Session-only; /action/{kind} is the durable reopen path.
   actionPanelOpen: boolean;
   activeBottomDockTab: string;
+  // The History change a run link asked for; the History tab selects it.
+  historyFocusChangeId: string | null;
   projectionStatus: WorkbenchProjectionStatus | null;
   commandPaletteOpen: boolean;
   commandPaletteQuery: string;
@@ -140,6 +143,7 @@ export function createChromeState(
     // Never restore session-only action-panel state from storage.
     actionPanelOpen: false,
     activeBottomDockTab: BOTTOM_DOCK_FALLBACK_TAB_PLACEMENT_ID,
+    historyFocusChangeId: null,
     projectionStatus: null,
     commandPaletteOpen: false,
     commandPaletteQuery: '',
@@ -174,6 +178,7 @@ export function createChromeStore(
   toggleActionPanelOpen(): void;
 
   setActiveBottomDockTab(tab: string): void;
+  focusHistoryChange(changeId: string): void;
   setProjectionStatus(status: WorkbenchProjectionStatus | null): void;
 
   openCommandPalette(): void;
@@ -238,6 +243,9 @@ export function createChromeStore(
 
     setActiveBottomDockTab(tab) {
       store.set((s) => (s.activeBottomDockTab === tab ? s : { ...s, activeBottomDockTab: tab }));
+    },
+    focusHistoryChange(changeId) {
+      store.set((s) => ({ ...s, activeBottomDockTab: HISTORY_TAB_PLACEMENT_ID, historyFocusChangeId: changeId }));
     },
     setProjectionStatus(status) {
       store.set((s) => ({ ...s, projectionStatus: status }));

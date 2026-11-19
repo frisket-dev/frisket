@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         "workspace",
         nargs="?",
         type=Path,
-        help="workspace directory (default ./frisket-projects); ignored with --hosted",
+        help="workspace directory (default ./frisket-projects); not with --hosted",
     )
     parser.add_argument(
         "--hosted",
@@ -254,6 +254,8 @@ def main(argv: list[str] | None = None) -> int:
         help="act as a client of a remote Frisket server (FRISKET_BASE_URL + FRISKET_PAT)",
     )
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    if args.hosted and args.workspace is not None:
+        parser.error("--hosted serves a remote Frisket server and takes no workspace")
     backend: LocalBackend | RemoteBackend
     if args.hosted:
         backend = RemoteBackend()
