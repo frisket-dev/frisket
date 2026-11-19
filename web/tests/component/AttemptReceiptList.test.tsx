@@ -43,9 +43,12 @@ function receipt(overrides: Partial<AttemptReceipt> = {}): AttemptReceipt {
     scope: [],
     target: null,
     consent: null,
+    evaluation: null,
+    receipt_id: null,
     cost_basis: { kind: 'operator_borne_zero' },
     price_card_version: null,
     settlement: {
+      terminal_status: null,
       price_card_version: null,
       pricing_key: null,
       charge_usd: '0',
@@ -76,6 +79,7 @@ const PAID = receipt({
   attempt_id: 'attempt_paid',
   cost_basis: { kind: 'priced' },
   settlement: {
+    terminal_status: null,
     price_card_version: 'test.synthetic.terms.v1',
     pricing_key: 'test.synthetic.audio_minute',
     unit_rate: '0.017',
@@ -333,6 +337,7 @@ describe('AttemptReceiptList', () => {
         receipt({
           run_id: null,
           settlement: {
+            terminal_status: null,
             price_card_version: 'test.synthetic.terms.v1',
             charge_usd: null,
             unsettleable: 'metering_reclaimed',
@@ -360,6 +365,7 @@ describe('AttemptReceiptList', () => {
       page([
         receipt({
           settlement: {
+            terminal_status: null,
             price_card_version: 'test.synthetic.terms.v1',
             pricing_key: 'test.synthetic.audio_minute',
             unit_rate: '0.017',

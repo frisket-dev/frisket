@@ -29,7 +29,8 @@ import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
 
 const projectApi = createProjectApi('p1');
 vi.spyOn(projectApi, 'listAttemptReceipts').mockResolvedValue({
-  attempts: [], total: 0, has_more: false,
+  schema_version: 'frisket.attempt_receipts.v1', order: 'created_at DESC', offset: 0, limit: 25,
+  attempts: [], total: 0, has_more: false, next_offset: null, run_id: null,
 });
 const { render } = createWorkspaceTestHarness({
   projectId: 'p1',

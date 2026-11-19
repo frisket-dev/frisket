@@ -31,6 +31,8 @@ function receipt(
     target: null,
     consent: null,
     cost_basis: null,
+    evaluation: null,
+    receipt_id: null,
     price_card_version: settlement?.price_card_version ?? null,
     settlement,
     borne_by: borneBy,
@@ -39,6 +41,7 @@ function receipt(
 }
 
 const FREE: AttemptSettlement = {
+  terminal_status: null,
   price_card_version: null,
   pricing_key: null,
   charge_usd: '0',
@@ -47,6 +50,7 @@ const FREE: AttemptSettlement = {
 };
 
 const PAID: AttemptSettlement = {
+  terminal_status: null,
   price_card_version: 'test.synthetic.terms.v1',
   pricing_key: 'test.synthetic.audio_minute',
   unit_rate: '0.017',
@@ -81,6 +85,7 @@ describe('receiptCharge', () => {
     expect(
       receiptCharge(
         receipt({
+          terminal_status: null,
           price_card_version: 'test.synthetic.terms.v1',
           pricing_key: null,
           charge_usd: null,
@@ -94,6 +99,7 @@ describe('receiptCharge', () => {
       expect(
         receiptCharge(
           receipt({
+            terminal_status: null,
             price_card_version: 'test.synthetic.terms.v1',
             charge_usd: null,
             unsettleable: reason,
@@ -121,6 +127,7 @@ describe('attemptReceiptsSummary', () => {
       receipt({ ...PAID, charge_usd: '0.06' }),
       receipt(FREE),
       receipt({
+        terminal_status: null,
         price_card_version: 'test.synthetic.terms.v1',
         charge_usd: null,
         unsettleable: 'metering_reclaimed',
