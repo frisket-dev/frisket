@@ -1,7 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 import {
-  clickCell,
   clickHeader,
   clickRunButton,
   createProject,
@@ -9,9 +8,11 @@ import {
   importCsv,
   listSheets,
   openAction,
+  openCellDrawer,
   openProject,
   primeMapRowsReplies,
   runAndWait,
+  selectActionSourceColumns,
   sheetColumns,
   sheetData,
   typedActionRequest,
@@ -19,7 +20,11 @@ import {
   type WireColumn,
   uniqueName,
 } from './helpers';
-import { prepareOwnModelReplay, REPLAY_MODEL as MODEL } from './replayModelScenario';
+import {
+  exposeReplayModel,
+  prepareOwnModelReplay,
+  REPLAY_MODEL as MODEL,
+} from './replayModelScenario';
 import type { JsonValue } from '../../src/api/types';
 
 const TARGET_TRACE_SENTINEL = 'TARGET_TRACE_SENTINEL_v1_long_lived';
@@ -31,7 +36,7 @@ const TARGET_PROMPT = `Classify the current target sheet only. ${TARGET_TRACE_SE
 const OLD_PROMPT = `Classify the older sheet only. ${OLD_TRACE_SENTINEL}`;
 const OTHER_PROMPT = `Classify the same row index on another sheet only. ${OTHER_SHEET_SENTINEL}`;
 
-type WireColumnWithRun = WireColumn & { current_run_id?: number | null };
+type WireColumnWithRun = WireColumn & { latest_run_id?: number | null };
 
 type HistoryStep = {
   id: number;
@@ -40,8 +45,8 @@ type HistoryStep = {
 };
 
 type ActionRunPost = {
-  schema_version?: unknown;
-  kind?: unknown;
+  action_id?: unknown;
+  scope?: Record<string, unknown>;
   params?: Record<string, unknown>;
   idempotency_key?: unknown;
 };
@@ -130,16 +135,19 @@ async function undoExpectedOperation(
   expect(body.status).toBe('completed');
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value))
+    : undefined;
+}
+
 function actionPostFrom(data: unknown): ActionRunPost | null {
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) return null;
-  const record = data as Record<string, unknown>;
-  const params = record.params;
+  const record = asRecord(data);
+  if (!record) return null;
   return {
-    schema_version: record.schema_version,
-    kind: record.kind,
-    params: params !== null && typeof params === 'object' && !Array.isArray(params)
-      ? params as Record<string, unknown>
-      : undefined,
+    action_id: record.action_id,
+    scope: asRecord(record.scope),
+    params: asRecord(record.params),
     idempotency_key: record.idempotency_key,
   };
 }
@@ -168,8 +176,8 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
     OLD_TRACE_SENTINEL,
     ['old', 'other'],
   );
-  const oldTopic = (await sheetColumns(page.request, pid, oldSheetId))
-    .find((column) => column.name === 'topic');
+  const oldColumns: WireColumnWithRun[] = await sheetColumns(page.request, pid, oldSheetId);
+  const oldTopic = oldColumns.find((column) => column.name === 'topic');
   expect(oldTopic).toBeTruthy();
 
   const otherSheetId = await importCsv(
@@ -248,18 +256,21 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
       'current target row one',
     ),
   );
-  // This one feeds the live classify FORM below (openAction + Run), which
-  // never touches the confidence/justification toggles — they default OFF.
+  // Replies for the classify form run below. The form ticks Include
+  // confidence and Include justification, so the justification carries the
+  // response sentinel the row drawer must show.
   primeMapRowsReplies(
     pid,
-    classifyAction(targetSheetId, TARGET_PROMPT, ['target', 'other'], false),
-    classifyReplies('target', TARGET_RESPONSE_SENTINEL, false),
+    classifyAction(targetSheetId, TARGET_PROMPT, ['target', 'other'], true),
+    classifyReplies('target', TARGET_RESPONSE_SENTINEL, true),
   );
 
   const sheets = await listSheets(page.request, pid);
   expect(sheets.length).toBeGreaterThanOrEqual(8);
   const targetSheet = sheets.find((sheet) => sheet.id === targetSheetId);
   expect(targetSheet).toBeTruthy();
+  const oldSheet = sheets.find((sheet) => sheet.id === oldSheetId);
+  expect(oldSheet).toBeTruthy();
   expect((await history(page.request, pid)).some((step) => step.kind === 'edit')).toBe(true);
   expect((await history(page.request, pid)).some((step) => (
     step.id === Number(templateOpId) && ['undone', 'discarded'].includes(step.status)
@@ -291,38 +302,44 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
     }
   });
 
+  await exposeReplayModel(page, pid);
   await openProject(page, pid, oldSheetId);
   await openAction(page, 'map.classify');
-  await expect(page.getByTestId('generated-action-form')).toBeVisible();
-  // A fresh launch never guesses a destination from the old civic sample,
-  // even when this sheet already carries a "topic" column from an earlier run.
-  await expect(page.getByTestId('new-column-name')).toHaveValue('');
-  await expect(page.getByTestId('save-to-overwrite-warning')).toHaveCount(0);
-  await expect(page.getByTestId('save-to-new-column-badge')).toHaveCount(0);
-  await expect(page.getByTestId('default-column-name-collision-note')).toHaveCount(0);
+  const form = page.getByTestId('generated-action-form');
+  await expect(form).toContainText(`on ${oldSheet!.name}`);
 
-  await page.getByTestId(`workbench-mainView-tab-${targetSheetId}`).click();
-  await expect(page.getByTestId('generated-action-form')).toContainText(`on ${targetSheet!.name}`);
-  await expect(page.getByTestId('new-column-name')).toHaveValue('topic');
-  await expect(page.getByTestId('classify-source-column-select')).toHaveValue('snippet');
-
-  await page.getByTestId('action-prompt').fill(TARGET_PROMPT);
-  await page.getByTestId('new-column-name').fill('topic');
+  // Switching to the newest of eight sheets, which only the More tabs menu
+  // reaches, closes the form bound to the old sheet; the form opened there is
+  // bound to the target sheet.
+  await expect(page.getByTestId(`workbench-mainView-tab-${targetSheetId}`)).toHaveCount(0);
+  await page.getByTestId('workbench-mainView-more-tabs').click();
+  await page.getByRole('menuitem', { name: targetSheet!.name }).click();
+  await expect(page.getByTestId(`workbench-mainView-tab-${targetSheetId}`))
+    .toHaveAttribute('aria-selected', 'true');
+  await expect(form).toHaveCount(0);
+  await openAction(page, 'map.classify');
+  await expect(form).toContainText(`on ${targetSheet!.name}`);
+  await selectActionSourceColumns(page, 'snippet');
+  const engineTrigger = page.getByTestId('field-engine').locator('.engine-selector__trigger');
+  await engineTrigger.click();
+  const engineDialog = page.getByTestId('engine-selector-dialog');
+  await engineDialog.getByRole('searchbox', { name: 'Search Engine' }).fill('Gemini 3.5 Flash-Lite');
+  await engineDialog.locator('[data-engine-selector-choice="replay-engine-model"]').click();
+  await expect(engineTrigger).toContainText('Gemini 3.5 Flash-Lite');
+  await page.getByTestId('field-context').fill(TARGET_PROMPT);
+  await page.getByTestId('output-field-name').fill('topic');
+  await page.getByLabel('Field 1 description').fill('Best-fit label from the list');
   await page.getByLabel('Field 1 labels').fill('target, other');
+  await form.getByLabel('Include Confidence').check();
+  await form.getByLabel('Include Justification').check();
 
   const runButton = page.getByTestId('generated-action-run');
-  await expect
-    .poll(async () => {
-      return (await runButton.isEnabled()) ? 'ready' : 'waiting';
-    }, { timeout: 15_000 })
-    .toBe('ready');
+  await expect(runButton).toBeEnabled({ timeout: 15_000 });
   const actionRunResponse = page.waitForResponse((response) => (
     response.request().method() === 'POST' &&
-    response.url().includes(`/api/projects/${pid}/actions/v1/run`)
+    response.url().includes(`/api/projects/${pid}/actions/v1/run`) &&
+    response.status() !== 402
   ));
-  // This classify run's estimate lands above the local confirmation threshold,
-  // so the drawer run flow shows the cost gate; confirm it (default) so the run
-  // POSTs.
   await clickRunButton(page);
   const actionRunBody = await (await actionRunResponse).json();
   expect(actionRunBody.schema_version).toBe('frisket.action_result.v1');
@@ -332,16 +349,13 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   await expect(page.getByTestId('run-progress')).toContainText('complete', { timeout: 60_000 });
 
   const targetPost = actionPosts.find((post) => (
-    post.kind === 'map.classify' &&
+    post.action_id === 'map.classify' &&
     post.params?.context === TARGET_PROMPT
   ));
   expect(targetPost).toBeTruthy();
-  expect(targetPost!.schema_version).toBe('frisket.action.v2');
-  expect(targetPost!.params?.sheet_id).toBe(targetSheetId);
-  expect(targetPost!.params?.input_columns).toEqual(['snippet']);
+  expect(targetPost!.scope).toEqual({ kind: 'sheet_rows', sheet_id: targetSheetId });
+  expect(targetPost!.params?.source).toEqual(['snippet']);
   expect(targetPost!.params?.fields).toMatchObject([{ name: 'topic' }]);
-  expect(targetPost!.params?.row_ids).toBeUndefined();
-  expect(String(targetPost!.idempotency_key)).toContain('map.classify');
   expect(requestUrls.some((url) => url.includes(`/api/projects/${pid}/run`))).toBe(false);
 
   // Dismiss the overlay action drawer (workbench-ia-action-drawer-v1) via its
@@ -352,13 +366,20 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
     await expect(page.getByTestId('action-drawer')).toHaveCount(0);
   }
 
-  const targetColumns = await sheetColumns(page.request, pid, targetSheetId);
+  // The older sheet's "topic" column, same name and same row index, is
+  // untouched by the run on the target sheet.
+  const oldColumnsAfter: WireColumnWithRun[] = await sheetColumns(page.request, pid, oldSheetId);
+  const oldTopicAfter = oldColumnsAfter.find((column) => column.id === oldTopic!.id);
+  expect(oldTopicAfter?.latest_run_id).toBe(oldTopic!.latest_run_id);
+  expect(oldTopicAfter?.latest_run_id).not.toBe(targetRunId);
+  const oldRows = await sheetData(page.request, pid, oldSheetId, 0, 2);
+  expect(oldRows.rows.map((row) => row.cells[String(oldTopic!.id)])).toEqual(['old', 'old']);
+
+  const targetColumns: WireColumnWithRun[] = await sheetColumns(page.request, pid, targetSheetId);
   const targetRows = await sheetData(page.request, pid, targetSheetId, 0, 1);
-  const targetTopic = targetColumns.find((column) => (
-    column.name === 'topic'
-  )) as WireColumnWithRun | undefined;
+  const targetTopic = targetColumns.find((column) => column.name === 'topic');
   expect(targetTopic).toBeTruthy();
-  expect(targetTopic!.current_run_id).toBe(targetRunId);
+  expect(targetTopic!.latest_run_id).toBe(targetRunId);
 
   const columnRunsResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -369,7 +390,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   });
   await clickHeader(page, targetColumns, 'topic');
   const columnRunsBody = await (await columnRunsResponse).json();
-  expect(columnRunsBody.column.current_run_id).toBe(targetRunId);
+  expect(columnRunsBody.column.latest_run_id).toBe(targetRunId);
   expect(columnRunsBody.offset).toBe(0);
   expect(columnRunsBody.limit).toBe(20);
   expect(columnRunsBody.total).toBeGreaterThanOrEqual(1);
@@ -382,8 +403,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   await page.getByLabel('Close drawer').click();
   await expect(page.getByTestId('column-drawer')).toHaveCount(0);
 
-  await clickCell(page, targetColumns, 'topic', 0);
-  await page.keyboard.press('Enter');
+  await openCellDrawer(page, targetColumns, 'topic', 0);
   const drawer = page.getByTestId('row-drawer');
   await expect(drawer).toBeVisible();
   const topicField = drawer.getByTestId('row-field-topic');
@@ -423,8 +443,7 @@ test('v1 web paths keep stable sheet/run/row targets in a long-lived project', a
   }]);
   await page.getByLabel('Close drawer').click();
   await openProject(page, pid, targetSheetId);
-  await clickCell(page, targetColumns, 'topic', 0);
-  await page.keyboard.press('Enter');
+  await openCellDrawer(page, targetColumns, 'topic', 0);
   const editedDrawer = page.getByTestId('row-drawer');
   const editedTopicField = editedDrawer.getByTestId('row-field-topic');
   await expect(editedTopicField).toContainText('manual override on target topic');

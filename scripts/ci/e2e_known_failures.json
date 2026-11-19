@@ -20,9 +20,6 @@
  "local-model-walkthrough.spec.ts": {
   "local-model walkthrough connects a named endpoint, succeeds simply, and exposes a hard-task limit": "unclassified"
  },
- "long-lived-project-v1.spec.ts": {
-  "v1 web paths keep stable sheet/run/row targets in a long-lived project": "stale-expectation"
- },
  "markdown.spec.ts": {
   "format=markdown is settable via v1 column.patch and the drawer re-renders": "intermittent:Enter after a coordinate click on a markdown cell sometimes leaves the row drawer closed or without the rendered value on the CI runner; suspected grid selection and focus timing under load, not reproduced locally"
  },
@@ -42,17 +39,8 @@
  "workbench-ia-document-view.spec.ts": {
   "an audio-bearing sheet is eligible for Document view and the reader renders a playable audio element (frontend-affordance-fixes)": "seed:Council audio"
  },
- "workbench-ia-right-edge.spec.ts": {
-  "a long unbreakable sheet name ellipsizes in the Detail header — one line, × reachable": "environment"
- },
  "workbench-ia-shell.spec.ts": {
   "Home renders real project cards with real meta counts and navigates into the workbench": "seed:Local stories,Tariff impacts",
   "the switcher menu recent-projects entry switches projects": "seed:Local stories,Tariff impacts"
- },
- "workbench-plugin-marketplace-discovery.spec.ts": {
-  "plugin manager exposes explicit local install without marketplace repair path": "stale-expectation"
- },
- "workbench-plugin-real-local-smoke.spec.ts": {
-  "real local plugin load activates visible Map contribution and backend projection binding": "stale-expectation"
  }
 }

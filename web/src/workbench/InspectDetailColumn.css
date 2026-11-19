@@ -30,8 +30,12 @@
   font-family: var(--mono);
   font-size: var(--font-size-meta); font-weight: 700; letter-spacing: 0.06em;
   text-transform: uppercase; color: var(--act);
+  white-space: nowrap; flex-shrink: 0;
 }
+/* The kicker, the prev/next chevrons and × keep their size; the row title and
+   the sheet name absorb a narrow column by ellipsizing. */
 .inspect-detail-walk { display: inline-flex; align-items: center; gap: var(--space-6); min-width: 0; }
+.inspect-detail-walk .icon-button { flex-shrink: 0; }
 /* sheet-title-column-v1: the row's resolved title (web/src/workbench/
    rowTitle.ts), shown next to the ROW n kicker/prev-next chips. Capped +
    ellipsized so a long value never pushes the sheet-name chip or close
@@ -42,7 +46,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .inspect-detail-sheet {
-  margin-left: auto; font-size: 11.5px;
+  flex: 1 1 0; text-align: right; font-size: 11.5px;
   /* One line, ellipsized — a long unbreakable sheet name must never wrap the
      header or push the × out of reach. Full name in title. */
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

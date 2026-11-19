@@ -1,3 +1,7 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { expect, type Page, type Route } from '@playwright/test';
 
 export const geoPluginId = 'frisket.geo';
@@ -314,6 +318,38 @@ export async function openPluginManager(page: Page) {
   const manager = pluginManager(page);
   await expect(manager).toBeVisible();
   return manager;
+}
+
+const bundledPluginsDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../src/frisket/authoring/bundled_plugins',
+);
+
+function bundledPluginIds(): string[] {
+  return readdirSync(bundledPluginsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('__'))
+    .map((entry) => {
+      const manifest = JSON.parse(
+        readFileSync(path.join(bundledPluginsDir, entry.name, 'plugin.json'), 'utf8'),
+      ) as { id: string };
+      return manifest.id;
+    });
+}
+
+// Packages installed by other specs are workspace-wide and stay visible to
+// every project in the shared e2e workspace, so a fresh project is checked for
+// each bundled package rather than for an exact row count.
+export async function expectBundledPluginRows(page: Page) {
+  const ids = bundledPluginIds();
+  expect(ids.length).toBeGreaterThan(0);
+  for (const id of ids) {
+    await expect(
+      pluginManager(page).locator(
+        `[data-testid="plugin-manager-installed-plugin"][data-plugin-id="${id}"]`,
+      ),
+      `bundled plugin ${id} is listed`,
+    ).toHaveCount(1);
+  }
 }
 
 export function pluginManagerRow(page: Page, pluginId = geoPluginId) {
