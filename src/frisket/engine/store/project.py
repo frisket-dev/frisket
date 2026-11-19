@@ -24,7 +24,7 @@ import uuid
 import weakref
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, overload
 
 
 from . import (
@@ -377,6 +377,12 @@ class Project:
         self._local = threading.local()  # a later .db access reopens cleanly
 
     # ---------- meta ----------
+
+    @overload
+    def get_meta(self, key: str, default: str) -> str: ...
+
+    @overload
+    def get_meta(self, key: str, default: None = None) -> str | None: ...
 
     def get_meta(self, key: str, default: str | None = None) -> str | None:
         row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

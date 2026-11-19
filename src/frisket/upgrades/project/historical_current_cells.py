@@ -237,6 +237,17 @@ def _register_validity(db: sqlite3.Connection) -> None:
     )
 
 
+def _retrieval_projection(
+    has_retrieval_revision: bool, retrieval_revision: int | None
+) -> tuple[str, str]:
+    """The retrieval_revision column and value to insert, when the table has it."""
+    if not has_retrieval_revision:
+        return "", ""
+    if retrieval_revision is None or retrieval_revision <= 0:
+        raise RuntimeError("retrieval-aware current-cell writes require a revision")
+    return ",retrieval_revision", f",{int(retrieval_revision)}"
+
+
 def _rebuild_column_batch(
     db: sqlite3.Connection,
     *,
@@ -255,10 +266,9 @@ def _rebuild_column_batch(
         "inline_value",
     } <= projection_columns
     has_retrieval_revision = "retrieval_revision" in projection_columns
-    if has_retrieval_revision and (
-        retrieval_revision is None or retrieval_revision <= 0
-    ):
-        raise RuntimeError("retrieval-aware current-cell writes require a revision")
+    retrieval_column, retrieval_value = _retrieval_projection(
+        has_retrieval_revision, retrieval_revision
+    )
     validity_column = ",validity" if has_validity else ""
     validity_value = (
         (
@@ -302,8 +312,6 @@ def _rebuild_column_batch(
             f",CASE WHEN {eligible} THEN ranked.value_kind END"
             f",CASE WHEN {eligible} THEN ranked.value END"
         )
-    retrieval_column = ",retrieval_revision" if has_retrieval_revision else ""
-    retrieval_value = f",{int(retrieval_revision)}" if has_retrieval_revision else ""
     update_columns = [
         "origin_kind",
         "origin_op_id",
