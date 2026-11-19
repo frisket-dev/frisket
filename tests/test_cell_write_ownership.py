@@ -254,3 +254,25 @@ def test_begin_immediate_belongs_to_the_transaction_owner(tmp_path: Path):
         "src/store/gone.py: no longer spells BEGIN IMMEDIATE; delete it from "
         "HAND_WRITTEN_TRANSACTIONS",
     ]
+
+
+def test_explicit_cursors_are_an_exact_list(tmp_path: Path):
+    # rule19: synthetic modules verify the cursor gate without a repo.
+    package = tmp_path / "src/pkg"
+    package.mkdir(parents=True)
+    (package / "listed.py").write_text("cur = db.cursor()\n")
+    (package / "rogue.py").write_text("x = 1\ncur = project.db.cursor()\n")
+    (package / "shrunk.py").write_text("cur = db.cursor()\n")
+    (package / "prose.py").write_text('"""Reads through db.cursor()."""\n')
+    problems = checker.check_explicit_cursors(
+        root=tmp_path,
+        scope="src/pkg",
+        allowed={"src/pkg/listed.py": 1, "src/pkg/shrunk.py": 2, "src/pkg/gone.py": 1},
+    )
+    assert problems == [
+        "src/pkg/rogue.py:2: explicit .cursor(); write through the connection's "
+        "execute so a failing statement ends the transaction it opened",
+        "src/pkg/shrunk.py: 1 explicit .cursor() calls; lower its "
+        "EXPLICIT_CURSORS count",
+        "src/pkg/gone.py: no explicit .cursor() calls; delete it from EXPLICIT_CURSORS",
+    ]

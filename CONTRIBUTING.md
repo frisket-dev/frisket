@@ -125,6 +125,8 @@ connections is rolled back and logged as `unfinished_work_rolled_back`, so
 work that never committed is not published by a later request. Sync work an
 `async def` endpoint hands to `run_in_threadpool` is wrapped with
 `ends_unit_of_work`; keep project transactions from spanning an `await`.
+The same checker keeps explicit `.cursor()` calls to its exact
+`EXPLICIT_CURSORS` counts: write through the connection's `execute`.
 
 ### Shared UI controls
 

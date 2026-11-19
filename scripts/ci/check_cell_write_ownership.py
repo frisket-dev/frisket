@@ -10,7 +10,10 @@ or right-hand expressions. Unknown runs assignment targets require the run owner
 
 Write-transaction boundaries have one owner too: in the store and job modules
 the ``"BEGIN IMMEDIATE"`` literal belongs to ``store/transactions.py``; the
-remaining hand-written boundaries are an exact, shrink-only list.
+remaining hand-written boundaries are an exact, shrink-only list. Explicit
+``.cursor()`` calls are an exact, shrink-only list as well: the project
+connection rolls back the implicit transaction a failing ``execute`` opened,
+and a cursor's statements bypass that rule.
 """
 
 from __future__ import annotations
@@ -127,6 +130,36 @@ HAND_WRITTEN_TRANSACTIONS = frozenset(
         "src/frisket/engine/store/runs.py",
     }
 )
+
+
+CURSOR_SCOPE = "src/frisket"
+# Explicit cursors, counted per module. Each project-connection cursor runs
+# only inside a block that owns how its transaction ends (BEGIN IMMEDIATE, a
+# savepoint, write_transaction, or the connection as a context manager), so a
+# failing statement is that owner's to roll back. A new write goes through
+# the connection's own ``execute``. Shrink-only: a count that no longer
+# matches fails the check.
+EXPLICIT_CURSORS: Mapping[str, int] = {
+    "src/frisket/engine/executor/action_lifecycle.py": 1,
+    "src/frisket/engine/executor/column_transform_action.py": 2,
+    "src/frisket/engine/executor/group_summary_publication.py": 1,
+    "src/frisket/engine/executor/group_summary_runtime.py": 1,
+    "src/frisket/engine/executor/map_find_publication.py": 1,
+    "src/frisket/engine/executor/page_capture.py": 1,
+    "src/frisket/engine/executor/plugin_write_apply.py": 1,
+    "src/frisket/engine/executor/sheet_refresh_action.py": 1,
+    "src/frisket/engine/executor/table_action.py": 1,
+    "src/frisket/engine/executor/temporal_extract_publication.py": 1,
+    "src/frisket/engine/store/alerts.py": 1,
+    "src/frisket/engine/store/cells.py": 2,
+    "src/frisket/engine/store/derived_updates.py": 1,
+    "src/frisket/engine/store/evidence.py": 1,
+    "src/frisket/features/graph/sheet_graph.py": 1,
+    "src/frisket/server/feed_enqueue.py": 1,
+    # The job queue's own database, not a project connection.
+    "src/frisket/engine/jobs/queue.py": 2,
+    "src/frisket/engine/jobs/queue_provision.py": 1,
+}
 
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
@@ -355,6 +388,53 @@ def check_transaction_owners(
     return problems
 
 
+def _cursor_call_lines(path: Path) -> list[int]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "cursor"
+        and not node.args
+        and not node.keywords
+    ]
+
+
+def check_explicit_cursors(
+    *,
+    root: Path,
+    scope: str = CURSOR_SCOPE,
+    allowed: Mapping[str, int] = EXPLICIT_CURSORS,
+) -> list[str]:
+    problems: list[str] = []
+    seen: set[str] = set()
+    for path in sorted((root / scope).rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        lines = _cursor_call_lines(path)
+        if not lines:
+            continue
+        seen.add(relative)
+        expected = allowed.get(relative, 0)
+        if len(lines) > expected:
+            problems.extend(
+                f"{relative}:{line}: explicit .cursor(); write through the "
+                "connection's execute so a failing statement ends the "
+                "transaction it opened"
+                for line in lines
+            )
+        elif len(lines) < expected:
+            problems.append(
+                f"{relative}: {len(lines)} explicit .cursor() calls; lower its "
+                "EXPLICIT_CURSORS count"
+            )
+    problems.extend(
+        f"{relative}: no explicit .cursor() calls; delete it from EXPLICIT_CURSORS"
+        for relative in sorted(set(allowed) - seen)
+    )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -376,7 +456,12 @@ def main(argv: list[str] | None = None) -> int:
             f"{'.' + violation.field if violation.field else ''} "
             "is outside its named owner"
         )
-    problems = [] if args.paths else check_transaction_owners(root=args.root)
+    problems = (
+        []
+        if args.paths
+        else check_transaction_owners(root=args.root)
+        + check_explicit_cursors(root=args.root)
+    )
     for problem in problems:
         print(problem)
     return 1 if violations or problems else 0
