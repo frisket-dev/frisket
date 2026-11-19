@@ -47,10 +47,19 @@ test('map deep-link entry hydrates the split and normalizes the URL (B1), coexis
   await expect(page).not.toHaveURL(/\/map\//);
 
   // Coexistence: click a pin to open the row Detail BESIDE the split.
+  // The single pin sits at the fitted view's centre. It is clickable once its
+  // layer is loaded and picking finds it there, which the hover tooltip shows.
+  await expect(page.getByTestId('map-points-count')).toHaveText('1 points');
   const canvas = page.locator('[data-testid="map-canvas-container"] canvas').first();
-  await expect(canvas).toBeVisible();
-  await page.waitForTimeout(700);
-  await canvas.click();
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('map canvas has no box');
+  const pin = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const tooltip = page.getByTestId('map-tooltip');
+  await expect.poll(async () => {
+    await page.mouse.move(pin.x, pin.y);
+    return tooltip.isVisible();
+  }, { timeout: 10_000 }).toBe(true);
+  await page.mouse.click(pin.x, pin.y);
   await expect(page.getByTestId('row-drawer')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('workbench-mainView-split')).toBeVisible();
 
