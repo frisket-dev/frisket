@@ -4,11 +4,15 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../../src/api/contractErrors';
+
 const listImportSessions = vi.hoisted(() => vi.fn());
 const cancelImportSession = vi.hoisted(() => vi.fn());
 const resolveImportSession = vi.hoisted(() => vi.fn());
 const resumeImportSession = vi.hoisted(() => vi.fn());
 const uploadFilesToImportSession = vi.hoisted(() => vi.fn());
+const estimateImportPreparationRetry = vi.hoisted(() => vi.fn());
+const retryImportPreparation = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/api/open', () => ({
   listImportSessions,
@@ -16,14 +20,13 @@ vi.mock('../../src/api/open', () => ({
   resolveImportSession,
   resumeImportSession,
   uploadFilesToImportSession,
+  estimateImportPreparationRetry,
+  retryImportPreparation,
   snapshotImportFiles: (files: FileList | null) => Array.from(files ?? []),
   importFileLogicalPath: (file: File) => file.name,
 }));
 
-import {
-  notifyImportSessionChanged,
-  registerImportSessionUploadAbort,
-} from '../../src/components/importProgressSession';
+import { notifyImportSessionChanged } from '../../src/components/importProgressSession';
 import {
   useImportProgress,
   type ImportActivity,
@@ -51,8 +54,20 @@ const running = {
   ocr_completed: 0,
   ocr_total: 2,
   unreadable_total: 0,
-  preparation_pending_confirmation: null,
   preparation_children: [],
+  reading_row_ids: [],
+  waiting_row_ids: [],
+  failed_pages: 0,
+} as const;
+
+const failedPages = {
+  ...running,
+  state: 'completed',
+  committed_rows: 10,
+  preparation_completed: 1,
+  ocr_completed: 1,
+  failed_pages: 1,
+  error: 'Some PDF pages could not be prepared.',
 } as const;
 
 function Harness({ onChanged }: { onChanged?: (change: ImportProgressChange) => void } = {}) {
@@ -68,8 +83,17 @@ function Harness({ onChanged }: { onChanged?: (change: ImportProgressChange) => 
           <button type="button" onClick={() => void controller.stop(activity)}>Stop remaining</button>
           <button type="button" onClick={() => controller.keep(activity)}>Keep completed work</button>
           <button type="button" onClick={() => controller.remove(activity)}>Remove imported work</button>
+          {activity.canRetry && (
+            <button type="button" onClick={() => controller.retryFailedPages(activity)}>Retry failed pages</button>
+          )}
         </section>
       ))}
+      {controller.retryConsent && (
+        <button type="button" onClick={() => controller.confirmRetry(controller.retryConsent!)}>
+          Consent to {controller.retryConsent.pages} pages
+        </button>
+      )}
+      {controller.message && <p role="alert">{controller.message}</p>}
     </div>
   );
 }
@@ -172,9 +196,8 @@ describe('persistent import progress controller', () => {
     expect(screen.getByText('OCR: 0/2')).toBeInTheDocument();
   });
 
-  it('stops the browser upload before cancel and waits for an explicit Keep choice', async () => {
+  it('cancels and waits for an explicit Keep choice', async () => {
     const order: string[] = [];
-    registerImportSessionUploadAbort('import-1', () => { order.push('abort'); });
     cancelImportSession.mockImplementation(async () => {
       order.push('cancel');
       const cancelled = { ...running, state: 'cancelled' };
@@ -197,7 +220,7 @@ describe('persistent import progress controller', () => {
       'import-1',
       'keep',
     ));
-    expect(order).toEqual(['abort', 'cancel', 'keep']);
+    expect(order).toEqual(['cancel', 'keep']);
   });
 
   it('resumes a sealed paused session through the canonical endpoint', async () => {
@@ -212,6 +235,80 @@ describe('persistent import progress controller', () => {
       'project-1',
       'import-1',
     ));
+  });
+
+  it('retries failed pages directly when the estimate needs no consent', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockResolvedValue({
+      planToken: 'retry:plan', pages: 1,
+      estimate: { cost: 0, rows: 1, requires_confirmation: false },
+    });
+    retryImportPreparation.mockImplementation(async () => {
+      const retried = { ...failedPages, failed_pages: 0, error: null, waiting_row_ids: [4] };
+      listImportSessions.mockResolvedValue({ sessions: [retried] });
+      return retried;
+    });
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+
+    await waitFor(() => expect(retryImportPreparation).toHaveBeenCalledWith(
+      'project-1', 'import-1', 'retry:plan', null,
+    ));
+    expect(estimateImportPreparationRetry).toHaveBeenCalledWith('project-1', 'import-1');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry failed pages' }))
+      .not.toBeInTheDocument());
+  });
+
+  it('retries failed pages only after consent to that exact estimate', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockResolvedValue({
+      planToken: 'retry:paid', pages: 3,
+      estimate: { cost: 0.3, rows: 3, requires_confirmation: true, promise_set_hash: 'hash-3' },
+    });
+    retryImportPreparation.mockResolvedValue({ ...failedPages, failed_pages: 0, error: null });
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+    const consent = await screen.findByRole('button', { name: 'Consent to 3 pages' });
+    expect(retryImportPreparation).not.toHaveBeenCalled();
+    fireEvent.click(consent);
+
+    await waitFor(() => expect(retryImportPreparation).toHaveBeenCalledWith(
+      'project-1', 'import-1', 'retry:paid', 'hash-3',
+    ));
+    expect(screen.queryByRole('button', { name: 'Consent to 3 pages' })).not.toBeInTheDocument();
+  });
+
+  it('says an undone import was undone when its retry is refused', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockRejectedValue(
+      new ApiError(409, "This import's rows are no longer available"),
+    );
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This import was undone');
+    expect(retryImportPreparation).not.toHaveBeenCalled();
+  });
+
+  it('shows a changed retry estimate and lets the person estimate again', async () => {
+    listImportSessions.mockResolvedValue({ sessions: [failedPages] });
+    estimateImportPreparationRetry.mockResolvedValue({
+      planToken: 'retry:stale', pages: 1,
+      estimate: { cost: 0, rows: 1, requires_confirmation: false },
+    });
+    retryImportPreparation.mockRejectedValueOnce(
+      new Error('The failed pages changed; review the retry estimate again'),
+    );
+
+    render(<Harness />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry failed pages' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The failed pages changed');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry failed pages' }));
+    await waitFor(() => expect(estimateImportPreparationRetry).toHaveBeenCalledTimes(2));
   });
 
   it('keeps polling while durable preparation is incomplete', async () => {

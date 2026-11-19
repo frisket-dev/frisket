@@ -2,38 +2,123 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import replace
+import logging
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from filelock import FileLock
+from pydantic import JsonValue
 
+from frisket.contracts.http.import_sessions import (
+    MAX_IMPORT_ROW_STATE_IDS,
+    ImportPreparationRetryEstimate,
+)
 from frisket.engine.store.import_intake import (
     import_intake_dir,
     read_import_header,
     write_import_header,
 )
-from frisket.engine.store.import_sessions import ImportSessionStore
+from frisket.engine.store.local_readings import (
+    LocalReading,
+    local_reading_receipt_id,
+    local_reading_status,
+    record_local_reading,
+)
+from frisket.engine.store.import_sessions import (
+    ImportSessionStore,
+    import_session_generation_is_applied,
+)
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.pdf_split_intake import read_pdf_split_plan
 from frisket.engine.store.pdf_split_text import (
     capture_pdf_split_text_identities,
     publish_pdf_split_pages,
 )
-from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrGrant
-from frisket.server.services.pdf_import_preparation import PdfImportPreparationSummary
+from frisket.notifications.emit import emit_notification_candidate
+from frisket.notifications.producers import import_preparation_notification_candidate
+from frisket.redaction import safe_error
+from frisket.server.services.pdf_import_ocr_consent import (
+    PdfImportOcrConsentError,
+    PdfImportOcrGrant,
+)
+from frisket.server.services.import_child_execution import (
+    import_child_port,
+    import_execution_context,
+)
 from frisket.server.services.pdf_split_preparation import (
+    CACHED_READING_ONLY,
     PdfSplitChildBinding,
     PdfSplitPageTarget,
+    PdfSplitPageWork,
     PdfSplitPreparationAdapter,
     PdfSplitPreparationStore,
+    page_attempt_identity,
 )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PdfImportPreparationSummary:
+    """Where reading a packet import's page text stands."""
+
+    import_ref: str
+    scheduled_through: int
+    ocr_total: int
+    ocr_completed: int
+    semantic_error: str | None
+    error: str | None
+    children: tuple[Mapping[str, Any], ...]
+    stopped: bool
+    reading_row_ids: tuple[int, ...]
+    waiting_row_ids: tuple[int, ...]
+    failed_pages: int
+
+
+LOG = logging.getLogger(__name__)
+
+# A page is not read when its reading failed, or when a restart interrupted it
+# while the person had not stopped the import. A page whose import was undone
+# or stopped is neither: nothing is left to read it into.
+_NOT_READ_WORK = "(status='failed' OR (status='cancelled' AND interrupted=1))"
+
+
+def _not_read(state: Mapping[str, Any], *, stopped: bool) -> int:
+    return int(state.get("failed", 0)) + (
+        0 if stopped else int(state.get("interrupted", 0))
+    )
+
+
+def _settled(state: Mapping[str, Any]) -> bool:
+    return not any(
+        state.get(key, 0)
+        for key in ("pending", "running", "stopping", "pending_bindings")
+    )
 
 
 class PdfSplitPreparationJobs:
     def __init__(self, workspace: Any, *, preview_runs: Any) -> None:
         self.workspace = workspace
         self.preview_runs = preview_runs
+        self._owed_logged: set[tuple[str, str]] = set()
+
+    def _log_owed(self, event: str, import_ref: str, exc: Exception) -> None:
+        """Warn once per import that its outcome is still owed; recovery retries it."""
+        level = (
+            logging.DEBUG
+            if (event, import_ref) in self._owed_logged
+            else logging.WARNING
+        )
+        self._owed_logged.add((event, import_ref))
+        LOG.log(
+            level,
+            event,
+            extra={
+                "import_ref": import_ref,
+                "error": safe_error(event, exc, max_chars=300).text,
+            },
+        )
 
     def _directory(self, project_id: str, import_ref: str) -> Path:
         return import_intake_dir(self.workspace.get(project_id).path, import_ref)
@@ -251,11 +336,6 @@ class PdfSplitPreparationJobs:
         ):
             adapter.stop(generation=generation)
         else:
-            from frisket.server.services.import_child_execution import (
-                import_child_port,
-                import_execution_context,
-            )
-
             if import_child_port(self.workspace) is None:
                 adapter.start_pending(generation=generation)
             else:
@@ -269,14 +349,312 @@ class PdfSplitPreparationJobs:
                 )
         adapter.resume_fanout(generation=generation)
         state = adapter.progress(generation=generation)
-        return (
-            int(session.cursor)
-            if not state.get("pending", 0)
-            and not state.get("running", 0)
-            and not state.get("stopping", 0)
-            and not state.get("pending_bindings", 0)
-            else 0
+        if session is None or not _settled(state):
+            return 0
+        # Recovery keeps an import whose outcome is still owed and records it
+        # on a later tick; the outcome is owed until it is durably recorded.
+        recorded = self._record_local_reading(project, directory, generation)
+        notified = self._notify_outcome(project, import_ref, directory, session, state)
+        return int(session.cursor) if recorded and notified else 0
+
+    def _superseded(self, project, session, generation: str) -> bool:
+        """Whether the rows this page work reads into were undone or replaced."""
+        return session is None or not import_session_generation_is_applied(
+            project.db,
+            session_id=session.id,
+            writer_authority=generation,
+            op_id=int(session.op_id),
         )
+
+    def _record_local_reading(self, project, directory: Path, generation: str) -> bool:
+        """Leave one receipt for the pages this pass read on this machine.
+
+        A page read through a provider has its own receipt; a page read
+        locally has none, so the settled pass records those pages together.
+        Recording never fails the import. Returns whether nothing is left
+        to record.
+        """
+        try:
+            header = read_import_header(directory)
+            with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                rows = store.db.execute(
+                    "SELECT work_key,target_json,status FROM pdf_split_page_work "
+                    "WHERE generation=? AND read_locally=1 AND receipt_id IS NULL "
+                    "AND status IN ('completed','failed','cancelled') ORDER BY rowid",
+                    (generation,),
+                ).fetchall()
+                if not rows:
+                    return True
+                bindings = {
+                    str(work_key): [
+                        {"row_id": int(row_id), "page_number": int(page)}
+                        for row_id, page in store.db.execute(
+                            "SELECT row_id,page_number FROM pdf_split_page_bindings "
+                            "WHERE work_key=? AND generation=? "
+                            "ORDER BY row_id,page_number",
+                            (work_key, generation),
+                        )
+                    ]
+                    for work_key, _target, _status in rows
+                }
+            files = {
+                str(source["key"]): str(source["filename"])
+                for source in read_pdf_split_plan(directory)["sources"]
+            }
+            targets = [json.loads(row["target_json"]) for row in rows]
+            settings: dict[str, JsonValue] = json.loads(
+                json.dumps(targets[0]["ocr_action_params"])
+            )
+            pages: list[JsonValue] = [
+                {
+                    "file": files.get(str(target["occurrence_key"])),
+                    "file_key": str(target["occurrence_key"]),
+                    "page_number": int(target["page_number"]),
+                    "status": str(row["status"]),
+                    "rows": [dict(item) for item in bindings[str(row["work_key"])]],
+                }
+                for row, target in zip(rows, targets, strict=True)
+            ]
+            receipt_id = local_reading_receipt_id(
+                "media.ocr",
+                str(header.envelope["receipt_id"]),
+                generation,
+                int((header.provider_state or {}).get("retries", 0)),
+            )
+            record_local_reading(
+                project,
+                LocalReading(
+                    action_kind="media.ocr",
+                    engine=str(settings.get("engine")),
+                    service="ocr",
+                    settings=settings,
+                    pages=pages,
+                    status=local_reading_status(str(row["status"]) for row in rows),
+                ),
+                receipt_id=receipt_id,
+                project_id=str(header.project_id),
+                import_receipt_id=str(header.envelope["receipt_id"]),
+            )
+            with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                with store.db:
+                    store.db.executemany(
+                        "UPDATE pdf_split_page_work SET receipt_id=? WHERE work_key=? "
+                        "AND generation=? AND receipt_id IS NULL",
+                        [(receipt_id, row["work_key"], generation) for row in rows],
+                    )
+        except Exception as exc:
+            self._log_owed("import_local_reading_receipt_failed", directory.name, exc)
+            if project.db.in_transaction:
+                project.db.rollback()
+            return False
+        return True
+
+    def _notify_outcome(self, project, import_ref, directory, session, state) -> bool:
+        """Record the settled outcome once; a failed emission never fails the import.
+
+        Returns whether the outcome is recorded, or there is none to record.
+        """
+        header = read_import_header(directory)
+        provider = dict(header.provider_state or {})
+        if header.cancel_requested or provider.get("preparation_stopped"):
+            return True
+        generation = str(provider.get("preparation_generation") or "")
+        if self._superseded(project, session, generation):
+            return True
+        candidate = import_preparation_notification_candidate(
+            project_id=header.project_id,
+            import_ref=import_ref,
+            sheet_id=int(session.sheet_id),
+            read_pages=int(state.get("completed", 0)),
+            failed_pages=_not_read(state, stopped=False),
+        )
+        if (
+            candidate is None
+            or provider.get("outcome_notified") == candidate["dedupe_key"]
+        ):
+            return True
+        try:
+            emit_notification_candidate(project, candidate)
+        except Exception as exc:
+            self._log_owed("import_notification_emit_failed", import_ref, exc)
+            if project.db.in_transaction:
+                project.db.rollback()
+            return False
+        with FileLock(str(directory / ".pdf-split-preparation-admit.lock")):
+            header = read_import_header(directory)
+            provider = dict(header.provider_state or {})
+            provider["outcome_notified"] = candidate["dedupe_key"]
+            write_import_header(directory, replace(header, provider_state=provider))
+        return True
+
+    def _unread_work(self, store, generation) -> tuple[PdfSplitPageWork, ...]:
+        return tuple(
+            store._work(row)
+            for row in store.db.execute(
+                f"SELECT * FROM pdf_split_page_work WHERE generation=? AND {_NOT_READ_WORK} "
+                "ORDER BY rowid",
+                (generation,),
+            )
+        )
+
+    def _retry_scope(self, project_id: str, import_ref: str):
+        directory = self._directory(project_id, import_ref)
+        header = read_import_header(directory)
+        provider = header.provider_state or {}
+        generation = provider.get("preparation_generation")
+        if not generation:
+            raise ValueError("This import has no page text to retry")
+        if header.cancel_requested or provider.get("preparation_stopped"):
+            raise ValueError("Reading this import's text was stopped")
+        project = self.workspace.get(project_id)
+        session = ImportSessionStore(project).get(import_ref)
+        if self._superseded(project, session, str(generation)):
+            raise ValueError("This import's rows are no longer available")
+        sheet = project.db.execute(
+            "SELECT hidden FROM sheets WHERE id=?", (session.sheet_id,)
+        ).fetchone()
+        if sheet is None or sheet[0]:
+            # Deleting a sheet can be undone; its pages are read again then.
+            raise ValueError(
+                "This import's sheet was deleted; restore it to read its pages again"
+            )
+        with PdfSplitPreparationStore(directory / "inventory.db") as store:
+            unread = self._unread_work(store, str(generation))
+        if not unread:
+            raise ValueError("This import has no failed pages to retry")
+        # The token names exactly the pages not read and the retry they belong
+        # to, so consent to one retry estimate authorizes that retry once.
+        plan_token = (
+            "retry:"
+            + hashlib.sha256(
+                json.dumps(
+                    [
+                        str(generation),
+                        int(provider.get("retries", 0)),
+                        sorted(work.work_key for work in unread),
+                    ],
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+        )
+        return directory, str(generation), unread, plan_token
+
+    def _estimate_unread(self, directory, project_id, unread, plan_token, context):
+        try:
+            return self._adapter(project_id, directory).estimate(
+                targets=[work.target for work in unread],
+                plan_token=plan_token,
+                request_context=context,
+                reuse_previews=False,
+            )
+        except PdfImportOcrConsentError as exc:
+            raise ValueError(str(exc)) from exc
+
+    def estimate_retry(
+        self, project_id: str, import_ref: str, *, request_context: Any = None
+    ) -> ImportPreparationRetryEstimate:
+        directory, _generation, unread, plan_token = self._retry_scope(
+            project_id, import_ref
+        )
+        estimated = self._estimate_unread(
+            directory, project_id, unread, plan_token, request_context
+        )
+        return ImportPreparationRetryEstimate.model_validate(
+            {
+                "plan_token": plan_token,
+                "failed_pages": len(unread),
+                "pages": int(estimated["pages"]),
+                "estimate": dict(estimated["estimate"]),
+            }
+        )
+
+    def retry(
+        self,
+        project_id: str,
+        import_ref: str,
+        *,
+        plan_token: str,
+        confirmation: str | None,
+        request_context: Any = None,
+    ) -> PdfImportPreparationSummary:
+        directory = self._directory(project_id, import_ref)
+        adapter = self._adapter(project_id, directory)
+        with FileLock(str(directory / ".pdf-split-preparation-admit.lock")):
+            _directory, generation, unread, current_token = self._retry_scope(
+                project_id, import_ref
+            )
+            if plan_token != current_token:
+                raise ValueError(
+                    "The failed pages changed; review the retry estimate again"
+                )
+            # Consent is checked against the estimate as it stands now: a
+            # changed page set, engine, route or price changes its hash.
+            current = self._estimate_unread(
+                directory, project_id, unread, plan_token, request_context
+            )
+            if current["authorization"] is not None:
+                adapter.approve(current, confirmation=confirmation)
+            consented = (
+                set()
+                if current["authorization"] is None
+                else {
+                    str(target["work_key"])
+                    for target in current["authorization"]["scope"]["targets"]
+                }
+            )
+            # The retry is spent before any page is reset, so a crash between
+            # the two leaves its confirmation void rather than reusable.
+            header = read_import_header(directory)
+            provider = dict(header.provider_state or {})
+            provider["retries"] = int(provider.get("retries", 0)) + 1
+            write_import_header(directory, replace(header, provider_state=provider))
+            parent = (
+                str(header.envelope["receipt_id"])
+                if import_child_port(self.workspace) is not None
+                else None
+            )
+            receipts = ReceiptStore(self.workspace.get(project_id))
+            with PdfSplitPreparationStore(directory / "inventory.db") as store:
+                with store.db:
+                    for work in unread:
+                        status, attempt = store.db.execute(
+                            "SELECT status,attempt FROM pdf_split_page_work "
+                            "WHERE work_key=? AND generation=?",
+                            (work.work_key, generation),
+                        ).fetchone()
+                        if work.work_key in consented:
+                            token = plan_token
+                        elif adapter.reading_reference(store, work.target) is not None:
+                            token = CACHED_READING_ONLY
+                        else:
+                            continue
+                        # A failed attempt is settled, so reading the page again
+                        # is a new attempt. An interrupted one keeps its identity
+                        # unless its receipt shows it began: then it cannot be
+                        # replayed and reading again is a new attempt too.
+                        if status == "failed" or (
+                            parent is not None
+                            and receipts.find_by_id(
+                                page_attempt_identity(
+                                    parent, generation, work.work_key, int(attempt)
+                                )[1]
+                            )
+                            is not None
+                        ):
+                            attempt = int(attempt) + 1
+                        store.db.execute(
+                            "UPDATE pdf_split_page_work SET status='pending',error=NULL,job_id=NULL,"
+                            "receipt_id=NULL,read_locally=0,plan_token=?,attempt=? WHERE work_key=? "
+                            f"AND generation=? AND {_NOT_READ_WORK}",
+                            (token, attempt, work.work_key, generation),
+                        )
+                        store.db.execute(
+                            "UPDATE pdf_split_page_bindings SET published=0 "
+                            "WHERE work_key=? AND generation=? AND published=-1",
+                            (work.work_key, generation),
+                        )
+        self.progress(project_id, import_ref)
+        return self.summary(project_id, import_ref)
 
     def child_page(
         self, project_id: str, import_ref: str, *, after: int, limit: int = 100
@@ -323,27 +701,52 @@ class PdfSplitPreparationJobs:
         approved = (header.pdf_preparation or {}).get("ocr_authorization") or {}
         total = int(counts.get("pages", approved.get("scope", {}).get("page_count", 0)))
         done = int(counts.get("completed", 0))
-        session = ImportSessionStore(self.workspace.get(project_id)).get(import_ref)
-        terminal = (
-            not counts.get("pending", 0)
-            and not counts.get("running", 0)
-            and not counts.get("stopping", 0)
-            and not counts.get("pending_bindings", 0)
+        project = self.workspace.get(project_id)
+        session = ImportSessionStore(project).get(import_ref)
+        stopped = bool(provider.get("preparation_stopped") or header.cancel_requested)
+        unread = (
+            0
+            if not generation or self._superseded(project, session, str(generation))
+            else _not_read(counts, stopped=stopped)
+        )
+        reading, waiting = (
+            ((), ()) if not generation else self._row_states(directory, str(generation))
         )
         return PdfImportPreparationSummary(
-            import_ref,
-            0 if session is None or not terminal else session.cursor,
-            0,
-            0,
-            total,
-            done,
-            0,
-            None,
-            provider.get("semantic_error"),
-            "Some PDF pages could not be prepared." if counts.get("failed") else None,
-            self.child_page(project_id, import_ref, after=0),
-            bool(provider.get("preparation_stopped") or header.cancel_requested),
-            None,
+            import_ref=import_ref,
+            scheduled_through=0
+            if session is None or not _settled(counts)
+            else session.cursor,
+            ocr_total=total,
+            ocr_completed=done,
+            semantic_error=provider.get("semantic_error"),
+            error="Some PDF pages could not be prepared." if unread else None,
+            children=self.child_page(project_id, import_ref, after=0),
+            stopped=stopped,
+            reading_row_ids=reading,
+            waiting_row_ids=waiting,
+            failed_pages=unread,
+        )
+
+    @staticmethod
+    def _row_states(
+        directory: Path, generation: str
+    ) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        """Rows with a page being read, and rows whose pages wait, front first."""
+        with PdfSplitPreparationStore(directory / "inventory.db") as store:
+            rows = store.db.execute(
+                "SELECT binding.row_id, MAX(work.status='running') AS reading "
+                "FROM pdf_split_page_bindings AS binding JOIN pdf_split_page_work AS work "
+                "ON work.work_key=binding.work_key AND work.generation=binding.generation "
+                "WHERE binding.generation=? AND binding.published=0 "
+                "AND work.status IN ('pending','running') "
+                "GROUP BY binding.row_id ORDER BY reading DESC, MAX(work.priority) DESC, "
+                "MIN(work.rowid) LIMIT ?",
+                (generation, MAX_IMPORT_ROW_STATE_IDS),
+            ).fetchall()
+        return (
+            tuple(int(row[0]) for row in rows if row[1]),
+            tuple(int(row[0]) for row in rows if not row[1]),
         )
 
     def stop(self, project_id: str, import_ref: str) -> PdfImportPreparationSummary:

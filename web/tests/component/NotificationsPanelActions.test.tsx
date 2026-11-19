@@ -141,3 +141,33 @@ it('ignores a run notification without a usable run id', async () => {
   await waitFor(() => expect(screen.getByRole('button', { name: 'Open run' })).toBeEnabled());
   expect(pushState).not.toHaveBeenCalled();
 });
+
+function importNotification(deepLink: Record<string, unknown>): NotificationItem {
+  return {
+    ...notification(8, 'read'), sourceKind: 'import',
+    sourceRef: { project_id: 'notification-actions', import_ref: 'import-1', sheet_id: 5 },
+    sourceEventIds: [], severity: 'warning', title: 'Import finished with 2 pages not read', deepLink,
+  };
+}
+
+it('opens an import notification on its sheet in the open project', async () => {
+  const { api, stores } = renderNotifications([
+    importNotification({ kind: 'sheet', project_id: 'notification-actions', sheet_id: 5 }),
+  ]);
+  api.markNotificationRead.mockResolvedValue({ notificationId: 8, state: 'read' });
+  expect(await screen.findByText('Import')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open sheet' }));
+  await waitFor(() => expect(stores.route.store.get().sheetId).toBe('5'));
+  expect(api.markNotificationRead).toHaveBeenCalledWith(8);
+});
+
+it('opens an import notification for another project through that project route', async () => {
+  const { api, stores } = renderNotifications([
+    importNotification({ kind: 'sheet', project_id: 'other-project', sheet_id: 5 }),
+  ]);
+  api.markNotificationRead.mockResolvedValue({ notificationId: 8, state: 'read' });
+  const pushState = vi.spyOn(window.history, 'pushState');
+  fireEvent.click(await screen.findByRole('button', { name: 'Open sheet' }));
+  await waitFor(() => expect(pushState).toHaveBeenCalledWith(null, '', '/p/other-project/s/5'));
+  expect(stores.route.store.get().sheetId).not.toBe('5');
+});

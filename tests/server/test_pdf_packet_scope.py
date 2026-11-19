@@ -129,7 +129,7 @@ def test_scope_obeys_grid_filter_sort_and_ranked_view_order(tmp_path):
                 scope="filtered",
                 selection=definition,
             ),
-        )["order_hash"]
+        ).order_hash
         == inventory.order_hash
     )
     with pytest.raises(ValueError, match="without legacy"):
@@ -177,22 +177,21 @@ def test_sheet_scope_creates_session_with_preview_and_frozen_source(tmp_path):
         sheet_id=sheet, file_column_id=column, organization="pages", scope="all"
     )
     created = service.create_from_sheet(project_id, body)
-    assert created["sources"][0]["key"] == f"sheet:{sheet}:row:{row}:column:{column}"
-    source_info = created["sources"][0]
+    assert created.sources[0].key == f"sheet:{sheet}:row:{row}:column:{column}"
+    source_info = created.sources[0]
     assert (
-        source_info["source_sheet_id"],
-        source_info["source_row_id"],
-        source_info["source_column_id"],
+        source_info.source_sheet_id,
+        source_info.source_row_id,
+        source_info.source_column_id,
     ) == (sheet, row, column)
-    assert source_info["prepared_page_count"] == 0
-    assert source_info["has_prepared"] is False
-    assert source_info["prepared_complete"] is False
-    assert created["sheet_scope"]["preview"] == [
+    assert source_info.prepared_page_count == 0
+    assert source_info.has_prepared is False
+    assert source_info.prepared_complete is False
+    assert [item.model_dump(mode="json") for item in created.sheet_scope.preview] == [
         {"row_id": row, "filename": "a.pdf", "reason": None}
     ]
     assert (
-        service.status(project_id, created["split_id"])["sheet_scope"]
-        == created["sheet_scope"]
+        service.status(project_id, created.split_id).sheet_scope == created.sheet_scope
     )
     service.shutdown()
 
@@ -295,7 +294,7 @@ def test_scope_token_never_opens_pdf_and_admits_small_selection_from_large_view(
     )
     token = service.order_token(
         project_id, PdfPacketSheetScopeRequest(sheet_id=sheet, scope="selected")
-    )["order_hash"]
+    ).order_hash
     monkeypatch.setattr(pdf_packet_scope, "PdfReader", real_reader)
     inventory = service.admit(
         project_id,

@@ -183,14 +183,14 @@ class GuideSampleService:
                     status = self.pdf.status(
                         result["project_id"], destination["draft_id"]
                     )
-                    if status["state"] != "open":
+                    if status.state != "open":
                         raise RouteError(
                             409,
                             "The sample import is no longer open. Start a new sample to try again.",
                         )
                     destination = {
                         **destination,
-                        "state": "ready" if status["can_review_text"] else "pending",
+                        "state": "ready" if status.can_review_text else "pending",
                     }
                     result = {**result, "destination": destination}
                 return result
@@ -233,7 +233,7 @@ class GuideSampleService:
                             separators=(",", ":"),
                         ),
                     )
-                    draft_id = draft["draft_id"]
+                    draft_id = draft.draft_id
                     record.update(state="pdf", draft_id=draft_id)
                     self._save(path, record)
                 else:
@@ -302,7 +302,7 @@ class GuideSampleService:
             "kind": "pdf_import_draft",
             "draft_id": draft_id,
             "stage": "check_text",
-            "state": "ready" if status["can_review_text"] else "pending",
+            "state": "ready" if status.can_review_text else "pending",
             "guide_id": "court-filings-to-table",
             "step_id": "check-text",
         }

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+from frisket.contracts.http.pdf_imports import PdfImportBatchOcrState
 from frisket.contracts.http.pdf_packet_splits import PdfPacketDestination
 from frisket.pdf_packets.source_map import SourceMap, SourceOccurrence
+from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrConsentError
 from frisket.server.services.pdf_packet_commit import (
     PdfPacketCommitter,
     PdfSplitPassthrough,
@@ -23,16 +25,6 @@ from frisket.server.services.pdf_split_preparation import (
 
 from .organization import _borrow_source
 from .storage import PdfImportDraftError
-
-
-def uses_packet_publication(header, inventory) -> bool:
-    return (
-        header["choices"].get("organization", "keep_documents") != "keep_documents"
-        or inventory.db.execute(
-            "SELECT 1 FROM pdf_source_acquisition LIMIT 1"
-        ).fetchone()
-        is not None
-    )
 
 
 @contextmanager
@@ -55,7 +47,7 @@ def draft_sources(service, project_id, directory, header, inventory):
                 or row["media_kind"] not in {"pdf", "image"}
             ):
                 continue
-            path = service._files_root(directory, header) / row["sha256"]
+            path = directory / "files" / row["sha256"]
             sources.append(
                 AdmittedPacketSource(
                     key=row["occurrence_id"],
@@ -113,22 +105,25 @@ def prepare_page_estimate(
         preview_runs=service._preview_runs,
         inventory_path=directory / "inventory.db",
     )
-    holder = coordinator.estimate(
-        project_id=project_id,
-        sources=sources,
-        revision=inventory.selected_through(),
-        ocr_policy=header["choices"]["ocr_policy"],
-        ocr_selection=header["choices"]["ocr_selection"],
-        page_text=page_text,
-        accepted_ocr_pages=accepted,
-        request_context=request_context,
-    )
+    try:
+        holder = coordinator.estimate(
+            project_id=project_id,
+            sources=sources,
+            revision=inventory.selected_through(),
+            ocr_policy=header["choices"]["ocr_policy"],
+            ocr_selection=header["choices"]["ocr_selection"],
+            page_text=page_text,
+            accepted_ocr_pages=accepted,
+            request_context=request_context,
+        )
+    except PdfImportOcrConsentError as exc:
+        raise PdfImportDraftError(409, str(exc)) from exc
     return coordinator, holder, sources, cached
 
 
 def estimate_pages(
     service, project_id, directory, header, inventory, *, request_context=None
-):
+) -> PdfImportBatchOcrState:
     _coordinator, holder, _sources, _cached = prepare_page_estimate(
         service,
         project_id,
@@ -165,7 +160,7 @@ def estimate_pages(
         "needs_confirmation": bool(estimate.get("requires_confirmation")),
     }
     service._save(directory, header)
-    return dict(header["batch_ocr"])
+    return PdfImportBatchOcrState.model_validate(header["batch_ocr"])
 
 
 def approve_pages(

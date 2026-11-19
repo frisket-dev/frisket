@@ -7,7 +7,7 @@ import os
 import secrets
 import shutil
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,10 +26,6 @@ DRAFT_TTL_SECONDS = 86_400
 
 class PdfImportDraftError(RouteError):
     pass
-
-
-class PdfImportPromotionRejected(PdfImportDraftError):
-    """The frozen draft cannot transfer ownership into project storage."""
 
 
 def now() -> str:
@@ -130,7 +126,12 @@ class PdfDraftStore:
                 expires = datetime.fromisoformat(
                     str(header["expires_at"]).replace("Z", "+00:00")
                 )
-                if expires > current_time or header.get("state") not in terminal:
+                # A draft whose import is still unsealed stays until it settles.
+                if (
+                    expires > current_time
+                    or header.get("state") not in terminal
+                    or keeps_commit_inventory(header)
+                ):
                     continue
                 with self.lock(directory):
                     current = json.loads(path.read_text("utf-8"))
@@ -140,16 +141,125 @@ class PdfDraftStore:
                     if (
                         current_expiry <= current_time
                         and current.get("state") in terminal
+                        and not keeps_commit_inventory(current)
                     ):
                         shutil.rmtree(directory, ignore_errors=True)
             except (OSError, ValueError, KeyError, json.JSONDecodeError):
                 continue
 
+    def drafts_with_commit_inventory(self) -> list[Path]:
+        """Drafts whose commit still keeps a commit inventory, in name order."""
+        found = []
+        for path in sorted(self.root.glob("pdf-*/manifest.json")):
+            try:
+                header = json.loads(path.read_text("utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if keeps_commit_inventory(header):
+                found.append(path.parent)
+        return found
+
+    def settle_commit_inventory(
+        self, directory: Path, seal_import: Callable[[str, str], None]
+    ) -> None:
+        """Settle one draft whose commit inventory nothing publishes.
+
+        Its published rows stay: the import is sealed before the draft is
+        marked committed, so a failure leaves the draft to be settled again.
+        A draft whose bytes never left it reopens for review; one whose files
+        moved without publishing is cancelled.
+        """
+        with self.lock(directory):
+            header = json.loads((directory / "manifest.json").read_text("utf-8"))
+            if not keeps_commit_inventory(header):
+                return
+            commit = header["commit"]
+            if commit.get("result") is not None:
+                seal_import(
+                    str(header["project_id"]), str(commit["result"]["import_ref"])
+                )
+                header["state"] = "committed"
+            elif commit.get("promotion_target") is None:
+                with PdfDraftInventory(directory / "inventory.db") as inventory:
+                    inventory.reset_commit_projection()
+                for suffix in ("", "-wal", "-shm"):
+                    Path(f"{commit['commit_inventory_path']}{suffix}").unlink(
+                        missing_ok=True
+                    )
+                header["state"] = "open"
+                header["commit"] = None
+            else:
+                header["state"] = "cancelled"
+            self.save(directory, header)
+
+    def mark_unsettled(self, directory: Path) -> None:
+        """Show a draft that could not be settled as needing attention.
+
+        Its commit and files stay, so the next settlement tries it again.
+        """
+        with self.lock(directory):
+            header = json.loads((directory / "manifest.json").read_text("utf-8"))
+            if keeps_commit_inventory(header) and header["state"] != "error":
+                header["state"] = "error"
+                self.save(directory, header)
+
+
+def draft_owner(header: Any) -> tuple[str, str]:
+    """The project and storage identity a draft header names.
+
+    Raises when the header does not name both, so its owner is unknown.
+    """
+    project_id, storage_identity = header["project_id"], header["storage_identity"]
+    if not isinstance(project_id, str) or not isinstance(storage_identity, str):
+        raise TypeError("draft header names no owner")
+    return project_id, storage_identity
+
+
+def unreadable_drafts_report(workspace_root: Path) -> dict[str, Any]:
+    """Import drafts whose header no longer names its project.
+
+    No project lists them, since they may belong to any project, so the
+    workspace diagnostics are where an operator finds them.
+    """
+    unreadable = 0
+    drafts = Path(workspace_root) / ".pdf_import_drafts"
+    for path in drafts.glob("pdf-*/manifest.json"):
+        try:
+            draft_owner(json.loads(path.read_text("utf-8")))
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError, KeyError, TypeError):
+            unreadable += 1
+    return {
+        "unreadable": unreadable,
+        "summary": (
+            f"{unreadable} import draft(s) could not be read"
+            if unreadable
+            else "every import draft can be read"
+        ),
+    }
+
+
+def keeps_commit_inventory(header: Mapping[str, Any]) -> bool:
+    """Whether a committing draft keeps a commit inventory.
+
+    Such a draft admitted uploads into an import after its first rows were
+    published, and nothing publishes those uploads, so it is settled instead.
+    """
+    commit = header.get("commit")
+    return (
+        header.get("state") in {"committing", "error"}
+        and isinstance(commit, dict)
+        and "commit_inventory_path" in commit
+        and commit.get("packet_publication") is not True
+    )
+
 
 __all__ = [
     "PdfDraftStore",
+    "draft_owner",
+    "unreadable_drafts_report",
     "PdfImportDraftError",
-    "PdfImportPromotionRejected",
     "SCHEMA_VERSION",
     "now",
 ]

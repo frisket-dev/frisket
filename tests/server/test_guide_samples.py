@@ -235,8 +235,8 @@ def test_pdf_creation_recovers_process_exit_before_manifest(tmp_path):
         source_label="Crash",
         creation_key="crash",
     )
-    assert draft["state"] == "open"
-    assert len(pdf.list(pid)) == 1
+    assert draft.state == "open"
+    assert len(pdf.list(pid).items) == 1
 
 
 def test_prepare_retries_after_expected_sheet_before_pdf_draft(tmp_path, monkeypatch):

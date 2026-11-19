@@ -13,7 +13,7 @@ vi.mock('../../src/components/useSearchPreparationNotice', () => ({
 import { defineEditionModule, EditionModuleProvider } from '../../src/editions/module';
 import { TEAM_EDITION_DESCRIPTOR } from '../../src/editions/posture';
 import { StatusBar } from '../../src/components/StatusBar';
-import { importActivity } from '../../src/components/useImportProgress';
+import { importActivity, type ImportProgressController } from '../../src/components/useImportProgress';
 import type { ImportSessionStatus } from '../../src/api/open';
 import { createProjectApi } from '../../src/api/real';
 import type { RunProgress } from '../../src/api/open';
@@ -30,6 +30,17 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+function importProgressController(
+  overrides: Partial<ImportProgressController> = {},
+): ImportProgressController {
+  return {
+    activities: [], refresh: vi.fn(async () => {}), message: null, busyRef: null,
+    preparingRef: null, retryConsent: null, resume: vi.fn(), stop: vi.fn(async () => {}),
+    keep: vi.fn(), remove: vi.fn(), retryFailedPages: vi.fn(), confirmRetry: vi.fn(),
+    cancelRetry: vi.fn(), ...overrides,
+  };
+}
+
 describe('StatusBar search activity', () => {
   it('offers explicit Keep or Remove after cancellation without choosing for the user', () => {
     useSearchPreparationNotice.mockReturnValue(null);
@@ -41,14 +52,14 @@ describe('StatusBar search activity', () => {
       error: null, search_preparation_status: 'none', search_preparation_batch_id: null,
       selected_total: 20, preparation_completed: 0, preparation_total: 0,
       ocr_completed: 0, ocr_total: 0, unreadable_total: 0,
-      preparation_pending_confirmation: null, preparation_children: [],
+      preparation_children: [],
+      reading_row_ids: [], waiting_row_ids: [], failed_pages: 0,
     };
     const activity = importActivity(session)!;
     const keep = vi.fn();
     const remove = vi.fn();
     render(<StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
-      importProgress={{ activities: [activity], message: null, busyRef: null, preparingRef: null,
-        resume: vi.fn(), stop: vi.fn(async () => {}), keep, remove }}
+      importProgress={importProgressController({ activities: [activity], keep, remove })}
       onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />);
     fireEvent.click(screen.getByTestId('search-activity-toggle'));
     expect(screen.getByRole('button', { name: 'Keep completed work' })).toBeVisible();
@@ -58,6 +69,48 @@ describe('StatusBar search activity', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove imported work' }));
     expect(remove).toHaveBeenCalledWith(activity);
     expect(keep).not.toHaveBeenCalled();
+  });
+
+  it('offers Retry failed pages once nothing waits and gates a priced retry on consent', () => {
+    useSearchPreparationNotice.mockReturnValue(null);
+    const session: ImportSessionStatus = {
+      import_ref: 'import-failed', state: 'completed', intake_kind: 'files',
+      admitted_files: 2, admitted_bytes: 100, through: 2,
+      committed_rows: 2, committed_bytes: 100,
+      sheet_id: 1, sheet_name: 'PDFs', cancel_requested: false, sealed: true,
+      error: 'Some PDF pages could not be prepared.', search_preparation_status: 'none',
+      search_preparation_batch_id: null,
+      selected_total: 2, preparation_completed: 3, preparation_total: 5,
+      ocr_completed: 3, ocr_total: 5, unreadable_total: 0,
+      preparation_children: [],
+      reading_row_ids: [], waiting_row_ids: [], failed_pages: 2,
+    };
+    const activity = importActivity(session)!;
+    const retryFailedPages = vi.fn();
+    const confirmRetry = vi.fn();
+    const consent = {
+      importRef: 'import-failed', planToken: 'retry:plan', confirmation: 'hash-2', pages: 2,
+      estimate: {
+        cost: 0.02, billed_cost: 20_000, policy_id: 'pdf-ocr-v1', rows: 2,
+        requires_confirmation: true, promise_set_hash: 'hash-2',
+      },
+    };
+    const view = render(<StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
+      importProgress={importProgressController({ activities: [activity], retryFailedPages })}
+      onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('search-activity-toggle'));
+    expect(screen.getByText('3 of 5 · 2 pages not read')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Stop remaining' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry failed pages' }));
+    expect(retryFailedPages).toHaveBeenCalledWith(activity);
+
+    view.rerender(<StatusBar run={null} history={null} reviewCount={0} projectionStatus={null}
+      importProgress={importProgressController({ activities: [activity], retryConsent: consent, confirmRetry })}
+      onUndo={vi.fn()} onRedo={vi.fn()} onOpenReview={vi.fn()} onCancelRun={vi.fn()} />);
+    expect(screen.getByText('Read text again from 2 pages with OCR?')).toBeVisible();
+    expect(screen.getByTestId('cost-gate-estimate')).toHaveTextContent('$0.02');
+    fireEvent.click(screen.getByTestId('cost-gate-confirm'));
+    expect(confirmRetry).toHaveBeenCalledWith(consent);
   });
 
   it('does not infer model installation from a hosted edition having teams', () => {

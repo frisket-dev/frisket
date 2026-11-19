@@ -9,6 +9,7 @@ import type {
 import type { ActionLaunchPrefill } from '../actions/actionFormInitial';
 import type { ProjectSearchAnchorWire, ProjectSearchHitWire } from '../api/projectSearch';
 import { promoteDocumentPriority } from '../api/documentPriority';
+import type { ImportPageReading } from '../components/useImportProgress';
 import { useActSurfaceHandle } from '../bind/useActSurfaceHandle';
 import { useChromeHandle } from '../bind/useChromeHandle';
 import { useDetailHandle } from '../bind/useDetailHandle';
@@ -46,7 +47,7 @@ type ProjectSearchCellLocationWire = NonNullable<Extract<ProjectSearchAnchorWire
 /** The route sync controller is the sole history writer; reader focus never becomes action selection. */
 export function useWorkspaceNavigationController({
   project, sheet, sheets, externalRoute, chromeState, visibility, grid,
-  mapContributionId, actActionTemplates, importLiveRun, showError,
+  mapContributionId, actActionTemplates, importPageReading, showError,
 }: {
   project: ProjectInfo;
   sheet: SheetMeta | undefined;
@@ -59,7 +60,7 @@ export function useWorkspaceNavigationController({
   grid: Pick<ReturnType<typeof useWorkspaceGridController>, 'activeChildFilter' | 'activeGridFilter' | 'activeGridSort' | 'scopeRowIds' | 'visibleHeaderMenu'>;
   mapContributionId: string | null;
   actActionTemplates: ActionTemplate[];
-  importLiveRun: { runId: string; actionKind: string } | null;
+  importPageReading: ImportPageReading | null;
   showError: (message: string) => void;
 }) {
   const { projectApi } = useWorkspaceStores();
@@ -595,11 +596,12 @@ export function useWorkspaceNavigationController({
     rowId: string;
     columnId: string;
     label: string;
-    runId: string;
+    importRef: string;
   } | null>(null);
   const documentPriorityRequest = useRef(0);
-  const activeDocumentPriority = documentPriority?.runId === importLiveRun?.runId
-    && importLiveRun?.actionKind === 'media.ocr' ? documentPriority : null;
+  // The hint lasts only while its import still has pages being read or waiting.
+  const activeDocumentPriority = documentPriority !== null
+    && documentPriority.importRef === importPageReading?.importRef ? documentPriority : null;
 
   const prioritizeDocumentRow = useCallback(
     (rowId: string, columnId: string) => {
@@ -613,13 +615,13 @@ export function useWorkspaceNavigationController({
         rowId: numericRowId,
         columnId: numericColumnId,
       }).then((result) => {
-        if (request !== documentPriorityRequest.current || !result.promoted || result.runId === null) return;
+        if (request !== documentPriorityRequest.current || !result.promoted || result.importRef === null) return;
         setDocumentPriority({
           sheetId: sheet.id,
           rowId,
           columnId,
           label: `File row ${rowId}`,
-          runId: result.runId,
+          importRef: result.importRef,
         });
       }).catch(() => undefined);
     },
@@ -898,14 +900,14 @@ export function useWorkspaceNavigationController({
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
-    openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
+    openCitationViewerForWorkspace, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   }), [
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
-    openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
+    openCitationViewerForWorkspace, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog, mainView, overlays,
   ]);

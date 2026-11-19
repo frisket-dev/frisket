@@ -22,6 +22,8 @@ from frisket.redaction import safe_error
 
 from frisket.actions.media import OcrParams
 from frisket.ops.base import ActionProgramInvocationHalt
+from frisket.engine.runner.confirmation_context import ConsentEstimate
+from frisket.server.services.action_preview_runs import _scratch_claims
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -31,6 +33,29 @@ from frisket.engine.store.prepared_content import (
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+CACHED_READING_ONLY = "cached-reading-only"
+"""A retried page's consent marker: reuse its cached reading, never read it."""
+
+
+def page_attempt_identity(
+    parent_receipt_id: str, generation: str, work_key: str, attempt: int
+) -> tuple[str, str]:
+    """The child key and receipt id one attempt at a page is admitted under.
+
+    An attempt keeps its identity until a retry of a failed page advances it,
+    so an admission that already holds the attempt replays it rather than
+    buying it again.
+    """
+    child_key = f"pdf-split-page:{generation}:{work_key}" + (
+        f":attempt-{attempt}" if attempt else ""
+    )
+    receipt_id = (
+        "receipt_"
+        + hashlib.sha256(f"{parent_receipt_id}:{child_key}".encode()).hexdigest()
+    )
+    return child_key, receipt_id
 
 
 class PdfSplitPreparationInProgress(ValueError):
@@ -122,6 +147,10 @@ class PdfSplitPreparationStore:
                 operation_id INTEGER NOT NULL, target_json TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending', prepared_ref_id INTEGER,
                 job_id TEXT, receipt_id TEXT, error TEXT,
+                priority INTEGER NOT NULL DEFAULT 0, plan_token TEXT,
+                attempt INTEGER NOT NULL DEFAULT 0,
+                interrupted INTEGER NOT NULL DEFAULT 0,
+                read_locally INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY(work_key,generation));
             CREATE TABLE IF NOT EXISTS pdf_split_page_occurrences (
                 work_key TEXT NOT NULL, generation TEXT NOT NULL,
@@ -142,6 +171,31 @@ class PdfSplitPreparationStore:
                 generation TEXT PRIMARY KEY, plan_token TEXT NOT NULL,
                 session_id TEXT NOT NULL, operation_id INTEGER NOT NULL);
         """)
+        columns = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(pdf_split_page_work)")
+        }
+        with self.db:
+            if "priority" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN priority INTEGER NOT NULL DEFAULT 0"
+                )
+            if "plan_token" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN plan_token TEXT"
+                )
+            if "attempt" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"
+                )
+            if "interrupted" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
+                )
+            if "read_locally" not in columns:
+                self.db.execute(
+                    "ALTER TABLE pdf_split_page_work ADD COLUMN read_locally INTEGER NOT NULL DEFAULT 0"
+                )
 
     def close(self) -> None:
         self.inventory.close()
@@ -312,7 +366,7 @@ class PdfSplitPreparationStore:
         return tuple(
             self._work(row)
             for row in self.db.execute(
-                "SELECT * FROM pdf_split_page_work WHERE status='pending' ORDER BY rowid LIMIT ?",
+                "SELECT * FROM pdf_split_page_work WHERE status='pending' ORDER BY priority DESC,rowid LIMIT ?",
                 (limit,),
             )
         )
@@ -326,6 +380,39 @@ class PdfSplitPreparationStore:
             PdfSplitPageTarget(**json.loads(row["target_json"])),
             row["prepared_ref_id"],
         )
+
+    def prefer_row(
+        self, *, generation: str, row_id: int, source_column_id: int
+    ) -> bool:
+        """Move the row's unread pages ahead of every other pending page.
+
+        True when the row has a page waiting or being read in this generation.
+        """
+        facts = {
+            "generation": generation,
+            "row_id": row_id,
+            "column_id": source_column_id,
+        }
+        bound = (
+            "work_key IN (SELECT work_key FROM pdf_split_page_bindings "
+            "WHERE generation=:generation AND row_id=:row_id AND published=0 "
+            "AND json_extract(binding_json,'$.source_column_id')=:column_id)"
+        )
+        with self.db:
+            self.db.execute(
+                "UPDATE pdf_split_page_work SET priority=(SELECT COALESCE(MAX(priority),0)+1 "
+                "FROM pdf_split_page_work WHERE generation=:generation) "
+                f"WHERE generation=:generation AND status='pending' AND {bound}",
+                facts,
+            )
+            return (
+                self.db.execute(
+                    "SELECT 1 FROM pdf_split_page_work WHERE generation=:generation "
+                    f"AND status IN ('pending','running') AND {bound} LIMIT 1",
+                    facts,
+                ).fetchone()
+                is not None
+            )
 
     def occurrences(self, work_key: str) -> tuple[str, ...]:
         return tuple(
@@ -390,7 +477,8 @@ class PdfSplitPreparationStore:
         with self.db:
             return (
                 self.db.execute(
-                    "UPDATE pdf_split_page_work SET status='running' WHERE work_key=? AND generation=? AND status='pending'",
+                    "UPDATE pdf_split_page_work SET status='running' "
+                    "WHERE work_key=? AND generation=? AND status='pending'",
                     (work_key, generation),
                 ).rowcount
                 == 1
@@ -459,12 +547,27 @@ class PdfSplitPreparationStore:
                 ),
             )
 
+    def record_route(self, work: PdfSplitPageWork, *, read_locally: bool) -> None:
+        """Record, before an attempt starts, whether it is read on this machine."""
+        with self.db:
+            self.db.execute(
+                "UPDATE pdf_split_page_work SET read_locally=? "
+                "WHERE work_key=? AND generation=? AND status='running'",
+                (int(read_locally), work.work_key, work.generation),
+            )
+
     def record_started(
         self, work: PdfSplitPageWork, *, job_id: str, receipt_id: str | None
     ) -> None:
+        """Record what an accepted attempt is, in one write.
+
+        It applies whatever the attempt has reached since, so a page that
+        finished or failed first still names its job and receipt.
+        """
         with self.db:
             self.db.execute(
-                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=? WHERE work_key=? AND generation=? AND status IN ('running','completed')",
+                "UPDATE pdf_split_page_work SET job_id=?,receipt_id=? "
+                "WHERE work_key=? AND generation=? AND status<>'pending'",
                 (job_id, receipt_id, work.work_key, work.generation),
             )
 
@@ -512,7 +615,19 @@ class PdfSplitPreparationStore:
         ).fetchone()
         return PdfImportOcrGrant.from_mapping(json.loads(row[0])) if row else None
 
-    def grant(self, generation: str):
+    def grant(self, generation: str, work_key: str | None = None):
+        """The consent covering a page: its retry consent, else the import's.
+
+        A page retried only to reuse a cached reading names no stored consent,
+        so it has none.
+        """
+        if work_key is not None:
+            row = self.db.execute(
+                "SELECT plan_token FROM pdf_split_page_work WHERE work_key=? AND generation=?",
+                (work_key, generation),
+            ).fetchone()
+            if row is not None and row[0] is not None:
+                return self._plan_grant(str(row[0]))
         row = self.db.execute(
             "SELECT plan_token FROM pdf_split_preparation_generations WHERE generation=?",
             (generation,),
@@ -585,6 +700,12 @@ class PdfSplitPreparationAdapter:
         ):
             raise ValueError("admitted original page identity changed")
         return artifact
+
+    def reading_reference(
+        self, store: PdfSplitPreparationStore, target: PdfSplitPageTarget
+    ) -> int | None:
+        """A stored reading a page is published from instead of being read."""
+        return store.cached_ref(target) or self.cached_reference(target)
 
     def cached_reference(self, target: PdfSplitPageTarget) -> int | None:
         """Find retained original pages after their review inventory is discarded."""
@@ -664,7 +785,14 @@ class PdfSplitPreparationAdapter:
         plan_token: str,
         request_context: Any = None,
         force_rescan: bool = False,
+        reuse_previews: bool = True,
     ) -> dict[str, Any]:
+        """Price the targets that have no reading to reuse.
+
+        Pages already in an import are published only from a stored reading,
+        so their estimate passes ``reuse_previews=False``: a review preview of
+        such a page does not spare it from being read.
+        """
         from frisket.engine.runner.confirmation_context import ConsentEstimate
         from frisket.execution.resolve_for_action import promise_rows, target_snapshot
         from frisket.server.services.action_preview_runs import _scratch_claims
@@ -692,9 +820,8 @@ class PdfSplitPreparationAdapter:
                         "This original PDF page is already being prepared; wait for it to finish."
                     )
                 if not force_rescan and (
-                    store.cached_ref(target) is not None
-                    or self.cached_reference(target) is not None
-                    or store.cached_preview(target) is not None
+                    self.reading_reference(store, target) is not None
+                    or (reuse_previews and store.cached_preview(target) is not None)
                 ):
                     continue
                 roster.append({"work_key": target.work_key, **target.consent_identity})
@@ -726,11 +853,15 @@ class PdfSplitPreparationAdapter:
                 finally:
                     lease.close()
         if not children:
+            # Every target already has a reading, so nothing is read or billed.
             return {
                 "pages": 0,
                 "estimate": {
-                    "cost": 0,
+                    "rows": 0,
+                    "cost": 0.0,
                     "billed_cost": 0,
+                    "cost_source": "free_local",
+                    "policy_id": "local",
                     "requires_confirmation": False,
                 },
                 "authorization": None,
@@ -1030,7 +1161,6 @@ class PdfSplitPreparationAdapter:
 
         responses = []
         with PdfSplitPreparationStore(self.inventory_path) as store:
-            grant = store.grant(generation)
             original_sample = (
                 store.db.execute(
                     "SELECT 1 FROM pdf_split_original_samples WHERE generation=?",
@@ -1050,12 +1180,23 @@ class PdfSplitPreparationAdapter:
             works = tuple(
                 store._work(row)
                 for row in store.db.execute(
-                    "SELECT * FROM pdf_split_page_work WHERE generation=? AND status='pending' ORDER BY rowid LIMIT ?",
+                    "SELECT * FROM pdf_split_page_work WHERE generation=? AND status='pending' ORDER BY priority DESC,rowid LIMIT ?",
                     (generation, limit),
                 )
             )
+            grants = {
+                work.work_key: store.grant(generation, work.work_key) for work in works
+            }
+            cache_only = {
+                str(row[0])
+                for row in store.db.execute(
+                    "SELECT work_key FROM pdf_split_page_work WHERE generation=? AND plan_token=?",
+                    (generation, CACHED_READING_ONLY),
+                )
+            }
         for work in works:
-            if grant is None:
+            grant = grants[work.work_key]
+            if grant is None and work.work_key not in cache_only:
                 raise ValueError("source-page OCR requires its reviewed approval")
             with PdfSplitPreparationStore(self.inventory_path) as store:
                 if not self._generation_current(
@@ -1063,16 +1204,26 @@ class PdfSplitPreparationAdapter:
                 ):
                     store.cancel_generation(generation)
                     break
-            authorizer = source_page_ocr_authorizer(
-                grant,
-                project_id=self.project_id,
-                plan_token=str(grant.scope["plan_token"]),
-                target=work.target.consent_identity,
-                work_key=work.work_key,
+            authorizer = (
+                None
+                if grant is None
+                else source_page_ocr_authorizer(
+                    grant,
+                    project_id=self.project_id,
+                    plan_token=str(grant.scope["plan_token"]),
+                    target=work.target.consent_identity,
+                    work_key=work.work_key,
+                )
             )
             with PdfSplitPreparationStore(self.inventory_path) as store:
                 if not store.claim(work.work_key, generation=generation):
                     continue
+                attempt = int(
+                    store.db.execute(
+                        "SELECT attempt FROM pdf_split_page_work WHERE work_key=? AND generation=?",
+                        (work.work_key, generation),
+                    ).fetchone()[0]
+                )
             lease = None
             flight = None
             accepted = False
@@ -1094,9 +1245,12 @@ class PdfSplitPreparationAdapter:
                     raise PdfSplitPreparationInProgress(
                         "This original PDF page is already being prepared; wait for it to finish."
                     ) from exc
-                cached_ref = (
-                    None if force_rescan else self.cached_reference(work.target)
-                )
+                with PdfSplitPreparationStore(self.inventory_path) as store:
+                    cached_ref = (
+                        None
+                        if force_rescan
+                        else self.reading_reference(store, work.target)
+                    )
                 if cached_ref is not None:
                     with PdfSplitPreparationStore(self.inventory_path) as store:
                         capture = store.db.execute(
@@ -1127,6 +1281,16 @@ class PdfSplitPreparationAdapter:
                     if capture is None:
                         self.fanout(work)
                     flight.release()
+                    continue
+                if authorizer is None or grant is None:
+                    # The page was retried to reuse a reading that is gone; it
+                    # is never read under another page's consent.
+                    flight.release()
+                    with PdfSplitPreparationStore(self.inventory_path) as store:
+                        store.release(
+                            work,
+                            error="The cached text for this page is no longer available; retry the page.",
+                        )
                     continue
                 lease, prepared = self._prepare(
                     work,
@@ -1225,16 +1389,24 @@ class PdfSplitPreparationAdapter:
                     import_child_port,
                 )
 
-                child_key = f"pdf-split-page:{generation}:{work.work_key}"
                 admission = nullcontext(None)
                 receipt_id = None
+                resolved, estimate, _uncovered = _scratch_claims(
+                    self.workspace.get(self.project_id), plan
+                )
+                # The facts a page's estimate calls free and local: its route
+                # sends nothing off the machine and its reading costs nothing.
+                priced = ConsentEstimate.from_estimate(estimate)
+                with PdfSplitPreparationStore(self.inventory_path) as store:
+                    store.record_route(
+                        work,
+                        read_locally=resolved.resolution.facts.egress_class == "none"
+                        and priced.cost_source == "free_local"
+                        and priced.billed_cost == 0,
+                    )
                 if parent_receipt_id is not None and import_child_port(self.workspace):
-                    estimate = self.preview_runs.scratch_estimate(self.project_id, plan)
-                    receipt_id = (
-                        "receipt_"
-                        + hashlib.sha256(
-                            f"{parent_receipt_id}:{child_key}".encode()
-                        ).hexdigest()
+                    child_key, receipt_id = page_attempt_identity(
+                        parent_receipt_id, generation, work.work_key, attempt
                     )
                     admission = admit_import_child(
                         self.workspace,
@@ -1281,17 +1453,19 @@ class PdfSplitPreparationAdapter:
                     responses.append(dict(started.payload))
                     continue
                 job_id = str(started.payload["preview_id"])
-                with PdfSplitPreparationStore(self.inventory_path) as store:
-                    store.record_started(work, job_id=job_id, receipt_id=None)
-                job = self.preview_runs._registry.get(self.project_id, job_id)
-                with PdfSplitPreparationStore(self.inventory_path) as store:
-                    store.record_started(
-                        work,
-                        job_id=job_id,
-                        receipt_id=job.receipt.receipt_id
-                        if job and job.receipt
-                        else None,
-                    )
+                job = None
+                try:
+                    job = self.preview_runs._registry.get(self.project_id, job_id)
+                finally:
+                    # Recorded even when tracking the accepted job fails.
+                    with PdfSplitPreparationStore(self.inventory_path) as store:
+                        store.record_started(
+                            work,
+                            job_id=job_id,
+                            receipt_id=job.receipt.receipt_id
+                            if job and job.receipt
+                            else None,
+                        )
                 responses.append(dict(started.payload))
             except BaseException as exc:
                 if accepted:
@@ -1415,7 +1589,10 @@ class PdfSplitPreparationAdapter:
                     else:
                         flight.release()
                 # A completed successful page was already persisted by on_page.
-                # Missing jobs after restart are cancelled rather than re-billed.
+                # Missing jobs after restart are cancelled rather than re-billed,
+                # and marked interrupted: nobody stopped them, so they are not
+                # read and the provider may already have billed them.
+                interrupted = job is None and row["status"] != "stopping"
                 status = (
                     "cancelled"
                     if row["status"] == "stopping"
@@ -1425,8 +1602,9 @@ class PdfSplitPreparationAdapter:
                 )
                 with store.db:
                     store.db.execute(
-                        "UPDATE pdf_split_page_work SET status=? WHERE work_key=? AND generation=? AND status IN ('running','stopping')",
-                        (status, row["work_key"], generation),
+                        "UPDATE pdf_split_page_work SET status=?,interrupted=MAX(interrupted,?) "
+                        "WHERE work_key=? AND generation=? AND status IN ('running','stopping')",
+                        (status, int(interrupted), row["work_key"], generation),
                     )
                     store.db.execute(
                         "UPDATE pdf_split_page_bindings AS binding SET published=-1 WHERE work_key=? AND generation=? AND published=0 "
@@ -1447,6 +1625,13 @@ class PdfSplitPreparationAdapter:
             }
             pages = sum(counts.values())
             counts["read_pages"] = counts.get("completed", 0)
+            counts["interrupted"] = int(
+                store.db.execute(
+                    "SELECT COUNT(*) FROM pdf_split_page_work WHERE generation=? "
+                    "AND status='cancelled' AND interrupted=1",
+                    (generation,),
+                ).fetchone()[0]
+            )
             counts["pending_bindings"] = int(
                 store.db.execute(
                     "SELECT COUNT(*) FROM pdf_split_page_bindings WHERE generation=? AND published=0",

@@ -236,9 +236,9 @@ def _wait_status(service, project_id, split_id, expected):
     def reached_expected_status():
         nonlocal status
         status = service.status(project_id, split_id)
-        if status["status"] == expected:
+        if status.status == expected:
             return True
-        if status["status"] == "error":
+        if status.status == "error":
             raise AssertionError(status)
         return False
 
@@ -273,8 +273,8 @@ def _wait_session_job(service, project_id, split_id, job_id, expected):
     def reached_expected_status():
         nonlocal job, status
         status = service.status(project_id, split_id)
-        job = next((item for item in status["jobs"] if item["job_id"] == job_id), None)
-        return job is not None and job["progress"]["status"] == expected
+        job = next((item for item in status.jobs if item.job_id == job_id), None)
+        return job is not None and job.progress.status == expected
 
     with controlled_time(timeout=4) as clock:
         clock.wait_until(
@@ -332,10 +332,10 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
             size=len(raw),
         ),
     )
-    split_id = created["split_id"]
+    split_id = created.split_id
     ready = _wait_status(service, project_id, split_id, "ready")
-    assert ready["prepare"]["pages_ready"] == [1, 2, 3, 4]
-    assert ready["prepare"]["visual_pages_ready"] == 4
+    assert ready.prepare.pages_ready == [1, 2, 3, 4]
+    assert ready.prepare.visual_pages_ready == 4
     for pattern in ("{packet.__class__}", "{index:x>50000}"):
         with pytest.raises(PdfPacketSplitRouteError) as invalid_pattern:
             service.commit(
@@ -346,7 +346,7 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
                     confirmed_starts=[1],
                     destination=PdfPacketDestination(kind="new_sheet", name="Invalid"),
                     name_pattern=pattern,
-                    analysis_revision=ready["analysis_revision"],
+                    analysis_revision=ready.analysis_revision,
                 ),
             )
         assert invalid_pattern.value.status_code == 422
@@ -355,27 +355,25 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         engine="rapidocr", scope="sample", pages=[1]
     )
     estimate = service.estimate_ocr(project_id, split_id, sample_request)
-    assert estimate["pages"] == [1]
+    assert estimate.pages == [1]
     preview_runs.failed_pages.add(1)
     failed_sample = service.start_ocr(project_id, split_id, sample_request)
     assert (
-        _wait_registry_job(
-            registry, project_id, failed_sample["job_id"], "error"
-        ).status
+        _wait_registry_job(registry, project_id, failed_sample.job_id, "error").status
         == "error"
     )
     preview_runs.failed_pages.clear()
     service.estimate_ocr(project_id, split_id, sample_request)
     sample = service.start_ocr(project_id, split_id, sample_request)
-    _wait_registry_job(registry, project_id, sample["job_id"], "done")
-    assert service.page(project_id, split_id, 1)["ocr_text"] == "OCR page 1"
+    _wait_registry_job(registry, project_id, sample.job_id, "done")
+    assert service.page(project_id, split_id, 1).ocr_text == "OCR page 1"
     cached_estimate = service.estimate_ocr(project_id, split_id, sample_request)
-    assert cached_estimate["cached_pages"] == [1]
-    assert cached_estimate["estimate"] is None
+    assert cached_estimate.cached_pages == [1]
+    assert cached_estimate.estimate is None
     cached_selected = service.select_text_source(
         project_id, split_id, PdfPacketTextSourceRequest(kind="ocr", engine="rapidocr")
     )
-    assert cached_selected["ocr_pages"] == [1]
+    assert cached_selected.ocr_pages == [1]
     for page in (2, 3, 4):
         request = PdfPacketOcrJobRequest(
             engine="rapidocr", scope="sample", pages=[page]
@@ -383,25 +381,23 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         service.estimate_ocr(project_id, split_id, request)
         started_sample = service.start_ocr(project_id, split_id, request)
         status, job = _wait_session_job(
-            service, project_id, split_id, started_sample["job_id"], "done"
+            service, project_id, split_id, started_sample.job_id, "done"
         )
-        assert job["progress"]["status"] == "done"
-    assert status["ocr_pages"] == [1, 2, 3, 4]
+        assert job.progress.status == "done"
+    assert status.ocr_pages == [1, 2, 3, 4]
 
     candidates = service.candidates(
         project_id,
         split_id,
         PdfPacketCandidatesRequest(
             confirmed_starts=[1, 3],
-            expected_analysis_revision=service.status(project_id, split_id)[
-                "analysis_revision"
-            ],
+            expected_analysis_revision=service.status(
+                project_id, split_id
+            ).analysis_revision,
         ),
     )
-    assert [cluster["confirmed_pages"] for cluster in candidates["clusters"]] == [
-        [1, 3]
-    ]
-    assert candidates["accept_all_scope"] == "packet"
+    assert [cluster.confirmed_pages for cluster in candidates.clusters] == [[1, 3]]
+    assert candidates.accept_all_scope == "packet"
 
     from frisket.engine.jobs import HandlerRegistry, Worker
     from frisket.engine.jobs.pdf_split import register_pdf_split_handler
@@ -412,12 +408,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
         confirmed_starts=[1, 3],
         destination=PdfPacketDestination(kind="new_sheet", name="Documents"),
         name_pattern="{packet}-{index}-{start}-{end}",
-        analysis_revision=service.status(project_id, split_id)["analysis_revision"],
+        analysis_revision=service.status(project_id, split_id).analysis_revision,
     )
     started = service.commit(project_id, split_id, successful_body)
-    assert started["kind"] == "commit"
+    assert started.kind == "commit"
     replayed = service.commit(project_id, split_id, successful_body)
-    assert replayed["job_id"] == started["job_id"]
+    assert replayed.job_id == started.job_id
     with pytest.raises(PdfPacketSplitRouteError) as conflict:
         service.commit(
             project_id,
@@ -432,12 +428,12 @@ def test_packet_service_prepares_matches_and_commits_confirmed_ranges(
     )
     worker = Worker(workspace.queue, handlers)
     for _ in range(8):
-        job = workspace.queue.get(started["job_id"])
+        job = workspace.queue.get(started.job_id)
         if job.status not in {"queued", "running"}:
             break
         assert worker.run_once()
     assert job.status == "done"
-    sheet_id = started["sheet_id"]
+    sheet_id = started.sheet_id
     assert project.row_count(sheet_id) == 2
     links = project.db.execute(
         "SELECT link_role FROM evidence_links WHERE sheet_id=? ORDER BY id", (sheet_id,)
@@ -587,25 +583,25 @@ def test_create_reaps_expired_packet_sessions_and_preserves_active_ones(
         )
 
     expired = create_packet("expired.pdf")
-    _wait_status(service, project_id, expired["split_id"], "ready")
+    _wait_status(service, project_id, expired.split_id, "ready")
     active = create_packet("active.pdf")
-    _wait_status(service, project_id, active["split_id"], "ready")
+    _wait_status(service, project_id, active.split_id, "ready")
     with service._lock:
-        expired_session = service._sessions[expired["split_id"]]
-        active_session = service._sessions[active["split_id"]]
+        expired_session = service._sessions[expired.split_id]
+        active_session = service._sessions[active.split_id]
         expired_session.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         expired_directory = expired_session.directory
         expired_job_ids = tuple(expired_session.jobs)
 
     trigger = create_packet("trigger.pdf")
 
-    assert expired["split_id"] not in service._sessions
+    assert expired.split_id not in service._sessions
     assert not expired_directory.exists()
     assert all(registry.get(project_id, job_id) is None for job_id in expired_job_ids)
-    assert service._sessions[active["split_id"]] is active_session
+    assert service._sessions[active.split_id] is active_session
     assert active_session.directory.exists()
-    assert service.status(project_id, active["split_id"])["status"] == "ready"
-    assert trigger["split_id"] in service._sessions
+    assert service.status(project_id, active.split_id).status == "ready"
+    assert trigger.split_id in service._sessions
 
     service.shutdown()
     registry.shutdown()
@@ -661,15 +657,15 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
             )
 
         created = create_packet("active.pdf")
-        split_id = created["split_id"]
+        split_id = created.split_id
         clock.wait_until(
-            lambda: service.status(project_id, split_id)["status"] == "ready",
+            lambda: service.status(project_id, split_id).status == "ready",
             message="packet preparation did not finish",
         )
         clock.advance_seconds(2.5)
-        assert service.status(project_id, split_id)["status"] == "ready"
+        assert service.status(project_id, split_id).status == "ready"
         clock.advance_seconds(2.5)
-        assert service.page(project_id, split_id, 1)["page"] == 1
+        assert service.page(project_id, split_id, 1).page == 1
         clock.advance_seconds(2.5)
 
         create_packet("reap-trigger.pdf")
@@ -680,9 +676,9 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
         assert split_id not in service._sessions
 
         active = create_packet("active-ocr.pdf")
-        active_split_id = active["split_id"]
+        active_split_id = active.split_id
         clock.wait_until(
-            lambda: service.status(project_id, active_split_id)["status"] == "ready",
+            lambda: service.status(project_id, active_split_id).status == "ready",
             message="packet preparation did not finish",
         )
         preview_runs.run_gate = clock.gate()
@@ -700,7 +696,7 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
         clock.advance_seconds(4)
 
         create_packet("active-job-reap-trigger.pdf")
-        running = registry.get(project_id, started["job_id"])
+        running = registry.get(project_id, started.job_id)
         assert running is not None and running.status == "running"
         assert active_split_id in service._sessions
         for request in (
@@ -711,10 +707,10 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
             assert overlapping.value.status_code == 409
             assert "already running" in str(overlapping.value.detail)
 
-        service.cancel_job(project_id, active_split_id, started["job_id"])
+        service.cancel_job(project_id, active_split_id, started.job_id)
         clock.release()
         clock.wait_until(
-            lambda: registry.get(project_id, started["job_id"]).status == "cancelled",
+            lambda: registry.get(project_id, started.job_id).status == "cancelled",
             message="cancelled OCR job did not finish",
         )
         preview_runs.run_gate = None
@@ -729,14 +725,14 @@ def test_packet_session_ttl_tracks_access_and_running_jobs(
             PdfPacketOcrJobRequest(engine="rapidocr", scope="sample", pages=[1]),
         )
         clock.wait_until(
-            lambda: registry.get(project_id, retry["job_id"]).status == "done",
+            lambda: registry.get(project_id, retry.job_id).status == "done",
             message="replacement OCR job did not finish",
         )
         status = service.status(project_id, active_split_id)
         assert (
-            next(job for job in status["jobs"] if job["job_id"] == retry["job_id"])[
-                "progress"
-            ]["status"]
+            next(
+                job for job in status.jobs if job.job_id == retry.job_id
+            ).progress.status
             == "done"
         )
         clock.advance_seconds(4)
@@ -806,7 +802,7 @@ def test_close_waits_for_ocr_admission_and_releases_the_registered_job(
             size=len(raw),
         ),
     )
-    split_id = created["split_id"]
+    split_id = created.split_id
     _wait_status(service, project_id, split_id, "ready")
     with service._lock:
         directory = service._sessions[split_id].directory
@@ -870,7 +866,7 @@ def test_close_waits_for_ocr_admission_and_releases_the_registered_job(
     assert len(started) == 1
     assert split_id not in service._sessions
     assert not directory.exists()
-    assert registry.get(project_id, started[0]["job_id"]) is None
+    assert registry.get(project_id, started[0].job_id) is None
 
     service.shutdown()
     registry.shutdown()
@@ -975,17 +971,17 @@ def test_multi_source_page_session_preserves_occurrences_and_local_extents(tmp_p
     created = service.create_from_sources(
         project_id, [source("row-a", 2, 3), source("row-b", 1, 1)], organization="pages"
     )
-    ready = _wait_status(service, project_id, created["split_id"], "ready")
-    assert ready["fixed_starts"] == [1, 3]
-    assert [item["key"] for item in ready["sources"]] == ["row-a", "row-b"]
-    assert ready["prepare"]["visual_pages_ready"] == 0
+    ready = _wait_status(service, project_id, created.split_id, "ready")
+    assert ready.fixed_starts == [1, 3]
+    assert [item.key for item in ready.sources] == ["row-a", "row-b"]
+    assert ready.prepare.visual_pages_ready == 0
     assert (
-        service.page(project_id, created["split_id"], 1)["source_key"],
-        service.page(project_id, created["split_id"], 1)["local_page"],
+        service.page(project_id, created.split_id, 1).source_key,
+        service.page(project_id, created.split_id, 1).local_page,
     ) == ("row-a", 2)
     assert (
-        service.page(project_id, created["split_id"], 3)["source_key"],
-        service.page(project_id, created["split_id"], 3)["local_page"],
+        service.page(project_id, created.split_id, 3).source_key,
+        service.page(project_id, created.split_id, 3).local_page,
     ) == ("row-b", 1)
     service.shutdown()
 
@@ -1061,16 +1057,16 @@ def test_multi_source_review_uses_local_pages_and_explicit_examples(
     created = service.create_from_sources(
         project_id, sources, organization="split_documents"
     )
-    split_id = created["split_id"]
+    split_id = created.split_id
     _wait_status(service, project_id, split_id, "ready")
-    assert service.page(project_id, split_id, 3)["native_text"] == "second 2"
+    assert service.page(project_id, split_id, 3).native_text == "second 2"
     lease = service.thumbnail(project_id, split_id, 3)
     assert lease.path.read_bytes() == b"second:2"
     lease.close()
     service.select_text_source(
         project_id, split_id, PdfPacketTextSourceRequest(kind="native")
     )
-    revision = service.status(project_id, split_id)["analysis_revision"]
+    revision = service.status(project_id, split_id).analysis_revision
     result = service.candidates(
         project_id,
         split_id,
@@ -1078,7 +1074,7 @@ def test_multi_source_review_uses_local_pages_and_explicit_examples(
             confirmed_starts=[], example_pages=[], expected_analysis_revision=revision
         ),
     )
-    assert result["suggested_pages"] == []
+    assert result.suggested_pages == []
     result = service.candidates(
         project_id,
         split_id,
@@ -1086,9 +1082,9 @@ def test_multi_source_review_uses_local_pages_and_explicit_examples(
             confirmed_starts=[], example_pages=[3], expected_analysis_revision=revision
         ),
     )
-    assert result["suggested_pages"] == [2, 4]
-    assert result["analysis_revision"] == revision
-    assert service.status(project_id, split_id)["example_pages"] == []
+    assert result.suggested_pages == [2, 4]
+    assert result.analysis_revision == revision
+    assert service.status(project_id, split_id).example_pages == []
     with pytest.raises(PdfPacketSplitRouteError) as stale:
         service.candidates(
             project_id,
@@ -1103,7 +1099,7 @@ def test_multi_source_review_uses_local_pages_and_explicit_examples(
     service._record_cached_sample(
         split_id, "rapidocr", {"page": 2, "text": "sampled phrase"}
     )
-    revised = service.status(project_id, split_id)["analysis_revision"]
+    revised = service.status(project_id, split_id).analysis_revision
     mixed = service.candidates(
         project_id,
         split_id,
@@ -1114,9 +1110,9 @@ def test_multi_source_review_uses_local_pages_and_explicit_examples(
             phrases=[{"id": "sampled", "text": "sampled phrase"}],
         ),
     )
-    assert mixed["suggested_pages"] == [2]
+    assert mixed.suggested_pages == [2]
     service._record_cached_sample(split_id, "rapidocr", {"page": 4, "text": ""})
-    assert 4 in service.status(project_id, split_id)["prepare"]["text_pages_read"]
+    assert 4 in service.status(project_id, split_id).prepare.text_pages_read
     service.shutdown()
 
 
@@ -1148,7 +1144,7 @@ def test_packet_apply_delegates_per_source_ranges_to_durable_committer(tmp_path)
         for i in range(2)
     ]
     created = service.create_from_sources(project_id, sources, organization="pages")
-    ready = _wait_status(service, project_id, created["split_id"], "ready")
+    ready = _wait_status(service, project_id, created.split_id, "ready")
 
     class Committer:
         def start(self, pid, **kwargs):
@@ -1167,15 +1163,15 @@ def test_packet_apply_delegates_per_source_ranges_to_durable_committer(tmp_path)
     service._committer = committer
     result = service.commit(
         project_id,
-        created["split_id"],
+        created.split_id,
         PdfPacketCommitRequest(
             idempotency_key="apply",
             destination=PdfPacketDestination(kind="new_sheet", name="Output"),
-            analysis_revision=ready["analysis_revision"],
+            analysis_revision=ready.analysis_revision,
         ),
     )
-    assert result["job_id"] == 42
-    assert result["import_ref"] == "import-1"
+    assert result.job_id == 42
+    assert result.import_ref == "import-1"
     assert [(r.occurrence.key, r.start, r.end) for r in committer.kwargs["ranges"]] == [
         ("0", 1, 1),
         ("0", 2, 2),
@@ -1211,9 +1207,9 @@ def test_batch_ocr_estimate_is_bound_to_apply_settings(tmp_path):
         page_end=1,
         open_source=lambda: nullcontext(path),
     )
-    split_id = service.create_from_sources(project_id, [source], organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, [source], organization="pages"
+    ).split_id
     ready = _wait_status(service, project_id, split_id, "ready")
     session = service._require(split_id=split_id)
     session.native_pages[1] = {
@@ -1225,12 +1221,12 @@ def test_batch_ocr_estimate_is_bound_to_apply_settings(tmp_path):
         project_id,
         split_id,
         PdfPacketBatchOcrEstimateRequest(
-            expected_analysis_revision=ready["analysis_revision"],
+            expected_analysis_revision=ready.analysis_revision,
             ocr_policy="missing",
             ocr_selection=selection,
         ),
     )
-    assert estimate["pages"] == 0
+    assert estimate.pages == 0
 
     class Committer:
         def start(self, pid, **kwargs):
@@ -1250,7 +1246,7 @@ def test_batch_ocr_estimate_is_bound_to_apply_settings(tmp_path):
     body = PdfPacketCommitRequest(
         idempotency_key="apply",
         destination=PdfPacketDestination(kind="new_sheet", name="Output"),
-        analysis_revision=ready["analysis_revision"],
+        analysis_revision=ready.analysis_revision,
         ocr_policy="missing",
         ocr_selection=selection,
     )
@@ -1260,7 +1256,7 @@ def test_batch_ocr_estimate_is_bound_to_apply_settings(tmp_path):
         )
     assert stale.value.status_code == 409
     result = service.commit(project_id, split_id, body)
-    assert result["import_ref"] == "import-1"
+    assert result.import_ref == "import-1"
     assert committer.kwargs["pdf_preparation"] is None
     service.shutdown()
 
@@ -1294,9 +1290,9 @@ def test_packet_apply_survives_session_close_and_worker_materializes_pages(tmp_p
         )
         for i in range(2)
     ]
-    split_id = service.create_from_sources(project_id, sources, organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, sources, organization="pages"
+    ).split_id
     ready = _wait_status(service, project_id, split_id, "ready")
     started = service.commit(
         project_id,
@@ -1304,7 +1300,7 @@ def test_packet_apply_survives_session_close_and_worker_materializes_pages(tmp_p
         PdfPacketCommitRequest(
             idempotency_key="apply-durable",
             destination=PdfPacketDestination(kind="new_sheet", name="Output"),
-            analysis_revision=ready["analysis_revision"],
+            analysis_revision=ready.analysis_revision,
         ),
     )
     service.close(project_id, split_id)
@@ -1315,13 +1311,13 @@ def test_packet_apply_survives_session_close_and_worker_materializes_pages(tmp_p
     )
     worker = Worker(workspace.queue, handlers)
     for _ in range(8):
-        job = workspace.queue.get(started["job_id"])
+        job = workspace.queue.get(started.job_id)
         if job.status not in {"queued", "running"}:
             break
         assert worker.run_once()
     assert job.status == "done"
     project = workspace.get(project_id)
-    assert len(project.visible_row_ids(started["sheet_id"])) == 4
+    assert len(project.visible_row_ids(started.sheet_id)) == 4
     service.shutdown()
 
 
@@ -1371,8 +1367,8 @@ def test_apply_rechecks_document_text_without_blocking_unrelated_edits(
             sheet_id=sheet, file_column_id=file_col, organization="pages", scope="all"
         ),
     )
-    ready = _wait_status(service, project_id, created["split_id"], "ready")
-    session = service._require(split_id=created["split_id"])
+    ready = _wait_status(service, project_id, created.split_id, "ready")
+    session = service._require(split_id=created.split_id)
     project.apply_edits([{"row_id": row, "column_id": other_col, "value": "b"}])
     service._refresh_text_sources(session)
     project.apply_edits([{"row_id": row, "column_id": text_col, "value": "Changed"}])
@@ -1380,8 +1376,8 @@ def test_apply_rechecks_document_text_without_blocking_unrelated_edits(
         service._refresh_text_sources(session)
     assert stale.value.status_code == 409
     assert (
-        service.status(project_id, created["split_id"])["analysis_revision"]
-        > ready["analysis_revision"]
+        service.status(project_id, created.split_id).analysis_revision
+        > ready.analysis_revision
     )
     service.shutdown()
 
@@ -1460,9 +1456,9 @@ def test_sample_ocr_estimate_resolves_occurrence_and_local_page(
         )
         for i in range(2)
     ]
-    split_id = service.create_from_sources(project_id, sources, organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, sources, organization="pages"
+    ).split_id
     _wait_status(service, project_id, split_id, "ready")
     estimate = service.estimate_ocr(
         project_id,
@@ -1474,7 +1470,7 @@ def test_sample_ocr_estimate_resolves_occurrence_and_local_page(
             force_rescan=True,
         ),
     )
-    assert estimate["pages"] == [3]
+    assert estimate.pages == [3]
     assert captured["target"].occurrence_key == "1"
     assert captured["target"].page_number == 1
     assert captured["force_rescan"] is True
@@ -1509,9 +1505,9 @@ def test_sample_ocr_estimate_resolves_occurrence_and_local_page(
             force_rescan=True,
         ),
     )
-    _wait_registry_job(registry, project_id, started["job_id"], "done")
-    assert service.page(project_id, split_id, 3)["ocr_text"] == "sample OCR"
-    assert service.page(project_id, split_id, 1)["ocr_text"] is None
+    _wait_registry_job(registry, project_id, started.job_id, "done")
+    assert service.page(project_id, split_id, 3).ocr_text == "sample OCR"
+    assert service.page(project_id, split_id, 1).ocr_text is None
     service.shutdown()
 
 
@@ -1554,7 +1550,7 @@ def test_legacy_upload_preview_does_not_publish_original_blob(tmp_path, monkeypa
             size=len(raw),
         ),
     )
-    _wait_status(service, project_id, created["split_id"], "ready")
+    _wait_status(service, project_id, created.split_id, "ready")
     assert (
         workspace.get(project_id)
         .db.execute("SELECT 1 FROM blobs WHERE hash=?", (digest,))
@@ -1606,16 +1602,16 @@ def test_pages_thumbnail_renders_only_requested_source_page(tmp_path, monkeypatc
         page_end=3,
         open_source=lambda: nullcontext(path),
     )
-    split_id = service.create_from_sources(project_id, [source], organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, [source], organization="pages"
+    ).split_id
     _wait_status(service, project_id, split_id, "ready")
-    assert service.page(project_id, split_id, 1)["thumbnail_ready"] is False
+    assert service.page(project_id, split_id, 1).thumbnail_ready is False
     lease = service.thumbnail(project_id, split_id, 1)
     assert lease.path.read_bytes() == b"page image"
     lease.close()
     assert rendered == [2]
-    assert service.status(project_id, split_id)["prepare"]["visual_pages_ready"] == 0
+    assert service.status(project_id, split_id).prepare.visual_pages_ready == 0
     service.shutdown()
 
 
@@ -1682,9 +1678,9 @@ def test_packet_service_sample_ocr_publishes_original_and_maps_page(
     service = PdfPacketSplitService(
         workspace, registry=preview._registry, preview_runs=preview
     )
-    split_id = service.create_from_sources("pages", [source], organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        "pages", [source], organization="pages"
+    ).split_id
     _wait_status(service, "pages", split_id, "ready")
     estimate = service.estimate_ocr(
         "pages",
@@ -1698,11 +1694,11 @@ def test_packet_service_sample_ocr_publishes_original_and_maps_page(
             scope="sample",
             pages=[1],
             **selection,
-            confirmation=estimate["estimate"]["promise_set_hash"],
+            confirmation=estimate.estimate.promise_set_hash,
         ),
     )
-    _wait_registry_job(preview._registry, "pages", started["job_id"], "done")
-    assert service.page("pages", split_id, 1)["ocr_text"] == "Sample page"
+    _wait_registry_job(preview._registry, "pages", started.job_id, "done")
+    assert service.page("pages", split_id, 1).ocr_text == "Sample page"
     service.close("pages", split_id)
     selected = resolve_document_text_selection(project, (sheet, row, column))
     assert (
@@ -1742,18 +1738,18 @@ def test_page_preview_reports_prepared_ocr_provenance(tmp_path):
         page_end=1,
         open_source=lambda: nullcontext(path),
     )
-    split_id = service.create_from_sources(project_id, [source], organization="pages")[
-        "split_id"
-    ]
+    split_id = service.create_from_sources(
+        project_id, [source], organization="pages"
+    ).split_id
     _wait_status(service, project_id, split_id, "ready")
     session = service._require(split_id=split_id)
     session.text_inspections["one"] = PacketTextInspection(
         "text", {1: PacketTextPage("", "prepared", False, completed_ocr=True)}
     )
     result = service.page(project_id, split_id, 1)
-    assert result["preview_text"] == ""
-    assert result["preview_source"] == "prepared"
-    assert result["preview_text_kind"] == "ocr"
+    assert result.preview_text == ""
+    assert result.preview_source == "prepared"
+    assert result.preview_text_kind == "ocr"
     service.shutdown()
 
 

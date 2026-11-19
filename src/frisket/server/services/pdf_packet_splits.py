@@ -25,16 +25,26 @@ from urllib.parse import quote
 from PIL import Image
 from pypdf import PdfReader
 
+from frisket.contracts.http.action_estimate_validation import ActionEstimate
 from frisket.contracts.http.selector_choices import EngineSelection
 from frisket.contracts.http.pdf_packet_splits import (
     PDF_PACKET_SPLIT_SCHEMA_VERSION,
-    PdfPacketCandidatesRequest,
     PdfPacketBatchOcrEstimateRequest,
+    PdfPacketBatchOcrEstimateResponse,
+    PdfPacketCandidatesRequest,
+    PdfPacketCandidatesResponse,
     PdfPacketCommitRequest,
+    PdfPacketJobStartResponse,
     PdfPacketOcrEstimateRequest,
+    PdfPacketOcrEstimateResponse,
     PdfPacketOcrJobRequest,
+    PdfPacketPageMatch,
+    PdfPacketPageResponse,
     PdfPacketSheetCreateRequest,
     PdfPacketSheetScopeRequest,
+    PdfPacketSheetScopeResponse,
+    PdfPacketSplitStatus,
+    PdfPacketStartKind,
     PdfPacketTextSourceRequest,
 )
 from frisket.engine.pdf_render import render_pdf_pages
@@ -83,6 +93,10 @@ _THUMBNAIL_MAX_EDGE = 1400
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _estimate(value: Any) -> ActionEstimate | None:
+    return None if value is None else ActionEstimate.model_validate(value)
 
 
 def _page_signature(path: Path) -> int:
@@ -139,7 +153,9 @@ class _PacketSession:
     ocr_estimate: Any = None
     sample_estimate: Any = None
     commit_result: dict[str, Any] | None = None
-    commit_keys: dict[str, tuple[str, dict[str, Any]]] = field(default_factory=dict)
+    commit_keys: dict[str, tuple[str, PdfPacketJobStartResponse]] = field(
+        default_factory=dict
+    )
     admission_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     close_event: threading.Event = field(default_factory=threading.Event, repr=False)
 
@@ -166,7 +182,9 @@ class PdfPacketSplitService:
         clock: Callable[[], datetime] | None = None,
         search_preparation: Any = None,
         sheet_sources: Callable[[str, PdfPacketSheetCreateRequest], Any] | None = None,
-        sheet_scope_token: Callable[[str, PdfPacketSheetScopeRequest], dict[str, str]]
+        sheet_scope_token: Callable[
+            [str, PdfPacketSheetScopeRequest], PdfPacketSheetScopeResponse
+        ]
         | None = None,
         reviewed_sources: Callable[[str, str, int, str], Sequence[AdmittedPacketSource]]
         | None = None,
@@ -192,7 +210,7 @@ class PdfPacketSplitService:
         *,
         request_id: str | None = None,
         admission_lease: ImportAdmissionLease | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketSplitStatus:
         del request_id
         self._reap_expired_sessions()
         self._workspace.get(project_id)
@@ -247,7 +265,7 @@ class PdfPacketSplitService:
 
     def sheet_scope_token(
         self, project_id: str, body: PdfPacketSheetScopeRequest
-    ) -> dict[str, str]:
+    ) -> PdfPacketSheetScopeResponse:
         if self._sheet_scope_token is None:
             raise PdfPacketSplitRouteError(503, "sheet scope admission is unavailable")
         try:
@@ -261,7 +279,7 @@ class PdfPacketSplitService:
         body: PdfPacketSheetCreateRequest,
         *,
         admission_lease: ImportAdmissionLease | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketSplitStatus:
         if self._sheet_sources is None:
             raise PdfPacketSplitRouteError(503, "sheet source admission is unavailable")
         try:
@@ -276,7 +294,7 @@ class PdfPacketSplitService:
             organization=body.organization,
             admission_lease=admission_lease,
         )
-        session = self._require(split_id=created["split_id"])
+        session = self._require(split_id=created.split_id)
         with self._lock:
             session.sheet_scope = {
                 "excluded": list(inventory.excluded),
@@ -294,7 +312,7 @@ class PdfPacketSplitService:
         *,
         organization: Literal["pages", "split_documents"],
         admission_lease: ImportAdmissionLease | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketSplitStatus:
         if self._reviewed_sources is None:
             raise PdfPacketSplitRouteError(
                 503, "PDF draft source admission is unavailable"
@@ -317,7 +335,7 @@ class PdfPacketSplitService:
         organization: Literal["pages", "split_documents"],
         admission_lease: ImportAdmissionLease | None = None,
         _directory: Path | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketSplitStatus:
         """Create from server-resolved sources, never client-supplied paths."""
         self._reap_expired_sessions()
         self._workspace.get(project_id)
@@ -654,12 +672,12 @@ class PdfPacketSplitService:
             }
         )
 
-    def status(self, project_id: str, split_id: str) -> dict[str, Any]:
+    def status(self, project_id: str, split_id: str) -> PdfPacketSplitStatus:
         session = self._session(project_id, split_id)
         self._sync_jobs(session)
         return self._snapshot(session)
 
-    def page(self, project_id: str, split_id: str, page: int) -> dict[str, Any]:
+    def page(self, project_id: str, split_id: str, page: int) -> PdfPacketPageResponse:
         session = self._session(project_id, split_id)
         self._validate_pages(session, [page])
         self._sync_jobs(session)
@@ -687,28 +705,28 @@ class PdfPacketSplitService:
                 )
             except Exception:
                 sample = None
-        return {
-            "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-            "split_id": split_id,
-            "page": page,
-            "source_key": address.occurrence.key,
-            "local_page": address.local_page,
-            "preview_text": sample.text if sample else None,
-            "preview_source": sample.source if sample else None,
-            "preview_text_kind": ("ocr" if sample.completed_ocr else "native")
+        return PdfPacketPageResponse(
+            schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+            split_id=split_id,
+            page=page,
+            source_key=address.occurrence.key,
+            local_page=address.local_page,
+            preview_text=sample.text if sample else None,
+            preview_source=sample.source if sample else None,
+            preview_text_kind=("ocr" if sample.completed_ocr else "native")
             if sample
             else None,
-            "preview_truncated": sample.truncated if sample else False,
-            "thumbnail_ready": page in session.pages_ready,
-            "thumbnail_url": (
+            preview_truncated=sample.truncated if sample else False,
+            thumbnail_ready=page in session.pages_ready,
+            thumbnail_url=(
                 f"/api/projects/{quote(project_id, safe='')}/import/pdf-packet-splits/"
                 f"{quote(split_id, safe='')}/pages/{page}/thumbnail"
             ),
-            "native_text": session.native_text.get(page),
-            "ocr_text": ocr.get("text") if ocr else None,
-            "ocr_blocks": list(ocr.get("blocks") or []) if ocr else [],
-            "ocr_engine": ocr_engine if ocr is not None else None,
-        }
+            native_text=session.native_text.get(page),
+            ocr_text=ocr.get("text") if ocr else None,
+            ocr_blocks=list(ocr.get("blocks") or []) if ocr else [],
+            ocr_engine=ocr_engine if ocr is not None else None,
+        )
 
     def thumbnail(self, project_id: str, split_id: str, page: int) -> _ThumbnailLease:
         session = self._session(project_id, split_id)
@@ -784,7 +802,7 @@ class PdfPacketSplitService:
         body: PdfPacketOcrEstimateRequest,
         *,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketOcrEstimateResponse:
         session = self._session(project_id, split_id, ready=True)
         return self._estimate_source_sample(
             session, self._sample_request(body), request_context=request_context
@@ -807,7 +825,7 @@ class PdfPacketSplitService:
         body: PdfPacketOcrEstimateRequest,
         *,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketOcrEstimateResponse:
         from frisket.server.services.pdf_packet_ocr import (
             PdfPacketOcrCoordinator,
             packet_ocr_params,
@@ -855,14 +873,16 @@ class PdfPacketSplitService:
                 session.analysis_revision,
                 body.force_rescan,
             )
-            return {
-                "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-                "engine": params["engine"],
-                "scope": "sample",
-                "pages": [page],
-                "cached_pages": [page] if estimated["pages"] == 0 else [],
-                "estimate": estimated.get("estimate") if estimated["pages"] else None,
-            }
+            return PdfPacketOcrEstimateResponse(
+                schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                engine=params["engine"],
+                scope="sample",
+                pages=[page],
+                cached_pages=[page] if estimated["pages"] == 0 else [],
+                estimate=_estimate(estimated.get("estimate"))
+                if estimated["pages"]
+                else None,
+            )
 
     def _cached_sample_payload(
         self, session: _PacketSession, target: Any
@@ -876,11 +896,6 @@ class PdfPacketSplitService:
             item for item in session.sources if item.key == target.occurrence_key
         )
         inventory = self._ocr_inventory(session, source)
-        with PdfSplitPreparationStore(inventory) as store:
-            cached = store.cached_preview(target)
-            ref = store.cached_ref(target)
-        if cached is not None:
-            return dict(cached)
         adapter = PdfSplitPreparationAdapter(
             self._workspace,
             preview_runs=self._preview_runs,
@@ -888,7 +903,14 @@ class PdfPacketSplitService:
             project_id=session.project_id,
             admitted_sources={item.key: item for item in session.sources},
         )
-        ref = ref or adapter.cached_reference(target)
+        with PdfSplitPreparationStore(inventory) as store:
+            # A sample shows a review preview too; a published page never does.
+            cached = store.cached_preview(target)
+            ref = (
+                None if cached is not None else adapter.reading_reference(store, target)
+            )
+        if cached is not None:
+            return dict(cached)
         if ref is None:
             return None
         project = self._workspace.get(session.project_id)
@@ -952,7 +974,7 @@ class PdfPacketSplitService:
         *,
         request_context: Any = None,
         cancel_event: threading.Event | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketBatchOcrEstimateResponse:
         from frisket.server.services.pdf_packet_ocr import PdfPacketOcrCoordinator
 
         session = self._session(project_id, split_id, ready=True)
@@ -1020,13 +1042,13 @@ class PdfPacketSplitService:
                         409, "packet analysis changed; refresh and retry"
                     )
                 session.ocr_estimate = holder
-            return {
-                "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-                "split_id": split_id,
-                "analysis_revision": revision,
-                "pages": holder.public["pages"],
-                "estimate": holder.public.get("estimate"),
-            }
+            return PdfPacketBatchOcrEstimateResponse(
+                schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                split_id=split_id,
+                analysis_revision=revision,
+                pages=holder.public["pages"],
+                estimate=_estimate(holder.public.get("estimate")),
+            )
 
     def start_ocr(
         self,
@@ -1035,7 +1057,7 @@ class PdfPacketSplitService:
         body: PdfPacketOcrJobRequest,
         *,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketJobStartResponse:
         session = self._session(project_id, split_id, ready=True)
         return self._start_source_sample(
             session, self._sample_request(body), request_context=request_context
@@ -1047,7 +1069,7 @@ class PdfPacketSplitService:
         body: PdfPacketOcrJobRequest,
         *,
         request_context: Any = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketJobStartResponse:
         from frisket.server.services.pdf_packet_ocr import (
             PdfPacketOcrCoordinator,
             packet_ocr_params,
@@ -1106,15 +1128,15 @@ class PdfPacketSplitService:
                 except PdfPacketSplitRouteError as exc:
                     if str(exc) != "document text changed; refresh and retry":
                         raise
-                return {
-                    "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-                    "split_id": session.id,
-                    "job_id": None,
-                    "status": "cached",
-                    "kind": "ocr_sample",
-                    "total": 0,
-                    "receipt_id": started.get("receipt_id"),
-                }
+                return PdfPacketJobStartResponse(
+                    schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                    split_id=session.id,
+                    job_id=None,
+                    status="cached",
+                    kind="ocr_sample",
+                    total=0,
+                    receipt_id=started.get("receipt_id"),
+                )
             job_id = str(started["jobs"][0]["preview_id"])
             with self._lock:
                 session.jobs[job_id] = _PacketJob(
@@ -1127,14 +1149,14 @@ class PdfPacketSplitService:
                 )
                 session.expires_at = self._expiry()
             job = self._registry.get(session.project_id, job_id)
-            return {
-                "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-                "split_id": session.id,
-                "job_id": job_id,
-                "kind": "ocr_sample",
-                "total": 1,
-                "receipt_id": job.receipt.receipt_id if job and job.receipt else None,
-            }
+            return PdfPacketJobStartResponse(
+                schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                split_id=session.id,
+                job_id=job_id,
+                kind="ocr_sample",
+                total=1,
+                receipt_id=job.receipt.receipt_id if job and job.receipt else None,
+            )
 
     def _refuse_running_ocr(self, session: _PacketSession, engine: str) -> None:
         with self._lock:
@@ -1168,7 +1190,9 @@ class PdfPacketSplitService:
             }
             session.analysis_revision += 1
 
-    def cancel_job(self, project_id: str, split_id: str, job_id: str) -> dict[str, Any]:
+    def cancel_job(
+        self, project_id: str, split_id: str, job_id: str
+    ) -> PdfPacketSplitStatus:
         session = self._session(project_id, split_id)
         if job_id not in session.jobs:
             raise PdfPacketSplitRouteError(404, "packet job was not found")
@@ -1177,7 +1201,7 @@ class PdfPacketSplitService:
 
     def select_text_source(
         self, project_id: str, split_id: str, body: PdfPacketTextSourceRequest
-    ) -> dict[str, Any]:
+    ) -> PdfPacketSplitStatus:
         session = self._session(project_id, split_id, ready=True)
         self._sync_jobs(session)
         if body.kind == "ocr" and not session.ocr.get(body.engine or ""):
@@ -1192,7 +1216,7 @@ class PdfPacketSplitService:
 
     def candidates(
         self, project_id: str, split_id: str, body: PdfPacketCandidatesRequest
-    ) -> dict[str, Any]:
+    ) -> PdfPacketCandidatesResponse:
         session = self._session(project_id, split_id, ready=True)
         self._sync_jobs(session)
         if session.text_source == "unconfirmed":
@@ -1254,29 +1278,31 @@ class PdfPacketSplitService:
             for phrase_id in ids:
                 counts[phrase_id] += 1
             pages.append(
-                {
-                    "page": page.page,
-                    "visual_score": page.visual_score,
-                    "closest_confirmed_page": page.closest_confirmed_page,
-                    "kind_id": page.kind_id,
-                    "matched_phrase_ids": ids,
-                    "suggested": page.suggested,
-                }
+                PdfPacketPageMatch(
+                    page=page.page,
+                    visual_score=page.visual_score,
+                    closest_confirmed_page=page.closest_confirmed_page,
+                    kind_id=page.kind_id,
+                    matched_phrase_ids=ids,
+                    suggested=page.suggested,
+                )
             )
-        return {
-            "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-            "split_id": split_id,
-            "analysis_revision": revision,
-            "clusters": [
-                {"id": kind.id, "confirmed_pages": list(kind.confirmed_pages)}
+        return PdfPacketCandidatesResponse(
+            schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+            split_id=split_id,
+            analysis_revision=revision,
+            clusters=[
+                PdfPacketStartKind(
+                    id=kind.id, confirmed_pages=list(kind.confirmed_pages)
+                )
                 for kind in matched.kinds
             ],
-            "pages": pages,
-            "suggested_pages": list(matched.suggested_pages),
-            "unsure_pages": list(matched.unsure_pages),
-            "phrase_counts": counts,
-            "accept_all_scope": "packet",
-        }
+            pages=pages,
+            suggested_pages=list(matched.suggested_pages),
+            unsure_pages=list(matched.unsure_pages),
+            phrase_counts=counts,
+            accept_all_scope="packet",
+        )
 
     def commit(
         self,
@@ -1286,7 +1312,7 @@ class PdfPacketSplitService:
         *,
         request_context: Any = None,
         admission_lease: ImportAdmissionLease | None = None,
-    ) -> dict[str, Any]:
+    ) -> PdfPacketJobStartResponse:
         del admission_lease  # Durable publication owns its own worker admission.
         session = self._session(project_id, split_id)
         request_fingerprint = hashlib.sha256(
@@ -1299,7 +1325,7 @@ class PdfPacketSplitService:
                     raise PdfPacketSplitRouteError(
                         409, "idempotency key was already used for another commit"
                     )
-                return dict(existing[1])
+                return existing[1]
             if session.status != "ready":
                 raise PdfPacketSplitRouteError(409, "packet preparation is not ready")
             self._sync_jobs(session)
@@ -1412,17 +1438,17 @@ class PdfPacketSplitService:
                     else 422
                 )
                 raise PdfPacketSplitRouteError(status, message) from exc
-            payload = {
-                "schema_version": PDF_PACKET_SPLIT_SCHEMA_VERSION,
-                "split_id": split_id,
-                "job_id": committed["job_id"],
-                "kind": "commit",
-                "total": len(ranges),
-                "receipt_id": committed.get("receipt_id"),
-                "import_ref": committed["import_ref"],
-                "sheet_id": committed["sheet_id"],
-                "source_count": committed["source_count"],
-            }
+            payload = PdfPacketJobStartResponse(
+                schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION,
+                split_id=split_id,
+                job_id=committed["job_id"],
+                kind="commit",
+                total=len(ranges),
+                receipt_id=committed.get("receipt_id"),
+                import_ref=committed["import_ref"],
+                sheet_id=committed["sheet_id"],
+                source_count=committed["source_count"],
+            )
             with self._lock:
                 session.status = "committing"
                 session.commit_result = dict(committed)
@@ -1430,7 +1456,7 @@ class PdfPacketSplitService:
                     request_fingerprint,
                     payload,
                 )
-            return dict(payload)
+            return payload
 
     def _start_background_job(
         self,
@@ -1573,7 +1599,7 @@ class PdfPacketSplitService:
                 tracked.copied = True
                 session.analysis_revision += 1
 
-    def _snapshot(self, session: _PacketSession) -> dict[str, Any]:
+    def _snapshot(self, session: _PacketSession) -> PdfPacketSplitStatus:
         self._sync_jobs(session)
         with self._lock:
             project_id = session.project_id
@@ -1682,7 +1708,7 @@ class PdfPacketSplitService:
                 jobs.append(self._job_state(tracked, job))
         snapshot["prepare"]["progress"] = self._progress(prepare)
         snapshot["jobs"] = jobs
-        return snapshot
+        return PdfPacketSplitStatus.model_validate(snapshot)
 
     def _job_state(self, tracked: _PacketJob, job: PreviewJob) -> dict[str, Any]:
         receipt = job.receipt

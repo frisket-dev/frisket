@@ -1,6 +1,5 @@
 import hashlib
 import io
-import json
 
 import pytest
 from pypdf import PdfWriter
@@ -40,26 +39,26 @@ def _frozen_draft(tmp_path, organization="pages"):
             }
         ],
     )
-    status = service.analyze_staged(pid, status["draft_id"])
+    status = service.analyze_staged(pid, status.draft_id)
     status = service.update_choices(
         pid,
-        status["draft_id"],
-        expected_revision=status["revision"],
+        status.draft_id,
+        expected_revision=status.revision,
         **{
-            **status["choices"],
+            **status.choices.model_dump(mode="json"),
             "organization": organization,
             "ocr_policy": "none",
             "semantic_search": False,
             "destination": {"kind": "existing", "sheet_id": sheet},
         },
     )
-    status = service.match_destination(pid, status["draft_id"])
-    assert status["match"]["state"] == "ready", status["match"]
+    status = service.match_destination(pid, status.draft_id)
+    assert status.match.state == "ready", status.match
     frozen = service.freeze_for_commit(
         pid,
-        status["draft_id"],
+        status.draft_id,
         idempotency_key="deleted-target",
-        expected_revision=status["revision"],
+        expected_revision=status.revision,
     )
     return workspace, pid, sheet, service, frozen
 
@@ -71,9 +70,9 @@ def test_deleted_destination_reopens_organized_draft_for_discard(tmp_path):
     with pytest.raises(PdfImportDraftError, match="destination.*unavailable") as exc:
         PdfImportCommitService(workspace, intake=service).commit_frozen(pid, frozen)
     assert exc.value.status_code == 409
-    assert service.status(pid, frozen.draft_id)["state"] == "open"
+    assert service.status(pid, frozen.draft_id).state == "open"
     assert not list((project.path / ".imports").glob("*/pdf-split.json"))
-    assert service.discard(pid, frozen.draft_id)["state"] == "cancelled"
+    assert service.discard(pid, frozen.draft_id).state == "cancelled"
 
 
 def test_failed_handoff_preserves_admitted_plan_for_replay(tmp_path, monkeypatch):
@@ -90,11 +89,11 @@ def test_failed_handoff_preserves_admitted_plan_for_replay(tmp_path, monkeypatch
     project = workspace.get(pid)
     plans = list((project.path / ".imports").glob("*/pdf-split.json"))
     assert len(plans) == 1
-    assert service.status(pid, frozen.draft_id)["state"] == "committing"
+    assert service.status(pid, frozen.draft_id).state == "committing"
     monkeypatch.setattr(service, "record_commit_handoff", record)
     result = committer.commit_frozen(pid, frozen)
     assert result.import_ref == plans[0].parent.name
-    assert service.status(pid, frozen.draft_id)["state"] == "committed"
+    assert service.status(pid, frozen.draft_id).state == "committed"
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM ops WHERE kind='pdf.split'"
@@ -134,17 +133,6 @@ def test_busy_pdf_destination_does_not_start_receipt_without_session(
             "SELECT id,status,body FROM receipts WHERE id!='receipt:busy'"
         ).fetchall()
         assert len(pending) == 1 and pending[0]["status"] == "queued"
-        if organization == "keep_documents":
-            assert (
-                len(
-                    [
-                        item
-                        for item in json.loads(pending[0]["body"])["inputs"]
-                        if item["name"] == "pdf_import_commit"
-                    ]
-                )
-                == 1
-            )
         assert (
             project.db.execute("SELECT COUNT(*) FROM import_sessions").fetchone()[0]
             == 1

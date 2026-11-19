@@ -15,8 +15,10 @@ from frisket.actions.types import TableError
 from frisket.engine.store.blob_backend import BlobStoreError
 
 from frisket.contracts.http.pdf_packet_splits import (
+    PDF_PACKET_SPLIT_SCHEMA_VERSION,
     PdfPacketSheetCreateRequest,
     PdfPacketSheetScopeRequest,
+    PdfPacketSheetScopeResponse,
 )
 from frisket.engine.executor.document_extraction_read import document_cell
 from frisket.engine.store.document_text import (
@@ -90,7 +92,7 @@ class PdfPacketScopeService:
 
     def order_token(
         self, project_id: str, body: PdfPacketSheetScopeRequest
-    ) -> dict[str, str]:
+    ) -> PdfPacketSheetScopeResponse:
         project = self._workspace.get(project_id)
         with self._read_scope(project, body) as (snapshot, ordered):
             if (
@@ -103,7 +105,9 @@ class PdfPacketScopeService:
             digest = hashlib.sha256(
                 json.dumps(ordered, separators=(",", ":")).encode()
             ).hexdigest()
-        return {"schema_version": "frisket.pdf_packet_split.v1", "order_hash": digest}
+        return PdfPacketSheetScopeResponse(
+            schema_version=PDF_PACKET_SPLIT_SCHEMA_VERSION, order_hash=digest
+        )
 
     def admit(
         self, project_id: str, body: PdfPacketSheetCreateRequest

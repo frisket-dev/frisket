@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
+from pydantic import JsonValue
 from pypdf import PdfReader
 
 from frisket.contracts.action import ActionResult
@@ -38,6 +39,11 @@ from frisket.engine.store.import_intake import (
 from frisket.engine.store.import_sessions import (
     ImportSessionConflict,
     ImportSessionStore,
+)
+from frisket.engine.store.local_readings import (
+    LocalReading,
+    local_reading_receipt_id,
+    record_local_reading,
 )
 from frisket.engine.store.pdf_split import PdfSplitWriter
 from frisket.engine.store.pdf_split_intake import pdf_split_status, read_pdf_split_plan
@@ -130,6 +136,92 @@ def _page_cache(directory, ordinal, source, source_path, stopped):
             (native_directory / f"{page.page}.json").write_text(json.dumps(payload))
         missing = missing[count:]
     return cache
+
+
+def _record_text_layer_reading(
+    project, project_id: str, ref: str, directory: Path, plan
+) -> None:
+    """Leave one receipt for the pages whose text this import read from the PDF.
+
+    Written once the rows are published; a failure is logged and never
+    fails the import. The import's own receipt stays separate.
+    """
+    try:
+        session = ImportSessionStore(project).get(ref)
+        if session is None or session.receipt_id is None:
+            return
+        ledger = {
+            int(row["ordinal"]): row
+            for row in project.db.execute(
+                "SELECT ordinal,child_count,state FROM import_session_pdf_sources "
+                "WHERE session_id=? ORDER BY ordinal",
+                (ref,),
+            )
+        }
+        documents: list[JsonValue] = []
+        through = 0
+        for ordinal, source in enumerate(plan["sources"]):
+            item = ledger.get(ordinal)
+            if item is None or item["state"] != "published":
+                continue
+            count = int(item["child_count"])
+            rows = [
+                int(row[0])
+                for row in project.db.execute(
+                    "SELECT row_id FROM import_session_rows WHERE session_id=? "
+                    "AND ordinal>? AND ordinal<=? ORDER BY ordinal",
+                    (ref, through, through + count),
+                )
+            ]
+            through += count
+            if source["kind"] == "image":
+                continue
+            read = {
+                int(path.stem)
+                for path in (directory / "native" / str(ordinal)).glob("*.json")
+            } | {
+                int(page)
+                for page, relative in source["cache"].items()
+                if json.loads((directory / relative).read_text()).get("engine")
+                == "native"
+            }
+            if read:
+                pages: list[JsonValue] = [page for page in sorted(read)]
+                covered: list[JsonValue] = [row for row in rows]
+                documents.append(
+                    {"file": str(source["filename"]), "pages": pages, "rows": covered}
+                )
+        if not documents:
+            return
+        record_local_reading(
+            project,
+            LocalReading(
+                action_kind="media.read_pdf_text",
+                engine="native",
+                service="frisket.media.read_pdf_text",
+                settings={"method": "pdf_text_layer", "reader": "pdfium"},
+                pages=documents,
+                status="completed",
+                change_ids=[int(session.op_id)],
+            ),
+            receipt_id=local_reading_receipt_id(
+                "media.read_pdf_text", session.receipt_id
+            ),
+            project_id=project_id,
+            import_receipt_id=session.receipt_id,
+        )
+    except Exception as exc:
+        if project.db.in_transaction:
+            project.db.rollback()
+        LOG.warning(
+            "import_text_layer_receipt_failed",
+            extra={
+                "import_ref": ref,
+                "error": redact_stored_error(
+                    exc, fallback_code="import_text_layer_receipt_failed"
+                ),
+            },
+        )
 
 
 def _source_plan(
@@ -420,6 +512,9 @@ def register_pdf_split_handler(
                 if session is None:
                     raise ValueError("split publication session is missing")
                 if session.state in ("kept", "completed", "removed"):
+                    _record_text_layer_reading(
+                        project, project_id, ref, directory, plan
+                    )
                     return pdf_split_status(project, ref)
                 writer = PdfSplitWriter.resume_session(
                     project,
@@ -493,6 +588,7 @@ def register_pdf_split_handler(
                 publication = writer.finalize(
                     expected_cursor=cursor, stopped=stopped_remaining
                 )
+                _record_text_layer_reading(project, project_id, ref, directory, plan)
                 if on_terminal_import is not None and publication.row_count:
                     try:
                         on_terminal_import(

@@ -937,6 +937,12 @@ export const HTTP_CONTRACT_ARTIFACT = {
       }
     },
     {
+      "id": "tenant.estimate_import_preparation_retry.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/preparation/retry/estimate",
+      "request": null
+    },
+    {
       "id": "tenant.estimate_pdf_import_batch_ocr.post",
       "method": "POST",
       "path": "/api/projects/{pid}/import/pdf-imports/{draft_id}/ocr-estimate",
@@ -1955,6 +1961,15 @@ export const HTTP_CONTRACT_ARTIFACT = {
       "method": "POST",
       "path": "/api/projects/{pid}/import/pdf-imports/{draft_id}/resume",
       "request": null
+    },
+    {
+      "id": "tenant.retry_import_preparation.post",
+      "method": "POST",
+      "path": "/api/projects/{pid}/import/files/sessions/{ref}/preparation/retry",
+      "request": {
+        "mediaType": "application/json",
+        "required": true
+      }
     },
     {
       "id": "tenant.review_batch_ep.post",
@@ -5583,8 +5598,8 @@ export type HttpDocumentPriorityRequest = ({
 });
 
 export type HttpDocumentPriorityResponse = ({
+  "import_ref": (((string)) | ((null)));
   "promoted": (boolean);
-  "run_id": (((number)) | ((null)));
   "schemaVersion"?: ("frisket.document_priority.v1") & (string);
 });
 
@@ -7501,6 +7516,42 @@ export type HttpImportFilesResponse = ({
   "sheet_id": (number);
 });
 
+type HttpImportPreparationRetryEstimate_ActionEstimate = ({
+  "audio_seconds"?: (((number)) | ((null)));
+  "avg_input_tokens"?: (((number)) | ((null)));
+  "billed_cost": (((number)) | ((null)));
+  "billing_label"?: (((string)) | ((null)));
+  "claims"?: (((Array<(HttpImportPreparationRetryEstimate_ActionEstimateClaim)>)) | ((null)));
+  "cost": (((number)) | ((null)));
+  "cost_source": (string);
+  "engine"?: (((string)) | ((null)));
+  "policy_id": (string);
+  "pricing_key"?: (((string)) | ((null)));
+  "promise_set_hash"?: (((string)) | ((null)));
+  "remote_capability"?: (((string)) | ((null)));
+  "requires_confirmation"?: (((boolean)) | ((null)));
+  "rows": (number);
+  "venue_label"?: (((string)) | ((null)));
+  "warning"?: (((string)) | ((null)));
+});
+
+type HttpImportPreparationRetryEstimate_ActionEstimateClaim = ({
+  "display": (string);
+  "field": (string);
+});
+
+export type HttpImportPreparationRetryEstimate = ({
+  "estimate": (HttpImportPreparationRetryEstimate_ActionEstimate);
+  "failed_pages": (number);
+  "pages": (number);
+  "plan_token": (string);
+});
+
+export type HttpImportPreparationRetryRequest = ({
+  "confirmation"?: (((string)) | ((null)));
+  "plan_token": (string);
+});
+
 export type HttpImportSessionCreateBody = ({
   "sheet_name": (string);
 });
@@ -7524,20 +7575,18 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "committed_rows"?: (number);
   "error"?: (((string)) | ((null)));
   "estimated_rows"?: (((number)) | ((null)));
+  "failed_pages"?: (number);
   "import_ref": (string);
   "intake_kind"?: ("files" | "table") & (string);
   "ocr_completed"?: (number);
   "ocr_total"?: (number);
   "preparation_children"?: (Array<(HttpImportSessionList_ImportPreparationChild)>);
   "preparation_completed"?: (number);
-  "preparation_pending_confirmation"?: ((({
-  [key: string]: (HttpImportSessionList_JsonValue);
-})) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
   "problem_count"?: (number);
   "processed_rows"?: (number);
-  "row_error_summary"?: (((HttpImportSessionList_RunRowErrorSummary)) | ((null)));
+  "reading_row_ids"?: (Array<(number)>);
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
@@ -7551,6 +7600,7 @@ type HttpImportSessionList_ImportSessionStatus = ({
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
   "unreadable_total"?: (number);
+  "waiting_row_ids"?: (Array<(number)>);
 });
 
 type HttpImportSessionList_ImportSourceErrorExample = ({
@@ -7566,25 +7616,6 @@ type HttpImportSessionList_ImportSourceErrorGroup = ({
   "count": (number);
   "examples"?: (Array<(HttpImportSessionList_ImportSourceErrorExample)>);
   "message": (string);
-});
-
-type HttpImportSessionList_JsonValue = JsonValue;
-
-type HttpImportSessionList_RunRowErrorGroup = ({
-  "code": (((string)) | ((null)));
-  "count": (number);
-  "details"?: ((({
-  [key: string]: (boolean);
-})) | ((null)));
-  "message": (string);
-  "outcome"?: (((string)) | ((null)));
-  "row_ids": (Array<(number)>);
-  "terminal"?: (boolean);
-});
-
-type HttpImportSessionList_RunRowErrorSummary = ({
-  "groups": (Array<(HttpImportSessionList_RunRowErrorGroup)>);
-  "total_failed_rows": (number);
 });
 
 export type HttpImportSessionList = ({
@@ -7620,25 +7651,6 @@ type HttpImportSessionStatus_ImportSourceErrorGroup = ({
   "message": (string);
 });
 
-type HttpImportSessionStatus_JsonValue = JsonValue;
-
-type HttpImportSessionStatus_RunRowErrorGroup = ({
-  "code": (((string)) | ((null)));
-  "count": (number);
-  "details"?: ((({
-  [key: string]: (boolean);
-})) | ((null)));
-  "message": (string);
-  "outcome"?: (((string)) | ((null)));
-  "row_ids": (Array<(number)>);
-  "terminal"?: (boolean);
-});
-
-type HttpImportSessionStatus_RunRowErrorSummary = ({
-  "groups": (Array<(HttpImportSessionStatus_RunRowErrorGroup)>);
-  "total_failed_rows": (number);
-});
-
 export type HttpImportSessionStatus = ({
   "admitted_bytes": (number);
   "admitted_files": (number);
@@ -7648,20 +7660,18 @@ export type HttpImportSessionStatus = ({
   "committed_rows"?: (number);
   "error"?: (((string)) | ((null)));
   "estimated_rows"?: (((number)) | ((null)));
+  "failed_pages"?: (number);
   "import_ref": (string);
   "intake_kind"?: ("files" | "table") & (string);
   "ocr_completed"?: (number);
   "ocr_total"?: (number);
   "preparation_children"?: (Array<(HttpImportSessionStatus_ImportPreparationChild)>);
   "preparation_completed"?: (number);
-  "preparation_pending_confirmation"?: ((({
-  [key: string]: (HttpImportSessionStatus_JsonValue);
-})) | ((null)));
   "preparation_stopped"?: (boolean);
   "preparation_total"?: (number);
   "problem_count"?: (number);
   "processed_rows"?: (number);
-  "row_error_summary"?: (((HttpImportSessionStatus_RunRowErrorSummary)) | ((null)));
+  "reading_row_ids"?: (Array<(number)>);
   "sealed": (boolean);
   "search_preparation_batch_id"?: (((string)) | ((null)));
   "search_preparation_status": ("pending" | "available" | "none") & (string);
@@ -7675,6 +7685,7 @@ export type HttpImportSessionStatus = ({
   "state": ("admitting" | "running" | "paused" | "cancelling" | "cancelled" | "completed" | "kept" | "removed") & (string);
   "through": (number);
   "unreadable_total"?: (number);
+  "waiting_row_ids"?: (Array<(number)>);
 });
 
 export type HttpImportXlsxResponse = ({
@@ -10286,18 +10297,25 @@ export type HttpPdfImportCommitRequest = ({
   "ocr_confirmation"?: (((string)) | ((null)));
 });
 
+type HttpPdfImportCommitResponse_PdfImportCommitJob = ({
+  "commit_id": (string);
+  "committed_rows": (number);
+  "import_ref": (string);
+  "job_id"?: (((number)) | ((null)));
+  "receipt_id": (string);
+  "selected_total": (number);
+  "sheet_id": (number);
+  "state": (string);
+});
+
 export type HttpPdfImportCommitResponse = ({
-  "available_through": (number);
   "commit_id": (string);
   "draft_id": (string);
-  "job"?: ((({
-  [key: string]: JsonValue;
-})) | ((null)));
+  "job"?: (((HttpPdfImportCommitResponse_PdfImportCommitJob)) | ((null)));
   "manifest_hash": (string);
   "schema_version": ("frisket.pdf_import.v1") & (string);
   "selected_total": (number);
   "status": ("accepted") & (string);
-  "uploads_complete": (boolean);
 });
 
 export type HttpPdfImportCreateRequest = ({
@@ -10508,8 +10526,14 @@ type HttpPdfImportListResponse_PdfImportStatus = ({
   "upload": (HttpPdfImportListResponse_PdfImportProgress);
 });
 
+type HttpPdfImportListResponse_PdfImportUnreadableDraft = ({
+  "draft_id": (string);
+  "error": (string);
+});
+
 export type HttpPdfImportListResponse = ({
   "items": (Array<(HttpPdfImportListResponse_PdfImportStatus)>);
+  "unreadable"?: (Array<(HttpPdfImportListResponse_PdfImportUnreadableDraft)>);
 });
 
 type HttpPdfImportManifestBatchRequest_PdfImportManifestFile = ({
@@ -17317,6 +17341,23 @@ export type HttpContractOperationMap = {
       readonly "500": HttpError;
     };
   };
+  readonly "tenant.estimate_import_preparation_retry.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: undefined;
+    readonly responses: {
+      readonly "200": HttpImportPreparationRetryEstimate;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "507": HttpError;
+    };
+  };
   readonly "tenant.estimate_pdf_import_batch_ocr.post": {
     readonly pathParams: HttpInline_4695a2cbe654ff39;
     readonly query: HttpInline_d746974fa9afd5e9;
@@ -19303,6 +19344,23 @@ export type HttpContractOperationMap = {
       readonly "422": HttpError;
       readonly "500": HttpError;
       readonly "503": HttpError;
+    };
+  };
+  readonly "tenant.retry_import_preparation.post": {
+    readonly pathParams: HttpInline_8527488b5f6abaa7;
+    readonly query: HttpInline_d746974fa9afd5e9;
+    readonly request: HttpImportPreparationRetryRequest;
+    readonly responses: {
+      readonly "200": HttpImportSessionStatus;
+      readonly "400": HttpError;
+      readonly "401": HttpError;
+      readonly "403": HttpError;
+      readonly "404": HttpError;
+      readonly "409": HttpError;
+      readonly "413": HttpError;
+      readonly "422": HttpError;
+      readonly "500": HttpError;
+      readonly "507": HttpError;
     };
   };
   readonly "tenant.review_batch_ep.post": {

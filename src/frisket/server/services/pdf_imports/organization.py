@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from filelock import FileLock
 
+from frisket.contracts.http.pdf_imports import PdfImportOrganizationSummary
 from frisket.server.services.pdf_packet_sources import (
     AdmittedPacketSource,
     MAX_INTERACTIVE_PDF_PAGES,
@@ -100,7 +101,7 @@ def _borrow_source(service, project_id, draft_id, key, digest, size):
                 item = service._staged(inventory, key)
             if item["sha256"] != digest or item["size"] != size:
                 raise PdfImportDraftError(409, "The imported PDF changed after review")
-            path = service._files_root(directory, header) / digest
+            path = directory / "files" / digest
             try:
                 os.link(path, pinned)
             except FileNotFoundError as exc:
@@ -143,7 +144,7 @@ def validate_split_starts(inventory, organization, starts):
     return normalized
 
 
-def organization_summary(directory, choices):
+def organization_summary(directory, choices) -> PdfImportOrganizationSummary:
     organization = choices.get("organization", "keep_documents")
     starts = choices.get("split_starts", {})
     pdf_count = page_count = eligible_count = eligible_pages = output_rows = (
@@ -191,20 +192,20 @@ def organization_summary(directory, choices):
             if category_rows.get(category, 0) is not None:
                 category_rows[category] = category_rows.get(category, 0) + rows
     maximum = MAX_INTERACTIVE_PDF_PAGES
-    return {
-        "pdf_count": pdf_count,
-        "eligible_pdf_count": eligible_count,
-        "page_count": page_count,
-        "output_rows": None if unknown else output_rows,
-        "new_output_rows": None if new_unknown else new_rows,
-        "category_rows": category_rows,
-        "new_category_rows": new_category_rows,
-        "max_interactive_pages": maximum,
-        "split_supported": eligible_count > 0 and eligible_pages <= maximum,
-        "split_limit_reason": f"Split up to {maximum:,} pages at a time."
+    return PdfImportOrganizationSummary(
+        pdf_count=pdf_count,
+        eligible_pdf_count=eligible_count,
+        page_count=page_count,
+        output_rows=None if unknown else output_rows,
+        new_output_rows=None if new_unknown else new_rows,
+        category_rows=category_rows,
+        new_category_rows=new_category_rows,
+        max_interactive_pages=maximum,
+        split_supported=eligible_count > 0 and eligible_pages <= maximum,
+        split_limit_reason=f"Split up to {maximum:,} pages at a time."
         if eligible_pages > maximum
         else None,
-    }
+    )
 
 
 def validate_complete_starts(inventory, starts):

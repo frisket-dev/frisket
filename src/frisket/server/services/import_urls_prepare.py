@@ -15,6 +15,7 @@ from fastapi import Request
 from frisket.authoring.workbench.plugin_runtime_capabilities import (
     enabled_workbench_plugin_ids,
 )
+from frisket.contracts.http.pdf_imports import PdfImportStatus
 from frisket.engine.executor import ExecutorDeps
 from frisket.engine.store.disk_capacity import require_disk_headroom
 from frisket.ops.url_import import acquire_url_records
@@ -45,7 +46,7 @@ class ImportUrlsPrepareService:
         enabled = enabled_workbench_plugin_ids(project)
         root = project.path / ".bulk_import_staging"
         staging = root / f".draft-urls-{secrets.token_urlsafe(18)}"
-        adopted: dict[str, Any] | None = None
+        adopted: PdfImportStatus | None = None
         try:
             (staging / "files").mkdir(parents=True)
             entries = []
@@ -59,7 +60,7 @@ class ImportUrlsPrepareService:
                 entries.append(entry)
                 downloaded += entry.get("acquisition_error") is None
 
-            def adopt() -> dict[str, Any]:
+            def adopt() -> PdfImportStatus:
                 nonlocal adopted
                 adopted = self._pdf_import_service.adopt_staged(
                     project_id, staging, entries, source_label=f"{len(urls)} URLs"
@@ -88,7 +89,7 @@ class ImportUrlsPrepareService:
             fsync_directory(root)
 
     async def discard(self, project_id: str, prepared: dict[str, Any]) -> None:
-        draft_id = prepared["draft"]["draft_id"]
+        draft_id = prepared["draft"].draft_id
         await await_thread_worker(
             self._pdf_import_service.discard, project_id, draft_id
         )

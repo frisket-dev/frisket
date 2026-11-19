@@ -1,5 +1,5 @@
 import { GridCellKind } from '@glideapps/glide-data-grid';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import type { ImportSessionStatus } from '../../src/api/open';
 import {
@@ -8,10 +8,6 @@ import {
   pendingImportRowCount,
   preferredImportActivity,
 } from '../../src/components/useImportProgress';
-import {
-  abortImportSessionBrowserUpload,
-  registerImportSessionUploadAbort,
-} from '../../src/components/importProgressSession';
 import type { SearchPreparationNotice } from '../../src/components/useSearchPreparationNotice';
 import { buildCell } from '../../src/grid/cells';
 import { aiMeta, columnDef, row } from '../support/domainFixtures';
@@ -38,23 +34,28 @@ function session(overrides: Partial<ImportSessionStatus> = {}): ImportSessionSta
     ocr_completed: 3,
     ocr_total: 8,
     unreadable_total: 1,
-    preparation_pending_confirmation: null,
     preparation_children: [{
       action_id: 'media.ocr',
       row_count: 8,
       completed_rows: 3,
       status: 'running',
       receipt_id: 'receipt',
-      run_id: 42,
+      run_id: null,
       job_id: 43,
     }],
+    reading_row_ids: [],
+    waiting_row_ids: [],
+    failed_pages: 0,
     ...overrides,
   };
 }
 
 describe('PDF import post-commit activity', () => {
-  it('derives adding/native/OCR counters and reuses the ordinary live run identity', () => {
-    const activity = importActivity(session());
+  it('derives adding/native/OCR counters and the rows whose page text is read or waiting', () => {
+    const activity = importActivity(session({
+      reading_row_ids: [4],
+      waiting_row_ids: [5, 2],
+    }));
 
     expect(activity?.lines).toEqual([
       { key: 'adding', label: 'Adding rows', completed: 12, total: 12, complete: true },
@@ -64,13 +65,40 @@ describe('PDF import post-commit activity', () => {
       },
       { key: 'ocr', label: 'OCR', completed: 3, total: 8, complete: false },
     ]);
-    expect(activity?.liveRun).toMatchObject({
-      runId: '42',
+    expect(activity?.pageReading).toEqual({
+      importRef: 'import-00000000000000000000000000000000',
       sheetId: '7',
-      actionKind: 'media.ocr',
-      completedRows: 3,
-      totalRows: 8,
-      status: 'running',
+      readingRowIds: ['4'],
+      waitingRowIds: ['5', '2'],
+    });
+    expect(activity?.canRetry).toBe(false);
+  });
+
+  it('settles failed pages and offers their retry once nothing is read or waiting', () => {
+    const reading = importActivity(session({
+      preparation_completed: 9,
+      ocr_completed: 5,
+      failed_pages: 2,
+      waiting_row_ids: [3],
+    }));
+    expect(reading?.canRetry).toBe(false);
+    expect(reading?.pageReading?.waitingRowIds).toEqual(['3']);
+
+    const settled = importActivity(session({
+      preparation_completed: 10,
+      ocr_completed: 6,
+      failed_pages: 2,
+      error: 'Some PDF pages could not be prepared.',
+      preparation_children: [],
+    }));
+    expect(settled?.pageReading).toBeNull();
+    expect(settled?.canRetry).toBe(true);
+    expect(settled?.canStop).toBe(false);
+    expect(settled?.lines.find((line) => line.key === 'ocr')).toMatchObject({
+      completed: 6,
+      total: 8,
+      complete: false,
+      detail: '6 of 8 · 2 pages not read',
     });
   });
 
@@ -82,7 +110,7 @@ describe('PDF import post-commit activity', () => {
     }))?.lines[0].complete).toBe(false);
   });
 
-  it('presents a terminal partial preparation child as failed instead of queued', () => {
+  it('presents a terminal partial preparation child as needing attention', () => {
     const activity = importActivity(session({
       state: 'running',
       preparation_children: [{
@@ -91,18 +119,11 @@ describe('PDF import post-commit activity', () => {
         completed_rows: 3,
         status: 'partial',
         receipt_id: 'partial-receipt',
-        run_id: 51,
+        run_id: null,
         job_id: 52,
       }],
     }));
 
-    expect(activity?.liveRun).toMatchObject({
-      runId: '51',
-      status: 'failed',
-      completedRows: 3,
-      totalRows: 8,
-      failedRows: 5,
-    });
     expect(activity?.lines.find((line) => line.key === 'native')).toMatchObject({
       complete: false,
       detail: '4 of 4 · needs attention',
@@ -126,7 +147,7 @@ describe('PDF import post-commit activity', () => {
     const combined = composeImportSearchActivity(activity, null);
 
     expect(activity).not.toBeNull();
-    expect(activity?.liveRun).toBeNull();
+    expect(activity?.pageReading).toBeNull();
     expect(combined?.notice).toMatchObject({
       stage: 'failed',
       tone: 'error',
@@ -221,6 +242,20 @@ describe('PDF import post-commit activity', () => {
     expect(preferredImportActivity([paused!, live!])?.importRef).toBe('import-live');
   });
 
+  it('prefers an import whose pages are still being read over an earlier finished entry', () => {
+    const finished = importActivity(session({
+      import_ref: 'import-finished',
+      preparation_children: [],
+    }));
+    const reading = importActivity(session({
+      import_ref: 'import-reading',
+      preparation_children: [],
+      reading_row_ids: [3],
+    }));
+
+    expect(preferredImportActivity([finished!, reading!])?.importRef).toBe('import-reading');
+  });
+
   it('prefers row admission over an earlier inactive preparation entry', () => {
     const inactive = importActivity(session({
       import_ref: 'import-inactive',
@@ -232,20 +267,6 @@ describe('PDF import post-commit activity', () => {
     }));
 
     expect(preferredImportActivity([inactive!, live!])?.importRef).toBe('import-live');
-  });
-
-  it('aborts only the current browser upload registration', () => {
-    const first = vi.fn();
-    const second = vi.fn();
-    const unregisterFirst = registerImportSessionUploadAbort('import-ref', first);
-    registerImportSessionUploadAbort('import-ref', second);
-
-    unregisterFirst();
-    abortImportSessionBrowserUpload('import-ref');
-    abortImportSessionBrowserUpload('import-ref');
-
-    expect(first).not.toHaveBeenCalled();
-    expect(second).toHaveBeenCalledTimes(1);
   });
 });
 

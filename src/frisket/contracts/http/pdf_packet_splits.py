@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from frisket.contracts.view import ViewSelection
 
-from typing import Literal
+from typing import Final, Literal
 
 from pydantic import Field, JsonValue, model_validator
 
@@ -13,7 +13,7 @@ from frisket.contracts.http.models import WireModel
 from frisket.contracts.http.pdf_imports import PdfImportOcrSelection, PdfOcrPolicy
 
 
-PDF_PACKET_SPLIT_SCHEMA_VERSION = "frisket.pdf_packet_split.v1"
+PDF_PACKET_SPLIT_SCHEMA_VERSION: Final = "frisket.pdf_packet_split.v1"
 
 
 class PdfPacketInfo(WireModel):

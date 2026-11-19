@@ -27,13 +27,7 @@ import { usePoll } from '../../../hooks/usePoll';
 import { formatBytes } from '../../../format';
 import { CostGateModal } from '../../CostGateModal';
 import { DiscardImportConfirm } from './DiscardImportConfirm';
-import {
-  forgetImportSelection,
-  notifyImportSessionChanged,
-  registerImportSessionUploadAbort,
-  rememberImportSessionFiles,
-  setImportSessionBrowserUploading,
-} from '../../importProgressSession';
+import { notifyImportSessionChanged } from '../../importProgressSession';
 import {
   PDF_BATCH_STAGES,
   pdfBatchStages,
@@ -184,14 +178,8 @@ export function PdfBatchImportFlow({
   const sampleRequestEpoch = useRef(0);
   const sampleCountKey = useRef<string | null>(null);
   const importedSheet = useRef<number | null>(null);
-  const registeredUpload = useRef<{
-    importRef: string;
-    remembered: boolean;
-    unregister(): void;
-  } | null>(null);
   const filesProp = useRef(files);
   const recoveryFiles = useRef<File[]>([]);
-  const committed = useRef(false);
   const onErrorRef = useRef(onError);
   const onImportedRef = useRef(onImported);
   const onDiscardedRef = useRef(onDiscarded);
@@ -226,7 +214,6 @@ export function PdfBatchImportFlow({
   }, []);
   const completeImportHandoff = useCallback((sheetId: number) => {
     if (importedSheet.current === sheetId) return;
-    committed.current = true;
     importedSheet.current = sheetId;
     notifyImportSessionChanged();
     onImportedRef.current(sheetId);
@@ -314,8 +301,6 @@ export function PdfBatchImportFlow({
     recoveryFiles.current = [];
     commitKey.current = crypto.randomUUID();
     importedSheet.current = null;
-    registeredUpload.current = null;
-    committed.current = false;
     const start = async () => {
       await Promise.resolve();
       if (controller.signal.aborted || generation.current !== epoch) return;
@@ -380,43 +365,9 @@ export function PdfBatchImportFlow({
       controller.abort();
       refreshController.current?.abort();
       if (generation.current === epoch) generation.current += 1;
-      if (!committed.current) abortIntake();
+      abortIntake();
     };
   }, [abortIntake, api, clearPreview, configureIntake, projectId, publish, reportError, resumeDraftId, newlyAdmittedDraft, runFreshIntake, initialCheckText]);
-
-  const registerCommittedUpload = useCallback(async (
-    importRef: string | null | undefined,
-    rememberSelection = true,
-  ) => {
-    if (!importRef) return;
-    const current = registeredUpload.current;
-    if (current?.importRef === importRef) {
-      if (rememberSelection && !current.remembered) {
-        current.remembered = true;
-        await rememberImportSessionFiles(importRef, intakeFiles());
-      }
-      return;
-    }
-    const running = activeIntake();
-    if (!running) return;
-    const previous = registeredUpload.current;
-    if (previous) {
-      previous.unregister();
-      setImportSessionBrowserUploading(previous.importRef, false);
-      if (previous.remembered) forgetImportSelection(previous.importRef);
-    }
-    setImportSessionBrowserUploading(importRef, true);
-    const unregister = registerImportSessionUploadAbort(importRef, running.abort);
-    const registration = { importRef, remembered: rememberSelection, unregister };
-    registeredUpload.current = registration;
-    const release = () => {
-      unregister();
-      setImportSessionBrowserUploading(importRef, false);
-      if (registeredUpload.current === registration) registeredUpload.current = null;
-    };
-    void running.done.then(release, release);
-    if (rememberSelection) await rememberImportSessionFiles(importRef, intakeFiles());
-  }, [activeIntake, intakeFiles]);
 
   const refresh = useCallback(async (analysisSource?: PdfImportSnapshot | null) => {
     const draftId = currentDraft.current;
@@ -445,7 +396,6 @@ export function PdfBatchImportFlow({
       if (controller.signal.aborted || generation.current !== epoch || currentDraft.current !== draftId) return;
       if (canAdvanceAnalysis) analysisAdvanceBlocked.current = null;
       publish(next);
-      await registerCommittedUpload(next.commit?.result?.import_ref);
       if (next.state === 'cancelled') onDiscardedRef.current();
       const sheetId = next.commit?.result?.sheet_id;
       if (next.state === 'committed' && sheetId) completeImportHandoff(sheetId);
@@ -464,7 +414,7 @@ export function PdfBatchImportFlow({
     } finally {
       if (refreshController.current === controller) refreshController.current = null;
     }
-  }, [activeIntake, api, completeImportHandoff, projectId, publish, registerCommittedUpload, reportError]);
+  }, [activeIntake, api, completeImportHandoff, projectId, publish, reportError]);
 
   const refreshStatus = useCallback(async () => {
     await refresh(snapshot);
@@ -802,12 +752,12 @@ export function PdfBatchImportFlow({
     }
   }, [api, projectId, refresh, reportError]);
 
-  const batchEstimateInputsReady = Boolean(snapshot
+  const filesReady = Boolean(snapshot
     && snapshot.upload.files_done >= snapshot.upload.files_total
     && snapshot.analysis.files_done >= snapshot.analysis.files_total);
 
   useEffect(() => {
-    if (stage !== 'search' || !snapshot || !batchEstimateInputsReady
+    if (stage !== 'search' || !snapshot || !filesReady
       || ocrEngine(snapshot.choices.ocr_selection) === 'rapidocr'
       || ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
       || snapshot.batch_ocr?.state !== 'idle'
@@ -817,7 +767,7 @@ export function PdfBatchImportFlow({
         void estimateBatchOcr(snapshot);
       }
     });
-  }, [batchEstimateBusy, batchEstimateError, batchEstimateInputsReady, estimateBatchOcr, snapshot, stage]);
+  }, [batchEstimateBusy, batchEstimateError, filesReady, estimateBatchOcr, snapshot, stage]);
 
   const continueToSearch = async () => {
     if (!snapshot || mutationBusy) return;
@@ -905,12 +855,6 @@ export function PdfBatchImportFlow({
         expected_revision: snapshot.revision,
         ...(ocrConfirmation ? { ocr_confirmation: ocrConfirmation } : {}),
       });
-      committed.current = true;
-      const acceptedImportRef = accepted.job?.import_ref;
-      await registerCommittedUpload(
-        acceptedImportRef ?? accepted.draft_id,
-        Boolean(acceptedImportRef),
-      );
       const refreshed = await refresh();
       const importRef = accepted.job?.import_ref ?? refreshed?.commit?.result?.import_ref;
       const sheetId = accepted.job?.sheet_id;
@@ -923,7 +867,6 @@ export function PdfBatchImportFlow({
         setError('The import details changed. Review the current OCR estimate and confirm again.');
         return;
       }
-      if (!(problem instanceof PdfImportResponseError)) committed.current = true;
       reportError(problem);
       void refresh();
     } finally {
@@ -977,7 +920,7 @@ export function PdfBatchImportFlow({
   const canCommit = destinationIsReady(snapshot, destination)
     && outputRows !== null
     && !snapshot.paused && !matching && semanticAuthorized
-    && snapshot.analysis.files_done >= snapshot.upload.files_done
+    && filesReady
     && (ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0
       || (Boolean(ocrChoice?.can_run) && (
         ocrEngine(snapshot.choices.ocr_selection) === 'rapidocr'
@@ -1083,7 +1026,7 @@ export function PdfBatchImportFlow({
             importLabel={nothingNew ? 'Nothing new to import' : matching ? 'Comparing…' : outputRows === null ? 'Calculating rows…' : `Import ${count(outputRows, outputRows === importingFiles ? 'file' : 'row')}`}
             canImport={canCommit}
             batchEstimateBusy={batchEstimateBusy}
-            batchEstimateWaiting={!batchEstimateInputsReady}
+            filesWaiting={!filesReady}
             batchEstimateError={batchEstimateError}
             ocrAvailabilityChecking={ocrAvailabilityChecking}
             ocrAvailable={ocrPolicyCount(snapshot, snapshot.choices.ocr_policy) === 0 || Boolean(ocrChoice?.can_run)}

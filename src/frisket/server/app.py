@@ -101,7 +101,6 @@ from frisket.server.services.guide_samples import GuideSampleService
 from frisket.server.routes.table_imports import register_table_import_routes
 from frisket.server.services.table_imports import FrozenTableImport, TableImportService
 from frisket.server.services.pdf_imports import FrozenPdfImport, PdfImportService
-from frisket.server.services.pdf_import_ocr_consent import PdfImportOcrConsentEstimator
 from frisket.server.services.pdf_import_commit import PdfImportCommitService
 from frisket.server.thread_worker import await_thread_worker
 from frisket.documents.text_quality import assess_text_quality
@@ -770,19 +769,10 @@ def create_app(
         ws, preview_runs=action_preview_run_service
     )
 
-    def enqueue_pdf_import_continuation(
-        project_id: str, draft_id: str, idempotency_key: str, revision: int
-    ) -> None:
-        pdf_import_commit_service.enqueue_continuation(
-            project_id, draft_id, idempotency_key, revision
-        )
-
     pdf_import_service = PdfImportService(
         ws,
         preview_runs=action_preview_run_service,
         quality_assessor=assess_text_quality,
-        batch_ocr_estimator=PdfImportOcrConsentEstimator(ws).estimate,
-        on_commit_ready=enqueue_pdf_import_continuation,
     )
     app.state.pdf_import_service = pdf_import_service
     register_guide_sample_routes(
@@ -940,6 +930,7 @@ def create_app(
         enqueue=enqueue_import_page,
         search_preparation=search_preparation_service,
     )
+    pdf_import_service.settle_commit_inventories(enqueue_import_page)
     register_import_session_routes(
         app,
         service=import_session_service,

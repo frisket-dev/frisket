@@ -10,6 +10,8 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { formatUsd } from '../actions/model';
 import { isActiveRunStatus, runCompletedWithErrors, runStatusLabel } from '../runStatusModel';
 import { RunFailureTriage } from './RunFailureTriage';
+import { CostGateModal } from './CostGateModal';
+import { countLabel } from '../format';
 import { SearchPreparationNotice } from './SearchPreparationNotice';
 import {
   composeImportSearchActivity,
@@ -153,10 +155,14 @@ const IDLE_IMPORT_PROGRESS: ImportProgressController = {
   message: null,
   busyRef: null,
   preparingRef: null,
+  retryConsent: null,
   resume() {},
   async stop() {},
   keep() {},
   remove() {},
+  retryFailedPages() {},
+  confirmRetry() {},
+  cancelRetry() {},
 };
 
 interface StatusBarProps {
@@ -192,6 +198,7 @@ export function StatusBar({
     modelPullScope ?? null,
   );
   const importActivity = preferredImportActivity(importProgress.activities);
+  const { retryConsent } = importProgress;
   const combinedActivity = composeImportSearchActivity(importActivity, baseSearchPreparationNotice);
   const searchPreparationNotice = combinedActivity?.notice ?? baseSearchPreparationNotice;
   const canUndo = history !== null && history.undoTarget !== null;
@@ -280,6 +287,9 @@ export function StatusBar({
             onRemoveImport={importActivity?.session.state === 'cancelled'
               ? () => importProgress.remove(importActivity)
               : undefined}
+            onRetryFailedPages={importActivity?.canRetry
+              ? () => importProgress.retryFailedPages(importActivity)
+              : undefined}
             importActionBusy={importProgress.busyRef === importActivity?.importRef
               || importProgress.preparingRef === importActivity?.importRef}
             importMessage={importActivity ? importProgress.message : null}
@@ -298,6 +308,14 @@ export function StatusBar({
           />
         )}
       </div>
+    {retryConsent && (
+      <CostGateModal
+        estimate={retryConsent.estimate}
+        message={`Read text again from ${countLabel(retryConsent.pages, 'page')} with OCR?`}
+        onCancel={importProgress.cancelRetry}
+        onConfirm={() => importProgress.confirmRetry(retryConsent)}
+      />
+    )}
     <footer className="status-bar">
       <div className="status-left" data-testid="run-progress">
         {run ? (

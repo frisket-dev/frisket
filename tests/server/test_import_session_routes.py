@@ -65,9 +65,10 @@ def test_import_session_routes_admit_status_and_enqueue_bounded_pages(tmp_path):
         "ocr_total": 0,
         "unreadable_total": 0,
         "preparation_stopped": False,
-        "preparation_pending_confirmation": None,
-        "row_error_summary": None,
         "preparation_children": [],
+        "reading_row_ids": [],
+        "waiting_row_ids": [],
+        "failed_pages": 0,
     }
     assert client.get(base).json() == {"sessions": [status]}
     assert client.get(f"{base}/{ref}").json() == status

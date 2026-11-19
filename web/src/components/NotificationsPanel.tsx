@@ -16,7 +16,7 @@ import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { useWorkspaceChromeCommands } from '../bind/useWorkspaceChromeState';
 import { useAlertCheckLinkHandle } from '../bind/useAlertCheckLinkHandle';
 import type { AlertCheckLink } from '../state/alertCheckLinkStore';
-import { openRunLink } from '../routes';
+import { navigate, openRunLink } from '../routes';
 import './NotificationsPanel.css';
 
 import { dispatchNotificationsChanged, NOTIFICATIONS_CHANGED_EVENT, useNotificationSummary } from './notifications/useNotificationSummary';
@@ -29,7 +29,9 @@ function sourceRefLabel(ref: Record<string, unknown>): string {
     .join(' · ');
 }
 
-const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = { alert: 'Open alert', run: 'Open run', source: 'Open feed' };
+const OPEN_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  alert: 'Open alert', import: 'Open sheet', run: 'Open run', source: 'Open feed',
+};
 
 function openSourceLabel(item: NotificationItem): string {
   return OPEN_SOURCE_LABELS[item.sourceKind] ?? 'Open';
@@ -38,6 +40,7 @@ function openSourceLabel(item: NotificationItem): string {
 function itemSourceLabel(item: NotificationItem): string {
   if (item.sourceKind === 'watch') return 'Alert';
   if (item.sourceKind === 'run') return 'Run';
+  if (item.sourceKind === 'import') return 'Import';
   if (item.sourceKind === 'source') return 'Feed';
   return item.sourceKind || 'Source';
 }
@@ -71,8 +74,21 @@ function runLink(item: NotificationItem): RunLink | null {
   };
 }
 
+interface SheetLink { projectId: string | null; sheetId: string; }
+
+function sheetLink(item: NotificationItem): SheetLink | null {
+  if (item.deepLink.kind !== 'sheet') return null;
+  const sheetId = Number(item.deepLink.sheet_id ?? item.sourceRef.sheet_id);
+  if (!Number.isInteger(sheetId) || sheetId <= 0) return null;
+  const projectId = item.deepLink.project_id ?? item.sourceRef.project_id;
+  return {
+    projectId: typeof projectId === 'string' && projectId ? projectId : null,
+    sheetId: String(sheetId),
+  };
+}
+
 export function NotificationsPanel() {
-  const { projectApi: api, chromePreferences: { projectId } } = useWorkspaceStores();
+  const { projectApi: api, chromePreferences: { projectId }, route } = useWorkspaceStores();
   const summary = useNotificationSummary();
   const pendingItems = useRef(new Set<number>());
   const listGeneration = useRef(0);
@@ -156,6 +172,16 @@ export function NotificationsPanel() {
           // picks the link up by subscription, applies it, and acks.
           alertCheckLinkHandle.setPendingAlertCheckLink(link, 'alerts');
           openDiscover('Watches');
+          return;
+        }
+        const sheet = sheetLink(item);
+        if (sheet) {
+          // Sheet ids are per project: another project's sheet opens through its project route.
+          if (sheet.projectId !== null && sheet.projectId !== projectId) {
+            navigate({ kind: 'project', projectId: sheet.projectId, sheetId: sheet.sheetId });
+            return;
+          }
+          route.navigate({ projectId, sheetId: sheet.sheetId, actionKind: null, review: false, panel: null });
           return;
         }
         const run = runLink(item);

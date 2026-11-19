@@ -394,28 +394,6 @@ class ImportExecutionOwner:
                 "The parent import no longer permits preparation"
             )
 
-    def bind_run(self, project: Any, run_id: int) -> None:
-        """Persist parent ownership before publishing a queued child."""
-        if not project.db.in_transaction:
-            raise RuntimeError(
-                "Import child binding requires its admission transaction"
-            )
-        self.require_current(project.db)
-        row = project.db.execute(
-            "SELECT op.id,op.spec FROM runs run JOIN ops op ON op.id=run.op_id WHERE run.id=?",
-            (int(run_id),),
-        ).fetchone()
-        if row is None:
-            raise ValueError("Import child has no admitted run")
-        spec = json.loads(row["spec"])
-        owner = {"session_id": self.session_id, "op_id": self.op_id}
-        if spec.get("import_execution_owner", owner) != owner:
-            raise ImportSessionConflict("Import child belongs to another parent")
-        spec["import_execution_owner"] = owner
-        project.db.execute(
-            "UPDATE ops SET spec=? WHERE id=?", (json.dumps(spec), row["id"])
-        )
-
 
 def require_import_execution_owner(db: Any, spec: dict[str, Any]) -> None:
     owner = spec.get("import_execution_owner")

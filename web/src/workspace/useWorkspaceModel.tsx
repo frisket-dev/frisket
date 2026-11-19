@@ -264,30 +264,11 @@ export function useWorkspaceModel({
   const activeImportActivity = sheet ? preferredImportActivity(
     importProgress.activities.filter((activity) => activity.session.sheet_id === Number(sheet.id)),
   ) : null;
-  const importLiveRun = activeImportActivity?.liveRun ?? null;
+  const importPageReading = activeImportActivity?.pageReading ?? null;
   const pendingImportRowCount = selectPendingImportRowCount(activeImportActivity);
   const importRowRefreshKey = activeImportActivity
     ? `${activeImportActivity.importRef}:${activeImportActivity.session.committed_rows}`
     : null;
-  const [importRunRowScope, setImportRunRowScope] = useState<{
-    runId: string;
-    rowIds: string[];
-  } | null>(null);
-  useEffect(() => {
-    const runId = importLiveRun?.actionKind === 'media.ocr' ? importLiveRun.runId : null;
-    if (runId === null) return undefined;
-    let alive = true;
-    void projectApi.getRunRows(runId, 0, 500)
-      .then((page) => {
-        if (alive) setImportRunRowScope({ runId, rowIds: page.rows.map((row) => row.rowId) });
-      })
-      .catch(() => {
-        if (alive) setImportRunRowScope({ runId, rowIds: [] });
-      });
-    return () => {
-      alive = false;
-    };
-  }, [importLiveRun?.actionKind, importLiveRun?.runId, projectApi]);
   const selectBottomDockTab = useCallback(
     (contribution: WorkbenchResolvedLayoutContribution) => {
       setActiveBottomDockTab(contribution.placementId);
@@ -353,13 +334,13 @@ export function useWorkspaceModel({
   const navigation = useWorkspaceNavigationController({
     project, sheet, sheets,
     externalRoute: { routeSheetId, routeActionKind: externalActionKind, routeReview: externalReview, routePanel: externalPanel },
-    chromeState, visibility, grid, mapContributionId, actActionTemplates, importLiveRun, showError,
+    chromeState, visibility, grid, mapContributionId, actActionTemplates, importPageReading, showError,
   });
   const {
     selectSheet, onMainViewTabKeyDown, workspaceRoute, runActionFromSurface,
     openFeedsFromCommandPalette, openSettingsFromCommandPalette, openRowPanel, openColumnPanel,
     walkDetailRow, openMapPanel, openGraphPanel, openMapSplit, openFeedHealthMainView,
-    openCitationViewerForWorkspace, activeDocumentPriority, openRowInDocumentView, openDocumentRef, openRowRef,
+    openCitationViewerForWorkspace, openRowInDocumentView, openDocumentRef, openRowRef,
     closeRoutePanel, closeActionRoute, closeActionDrawerOnLaunch, actionPanelVisible,
     openImportDialog,
   } = navigation;
@@ -966,13 +947,7 @@ export function useWorkspaceModel({
           sheet={sheet}
           dataVersion={dataVersion}
           liveRun={run}
-          backgroundLiveRun={importLiveRun?.actionKind === 'media.ocr' ? {
-            ...importLiveRun,
-            targetRowIds: importRunRowScope?.runId === importLiveRun.runId
-              ? importRunRowScope.rowIds
-              : [],
-          } : importLiveRun}
-          priorityReadingRowId={activeDocumentPriority?.sheetId === sheet.id ? activeDocumentPriority.rowId : null}
+          importPageReading={importPageReading}
           pendingImportRowCount={pendingImportRowCount}
           importRowRefreshKey={importRowRefreshKey}
           rowHeight={rowHeight}
@@ -1054,11 +1029,9 @@ export function useWorkspaceModel({
     sheet,
     dataVersion,
     run,
-    importLiveRun,
-    importRunRowScope,
+    importPageReading,
     pendingImportRowCount,
     importRowRefreshKey,
-    activeDocumentPriority,
     rowHeight,
     wrapText,
     project.id,

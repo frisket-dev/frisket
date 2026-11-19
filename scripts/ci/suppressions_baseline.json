@@ -128,7 +128,6 @@
   "src/frisket/server/services/column_types.py": 1,
   "src/frisket/server/services/models_gateway.py": 2,
   "src/frisket/server/services/pdf_import_commit.py": 1,
-  "src/frisket/server/services/pdf_import_preparation.py": 1,
   "src/frisket/server/services/previews.py": 3,
   "src/frisket/server/services/project_debug.py": 3,
   "src/frisket/server/services/project_exports.py": 2,
@@ -354,7 +353,6 @@
   "tests/ops/test_translate_hosted_engines.py": 1,
   "tests/preview/test_preview_billable_closure.py": 2,
   "tests/server/test_document_priority.py": 1,
-  "tests/server/test_pdf_import_execution.py": 3,
   "tests/server/test_project_qa_child_runs.py": 1,
   "tests/server/test_sidecar_integration.py": 1,
   "tests/team/test_invite_authority_postgres.py": 1

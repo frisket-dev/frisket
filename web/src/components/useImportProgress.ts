@@ -8,19 +8,20 @@ import {
 } from 'react';
 import {
   cancelImportSession,
+  estimateImportPreparationRetry,
   listImportSessions,
   resolveImportSession,
   resumeImportSession,
+  retryImportPreparation,
   snapshotImportFiles,
   uploadFilesToImportSession,
-  type ImportPreparationChild,
   type ImportSessionStatus,
-  type RunProgress,
+  type RunEstimate,
 } from '../api/open';
 import { usePoll } from '../hooks/usePoll';
+import { countLabel } from '../format';
 import type { SearchPreparationNotice } from './useSearchPreparationNotice';
 import {
-  abortImportSessionBrowserUpload,
   forgetImportSelection,
   importSessionSnapshot,
   isImportSessionBrowserUploading,
@@ -30,22 +31,20 @@ import {
   subscribeImportSessions,
 } from './importProgressSession';
 import { errorMessage } from '../hooks/errorMessage';
+import { ApiError } from '../api/contractErrors';
 
 const POLL_MS = 2_000;
 const ACTIVE_CHILD_STATES = new Set(['queued', 'running', 'stalled', 'orphaned']);
 
-function isPolling(session: ImportSessionStatus): boolean {
-  return ['admitting', 'running', 'paused', 'cancelling'].includes(session.state)
-    || session.preparation_completed < session.preparation_total
-    || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
+// Failed pages are settled: only a retry puts them back in the queue.
+function preparationIncomplete(session: ImportSessionStatus): boolean {
+  return session.preparation_completed + session.failed_pages < session.preparation_total;
 }
 
-function childRunStatus(status: string): RunProgress['status'] {
-  if (status === 'done' || status === 'complete' || status === 'completed') return 'complete';
-  if (status === 'failed' || status === 'partial') return 'failed';
-  if (status === 'cancelled') return 'cancelled';
-  if (status === 'running' || status === 'stalled' || status === 'orphaned') return status;
-  return 'queued';
+function isPolling(session: ImportSessionStatus): boolean {
+  return ['admitting', 'running', 'paused', 'cancelling'].includes(session.state)
+    || preparationIncomplete(session)
+    || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
 }
 
 export interface ImportActivityLine {
@@ -57,13 +56,46 @@ export interface ImportActivityLine {
   complete?: boolean;
 }
 
+/** Rows of an import's sheet whose page text is being read now or still
+ * waits, front first. The server bounds each list. */
+export interface ImportPageReading {
+  importRef: string;
+  sheetId: string;
+  readingRowIds: string[];
+  waitingRowIds: string[];
+}
+
 export interface ImportActivity {
   importRef: string;
   session: ImportSessionStatus;
   lines: ImportActivityLine[];
-  liveRun: RunProgress | null;
+  pageReading: ImportPageReading | null;
   needsRecovery: boolean;
   canStop: boolean;
+  canRetry: boolean;
+}
+
+/** Consent to one retry estimate, carried by value to the retry request. */
+export interface ImportRetryConsent {
+  importRef: string;
+  planToken: string;
+  confirmation: string;
+  estimate: RunEstimate;
+  pages: number;
+}
+
+/** The server refuses a retry of an undone import because its rows are gone;
+ * the person is told the import was undone. */
+async function retryOfLiveImport<T>(request: () => Promise<T>): Promise<T> {
+  try {
+    return await request();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409
+      && error.message.includes('rows are no longer available')) {
+      throw new Error('This import was undone', { cause: error });
+    }
+    throw error;
+  }
 }
 
 export function pendingImportRowCount(activity: ImportActivity | null): number {
@@ -86,28 +118,21 @@ export function preferredImportActivity(activities: ImportActivity[]): ImportAct
   const live = activities.find((activity) => (
     !['paused', 'cancelled'].includes(activity.session.state)
     && (['admitting', 'running', 'cancelling'].includes(activity.session.state)
-      || activity.liveRun !== null)
+      || activity.pageReading !== null)
   ));
   if (live) return live;
   return activities.find((activity) => !activity.needsRecovery) ?? activities[0] ?? null;
-}
-
-function activeChild(session: ImportSessionStatus): ImportPreparationChild | null {
-  const children = [...session.preparation_children].reverse();
-  return children.find((child) => child.run_id !== null && ACTIVE_CHILD_STATES.has(child.status))
-    ?? children.find((child) => child.run_id !== null && child.status === 'partial')
-    ?? null;
 }
 
 export function importActivity(session: ImportSessionStatus): ImportActivity | null {
   const selectedTotal = importRowTotal(session);
   const committedRows = selectedTotal === null
     ? session.committed_rows : Math.min(session.committed_rows, selectedTotal);
-  const preparationIncomplete = session.preparation_completed < session.preparation_total;
+  const preparationPending = preparationIncomplete(session);
   const active = ['admitting', 'running', 'paused', 'cancelling', 'cancelled'].includes(session.state)
     || (session.intake_kind === 'table' && ['completed', 'kept'].includes(session.state))
     || Boolean(session.error)
-    || preparationIncomplete
+    || preparationPending
     || session.preparation_children.some((child) => ACTIVE_CHILD_STATES.has(child.status));
   if (!active) return null;
 
@@ -144,9 +169,11 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
   });
   if (session.ocr_total > 0) {
     const ocrCompleted = Math.min(session.ocr_completed, session.ocr_total);
-    const ocrNeedsAttention = session.preparation_children.some((child) => (
-      child.action_id === 'media.ocr' && unsuccessful.has(child.status)
-    ));
+    const ocrNeedsAttention = session.failed_pages > 0
+      || session.preparation_children.some((child) => (
+        child.action_id === 'media.ocr' && unsuccessful.has(child.status)
+      ));
+    const ocrProgress = `${ocrCompleted.toLocaleString()} of ${session.ocr_total.toLocaleString()}`;
     lines.push({
       key: 'ocr',
       label: 'OCR',
@@ -154,39 +181,33 @@ export function importActivity(session: ImportSessionStatus): ImportActivity | n
       total: session.ocr_total,
       complete: ocrCompleted >= session.ocr_total && !ocrNeedsAttention,
       ...(ocrNeedsAttention ? {
-        detail: `${ocrCompleted.toLocaleString()} of ${session.ocr_total.toLocaleString()} · needs attention`,
+        detail: session.failed_pages > 0
+          ? `${ocrProgress} · ${countLabel(session.failed_pages, 'page')} not read`
+          : `${ocrProgress} · needs attention`,
       } : {}),
     });
   }
 
-  const child = activeChild(session);
-  const liveRun: RunProgress | null = child && session.sheet_id !== null ? {
-    runId: String(child.run_id),
-    actionKind: child.action_id,
-    actionName: child.action_id === 'media.ocr' ? 'OCR PDFs' : 'Read PDF text',
+  const pagesPending = session.reading_row_ids.length > 0 || session.waiting_row_ids.length > 0;
+  const pageReading: ImportPageReading | null = pagesPending && session.sheet_id !== null ? {
+    importRef: session.import_ref,
     sheetId: String(session.sheet_id),
-    targetColumnId: '',
-    targetRowIds: null,
-    status: childRunStatus(child.status),
-    completedRows: child.completed_rows,
-    totalRows: child.row_count,
-    failedRows: child.status === 'partial'
-      ? Math.max(child.row_count - child.completed_rows, 0)
-      : 0,
-    costSoFar: 0,
+    readingRowIds: session.reading_row_ids.map(String),
+    waitingRowIds: session.waiting_row_ids.map(String),
   } : null;
 
   return {
     importRef: session.import_ref,
     session,
     lines,
-    liveRun,
+    pageReading,
     needsRecovery: session.state === 'paused' || session.state === 'cancelled'
       || (!session.sealed
         && !isImportSessionBrowserUploading(session.import_ref)
         && !['cancelling', 'cancelled'].includes(session.state)),
     canStop: ['admitting', 'running', 'paused'].includes(session.state)
-      || preparationIncomplete,
+      || preparationPending,
+    canRetry: session.failed_pages > 0 && !pagesPending,
   };
 }
 
@@ -196,10 +217,14 @@ export interface ImportProgressController {
   message: string | null;
   busyRef: string | null;
   preparingRef: string | null;
+  retryConsent: ImportRetryConsent | null;
   resume(activity: ImportActivity): void;
   stop(activity: ImportActivity): Promise<void>;
   keep(activity: ImportActivity): void;
   remove(activity: ImportActivity): void;
+  retryFailedPages(activity: ImportActivity): void;
+  confirmRetry(consent: ImportRetryConsent): void;
+  cancelRetry(): void;
 }
 
 export interface ImportProgressChange {
@@ -225,6 +250,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
   const [busyRef, setBusyRef] = useState<string | null>(null);
   const [preparingRef, setPreparingRef] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [retryConsent, setRetryConsent] = useState<ImportRetryConsent | null>(null);
   const browserUploadVersion = useSyncExternalStore(
     subscribeImportSessions,
     importSessionSnapshot,
@@ -287,14 +313,16 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     guardOverlap: true,
   });
 
+  // A command resolving to null changed nothing on the server.
   const command = useCallback(async (
-    session: ImportSessionStatus,
-    run: () => Promise<ImportSessionStatus>,
+    importRef: string,
+    run: () => Promise<ImportSessionStatus | null>,
   ) => {
-    setBusyRef(session.import_ref);
+    setBusyRef(importRef);
     setMessage(null);
     try {
       const next = await run();
+      if (next === null) return;
       refreshGeneration.current += 1;
       if (previousRef.current) {
         const updated = new Map(previousRef.current);
@@ -353,7 +381,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
           return;
         }
         await continueUpload(session, files);
-        await command(session, () => resumeImportSession(projectId, session.import_ref));
+        await command(session.import_ref, () => resumeImportSession(projectId, session.import_ref));
       } finally {
         if (generation === preparationGeneration.current) {
           setPreparingRef((current) => current === session.import_ref ? null : current);
@@ -393,27 +421,60 @@ export function useImportProgress({ projectId, onChanged, onError }: {
     message,
     busyRef,
     preparingRef,
+    retryConsent,
     resume(activity) {
       if (!activity.session.sealed) {
         requestReselect(activity.session);
         return;
       }
-      void command(activity.session, () => resumeImportSession(projectId, activity.importRef));
+      void command(activity.importRef, () => resumeImportSession(projectId, activity.importRef));
     },
     stop(activity) {
-      abortImportSessionBrowserUpload(activity.importRef);
       if (preparingRef === activity.importRef) {
         preparationGeneration.current += 1;
         setPreparingRef(null);
       }
-      return command(activity.session, () => cancelImportSession(projectId, activity.importRef));
+      return command(activity.importRef, () => cancelImportSession(projectId, activity.importRef));
     },
     remove(activity) {
       if (activity.session.state !== 'cancelled') return;
-      void command(activity.session, () => resolveImportSession(projectId, activity.importRef, 'remove'));
+      void command(activity.importRef, () => resolveImportSession(projectId, activity.importRef, 'remove'));
+    },
+    retryFailedPages(activity) {
+      setRetryConsent(null);
+      const { importRef } = activity;
+      void command(importRef, async () => {
+        const estimated = await retryOfLiveImport(
+          () => estimateImportPreparationRetry(projectId, importRef),
+        );
+        if (!estimated.estimate.requires_confirmation) {
+          return retryOfLiveImport(
+            () => retryImportPreparation(projectId, importRef, estimated.planToken, null),
+          );
+        }
+        const confirmation = estimated.estimate.promise_set_hash;
+        if (!confirmation) throw new Error('The retry estimate is missing its consent token.');
+        setRetryConsent({
+          importRef,
+          planToken: estimated.planToken,
+          confirmation,
+          estimate: estimated.estimate,
+          pages: estimated.pages,
+        });
+        return null;
+      });
+    },
+    confirmRetry(consent) {
+      setRetryConsent(null);
+      void command(consent.importRef, () => retryOfLiveImport(() => retryImportPreparation(
+        projectId, consent.importRef, consent.planToken, consent.confirmation,
+      )));
+    },
+    cancelRetry() {
+      setRetryConsent(null);
     },
     keep(activity) {
-      void command(activity.session, () => (
+      void command(activity.importRef, () => (
         activity.session.state === 'cancelled'
           ? resolveImportSession(projectId, activity.importRef, 'keep')
           : cancelImportSession(projectId, activity.importRef).then((cancelled) => (
@@ -423,7 +484,7 @@ export function useImportProgress({ projectId, onChanged, onError }: {
           ))
       ));
     },
-  }), [activities, message, busyRef, preparingRef, command, requestReselect, projectId, refresh]);
+  }), [activities, message, busyRef, preparingRef, retryConsent, command, requestReselect, projectId, refresh]);
 }
 
 interface ImportSearchActivityLine {

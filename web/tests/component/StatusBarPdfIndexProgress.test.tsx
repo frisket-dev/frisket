@@ -48,8 +48,10 @@ function importSession(): ImportSessionStatus {
     ocr_completed: 0,
     ocr_total: 1,
     unreadable_total: 0,
-    preparation_pending_confirmation: null,
     preparation_children: [],
+    reading_row_ids: [],
+    waiting_row_ids: [],
+    failed_pages: 0,
   };
 }
 
@@ -123,13 +125,18 @@ describe('StatusBar PDF indexing progress', () => {
     expect(activity).not.toBeNull();
     const importProgress: ImportProgressController = {
       activities: [activity!],
+      refresh: vi.fn(async () => {}),
       message: null,
       busyRef: null,
       preparingRef: null,
+      retryConsent: null,
       resume: vi.fn(),
       stop: vi.fn(async () => {}),
       keep: vi.fn(),
       remove: vi.fn(),
+      retryFailedPages: vi.fn(),
+      confirmRetry: vi.fn(),
+      cancelRetry: vi.fn(),
     };
     view.rerender(statusBar(importProgress));
     fireEvent.click(screen.getByTestId('search-activity-toggle'));
