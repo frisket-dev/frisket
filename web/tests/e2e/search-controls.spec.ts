@@ -14,7 +14,8 @@ test('search panel exposes semantic mode + rerank and sends those params to sear
   await page.getByTestId('search-mode-select').selectOption('semantic');
   await page.getByTestId('search-rerank-toggle').check();
 
-  const searchRequest = page.waitForRequest((request) => {
+  const searchResponse = page.waitForResponse((response) => {
+    const request = response.request();
     if (request.method() !== 'POST') return false;
     const url = new URL(request.url());
     if (url.pathname !== `/api/projects/${pid}/search`) return false;
@@ -25,10 +26,21 @@ test('search panel exposes semantic mode + rerank and sends those params to sear
       && (body.query as { text?: string }).text === query;
   });
 
-  // A seeded query returns ranked hits with the new knobs engaged and visible in
-  // the wire request.
+  // The knobs are visible in the wire request. Rerank "on" requires the local
+  // reranker, which no setup step installs: without it the palette names the
+  // missing model instead of showing unreranked hits.
   await page.getByTestId('command-palette-input').fill(query);
-  await searchRequest;
+  const reranked = await searchResponse;
+  if (reranked.ok()) {
+    await expect(page.getByTestId('search-results')).toBeVisible();
+  } else {
+    expect(reranked.status()).toBe(422);
+    await expect(page.getByTestId('workbench-region-commandPalette'))
+      .toContainText('reranking model');
+  }
+
+  // Semantic mode without a required rerank returns ranked hits.
+  await page.getByTestId('search-rerank-toggle').uncheck();
   await expect(page.getByTestId('search-results')).toBeVisible();
   expect(await page.getByTestId('search-hit').count()).toBeGreaterThan(0);
 

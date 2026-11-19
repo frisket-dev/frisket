@@ -16,6 +16,7 @@ from frisket.contracts.http.project_search import (
     ProjectSearchRequest,
     ProjectSearchResponse,
 )
+from frisket.retrieval.query import RetrievalQueryError
 from frisket.server.routes.project_research import register_project_search_routes
 from frisket.server.services.selector_choices_capabilities import SelectorCapabilities
 
@@ -23,6 +24,7 @@ from frisket.server.services.selector_choices_capabilities import SelectorCapabi
 @dataclass
 class _SearchService:
     response: dict[str, object]
+    refusal: Exception | None = None
 
     def __post_init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -35,6 +37,8 @@ class _SearchService:
         offer_setup: bool | None = None,
     ) -> dict[str, object]:
         self.calls.append({"pid": pid, "request": request, "offer_setup": offer_setup})
+        if self.refusal is not None:
+            raise self.refusal
         return self.response
 
 
@@ -258,6 +262,24 @@ def test_project_search_route_preserves_typed_body_and_group_order() -> None:
     assert isinstance(request, ProjectSearchRequest)
     assert request.limit == 12
     assert service.calls[0]["offer_setup"] is True
+
+
+def test_a_query_the_project_cannot_serve_is_a_readable_refusal() -> None:
+    service = _SearchService(
+        _response(),
+        refusal=RetrievalQueryError(
+            "reranker_failed", "Could not load model Xenova/ms-marco-MiniLM-L-6-v2"
+        ),
+    )
+
+    response = TestClient(_app(service), raise_server_exceptions=False).post(
+        "/api/projects/project/search", json=_text_request()
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Could not load model Xenova/ms-marco-MiniLM-L-6-v2"
+    }
 
 
 def test_project_search_route_hides_setup_without_model_management_authority() -> None:

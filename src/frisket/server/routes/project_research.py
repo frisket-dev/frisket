@@ -20,7 +20,8 @@ from frisket.contracts.http.project_search import (
 )
 from frisket.contracts.http.run_provenance import ProvenanceManifest
 from frisket.server.paging import PageLimit100, PageOffset
-from frisket.server.route_errors import http_error_responses
+from frisket.retrieval.query import RetrievalQueryError
+from frisket.server.route_errors import http_error_responses, register_typed_error
 from frisket.server.services.project_backfill_activity import (
     ProjectBackfillActivityService,
 )
@@ -40,6 +41,11 @@ def register_project_search_routes(
     service: ProjectSearchService,
     capabilities_for: SelectorCapabilitiesFor,
 ) -> None:
+    # A query the project cannot serve as declared (a required reranker that
+    # is missing or fails, an embedding space this install lacks) is the
+    # request's problem to show, not a server fault.
+    register_typed_error(app, RetrievalQueryError, 422)
+
     @app.post(
         "/api/projects/{pid}/search",
         response_model=ProjectSearchResponse,

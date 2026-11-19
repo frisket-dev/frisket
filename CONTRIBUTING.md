@@ -390,6 +390,9 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   in the project's response cache (`scripts/e2e/prime_replies.py`). "Council
   audio" and "Tariff impacts" need one run with model keys and without
   `replay_strict` (about $0.25). Delete a project from the cache to rebuild it.
+- The entity specs run the pinned spaCy model; an environment that lacks it
+  shows Setup needed on the entity action. `python
+  scripts/e2e/fetch_spacy_model.py` installs it into Frisket's model cache.
 - A full run takes 50 to 80 minutes at the default two workers
   (`FRISKET_E2E_WORKERS`). Add `--reporter=line,json,./playwright/playwright.checklog-reporter.mjs`
   with `PLAYWRIGHT_JSON_OUTPUT_NAME=<file>` to judge it as below.
