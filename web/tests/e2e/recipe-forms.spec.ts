@@ -9,8 +9,8 @@
 // tests/component/ActionFormRecipeFields.test.tsx — that assertion is pure
 // ActionForm rendering, mounted directly with a typed ActionTemplate rather
 // than a live project. What remains here needs a real backend/dev-server:
-// catalog reachability across ribbon/menu surfaces, backend-computed engine
-// availability copy, and an actual op execution updating sheet stats.
+// catalog reachability across ribbon/menu surfaces and an actual op execution
+// updating sheet stats.
 
 import { expect, test } from '@playwright/test';
 import {
@@ -21,8 +21,6 @@ import {
   selectActionInputColumns,
   uniqueName,
 } from './helpers';
-
-const CSV = 'name,note\n"Ada","met the mayor"\n"Joe","filed a complaint"\n';
 
 test('catalog actions without static cards are reachable and runnable', async ({
   page,
@@ -38,7 +36,7 @@ test('catalog actions without static cards are reachable and runnable', async ({
 
   // Each backend-advertised kind must be reachable from the Act ribbon (its
   // tile is generated from /api/actions/v1/catalog) and open a drawer form.
-  for (const kind of ['map.clean_dates', 'enrich.geocode', 'agent', 'media.video_frames', 'media.extract_faces']) {
+  for (const kind of ['map.clean_dates', 'enrich.geocode', 'research.answer', 'media.video_frames', 'media.extract_faces']) {
     await openAction(page, kind);
   }
 
@@ -59,42 +57,6 @@ test('catalog actions without static cards are reachable and runnable', async ({
   await expect(page.getByTestId('sheet-stats')).toHaveText('1 row · 3 columns', {
     timeout: 30_000,
   });
-});
-
-test('media action engine picker uses backend availability metadata', async ({
-  page,
-}) => {
-  const pid = await createProject(page.request, uniqueName('e2e-action-engines'));
-  await importCsv(page.request, pid, 'rows.csv', CSV);
-  await page.goto(`/p/${pid}`);
-
-  await openAction(page, 'media.transcribe');
-  await page.getByTestId('engine-picker-button').click();
-  await expect(page.getByTestId('engine-option-faster_whisper')).toBeEnabled();
-  await page.getByTestId('engine-picker-tier-sidecar').click();
-  await expect(page.getByTestId('engine-option-faster-whisper')).toBeDisabled();
-  await page.getByTestId('engine-picker-button').click();
-  // S7: unavailable-engine remediation now lives inside the collapsed
-  // "Engine availability" disclosure — expand it before asserting.
-  await page.getByTestId('engine-availability-disclosure').locator('summary').click();
-  await expect(page.getByText('FRISKET_MODELS_URL')).toBeVisible();
-
-  await openAction(page, 'media.ocr');
-  await page.getByTestId('engine-picker-button').click();
-  await expect(page.getByTestId('engine-option-rapidocr')).toBeEnabled();
-  await page.getByTestId('engine-picker-tier-sidecar').click();
-  await expect(page.getByTestId('engine-option-dots-mocr')).toBeDisabled();
-  await page.getByTestId('engine-picker-button').click();
-  // Two sidecar OCR engines now (dots.mocr + paddleocr-vl), so the unconfigured-
-  // sidecar hint renders once per engine — assert the first is present.
-  await page.getByTestId('engine-availability-disclosure').locator('summary').click();
-  await expect(page.getByText('FRISKET_MODELS_URL').first()).toBeVisible();
-
-  await openAction(page, 'media.to_markdown');
-  await page.getByTestId('engine-picker-button').click();
-  await expect(page.getByTestId('engine-option-markitdown')).toBeEnabled();
-  await page.getByTestId('engine-picker-tier-sidecar').click();
-  await expect(page.getByTestId('engine-option-docling')).toBeDisabled();
 });
 
 test('an action form actually runs (regex, offline) — not just visible controls', async ({

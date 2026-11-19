@@ -33,7 +33,7 @@ test('deep link /p/{id} boots into the project', async ({ page }) => {
   await openProject(page, pid);
   await expect(page.getByTestId('grid')).toBeVisible();
   await expect(page.getByTestId('sheet-stats')).toHaveText(/8 rows/);
-  await expect(page.getByTestId('workbench-mainView-tabs').getByText('stories')).toBeVisible();
+  await expect(page.getByTestId('workbench-mainView-tabs').getByRole('tab', { name: /^stories/ })).toBeVisible();
 });
 
 test('project dropdown switches projects', async ({ page }) => {

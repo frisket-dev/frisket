@@ -38,6 +38,7 @@ from pathlib import Path
 
 from frisket.engine.store.evidence import record_citation, record_source_artifact, record_source_span
 from frisket.engine.store import Project
+from frisket.engine.store.media_blobs import MEDIA_ACQUISITION_NAMESPACE
 from frisket.engine.store.runs import RunResultStore
 from tests.helpers import write_claimed_test_results
 
@@ -88,7 +89,12 @@ try:
 
     media_bytes = base64.b64decode(media_b64)
     blob_metadata = ${blobMetadataPython}
-    blob_hash = project.add_blob(media_bytes, "hearing.wav", "audio/wav", metadata=blob_metadata or None)
+    blob_hash = project.add_blob(
+        media_bytes,
+        "hearing.wav",
+        "audio/wav",
+        metadata={MEDIA_ACQUISITION_NAMESPACE: blob_metadata} if blob_metadata else None,
+    )
 
     artifact = record_source_artifact(
         project,

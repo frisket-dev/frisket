@@ -31,40 +31,26 @@ const PANEL_ID = 'demo.selection_summary.panel.selection_summary';
 const PANEL_TEST_ID = 'workbench-contribution-demo-selection-summary-panel-selection-summary';
 const COMPONENT_KEY = 'trustedLocal.demoSelectionSummary.SelectionSummaryPanel';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const PLUGIN_MANIFEST = resolve(
-  ROOT,
-  'tests/fixtures/local_plugins/demo_selection_summary/plugin.json',
-);
+const PLUGIN_ROOT = resolve(ROOT, 'tests/fixtures/local_plugins/demo_selection_summary');
 
 async function activateSelectionSummaryPlugin(
   request: APIRequestContext,
   projectId: string,
 ): Promise<void> {
-  const load = await request.post(`/api/projects/${projectId}/actions/v1/run`, {
-    params: {
-    },
+  const installed = await request.post(`/api/projects/${projectId}/workbench/plugins/${PLUGIN_ID}/install-local`, {
     data: {
-      action_id: 'plugin.load',
-      scope: { kind: 'project' },
-      params: {
-        manifest: {
-          kind: 'local_file',
-          path: PLUGIN_MANIFEST,
-        },
-      },
-      idempotency_key: `plugin-selection-summary-panel@sha256:${Date.now()}`,
+      source: { kind: 'localPath', value: PLUGIN_ROOT },
+      arbitraryPackageLoadAllowed: false,
     },
   });
-  expect(load.ok()).toBeTruthy();
-  const loadResult = await load.json() as { status: string; receipt_id?: string };
-  expect(loadResult.status).toBe('completed');
-  expect(loadResult.receipt_id).toBeTruthy();
+  expect(installed.ok(), await installed.text()).toBeTruthy();
+  const installBody = await installed.json() as { receiptId: string };
 
   const activation = await request.post(
     `/api/projects/${projectId}/workbench/plugins/${PLUGIN_ID}/activate`,
     {
       data: {
-        receiptId: loadResult.receipt_id,
+        receiptId: installBody.receiptId,
         trustAcknowledged: true,
         permissionsAccepted: [],
         arbitraryPackageLoadAllowed: false,

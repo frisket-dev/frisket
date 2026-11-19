@@ -2,7 +2,7 @@
 // same import/source choices as the normal toolbar import surface.
 
 import { expect, test, type Page } from '@playwright/test';
-import { commitTableImport, createProject, listSheets, reviewTableColumns, openDiscoverTab, sheetData, uniqueName } from './helpers';
+import { commitTableImport, createProject, listSheets, reviewTableColumns, openDiscoverTab, uniqueName } from './helpers';
 
 function minimalPdf(text: string): Buffer {
   const content = `BT /F1 24 Tf 72 700 Td (${text}) Tj ET`;
@@ -113,7 +113,7 @@ test('empty project CSV drop opens preview and waits for confirmation', async ({
     .toBeTruthy();
 });
 
-test('empty project dropzone routes dropped PDF selections through file import, not CSV', async ({
+test('empty project dropzone routes dropped PDF selections into PDF review, not CSV', async ({
   page,
 }) => {
   const pid = await createProject(page.request, uniqueName('e2e-empty-pdf-drop'));
@@ -130,11 +130,10 @@ test('empty project dropzone routes dropped PDF selections through file import, 
   await page.goto(`/p/${pid}`);
   await expect(page.getByTestId('import-dropzone')).toBeVisible({ timeout: 15_000 });
 
-  const fileImportRequest = page.waitForRequest(
-    (request) =>
-      request.url().includes(`/api/projects/${pid}/import/files`) &&
-      request.method() === 'POST',
-    { timeout: 5_000 },
+  const draftCreated = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/projects/${pid}/import/pdf-imports` &&
+      response.request().method() === 'POST',
   );
   await dropFiles(page, '[data-testid="import-dropzone"]', [
     {
@@ -148,24 +147,9 @@ test('empty project dropzone routes dropped PDF selections through file import, 
       buffer: minimalPdf('Dropped PDF B'),
     },
   ]);
-  await fileImportRequest;
-
-  await expect
-    .poll(async () => (await listSheets(page.request, pid)).some((s) => s.name === 'files'), {
-      timeout: 15_000,
-    })
-    .toBeTruthy();
+  expect((await draftCreated).ok()).toBeTruthy();
+  await expect(page.getByTestId('pdf-batch-flow')).toBeVisible();
   expect(csvUploadRequests).toBe(0);
-
-  const filesSheet = (await listSheets(page.request, pid)).find((s) => s.name === 'files');
-  expect(filesSheet).toBeTruthy();
-  const data = await sheetData(page.request, pid, filesSheet!.id);
-  const filenameCol = data.columns.find((c) => c.name === 'filename');
-  expect(filenameCol).toBeTruthy();
-  expect(data.rows.map((row) => row.cells[String(filenameCol!.id)])).toEqual([
-    'notice-a.pdf',
-    'notice-b.pdf',
-  ]);
 });
 
 test('Feed source creation is discoverable from the primary import/start surface', async ({

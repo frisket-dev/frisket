@@ -1,9 +1,23 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { createProject, importCsv, uniqueName } from './helpers';
+
+async function createBudgetAlert(request: APIRequestContext, pid: string, sheetId: number) {
+  const view = await request.post(`/api/projects/${pid}/views`, { data: {
+    name: 'Budget watch',
+    selection: { scope: { kind: 'sheet', sheet_id: sheetId }, search: { text: 'budget' }, filters: [], order: [], limit: null },
+    presentation: { columns: null, column_groups: null },
+  } });
+  expect(view.ok()).toBeTruthy();
+  return request.post(`/api/projects/${pid}/watches`, { data: {
+    name: 'Budget watch',
+    view_id: (await view.json()).id,
+    detection_policy: { kind: 'conditions', entered: true, exited: false, count_changed: false, fields: [] },
+  } });
+}
 
 test('notification settings manages channels routes digests and delivery health', async ({ page }) => {
   const pid = await createProject(page.request, uniqueName('e2e-notification-settings'));
-  await importCsv(
+  const sheetId = await importCsv(
     page.request,
     pid,
     'settings.csv',
@@ -11,13 +25,7 @@ test('notification settings manages channels routes digests and delivery health'
       'Budget hearing,open,The council discussed budget oversight.\n' +
       'Budget audit,open,Auditors found budget variances.\n',
   );
-  const alertResponse = await page.request.post(`/api/projects/${pid}/watches`, {
-    data: {
-      name: 'Budget watch',
-      scope: { kind: 'project' },
-      query: { kind: 'fts', q: 'budget', limit: 10 },
-    },
-  });
+  const alertResponse = await createBudgetAlert(page.request, pid, sheetId);
   expect(alertResponse.ok()).toBeTruthy();
   const alert = await alertResponse.json();
 
