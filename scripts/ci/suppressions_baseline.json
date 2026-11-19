@@ -14,9 +14,7 @@
   "web/src/workspace/useReplayReviewController.tsx": 1,
   "web/tests/component/workspaceStoresProviderLease.test.tsx": 1
  },
- "js-skip-debt": {
-  "web/tests/e2e/make-searchable.spec.ts": 1
- },
+ "js-skip-debt": {},
  "js-test-todo": {},
  "py-fmt-off": {
   "scripts/ci/check_dead_symbols.py": 4
@@ -68,7 +66,7 @@
   "src/frisket/engine/jobs/worker.py": 3,
   "src/frisket/engine/pdf_page_source.py": 1,
   "src/frisket/engine/recovery/postgres_backup.py": 1,
-  "src/frisket/engine/runner/map_runner.py": 2,
+  "src/frisket/engine/runner/map_runner.py": 1,
   "src/frisket/engine/runner/pdf_inputs.py": 1,
   "src/frisket/engine/runner/validation.py": 1,
   "src/frisket/engine/store/grounding_contract.py": 1,
@@ -127,7 +125,6 @@
   "src/frisket/server/services/action_runs.py": 3,
   "src/frisket/server/services/column_types.py": 1,
   "src/frisket/server/services/models_gateway.py": 2,
-  "src/frisket/server/services/pdf_import_commit.py": 1,
   "src/frisket/server/services/previews.py": 3,
   "src/frisket/server/services/project_debug.py": 3,
   "src/frisket/server/services/project_exports.py": 2,
@@ -352,7 +349,6 @@
   "tests/ops/test_translate_closure_fences.py": 1,
   "tests/ops/test_translate_hosted_engines.py": 1,
   "tests/preview/test_preview_billable_closure.py": 2,
-  "tests/server/test_document_priority.py": 1,
   "tests/server/test_project_qa_child_runs.py": 1,
   "tests/server/test_sidecar_integration.py": 1,
   "tests/team/test_invite_authority_postgres.py": 1
@@ -393,7 +389,6 @@
   "src/frisket/engine/runner/preview.py": 1,
   "src/frisket/engine/store/import_sessions.py": 1,
   "src/frisket/engine/store/op_log.py": 1,
-  "src/frisket/engine/store/passage_align.py": 3,
   "src/frisket/engine/store/table_import_intake.py": 4,
   "src/frisket/execution/definitions.py": 5,
   "src/frisket/notifications/candidates.py": 1,
@@ -631,9 +626,6 @@
   "web/tests/e2e/new-columns-scroll-annotation.spec.ts": 1,
   "web/tests/e2e/run-detail-full-params.spec.ts": 3,
   "web/tests/e2e/run-live-cell-fill.spec.ts": 3,
-  "web/tests/e2e/search.spec.ts": 1,
-  "web/tests/e2e/settings-billing-token-polish.spec.ts": 3,
-  "web/tests/e2e/substrate-render-counts.spec.ts": 2,
   "web/tests/e2e/workbench-ia-tokens.spec.ts": 3,
   "web/tests/support/domPolyfills.ts": 1,
   "web/tests/unit/actionCompareSession.test.ts": 16,
