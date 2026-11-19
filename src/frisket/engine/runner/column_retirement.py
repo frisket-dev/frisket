@@ -69,7 +69,7 @@ def retirement_owns_column(
         "interview" hide output "transcript"'s detected_language; F2).
     A different action's run, a different output's run, a dangling pointer,
     or an unknowable action/output is never ours to hide. Attribution reads
-    the run's canonical action_kind column (post recipe-kind-cutover), never
+    the run's canonical action_kind column, never
     the retained-but-unread legacy id column. Names compare case-folded so a
     rerun that re-cases the output still matches its own columns (F7)."""
     low_name = name.strip().lower()
@@ -138,7 +138,7 @@ def retire_dropped_generated_columns(
 ) -> list[int]:
     """The one output-retirement mechanism.
 
-    The RECIPE declares which output-column names a prior configuration of
+    The PROGRAM declares which output-column names a prior configuration of
     this output emitted but the current run no longer does
     (``program.retired_output_names(spec)`` — transcribe's detected_language
     when the engine can't detect; clean_column's _confidence/_justification
@@ -147,7 +147,7 @@ def retire_dropped_generated_columns(
     current output set, mark it hide-by-default (values preserved, just out
     of the way; ``set_column_default_hidden`` — the same API the retirement path
     used) and record the retirement on the op's undo_info as the durable
-    provenance note. No per-recipe knowledge lives here. Fresh runs only
+    provenance note. No per-program knowledge lives here. Fresh runs only
     (a resume never changes its output set). ``commit=False`` lets an
     atomic-family preparation own the surrounding savepoint.
     """
@@ -156,7 +156,7 @@ def retire_dropped_generated_columns(
         return []
     output_name = spec.get("output_name")
     # This run's canonical action kind, resolved exactly as start_run stamps
-    # it (spec's action_kind, else the recipe's canonical kind) so the
+    # it (spec's action_kind, else the program's canonical kind) so the
     # ownership match reads the same identity that was persisted.
     this_action_kind = spec_action_kind(spec)
     if not this_action_kind:
@@ -169,7 +169,7 @@ def retire_dropped_generated_columns(
             and not column["default_hidden"]
             # OWNERSHIP: retire a declared name ONLY when the column is
             # this OUTPUT's to retire — an unattributed (NULL run) legacy
-            # leftover, or a column a PRIOR run of THIS recipe AND output
+            # leftover, or a column a PRIOR run of THIS program AND output
             # produced. A column whose run belongs to a different action
             # (classify's score_confidence that clean_column overwrote
             # its `score` onto) or a different output of the same action

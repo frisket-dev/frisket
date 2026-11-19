@@ -50,7 +50,7 @@ CAPABILITY_OCR = "ocr"
 #: fact's ``capability`` column already carries for that work — read off the
 #: producing call sites (``sdk/ops/translate.py``, ``sdk/ops/to_markdown.py``
 #: and ``ops/integrations/datalab.py``, ``sdk/ops/geocode.py``,
-#: ``sdk/ops/census_demographics.py``), not invented to match the recipe or
+#: ``sdk/ops/census_demographics.py``), not invented to match the program or
 #: module name. That is the rule stated at the top of this block, applied:
 #: ``document.convert`` and ``census_demographics`` read oddly next to the
 #: constant names, and minting the tidier ``to_markdown``/``census`` would have

@@ -358,7 +358,7 @@ class ActionPreviewService:
             # before their quote is bound into the promise-set hash.  The
             # remaining (unrouted) families still arrive here as provider
             # facts and use the same rating seat once.  Detect the producer
-            # shape, rather than the recipe marker: a routed resolution can
+            # shape, rather than the program marker: a routed resolution can
             # honestly refuse and fall back to an unrated UNKNOWN estimate.
             if POLICY_ID_KEY not in estimate or BILLED_COST_KEY not in estimate:
                 estimate = confirmation_estimate(

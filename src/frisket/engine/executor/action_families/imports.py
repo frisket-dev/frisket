@@ -373,7 +373,7 @@ def _import_rows_receipt(
             ),
         ),
     ]
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(
             ref=_compact_import_rowset_ref(
                 sheet_id=sheet_id, row_ids=row_ids, op_id=op_id
@@ -416,14 +416,14 @@ def _import_rows_receipt(
             source_ref["transport"] = "file"
             source_ref.setdefault("importer", "ndjson")
             source_kind = "ndjson"
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={"kind": "import_source", "source_kind": source_kind, **source_ref}
             )
         )
     if row_ids and column_ids:
         first_name = next(iter(column_ids))
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": "source_cell",
@@ -450,7 +450,7 @@ def _import_rows_receipt(
             )
         ],
         outputs=outputs,
-        evidence=evidence,
+        evidence=supporting_records,
     )
 
 

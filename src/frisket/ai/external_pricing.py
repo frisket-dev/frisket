@@ -2,7 +2,7 @@
 
 LLM/model pricing lives in ``frisket.llm.pricing`` because it is generated
 from LiteLLM's model table. This module owns non-LLM service prices that are
-otherwise easy to duplicate between recipes, frontend copy, and diagnostics.
+otherwise easy to duplicate between action programs, frontend copy, and diagnostics.
 """
 
 from __future__ import annotations

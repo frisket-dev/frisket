@@ -4,7 +4,7 @@ The protocol keeps one target inventory and separates static selection from
 liveness: enumerate code/registry-owned target rows; report configuration
 presence and payer/venue rank without probing; then deref secret connection
 material + liveness for ONE selected target by id. ``resolve``
-(execution/resolver.py) is pure over this protocol. Recipes and dispatch
+(execution/resolver.py) is pure over this protocol. Programs and dispatch
 receive a provider via deps/ctx and never import an implementation directly.
 
 One OPTIONAL duck-typed enrichment exists beyond the port (a provider MAY

@@ -270,7 +270,7 @@ def test_managed_recovery_pins_recipe_name_and_version() -> None:
     )
     with pytest.raises(
         GenerationStateError,
-        match="recipe identity changed before recovery",
+        match="action identity changed before recovery",
     ):
         _validate_managed_program_identity(
             run_id=7,

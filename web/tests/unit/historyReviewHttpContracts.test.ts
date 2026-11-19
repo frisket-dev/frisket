@@ -993,7 +993,7 @@ describe('history and review mutations owned by the domain', () => {
       [{ result: actionResult(`operation.${direction}`, 'completed') }],
     );
     const api = historyReviewDomain('selective-project');
-    const command = direction === 'revert' ? api.revertOperation : api.restoreOperation;
+    const command = direction === 'revert' ? api.revertChange : api.restoreChange;
     await expect(command('12')).resolves.toMatchObject({ cursorIndex: 9 });
     expect(exchange.calls()).toEqual([
       ['/api/projects/selective-project/actions/v1/run', 'POST'],
@@ -1004,13 +1004,13 @@ describe('history and review mutations owned by the domain', () => {
 
   it('surfaces a selective Restore conflict instead of silently walking history', async () => {
     const exchange = stubHistoryAndPosts([], [{ result: actionResult('operation.restore', 'failed', [{ code: 'restore_conflict', message: 'Column summary already exists' }]) }]);
-    await expect(historyReviewDomain('conflict').restoreOperation('12')).rejects.toMatchObject({ message: 'Column summary already exists' });
+    await expect(historyReviewDomain('conflict').restoreChange('12')).rejects.toMatchObject({ message: 'Column summary already exists' });
     expect(exchange.calls()).toHaveLength(1);
   });
 
   it('refuses invalid selective operation ids before posting', async () => {
     const exchange = stubHistoryAndPosts([], []);
-    await expect(historyReviewDomain('invalid').revertOperation('0')).rejects.toMatchObject({ status: 400 });
+    await expect(historyReviewDomain('invalid').revertChange('0')).rejects.toMatchObject({ status: 400 });
     expect(exchange.calls()).toEqual([]);
   });
 

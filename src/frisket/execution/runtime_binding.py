@@ -128,7 +128,7 @@ def pre_dispatch_refusal_markers(exc: BaseException) -> tuple[str, str]:
     return code, str(reason)
 
 
-# Transient key a route-bound fact dict carries from the recipe to the fact
+# Transient key a route-bound fact dict carries from the program to the fact
 # writer; ``write_model_calls`` pops it, runs the observation point, and
 # stamps the returned ``epoch_id`` — it is never a stored column.
 ROUTE_OBSERVATION_KEY = "_route_observation"
@@ -181,7 +181,7 @@ _TRANSPORT_PROVIDER_KIND = {
     "frisket.cloud.media.v1": "platform_api",
     "frisket.cloud.llm.v1": "platform_api",
     # Third-party wires. Registered with the rest of the capability set and
-    # inert until a recipe routes: every one of them is somebody else's HTTP
+    # inert until a program routes: every one of them is somebody else's HTTP
     # API reached over the operator's own key, which is what platform_api
     # already names. The alternative was a documented deferral, and a deferral
     # is a promise that a future lane remembers to enumerate these — the

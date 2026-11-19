@@ -292,7 +292,7 @@ def project_run_status_payload(
             payload["work_progress"] = work_progress
     if preparation := _run_preparation_hint(row, public_status):
         payload["preparation"] = preparation
-    # A typed recipe/session halt (e.g. Parakeet's local_artifact_unavailable)
+    # A typed program/session halt (e.g. Parakeet's local_artifact_unavailable)
     # finalizes as a RESUMABLE 'cancelled' by design, but the reason lives only
     # in the run params — so the run reads as an indistinguishable bare
     # "cancelled". Surface it so the UI can say WHY it stopped and that a retry
@@ -454,7 +454,7 @@ def _run_has_no_progress(row: Any) -> bool:
 
 def _run_halt(row: Any) -> tuple[str | None, str | None]:
     """The typed halt (code, reason) stored in a run's params on a
-    recipe/session-halted cancel, or (None, None). Stored in params rather
+    program/session-halted cancel, or (None, None). Stored in params rather
     than a dedicated column (finalization.py), so it is parsed lazily here."""
     try:
         params = json.loads(row["params"] or "{}")

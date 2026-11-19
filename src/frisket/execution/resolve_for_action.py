@@ -1,11 +1,11 @@
 """Single resolution per action invocation plus route/consent persistence.
 
 ``resolve_for_action`` is the capability-dispatch seam ``validate_spec``
-calls EXACTLY ONCE per action invocation: for a resolution-aware recipe
+calls EXACTLY ONCE per action invocation: for a resolution-aware program
 (markers ``consumes_resolution = True`` + ``execution_capability``) it maps
 the request to its one target,
 builds the estimate/cost basis, compiles the promise set, and returns an
-invocation-scoped ``ResolvedExecution``; for every other recipe it returns
+invocation-scoped ``ResolvedExecution``; for every other program it returns
 ``None`` and the action proceeds exactly as today. Estimate, the claims gate,
 and route persistence all consume THAT object; nothing downstream re-resolves.
 
@@ -233,9 +233,9 @@ def authored_options(
     ``options_json`` + ``ResolutionRequest.options``).
 
     ``capability`` defaults to transcription for the three dispatch-side
-    callers that are transcription BY CONSTRUCTION (the transcribe recipe's
+    callers that are transcription BY CONSTRUCTION (the transcribe program's
     own transport preference, the network policy's transcribe branch); every
-    resolution-time caller passes the recipe's declared capability.
+    resolution-time caller passes the program's declared capability.
     """
     keys = _CAPABILITY_OPTION_KEYS.get(capability)
     if keys is None:
@@ -904,7 +904,7 @@ def resolve_for_action(
 ) -> ResolvedExecution | Refusal | None:
     """Resolve one action invocation through the execution seam.
 
-    Returns ``None`` for recipes that do not consume resolution (they
+    Returns ``None`` for programs that do not consume resolution (they
     proceed exactly as today), a ``Refusal`` for an honest inability (the
     caller maps it to an actionable validation error), or a
     ``ResolvedExecution`` carrying resolution + estimate basis + compiled
@@ -919,15 +919,15 @@ def resolve_for_action(
         if not isinstance(model, str) or not model.strip():
             return None
         llm_route_check = True
-    # The recipe declares which capability it resolves for. Read as an
+    # The program declares which capability it resolves for. Read as an
     # attribute, not with a getattr default, for the same reason
-    # ``consumes_resolution`` is: a recipe that consumes resolution without
+    # ``consumes_resolution`` is: a program that consumes resolution without
     # saying what kind of work it is must fail loudly here, never resolve as
     # transcription by accident.
     capability = CAPABILITY_LLM if llm_route_check else program.execution_capability
     if capability != CAPABILITY_LLM and capability not in _CAPABILITY_COST_BASIS:
         raise ValueError(
-            f"recipe '{getattr(program, 'name', program)}' declares "
+            f"action program '{getattr(program, 'name', program)}' declares "
             f"execution_capability={capability!r}, which no execution-seam "
             "capability serves"
         )
@@ -989,7 +989,7 @@ def resolve_for_action(
                 and canonical_engine is not None
             ):
                 # Even a provider that supplies no rows at all cannot turn a
-                # known platform-world engine into the recipe's unrouted local
+                # known platform-world engine into the program's unrouted local
                 # or provider-direct quote.  Unknown authored symbols retain
                 # their ordinary invalid-engine refusal semantics.
                 outcome = replace(outcome, estimate_absent=True)
@@ -1195,7 +1195,7 @@ def resolve_geocode_engine(
     ``GEOCODE_ENGINE_TABLE`` (see its docstring: declaring it there would
     resolve an unkeyed deployment onto a venue it cannot reach, or silently
     decline a configured key). Resolved HERE, before the seam is ever asked,
-    via the exact check ``GeocodeRecipe._resolve_engine`` performs, so
+    via the exact check the geocode program's engine resolution performs, so
     routing can never choose a different provider than a direct call would
     for the same configuration. An authored ``"opencage"``/``"nominatim"``
     passes through unchanged — an explicit request for a venue with no key
@@ -1234,7 +1234,7 @@ def _default_engine(capability: str) -> str:
 
         return DEFAULT_DOCUMENT_ENGINE
     if capability == CAPABILITY_TRANSLATE:
-        # NOT ``TranslateRecipe``'s own default: that is "llm", which this
+        # NOT the translate program's own default: that is "llm", which this
         # capability deliberately does not serve (see TRANSLATE_ENGINE_TABLE).
         # The default here is the first LOCAL build, so a translate spec that
         # names no engine resolves to the free on-box path rather than

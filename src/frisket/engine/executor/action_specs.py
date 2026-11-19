@@ -258,7 +258,7 @@ ACCEPTED_EXECUTION_OUTLIERS: Mapping[str, str] = MappingProxyType({})
 # is guaranteed to carry run/attempt/epoch coordinates. RUNLESS means facts may
 # legitimately omit those coordinates; it does not say whether a provider is
 # called. CI requires these first-party execution-metadata declarations to
-# partition the typed registry's action IDs; runtime-extensible recipe
+# partition the typed registry's action IDs; runtime-extensible program
 # registrations are a separate domain.
 _RUNLESS_ACTION_KINDS: frozenset[str] = frozenset(
     {
@@ -397,7 +397,7 @@ _QUEUED_ACTION_JOB_KINDS: frozenset[str] = frozenset(
 # justification (local + bounded + no network/model + synchronous request/
 # response semantics). CI contract tests require the inline, queued, and
 # outlier execution-metadata sets to partition the typed registry exactly;
-# runtime-extensible recipes are outside this inventory.
+# runtime-extensible programs are outside this inventory.
 _INLINE_KINDS: Mapping[str, str] = MappingProxyType(
     {
         "import.append_csv": "Bounded local CSV append publishes rows and its receipt in-request.",

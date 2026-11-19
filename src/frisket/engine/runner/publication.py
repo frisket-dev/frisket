@@ -15,7 +15,7 @@ PUBLISH_ERROR = "publish_error"
 
 @dataclass(frozen=True)
 class PreparedRowPublication:
-    """Typed cells which bypass the legacy recipe dictionary convention."""
+    """Typed cells which bypass the legacy program dictionary convention."""
 
     trace_data: dict[str, Any]
     cells: dict[str, dict[str, Any]]
@@ -68,7 +68,7 @@ def required_publication_fields(
     """Return fields whose omission is a producer contract violation.
 
     A sole declared output is total by default. Atomic output families declare
-    sibling attemptedness as a group. Other multi-output recipes opt fields in
+    sibling attemptedness as a group. Other multi-output programs opt fields in
     explicitly; an absent independent field remains unattempted and therefore
     must not overwrite an older head.
     """

@@ -143,8 +143,8 @@ def missing_model_key_error_for_request(
     (committed-cache replay tests, and any real re-run of
     fully-cached rows) that the whole test suite depends on. Cheaply proving
     every TARGET ROW of THIS specific request is a cache hit before
-    reservation would mean duplicating each recipe's request-rendering logic
-    at this generic, recipe-agnostic seam — not a cheap, honest thing to do
+    reservation would mean duplicating each program's request-rendering logic
+    at this generic, program-agnostic seam — not a cheap, honest thing to do
     here. Mirroring MapRunner._validate_spec's own MissingProviderKey
     pre-flight in ``runner/map_runner.py``, this gate uses the explicit
     fallback: gate on key absence, with cache-can-

@@ -102,16 +102,16 @@ def complete_extraction(
                 if item is not None
             ]
             raw_citations = raw.get("evidence")
-            evidence = raw_citations if isinstance(raw_citations, list) else []
+            citations = raw_citations if isinstance(raw_citations, list) else []
             entries = (
                 (
                     (index, entry)
-                    for index, group in enumerate(evidence)
+                    for index, group in enumerate(citations)
                     if isinstance(group, list)
                     for entry in group
                 )
                 if field.schema.get("type") == "array"
-                else ((None, entry) for entry in evidence)
+                else ((None, entry) for entry in citations)
             )
             for index, entry in entries:
                 claim = _citation_claim(entry, item_index=index)

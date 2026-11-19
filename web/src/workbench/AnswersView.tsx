@@ -235,7 +235,7 @@ export function AnswersView({
   // synchronously-readable snapshot, so there is no ordering between two effects
   // to get wrong. The key is `${sheet.id}:${chosenColumn.id}:${rowIds}`.
   const rowIds = useMemo(() => list.rows.map((row) => row.id), [list.rows]);
-  const evidence = useColumnCitations(sheet.id, chosenColumn?.id ?? null, rowIds, projectApi);
+  const citations = useColumnCitations(sheet.id, chosenColumn?.id ?? null, rowIds, projectApi);
 
   // The default docked link ("the active row's first cited cell's first
   // link") is a PURE render-time derivation of the resource's current
@@ -244,9 +244,9 @@ export function AnswersView({
   // the batch is still pending so we never default off an empty-but-settled
   // snapshot.
   const defaultLinkId = useMemo(() => {
-    if (!activeRowId || evidence.status === 'pending') return null;
-    return evidence.byRow[activeRowId]?.[0]?.stable_id ?? null;
-  }, [activeRowId, evidence]);
+    if (!activeRowId || citations.status === 'pending') return null;
+    return citations.byRow[activeRowId]?.[0]?.stable_id ?? null;
+  }, [activeRowId, citations]);
 
   // The user's explicit docked-pane interaction, scoped to the (column, row)
   // context it was made in. A chip click sets a link; closing the pane sets
@@ -287,7 +287,7 @@ export function AnswersView({
     () => (activeRowId ? list.rows.find((row) => row.id === activeRowId) ?? null : null),
     [list.rows, activeRowId],
   );
-  const activeLinks = activeRowId ? evidence.byRow[activeRowId] ?? [] : [];
+  const activeLinks = activeRowId ? citations.byRow[activeRowId] ?? [] : [];
   const activeLink = activeLinks.find((link) => link.stable_id === effectiveLinkId) ?? null;
   const activeValue = chosenColumn && activeRow ? activeRow.cells[chosenColumn.id] : null;
 

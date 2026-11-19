@@ -15,7 +15,7 @@ four spellings of "auto" as four different requests.
 
 This module is deliberately dependency-light (only the contract base) so the
 contract-validation layer, the launcher-safe catalog-hints projection, and the
-ops recipe can all import it without pulling heavy runtime deps.
+ops program can all import it without pulling heavy runtime deps.
 """
 
 from __future__ import annotations

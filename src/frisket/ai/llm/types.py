@@ -107,7 +107,7 @@ class LLMRequest:
         ONE of schema/tools is set per request: a schema call is the completer's
         single-shot structured output; a tools call is FrisketRouterModel's
         function-tool dispatch for a pydantic-ai Agent
-        (sdk/ops/research_answer.py's AgentRecipe).
+        (the research-answer agent program).
     """
 
     model: str

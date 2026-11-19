@@ -385,10 +385,10 @@ def entity_effect_replay_error(project, receipt):
                 message="Exported package bytes changed.",
                 action_kind=receipt.action_kind,
             )
-    for evidence in receipt.evidence:
-        if evidence.ref.get("kind") != "entity_dataset_import":
+    for supporting_record in receipt.evidence:
+        if supporting_record.ref.get("kind") != "entity_dataset_import":
             continue
-        dataset = evidence.ref["dataset"]
+        dataset = supporting_record.ref["dataset"]
         if project.db.execute(
             "SELECT 1 FROM ops WHERE id=? AND status='applied'", (dataset["op_id"],)
         ).fetchone() is None or any(

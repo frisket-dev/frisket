@@ -266,7 +266,7 @@ class _MapTerminalPolicy:
 
 
 class _TypedMapRowsProgram(ActionProgram):
-    """Generic Recipe protocol adapter; never registered or action-specific."""
+    """Generic Program protocol adapter; never registered or action-specific."""
 
     consumes_resolution = False
     cost_class = "free"
@@ -3189,7 +3189,7 @@ def _typed_receipt(
         if model_backed
         else dict(plan.request_identity)
     )
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(
             ref={
                 "kind": "typed_action_request",
@@ -3219,13 +3219,13 @@ def _typed_receipt(
             }
         ),
     ]
-    evidence.extend(route_evidence)
+    supporting_records.extend(route_evidence)
     if Translator in getattr(plan.action.definition.run, "capabilities", ()):
         from frisket.engine.store.receipts import ReceiptStore
 
         observed = ReceiptStore(project).parsed_by_id(receipt_id)
         if observed is not None:
-            evidence.extend(
+            supporting_records.extend(
                 item
                 for item in observed.evidence
                 if item.ref.get("kind") == "map_translate_artifact"
@@ -3236,7 +3236,7 @@ def _typed_receipt(
 
         observed = ReceiptStore(project).parsed_by_id(receipt_id)
         if observed is not None:
-            evidence.extend(
+            supporting_records.extend(
                 item
                 for item in observed.evidence
                 if item.ref.get("kind") == "map_extract_grounding_links"
@@ -3250,7 +3250,7 @@ def _typed_receipt(
 
         observed = ReceiptStore(project).parsed_by_id(receipt_id)
         if observed is not None:
-            evidence.extend(
+            supporting_records.extend(
                 item
                 for item in observed.evidence
                 if item.ref.get("kind")
@@ -3280,7 +3280,7 @@ def _typed_receipt(
             if observed is not None
             else []
         )
-        evidence.extend(recorded)
+        supporting_records.extend(recorded)
         grouped: dict[str, dict[str, Any]] = {}
         for item in recorded:
             if item.ref["kind"] == "document_convert_read":
@@ -3348,7 +3348,7 @@ def _typed_receipt(
 
         observed = ReceiptStore(project).parsed_by_id(receipt_id)
         if observed is not None:
-            evidence.extend(
+            supporting_records.extend(
                 item
                 for item in observed.evidence
                 if item.ref.get("kind") == "map_python_code"
@@ -3371,7 +3371,7 @@ def _typed_receipt(
             if observed is not None
             else []
         )
-        evidence.extend(recorded)
+        supporting_records.extend(recorded)
         provider_use = [
             item
             for item in provider_use
@@ -3419,7 +3419,7 @@ def _typed_receipt(
             if observed is not None
             else []
         )
-        evidence.extend(recorded)
+        supporting_records.extend(recorded)
         provider_use = [
             item
             for item in provider_use
@@ -3443,7 +3443,7 @@ def _typed_receipt(
             if observed is not None
             else []
         )
-        evidence.extend(recorded)
+        supporting_records.extend(recorded)
         provider_use = (
             [
                 {
@@ -3464,7 +3464,7 @@ def _typed_receipt(
             else []
         )
     if model_backed:
-        evidence.insert(
+        supporting_records.insert(
             1,
             ReceiptEvidence(
                 ref={
@@ -3491,7 +3491,7 @@ def _typed_receipt(
         guidelines = str(
             plan.request_identity.get("params", {}).get(evaluation.guidelines_param, "")
         )
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": "map_judge_guidelines",
@@ -3513,7 +3513,7 @@ def _typed_receipt(
         inputs=inputs,
         output_refs=output_refs,
         provider_use=provider_use,
-        evidence=evidence,
+        evidence=supporting_records,
         errors=errors,
         named_result_refs=named_result_refs,
     )

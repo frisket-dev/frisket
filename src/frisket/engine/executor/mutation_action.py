@@ -1315,7 +1315,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name=returned.column_name, ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "column_format_transition",
@@ -1353,7 +1353,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name=returned.name, ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "added_column",
@@ -1386,7 +1386,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name="added_rows", ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "added_row",
@@ -1437,7 +1437,7 @@ def _result_and_receipt(
         if returned.source:
             inputs.append(ReceiptIO(name="import_source", ref=dict(returned.source)))
         outputs = [ReceiptIO(name="appended_rows", ref=ref)]
-        evidence = [ReceiptEvidence(ref=ref, retention="pinned")]
+        supporting_records = [ReceiptEvidence(ref=ref, retention="pinned")]
     elif isinstance(returned, UpdatedImportedRows):
         plan = capability._plan
         ref = {
@@ -1467,7 +1467,7 @@ def _result_and_receipt(
         if returned.source:
             inputs.append(ReceiptIO(name="import_source", ref=dict(returned.source)))
         outputs = [ReceiptIO(name="updated_rows", ref=ref)]
-        evidence = [ReceiptEvidence(ref=ref, retention="pinned")]
+        supporting_records = [ReceiptEvidence(ref=ref, retention="pinned")]
     elif isinstance(returned, DeletedRows):
         ref = {
             "kind": "deleted_rows",
@@ -1491,7 +1491,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name="deleted_rows", ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "deleted_row",
@@ -1537,7 +1537,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name=returned.column_name, ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "column_type_transition",
@@ -1598,7 +1598,7 @@ def _result_and_receipt(
             )
         ]
         outputs = [ReceiptIO(name="manual_edits", ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(ref=dict(edit_ref), retention="pinned")
             for edit_ref in capability._edit_refs
         ]
@@ -1688,7 +1688,7 @@ def _result_and_receipt(
             ReceiptIO(name="target_cells", ref=target_ref),
         ]
         outputs = [ReceiptIO(name="query_manual_edits", ref=ref)]
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(ref=rowset_ref, retention="pinned"),
             *(
                 ReceiptEvidence(ref=dict(edit_ref), retention="pinned")
@@ -1716,7 +1716,7 @@ def _result_and_receipt(
         inputs=inputs,
         outputs=outputs,
         provider_use=provider_use,
-        evidence=evidence,
+        evidence=supporting_records,
     )
     result = ActionResult(
         action=ActionIdentity(kind=action.kind, action_id=action_id),

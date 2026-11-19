@@ -123,8 +123,8 @@ class ResolutionRequest:
     canonicalizes the engine symbol, and which target engine ROWS are
     candidates at all. It keeps the transcription default because
     ``resolve_for_action`` — the one production constructor — reads it off the
-    recipe's own declaration, so a capability that forgets to declare fails at
-    the recipe, not silently here.
+    program's own declaration, so a capability that forgets to declare fails at
+    the program, not silently here.
 
     The real quantity is patched onto ``Resolution.estimate_basis`` after
     resolution because it needs the chosen venue's cost basis.

@@ -806,13 +806,15 @@ def _review_result_and_receipt(
         "decision": returned.decision,
         "op_id": returned.op_id,
     }
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(ref=target_ref, retention="pinned"),
         ReceiptEvidence(ref=state_ref, retention="pinned"),
     ]
     outputs = [ReceiptIO(name="decision", ref=review_ref)]
     if capability.edit_ref is not None:
-        evidence.append(ReceiptEvidence(ref=capability.edit_ref, retention="pinned"))
+        supporting_records.append(
+            ReceiptEvidence(ref=capability.edit_ref, retention="pinned")
+        )
         outputs.append(ReceiptIO(name="edit_overlay", ref=capability.edit_ref))
     receipt = Receipt(
         receipt_id=receipt_id,
@@ -825,7 +827,7 @@ def _review_result_and_receipt(
         status="completed",
         inputs=[ReceiptIO(name="target", ref=target_ref)],
         outputs=outputs,
-        evidence=evidence,
+        evidence=supporting_records,
         review={
             "decision": returned.decision,
             "review_state_before": returned.review_state_before,
@@ -916,7 +918,7 @@ def _replay_result_and_receipt(
             "pending_count": returned.pending_count,
             "op_ids": op_ids,
         }
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "replay_generated_value",
@@ -949,7 +951,7 @@ def _replay_result_and_receipt(
             "membership_hash": membership_hash,
             "op_ids": op_ids,
         }
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "replay_accept_column_membership",
@@ -973,7 +975,7 @@ def _replay_result_and_receipt(
             "generated_value_hash": returned.generated_value_hash,
             "pending_count": returned.pending_count,
         }
-        evidence = [
+        supporting_records = [
             ReceiptEvidence(
                 ref={
                     "kind": "replay_dismissal",
@@ -995,9 +997,9 @@ def _replay_result_and_receipt(
         idempotency_key=action.idempotency_key,
         params_hash=params_hash,
         status="completed",
-        inputs=[ReceiptIO(name="target", ref=evidence[0].ref)],
+        inputs=[ReceiptIO(name="target", ref=supporting_records[0].ref)],
         outputs=[ReceiptIO(name=action.kind, ref=ref)],
-        evidence=evidence,
+        evidence=supporting_records,
     )
     return _result_from_receipt(receipt), receipt
 

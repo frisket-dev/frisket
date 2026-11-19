@@ -136,7 +136,7 @@ def _acquire_output_claims_for_runner(
                 else {}
             ),
             # Freeze the producer descriptors with the claim. Queue recovery
-            # must not rebuild a compatibility key from whatever recipe code
+            # must not rebuild a compatibility key from whatever program code
             # happens to be installed later.
             "output_fields": [dict(field) for field in output_fields],
         },
@@ -1282,14 +1282,16 @@ def _bind_receipt_to_prepared_run(
             f"{receipt_status} receipt {receipt_id!r} disappeared during preparation"
         )
     receipt = Receipt.model_validate(json.loads(row["body"]))
-    evidence = [
+    supporting_records = [
         item
         for item in receipt.evidence
         if item.ref.get("kind") != QUEUED_ACTION_RUN_PREPARED_RECORD_KIND
     ]
     if prepared_ref is not None:
-        evidence.append(ReceiptEvidence(ref=prepared_ref))
-    receipt = receipt.model_copy(update={"run_id": run_id, "evidence": evidence})
+        supporting_records.append(ReceiptEvidence(ref=prepared_ref))
+    receipt = receipt.model_copy(
+        update={"run_id": run_id, "evidence": supporting_records}
+    )
     try:
         if commit:
             project.db.execute("BEGIN IMMEDIATE")
@@ -1346,10 +1348,10 @@ def _mark_queued_action_enqueued(
     if row is None:
         return
     receipt = Receipt.model_validate(json.loads(row["body"]))
-    evidence = [
+    supporting_records = [
         item for item in receipt.evidence if item.ref.get("kind") != spec.queue_job_kind
     ]
-    evidence.append(
+    supporting_records.append(
         ReceiptEvidence(
             ref={
                 "kind": spec.queue_job_kind,
@@ -1359,7 +1361,9 @@ def _mark_queued_action_enqueued(
             }
         )
     )
-    receipt = receipt.model_copy(update={"run_id": run_id, "evidence": evidence})
+    receipt = receipt.model_copy(
+        update={"run_id": run_id, "evidence": supporting_records}
+    )
     try:
         project.db.execute("BEGIN IMMEDIATE")
         updated = ReceiptStore(project).update_body_status(

@@ -340,7 +340,7 @@ def set_column_default_hidden(
     clean_column run's `_confidence`/`_justification` columns after those
     outputs were retired, or transcribe's detected_language on a non-detecting engine.
     This is the hide primitive the shared output-retirement mechanism
-    (`MapRunner._retire_dropped_output_columns`) calls; recipes declare their
+    (`MapRunner._retire_dropped_output_columns`) calls; programs declare their
     dropped-role names via `ActionProgram.retired_output_names`."""
     cur = project.db.execute(
         "UPDATE columns SET default_hidden=? WHERE id=?",

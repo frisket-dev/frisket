@@ -16,7 +16,7 @@ class ColumnTypeCatalogService:
         self._workspace = workspace
 
     def list_column_types(self, project_id: str | None = None) -> list[dict[str, Any]]:
-        import frisket.ops  # noqa: F401 - imports built-in recipe/type plugins
+        import frisket.ops  # noqa: F401 - imports built-in program/type plugins
 
         specs = column_type_registry.column_types()
         if project_id is not None:

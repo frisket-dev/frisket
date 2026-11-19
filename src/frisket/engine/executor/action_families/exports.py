@@ -2077,7 +2077,7 @@ def _export_sheet_csv_receipt(
         }
         for column in payload["columns"]
     ]
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(
             ref={**sheet_ref, "kind": "exported_sheet"},
             retention="pinned",
@@ -2092,7 +2092,7 @@ def _export_sheet_csv_receipt(
         ),
     ]
     if payload.get("query") is not None:
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": "exported_query",
@@ -2117,7 +2117,7 @@ def _export_sheet_csv_receipt(
         status="completed",
         inputs=[ReceiptIO(name="sheet", ref=sheet_ref)],
         outputs=[ReceiptIO(name=output_name, ref=artifact_ref)],
-        evidence=evidence,
+        evidence=supporting_records,
         exports=[artifact_ref],
     )
 
@@ -2144,7 +2144,7 @@ def _export_google_sheets_receipt(
         }
         for tab in tabs
     ]
-    evidence = [
+    supporting_records = [
         ReceiptEvidence(
             ref={"kind": "exported_google_sheets_tabs", "tabs": tab_refs},
             retention="pinned",
@@ -2153,7 +2153,7 @@ def _export_google_sheets_receipt(
     for tab in tabs:
         if tab.get("query") is None:
             continue
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": "exported_query",
@@ -2197,7 +2197,7 @@ def _export_google_sheets_receipt(
         ],
         outputs=[ReceiptIO(name="google_sheets", ref=artifact_ref)],
         provider_use=provider_use,
-        evidence=evidence,
+        evidence=supporting_records,
         exports=[artifact_ref],
     )
 

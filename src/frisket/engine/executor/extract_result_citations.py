@@ -568,8 +568,8 @@ class ExtractResultCitations:
 
 def finalize_extract_receipt(receipt):
     """Surface persisted publication decisions without rerunning any grounding."""
-    for evidence in receipt.evidence:
-        fact = evidence.ref
+    for supporting_record in receipt.evidence:
+        fact = supporting_record.ref
         if fact.get("kind") != "map_extract_grounding_links":
             continue
         for warning in fact.get("warnings", []):

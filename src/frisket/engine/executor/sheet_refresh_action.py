@@ -413,14 +413,14 @@ def run_typed_sheet_refresh_action(
             "op_id": facts.op_id,
             "refreshed_row_count": facts.row_count,
         }
-        evidence = [ReceiptEvidence(ref=refresh_ref)]
+        supporting_records = [ReceiptEvidence(ref=refresh_ref)]
         if facts.match_stats is not None:
             refresh_ref["parent_op_kind"] = "derive.join"
-            evidence = [
+            supporting_records = [
                 ReceiptEvidence(ref=refresh_ref),
                 ReceiptEvidence(ref=facts.match_stats, retention="pinned"),
             ]
-        evidence.extend(
+        supporting_records.extend(
             ReceiptEvidence(ref=fact, retention="pinned") for fact in facts.reads
         )
         receipt = Receipt(
@@ -442,7 +442,7 @@ def run_typed_sheet_refresh_action(
                 )
             ],
             outputs=[ReceiptIO(name=facts.name, ref=sheet_ref)],
-            evidence=evidence,
+            evidence=supporting_records,
         )
         result = ActionResult(
             action=ActionIdentity(kind=kind, action_id=action_id),

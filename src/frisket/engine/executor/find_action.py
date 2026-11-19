@@ -221,14 +221,15 @@ def reserve_typed_find_action_job(
     receipts = ReceiptStore(project)
     receipt = receipts.parsed_by_id(envelope.receipt_id)
     assert receipt is not None
-    evidence = [
+    supporting_records = [
         *receipt.evidence,
         ReceiptEvidence(
             ref={"kind": "find_admission", "admission": admission}, retention="pinned"
         ),
     ]
     if not receipts.update_body_status(
-        receipt.model_copy(update={"evidence": evidence}), require_status="queued"
+        receipt.model_copy(update={"evidence": supporting_records}),
+        require_status="queued",
     ):
         raise RuntimeError("Find lost its queued receipt before pinning admission")
     return replace(envelope, resolved_snapshot=admission)

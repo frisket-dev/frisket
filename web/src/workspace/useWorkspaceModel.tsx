@@ -390,11 +390,11 @@ export function useWorkspaceModel({
   const doUndo = useCallback(() => { void projectApi.undo().then(afterHistoryChange); }, [afterHistoryChange, projectApi]);
   const doRedo = useCallback(() => { void projectApi.redo().then(afterHistoryChange); }, [afterHistoryChange, projectApi]);
   const doRevert = useCallback(
-    async (id: string) => { await projectApi.revertOperation(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
+    async (id: string) => { await projectApi.revertChange(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
     [afterHistoryChange, projectApi, showError],
   );
   const doRestore = useCallback(
-    async (id: string) => { await projectApi.restoreOperation(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
+    async (id: string) => { await projectApi.restoreChange(id).then(afterHistoryChange).catch((error: Error) => showError(error.message)); },
     [afterHistoryChange, projectApi, showError],
   );
   const loadHistoryPage = useCallback(

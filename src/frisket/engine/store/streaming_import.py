@@ -870,7 +870,7 @@ class StreamingSheetWriter:
                 },
             ),
         ]
-        evidence = [
+        supporting_records = [
             *receipt.evidence,
             ReceiptEvidence(
                 ref={
@@ -882,7 +882,7 @@ class StreamingSheetWriter:
             ),
         ]
         if source:
-            evidence.append(
+            supporting_records.append(
                 ReceiptEvidence(
                     ref={
                         **source,
@@ -895,7 +895,7 @@ class StreamingSheetWriter:
             update={
                 "status": status,
                 "outputs": outputs,
-                "evidence": evidence,
+                "evidence": supporting_records,
                 "warnings": (
                     [
                         *receipt.warnings,

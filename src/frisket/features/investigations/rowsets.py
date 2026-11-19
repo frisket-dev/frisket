@@ -337,7 +337,7 @@ def _cell_for_column(
 ) -> dict[str, Any]:
     column_id = int(column["id"])
     column_name = str(column["name"])
-    evidence = (
+    citations = (
         list_cell_citations(
             project,
             sheet_id=sheet_id,
@@ -364,8 +364,8 @@ def _cell_for_column(
             "column_id": column_id,
             "column_name": column_name,
         },
-        "evidence_refs": list(evidence["links"]) if evidence is not None else [],
-        "evidence": evidence,
+        "evidence_refs": list(citations["links"]) if citations is not None else [],
+        "evidence": citations,
     }
 
 

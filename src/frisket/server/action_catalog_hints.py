@@ -445,7 +445,7 @@ def _bind_static_transcription_targets(
 ) -> dict[str, Any]:
     """Bind a standalone transcription engine to static target support rows.
 
-    The recipe owns engine-specific liveness (for example, a gateway's
+    The program owns engine-specific liveness (for example, a gateway's
     advertised models); static targets own target order and option support.
     """
 
@@ -1632,7 +1632,7 @@ def _action_engines(
                 # The table label states the input restriction
                 # (PDF/Office/image only — NOT the html/text
                 # markitdown/trafilatura_html accept) since
-                # ConvertMarkdownRecipe._convert_datalab rejects unsupported
+                # the convert-markdown program's Datalab path rejects unsupported
                 # inputs before any network call; this is the catalog-copy
                 # half of that fix.
                 decl["datalab"],
@@ -1649,7 +1649,7 @@ def _action_engines(
         ]
     if action_kind == "map.ner":
         # local import (launcher-safe): spacy_available() is a cheap presence
-        # probe (find_spec only, never spacy.load), shared with the recipe so
+        # probe (find_spec only, never spacy.load), shared with the program so
         # catalog == runtime, mirroring tesseract_available for OCR.
         from frisket.ops.spacy_ner import SPACY_MODEL, spacy_available
         from frisket.server.provider_config import ENV_VAR as PROVIDER_ENV_VAR

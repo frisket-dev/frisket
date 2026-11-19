@@ -23,7 +23,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.feeds import FeedStore
 from frisket.notifications.emit import emit_notification_candidate
-from frisket.notifications.producers import source_health_notification_candidate
+from frisket.notifications.producers import feed_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
 from frisket.features.alerts.triggers import trigger_completed_feed_poll_alerts
 
@@ -390,7 +390,7 @@ def _emit_feed_health_notification(
             except Exception:  # noqa: BLE001 - notification detail is best effort
                 feed_check_id = None
         error = "; ".join(error.message for error in getattr(result, "errors", []))
-        candidate = source_health_notification_candidate(
+        candidate = feed_health_notification_candidate(
             project_id=project_id,
             source_id=int(feed["id"]),
             source_name=str(feed.get("name") or f"Source {feed['id']}"),

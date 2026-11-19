@@ -512,8 +512,8 @@ def verify_receipt_row_files(project, receipt):
     """Verify recorded occurrences without reopening an acquisition capability."""
     from frisket.engine.store.media_blobs import MediaBlobStore
 
-    for evidence in receipt.evidence:
-        observed = evidence.ref
+    for supporting_record in receipt.evidence:
+        observed = supporting_record.ref
         if observed.get("kind") != "row_file_output":
             continue
         descriptor = RowFileOccurrence.model_validate(

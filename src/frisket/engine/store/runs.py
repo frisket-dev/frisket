@@ -288,7 +288,7 @@ class RunResultStore:
         reuse gives ``InterfaceError``/phantom empty fetches). Capturing it in
         ``__init__`` silently defeats that: the store would hand every thread
         the CONSTRUCTING thread's connection. The map runner's cancellation
-        predicate is exactly such a caller — a recipe running under
+        predicate is exactly such a caller — a program running under
         ``asyncio.to_thread`` calls ``cancelled()`` -> ``get_run()`` from a
         pool thread while the event-loop thread is mid-query on the same
         connection, and the run dies with ``sqlite3.InterfaceError: bad
@@ -425,7 +425,7 @@ class RunResultStore:
         ``halted_reason``-without-``halted_code`` stays representable: the
         legacy consecutive-failure circuit breaker sets a reason with no typed
         code, and collapsing the two would reclassify its halts as typed
-        recipe-invocation halts.
+        program-invocation halts.
         """
         stored_code = halted_code
         stored_reason = halted_reason if halted_code is None else halted_reason or ""
@@ -987,10 +987,10 @@ class RunResultStore:
         defer_generation_seal: bool = False,
         evidence_writer: Callable[[], None] | None = None,
     ) -> None:
-        """Publish results with optional recipe-owned evidence in one transaction.
+        """Publish results with optional program-owned evidence in one transaction.
 
         The store owns result persistence, row-effect retirement, and result-head
-        projection.  A recipe may supply its domain-specific evidence write as a
+        projection.  A program may supply its domain-specific evidence write as a
         closure; any failure rolls that closure and every publication effect back
         together.  Deferred generations still project only when their existing
         sealing policy permits it.
@@ -2044,7 +2044,7 @@ class RunResultStore:
         # PERSISTED route chain, not on transient payload presence — if this
         # run has a head route, every routed-capability fact must carry the
         # observation payload; a missing one means a wiring link dropped
-        # (extras not merged, recipe missed the extra) and MUST fail loudly
+        # (extras not merged, program missed the extra) and MUST fail loudly
         # before anything is written, never silently record a legacy
         # NULL-epoch fact under a routed run. One cheap route query per
         # batch, resolved lazily.
@@ -2794,7 +2794,7 @@ class RunResultStore:
                 and existing[field] is None
                 and incoming is not None
             ):
-                # Acceptance happens before the recipe has projected a result
+                # Acceptance happens before the program has projected a result
                 # onto its first generated column.  The terminal row may add that
                 # reference, but may never replace one already known.
                 continue
@@ -2826,7 +2826,7 @@ class RunResultStore:
                     f"model-call reconciliation cost drift for {call_id!r}"
                 )
             # A synchronous provider can report its terminal cost at the
-            # acceptance boundary, before the recipe has selected the output
+            # acceptance boundary, before the program has selected the output
             # column. The returned-row write still owns that one missing
             # reference even when no meter reconciliation remains.
             if existing["column_id"] is None and call.get("column_id") is not None:

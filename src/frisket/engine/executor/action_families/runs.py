@@ -48,10 +48,10 @@ def typed_run_has_matching_producer_receipt(
         return False
     try:
         return any(
-            evidence.ref.get("kind") == "backfill_source_generation"
-            and evidence.ref.get("successor_run_id") == run_id
-            and evidence.ref.get("successor_request_hash") == expected_hash
-            for evidence in successor.parsed().evidence
+            supporting_record.ref.get("kind") == "backfill_source_generation"
+            and supporting_record.ref.get("successor_run_id") == run_id
+            and supporting_record.ref.get("successor_request_hash") == expected_hash
+            for supporting_record in successor.parsed().evidence
         )
     except ValueError:
         return False
@@ -375,9 +375,9 @@ def _resolve_backfill_target(
     runner_spec.pop("consented_promise_set_hash", None)
     if confirmation:
         runner_spec["consented_promise_set_hash"] = confirmation
-    # These are runner-owned terminal markers, not recipe parameters.  The
+    # These are runner-owned terminal markers, not program parameters.  The
     # durable resume transaction clears them from runs.params; strip the
-    # in-memory copy too so a resumed recipe never observes stale halt state.
+    # in-memory copy too so a resumed program never observes stale halt state.
     runner_spec.pop("halted_code", None)
     runner_spec.pop("halted_reason", None)
     runner_spec.pop("_frisket_queued_action_run", None)

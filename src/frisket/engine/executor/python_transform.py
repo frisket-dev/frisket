@@ -23,7 +23,7 @@ There is exactly ONE production mint site for the backend --
 :func:`resolve_executor` -- because "which boundary ran this row" is a fact a
 receipt states, and two mint sites are two answers. Callers never construct a
 backend themselves; tests replace `resolve_executor` (module attribute, looked
-up late) rather than threading an optional parameter through the recipe, which
+up late) rather than threading an optional parameter through the program, which
 is the optional-wiring defect this codebase keeps paying for.
 
 Outcome shape

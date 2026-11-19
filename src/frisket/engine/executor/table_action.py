@@ -203,8 +203,8 @@ def _table_replay_error(project: Project, receipt: Receipt) -> ActionError | Non
         return stale()
     if sheet["parent_sheet_id"] != sheet_ref.get("parent_sheet_id"):
         return stale()
-    for evidence in receipt.evidence:
-        ref = evidence.ref
+    for supporting_record in receipt.evidence:
+        ref = supporting_record.ref
         if ref.get("kind") not in {
             "imported_blob",
             "imported_pdf_document",
@@ -1681,9 +1681,9 @@ def _perform_table_in_txn(
             output_sheet_id=write.sheet_id,
         )
     projection_evidence = [
-        evidence
+        supporting_record
         for reader in projections
-        for evidence in reader.publication_supporting_records(
+        for supporting_record in reader.publication_supporting_records(
             write, rows, receipt_id=receipt_id
         )
     ]

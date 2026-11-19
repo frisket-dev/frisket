@@ -2,7 +2,7 @@
 materialize a validated spec into generated columns and an op/run row (fresh launch)
 or repoint an existing run's dispatch scope (resume) — the writing half of
 ``_prepare``, which stays in the engine as the orchestrating facade (savepoint
-handling for atomic-output-column recipes)."""
+handling for atomic-output-column programs)."""
 
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def _validate_managed_program_identity(
         run_row["action_version"]
     ) != str(program.version):
         raise GenerationStateError(
-            f"generation-managed run {run_id} recipe identity changed before recovery"
+            f"generation-managed run {run_id} action identity changed before recovery"
         )
 
 

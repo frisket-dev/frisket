@@ -812,7 +812,7 @@ class AdmittedPositionedDocumentReader:
         return set()
 
     def publication_supporting_records(self, write, rows, *, receipt_id):
-        evidence = []
+        supporting_records = []
         artifacts = {}
         fields = extraction_fields(self.params)
         for (source, loaded, record), output_row_id in zip(
@@ -875,7 +875,7 @@ class AdmittedPositionedDocumentReader:
                     link_role="document_extraction",
                     producer={"action_kind": "media.extract_document"},
                 )
-                evidence.append(
+                supporting_records.append(
                     ReceiptEvidence(
                         ref={
                             "kind": "evidence_link",
@@ -893,4 +893,4 @@ class AdmittedPositionedDocumentReader:
                 self.successful_row_ids,
                 commit=False,
             )
-        return evidence
+        return supporting_records

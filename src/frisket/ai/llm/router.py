@@ -104,12 +104,12 @@ def model_call_cannot_go_live(router: object) -> bool:
     ask a one-line question. Missing attributes fail CLOSED — an object that
     cannot prove the posture does not get the exemption.
 
-    Scope: this is a fact about the MODEL invocation only. A recipe whose
+    Scope: this is a fact about the MODEL invocation only. A program whose
     effect graph includes non-model paid subeffects (``research.answer``
     replays a cached model response while its tool calls perform LIVE web
     search and fetch) is NOT exempt just because its model call is cached;
     the callers scope the exemption to the model subeffect rather than to the
-    recipe's whole effect graph.
+    program's whole effect graph.
     """
     return (
         getattr(router, "cache_mode", None) == "replay_strict"

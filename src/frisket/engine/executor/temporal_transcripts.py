@@ -206,7 +206,7 @@ def _candidate_payload(
         stable_id = str(row["stable_id"])
         start_ms = row["start_ms"]
         end_ms = row["end_ms"]
-        quote = row["quote"]
+        passage = row["quote"]
         if (
             not stable_id
             or stable_id in stable_ids
@@ -218,8 +218,8 @@ def _candidate_payload(
             or end_ms <= start_ms
             or end_ms > timeline.duration_ms
             or start_ms < prior_start_ms
-            or not isinstance(quote, str)
-            or not quote.strip()
+            or not isinstance(passage, str)
+            or not passage.strip()
         ):
             return None
         selector = _loads_object(row["selector_json"])
@@ -262,7 +262,7 @@ def _candidate_payload(
                 "span_kind": "temporal",
                 "start_ms": start_ms,
                 "end_ms": end_ms,
-                "quote": quote,
+                "quote": passage,
                 "selector": selector,
                 "metadata": _loads_object(row["metadata"]),
                 "rank": expected_rank,
@@ -388,11 +388,11 @@ def timestamped_transcript_text_context(
     cursor = 0
     segments: list[dict[str, Any]] = []
     for span in resolved.spans:
-        quote = span["quote"]
-        start = text.find(quote, cursor)
+        passage = span["quote"]
+        start = text.find(passage, cursor)
         if start < 0 or text[cursor:start].strip():
             return None
-        end = start + len(quote)
+        end = start + len(passage)
         selector = span.get("selector")
         speaker = selector.get("speaker") if isinstance(selector, Mapping) else None
         segments.append(

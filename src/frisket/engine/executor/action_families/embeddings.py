@@ -922,12 +922,12 @@ def _mark_embedding_probe_egress_reserved(
     if stored is None:
         raise RuntimeError("embedding probe reservation disappeared before egress")
     receipt = stored.parsed()
-    evidence = [
+    supporting_records = [
         item
         for item in receipt.evidence
         if item.ref.get("kind") != "embedding_dimension_probe_egress_reservation"
     ]
-    evidence.append(
+    supporting_records.append(
         ReceiptEvidence(
             ref={
                 "kind": "embedding_dimension_probe_egress_reservation",
@@ -941,7 +941,7 @@ def _mark_embedding_probe_egress_reserved(
         )
     )
     receipt = receipt.model_copy(
-        update={"run_id": run_id, "op_ids": [op_id], "evidence": evidence}
+        update={"run_id": run_id, "op_ids": [op_id], "evidence": supporting_records}
     )
     try:
         project.db.execute("BEGIN IMMEDIATE")
@@ -1934,7 +1934,7 @@ def _refresh_index(
         )
     if remote:
         # The refresh calls the same project-owned provider key as chat/media
-        # paths, even though embeddings are not a MapRunner LLM recipe.  Check
+        # paths, even though embeddings are not a MapRunner LLM program.  Check
         # the durable key ledger at this final pre-claim/pre-egress choke point.
         from frisket.engine.runner.validation import (
             ProviderKeyRefusal,

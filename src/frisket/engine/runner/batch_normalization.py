@@ -1,4 +1,4 @@
-"""Pure raw-to-cells transform for batch-recipe output, extracted from
+"""Pure raw-to-cells transform for batch-program output, extracted from
 map_runner.py so leaf callers need not import the engine.
 """
 
@@ -27,7 +27,7 @@ def normalize_batch_row(
     managed_publication: bool = False,
 ) -> tuple[dict[str, dict[str, Any]], bool, float]:
     """Pure raw-to-cells transform: the shared
-    normalizer for batch-recipe output, used by both ``_run_batch_program``
+    normalizer for batch-program output, used by both ``_run_batch_program``
     (persisted) and ``preview()`` (in-memory). Returns ``{field: cell}``
     WITHOUT ``row_id``/``column_id`` (callers add those), a ``failed`` flag,
     and the row's cost. No side effects — the ``pending``/``flush``/progress
@@ -39,7 +39,7 @@ def normalize_batch_row(
     if raw is None:
         if not missing_is_error:
             return {}, False, 0.0
-        raw = {"__error__": "batch recipe returned no result"}
+        raw = {"__error__": "batch action returned no result"}
     if isinstance(raw, tuple) and len(raw) == 2:
         data, returned_meta = raw
         meta: dict[str, Any] = {"tokens_in": None, "tokens_out": None, "cost": 0.0}
@@ -65,7 +65,7 @@ def normalize_batch_row(
             name: {
                 "value": None,
                 "error": redact_text(err, max_chars=500),
-                # batch recipes (clean_column, census demographics, ...)
+                # batch programs (clean_column, census demographics, ...)
                 # raise a bare str, not a classified RemediatedError — a
                 # generic code still beats none for the error summary's
                 # grouping/display.
@@ -83,7 +83,7 @@ def normalize_batch_row(
     cells = {}
     required = frozenset(str(name) for name in required_field_names)
     # Preserve the established progress contract: metadata-carried errors are
-    # persisted on the cell, but only a recipe-row error or an unresolved
+    # persisted on the cell, but only a program-row error or an unresolved
     # declared field increments the batch helper's row-failed return flag.
     failed = False
     for name in field_names:
@@ -101,7 +101,7 @@ def normalize_batch_row(
             if name not in required:
                 continue
             cell["error"] = redact_text(
-                f"batch recipe did not return declared output field {name!r}",
+                f"batch action did not return declared output field {name!r}",
                 max_chars=500,
             )
             cell["error_code"] = "invalid_output"

@@ -131,7 +131,7 @@ def _field_value_type(field: ClassifyField) -> Any:
 
 
 def _companion_outputs(params: ClassifyParams) -> dict[str, Any]:
-    """The retired recipe's companion columns, preserved for the ``llm`` engine.
+    """The ``llm`` engine's companion columns.
 
     Confidence and justification ride each field's ``Outcome`` (the host
     materializes them as cell metadata for review) AND, when requested, as

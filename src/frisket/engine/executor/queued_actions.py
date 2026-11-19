@@ -524,7 +524,7 @@ def queued_v1_identity_error(
 
     The outer payload, canonical v1 ActionSpec, runner spec, and private
     marker are all producer-owned copies of one kind. Validate them before an
-    edition admission callback or MapRunner/recipe lookup can observe a
+    edition admission callback or MapRunner/program lookup can observe a
     different spelling.
     """
 
@@ -547,13 +547,13 @@ def queued_v1_run_authorizes_action_lifecycle(
     *,
     run_id: int,
 ) -> bool:
-    """Bind protected-recipe worker access to durable queue provenance.
+    """Bind protected-program worker access to durable queue provenance.
 
     Parsing a v1-shaped payload is not authorization: the queued spec must be
     byte-for-value equal to the spec persisted on this run, its private marker
     must bind the action/receipt/hash tuple, and that receipt must still bind
     the same run. Corrupt or forged queue metadata therefore fails closed and
-    lets ``MapRunner`` reject action-lifecycle-only recipes.
+    lets ``MapRunner`` reject action-lifecycle-only programs.
     """
     envelope = queued_v1_payload_envelope(payload, project=project)
     if envelope is None:

@@ -425,7 +425,7 @@ export function createHistoryReviewApi(
       signal: invocation.signal,
     });
 
-  const runOperationStepAction = async (
+  const runChangeStepAction = async (
     kind: OperationActionId,
     expectedOpId: string | null | undefined,
     invocation: ResolvedRunActionInvocation,
@@ -461,12 +461,12 @@ export function createHistoryReviewApi(
     );
   };
 
-  const transitionOperation = async (
-    direction: 'revert' | 'restore', opRef: string,
+  const transitionChange = async (
+    direction: 'revert' | 'restore', changeRef: string,
   ): Promise<HistoryState> => {
-    const changeId = Number(opRef);
+    const changeId = Number(changeRef);
     if (!Number.isSafeInteger(changeId) || changeId <= 0) {
-      throw new ApiError(400, `Operation ${opRef} is not a valid operation ref`);
+      throw new ApiError(400, `Change ${changeRef} is not a valid change id`);
     }
     const invocation = resolveRunActionInvocation(undefined, projectId);
     const spec = v1ActionSession.registeredProjectActionSpec(
@@ -586,20 +586,20 @@ export function createHistoryReviewApi(
     async undo(): Promise<HistoryState> {
       const invocation = resolveRunActionInvocation(undefined, projectId);
       const hist = await historyForInvocation(invocation);
-      await runOperationStepAction('operation.undo', hist.undoTarget?.id ?? null, invocation);
+      await runChangeStepAction('operation.undo', hist.undoTarget?.id ?? null, invocation);
       return historyForInvocation(invocation);
     },
 
     async redo(): Promise<HistoryState> {
       const invocation = resolveRunActionInvocation(undefined, projectId);
       const hist = await historyForInvocation(invocation);
-      await runOperationStepAction('operation.redo', hist.redoTarget?.id ?? null, invocation);
+      await runChangeStepAction('operation.redo', hist.redoTarget?.id ?? null, invocation);
       return historyForInvocation(invocation);
     },
 
-    /** Selectively revert one operation without walking the cursor. */
-    revertOperation: (changeId: string) => transitionOperation('revert', changeId),
-    restoreOperation: (changeId: string) => transitionOperation('restore', changeId),
+    /** Selectively revert one change without walking the cursor. */
+    revertChange: (changeId: string) => transitionChange('revert', changeId),
+    restoreChange: (changeId: string) => transitionChange('restore', changeId),
 
     async setReviewNote(runId: string, rowId: string, note: string | null): Promise<void> {
       const owner = reviewOwner(runId);

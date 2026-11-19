@@ -899,12 +899,12 @@ def mark_action_job_enqueued(
             raise ActionJobTerminalizationError(
                 f"failed to mark action job receipt {receipt_id!r} enqueued"
             )
-        evidence = [
+        supporting_records = [
             item
             for item in receipt.evidence
             if item.ref.get("kind") != ACTION_JOB_ENQUEUED_RECORD_KIND
         ]
-        evidence.append(
+        supporting_records.append(
             ReceiptEvidence(
                 ref={
                     "kind": ACTION_JOB_ENQUEUED_RECORD_KIND,
@@ -913,7 +913,7 @@ def mark_action_job_enqueued(
                 }
             )
         )
-        updated_receipt = receipt.model_copy(update={"evidence": evidence})
+        updated_receipt = receipt.model_copy(update={"evidence": supporting_records})
         updated = receipts.update_body_status(
             updated_receipt,
             require_status=receipt.status,

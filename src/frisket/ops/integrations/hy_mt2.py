@@ -4,7 +4,7 @@ The experimental "higher-quality still-local" translate tier: a single pinned
 GGUF (Q4_K_M, ~1.13GB) loaded via ``llama-cpp-python`` on CPU. Sequenced AFTER
 Opus-MT (the v1 default) and labelled experimental with NO quality claim.
 
-Mirrors ``integrations/opus_mt.py``'s shape so the recipe hook stays thin:
+Mirrors ``integrations/opus_mt.py``'s shape so the program hook stays thin:
 - ``runtime_available()`` gates on the ``translate-gguf`` extra (llama.cpp);
 - ``ensure_installed()`` provisions the pinned single-file artifact worker-
   locally on a runtime miss, with a per-host

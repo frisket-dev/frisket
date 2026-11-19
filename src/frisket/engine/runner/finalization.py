@@ -104,7 +104,7 @@ def _finalize_run_in_transaction(
         halted_code,
         halted_reason,
     )
-    # A queued cooperative cancel first lands recipe-specific projection work
+    # A queued cooperative cancel first lands program-specific projection work
     # (carry-forward, column pointers, visibility) while retaining the live
     # writer tuple.  Its paired receipt owner then writes the actual terminal
     # run status together with receipt + attempt + claim in the terminalizer

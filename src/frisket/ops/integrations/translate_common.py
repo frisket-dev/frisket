@@ -1,7 +1,7 @@
 """Shared helpers for the hosted translation engines (DeepL and Google Cloud
 Translation), including their common validation and error-shaping rules.
 
-Engine-agnostic vocabulary shared by the DeepL/Google clients, the recipe
+Engine-agnostic vocabulary shared by the DeepL/Google clients, the program
 dispatch, and the (held) action-level target preflight:
 
 - ``TranslateEngineError`` — the per-row error taxonomy the clients raise and

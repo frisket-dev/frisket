@@ -163,7 +163,7 @@ def validate_extra_opts(
 
     This is the single choke point for extra_opts safety: it runs inside
     ``download_media`` regardless of which caller (contract layer,
-    recipe, plugin, or future spec source) constructed the dict, so nothing
+    program, plugin, or future spec source) constructed the dict, so nothing
     can reach yt-dlp without going through this check.
 
     ``allow_safety_forced`` tolerates the keys ``download_media``

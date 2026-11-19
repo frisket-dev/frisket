@@ -15,7 +15,7 @@ class SidecarFile:
 
     ``kind`` is one of ``'thumbnail' | 'subtitles' | 'info_json'``. Only one
     file per kind is ever collected: for subtitles this is the single file
-    the recipe stores as its one subtitles column, chosen by language
+    the program stores as its one subtitles column, chosen by language
     preference (see ``_select_subtitle_file``).
     """
 

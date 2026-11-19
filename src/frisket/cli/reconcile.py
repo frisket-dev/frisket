@@ -74,12 +74,12 @@ def _probe_receipt_rows(project) -> list[dict[str, Any]]:
             body = json.loads(row["body"] or "{}")
         except (TypeError, ValueError):
             continue
-        evidence = body.get("evidence")
-        if not isinstance(evidence, list):
+        supporting_records = body.get("evidence")
+        if not isinstance(supporting_records, list):
             continue
         refs = [
             item["ref"]
-            for item in evidence
+            for item in supporting_records
             if isinstance(item, dict) and isinstance(item.get("ref"), dict)
         ]
         egress = next(
@@ -373,12 +373,12 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
         )
         return 1
     receipt = stored.parsed()
-    evidence = [
+    supporting_records = [
         item
         for item in receipt.evidence
         if item.ref.get("kind") != _PROBE_OPERATOR_RECORD_KIND
     ]
-    evidence.append(
+    supporting_records.append(
         ReceiptEvidence(
             ref={
                 "kind": _PROBE_OPERATOR_RECORD_KIND,
@@ -390,7 +390,7 @@ def _accept_charged_probe_receipt(project, row: dict[str, Any]) -> int:
     decided = receipt.model_copy(
         update={
             "status": "failed",
-            "evidence": evidence,
+            "evidence": supporting_records,
             "errors": [
                 ActionError(
                     code="external_effect_reconciliation_required",

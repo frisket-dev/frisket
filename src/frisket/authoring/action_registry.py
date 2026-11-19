@@ -226,7 +226,7 @@ def _portable_spec(
                 reference.column for reference in discover_references(params)
             ]
             # Typed action programs share the current host revision; there is
-            # no separately registered recipe version for a builtin action.
+            # no separately registered program version for a builtin action.
             version = "1"
             llm = (
                 terminal.uses_model(params)

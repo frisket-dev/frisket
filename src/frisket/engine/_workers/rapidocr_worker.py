@@ -1,7 +1,7 @@
 """Private offline RapidOCR worker.
 
 ``main`` retains the original one-shot JSON-in/result-file-out contract used by
-direct recipe calls and release acceptance tests.  ``framed_main`` is the
+direct program calls and release acceptance tests.  ``framed_main`` is the
 run-scoped variant: it loads RapidOCR once, accepts one request at a time, and
 writes each potentially large OCR result into its request-owned staging
 directory.  The framed response is only a small acknowledgement and metrics.
