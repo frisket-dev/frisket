@@ -37,21 +37,6 @@ export async function closeActionFormIfOpen(page: Page): Promise<void> {
   }
 }
 
-export async function hideActionsPanelIfOpen(page: Page): Promise<void> {
-  // The overlay drawer covers the far-right grid; closing it clears the
-  // interception. If it is already closed this is a no-op.
-  const closeButton = page.getByTestId('action-drawer-close');
-  if (await closeButton.isVisible().catch(() => false)) {
-    await closeButton.click();
-    await page.getByTestId('action-drawer').waitFor({ state: 'hidden' }).catch(() => undefined);
-    return;
-  }
-  const hideButton = page.getByRole('button', { name: 'Hide actions panel' });
-  if (await hideButton.isVisible().catch(() => false)) {
-    await hideButton.click().catch(() => undefined);
-  }
-}
-
 export async function stubV1ActionRun({
   page,
   pid,
