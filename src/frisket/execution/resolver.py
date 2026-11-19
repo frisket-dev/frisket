@@ -43,7 +43,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from frisket.contracts.actions.schemas._engines import (
     CENSUS_ENGINE_TABLE,
@@ -109,6 +109,7 @@ RefusalFamily = Literal[
 ]
 Persistence = Literal["durable", "ephemeral"]
 ModelRoute = Literal["cloud", "own"]
+_OptionsT = TypeVar("_OptionsT")
 
 _REMOTE_API_PREFIX = REMOTE_API_TARGET_ID_PREFIX
 
@@ -313,6 +314,22 @@ def support_inability(
     return checker(support, options)
 
 
+def _declared_options(
+    support: TargetEngineSupport, expected: type[_OptionsT], label: str
+) -> _OptionsT:
+    """The row's options as the type its capability declares."""
+    declared = support.options
+    if not isinstance(declared, expected):  # pragma: no cover
+        # Unreachable by construction (``TargetEngineSupport`` refuses a row
+        # whose options type does not match its capability); named rather than
+        # asserted so a future declaration path cannot make it silent.
+        raise ValueError(
+            f"{label} support row for {support.engine!r} carries "
+            f"{type(declared).__name__} options"
+        )
+    return declared
+
+
 def _ocr_inability(
     support: TargetEngineSupport, options: Mapping[str, Any]
 ) -> str | None:
@@ -325,15 +342,7 @@ def _ocr_inability(
     ``dpi`` is deliberately absent: rasterization happens app-side, before any
     engine is spoken to, so every target serves every DPI.
     """
-    declared = support.options
-    if not isinstance(declared, OcrOptionSupport):  # pragma: no cover
-        # Unreachable by construction (``TargetEngineSupport`` refuses a row
-        # whose options type does not match its capability); named rather than
-        # asserted so a future declaration path cannot make it silent.
-        raise ValueError(
-            f"ocr support row for {support.engine!r} carries "
-            f"{type(declared).__name__} options"
-        )
+    declared = _declared_options(support, OcrOptionSupport, "ocr")
     language = options.get("language")
     if language not in (None, "", []) and not declared.language:
         return (
@@ -362,13 +371,7 @@ def _transcription_inability(
     accepts no size selection, so any authored ``model_size`` is an inability
     there.
     """
-    declared = support.options
-    if not isinstance(declared, TranscriptionOptionSupport):  # pragma: no cover
-        # Unreachable by construction, as in ``_ocr_inability``.
-        raise ValueError(
-            f"transcribe support row for {support.engine!r} carries "
-            f"{type(declared).__name__} options"
-        )
+    declared = _declared_options(support, TranscriptionOptionSupport, "transcribe")
     if options.get("diarize") is True and declared.diarization_mode == "none":
         return "diarization"
     if declared.speaker_hint == "none" and any(
