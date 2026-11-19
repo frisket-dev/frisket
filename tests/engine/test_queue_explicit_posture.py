@@ -7,6 +7,7 @@ import pytest
 
 from frisket.engine.jobs import QUEUE_DB_NAME, open_queue
 from frisket.engine.jobs.queue import PROJECT_RUN_KIND
+from frisket.engine.store.transactions import write_transaction
 
 _ISO = "2020-01-01T00:00:00.000000+00:00"
 
@@ -108,17 +109,18 @@ def test_hosted_terminalization_routes_by_declared_root_not_ambient_env(
     project_root.mkdir(parents=True)
     project = Project.create(project_root / "slug.frisket", name="slug")
     try:
-        ReceiptStore(project).insert_queued(
-            Receipt(
-                receipt_id="r-hosted",
-                project_id="slug",
-                action_id="a-1",
-                action_kind="test.hosted",
-                idempotency_key="test.hosted@sha256:x",
-                params_hash="sha256:x",
-                status="queued",
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_queued(
+                Receipt(
+                    receipt_id="r-hosted",
+                    project_id="slug",
+                    action_id="a-1",
+                    action_kind="test.hosted",
+                    idempotency_key="test.hosted@sha256:x",
+                    params_hash="sha256:x",
+                    status="queued",
+                )
             )
-        )
     finally:
         project.close()
 
@@ -167,17 +169,18 @@ def test_hosted_terminalization_fails_closed_for_foreign_organization_scoped_roo
     organization7_root.mkdir(parents=True)
     project = Project.create(organization7_root / "slug.frisket", name="slug")
     try:
-        ReceiptStore(project).insert_queued(
-            Receipt(
-                receipt_id="r-foreign",
-                project_id="slug",
-                action_id="a-1",
-                action_kind="test.hosted",
-                idempotency_key="test.hosted@sha256:y",
-                params_hash="sha256:y",
-                status="queued",
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_queued(
+                Receipt(
+                    receipt_id="r-foreign",
+                    project_id="slug",
+                    action_id="a-1",
+                    action_kind="test.hosted",
+                    idempotency_key="test.hosted@sha256:y",
+                    params_hash="sha256:y",
+                    status="queued",
+                )
             )
-        )
     finally:
         project.close()
 

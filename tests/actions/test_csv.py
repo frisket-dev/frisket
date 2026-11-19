@@ -32,6 +32,7 @@ from frisket.sdk import (
     action,
     create_sheet,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 class FeedParams(ActionParams):
@@ -406,23 +407,24 @@ def test_retired_csv_wire_cannot_replay_a_stored_receipt(tmp_path, make_project)
     }
     request_hash = legacy_params_hash(ActionSpec.model_validate(retired))
     project = make_project("project")
-    ReceiptStore(project).insert_completed(
-        Receipt(
-            receipt_id="retired-receipt",
-            project_id="p",
-            action_id="retired-action",
-            action_kind="import.csv",
-            idempotency_key="retired-import",
-            params_hash=request_hash,
-            status="completed",
-            inputs=[
-                ReceiptIO(
-                    name="csv_rows",
-                    ref={"kind": "csv_rows", "params_hash": request_hash},
-                )
-            ],
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_completed(
+            Receipt(
+                receipt_id="retired-receipt",
+                project_id="p",
+                action_id="retired-action",
+                action_kind="import.csv",
+                idempotency_key="retired-import",
+                params_hash=request_hash,
+                status="completed",
+                inputs=[
+                    ReceiptIO(
+                        name="csv_rows",
+                        ref={"kind": "csv_rows", "params_hash": request_hash},
+                    )
+                ],
+            )
         )
-    )
     result = run_action_spec(project, retired, project_id="p")
     assert result.status == "failed"
     assert result.errors[0].code == "invalid_action_request"

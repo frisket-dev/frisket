@@ -8,6 +8,7 @@ from frisket.engine.executor.queued_actions import (
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _classify_action() -> dict:
@@ -62,18 +63,19 @@ def test_action_lifecycle_worker_authorization_binds_run_receipt_marker_and_spec
         "map.classify",
         params=marked_spec,
     )
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=reservation["receipt_id"],
-            project_id="worker-auth",
-            action_id=reservation["action_id"],
-            action_kind="map.classify",
-            run_id=run_id,
-            idempotency_key="worker-auth@sha256:stable",
-            params_hash=reservation["params_hash"],
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=reservation["receipt_id"],
+                project_id="worker-auth",
+                action_id=reservation["action_id"],
+                action_kind="map.classify",
+                run_id=run_id,
+                idempotency_key="worker-auth@sha256:stable",
+                params_hash=reservation["params_hash"],
+                status="queued",
+            )
         )
-    )
     payload = {
         "project_id": "worker-auth",
         "run_id": run_id,

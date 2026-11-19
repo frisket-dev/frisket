@@ -2718,7 +2718,6 @@ def _do_refresh(
                     landed = ReceiptStore(project).update_if_status_in(
                         receipt,
                         {"queued", "running"},
-                        commit=False,
                     )
                     if not landed:
                         raise RuntimeError(

@@ -1147,7 +1147,7 @@ class StreamingSheetWriter:
                         ReceiptEvidence(ref=ref) for ref in published
                     )
                 ChangeStore(self.project).close(op_id)
-                ReceiptStore(self.project).insert_completed(receipt, commit=False)
+                ReceiptStore(self.project).insert_completed(receipt)
                 updated = db.execute(
                     "UPDATE sheets SET name=?, hidden=0 WHERE id=? AND hidden=1",
                     (sheet_name, self.sheet_id),

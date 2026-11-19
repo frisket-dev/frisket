@@ -13,6 +13,7 @@ from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.server.mcp import RemoteBackend, LocalBackend
 from frisket.server.mcp import backends
+from frisket.engine.store.transactions import write_transaction
 
 
 def _receipt(value, *, status="completed"):
@@ -41,7 +42,8 @@ def test_domain_value_round_trips_receipt_storage_and_result(make_project, value
     project = make_project("Values")
     receipt = _receipt(value)
     try:
-        ReceiptStore(project).insert_completed(receipt)
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_completed(receipt)
         stored = ReceiptStore(project).find_by_idempotency_key("report-once")
         assert stored is not None
         restored = stored.parsed()

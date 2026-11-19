@@ -40,6 +40,7 @@ from http_test_helpers import (
     run_worker_until_job_terminal,
     v1_action_from_canonical_run_spec,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 CSV = "note\nfirst 101\nsecond 202\nthird 303\nfourth 404\n"
@@ -181,26 +182,27 @@ def test_live_cancel_service_returns_pending_then_owner_converges(
         )
         receipt_id = "receipt_live_cancel_service"
         attempt_id = "attempt_live_cancel_service"
-        ReceiptStore(project).insert_queued(
-            Receipt(
-                receipt_id=receipt_id,
-                project_id=project_id,
-                action_id="action_live_cancel_service",
-                action_kind="map.regex_extract",
-                run_id=run_id,
-                status="queued",
-                evidence=[
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "queued_action_run_prepared",
-                            "queue_kind": "project.run",
-                            "run_id": run_id,
-                            "attempt_id": attempt_id,
-                        }
-                    )
-                ],
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_queued(
+                Receipt(
+                    receipt_id=receipt_id,
+                    project_id=project_id,
+                    action_id="action_live_cancel_service",
+                    action_kind="map.regex_extract",
+                    run_id=run_id,
+                    status="queued",
+                    evidence=[
+                        ReceiptEvidence(
+                            ref={
+                                "kind": "queued_action_run_prepared",
+                                "queue_kind": "project.run",
+                                "run_id": run_id,
+                                "attempt_id": attempt_id,
+                            }
+                        )
+                    ],
+                )
             )
-        )
         claim_token = "claim:custom-live-cancel"
         claims, conflict = OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
@@ -351,26 +353,27 @@ def test_legacy_cancelled_split_never_returns_false_success(tmp_path: Path) -> N
         )
         receipt_id = "receipt_legacy_cancelled_split"
         attempt_id = "attempt_legacy_cancelled_split"
-        ReceiptStore(project).insert_queued(
-            Receipt(
-                receipt_id=receipt_id,
-                project_id=project_id,
-                action_id="action_legacy_cancelled_split",
-                action_kind="map.regex_extract",
-                run_id=run_id,
-                status="queued",
-                evidence=[
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "queued_action_run_prepared",
-                            "queue_kind": "project.run",
-                            "run_id": run_id,
-                            "attempt_id": attempt_id,
-                        }
-                    )
-                ],
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_queued(
+                Receipt(
+                    receipt_id=receipt_id,
+                    project_id=project_id,
+                    action_id="action_legacy_cancelled_split",
+                    action_kind="map.regex_extract",
+                    run_id=run_id,
+                    status="queued",
+                    evidence=[
+                        ReceiptEvidence(
+                            ref={
+                                "kind": "queued_action_run_prepared",
+                                "queue_kind": "project.run",
+                                "run_id": run_id,
+                                "attempt_id": attempt_id,
+                            }
+                        )
+                    ],
+                )
             )
-        )
         claim_token = "claim:legacy-cancelled-split"
         claims, conflict = OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,

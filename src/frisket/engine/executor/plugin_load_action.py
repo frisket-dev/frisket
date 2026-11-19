@@ -170,7 +170,7 @@ def run_typed_plugin_load_action(
             outputs=[ReceiptIO(name="plugin_manifest", ref=ref)],
             evidence=[ReceiptEvidence(ref=ref, retention="compactable")],
         )
-        ReceiptStore(project_).insert_completed(receipt, commit=False)
+        ReceiptStore(project_).insert_completed(receipt)
         return ActionResult(
             action=ActionIdentity(kind=action.kind, action_id=action_id),
             status="completed",

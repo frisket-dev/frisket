@@ -19,6 +19,7 @@ from frisket.engine.store.streaming_import import (
     DuplicateStreamingPublication,
     StreamingSheetWriter,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 COLUMNS = [
@@ -890,7 +891,8 @@ def test_session_insert_failure_rolls_back_queued_receipt_start(make_project, ap
         idempotency_key="inventory:one",
         params_hash="sha256:inventory-one",
     )
-    ReceiptStore(project).insert_queued(receipt)
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(receipt)
     before = _counts(project)
     project.db.execute(
         "CREATE TEMP TRIGGER fail_session BEFORE INSERT ON import_sessions BEGIN SELECT RAISE(ABORT,'session insert failed'); END"

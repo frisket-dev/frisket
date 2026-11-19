@@ -16,6 +16,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_queued_receipt(
@@ -25,16 +26,17 @@ def _seed_queued_receipt(
     run_id: int | None = None,
 ) -> None:
     """Insert the minimal queued producer receipt needed by these claim tests."""
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id=PROJECT_ID,
-            action_id=f"act_{receipt_id}",
-            action_kind="map.extract",
-            run_id=run_id,
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id=PROJECT_ID,
+                action_id=f"act_{receipt_id}",
+                action_kind="map.extract",
+                run_id=run_id,
+                status="queued",
+            )
         )
-    )
 
 
 PROJECT_ID = "project-queued-run-claim-release"

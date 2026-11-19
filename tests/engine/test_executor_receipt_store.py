@@ -12,6 +12,7 @@ from frisket.engine.store.receipts import (
     StoredReceipt,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _receipt(
@@ -108,23 +109,26 @@ def test_receipt_store_round_trips_sorted_receipt_body_and_guarded_updates(
     assert updated is not None
     assert updated["status"] == "completed"
     assert updated.parsed().outputs[0].ref == {"kind": "template_output"}
-    assert (
-        store.update_if_status_in(
-            updated.parsed().model_copy(update={"status": "failed"}),
-            {"queued", "running"},
+    with write_transaction(store.db):
+        assert (
+            store.update_if_status_in(
+                updated.parsed().model_copy(update={"status": "failed"}),
+                {"queued", "running"},
+            )
+            is False
         )
-        is False
-    )
-    assert (
-        store.update_if_status_in(
-            updated.parsed().model_copy(update={"status": "failed"}),
-            {"completed", "partial"},
+    with write_transaction(store.db):
+        assert (
+            store.update_if_status_in(
+                updated.parsed().model_copy(update={"status": "failed"}),
+                {"completed", "partial"},
+            )
+            is True
         )
-        is True
-    )
-    assert store.delete_if_status("receipt_1", "queued") is False
-    assert store.delete_if_status("receipt_1", "completed") is False
-    assert store.delete_if_status("receipt_1", "failed") is True
+    with write_transaction(store.db):
+        assert store.delete_if_status("receipt_1", "queued") is False
+        assert store.delete_if_status("receipt_1", "completed") is False
+        assert store.delete_if_status("receipt_1", "failed") is True
     assert store.find_by_id("receipt_1") is None
 
 
@@ -156,7 +160,8 @@ def test_receipt_store_finished_insert_and_body_fetch_helpers(make_project) -> N
         update={"run_id": second_run_id, "idempotency_key": "idem_failed"}
     )
 
-    store.insert_completed(completed)
+    with write_transaction(store.db):
+        store.insert_completed(completed)
     store.insert_partial(partial)
     store.insert_failed(failed)
 
@@ -182,6 +187,7 @@ def test_receipt_store_finished_insert_and_body_fetch_helpers(make_project) -> N
     ] == ["receipt_partial"]
 
     with pytest.raises(ValueError):
-        store.insert_completed(partial)
+        with write_transaction(store.db):
+            store.insert_completed(partial)
     with pytest.raises(ValueError):
         store.insert_finished(_receipt("receipt_running", status="running"))

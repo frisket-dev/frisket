@@ -366,7 +366,7 @@ def _perform(
         receipt_id=receipt_id,
         params_hash=params_hash,
     )
-    ReceiptStore(project).insert_completed(receipt, commit=False)
+    ReceiptStore(project).insert_completed(receipt)
     return result
 
 

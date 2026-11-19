@@ -35,6 +35,7 @@ from frisket.execution.provider import ExecutionCompositionContext
 from frisket.ops.builtin import get_action_program
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.engine.store.transactions import write_transaction
 
 
 ROUTED_ACTIONS = (
@@ -893,17 +894,18 @@ def test_half_receipt_never_adopts_an_unlinked_run_marker(
         },
         row_ids=row_ids,
     )
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id="authority",
-            action_id=action_id,
-            action_kind=action["action_id"],
-            idempotency_key=key,
-            params_hash=params_hash,
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id="authority",
+                action_id=action_id,
+                action_kind=action["action_id"],
+                idempotency_key=key,
+                params_hash=params_hash,
+                status="queued",
+            )
         )
-    )
     before = {
         "runs": project.db.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
         "routes": project.db.execute("SELECT COUNT(*) FROM routes").fetchone()[0],

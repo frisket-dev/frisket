@@ -1075,7 +1075,6 @@ def terminalize_project_run(
             landed = receipts.update_if_status_in(
                 landed_receipt,
                 receipt_source_statuses,
-                commit=False,
             )
             receipt_disposition = "updated" if landed else "write_refused"
 

@@ -287,7 +287,7 @@ def reapply_results(project, project_id, bound):
                         for role, target in targets.items()
                     ],
                 )
-                receipts.insert_completed(receipt, commit=False)
+                receipts.insert_completed(receipt)
         return _result_from_receipt(receipt)
     except (ValueError, KeyError, TypeError) as error:
         return ActionCtx(project_id, "run.reapply").failed(

@@ -49,6 +49,7 @@ from frisket.execution.price_book import PlatformMetered
 from frisket.execution.provider import CompositionFacts, ExecutionComposition
 from frisket.execution.resolve_for_action import action_identity_hash
 from frisket.execution.targets import ExecutionTarget, TargetEngineSupport
+from frisket.engine.store.transactions import write_transaction
 
 TRANSCRIPTION_PLAN = _typed_map_rows_plan(
     BoundTypedActionRequest.bind(
@@ -1168,16 +1169,17 @@ def _terminal_success_fact(call_id: str, *, audio_seconds: float) -> dict:
 
 def _terminalize_cancelled_attempt(project, run_id: int, attempt_id: str) -> None:
     receipt_id = f"receipt_cancelled_settlement_{attempt_id}"
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id="cancelled-settlement-project",
-            action_id=f"action_{attempt_id}",
-            action_kind="media.transcribe",
-            run_id=run_id,
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id="cancelled-settlement-project",
+                action_id=f"action_{attempt_id}",
+                action_kind="media.transcribe",
+                run_id=run_id,
+                status="queued",
+            )
         )
-    )
     claim = project.db.execute(
         "SELECT claim_token FROM output_column_claims "
         "WHERE run_id=? AND status='active' LIMIT 1",
@@ -1355,6 +1357,7 @@ def test_terminalizer_excludes_cancelled_partial_fact_before_completed_row_settl
         **authority,
     )
 
+    project.db.commit()
     _terminalize_cancelled_attempt(
         project,
         run_id,
@@ -1386,6 +1389,7 @@ def test_terminalizer_proves_pre_effect_all_cancelled_zero_settlement(
     attempt = _mint(project, run_id)
     _claim_output_attempt(project, attempt)
 
+    project.db.commit()
     _terminalize_cancelled_attempt(
         project,
         run_id,

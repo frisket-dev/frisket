@@ -469,7 +469,7 @@ def _running_receipt_stale_result(
             "WHERE status='active' AND (receipt_id=? OR run_id=?)",
             (receipt_id, current["run_id"]),
         )
-        receipts.delete_if_status(receipt_id, "running", commit=False)
+        receipts.delete_if_status(receipt_id, "running")
         project.db.commit()
     except Exception as exc:
         try:
@@ -1121,7 +1121,7 @@ def _reserve_queued_action(
                 action=action,
                 params=params,
             )
-        ReceiptStore(project).insert_queued(receipt, commit=False)
+        ReceiptStore(project).insert_queued(receipt)
         claim_error = _acquire_output_claims_for_runner(
             project,
             action,
@@ -1432,7 +1432,7 @@ def _cleanup_queued_action_reservation(
             receipt_id=receipt_id,
             commit=False,
         )
-        ReceiptStore(project).delete_queued(receipt_id, commit=False)
+        ReceiptStore(project).delete_queued(receipt_id)
         project.db.commit()
     except Exception:
         project.db.rollback()
@@ -1455,7 +1455,7 @@ def _delete_reserved_action_receipt(
     try:
         project.db.execute("BEGIN IMMEDIATE")
         receipts = ReceiptStore(project)
-        deleted = receipts.delete_if_status(receipt_id, "running", commit=False)
+        deleted = receipts.delete_if_status(receipt_id, "running")
         if not deleted:
             row = receipts.find_by_id(receipt_id)
             logger.debug(
@@ -1571,7 +1571,6 @@ def _finalize_reserved_action_receipt(
         updated = ReceiptStore(project).update_if_status_in(
             receipt,
             {"running"} if require_running_status else {"queued", "running"},
-            commit=False,
         )
         if not updated:
             if commit:

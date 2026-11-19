@@ -201,9 +201,7 @@ def retire_legacy_project_work(project: Any) -> dict[str, int]:
                         "errors": [_cutover_error(current.action_kind)],
                     }
                 )
-                if not receipts.update_if_status_in(
-                    cancelled, ("queued", "running"), commit=False
-                ):
+                if not receipts.update_if_status_in(cancelled, ("queued", "running")):
                     raise ProjectCutoverRefused(
                         f"receipt {stored.id} refused cancellation"
                     )

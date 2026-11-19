@@ -31,6 +31,7 @@ from frisket.execution.attempt import (
     open_attempt,
 )
 from frisket.server.run_status import cancel_project_run
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-terminal-recovery"
@@ -111,32 +112,33 @@ def _seed_orphaned_run(
     project.db.commit()
 
     receipt_id = "receipt_dead_writer"
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id=PROJECT_ID,
-            action_id="action_dead_writer",
-            action_kind=ACTION_KIND,
-            run_id=run_id,
-            idempotency_key="dead-writer@sha256:stable",
-            params_hash="sha256:dead-writer",
-            status="queued",
-            evidence=(
-                [
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "queued_action_run_prepared",
-                            "queue_kind": "project.run",
-                            "run_id": run_id,
-                            "attempt_id": attempt_id,
-                        }
-                    )
-                ]
-                if include_attempt_evidence
-                else []
-            ),
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=receipt_id,
+                project_id=PROJECT_ID,
+                action_id="action_dead_writer",
+                action_kind=ACTION_KIND,
+                run_id=run_id,
+                idempotency_key="dead-writer@sha256:stable",
+                params_hash="sha256:dead-writer",
+                status="queued",
+                evidence=(
+                    [
+                        ReceiptEvidence(
+                            ref={
+                                "kind": "queued_action_run_prepared",
+                                "queue_kind": "project.run",
+                                "run_id": run_id,
+                                "attempt_id": attempt_id,
+                            }
+                        )
+                    ]
+                    if include_attempt_evidence
+                    else []
+                ),
+            )
         )
-    )
 
     claim_token = "custom:opaque-dead-writer-claim"
     claims, conflict = OutputColumnClaimStore(project).acquire(
@@ -265,31 +267,33 @@ def _seed_never_dispatched_run(
         row_ids=[row_id],
     )
     receipt_id = "receipt_never_dispatched"
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=receipt_id,
-            project_id=PROJECT_ID,
-            action_id="action_never_dispatched",
-            action_kind=ACTION_KIND,
-            run_id=run_id,
-            idempotency_key="never-dispatched@sha256:stable",
-            params_hash="sha256:never-dispatched",
-            status="queued",
-        )
-    )
-    claim_receipt_id = receipt_id
-    if mismatched_claim_receipt:
-        claim_receipt_id = "receipt_other_producer"
+    with write_transaction(project.db):
         ReceiptStore(project).insert_queued(
             Receipt(
-                receipt_id=claim_receipt_id,
+                receipt_id=receipt_id,
                 project_id=PROJECT_ID,
-                action_id="action_other_producer",
+                action_id="action_never_dispatched",
                 action_kind=ACTION_KIND,
                 run_id=run_id,
+                idempotency_key="never-dispatched@sha256:stable",
+                params_hash="sha256:never-dispatched",
                 status="queued",
             )
         )
+    claim_receipt_id = receipt_id
+    if mismatched_claim_receipt:
+        claim_receipt_id = "receipt_other_producer"
+        with write_transaction(project.db):
+            ReceiptStore(project).insert_queued(
+                Receipt(
+                    receipt_id=claim_receipt_id,
+                    project_id=PROJECT_ID,
+                    action_id="action_other_producer",
+                    action_kind=ACTION_KIND,
+                    run_id=run_id,
+                    status="queued",
+                )
+            )
     claim_token = "output-claim:never-dispatched"
     if include_claim:
         claims, conflict = OutputColumnClaimStore(project).acquire(
@@ -1236,7 +1240,8 @@ def test_run_terminalizes_when_existing_receipt_refuses_a_new_outcome(project) -
     stored = receipts.find_by_id(orphan.receipt_id)
     assert stored is not None
     refused_receipt = stored.parsed().model_copy(update={"status": "failed"})
-    assert receipts.update_if_status_in(refused_receipt, {"queued"})
+    with write_transaction(receipts.db):
+        assert receipts.update_if_status_in(refused_receipt, {"queued"})
     receipt_before = tuple(
         project.db.execute(
             "SELECT status, body FROM receipts WHERE id=?",
@@ -1351,6 +1356,7 @@ def test_prepared_replacement_cancel_ignores_historical_abandoned_attempt(
         "VALUES (?, ?, 1, 'admitted', 'replacement-fixture', '[]', datetime('now'))",
         (replacement_attempt_id, orphan.run_id),
     )
+    project.db.commit()
     stored = ReceiptStore(project).find_by_id(orphan.receipt_id)
     assert stored is not None
     replacement_receipt = stored.parsed().model_copy(
@@ -1367,10 +1373,11 @@ def test_prepared_replacement_cancel_ignores_historical_abandoned_attempt(
             ]
         }
     )
-    assert ReceiptStore(project).update_if_status_in(
-        replacement_receipt,
-        {"queued"},
-    )
+    with write_transaction(project.db):
+        assert ReceiptStore(project).update_if_status_in(
+            replacement_receipt,
+            {"queued"},
+        )
 
     transition = queued_v1_terminal_receipt_transition(
         project,
@@ -1403,16 +1410,17 @@ def test_prepared_replacement_cancel_ignores_historical_abandoned_attempt(
 def test_recovery_without_job_evidence_ignores_newer_auxiliary_receipt(project) -> None:
     orphan = _seed_orphaned_run(project)
     auxiliary_receipt_id = "receipt_newer_auxiliary_action"
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id=auxiliary_receipt_id,
-            project_id=PROJECT_ID,
-            action_id="action_newer_auxiliary",
-            action_kind="run.backfill",
-            run_id=orphan.run_id,
-            status="queued",
+    with write_transaction(project.db):
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id=auxiliary_receipt_id,
+                project_id=PROJECT_ID,
+                action_id="action_newer_auxiliary",
+                action_kind="run.backfill",
+                run_id=orphan.run_id,
+                status="queued",
+            )
         )
-    )
 
     transition = queued_v1_terminal_receipt_transition(
         project,
@@ -1434,29 +1442,29 @@ def test_recovery_without_job_evidence_ignores_newer_auxiliary_receipt(project) 
 def test_missing_job_recovery_preserves_custom_producer_action_kind(project) -> None:
     orphan = _seed_orphaned_run(project)
     custom_kind = "demo.plugin.op.clean"
-    project.db.execute(
-        "UPDATE runs SET action_kind=? WHERE id=?",
-        (custom_kind, orphan.run_id),
-    )
     stored = ReceiptStore(project).find_by_id(orphan.receipt_id)
     assert stored is not None
     custom_receipt = stored.parsed().model_copy(update={"action_kind": custom_kind})
-    assert ReceiptStore(project).update_if_status_in(custom_receipt, {"queued"})
-    project.db.execute(
-        "UPDATE output_column_claims SET action_kind=? WHERE run_id=?",
-        (custom_kind, orphan.run_id),
-    )
-    ReceiptStore(project).insert_queued(
-        Receipt(
-            receipt_id="receipt_custom_kind_auxiliary",
-            project_id=PROJECT_ID,
-            action_id="action_custom_kind_auxiliary",
-            action_kind="run.backfill",
-            run_id=orphan.run_id,
-            status="queued",
+    with write_transaction(project.db):
+        project.db.execute(
+            "UPDATE runs SET action_kind=? WHERE id=?",
+            (custom_kind, orphan.run_id),
         )
-    )
-    project.db.commit()
+        assert ReceiptStore(project).update_if_status_in(custom_receipt, {"queued"})
+        project.db.execute(
+            "UPDATE output_column_claims SET action_kind=? WHERE run_id=?",
+            (custom_kind, orphan.run_id),
+        )
+        ReceiptStore(project).insert_queued(
+            Receipt(
+                receipt_id="receipt_custom_kind_auxiliary",
+                project_id=PROJECT_ID,
+                action_id="action_custom_kind_auxiliary",
+                action_kind="run.backfill",
+                run_id=orphan.run_id,
+                status="queued",
+            )
+        )
 
     result = cancel_project_run(
         project=project,

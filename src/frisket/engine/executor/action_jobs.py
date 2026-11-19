@@ -236,7 +236,6 @@ def _terminalize_action_job_receipt(
         landed = receipts.update_if_status_in(
             updated,
             _TERMINALIZE_SOURCE_STATUSES[status],
-            commit=False,
         )
         if not landed:
             project.db.rollback()
@@ -671,7 +670,7 @@ def reserve_queued_action_job_receipt(
             else:
                 project.db.rollback()
             return outcome
-        ReceiptStore(project).insert_queued(receipt, commit=False)
+        ReceiptStore(project).insert_queued(receipt)
         if encoded_edition_context is not None:
             project.db.execute(
                 "UPDATE receipts SET edition_run_context=? WHERE id=?",

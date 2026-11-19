@@ -19,6 +19,8 @@ from frisket.engine.store.blob_metadata import (
 from frisket.engine.store.column_descriptors import set_descriptor
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.media_blobs import MediaBlobStore
+from frisket.contracts.action import Receipt
+from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from tests.engine.test_run_review_stats import _managed_run
 
@@ -485,3 +487,118 @@ def test_set_descriptor_owns_its_transaction_when_none_is_open(project):
 
     assert not project.db.in_transaction
     assert _committed_column_type(project, column_id) == "number"
+
+
+# -- receipts ----------------------------------------------------------------
+
+
+def _running_receipt(receipt_id: str = "receipt_ownership") -> Receipt:
+    return Receipt(
+        receipt_id=receipt_id,
+        project_id="ownership",
+        action_id="action_ownership",
+        action_kind="map.template",
+        status="running",
+    )
+
+
+def _committed_receipt_status(project, receipt_id="receipt_ownership"):
+    rows = _committed(project, "SELECT status FROM receipts WHERE id=?", (receipt_id,))
+    return rows[0][0] if rows else None
+
+
+def test_receipt_insert_owned_is_durable_on_return(project):
+    ReceiptStore(project).insert_running(_running_receipt())
+
+    assert not project.db.in_transaction
+    assert _committed_receipt_status(project) == "running"
+
+
+def test_receipt_insert_commit_true_inside_caller_transaction_refuses(project):
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        ReceiptStore(project).insert_running(_running_receipt())
+
+    assert project.db.in_transaction
+    assert _committed_sheet_name(project) == "Source"
+    assert _committed_receipt_status(project) is None
+
+
+def test_receipt_insert_joined_rolls_back_with_the_caller(project):
+    _open_caller_transaction(project)
+
+    ReceiptStore(project).insert_running(_running_receipt(), commit=False)
+
+    assert _committed_receipt_status(project) is None
+    project.db.rollback()
+    assert _committed_receipt_status(project) is None
+    assert _committed_sheet_name(project) == "Source"
+
+
+def test_receipt_update_joined_commits_only_with_the_caller(project):
+    store = ReceiptStore(project)
+    store.insert_running(_running_receipt())
+    _open_caller_transaction(project)
+
+    assert store.update_body_status(
+        _running_receipt().model_copy(update={"status": "completed"}),
+        require_status="running",
+        commit=False,
+    )
+
+    assert _committed_receipt_status(project) == "running"
+    project.db.commit()
+    assert _committed_receipt_status(project) == "completed"
+    assert _committed_sheet_name(project) == CALLER_SHEET_NAME
+
+
+def test_receipt_update_commit_true_inside_caller_transaction_refuses(project):
+    store = ReceiptStore(project)
+    store.insert_running(_running_receipt())
+    _open_caller_transaction(project)
+
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        store.update_body_status(
+            _running_receipt().model_copy(update={"status": "completed"}),
+            require_status="running",
+        )
+
+    assert _committed_sheet_name(project) == "Source"
+    assert _committed_receipt_status(project) == "running"
+
+
+RECEIPT_CALLER_WRITES = {
+    "insert_queued": lambda store: store.insert_queued(
+        _running_receipt().model_copy(update={"status": "queued"})
+    ),
+    "insert_completed": lambda store: store.insert_completed(
+        _running_receipt().model_copy(update={"status": "completed"})
+    ),
+    "update_if_status_in": lambda store: store.update_if_status_in(
+        _running_receipt(), {"queued"}
+    ),
+    "delete_if_status": lambda store: store.delete_if_status(
+        "receipt_ownership", "running"
+    ),
+    "delete_queued": lambda store: store.delete_queued("receipt_ownership"),
+}
+
+
+@pytest.mark.parametrize("write", sorted(RECEIPT_CALLER_WRITES))
+def test_receipt_caller_writes_require_caller_transaction(project, write):
+    with pytest.raises(RuntimeError, match="requires a caller transaction"):
+        RECEIPT_CALLER_WRITES[write](ReceiptStore(project))
+
+    assert not project.db.in_transaction
+
+
+def test_running_receipt_delete_joined_rolls_back_with_the_caller(project):
+    store = ReceiptStore(project)
+    store.insert_running(_running_receipt())
+    _open_caller_transaction(project)
+
+    assert store.delete_running("receipt_ownership", commit=False)
+
+    project.db.rollback()
+    assert _committed_receipt_status(project) == "running"

@@ -702,9 +702,9 @@ def _perform_export_column_tables_in_txn(
             filename=resolved.package_filename,
             project_path=resolved.artifact_ref["project_path"],
         )
-        ReceiptStore(project).insert_completed(receipt, commit=False)
+        ReceiptStore(project).insert_completed(receipt)
     else:
-        ReceiptStore(project).insert_completed(receipt, commit=False)
+        ReceiptStore(project).insert_completed(receipt)
         assert resolved.tmp_path is not None and resolved.destination is not None
         resolved.delivery = _deliver_export_artifact(
             resolved.tmp_path, resolved.destination

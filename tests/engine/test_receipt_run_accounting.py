@@ -2,6 +2,7 @@
 
 from frisket.contracts.action import Receipt
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.transactions import write_transaction
 from tests.engine.test_run_cost_projection import _seed, _fact, _writer
 
 
@@ -9,17 +10,18 @@ def test_direct_and_receipt_linked_facts_project_once_without_spend_mutation(tmp
     project, store, run_id, row_id, column_id = _seed(tmp_path)
     try:
         authority = _writer(project, run_id, column_id)
-        store.write_model_calls(
-            run_id,
-            [
-                {
-                    "row_id": row_id,
-                    "column_id": column_id,
-                    "model_calls": [_fact("direct", 0.02)],
-                }
-            ],
-            **authority,
-        )
+        with write_transaction(project.db):
+            store.write_model_calls(
+                run_id,
+                [
+                    {
+                        "row_id": row_id,
+                        "column_id": column_id,
+                        "model_calls": [_fact("direct", 0.02)],
+                    }
+                ],
+                **authority,
+            )
         receipt_id = "receipt-linked-projection"
         ReceiptStore(project).insert_running(
             Receipt(

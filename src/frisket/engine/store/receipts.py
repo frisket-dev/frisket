@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from typing import Any, Iterator, Literal
 
 from frisket.contracts.action import Receipt, ReceiptEvidence
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 ReceiptStatus = Literal[
     "queued", "running", "completed", "partial", "failed", "cancelled"
@@ -476,24 +477,23 @@ class ReceiptStore:
         edition_run_context: Mapping[str, Any] | None = None,
         commit: bool = True,
     ) -> None:
-        self.db.execute(
-            "INSERT INTO receipts (id, run_id, action_kind, action_id, "
-            "idempotency_key, params_hash, status, body, edition_run_context) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                receipt.receipt_id,
-                receipt.run_id,
-                receipt.action_kind,
-                receipt.action_id,
-                receipt.idempotency_key,
-                receipt.params_hash,
-                receipt.status,
-                receipt_body(receipt),
-                edition_run_context_body(edition_run_context),
-            ),
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="receipt insert"):
+            self.db.execute(
+                "INSERT INTO receipts (id, run_id, action_kind, action_id, "
+                "idempotency_key, params_hash, status, body, edition_run_context) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    receipt.receipt_id,
+                    receipt.run_id,
+                    receipt.action_kind,
+                    receipt.action_id,
+                    receipt.idempotency_key,
+                    receipt.params_hash,
+                    receipt.status,
+                    receipt_body(receipt),
+                    edition_run_context_body(edition_run_context),
+                ),
+            )
 
     def insert_with_status(
         self,
@@ -514,8 +514,9 @@ class ReceiptStore:
             commit=commit,
         )
 
-    def insert_queued(self, receipt: Receipt, *, commit: bool = True) -> None:
-        self.insert_with_status(receipt, "queued", commit=commit)
+    def insert_queued(self, receipt: Receipt) -> None:
+        """Insert a queued receipt in the caller's open transaction."""
+        self.insert_with_status(receipt, "queued", commit=False)
 
     def insert_running(
         self,
@@ -531,19 +532,9 @@ class ReceiptStore:
             commit=commit,
         )
 
-    def insert_completed(
-        self,
-        receipt: Receipt,
-        *,
-        edition_run_context: Mapping[str, Any] | None = None,
-        commit: bool = True,
-    ) -> None:
-        self.insert_with_status(
-            receipt,
-            "completed",
-            edition_run_context=edition_run_context,
-            commit=commit,
-        )
+    def insert_completed(self, receipt: Receipt) -> None:
+        """Insert a completed receipt in the caller's open transaction."""
+        self.insert_with_status(receipt, "completed", commit=False)
 
     def insert_partial(self, receipt: Receipt, *, commit: bool = True) -> None:
         self.insert_with_status(receipt, "partial", commit=commit)
@@ -579,25 +570,24 @@ class ReceiptStore:
         if require_status is not None:
             where_clause += " AND status=?"
             params.append(require_status)
-        updated = self.db.execute(
-            "UPDATE receipts SET run_id=?, action_kind=?, action_id=?, "
-            f"params_hash=?, status=?, body=? {where_clause}",
-            params,
-        )
-        if commit:
-            self.db.commit()
+        with write_transaction(self.db, commit=commit, what="receipt update"):
+            updated = self.db.execute(
+                "UPDATE receipts SET run_id=?, action_kind=?, action_id=?, "
+                f"params_hash=?, status=?, body=? {where_clause}",
+                params,
+            )
         return updated.rowcount == 1
 
     def update_if_status_in(
         self,
         receipt: Receipt,
         statuses: Iterable[str],
-        *,
-        commit: bool = True,
     ) -> bool:
+        """Update a receipt still in one of ``statuses`` in the caller's transaction."""
         allowed = tuple(dict.fromkeys(str(status) for status in statuses))
         if not allowed:
             raise ValueError("at least one receipt status is required")
+        require_transaction(self.db, "receipt conditional update")
         placeholders = ",".join("?" for _ in allowed)
         updated = self.db.execute(
             "UPDATE receipts SET run_id=?, action_kind=?, action_id=?, "
@@ -614,23 +604,15 @@ class ReceiptStore:
                 *allowed,
             ),
         )
-        if commit:
-            self.db.commit()
         return updated.rowcount == 1
 
-    def delete_if_status(
-        self,
-        receipt_id: str,
-        status: str,
-        *,
-        commit: bool = True,
-    ) -> bool:
+    def delete_if_status(self, receipt_id: str, status: str) -> bool:
+        """Delete a receipt still in ``status`` in the caller's transaction."""
+        require_transaction(self.db, "receipt delete")
         deleted = self.db.execute(
             "DELETE FROM receipts WHERE id=? AND status=?",
             (receipt_id, status),
         )
-        if commit:
-            self.db.commit()
         return deleted.rowcount == 1
 
     def delete_running(
@@ -639,12 +621,9 @@ class ReceiptStore:
         *,
         commit: bool = True,
     ) -> bool:
-        return self.delete_if_status(receipt_id, "running", commit=commit)
+        with write_transaction(self.db, commit=commit, what="running receipt delete"):
+            return self.delete_if_status(receipt_id, "running")
 
-    def delete_queued(
-        self,
-        receipt_id: str,
-        *,
-        commit: bool = True,
-    ) -> bool:
-        return self.delete_if_status(receipt_id, "queued", commit=commit)
+    def delete_queued(self, receipt_id: str) -> bool:
+        """Delete a queued receipt in the caller's open transaction."""
+        return self.delete_if_status(receipt_id, "queued")
