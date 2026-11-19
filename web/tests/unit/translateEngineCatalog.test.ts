@@ -38,8 +38,7 @@ describe('mergeEnginesWithFallback', () => {
     const live: EngineOption = {
       id: 'llm',
       label: 'LLM (live label)',
-      local: false,
-      source: 'remote',
+      tier: 'hosted',
       available: true,
       // no `language` field — a stale catalog
     };
@@ -55,8 +54,7 @@ describe('mergeEnginesWithFallback', () => {
     const live: EngineOption = {
       id: 'opus_mt',
       label: 'Opus-MT',
-      local: true,
-      source: 'local',
+      tier: 'local',
       available: true,
       // a version-skewed declaration that omits `allows_auto`
       language: { mode: 'single', default: '', choices: null, detects: false } as EngineOption['language'],
@@ -70,15 +68,15 @@ describe('mergeEnginesWithFallback', () => {
   });
 
   it('passes a live-only engine (no fallback twin) through unchanged', () => {
-    const live: EngineOption = { id: 'brand_new', label: 'New', local: false, source: 'remote', available: true };
+    const live: EngineOption = { id: 'brand_new', label: 'New', tier: 'hosted', available: true };
     const [merged] = mergeEnginesWithFallback([live], TRANSLATE_ENGINE_FALLBACK);
     expect(merged).toEqual(live);
   });
 
   it('keeps the live set authoritative on which engines exist and their order', () => {
     const live: EngineOption[] = [
-      { id: 'deepl', label: 'DeepL', local: false, source: 'remote', available: true },
-      { id: 'llm', label: 'LLM', local: false, source: 'remote', available: true },
+      { id: 'deepl', label: 'DeepL', tier: 'hosted', available: true },
+      { id: 'llm', label: 'LLM', tier: 'hosted', available: true },
     ];
     const merged = mergeEnginesWithFallback(live, TRANSLATE_ENGINE_FALLBACK);
     expect(merged.map((e) => e.id)).toEqual(['deepl', 'llm']);
@@ -92,7 +90,7 @@ describe('translateEnginesFromCatalog', () => {
 
   it('merges live entries over the fallback so a stale `language` is preserved', () => {
     const catalog = catalogWith([
-      { id: 'llm', label: 'LLM', local: false, source: 'remote', available: true },
+      { id: 'llm', label: 'LLM', tier: 'hosted', available: true },
     ]);
     const [llm] = translateEnginesFromCatalog(catalog);
     expect(llm.language).toEqual(fallbackLlm.language);
