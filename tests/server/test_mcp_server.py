@@ -2259,3 +2259,14 @@ def test_mcp_refuses_unknown_flags_without_creating_a_workspace(
     assert exit_info.value.code == 2
     assert "unrecognized arguments: --bogus" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+def test_mcp_hosted_refuses_a_workspace_argument(tmp_path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as exit_info:
+        mcp_server.main(["ws", "--hosted"])
+    assert exit_info.value.code == 2
+    assert "--hosted serves a remote Frisket server and takes no workspace" in (
+        capsys.readouterr().err
+    )
+    assert list(tmp_path.iterdir()) == []
