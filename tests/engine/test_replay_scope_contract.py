@@ -24,7 +24,10 @@ import pytest
 from frisket.contracts.action import Receipt, ReceiptIO
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import _compatibility_key
-from frisket.sdk.replay import generated_column_value_hash, generated_columns_replay_error
+from frisket.sdk.replay import (
+    generated_column_value_hash,
+    generated_columns_replay_error,
+)
 from frisket.sdk.replay_policy import REPLAY_EDIT_POLICY
 from frisket.engine.store import Project
 from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
@@ -41,9 +44,7 @@ class _Fixture:
         self.project = project
         self.sheet = project.add_sheet("stories")
         self.src = project.add_column(self.sheet, "story")
-        self.col = project.add_column(
-            self.sheet, "label", type="text", generated=True
-        )
+        self.col = project.add_column(self.sheet, "label", type="text", generated=True)
         rows = [{"story": f"story {i}"} for i in range(6)]
         project.add_rows(self.sheet, rows, {"story": self.src})
         self.row_ids = project.visible_row_ids(self.sheet)

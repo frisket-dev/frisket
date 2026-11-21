@@ -18,10 +18,7 @@ from frisket.actions.imports import UpdateRowsParams
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.change_schema import canonical_heads_sql
-from frisket.engine.store.current_cells import (
-    rebuild_current_cells,
-    register_current_cell_functions,
-)
+from frisket.engine.store.current_cells import rebuild_current_cells
 from frisket.engine.store.schema import SCHEMA_DIGEST
 from frisket.server.services.sheet_grid import SheetGridService, sheet_columns_payload
 from frisket.upgrades.project.domain_migration import DOMAIN_TO_DIGEST
@@ -537,52 +534,6 @@ def test_projection_rebuild_resolves_the_same_heads(make_project, reapply):
     ]
 
 
-def _downgrade_generated_columns_schema(db) -> None:
-    """Restore pre-generated-columns table/column names on a test fixture DB."""
-    register_current_cell_functions(db)
-    db.execute("ALTER TABLE columns RENAME COLUMN generated TO ai_generated")
-    for idx in (
-        "idx_generated_column_claims_active_name",
-        "idx_generated_column_claims_active_column",
-        "idx_generated_column_claims_claim_token",
-        "idx_generated_column_claims_run",
-        "idx_generated_column_claims_receipt",
-        "idx_generated_column_claims_status_expiry",
-    ):
-        db.execute(f"DROP INDEX IF EXISTS {idx}")
-    db.execute("ALTER TABLE generated_column_claims RENAME TO output_column_claims")
-    db.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_name "
-        "ON output_column_claims(sheet_id, output_name) WHERE status='active'"
-    )
-    db.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_column "
-        "ON output_column_claims(column_id) WHERE status='active' AND column_id IS NOT NULL"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_output_claims_claim_token "
-        "ON output_column_claims(claim_token)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_output_claims_run ON output_column_claims(run_id)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_output_claims_receipt ON output_column_claims(receipt_id)"
-    )
-    db.execute(
-        "CREATE INDEX IF NOT EXISTS idx_output_claims_status_expiry "
-        "ON output_column_claims(status, lease_expires_at)"
-    )
-    db.execute(
-        "ALTER TABLE evaluation_judgments "
-        "RENAME COLUMN generated_column_id TO output_column_id"
-    )
-    db.execute(
-        "ALTER TABLE saved_compare_variants "
-        "RENAME COLUMN generated_columns_json TO output_columns_json"
-    )
-
-
 def _stamp_pre_citations_digest(db, digest: str) -> None:
     _downgrade_to_pre_citations_schema(db)
     db.execute("BEGIN")
@@ -610,7 +561,6 @@ def test_upgrade_restores_edits_hidden_by_latest_change_wins(make_project):
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
-    _downgrade_generated_columns_schema(db)
     db.commit()
     _stamp_pre_citations_digest(db, DOMAIN_TO_DIGEST)
     assert sheet.values()[:3] == ["B0", "B1", "B2"]
@@ -645,7 +595,6 @@ def test_upgrade_restores_edits_hidden_by_a_later_reapply(make_project):
         (sheet.out,),
     )
     db.execute("ALTER TABLE consents RENAME COLUMN estimate_json TO quote_json")
-    _downgrade_generated_columns_schema(db)
     db.execute(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"

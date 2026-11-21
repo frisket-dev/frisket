@@ -210,7 +210,9 @@ JOINING_WRITES = {
         output_names=["value"],
         action_kind="map.test",
     ),
-    "claims.bind_to_run": lambda project: GeneratedColumnClaimStore(project).bind_to_run(
+    "claims.bind_to_run": lambda project: GeneratedColumnClaimStore(
+        project
+    ).bind_to_run(
         claim_token="claim:none",
         run_id=1,
     ),

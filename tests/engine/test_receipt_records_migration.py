@@ -27,15 +27,17 @@ from frisket.engine.store.schema import (
     SCHEMA_DIGEST_META_KEY,
 )
 from frisket.server.services.action_history import editable_action_draft
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.citations_migration import CITATIONS_TO_DIGEST
-from frisket.upgrades.project.receipt_records_migration import (
-    RECEIPT_RECORDS_TO_DIGEST,
+from tests.engine.test_generated_columns_migration import (
+    _downgrade_generated_columns_schema,
 )
 
 
 def _downgrade_to_citations_digest(db: sqlite3.Connection) -> None:
     db.execute("BEGIN")
     try:
+        _downgrade_generated_columns_schema(db)
         db.execute("DELETE FROM meta WHERE key=?", (RECEIPT_RECORDS_META_KEY,))
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
@@ -50,7 +52,7 @@ def _downgrade_to_citations_digest(db: sqlite3.Connection) -> None:
 def test_fresh_bundle_stamps_receipt_records_format(make_project) -> None:
     project = make_project("fresh-receipt-records")
     assert project.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
-    assert SCHEMA_DIGEST == RECEIPT_RECORDS_TO_DIGEST
+    assert SCHEMA_DIGEST == CURRENT_CHAIN_TIP_DIGEST
     assert project.get_meta(RECEIPT_RECORDS_META_KEY) == RECEIPT_RECORDS_VERSION
 
 
@@ -365,7 +367,7 @@ def _downgrade_map_python_to_legacy(
         (hidden_col_id,),
     )
     db.execute(
-        "UPDATE output_column_claims SET output_name='__evidence_debug' "
+        "UPDATE generated_column_claims SET output_name='__evidence_debug' "
         "WHERE column_id=? AND output_name='__record_debug'",
         (hidden_col_id,),
     )
@@ -463,7 +465,7 @@ def test_migrated_map_python_run_keeps_hidden_output_and_replay_valid(
         ).fetchall()
         assert all(row[0] == "__record_debug" for row in review_rows)
         claim_rows = upgraded.db.execute(
-            "SELECT output_name FROM output_column_claims WHERE column_id=?",
+            "SELECT output_name FROM generated_column_claims WHERE column_id=?",
             (hidden_col_id,),
         ).fetchall()
         assert all(row[0] == "__record_debug" for row in claim_rows)

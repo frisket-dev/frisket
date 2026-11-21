@@ -291,7 +291,9 @@ def test_generation_snapshots_role_and_failed_replacement_preserves_success(
     with write_transaction(project.db):
         RunResultStore(project).point_column_at_run(first_op, text_column_id, first_run)
     with write_transaction(project.db):
-        GeneratedColumnClaimStore(project).release(claim_token=first_authority.claim_token)
+        GeneratedColumnClaimStore(project).release(
+            claim_token=first_authority.claim_token
+        )
 
     _second_op, second_run, second_authority = start("failed replacement")
     assert second_authority.claim_token is not None

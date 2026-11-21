@@ -1,4 +1,4 @@
-"""Lossless upgrade from COPY_PRECEDENCE_TO_DIGEST to generated-column schema."""
+"""Lossless upgrade from RECEIPT_RECORDS_TO_DIGEST to generated-column schema."""
 
 from __future__ import annotations
 
@@ -24,18 +24,64 @@ from frisket.engine.store.schema import (
 )
 from frisket.server.services.run_action_drafts import reconstruct_run_action_draft
 from frisket.upgrades.project._step import run_step
-from frisket.upgrades.project.edit_precedence_migration import (
-    COPY_PRECEDENCE_TO_DIGEST,
-)
 from frisket.upgrades.project.generated_columns_migration import (
     GENERATED_COLUMNS_FROM_DIGEST,
     GENERATED_COLUMNS_TO_DIGEST,
     apply_generated_columns_migration,
 )
+from frisket.upgrades.project.receipt_records_migration import (
+    RECEIPT_RECORDS_TO_DIGEST,
+)
+
+
+def _downgrade_generated_columns_schema(db: sqlite3.Connection) -> None:
+    """Restore pre-generated-columns table/column names on a test fixture DB."""
+    register_current_cell_functions(db)
+    db.execute("ALTER TABLE columns RENAME COLUMN generated TO ai_generated")
+    for idx in (
+        "idx_generated_column_claims_active_name",
+        "idx_generated_column_claims_active_column",
+        "idx_generated_column_claims_claim_token",
+        "idx_generated_column_claims_run",
+        "idx_generated_column_claims_receipt",
+        "idx_generated_column_claims_status_expiry",
+    ):
+        db.execute(f"DROP INDEX IF EXISTS {idx}")
+    db.execute("ALTER TABLE generated_column_claims RENAME TO output_column_claims")
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_name "
+        "ON output_column_claims(sheet_id, output_name) WHERE status='active'"
+    )
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_output_claims_active_column "
+        "ON output_column_claims(column_id) WHERE status='active' AND column_id IS NOT NULL"
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_output_claims_claim_token "
+        "ON output_column_claims(claim_token)"
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_output_claims_run ON output_column_claims(run_id)"
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_output_claims_receipt ON output_column_claims(receipt_id)"
+    )
+    db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_output_claims_status_expiry "
+        "ON output_column_claims(status, lease_expires_at)"
+    )
+    db.execute(
+        "ALTER TABLE evaluation_judgments "
+        "RENAME COLUMN generated_column_id TO output_column_id"
+    )
+    db.execute(
+        "ALTER TABLE saved_compare_variants "
+        "RENAME COLUMN generated_columns_json TO output_columns_json"
+    )
 
 
 def _pre_upgrade_schema() -> str:
-    """Reconstruct the exact COPY_PRECEDENCE_TO_DIGEST DDL from current SCHEMA."""
+    """Reconstruct the exact RECEIPT_RECORDS_TO_DIGEST DDL from current SCHEMA."""
     return (
         SCHEMA.replace(
             "  generated INTEGER NOT NULL DEFAULT 0,",
@@ -96,7 +142,7 @@ def _build_pre_upgrade_bundle(path: Path) -> dict[str, int]:
     path.mkdir(parents=True, exist_ok=True)
     (path / "blobs").mkdir(exist_ok=True)
     pre_ddl = _pre_upgrade_schema()
-    assert schema_digest(pre_ddl) == COPY_PRECEDENCE_TO_DIGEST
+    assert schema_digest(pre_ddl) == RECEIPT_RECORDS_TO_DIGEST
 
     db = sqlite3.connect(path / "project.db")
     try:
@@ -104,7 +150,7 @@ def _build_pre_upgrade_bundle(path: Path) -> dict[str, int]:
         db.executescript(pre_ddl)
         db.execute(
             "INSERT OR REPLACE INTO meta(key,value) VALUES (?,?)",
-            (SCHEMA_DIGEST_META_KEY, COPY_PRECEDENCE_TO_DIGEST),
+            (SCHEMA_DIGEST_META_KEY, RECEIPT_RECORDS_TO_DIGEST),
         )
         db.execute(
             "INSERT OR REPLACE INTO meta(key,value) VALUES ('schema_version','1')"
