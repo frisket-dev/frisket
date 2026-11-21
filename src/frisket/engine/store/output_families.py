@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from frisket.authoring import column_types
-from frisket.engine.store.transactions import inserted_rowid, write_transaction
+from frisket.engine.store.transactions import inserted_rowid, require_transaction
 
 
 class OutputFamilyStore:
@@ -49,73 +49,73 @@ class OutputFamilyStore:
             if not column_types.is_registered(column_type):
                 raise ValueError(f"unknown column type: {column_type}")
 
-        with write_transaction(self.db, commit=not self.db.in_transaction):
-            placeholders = ",".join("?" for _ in names)
-            existing_rows = (
-                self.db.execute(
-                    "SELECT * FROM columns WHERE sheet_id=? AND active=1 "
-                    f"AND name IN ({placeholders})",
-                    (sheet_id, *names),
-                ).fetchall()
-                if names
-                else []
-            )
-            existing = {str(row["name"]): row for row in existing_rows}
+        require_transaction(self.db, "output family create_or_reuse")
+        placeholders = ",".join("?" for _ in names)
+        existing_rows = (
+            self.db.execute(
+                "SELECT * FROM columns WHERE sheet_id=? AND active=1 "
+                f"AND name IN ({placeholders})",
+                (sheet_id, *names),
+            ).fetchall()
+            if names
+            else []
+        )
+        existing = {str(row["name"]): row for row in existing_rows}
 
-            if existing:
-                if len(existing) != len(normalized):
-                    raise ValueError(
-                        "output columns are not a complete reusable generated family"
-                    )
-                output_ids: dict[str, int] = {}
-                for field in normalized:
-                    name = str(field["name"])
-                    row = existing[name]
-                    if (
-                        bool(row["hidden"])
-                        or not bool(row["ai_generated"])
-                        or str(row["type"]) != str(field["column_type"])
-                        or row["format"] != field.get("format")
-                    ):
-                        raise ValueError(
-                            "output columns are not an exact reusable generated family"
-                        )
-                    output_ids[name] = int(row["id"])
-                return output_ids, []
-
-            position_row = self.db.execute(
-                "SELECT COALESCE(MAX(position),0) AS position "
-                "FROM columns WHERE sheet_id=?",
-                (sheet_id,),
-            ).fetchone()
-            position = int(position_row["position"] or 0)
-
+        if existing:
+            if len(existing) != len(normalized):
+                raise ValueError(
+                    "output columns are not a complete reusable generated family"
+                )
             output_ids: dict[str, int] = {}
-            created: list[int] = []
             for field in normalized:
                 name = str(field["name"])
-                column_type = str(field["column_type"])
-                fmt = field.get("format")
-                hidden = bool(field.get("hidden", False))
-                default_hidden = bool(field.get("default_hidden", False))
+                row = existing[name]
+                if (
+                    bool(row["hidden"])
+                    or not bool(row["ai_generated"])
+                    or str(row["type"]) != str(field["column_type"])
+                    or row["format"] != field.get("format")
+                ):
+                    raise ValueError(
+                        "output columns are not an exact reusable generated family"
+                    )
+                output_ids[name] = int(row["id"])
+            return output_ids, []
 
-                position += 1
-                inserted = self.db.execute(
-                    "INSERT INTO columns "
-                    "(sheet_id,name,type,ai_generated,format,hidden,"
-                    "default_hidden,position) VALUES (?,?,?,1,?,?,?,?)",
-                    (
-                        sheet_id,
-                        name,
-                        column_type,
-                        fmt,
-                        int(hidden),
-                        int(default_hidden),
-                        position,
-                    ),
-                )
-                column_id = inserted_rowid(inserted)
-                output_ids[name] = column_id
-                created.append(column_id)
+        position_row = self.db.execute(
+            "SELECT COALESCE(MAX(position),0) AS position "
+            "FROM columns WHERE sheet_id=?",
+            (sheet_id,),
+        ).fetchone()
+        position = int(position_row["position"] or 0)
 
-            return output_ids, created
+        output_ids = {}
+        created: list[int] = []
+        for field in normalized:
+            name = str(field["name"])
+            column_type = str(field["column_type"])
+            fmt = field.get("format")
+            hidden = bool(field.get("hidden", False))
+            default_hidden = bool(field.get("default_hidden", False))
+
+            position += 1
+            inserted = self.db.execute(
+                "INSERT INTO columns "
+                "(sheet_id,name,type,ai_generated,format,hidden,"
+                "default_hidden,position) VALUES (?,?,?,1,?,?,?,?)",
+                (
+                    sheet_id,
+                    name,
+                    column_type,
+                    fmt,
+                    int(hidden),
+                    int(default_hidden),
+                    position,
+                ),
+            )
+            column_id = inserted_rowid(inserted)
+            output_ids[name] = column_id
+            created.append(column_id)
+
+        return output_ids, created

@@ -116,7 +116,7 @@ class GroupPublication:
         from .action_receipts import _result_from_receipt
         from .project_run_terminalization import (
             CurrentWriterTerminalAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
         from frisket.engine.store.receipts import ReceiptStore
         from frisket.execution.attempt import StaleAttemptWriter
@@ -130,7 +130,7 @@ class GroupPublication:
                 raise StaleAttemptWriter(
                     "grouped cancellation needs durable Stop intent"
                 )
-            terminal = terminalize_project_run(
+            terminal = terminalize_project_run_in_transaction(
                 self.project,
                 run_id=int(self._started_envelope["run_id"]),
                 receipt_id=self.receipt_id,
@@ -139,7 +139,6 @@ class GroupPublication:
                     writer_attempt_id=str(self._started_envelope["attempt_id"]),
                     claim_token=self.claim_token,
                 ),
-                commit=False,
             )
             if terminal.disposition != "terminalized":
                 raise StaleAttemptWriter(

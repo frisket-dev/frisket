@@ -91,20 +91,21 @@ def _add_timestamped_transcript(
         }
         if language is not None:
             metadata["language"] = language
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata=metadata,
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata=metadata,
+        )
     return column_id, link
 
 
@@ -281,14 +282,14 @@ def test_resolve_project_persist_and_staleness(make_project) -> None:
             blob_hash=derived_blob,
             duration_ms=3000,
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=int(derived["id"]),
-        source_artifact_id=source.lease.anchor.artifact_id,
-        source_start_ms=2000,
-        source_end_ms=5000,
-        precision="exact",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=int(derived["id"]),
+            source_artifact_id=source.lease.anchor.artifact_id,
+            source_start_ms=2000,
+            source_end_ms=5000,
+            precision="exact",
+        )
     op_id = project.append_change("test", {}, label="test")
     project.db.execute("BEGIN IMMEDIATE")
     evidence = persist_projected_transcript_citations(
@@ -378,14 +379,14 @@ def test_root_compatible_sibling_transcript_is_rebased_to_source_clock(
             blob_hash=sibling_blob,
             duration_ms=2_000,
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=int(sibling["id"]),
-        source_artifact_id=source.lease.anchor.artifact_id,
-        source_start_ms=4_000,
-        source_end_ms=6_000,
-        precision="exact",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=int(sibling["id"]),
+            source_artifact_id=source.lease.anchor.artifact_id,
+            source_start_ms=4_000,
+            source_end_ms=6_000,
+            precision="exact",
+        )
     _add_timestamped_transcript(
         project,
         sheet_id=source.sheet_id,

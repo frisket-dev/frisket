@@ -541,7 +541,7 @@ def _publish(
 ):
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
-        terminalize_project_run,
+        terminalize_project_run_in_transaction,
     )
     from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
@@ -603,7 +603,7 @@ def _publish(
             receipt = prior.model_copy(
                 update={"status": status, "outputs": [], "errors": [error]}
             )
-            outcome = terminalize_project_run(
+            outcome = terminalize_project_run_in_transaction(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
@@ -612,7 +612,6 @@ def _publish(
                     writer_attempt_id=writer, claim_token=claim
                 ),
                 terminal_receipt=receipt,
-                commit=False,
             )
             if outcome.disposition not in {"terminalized", "already_terminal"}:
                 raise StaleAttemptWriter("Formula cancellation lost its current writer")
@@ -653,7 +652,7 @@ def _publish(
             receipt_status = kwargs.get("receipt_status")
             if receipt_status is not None:
                 receipt = receipt.model_copy(update={"status": receipt_status})
-            outcome = terminalize_project_run(
+            outcome = terminalize_project_run_in_transaction(
                 project,
                 run_id=run_id,
                 receipt_id=receipt_id,
@@ -663,7 +662,6 @@ def _publish(
                     writer_attempt_id=writer, claim_token=claim
                 ),
                 terminal_receipt=receipt,
-                commit=False,
             )
             if outcome.disposition != "terminalized":
                 raise StaleAttemptWriter(

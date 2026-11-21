@@ -51,15 +51,16 @@ def test_http_viewer_does_not_treat_html_blob_hash_as_cell_text_hash(
             selector={"blob_hash": blob_hash},
             text_layer_hash=blob_hash,
         )
-    link = record_citation(
-        project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
 
     response = client.get(
         f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
@@ -114,15 +115,16 @@ def test_http_viewer_flags_missing_current_cell_for_frozen_cell_surface(
             text_layer_hash=content_hash,
             text_surface_id=surface["id"],
         )
-    link = record_citation(
-        project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+        )
     with write_transaction(project.db):
         project.set_column_type(column_id, "number")
     assert project.get_values(sheet_id, column_id, row_ids=[row_id])[row_id] is None
@@ -278,39 +280,41 @@ def _seed_evidence(
                 }
             },
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-map-extract",
-        link_role="primary_support",
-        confidence=0.91,
-        producer={
-            "schema_version": "frisket.map_extract_evidence_link.v1",
-            "value_hash": "sha256:" + "c2" * 32,
-            "action_kind": "map.extract",
-            "model": "provider/model",
-            "grounding_method": "model_bbox",
-        },
-        spans=[{"span_id": region["id"], "rank": 0, "required": True}],
-    )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={**current_ref, "run_id": run_id + 999},
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id + 999,
-        op_id=op_id,
-        link_role="support",
-        spans=[{"span_id": region["id"]}],
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-map-extract",
+            link_role="primary_support",
+            confidence=0.91,
+            producer={
+                "schema_version": "frisket.map_extract_evidence_link.v1",
+                "value_hash": "sha256:" + "c2" * 32,
+                "action_kind": "map.extract",
+                "model": "provider/model",
+                "grounding_method": "model_bbox",
+            },
+            spans=[{"span_id": region["id"], "rank": 0, "required": True}],
+        )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={**current_ref, "run_id": run_id + 999},
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id + 999,
+            op_id=op_id,
+            link_role="support",
+            spans=[{"span_id": region["id"]}],
+        )
     return link, {"pdf_hash": pdf_hash, "page_image_hash": page_image_hash}
 
 

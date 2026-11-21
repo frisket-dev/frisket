@@ -16,6 +16,7 @@ from typing import Any
 from filelock import FileLock
 
 from .schema import FORMAT_VERSION
+from .transactions import write_transaction
 
 _log = logging.getLogger(__name__)
 
@@ -394,23 +395,23 @@ def _read_manifest(project: Any) -> dict[str, Any]:
 
 def _persist_retention_policy(project: Any, policy: object | None) -> dict[str, Any]:
     normalized = _normalize_retention_policy(policy)
-    project.db.execute(
-        "INSERT INTO meta (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (RETENTION_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="project retention policy"):
+        project.db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (RETENTION_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
+        )
     project._write_manifest(retention=normalized)
     return normalized
 
 
 def _persist_network_policy(project: Any, policy: object | None) -> dict[str, Any]:
     normalized = _normalize_network_policy(policy)
-    project.db.execute(
-        "INSERT INTO meta (key, value) VALUES (?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (NETWORK_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
-    )
-    project.db.commit()
+    with write_transaction(project.db, what="project network policy"):
+        project.db.execute(
+            "INSERT INTO meta (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (NETWORK_POLICY_META_KEY, json.dumps(normalized, sort_keys=True)),
+        )
     project._write_manifest(network=normalized)
     return normalized

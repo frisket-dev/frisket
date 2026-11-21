@@ -99,12 +99,13 @@ def test_manual_text_recovery_is_a_read_only_viewer_preview(
             ],
             quote="Ada",
         )
-    link = record_citation(
-        project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": text_span["id"]}, {"span_id": media_span["id"]}],
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": text_span["id"]}, {"span_id": media_span["id"]}],
+        )
     endpoint = f"/api/projects/{project_id}/evidence/links/{link['stable_id']}/viewer"
 
     project.apply_edits(

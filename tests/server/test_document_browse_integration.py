@@ -73,17 +73,18 @@ def _import_documents(
     _values, refs = project.get_values_with_refs(
         sheet_id, columns["alongside"], row_ids=[first_row]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[first_row],
-        spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
-        sheet_id=sheet_id,
-        row_id=first_row,
-        column_id=columns["alongside"],
-        layer_family="integration",
-        producer={"kind": "integration.annotation"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[first_row],
+            spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
+            sheet_id=sheet_id,
+            row_id=first_row,
+            column_id=columns["alongside"],
+            layer_family="integration",
+            producer={"kind": "integration.annotation"},
+        )
     project.db.commit()
     return sheet_id, columns
 

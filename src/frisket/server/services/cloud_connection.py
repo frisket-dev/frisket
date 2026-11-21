@@ -448,7 +448,7 @@ class CloudConnectionService:
             updates["cloud_user_id"] = connection.identity.id
             updates["cloud_account_id"] = patch.selected_account_id
             with project.transaction_scope():
-                self._model_routes.pin_ready_routes(project_id, commit=False)
+                self._model_routes.pin_ready_routes_in_transaction(project_id)
                 settings = read_project_settings(project)
                 write_project_settings(
                     project,

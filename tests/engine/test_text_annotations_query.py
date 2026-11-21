@@ -88,22 +88,23 @@ def _write_layer(
                 metadata={"entity_type": etype},
             )
         spans.append(s)
-    return record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=subject_ref
-        if subject_ref is not None
-        else _entities_ref(project, sheet, ents, row_id),
-        spans=[
-            {"span_id": s["id"], "rank": i, "span_role": "annotation"}
-            for i, s in enumerate(spans)
-        ],
-        sheet_id=sheet,
-        row_id=row_id,
-        column_id=ents,
-        layer_family="entities",
-        producer={"kind": "map.ner", "engine": "gliner"},
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=subject_ref
+            if subject_ref is not None
+            else _entities_ref(project, sheet, ents, row_id),
+            spans=[
+                {"span_id": s["id"], "rank": i, "span_role": "annotation"}
+                for i, s in enumerate(spans)
+            ],
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents,
+            layer_family="entities",
+            producer={"kind": "map.ner", "engine": "gliner"},
+        )
 
 
 def test_positioned_layer(make_project):
@@ -263,15 +264,16 @@ def test_surfaceless_and_non_annotation_spans_excluded(make_project):
             text_layer_hash=_text_hash("Ada Lovelace"),
             text_surface_id=surf["id"],
         )
-    record_citation(
-        p,
-        subject_kind="cell",
-        subject_ref=_entities_ref(p, sheet, ents, row_id),
-        spans=[{"span_id": span["id"], "rank": 0}],  # support role, no family
-        sheet_id=sheet,
-        row_id=row_id,
-        column_id=ents,
-    )
+    with write_transaction(p.db):
+        record_citation(
+            p,
+            subject_kind="cell",
+            subject_ref=_entities_ref(p, sheet, ents, row_id),
+            spans=[{"span_id": span["id"], "rank": 0}],  # support role, no family
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents,
+        )
     res = resolve_text_annotations(p, sheet_id=sheet, row_id=row_id, column_id=body)
     assert res["layers"] == []
 
@@ -303,16 +305,17 @@ def test_unsupported_offset_unit_is_unpositioned(make_project):
             text_surface_id=surf["id"],
             metadata={"entity_type": "person"},
         )
-    record_citation(
-        p,
-        subject_kind="cell",
-        subject_ref=_entities_ref(p, sheet, ents, row_id),
-        spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
-        sheet_id=sheet,
-        row_id=row_id,
-        column_id=ents,
-        layer_family="entities",
-    )
+    with write_transaction(p.db):
+        record_citation(
+            p,
+            subject_kind="cell",
+            subject_ref=_entities_ref(p, sheet, ents, row_id),
+            spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents,
+            layer_family="entities",
+        )
     res = resolve_text_annotations(p, sheet_id=sheet, row_id=row_id, column_id=body)
     assert res["layers"][0]["positioned"] is False
     assert res["layers"][0]["unpositioned"]["reason"] == "unsupported_offset_unit"
@@ -360,19 +363,20 @@ def test_corrupt_geometry_with_matching_hash_is_counted_not_drawn(make_project):
             text_surface_id=surf["id"],
             metadata={"entity_type": "person"},
         )
-    record_citation(
-        p,
-        subject_kind="cell",
-        subject_ref=_entities_ref(p, sheet, ents, row_id),
-        spans=[
-            {"span_id": good["id"], "rank": 0, "span_role": "annotation"},
-            {"span_id": bad["id"], "rank": 1, "span_role": "annotation"},
-        ],
-        sheet_id=sheet,
-        row_id=row_id,
-        column_id=ents,
-        layer_family="entities",
-    )
+    with write_transaction(p.db):
+        record_citation(
+            p,
+            subject_kind="cell",
+            subject_ref=_entities_ref(p, sheet, ents, row_id),
+            spans=[
+                {"span_id": good["id"], "rank": 0, "span_role": "annotation"},
+                {"span_id": bad["id"], "rank": 1, "span_role": "annotation"},
+            ],
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents,
+            layer_family="entities",
+        )
     layer = resolve_text_annotations(p, sheet_id=sheet, row_id=row_id, column_id=body)[
         "layers"
     ][0]

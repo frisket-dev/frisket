@@ -590,7 +590,7 @@ class OutputColumnClaimStore:
         touched.
         """
 
-        from frisket.execution.attempt import set_attempt_state
+        from frisket.execution.attempt import set_attempt_state_in_transaction
 
         with write_transaction(self.db):
             self.require_current_writer(
@@ -600,11 +600,10 @@ class OutputColumnClaimStore:
                 claim_token=claim_token,
                 claimless_direct_effect=claimless_direct_effect,
             )
-            set_attempt_state(
+            set_attempt_state_in_transaction(
                 self.project,
                 writer_attempt_id,
                 attempt_state,
-                commit=False,
             )
             released = (
                 0

@@ -82,20 +82,21 @@ def _seed(ws: Path) -> dict[str, Any]:
                 for start, end, entity_type in [(0, 12, "person"), (17, 32, "person")]
             ]
         _values, refs = project.get_values_with_refs(sheet_id, ents, row_ids=[row_id])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[row_id],
-            spans=[
-                {"span_id": span["id"], "rank": i, "span_role": "annotation"}
-                for i, span in enumerate(spans)
-            ],
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=ents,
-            layer_family="entities",
-            producer={"kind": "map.ner", "engine": "gliner"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[row_id],
+                spans=[
+                    {"span_id": span["id"], "rank": i, "span_role": "annotation"}
+                    for i, span in enumerate(spans)
+                ],
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=ents,
+                layer_family="entities",
+                producer={"kind": "map.ner", "engine": "gliner"},
+            )
 
         plain_sheet_id = project.add_sheet("Plain")
         plain_col = project.add_column(plain_sheet_id, "x", type="text")

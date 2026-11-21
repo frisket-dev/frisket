@@ -188,16 +188,21 @@ def test_retrieval_evidence_publication_touches_its_current_binding(
         )
     before = read_binding_revision(project.db, row_id=row_id, column_id=column_id)
 
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref={"kind": "source_cell", "row_id": row_id, "column_id": column_id},
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        link_role="media_transcribe_temporal",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref={
+                "kind": "source_cell",
+                "row_id": row_id,
+                "column_id": column_id,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            link_role="media_transcribe_temporal",
+        )
 
     assert (
         read_binding_revision(project.db, row_id=row_id, column_id=column_id) > before

@@ -124,15 +124,25 @@ def selected_layout_id(project, sheet_id, source_column_id):
     return row[0] if row else None
 
 
-def select_layout(project, *, sheet_id, source, layout_id, commit=True):
-    """Select a layout for its source column; ``commit=False`` joins the
-    caller's transaction."""
+def select_layout_in_transaction(project, *, sheet_id, source, layout_id):
+    """Select a layout for its source column inside the caller's transaction."""
+    require_transaction(project.db, "layout selection")
     layout = validate_layout_scope(project, layout_id, sheet_id, source)
-    with write_transaction(project.db, commit=commit, what="layout selection"):
-        project.db.execute(
-            "INSERT INTO extraction_layout_selection VALUES (?,?,?) "
-            "ON CONFLICT(sheet_id,source_column_id) DO UPDATE SET layout_id=excluded.layout_id",
-            (sheet_id, layout["source_column_id"], layout_id),
+    project.db.execute(
+        "INSERT INTO extraction_layout_selection VALUES (?,?,?) "
+        "ON CONFLICT(sheet_id,source_column_id) DO UPDATE SET layout_id=excluded.layout_id",
+        (sheet_id, layout["source_column_id"], layout_id),
+    )
+
+
+def select_layout(project, *, sheet_id, source, layout_id):
+    """Select a layout for its source column in its own write transaction."""
+    with write_transaction(project.db, what="layout selection"):
+        select_layout_in_transaction(
+            project,
+            sheet_id=sheet_id,
+            source=source,
+            layout_id=layout_id,
         )
 
 
@@ -196,12 +206,11 @@ def save_layout(
                 ),
             )
         if creating:
-            select_layout(
+            select_layout_in_transaction(
                 project,
                 sheet_id=sheet_id,
                 source=source,
                 layout_id=layout_id,
-                commit=False,
             )
     return get_layout(project, layout_id)
 

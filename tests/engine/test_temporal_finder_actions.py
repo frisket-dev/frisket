@@ -733,24 +733,25 @@ def _seed_timestamped_transcripts(
         transcript_column_id,
         row_ids=[row_ids[0]],
     )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_ids[0]],
-        spans=span_refs,
-        sheet_id=sheet_id,
-        row_id=row_ids[0],
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_ids[0]],
+            spans=span_refs,
+            sheet_id=sheet_id,
+            row_id=row_ids[0],
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return sheet_id, row_ids, transcript_column_id, link
 
 

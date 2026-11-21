@@ -67,12 +67,13 @@ def _native_citation(
 
 
 def _link(project: Project, spans: list[dict]) -> dict:
-    return record_citation(
-        project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]} for span in spans],
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]} for span in spans],
+        )
 
 
 def test_native_context_reads_current_text_then_becomes_stale_without_copy(
