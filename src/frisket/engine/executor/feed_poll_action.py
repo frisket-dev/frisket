@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from frisket.engine.store.transactions import inserted_rowid
+from frisket.engine.store.transactions import inserted_rowid, write_transaction
 import copy
 import hashlib
 import json
@@ -211,7 +211,8 @@ def _resolve_and_poll_feed(
         _require_feed_poll_destination(project, feed_before)
     except ValueError as exc:
         if resolved["created"]:
-            FeedStore(project).delete_feed(feed_id)
+            with write_transaction(project.db, what="feed delete"):
+                FeedStore(project).delete_feed(feed_id)
         return ActionError(
             code="invalid_input_ref",
             message=str(exc),
@@ -237,7 +238,8 @@ def _resolve_and_poll_feed(
     config_error = feed_checker.validate_config(feed_for_checker)
     if config_error:
         if resolved.get("created"):
-            FeedStore(project).delete_feed(feed_id)
+            with write_transaction(project.db, what="feed delete"):
+                FeedStore(project).delete_feed(feed_id)
         return ActionError(
             code="unsupported_source_config",
             message=str(config_error),
@@ -491,15 +493,16 @@ def _resolve_poll_feed(
             details={"source_kind": selector.kind},
         )
     feed_store = FeedStore(project)
-    feed_id = feed_store.add_feed(
-        name=selector.name,
-        kind=selector.kind,
-        url=selector.url,
-        config=selector.config,
-        sheet_id=selector.sheet_id,
-        schedule=selector.schedule,
-        enabled=selector.enabled,
-    )
+    with write_transaction(project.db, what="feed add"):
+        feed_id = feed_store.add_feed(
+            name=selector.name,
+            kind=selector.kind,
+            url=selector.url,
+            config=selector.config,
+            sheet_id=selector.sheet_id,
+            schedule=selector.schedule,
+            enabled=selector.enabled,
+        )
     feed = feed_store.get_feed(feed_id)
     if feed is None:
         return ActionError(
@@ -638,7 +641,6 @@ def _materialize_registered_feed_poll_in_txn(
                 "created_rows": publication.created,
                 "restored_rows": publication.restored,
             },
-            commit=False,
         )
     return {
         "sheet_id": sheet_id,

@@ -658,12 +658,12 @@ def _finalize_web_capture_page(
             output = row.get("blob_output")
             if not isinstance(output, RowBlobOutput):
                 raise RuntimeError("captured row is missing blob output")
-            primary_digest = commit_row_blob_plan(project, output.primary, commit=False)
+            primary_digest = commit_row_blob_plan(project, output.primary)
             if primary_digest != output.primary.content_digest:
                 raise RuntimeError("primary blob digest changed during commit")
             supplemental_refs = []
             for plan in output.supplemental:
-                digest = commit_row_blob_plan(project, plan, commit=False)
+                digest = commit_row_blob_plan(project, plan)
                 if digest != plan.content_digest:
                     raise RuntimeError("supplemental blob digest changed during commit")
                 supplemental_refs.append(_web_capture_page_blob_ref(row, plan, digest))

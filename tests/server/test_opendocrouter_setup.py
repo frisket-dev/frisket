@@ -42,15 +42,16 @@ def test_catalog_key_setup_and_target(tmp_path, monkeypatch, action):
         )
     ) as client:
         pid = client.post("/api/projects", json={"name": "Documents"}).json()["id"]
-        write_project_settings(
-            client.app.state.workspace.get(pid),
-            ProjectSettings(
-                model_execution_routes={
-                    f"opendocrouter/{model.id}": "own"
-                    for model in current_catalog().models
-                }
-            ),
-        )
+        with client.app.state.workspace.get(pid).transaction_scope():
+            write_project_settings(
+                client.app.state.workspace.get(pid),
+                ProjectSettings(
+                    model_execution_routes={
+                        f"opendocrouter/{model.id}": "own"
+                        for model in current_catalog().models
+                    }
+                ),
+            )
 
         def choices():
             response = client.post(

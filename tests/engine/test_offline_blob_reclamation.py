@@ -8,6 +8,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.import_intake import ImportIntakeHeader, write_import_header
 from frisket.engine.store.import_inventory import ImportInventory
 from frisket.engine.store.project_blobs import reclaim_local_blobs
+from frisket.engine.store.transactions import write_transaction
 from frisket.upgrades.project.blob_retention_migration import (
     migrate_blob_derivation_ownership,
 )
@@ -133,7 +134,10 @@ def test_symlinks_unknown_layout_and_retention_are_respected(project, tmp_path):
 def test_redo_keeps_output_but_not_materialized_ancestry(project):
     parent = project.add_blob(b"source")
     child = project.add_blob(b"derived")
-    project.record_blob_derivation(derived_hash=child, source_hash=parent, op="test")
+    with write_transaction(project.db):
+        project.record_blob_derivation(
+            derived_hash=child, source_hash=parent, op="test"
+        )
     column, row = root(project, None)
     project.apply_edits(
         [{"row_id": row, "column_id": column, "value": {"blob": child}}]

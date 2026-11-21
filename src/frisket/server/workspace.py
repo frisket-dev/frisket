@@ -1195,7 +1195,8 @@ class Workspace:
         project = Project.create(
             path, name=name, sensitive=sensitive, blob_store=blob_store
         )
-        write_project_settings(project, ProjectSettings(model_execution_routes={}))
+        with project.transaction_scope():
+            write_project_settings(project, ProjectSettings(model_execution_routes={}))
         self._attach_project_jobs(path.stem, project)
         try:
             # Bundled plugins (src/frisket/authoring/bundled_plugins/) are seeded

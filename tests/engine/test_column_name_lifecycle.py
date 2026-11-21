@@ -11,7 +11,7 @@ def test_undo_redo_preserves_internal_hidden_column(make_project):
     column_id = project.add_column(sheet_id, "internal", hidden=True)
     op_id = project.append_change("fixture")
     with write_transaction(project.db):
-        project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
+        project.set_undo_info(op_id, {"created_columns": [column_id]})
         start_change(project.db, op_id)
     assert project.undo() == op_id
     assert project.get_column(column_id)["active"] == 0
@@ -30,7 +30,7 @@ def test_redo_cannot_take_name_reserved_by_queued_action(make_project):
     column_id = project.add_column(sheet_id, "summary")
     op_id = project.append_change("fixture")
     with write_transaction(project.db):
-        project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
+        project.set_undo_info(op_id, {"created_columns": [column_id]})
         start_change(project.db, op_id)
     project.undo()
     claims = OutputColumnClaimStore(project)

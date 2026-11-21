@@ -74,6 +74,7 @@ from frisket.engine.store.feeds import FeedStore
 from frisket.team.app import TeamConfig, create_team_app
 from tests.http_test_helpers import v1_action_from_canonical_run_spec
 from tests.team_setup_helpers import claim_server, sign_in_with_magic_link
+from frisket.engine.store.transactions import write_transaction
 
 PG_URL = os.environ.get("FRISKET_PG_TEST_URL")
 
@@ -395,12 +396,13 @@ class TestSchedulerRootLayoutMatchesTeamApp:
         # The team app's real bundle layout: <data_dir>/<slug>.frisket
         # directly, no projects/ nesting at all.
         p = Project.create(data_dir / "flat-team.frisket", name="flat-team")
-        sid = FeedStore(p).add_feed(
-            name="Flat Feed",
-            kind="rss",
-            url="https://example.com/feed.xml",
-            schedule="@hourly",
-        )
+        with write_transaction(p.db):
+            sid = FeedStore(p).add_feed(
+                name="Flat Feed",
+                kind="rss",
+                url="https://example.com/feed.xml",
+                schedule="@hourly",
+            )
         p.close()
         assert not (data_dir / "projects").exists()
 

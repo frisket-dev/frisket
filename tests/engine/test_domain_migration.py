@@ -14,6 +14,7 @@ from frisket.upgrades.project.domain_migration import (
     retire_unfinished_work,
 )
 from frisket.engine.store.schema import BundleSchemaMismatch
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture
@@ -182,8 +183,9 @@ def test_upgrade_poll_keeps_deleted_legacy_source_item(tmp_path, changed):
     path = tmp_path / "feed.frisket"
     with closing(Project.create(path)) as project:
         sheet = project.add_sheet("Feed")
-        FeedStore(project).add_feed("Unrelated", kind="rss")
-        source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
+        with write_transaction(project.db):
+            FeedStore(project).add_feed("Unrelated", kind="rss")
+            source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
         columns = {
             name: project.add_column(sheet, name, type=kind)
             for name, kind in (
@@ -269,7 +271,8 @@ def test_upgrade_poll_tracks_latest_legacy_revision_without_changing_old_rows(
     path = tmp_path / "revisions.frisket"
     with closing(Project.create(path)) as project:
         sheet = project.add_sheet("Feed")
-        source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
+        with write_transaction(project.db):
+            source = FeedStore(project).add_feed("Feed", kind="rss", sheet_id=sheet)
         columns = {
             name: project.add_column(sheet, name, type=kind)
             for name, kind in (

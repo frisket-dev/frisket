@@ -415,7 +415,7 @@ def _write_column(
         (sheet_id, output_name, output_type, position),
     )
     column_id = inserted_rowid(cur)
-    project.set_undo_info(op_id, {"created_columns": [column_id]}, commit=False)
+    project.set_undo_info(op_id, {"created_columns": [column_id]})
     return op_id, column_id
 
 

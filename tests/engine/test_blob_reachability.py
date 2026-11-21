@@ -99,10 +99,15 @@ def test_materialized_child_does_not_own_ancestry_but_keeps_source_identity(proj
         project.add_blob(value.encode())
         for value in ("source", "middle", "leaf", "dead-source", "dead-leaf")
     ]
-    for child, parent in ((middle, source), (leaf, middle), (dead_leaf, dead_source)):
-        project.record_blob_derivation(
-            derived_hash=child, source_hash=parent, op="test"
-        )
+    with write_transaction(project.db):
+        for child, parent in (
+            (middle, source),
+            (leaf, middle),
+            (dead_leaf, dead_source),
+        ):
+            project.record_blob_derivation(
+                derived_hash=child, source_hash=parent, op="test"
+            )
     root_cell(project, {"blob": leaf})
     assert project._referenced_blob_hashes() == {leaf}
     assert set(project.gc_blobs()["hashes"]) == {source, middle, dead_source, dead_leaf}

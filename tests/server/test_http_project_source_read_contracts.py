@@ -1094,13 +1094,14 @@ def test_live_source_reads_preserve_raw_and_redacted_shapes(
     )
     source_ids: list[int] = []
     for label, config in config_cases:
-        source_id = store.add_feed(
-            f"config-{label}",
-            kind="rss",
-            url=None,
-            sheet_id=None,
-            schedule=None,
-        )
+        with write_transaction(project.db):
+            source_id = store.add_feed(
+                f"config-{label}",
+                kind="rss",
+                url=None,
+                sheet_id=None,
+                schedule=None,
+            )
         project.db.execute(
             "UPDATE sources SET config=? WHERE id=?",
             (json.dumps(config), source_id),
@@ -1325,7 +1326,8 @@ def test_source_read_error_oracles_preserve_existing_http_behavior(
     workspace = app.state.workspace
     project_id = str(workspace.create("source read errors")["id"])
     project = workspace.get(project_id)
-    source_id = FeedStore(project).add_feed("source")
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed("source")
     missing_source_id = source_id + 100
 
     with TestClient(app) as client:

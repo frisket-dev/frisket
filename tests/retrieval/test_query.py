@@ -510,12 +510,12 @@ def test_document_text_search_tracks_file_replacement_and_undo(make_project):
     )
     project.db.commit()
     project.apply_edits([{"row_id": row, "column_id": text_column, "value": prepared}])
-    ensure_document_text_role(
-        project,
-        source_column_id=file_column,
-        text_column_id=text_column,
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=file_column,
+            text_column_id=text_column,
+        )
     project.apply_edits(
         [{"row_id": row, "column_id": text_column, "value": "correctedanchor"}]
     )

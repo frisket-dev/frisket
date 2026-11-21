@@ -10,6 +10,7 @@ from typing import Any
 
 from frisket.ops.base import ActionProgram
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 
 def spec_action_kind(spec: dict) -> str | None:
@@ -134,9 +135,8 @@ def retire_dropped_generated_columns(
     spec: dict,
     columns: list,
     current_output_names: set[str],
-    commit: bool = True,
 ) -> list[int]:
-    """The one output-retirement mechanism.
+    """The one output-retirement mechanism, joining the caller's transaction.
 
     The PROGRAM declares which output-column names a prior configuration of
     this output emitted but the current run no longer does
@@ -148,9 +148,9 @@ def retire_dropped_generated_columns(
     of the way; ``set_column_default_hidden`` — the same API the retirement path
     used) and record the retirement on the op's undo_info as the durable
     provenance note. No per-program knowledge lives here. Fresh runs only
-    (a resume never changes its output set). ``commit=False`` lets an
-    atomic-family preparation own the surrounding savepoint.
+    (a resume never changes its output set).
     """
+    require_transaction(project.db, "retire dropped generated columns")
     candidates = set(program.retired_output_names(spec)) - current_output_names
     if not candidates:
         return []
@@ -184,7 +184,7 @@ def retire_dropped_generated_columns(
                 current_output_names,
             )
         ):
-            project.set_column_default_hidden(int(column["id"]), True, commit=commit)
+            project.set_column_default_hidden(int(column["id"]), True, commit=False)
             retired.append(
                 {
                     "column_id": int(column["id"]),
@@ -200,8 +200,6 @@ def retire_dropped_generated_columns(
     project.db.execute(
         "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(info), op_id)
     )
-    if commit:
-        project.db.commit()
     return [entry["column_id"] for entry in retired]
 
 
@@ -211,7 +209,7 @@ def retire_unbound_created_columns(
     """Release fresh drafts after declaration fails, retaining failed-run history."""
     if not column_ids:
         return
-    with project.db:
+    with write_transaction(project.db, what="retire unbound created columns"):
         retired = set()
         for column_id in column_ids:
             has_history = project.db.execute(

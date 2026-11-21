@@ -12,6 +12,7 @@ from frisket.engine.store.result_generations import (
     ResultGenerationStore,
 )
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from test_result_generation_store import (
     _declare,
     _release,
@@ -45,9 +46,8 @@ def _document_text_admission(project, tmp_path):
         project, tmp_path, pdf=_pdf_bytes("first designated text")
     )
     text = project.add_column(sheet, "Text", type="text", ai_generated=True)
-    ensure_document_text_role(
-        project, source_column_id=source, text_column_id=text, commit=True
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(project, source_column_id=source, text_column_id=text)
     request = {
         **_request(sheet, row, key="designated-first-generation"),
         "output_names": {"text": "Text"},

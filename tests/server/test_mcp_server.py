@@ -1226,11 +1226,12 @@ class TestRunAction:
         root = tmp_path / "ws"
         root.mkdir()
         project = Project.create(root / "demo.frisket", name="demo")
-        source_id = FeedStore(project).add_feed(
-            name="Court feed",
-            kind="courtlistener.custom",
-            config={"query": {"court": "ca9"}},
-        )
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(
+                name="Court feed",
+                kind="courtlistener.custom",
+                config={"query": {"court": "ca9"}},
+            )
         project.close()
 
         result = asyncio.run(

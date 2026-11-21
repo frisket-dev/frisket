@@ -582,14 +582,15 @@ def test_cloud_first_disconnection_preserves_non_cloud_third_party_api(
             return 0
 
     project = make_project("Translate")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     base = ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
         provider=Provider(),
@@ -655,14 +656,15 @@ def test_signed_out_cloud_first_blocks_nonlocal_routes_but_preserves_local(
             return 0
 
     project = Project.create(tmp_path / f"{target_id}.frisket", name="Document")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     base = ExecutionComposition(
         facts=CompositionFacts(edition="open", funding=OperatorBorne()),
         provider=Provider(),
@@ -738,10 +740,11 @@ def test_unreadable_inherited_cloud_first_profile_does_not_use_own_key(
             return 0
 
     project = make_project("LLM")
-    write_project_settings(
-        project,
-        ProjectSettings(cloud_user_id=7, cloud_account_id=41),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(cloud_user_id=7, cloud_account_id=41),
+        )
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
         "cloud-token",
@@ -933,14 +936,15 @@ def test_legacy_cloud_first_project_keeps_cloud_when_own_key_is_configured(
     tmp_path, make_project
 ):
     project = make_project("Legacy")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
         "installation-token",
@@ -980,14 +984,15 @@ def test_legacy_cloud_first_uses_configured_local_else_actual_cloud_candidate(
     tmp_path, make_project, local_configured, expected_route, expected_target
 ):
     project = make_project("Legacy local")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile-local")
     store.save_connection(
         "installation-token",
@@ -1023,14 +1028,15 @@ def test_legacy_cloud_first_connected_empty_catalog_keeps_configured_own_route(
     make_project,
 ):
     project = make_project("Legacy own")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile-own")
     store.save_connection(
         "installation-token",
@@ -1065,15 +1071,16 @@ def test_materialized_cloud_default_connected_empty_catalog_keeps_configured_own
     make_project,
 ):
     project = make_project("Own")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            model_execution_routes={},
-            model_execution_default="cloud",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                model_execution_routes={},
+                model_execution_default="cloud",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile-materialized-own")
     store.save_connection(
         "installation-token",
@@ -1607,14 +1614,15 @@ def test_project_composition_reads_selected_account_capabilities_without_network
     make_project,
 ):
     project = make_project("Project")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
         "installation-token",
@@ -1654,14 +1662,15 @@ def test_project_composition_uses_last_known_capabilities_without_refetch(
     tmp_path, make_project
 ):
     project = make_project("Project")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
         "installation-token",
@@ -1696,14 +1705,15 @@ def test_expired_connection_blocks_snapshot_without_fetch_or_local_fallback(
     tmp_path, make_project
 ):
     project = make_project("Project")
-    write_project_settings(
-        project,
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project,
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
     store = CloudConnectionStore(tmp_path / "profile")
     store.save_connection(
         "expired-token",

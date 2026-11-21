@@ -296,14 +296,15 @@ def _pdf() -> bytes:
 
 
 def _select_cloud(client: TestClient, project_id: str) -> None:
-    write_project_settings(
-        client.app.state.workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with client.app.state.workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            client.app.state.workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
 
 
 def test_summarize_http_estimate_matches_cloud_run_confirmation(tmp_path) -> None:

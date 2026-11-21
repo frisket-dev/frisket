@@ -464,7 +464,7 @@ def add_rows(
                 label=f"add {len(row_ids)} rows",
                 commit=False,
             )
-            project.set_undo_info(op_id, {"created_rows": row_ids}, commit=False)
+            project.set_undo_info(op_id, {"created_rows": row_ids})
             producer_id = create_base_cell_producer(
                 db, stage_id=f"op:{op_id}", op_id=op_id
             )

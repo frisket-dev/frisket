@@ -532,13 +532,9 @@ class Project:
         mime: str | None = None,
         source_url: str | None = None,
         metadata: dict[str, Any] | None = None,
-        *,
-        commit: bool = True,
     ) -> str:
         self._assert_blob_write_open()
-        return project_blobs.add_blob(
-            self, data, filename, mime, source_url, metadata, commit=commit
-        )
+        return project_blobs.add_blob(self, data, filename, mime, source_url, metadata)
 
     def add_blob_from_path(
         self,
@@ -548,7 +544,6 @@ class Project:
         source_url: str | None = None,
         metadata: dict[str, Any] | None = None,
         *,
-        commit: bool = True,
         expected_digest: str | None = None,
     ) -> str:
         self._assert_blob_write_open()
@@ -559,7 +554,6 @@ class Project:
             mime,
             source_url,
             metadata,
-            commit=commit,
             expected_digest=expected_digest,
         )
 

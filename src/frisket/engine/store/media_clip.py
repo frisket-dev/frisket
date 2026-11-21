@@ -11,6 +11,7 @@ from pathlib import Path
 from frisket.engine.sandbox.shim import SandboxPolicy, run_sandboxed
 from frisket.engine.store.evidence import citation_temporal_runs
 from frisket.engine.store.project import Project
+from frisket.engine.store.transactions import write_transaction
 
 MAX_CLIP_DURATION_MS = 10 * 60 * 1000
 MAX_PAD_MS = 5_000
@@ -232,12 +233,13 @@ async def cut_and_store_clip(
             filename=clip_filename(source, start_ms=start_ms, end_ms=end_ms),
             mime=source.mime,
         )
-        project.record_blob_derivation(
-            derived_hash=digest,
-            source_hash=source.blob_hash,
-            op=op,
-            params={"start_ms": start_ms, "end_ms": end_ms},
-        )
+        with write_transaction(project.db, what="blob derivation"):
+            project.record_blob_derivation(
+                derived_hash=digest,
+                source_hash=source.blob_hash,
+                op=op,
+                params={"start_ms": start_ms, "end_ms": end_ms},
+            )
         return digest
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

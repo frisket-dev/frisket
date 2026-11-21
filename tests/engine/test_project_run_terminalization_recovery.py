@@ -477,7 +477,10 @@ def test_terminalizer_preserves_deferred_family_empty_output_visibility(
         (row["sheet_id"],),
     ).fetchone()
     assert run.claim_token is not None
-    project.set_undo_info(int(row["op_id"]), {"created_columns": [int(column["id"])]})
+    with write_transaction(project.db):
+        project.set_undo_info(
+            int(row["op_id"]), {"created_columns": [int(column["id"])]}
+        )
     ResultGenerationStore(project).declare(
         run.run_id,
         int(column["id"]),

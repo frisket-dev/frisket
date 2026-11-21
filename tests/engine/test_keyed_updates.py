@@ -209,7 +209,8 @@ def test_source_poll_updates_same_row_and_preserves_manual_changes(tmp_path):
     project, sheet, col, row, op = _project(tmp_path)
     with closing(project):
         sources = FeedStore(project)
-        source = sources.add_feed("Test", kind="rss", sheet_id=sheet)
+        with write_transaction(project.db):
+            source = sources.add_feed("Test", kind="rss", sheet_id=sheet)
 
         def poll(items):
             with project.db:

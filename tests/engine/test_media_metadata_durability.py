@@ -396,8 +396,6 @@ def test_probe_and_cache_cas_cannot_lose_each_others_namespaces(
             self,
             digest: str,
             update: Callable[[dict[str, Any]], dict[str, Any]],
-            *,
-            commit: bool = True,
         ) -> dict[str, Any]:
             def pause_after_locked_read(document: dict[str, Any]) -> dict[str, Any]:
                 self._pause_after_read()
@@ -406,7 +404,6 @@ def test_probe_and_cache_cas_cannot_lose_each_others_namespaces(
             return super().transactionally_update_document(
                 digest,
                 pause_after_locked_read,
-                commit=commit,
             )
 
     def write_probe() -> dict[str, Any]:

@@ -15,6 +15,7 @@ import pytest
 from frisket import ingest
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _feed(items: list[dict], feed_title: str = "Test Feed") -> str:
@@ -53,7 +54,10 @@ def project(tmp_path):
 
 
 def _add_rss_source(project: Project, url="https://example.com/feed.xml", **cfg):
-    sid = FeedStore(project).add_feed(name="My Feed", kind="rss", url=url, config=cfg)
+    with write_transaction(project.db):
+        sid = FeedStore(project).add_feed(
+            name="My Feed", kind="rss", url=url, config=cfg
+        )
     return _src(project, sid)
 
 

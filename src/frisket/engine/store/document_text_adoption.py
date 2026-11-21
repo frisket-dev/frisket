@@ -46,7 +46,6 @@ def adopt_document_text_role(
         project,
         source_column_id=source_column_id,
         text_column_id=text_column_id,
-        commit=False,
     )
     if existing is not None and (
         not is_generation_free_document_text_target(

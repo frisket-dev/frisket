@@ -781,7 +781,7 @@ def test_purge_scrubs_only_targeted_review_judgment_and_undo_is_safe(project):
     }
     with project.db:
         project.db.execute("BEGIN IMMEDIATE")
-        project.set_undo_info(review_op, info, commit=False)
+        project.set_undo_info(review_op, info)
         from frisket.engine.store.changes import start_change
 
         start_change(project.db, review_op)
@@ -1097,10 +1097,10 @@ def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(proj
     child = project.add_blob(b"independent derived file")
     source = add(project, "source", {"blob": original})
     add(project, "saved", {"blob": child})
-    project.record_blob_derivation(
-        derived_hash=child, source_hash=original, op="render"
-    )
     with write_transaction(project.db):
+        project.record_blob_derivation(
+            derived_hash=child, source_hash=original, op="render"
+        )
         artifact = record_source_artifact(
             project,
             artifact_kind="file",
@@ -1235,7 +1235,7 @@ def test_purge_preserves_shared_descriptor_authority_for_other_columns(project):
         project.db.execute("BEGIN")
         operation = project.append_change("column.format", commit=False)
         start_change(project.db, operation)
-        project.set_undo_info(operation, info, commit=False)
+        project.set_undo_info(operation, info)
         record_descriptor_changes(project.db, operation, info)
     assert descriptor_identity(project, retained)["format"] == "percent"
     finish_purge(project, begin_purge(project, column_ids=[selected]))

@@ -2,6 +2,7 @@ from contextlib import closing
 
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.transactions import write_transaction
 from frisket.upgrades.project.domain_document_text_migration import (
     adopt_legacy_document_text,
 )
@@ -177,9 +178,10 @@ def test_explicit_role_is_never_replaced_by_newer_alternative(tmp_path):
     with closing(project):
         _publish(project, sheet, source, left, rows[0], blob, "chosen")
         _publish(project, sheet, source, right, rows[0], blob, "newest")
-        ensure_document_text_role(
-            project, source_column_id=source, text_column_id=left, commit=True
-        )
+        with write_transaction(project.db):
+            ensure_document_text_role(
+                project, source_column_id=source, text_column_id=left
+            )
         assert _adopt(project) == {}
         assert (
             project.db.execute(

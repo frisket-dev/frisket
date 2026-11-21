@@ -281,7 +281,7 @@ class PdfSplitWriter(StreamingSheetWriter):
             undo["created_rows_import_session_id"] = self._session_id
             if replace:
                 undo["replaced_rows_import_session_id"] = self._session_id
-            self.project.set_undo_info(self._op_id, undo, commit=False)
+            self.project.set_undo_info(self._op_id, undo)
 
     def publish_source(
         self,

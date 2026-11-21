@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from frisket.engine.store.feeds import FeedStore
 from frisket.server.app import create_app
 from frisket.feeds.health import _job_feed_id
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed(tmp_path: Path) -> tuple[TestClient, str, int, int]:
@@ -35,18 +36,19 @@ def _seed(tmp_path: Path) -> tuple[TestClient, str, int, int]:
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
     store = FeedStore(project)
-    quiet = store.add_feed(
-        "Quiet feed",
-        kind="rss",
-        url="https://example.test/quiet.xml",
-        schedule="@hourly",
-    )
-    busy = store.add_feed(
-        "Busy feed",
-        kind="rss",
-        url="https://example.test/busy.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        quiet = store.add_feed(
+            "Quiet feed",
+            kind="rss",
+            url="https://example.test/quiet.xml",
+            schedule="@hourly",
+        )
+        busy = store.add_feed(
+            "Busy feed",
+            kind="rss",
+            url="https://example.test/busy.xml",
+            schedule="@hourly",
+        )
     return client, project_id, quiet, busy
 
 

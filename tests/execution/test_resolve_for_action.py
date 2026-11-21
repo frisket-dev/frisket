@@ -608,9 +608,10 @@ def test_selected_cloud_payer_standing_coverage_requires_known_rated_amount(
         resolved,
         promise_set=PromiseSet.make([*resolved.promise_set.promises, payer_claim]),
     )
-    write_project_settings(
-        project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
-    )
+    with project.transaction_scope():
+        write_project_settings(
+            project, ProjectSettings(cloud_user_id=7, cloud_account_id=41)
+        )
     estimated = _bind_rated_estimate(
         resolved,
         {

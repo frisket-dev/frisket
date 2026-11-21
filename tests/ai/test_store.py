@@ -11,6 +11,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.result_generations import GenerationSealedError
 from frisket.engine.store.runs import RunResultStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.value_codec import decode_stored_value
 from helpers import run_writer_authority_fixture, write_claimed_test_results
 
@@ -588,7 +589,8 @@ class TestStoreRegressions:
         col = project.add_column(sheet, "score", ai_generated=True)
         rid = project.db.execute("SELECT id FROM rows").fetchone()["id"]
         op = project.append_change("map")
-        project.set_undo_info(op, {"created_columns": [col]})
+        with write_transaction(project.db):
+            project.set_undo_info(op, {"created_columns": [col]})
         run = RunResultStore(project).start_run(op, sheet, "test.c")
         write_claimed_test_results(
             project, run, [{"row_id": rid, "column_id": col, "value": 5}]
