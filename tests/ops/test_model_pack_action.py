@@ -38,14 +38,14 @@ class _Http:
         return _Resp()
 
 
-def test_ner_recipe_is_registered():
+def test_ner_action_is_registered():
     declaration = ACTION_REGISTRY.get("map.ner")
     assert "engine" in declaration.definition.run.params_model.model_fields
     assert NerOutput.model_fields["entities"].annotation is not None
 
 
 @pytest.mark.asyncio
-async def test_ner_recipe_calls_model_pack_sidecar(monkeypatch):
+async def test_ner_action_calls_model_pack_sidecar(monkeypatch):
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     http = _Http()
