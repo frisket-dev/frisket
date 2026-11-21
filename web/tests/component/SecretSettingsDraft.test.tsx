@@ -113,3 +113,60 @@ it('preserves the project deep-link name and initial focus on its value', async 
   expect(screen.getByLabelText('Project secret value')).toHaveFocus();
   window.history.replaceState(null, '', '/');
 });
+
+it('shows plugin secret consumers, toggles value masking, and never renders raw values after save', async () => {
+  projectApi.getProjectSecrets.mockResolvedValue({
+    schemaVersion: 'frisket.project_secrets.v1',
+    projectId: 'one',
+    secrets: [
+      {
+        name: 'WEATHER_API_KEY',
+        hint: '...demo',
+        configured: true,
+        updatedAt: '2026-07-01T12:00:00Z',
+        consumers: [{ kind: 'plugin', id: 'weather.forecast' }],
+      },
+    ],
+    conflicts: [],
+  });
+  projectApi.setProjectSecret.mockResolvedValue({
+    schemaVersion: 'frisket.project_secrets.v1',
+    projectId: 'one',
+    secrets: [
+      {
+        name: 'WEATHER_API_KEY',
+        hint: '...demo',
+        configured: true,
+        updatedAt: '2026-07-01T12:00:00Z',
+        consumers: [{ kind: 'plugin', id: 'weather.forecast' }],
+      },
+      {
+        name: 'NEW_API_KEY',
+        hint: '...cret',
+        configured: true,
+        updatedAt: '2026-07-01T12:30:00Z',
+        consumers: [],
+      },
+    ],
+    conflicts: [],
+  });
+
+  render(<ProjectSecretsSettings project={owner} />);
+  const section = await screen.findByTestId('project-secrets-settings');
+  await waitFor(() => expect(section).toHaveTextContent('WEATHER_API_KEY'));
+  expect(section).toHaveTextContent('weather.forecast');
+
+  const valueInput = screen.getByLabelText('Project secret value');
+  expect(valueInput).toHaveAttribute('type', 'text');
+  fireEvent.click(screen.getByTestId('secret-value-visibility'));
+  expect(valueInput).toHaveAttribute('type', 'password');
+  fireEvent.click(screen.getByTestId('secret-value-visibility'));
+  expect(valueInput).toHaveAttribute('type', 'text');
+
+  fireEvent.change(screen.getByLabelText('Project secret name'), { target: { value: 'new_api_key' } });
+  fireEvent.change(valueInput, { target: { value: 'secret-value' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+  await waitFor(() => expect(section).toHaveTextContent('NEW_API_KEY'));
+  expect(screen.queryByText('secret-value')).not.toBeInTheDocument();
+});
