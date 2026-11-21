@@ -13,7 +13,6 @@ from frisket.authoring.plugin_registry import (
     register_trusted_backend_handler,
     unregister_trusted_backend_handler,
 )
-from frisket.engine.store import Project
 from frisket.engine.store.value_codec import decode_stored_value
 from workbench_runtime_test_helpers import activate_runtime_plugin_for_project
 
@@ -47,6 +46,7 @@ def _runtime_import_action(
 
 def test_trusted_importer_runtime_binding_validates_materializes_and_replays(
     tmp_path: Path,
+    make_project,
 ) -> None:
     _reset_default_registry_for_tests()
     calls: list[dict[str, Any]] = []
@@ -75,7 +75,7 @@ def test_trusted_importer_runtime_binding_validates_materializes_and_replays(
             handler=trusted_importer_handler,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "runtime-import.frisket", name="Runtime")
+        project = make_project("Runtime")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,
@@ -174,7 +174,7 @@ def test_trusted_importer_runtime_binding_validates_materializes_and_replays(
         _reset_default_registry_for_tests()
 
 
-def test_unbound_runtime_importer_kind_stays_unsupported(tmp_path: Path) -> None:
+def test_unbound_runtime_importer_kind_stays_unsupported(project) -> None:
     _reset_default_registry_for_tests()
     try:
         action = _runtime_import_action(importer_kind="frisket_runtime_demo_unbound")
@@ -183,7 +183,6 @@ def test_unbound_runtime_importer_kind_stays_unsupported(tmp_path: Path) -> None
             validation.ok is True
         )  # Binding trust is checked with the target project.
 
-        project = Project.create(tmp_path / "unbound-runtime-import.frisket")
         result = run_action_spec(project, action, project_id="runtime-import-project")
         assert result.status == "failed"
         assert result.errors[0].code == "unsupported_runtime_importer"
@@ -191,7 +190,10 @@ def test_unbound_runtime_importer_kind_stays_unsupported(tmp_path: Path) -> None
         _reset_default_registry_for_tests()
 
 
-def test_runtime_importer_invalid_plan_does_not_write_rows(tmp_path: Path) -> None:
+def test_runtime_importer_invalid_plan_does_not_write_rows(
+    tmp_path: Path,
+    project,
+) -> None:
     _reset_default_registry_for_tests()
 
     def invalid_handler(_payload: dict[str, Any]) -> dict[str, Any]:
@@ -210,7 +212,6 @@ def test_runtime_importer_invalid_plan_does_not_write_rows(tmp_path: Path) -> No
             handler=invalid_handler,
             plugin=PLUGIN_ID,
         )
-        project = Project.create(tmp_path / "bad-runtime-import.frisket")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,
