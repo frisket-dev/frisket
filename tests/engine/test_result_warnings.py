@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 import sqlite3
@@ -148,8 +149,7 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
     )
     path = project.path
     project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         heads = ResultGenerationStore(reopened).read_cell_heads(output_id, row_ids)
         assert [heads[row_id].value for row_id in row_ids] == ["pages 1 and 3", ""]
         assert heads[row_ids[0]].warnings == ("Page 2 could not be read",)
@@ -158,8 +158,6 @@ def test_warnings_survive_heads_capture_receipt_and_reopen(warning_run):
             head.outcome == "ok" and head.error is None for head in heads.values()
         )
         assert _facts(reopened, sheet_id, source_id, run_id).warnings == facts.warnings
-    finally:
-        reopened.close()
 
 
 def _restore_prior_layout(project):
@@ -236,8 +234,7 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         ] == expected
     path = project.path
     project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert EXECUTION_METADATA_TO_DIGEST == DOCUMENT_TEXT_FROM_DIGEST
         assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert reopened.get_values(sheet, output_id) == {
@@ -254,8 +251,6 @@ def test_prior_digest_migration_preserves_history_and_installs_guards(warning_ru
         assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []
         run_step(reopened.db, *EXECUTION_METADATA_STEP)
         _assert_warning_guard(reopened, run_id, row_ids[0], output_id)
-    finally:
-        reopened.close()
 
 
 def test_warning_migration_rolls_back_on_digest_stamp_failure(warning_run):
@@ -291,8 +286,7 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
     if migrated:
         _restore_prior_layout(original)
     original.close()
-    project = Project(path)
-    try:
+    with closing(Project(path)) as project:
         assert (
             project.db.execute(
                 "SELECT work_progress FROM runs WHERE id=?", (run_id,)
@@ -316,17 +310,12 @@ def test_progress_metadata_is_nullable_separate_from_inputs_and_retained(
         )
         project.db.commit()
         run_step(project.db, *EXECUTION_METADATA_STEP)
-    finally:
-        project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         row = reopened.db.execute(
             "SELECT params,work_progress FROM runs WHERE id=?", (run_id,)
         ).fetchone()
         assert row["params"] == params_before
         assert json.loads(row["work_progress"]) == progress
-    finally:
-        reopened.close()
 
 
 def test_warning_storage_is_bounded_and_redacts_secrets(make_project):

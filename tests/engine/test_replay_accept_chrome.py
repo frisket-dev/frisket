@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import hashlib
 import json
@@ -237,8 +238,7 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
     # durable across a fresh Project connection (persisted, not in-memory).
     path = fx.project.path
     fx.project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert reopened.pending_replay_values(fx.sheet, fx.col) == {}, (
             "the keep-edit dismissal is durable across reload"
         )
@@ -286,8 +286,6 @@ def test_replay_dismiss_is_durable_and_value_identity_keyed(fx):
             "a newer, different fresh value re-surfaces past a value-identity "
             "dismissal (dispositions #3)"
         )
-    finally:
-        reopened.close()
     # reassign so the fixture teardown's second close is a harmless no-op path.
     fx.project = reopened
 

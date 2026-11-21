@@ -8,6 +8,7 @@ rows leave rowid gaps, so an id-ordered or gap-renumbering copy goes red.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -64,8 +65,5 @@ def test_compaction_vacuum_keeps_model_call_order(tmp_path: Path) -> None:
     assert summary["skipped"] is False
     project.close()
 
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert [row["id"] for row in RunResultStore(reopened).model_calls()] == kept
-    finally:
-        reopened.close()

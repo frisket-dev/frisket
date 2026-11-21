@@ -440,7 +440,6 @@ def test_probe_and_cache_cas_cannot_lose_each_others_namespaces(
         assert document[MEDIA_METADATA_CACHE_NAMESPACE]["generation"] == 1
     finally:
         release_probe_writer.set()
-        project.close()
 
 
 def test_display_projection_has_no_flat_fallback_and_acquisition_wins(

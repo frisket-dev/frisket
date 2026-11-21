@@ -38,7 +38,6 @@ def project(make_project):
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def _sheet_id(project) -> int:

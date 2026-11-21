@@ -1,5 +1,7 @@
 """Evidence publication failure settles paid work without authorizing repurchase."""
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -64,7 +66,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
-    try:
+    with closing(project):
         result = run_action_with_confirmation(
             project, request, project_id=PROJECT_ID, router=router
         )
@@ -123,8 +125,6 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
         assert replay.model_dump() == result.model_dump()
         assert len(adapter.requests) == 1
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
 
 
 class ProcessDeath(BaseException):
@@ -182,7 +182,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
-    try:
+    with closing(project):
         with pytest.raises(ResultEvidenceWriteFailed):
             run_action_with_confirmation(
                 project, request, project_id=PROJECT_ID, router=router, deps=deps
@@ -213,8 +213,6 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         assert [error.code for error in replay.errors] == ["idempotency_in_progress"]
         assert len(calls) == 2
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("failure", [ProcessDeath, StaleAttemptWriter])
@@ -230,7 +228,7 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", interrupt)
-    try:
+    with closing(project):
         if failure is ProcessDeath:
             with pytest.raises(ProcessDeath):
                 run_action_with_confirmation(
@@ -257,5 +255,3 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
         assert (
             project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
         )
-    finally:
-        project.close()

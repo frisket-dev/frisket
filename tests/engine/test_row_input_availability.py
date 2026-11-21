@@ -299,4 +299,3 @@ def test_unavailable_current_input_does_not_replace_a_returned_paid_checkpoint(
         ).fetchone()
     finally:
         asyncio.run(router.aclose())
-        project.close()

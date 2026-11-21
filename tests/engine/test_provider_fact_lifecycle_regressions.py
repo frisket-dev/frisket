@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -36,8 +35,8 @@ class _RemoteGateway:
         )
 
 
-def _embedding_project(tmp_path: Path) -> tuple[Project, int, str]:
-    project = Project.create(tmp_path / "lifecycle.frisket", name="lifecycle")
+def _embedding_project(make_project) -> tuple[Project, int, str]:
+    project = make_project("lifecycle")
     sheet_id = project.add_sheet("Stories")
     column_id = project.add_column(sheet_id, "story", type="text")
     project.add_rows(sheet_id, [{"story": "one"}], {"story": column_id})
@@ -86,47 +85,41 @@ def _assert_quarantined_fact(project: Project) -> None:
 
 
 def test_embedding_provider_fact_survives_vector_write_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import frisket.engine.executor.action_families.embeddings as family
 
-    project, _sheet_id, index_id = _embedding_project(tmp_path)
-    try:
+    project, _sheet_id, index_id = _embedding_project(make_project)
 
-        def fail_upsert(*args: Any, **kwargs: Any) -> None:
-            raise RuntimeError("fault after provider response")
+    def fail_upsert(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("fault after provider response")
 
-        monkeypatch.setattr(family.RetrievalStore, "put_representations", fail_upsert)
-        with pytest.raises(RuntimeError, match="fault after provider response"):
-            run_action_spec(
-                project,
-                _refresh(index_id, key="fact-lifecycle-vector-fault@1"),
-                project_id="fact-lifecycle",
-                deps=ExecutorDeps(embedding_gateway=_RemoteGateway()),
-            )
-        _assert_quarantined_fact(project)
-    finally:
-        project.close()
-
-
-def test_embedding_receipt_failure_never_leaves_completed_billable_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    project, _sheet_id, index_id = _embedding_project(tmp_path)
-    try:
-
-        def fail_receipt(*args: Any, **kwargs: Any) -> None:
-            raise RuntimeError("fault before receipt finalization")
-
-        monkeypatch.setattr(ReceiptStore, "insert", fail_receipt)
-        result = run_action_spec(
+    monkeypatch.setattr(family.RetrievalStore, "put_representations", fail_upsert)
+    with pytest.raises(RuntimeError, match="fault after provider response"):
+        run_action_spec(
             project,
-            _refresh(index_id, key="fact-lifecycle-receipt-fault@1"),
+            _refresh(index_id, key="fact-lifecycle-vector-fault@1"),
             project_id="fact-lifecycle",
             deps=ExecutorDeps(embedding_gateway=_RemoteGateway()),
         )
-        assert result.status == "failed"
-        _assert_quarantined_fact(project)
-        assert result.receipt_id is None
-    finally:
-        project.close()
+    _assert_quarantined_fact(project)
+
+
+def test_embedding_receipt_failure_never_leaves_completed_billable_run(
+    make_project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project, _sheet_id, index_id = _embedding_project(make_project)
+
+    def fail_receipt(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("fault before receipt finalization")
+
+    monkeypatch.setattr(ReceiptStore, "insert", fail_receipt)
+    result = run_action_spec(
+        project,
+        _refresh(index_id, key="fact-lifecycle-receipt-fault@1"),
+        project_id="fact-lifecycle",
+        deps=ExecutorDeps(embedding_gateway=_RemoteGateway()),
+    )
+    assert result.status == "failed"
+    _assert_quarantined_fact(project)
+    assert result.receipt_id is None
