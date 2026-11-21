@@ -72,7 +72,7 @@ def op_errors(
     kind: str,
     *,
     capabilities: tuple[str, ...] = ("project:write",),
-    recipe: str | None = None,
+    action: str | None = None,
     multi_output: bool = False,
     model_backed: bool = False,
     cost_confirmation: bool = False,
@@ -83,7 +83,7 @@ def op_errors(
 ) -> list[ActionErrorSpec]:
     """The canonical, ordered error catalog for a reserved-maprunner op.
 
-    Derives the standard error set + a kind/recipe/capability-templated message from
+    Derives the standard error set + a kind/action/capability-templated message from
     archetype flags, so an op declares its archetype plus a few
     op-specific `validation` errors instead of ~11 hand-written `ActionErrorSpec`s. The
     standard messages combine the per-op variants (drift / kind-templating); the runtime
@@ -93,7 +93,7 @@ def op_errors(
     Lives in the contracts layer (not sdk) so it reloads with `frisket.contracts` and the
     `ActionErrorSpec` class never diverges from the catalog's.
     """
-    recipe = recipe or kind.split(".")[-1]
+    action = action or kind.split(".")[-1]
     errs: list[ActionErrorSpec] = [
         *error_specs(
             missing_capability=(
@@ -140,13 +140,13 @@ def op_errors(
         errs.extend(
             error_specs(
                 model_run_failed=(
-                    f"The model-backed {recipe} run failed to produce usable row output."
+                    f"The model-backed {action} run failed to produce usable row output."
                 )
             )
         )
     else:
         errs.extend(
-            error_specs(map_run_failed=f"The {recipe} run or receipt lookup failed.")
+            error_specs(map_run_failed=f"The {action} run or receipt lookup failed.")
         )
     if external:
         errs.extend(

@@ -257,7 +257,7 @@ def test_busy_lease_is_a_typed_resumable_halt(
         (ParakeetRowError("bad audio"), RuntimeError, None),
     ],
 )
-def test_session_errors_map_at_the_recipe_boundary(
+def test_session_errors_map_at_the_action_boundary(
     error: BaseException, expected: type[BaseException], code: str | None
 ) -> None:
     class FailingSession:
