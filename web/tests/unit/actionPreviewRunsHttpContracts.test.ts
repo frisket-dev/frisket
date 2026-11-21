@@ -239,7 +239,7 @@ describe('action-preview lifecycle HTTP contracts', () => {
   it('forwards abort identity without replacing the browser rejection', async () => {
     const controller = new AbortController();
     let forwardedSignal: AbortSignal | null | undefined;
-    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       if ((init?.method ?? 'GET') === 'POST') {
         return Promise.resolve(jsonResponse({
           schema_version: 'frisket.action_preview.v1',

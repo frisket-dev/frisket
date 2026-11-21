@@ -113,7 +113,7 @@ describe('useRowCache request epochs', () => {
     const { result, rerender } = renderHook(
       ({ sheetId, options }: { sheetId: string; options: SheetDataOptions | null }) =>
         useRowCache(sheetId, 999, 1, store, options, api),
-      { initialProps: { sheetId: '7', options: null } },
+      { initialProps: { sheetId: '7', options: null as SheetDataOptions | null } },
     );
     await waitFor(() => expect(result.current.ready).toBe(true));
     rerender(next);
@@ -221,7 +221,7 @@ describe('useRowCache request epochs', () => {
     const { result, rerender } = renderHook(
       ({ options }: { options: SheetDataOptions | null }) =>
         useRowCache('7', 999, 1, store, options, api),
-      { initialProps: { options: null } },
+      { initialProps: { options: null as SheetDataOptions | null } },
     );
     await waitFor(() => expect(getSheetData).toHaveBeenCalledTimes(1));
 

@@ -27,7 +27,7 @@ function contribution(
     ownerPluginId: 'frisket.core',
     host: 'bottomDock',
     mode: 'tab',
-    slot: 'bottomDock',
+    slot: 'companion.output',
     placementId,
     status: 'enabled',
     runtimeSource: 'firstParty',

@@ -120,7 +120,7 @@ it('discovers a run after its pending context becomes available on completion', 
 it('keeps one discovery in flight across row updates and retries after completion', async () => {
   const api = prepare();
   let finish!: (value: unknown) => void;
-  calls.getContext.mockImplementationOnce(() => new Promise((resolve, reject) => { finish = () => reject(new ApiError(409, 'Run pending')); }))
+  calls.getContext.mockImplementationOnce(() => new Promise((_resolve, reject) => { finish = () => reject(new ApiError(409, 'Run pending')); }))
     .mockResolvedValueOnce({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: 1, name: 'Current' }, output_columns: [] });
   const { result, rerender } = renderHook(({ signal, sheet }) => useWorkspaceExpectedAnswers('p', sheet, sheets, api, [], [], signal, showError),
     { initialProps: { signal: '', sheet: sheets[0] } });
