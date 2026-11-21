@@ -19,12 +19,18 @@ from __future__ import annotations
 from decimal import Decimal
 import importlib
 import re
+import threading
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
 
-from frisket.team.bootstrap import PreSplitSchemaError, init_identity_schema
+from frisket.team import bootstrap as team_bootstrap
+from frisket.team.bootstrap import (
+    PreSplitSchemaError,
+    ensure_clean_control_plane_schema,
+    init_identity_schema,
+)
 
 pytestmark = pytest.mark.gap
 
@@ -1014,8 +1020,112 @@ def test_v8_identity_schema_upgrades_organization_tables_and_columns_sqlite(
     for _ in range(2):
         init_identity_schema(engine)
 
+    with engine.connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
     _assert_v9_upgraded_state(engine)
     engine.dispose()
+
+
+def test_v8_to_v9_upgrade_rolls_back_atomically_on_sqlite_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "v8-atomic-rollback.db"
+    engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    _create_and_seed_v8_identity_schema(engine)
+
+    real_apply = team_bootstrap._apply_v8_to_v9
+
+    def failing_apply(cx: sa.Connection, tables: set[str]) -> None:
+        real_apply(cx, tables)
+        raise RuntimeError("simulated mid-migration crash")
+
+    monkeypatch.setattr(team_bootstrap, "_apply_v8_to_v9", failing_apply)
+
+    with pytest.raises(RuntimeError, match="simulated mid-migration crash"):
+        ensure_clean_control_plane_schema(engine, edition="team")
+
+    tables = set(sa.inspect(engine).get_table_names())
+    assert {"orgs", "org_keys", "org_env_vars"} <= tables
+    assert "organizations" not in tables
+    assert "organization_keys" not in tables
+    assert "organization_env_vars" not in tables
+    with engine.connect() as cx:
+        assert (
+            cx.exec_driver_sql(
+                "SELECT schema_version FROM schema_marker WHERE id = 1"
+            ).scalar_one()
+            == 8
+        )
+        assert cx.exec_driver_sql(
+            "SELECT name FROM orgs WHERE id = 1"
+        ).scalar_one() == ("Newsroom")
+    engine.dispose()
+
+
+def test_concurrent_v8_to_v9_upgrade_is_race_free_sqlite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "v8-concurrent.db"
+    setup_engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    _create_and_seed_v8_identity_schema(setup_engine)
+    setup_engine.dispose()
+
+    engines = [
+        sa.create_engine(
+            f"sqlite:///{path}",
+            future=True,
+            connect_args={"timeout": 10},
+        )
+        for _ in range(2)
+    ]
+    barrier = threading.Barrier(2)
+    errors: list[BaseException] = []
+
+    def worker(eng: sa.Engine) -> None:
+        try:
+            barrier.wait(timeout=5)
+            ensure_clean_control_plane_schema(eng, edition="team")
+        except (PreSplitSchemaError, sa.exc.SQLAlchemyError, RuntimeError) as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(eng,)) for eng in engines]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+        assert not thread.is_alive()
+
+    assert errors == []
+    with engines[0].connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    _assert_v9_upgraded_state(engines[0])
+    for eng in engines:
+        eng.dispose()
+
+    # Deterministic race: caller reads v8 before lock, peer commits v9 before
+    # caller enters _upgrade_identity_schema_to_current.
+    race_path = tmp_path / "v8-interleaved-race.db"
+    race_engine = sa.create_engine(f"sqlite:///{race_path}", future=True)
+    peer_engine = sa.create_engine(f"sqlite:///{race_path}", future=True)
+    _create_and_seed_v8_identity_schema(race_engine)
+
+    real_upgrade = team_bootstrap._upgrade_identity_schema_to_current
+
+    def peer_finishes_first(eng: sa.Engine, *, edition: str | None) -> bool:
+        assert real_upgrade(peer_engine, edition=edition) is True
+        return real_upgrade(eng, edition=edition)
+
+    monkeypatch.setattr(
+        team_bootstrap,
+        "_upgrade_identity_schema_to_current",
+        peer_finishes_first,
+    )
+    ensure_clean_control_plane_schema(race_engine, edition="team")
+    with race_engine.connect() as cx:
+        assert cx.exec_driver_sql("PRAGMA foreign_key_check").all() == []
+    _assert_v9_upgraded_state(race_engine)
+    peer_engine.dispose()
+    race_engine.dispose()
 
 
 def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() -> None:
@@ -1025,6 +1135,7 @@ def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() 
     if not pg_url:
         pytest.skip("FRISKET_PG_TEST_URL not set (real-postgres tests gated)")
     engine = sa.create_engine(pg_url, future=True)
+    peer_engine = sa.create_engine(pg_url, future=True)
     try:
         with engine.begin() as cx:
             for name in (
@@ -1036,8 +1147,28 @@ def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() 
             ):
                 cx.execute(sa.text(f"DROP TABLE IF EXISTS {name} CASCADE"))
         _create_and_seed_v8_identity_schema(engine)
-        for _ in range(2):
-            init_identity_schema(engine)
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def worker(eng: sa.Engine) -> None:
+            try:
+                barrier.wait(timeout=5)
+                ensure_clean_control_plane_schema(eng, edition="team")
+            except (PreSplitSchemaError, sa.exc.SQLAlchemyError, RuntimeError) as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=worker, args=(eng,))
+            for eng in (engine, peer_engine)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=15)
+            assert not thread.is_alive()
+        assert errors == []
+
+        init_identity_schema(engine)
         _assert_v9_upgraded_state(engine)
     finally:
         with engine.begin() as cx:
@@ -1049,4 +1180,5 @@ def test_v8_identity_schema_upgrades_organization_tables_and_columns_postgres() 
                 "schema_marker",
             ):
                 cx.execute(sa.text(f"DROP TABLE IF EXISTS {name} CASCADE"))
+        peer_engine.dispose()
         engine.dispose()

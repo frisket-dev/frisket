@@ -47,6 +47,7 @@ _REQUIRED_COLUMNS = {
         "max_attempts",
         "available_at",
         "created_at",
+        "organization_id",
         "storage_organization_id",
         "project_id",
     ),
