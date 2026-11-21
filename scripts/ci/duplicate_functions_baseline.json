@@ -315,8 +315,8 @@
    "src/frisket/execution/resolve_for_action.py::_geocode_cost_basis"
   ],
   [
-   "src/frisket/features/alerts/triggers.py::_is_embedding_similarity_alert",
-   "src/frisket/features/alerts/triggers.py::_is_keyword_alert"
+   "src/frisket/alerts/triggers.py::_is_embedding_similarity_alert",
+   "src/frisket/alerts/triggers.py::_is_keyword_alert"
   ],
   [
    "src/frisket/exports/dataset_formats.py::DatasetFormatError.__init__",

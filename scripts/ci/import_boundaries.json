@@ -137,7 +137,7 @@
     },
     {
       "id": "notifications-core-does-not-import-server",
-      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server or team layers, or engine producers and delivery jobs would need a layer exception.",
+      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server, team, or features layers, or engine producers and delivery jobs would need a layer exception.",
       "modules": [
         "frisket.notifications",
         "frisket.notifications.*"
@@ -146,13 +146,15 @@
         "frisket.server",
         "frisket.server.*",
         "frisket.team",
-        "frisket.team.*"
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
       ],
       "reject_unresolved_dynamic": true
     },
     {
       "id": "feeds-do-not-import-server",
-      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server or team layers.",
+      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server, team, or features layers.",
       "modules": [
         "frisket.feeds",
         "frisket.feeds.*"
@@ -161,7 +163,26 @@
         "frisket.server",
         "frisket.server.*",
         "frisket.team",
-        "frisket.team.*"
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "alerts-do-not-import-server-team-or-features",
+      "comment": "frisket.alerts holds alert event serialization, alert evaluation service, and feed/action alert triggers shared by engine stores, jobs, notifications, and server services. It must not depend on the server, team, or features layers.",
+      "modules": [
+        "frisket.alerts",
+        "frisket.alerts.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
       ],
       "reject_unresolved_dynamic": true
     },
@@ -260,15 +281,10 @@
     },
     {
       "id": "engine-does-not-import-features",
-      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: jobs feeds/alerts and store alerts (alert events and triggers). No other engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the features layer.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
-      ],
-      "exclude": [
-        "frisket.engine.jobs.feeds",
-        "frisket.engine.jobs.alerts",
-        "frisket.engine.store.alerts"
       ],
       "forbidden_imports": [
         "frisket.features",

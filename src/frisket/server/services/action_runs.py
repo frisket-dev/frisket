@@ -62,7 +62,7 @@ from frisket.engine.store.table_import_intake import (
     table_import_status,
     table_issue_groups,
 )
-from frisket.features.alerts.triggers import (
+from frisket.alerts.triggers import (
     feed_poll_materialization_from_receipt,
     trigger_completed_feed_poll_alerts,
 )

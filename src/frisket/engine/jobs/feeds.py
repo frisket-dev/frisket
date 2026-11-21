@@ -26,7 +26,7 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.notifications.emit import emit_notification_candidate
 from frisket.notifications.producers import feed_health_notification_candidate
 from frisket.operability.structured_logging import correlation_log_payload
-from frisket.features.alerts.triggers import trigger_completed_feed_poll_alerts
+from frisket.alerts.triggers import trigger_completed_feed_poll_alerts
 
 from .embeddings import enqueue_source_append_refreshes
 from .notifications_delivery import enqueue_notification_emit_result

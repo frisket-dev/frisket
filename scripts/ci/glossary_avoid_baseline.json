@@ -274,7 +274,7 @@
  "src/frisket/execution/purchases.py [names] quote": 1,
  "src/frisket/execution/resolve_for_action.py [names] op": 1,
  "src/frisket/execution/resolve_for_action.py [names] quote": 1,
- "src/frisket/features/alerts/triggers.py [names] op": 2,
+ "src/frisket/alerts/triggers.py [names] op": 2,
  "src/frisket/followthemoney/exporters.py [names] evidence": 4,
  "src/frisket/followthemoney/mapping.py [names] evidence": 4,
  "src/frisket/followthemoney/matching.py [names] evidence": 3,
