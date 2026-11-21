@@ -1,6 +1,6 @@
 import type { HttpContractOperationMap } from "../generated/openHttpContracts";
 import { httpContract, type HttpContractSuccessResponse } from "./httpContract";
-import { toWireJsonObject } from "./viewsLenses";
+import { toWireJsonObject } from "./views";
 import type {
   ViewAlertConditions,
   AlertMatch,
