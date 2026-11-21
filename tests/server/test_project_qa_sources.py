@@ -232,7 +232,7 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         "title": "Transcribe council audio",
         "spec": draft,
     }
-    assert event["payload"]["prepared_action"]["quote"]["estimate"] == {
+    assert event["payload"]["prepared_action"]["estimate"]["estimate"] == {
         "billed_cost": 17,
         "policy_id": "normal-policy",
         "promise_set_hash": "confirmation-hash",
@@ -542,15 +542,16 @@ def test_late_prepared_quote_keeps_timestamps_without_full_viewer_load(
             start_ms=12000,
             end_ms=15000,
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=column,
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=column,
+        )
     tools = ProjectQATools(project, turn, store)
     cid = tools.search_cells("NEEDLE", sheet)["hits"][0]["citation_id"]
     monkeypatch.setattr(
@@ -617,15 +618,16 @@ def test_file_scope_reads_current_prepared_text_and_finds_it(make_project):
             page_start=1,
             page_end=1,
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=text_column,
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=text_column,
+        )
     store = ProjectQAStore(project)
     thread = store.create_thread(title="Ask")
     turn = store.submit_turn(

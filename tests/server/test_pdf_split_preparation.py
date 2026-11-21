@@ -330,7 +330,7 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
             try:
                 plan, _source, router, composition, context = prepared
                 with pytest.raises(
-                    TrustedConsentRefused, match="page, settings, route or quote"
+                    TrustedConsentRefused, match="page, settings, route or estimate"
                 ):
                     preview.start_scratch_preview(
                         "pages",

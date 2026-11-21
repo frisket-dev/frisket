@@ -1069,16 +1069,13 @@ def record_notification_delivery_request_error(
     request_id: int,
     *,
     last_error: str | None,
-    commit: bool = True,
 ) -> bool:
-    with write_transaction(
-        project.db, commit=commit, what="record notification delivery request error"
-    ):
-        changed = project.db.execute(
-            "UPDATE notification_delivery_requests SET last_error=?, "
-            "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
-            (last_error, int(request_id)),
-        )
+    require_transaction(project.db, "record notification delivery request error")
+    changed = project.db.execute(
+        "UPDATE notification_delivery_requests SET last_error=?, "
+        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
+        (last_error, int(request_id)),
+    )
     return changed.rowcount == 1
 
 
@@ -1089,20 +1086,17 @@ def terminalize_notification_delivery_request(
     status: str,
     last_error: str | None = None,
     provider_ref: str | None = None,
-    commit: bool = True,
 ) -> bool:
     if status not in TERMINAL_REQUEST_STATUSES:
         raise ValueError(f"Not a terminal notification delivery status: {status!r}")
-    with write_transaction(
-        project.db, commit=commit, what="terminalize notification delivery request"
-    ):
-        changed = project.db.execute(
-            "UPDATE notification_delivery_requests SET status=?, last_error=?, "
-            "provider_ref=COALESCE(?, provider_ref), "
-            "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
-            "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
-            (status, last_error, provider_ref, status, int(request_id)),
-        )
+    require_transaction(project.db, "terminalize notification delivery request")
+    changed = project.db.execute(
+        "UPDATE notification_delivery_requests SET status=?, last_error=?, "
+        "provider_ref=COALESCE(?, provider_ref), "
+        "sent_at=CASE WHEN ?='sent' THEN datetime('now') ELSE sent_at END, "
+        "updated_at=datetime('now') WHERE id=? AND status IN ('queued','processing')",
+        (status, last_error, provider_ref, status, int(request_id)),
+    )
     return changed.rowcount == 1
 
 
@@ -1123,8 +1117,8 @@ def record_notification_delivery_attempt(
     provider_ref: str | None = None,
     error: str | None = None,
     response_meta: dict[str, Any] | None = None,
-    commit: bool = True,
 ) -> dict[str, Any]:
+    require_transaction(project.db, "record notification delivery attempt")
     notification_param = int(notification_id) if notification_id is not None else None
     row = project.db.execute(
         "SELECT COALESCE(MAX(attempt), 0) + 1 AS next_attempt "
@@ -1134,26 +1128,23 @@ def record_notification_delivery_attempt(
         (notification_param, int(channel_id), delivery_request_id),
     ).fetchone()
     attempt = int(row["next_attempt"] if row else 1)
-    with write_transaction(
-        project.db, commit=commit, what="record notification delivery attempt"
-    ):
-        cur = project.db.execute(
-            "INSERT INTO notification_delivery_attempts "
-            "(delivery_request_id, notification_id, channel_id, status, attempt, "
-            "provider_ref, error, response_meta_json, sent_at) "
-            "VALUES (?,?,?,?,?,?,?,?, CASE WHEN ?='sent' THEN datetime('now') ELSE NULL END)",
-            (
-                delivery_request_id,
-                notification_param,
-                int(channel_id),
-                status,
-                attempt,
-                provider_ref,
-                error,
-                json.dumps(response_meta or {}, sort_keys=True),
-                status,
-            ),
-        )
+    cur = project.db.execute(
+        "INSERT INTO notification_delivery_attempts "
+        "(delivery_request_id, notification_id, channel_id, status, attempt, "
+        "provider_ref, error, response_meta_json, sent_at) "
+        "VALUES (?,?,?,?,?,?,?,?, CASE WHEN ?='sent' THEN datetime('now') ELSE NULL END)",
+        (
+            delivery_request_id,
+            notification_param,
+            int(channel_id),
+            status,
+            attempt,
+            provider_ref,
+            error,
+            json.dumps(response_meta or {}, sort_keys=True),
+            status,
+        ),
+    )
     return project.notification_delivery_attempt(inserted_rowid(cur))
 
 

@@ -123,24 +123,25 @@ def _seed_timestamped_transcript(
         transcript_column_id,
         row_ids=[row_id],
     )
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return {
         "sheet_id": sheet_id,
         "row_id": row_id,

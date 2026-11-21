@@ -32,6 +32,7 @@ from frisket.engine.executor.map_rows_action import (
     _typed_receipt,
     typed_request_hash,
 )
+from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.engine.executor.value_cluster import (
     ClusterSourceChanged,
     cluster_source_snapshot,
@@ -193,7 +194,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.executor.project_run_terminalization import (
         CurrentWriterTerminalAuthority,
-        terminalize_project_run,
+        terminalize_project_run_in_transaction,
     )
 
     state = kwargs["resolved"].facts["cluster_values"]
@@ -207,66 +208,65 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     ):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
+    def abort_in_transaction(
+        code: str,
+        message: str,
+        *,
+        status: ReceiptStatus = "failed",
+    ):
+        require_transaction(project.db, "cluster abort")
+        prior = ReceiptStore(project).require_parsed(receipt_id)
+        terminal = prior.model_copy(
+            update={
+                "status": status,
+                "outputs": [],
+                "provider_use": _cluster_provider_use(project, run_id),
+                "errors": [
+                    ActionError(code=code, message=message, action_kind=action.kind)
+                ],
+            }
+        )
+        outcome = terminalize_project_run_in_transaction(
+            project,
+            run_id=run_id,
+            receipt_id=receipt_id,
+            status=status,
+            authority=CurrentWriterTerminalAuthority(
+                writer_attempt_id=writer, claim_token=claim
+            ),
+            terminal_receipt=terminal,
+        )
+        if outcome.disposition not in {"terminalized", "already_terminal"}:
+            if outcome.reason == "reserved_effect_checkpoint":
+                # This response reports a refusal, not a terminal receipt.
+                # Keep its reservation identity so generic error cleanup
+                # cannot discard the unresolved paid-effect authority.
+                return _result_from_receipt(terminal).model_copy(
+                    update={
+                        "errors": [
+                            ActionError(
+                                code="idempotency_checkpoint_ambiguous",
+                                message="An embedding may have been billed but its response is unknown; reconcile this effect before retrying.",
+                                action_kind=action.kind,
+                                details={
+                                    "run_id": run_id,
+                                    "receipt_id": receipt_id,
+                                },
+                            )
+                        ],
+                    }
+                )
+            raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
+        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+
     def abort(
         code: str,
         message: str,
         *,
         status: ReceiptStatus = "failed",
-        commit: bool = True,
     ):
-        if commit:
-            project.db.execute("BEGIN IMMEDIATE")
-        try:
-            prior = ReceiptStore(project).require_parsed(receipt_id)
-            terminal = prior.model_copy(
-                update={
-                    "status": status,
-                    "outputs": [],
-                    "provider_use": _cluster_provider_use(project, run_id),
-                    "errors": [
-                        ActionError(code=code, message=message, action_kind=action.kind)
-                    ],
-                }
-            )
-            outcome = terminalize_project_run(
-                project,
-                run_id=run_id,
-                receipt_id=receipt_id,
-                status=status,
-                authority=CurrentWriterTerminalAuthority(
-                    writer_attempt_id=writer, claim_token=claim
-                ),
-                terminal_receipt=terminal,
-                commit=False,
-            )
-            if outcome.disposition not in {"terminalized", "already_terminal"}:
-                if outcome.reason == "reserved_effect_checkpoint":
-                    project.db.rollback()
-                    # This response reports a refusal, not a terminal receipt.
-                    # Keep its reservation identity so generic error cleanup
-                    # cannot discard the unresolved paid-effect authority.
-                    return _result_from_receipt(terminal).model_copy(
-                        update={
-                            "errors": [
-                                ActionError(
-                                    code="idempotency_checkpoint_ambiguous",
-                                    message="An embedding may have been billed but its response is unknown; reconcile this effect before retrying.",
-                                    action_kind=action.kind,
-                                    details={
-                                        "run_id": run_id,
-                                        "receipt_id": receipt_id,
-                                    },
-                                )
-                            ],
-                        }
-                    )
-                raise StaleAttemptWriter(f"Cluster abort refused: {outcome.reason}")
-            if commit:
-                project.db.commit()
-        except BaseException:
-            project.db.rollback()
-            raise
-        return _result_from_receipt(ReceiptStore(project).require_parsed(receipt_id))
+        with write_transaction(project.db, what="cluster abort"):
+            return abort_in_transaction(code, message, status=status)
 
     run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
     if run["cancel_requested_at"] is not None:
@@ -306,8 +306,8 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
         project.db.execute("BEGIN IMMEDIATE")
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
         if run["cancel_requested_at"] is not None:
-            result = abort(
-                "cancelled", "Clustering was stopped", status="cancelled", commit=False
+            result = abort_in_transaction(
+                "cancelled", "Clustering was stopped", status="cancelled"
             )
             project.db.commit()
             return result
@@ -425,7 +425,7 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             raise StaleAttemptWriter(
                 "Cluster publication cannot terminalize with needs_confirmation"
             )
-        outcome = terminalize_project_run(
+        outcome = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -435,7 +435,6 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
                 writer_attempt_id=writer, claim_token=claim
             ),
             terminal_receipt=receipt,
-            commit=False,
         )
         if outcome.disposition != "terminalized":
             raise StaleAttemptWriter(f"Cluster publication refused: {outcome.reason}")

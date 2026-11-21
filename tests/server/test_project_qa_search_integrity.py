@@ -215,15 +215,16 @@ def test_located_media_hit_mints_navigable_evidence_citation(make_project, monke
             start_ms=4250,
             end_ms=9500,
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=column,
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=column,
+        )
     revision = int(
         project.db.execute(
             "SELECT retrieval_revision FROM current_cells "

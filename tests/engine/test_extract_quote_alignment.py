@@ -205,18 +205,19 @@ def _link_and_resolve(
     seeded: dict[str, Any], spans: list[dict[str, Any]]
 ) -> dict[str, Any]:
     project: Project = seeded["project"]
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={"kind": "run_result", "row_id": seeded["row_ids"][0]},
-        spans=[
-            {"span_id": span["id"], "rank": i, "span_role": "support"}
-            for i, span in enumerate(spans)
-        ],
-        sheet_id=seeded["sheet_id"],
-        row_id=seeded["row_ids"][0],
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={"kind": "run_result", "row_id": seeded["row_ids"][0]},
+            spans=[
+                {"span_id": span["id"], "rank": i, "span_role": "support"}
+                for i, span in enumerate(spans)
+            ],
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_ids"][0],
+            link_role="primary_support",
+        )
     return resolve_citation_viewer(project, link["stable_id"], project_id=PROJECT_ID)
 
 

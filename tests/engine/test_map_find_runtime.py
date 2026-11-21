@@ -354,24 +354,25 @@ def _seed_timestamped_video(project: Project) -> tuple[int, int]:
     _values, refs = project.get_values_with_refs(
         sheet_id, transcript_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=spans,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=run_id,
-        op_id=op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-            "language": "en",
-        },
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=spans,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=run_id,
+            op_id=op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+                "language": "en",
+            },
+        )
     return sheet_id, row_id
 
 
@@ -1498,17 +1499,18 @@ def test_selected_image_uses_vision_while_ocr_text_reuses_region_evidence(
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": region["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": region["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
     def resolve(column: str) -> Any:
         return resolve_find_sources(
@@ -1594,17 +1596,18 @@ def test_selected_file_reuses_legacy_summary_only_ocr_evidence(make_project) -> 
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": summary["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": summary["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
     resolved = resolve_find_sources(
         project,

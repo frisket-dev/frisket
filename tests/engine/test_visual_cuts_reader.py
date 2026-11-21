@@ -248,14 +248,14 @@ def _mapped_clip(source):
             source_row_id=rows[0],
             source_column_id=columns["video"],
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=clip["id"],
-        source_artifact_id=root.artifact_id,
-        source_start_ms=20_000,
-        source_end_ms=30_000,
-        precision="frame_accurate",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=clip["id"],
+            source_artifact_id=root.artifact_id,
+            source_start_ms=20_000,
+            source_end_ms=30_000,
+            precision="frame_accurate",
+        )
     return root, clip
 
 
@@ -306,14 +306,14 @@ def test_preview_refuses_invalid_derived_lineage_before_fallback(
                 source_row_id=rows[0],
                 source_column_id=columns["video"],
             )
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=other["id"],
-            source_artifact_id=root.artifact_id,
-            source_start_ms=30_000,
-            source_end_ms=40_000,
-            precision="frame_accurate",
-        )
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=other["id"],
+                source_artifact_id=root.artifact_id,
+                source_start_ms=30_000,
+                source_end_ms=40_000,
+                precision="frame_accurate",
+            )
     else:
         project.db.execute(
             "UPDATE source_artifacts SET duration_ms=25000 WHERE id=?",

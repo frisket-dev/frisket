@@ -91,14 +91,14 @@ def test_resolver_keeps_only_same_row_compatible_typed_cells_and_maps_child_cloc
             blob_hash=child_blob,
             duration_ms=2_000,
         )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=int(child_artifact["id"]),
-        source_artifact_id=source.anchor.artifact_id,
-        source_start_ms=4_000,
-        source_end_ms=6_000,
-        precision="exact",
-    )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=int(child_artifact["id"]),
+            source_artifact_id=source.anchor.artifact_id,
+            source_start_ms=4_000,
+            source_end_ms=6_000,
+            precision="exact",
+        )
     child_anchor = ensure_artifact_timeline(project, int(child_artifact["id"]))
 
     other_blob = project.add_blob(

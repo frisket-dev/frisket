@@ -84,7 +84,8 @@ def test_undoable_row_preserves_caller_owned_transaction(make_project):
     project = make_project("project")
     sheet = project.add_sheet("Expected")
     column = project.add_column(sheet, "answer")
-    first = project.add_row_with_undo(sheet, {"answer": "kept"}, {"answer": column})
+    with write_transaction(project):
+        first = project.add_row_with_undo(sheet, {"answer": "kept"}, {"answer": column})
     assert not project.db.in_transaction
     before = project.db.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
     with pytest.raises(RuntimeError, match="abort"):

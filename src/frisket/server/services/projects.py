@@ -756,8 +756,8 @@ class ProjectLifecycleService:
         encrypted = encrypt_secret(key)
         hint = key_hint(key)
         with project.transaction_scope():
-            self._model_routes.pin_ready_routes(
-                project_id, commit=False, request_context=request_context
+            self._model_routes.pin_ready_routes_in_transaction(
+                project_id, request_context=request_context
             )
             project.set_provider_key(
                 provider=normalized_provider,
@@ -812,8 +812,8 @@ class ProjectLifecycleService:
         normalized_provider = _normalize_provider(provider)
         project = self._workspace.get(project_id)
         with project.transaction_scope():
-            self._model_routes.pin_ready_routes(
-                project_id, commit=False, request_context=request_context
+            self._model_routes.pin_ready_routes_in_transaction(
+                project_id, request_context=request_context
             )
             deleted = project.delete_provider_key(normalized_provider)
         return {

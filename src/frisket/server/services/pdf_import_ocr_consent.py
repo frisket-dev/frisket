@@ -70,7 +70,7 @@ class PdfImportOcrGrant:
             target=dict(value["target"]),
             route=dict(value["route"]),
             promises=tuple(dict(row) for row in value["promises"]),
-            consent_estimate=dict(value["quote"]),
+            consent_estimate=dict(value["estimate"]),
             allocation=dict(value["allocation"]),
         )
         grant._validate()
@@ -104,7 +104,7 @@ class PdfImportOcrGrant:
             "target": dict(self.target),
             "route": dict(self.route),
             "promises": [dict(row) for row in self.promises],
-            "quote": dict(self.consent_estimate),
+            "estimate": dict(self.consent_estimate),
             "allocation": dict(self.allocation),
         }
 
@@ -171,11 +171,12 @@ def source_page_ocr_grant(
     """
     if not children or not targets:
         raise ValueError("source-page OCR grant has no missing pages")
-    policies = {child["quote"]["policy_id"] for child in children}
+    policies = {child["estimate"]["policy_id"] for child in children}
     if len(policies) != 1:
         raise ValueError("source-page OCR pricing policy changed")
     if any(
-        child["quote"].get("cost") is None or child["quote"].get("billed_cost") is None
+        child["estimate"].get("cost") is None
+        or child["estimate"].get("billed_cost") is None
         for child in children
     ):
         # An allowance never covers a page without a price, and consent is to
@@ -192,7 +193,7 @@ def source_page_ocr_grant(
         "source_count": len({target["occurrence_key"] for target in targets}),
         "ocr_params_hash": replay_generated_value_hash(dict(ocr_action_params)),
     }
-    cost = sum(Decimal(str(child["quote"]["cost"])) for child in children)
+    cost = sum(Decimal(str(child["estimate"]["cost"])) for child in children)
     spec = dict(children[0]["spec"])
     program = ScratchActionProgram("media.ocr", "ocr")
     resolved = resolve_for_action(
@@ -209,7 +210,7 @@ def source_page_ocr_grant(
     rated = scratch_estimate(resolved, quantity_name=None, quantity=len(children))
     rated.update(
         cost=float(cost),
-        billed_cost=sum(child["quote"]["billed_cost"] for child in children),
+        billed_cost=sum(child["estimate"]["billed_cost"] for child in children),
         policy_id=next(iter(policies)),
         rows=scope["source_count"],
     )
@@ -235,7 +236,7 @@ def source_page_ocr_grant(
     consent_estimate = ConsentEstimate.from_estimate(rated).model_dump(mode="json")
     allocation = {
         "schema_version": PDF_IMPORT_OCR_ALLOCATION_SCHEMA,
-        "row_quote_authority": "admitted_source_pages",
+        "row_estimate_authority": "admitted_source_pages",
         "currency": "USD",
         "policy_id": next(iter(policies)),
         "approved_billed_cost": consent_estimate["billed_cost"],
@@ -253,7 +254,7 @@ def source_page_ocr_grant(
             "target": target_snapshot(bound.resolution),
             "route": _route_snapshot(bound),
             "promises": promise_rows(bound.promise_set),
-            "quote": consent_estimate,
+            "estimate": consent_estimate,
             "allocation": allocation,
         }
     )
@@ -271,7 +272,7 @@ def _validate_source_page_grant(grant: PdfImportOcrGrant) -> None:
         or not targets
         or not isinstance(children, list)
         or not children
-        or grant.allocation.get("row_quote_authority") != "admitted_source_pages"
+        or grant.allocation.get("row_estimate_authority") != "admitted_source_pages"
         or grant.allocation.get("schema_version") != PDF_IMPORT_OCR_ALLOCATION_SCHEMA
         or grant.allocation.get("currency") != "USD"
     ):
@@ -290,11 +291,11 @@ def _validate_source_page_grant(grant: PdfImportOcrGrant) -> None:
     if grant.scope_hash != _source_page_hash(scope):
         raise ValueError("source-page OCR grant scope hash changed")
     if grant.consent_estimate.get("billed_cost") != sum(
-        child["quote"]["billed_cost"] for child in children
+        child["estimate"]["billed_cost"] for child in children
     ) or grant.allocation.get("approved_billed_cost") != grant.consent_estimate.get(
         "billed_cost"
     ):
-        raise ValueError("source-page OCR grant quote changed")
+        raise ValueError("source-page OCR grant estimate changed")
     if promise_rows_hash(grant.promises) != grant.promise_set_hash:
         raise ValueError("source-page OCR grant promise set changed")
 
@@ -351,7 +352,7 @@ def source_page_ocr_authorizer(
         )
         expected_estimate = {
             key: value
-            for key, value in child["quote"].items()
+            for key, value in child["estimate"].items()
             if key != "requires_confirmation"
         }
         if (
@@ -362,7 +363,7 @@ def source_page_ocr_authorizer(
             or actual_estimate != expected_estimate
         ):
             return TrustedConsentRefusal(
-                "source-page OCR page, settings, route or quote changed"
+                "source-page OCR page, settings, route or estimate changed"
             )
         return TrustedConsentGrant("pdf_source_page_grant_derived")
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store import Project
@@ -41,6 +42,20 @@ def _source_policy_hash(policy: dict[str, Any]) -> str:
     return f"sha256:{digest}"
 
 
+@dataclass(frozen=True)
+class IndexCountUpdate:
+    """Fields to apply to one ``embedding_indexes`` row."""
+
+    total: int | None = None
+    ready: int | None = None
+    stale: int | None = None
+    error: int | None = None
+    status: str | None = None
+    last_refresh_receipt_id: str | None = None
+    last_refresh_job_id: str | None = None
+    touch_refreshed_at: bool = True
+
+
 class EmbeddingStore:
     def __init__(self, project: Project):
         self.project = project
@@ -53,45 +68,49 @@ class EmbeddingStore:
         sqlite3's statement cache."""
         return self.project.db
 
-    def create_space(self, descriptor: dict[str, Any], *, commit: bool = True) -> str:
-        """Mint (or return the existing) space for a strict descriptor. Idempotent
-        on the descriptor hash — the same comparability contract is one row.
-
-        ``commit=True`` owns the INSERT's transaction; ``commit=False`` joins the
-        caller's open transaction so metadata and a receipt can commit (or roll
-        back) together."""
+    def create_space_in_transaction(self, descriptor: dict[str, Any]) -> str:
+        """Mint (or return the existing) space for a strict descriptor inside
+        the caller's open transaction. Idempotent on the descriptor hash — the
+        same comparability contract is one row."""
         validate_descriptor(descriptor)
+        require_transaction(self.db, "embedding space")
         sid = space_id_for(descriptor)
         dhash = descriptor_hash(descriptor)
-        with write_transaction(self.db, commit=commit, what="embedding space"):
-            self.db.execute(
-                "INSERT INTO embedding_spaces ("
-                "id, descriptor_json, descriptor_hash, provider_id, provider_kind, "
-                "requested_model, actual_model_id, model_revision, modality, dimension, "
-                "dtype, distance_metric, normalization, vector_options_hash, "
-                "source_payload_contract, contract_version) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(id) DO NOTHING",
-                (
-                    sid,
-                    canonical_json(descriptor),
-                    dhash,
-                    descriptor["provider_id"],
-                    descriptor["provider_kind"],
-                    descriptor.get("requested_model"),
-                    descriptor["actual_model_id"],
-                    descriptor.get("model_revision"),
-                    descriptor["modality"],
-                    descriptor["dimension"],
-                    descriptor["dtype"],
-                    descriptor["distance_metric"],
-                    descriptor["normalization"],
-                    descriptor["vector_options_hash"],
-                    descriptor["source_payload_contract"],
-                    descriptor["contract_version"],
-                ),
-            )
+        self.db.execute(
+            "INSERT INTO embedding_spaces ("
+            "id, descriptor_json, descriptor_hash, provider_id, provider_kind, "
+            "requested_model, actual_model_id, model_revision, modality, dimension, "
+            "dtype, distance_metric, normalization, vector_options_hash, "
+            "source_payload_contract, contract_version) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO NOTHING",
+            (
+                sid,
+                canonical_json(descriptor),
+                dhash,
+                descriptor["provider_id"],
+                descriptor["provider_kind"],
+                descriptor.get("requested_model"),
+                descriptor["actual_model_id"],
+                descriptor.get("model_revision"),
+                descriptor["modality"],
+                descriptor["dimension"],
+                descriptor["dtype"],
+                descriptor["distance_metric"],
+                descriptor["normalization"],
+                descriptor["vector_options_hash"],
+                descriptor["source_payload_contract"],
+                descriptor["contract_version"],
+            ),
+        )
         return sid
+
+    def create_space(self, descriptor: dict[str, Any]) -> str:
+        """Mint (or return the existing) space for a strict descriptor in its
+        own write transaction."""
+        validate_descriptor(descriptor)
+        with write_transaction(self.db, what="embedding space"):
+            return self.create_space_in_transaction(descriptor)
 
     def get_space(self, space_id: str) -> sqlite3.Row | None:
         return self.db.execute(
@@ -202,7 +221,7 @@ class EmbeddingStore:
         with write_transaction(
             self.db, what="moving an embedding index to its current space"
         ):
-            space_id = self.create_space(current, commit=False)
+            space_id = self.create_space_in_transaction(current)
             self.db.execute(
                 "UPDATE embedding_indexes SET space_id=?, updated_at=datetime('now') "
                 "WHERE id=?",
@@ -280,6 +299,36 @@ class EmbeddingStore:
             raise KeyError(index_id)
         return json.loads(row["source_policy_json"])
 
+    def update_index_counts_in_transaction(
+        self,
+        index_id: str,
+        counts: IndexCountUpdate,
+    ) -> None:
+        """Best-effort count/status update inside the caller's open transaction."""
+        require_transaction(self.db, "embedding index counts")
+        sets: list[str] = ["updated_at=datetime('now')"]
+        params: list[Any] = []
+        for col, val in (
+            ("total_items", counts.total),
+            ("ready_items", counts.ready),
+            ("stale_items", counts.stale),
+            ("error_items", counts.error),
+            ("status", counts.status),
+            ("last_refresh_receipt_id", counts.last_refresh_receipt_id),
+            ("last_refresh_job_id", counts.last_refresh_job_id),
+        ):
+            if val is not None:
+                sets.append(f"{col}=?")
+                params.append(val)
+        if counts.touch_refreshed_at and (
+            counts.status is not None or counts.total is not None
+        ):
+            sets.append("last_refreshed_at=datetime('now')")
+        params.append(index_id)
+        self.db.execute(
+            f"UPDATE embedding_indexes SET {', '.join(sets)} WHERE id=?", params
+        )
+
     def update_index_counts(
         self,
         index_id: str,
@@ -292,30 +341,18 @@ class EmbeddingStore:
         last_refresh_receipt_id: str | None = None,
         last_refresh_job_id: str | None = None,
         touch_refreshed_at: bool = True,
-        commit: bool = True,
     ) -> None:
         """Best-effort count/status update (advisory — recomputable from the
-        sidecar). Only provided fields change. ``commit=True`` owns the UPDATE's
-        transaction; ``commit=False`` joins the caller's (e.g. the same BEGIN as
-        a receipt insert)."""
-        sets: list[str] = ["updated_at=datetime('now')"]
-        params: list[Any] = []
-        for col, val in (
-            ("total_items", total),
-            ("ready_items", ready),
-            ("stale_items", stale),
-            ("error_items", error),
-            ("status", status),
-            ("last_refresh_receipt_id", last_refresh_receipt_id),
-            ("last_refresh_job_id", last_refresh_job_id),
-        ):
-            if val is not None:
-                sets.append(f"{col}=?")
-                params.append(val)
-        if touch_refreshed_at and (status is not None or total is not None):
-            sets.append("last_refreshed_at=datetime('now')")
-        params.append(index_id)
-        with write_transaction(self.db, commit=commit, what="embedding index counts"):
-            self.db.execute(
-                f"UPDATE embedding_indexes SET {', '.join(sets)} WHERE id=?", params
-            )
+        sidecar) in its own write transaction. Only provided fields change."""
+        counts = IndexCountUpdate(
+            total=total,
+            ready=ready,
+            stale=stale,
+            error=error,
+            status=status,
+            last_refresh_receipt_id=last_refresh_receipt_id,
+            last_refresh_job_id=last_refresh_job_id,
+            touch_refreshed_at=touch_refreshed_at,
+        )
+        with write_transaction(self.db, what="embedding index counts"):
+            self.update_index_counts_in_transaction(index_id, counts)

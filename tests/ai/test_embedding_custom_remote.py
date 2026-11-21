@@ -408,7 +408,7 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
         credential_source="project_key",
         provider_cost_usd=probe_cost,
     )
-    original_create_space = EmbeddingStore.create_space
+    original_create_space = EmbeddingStore.create_space_in_transaction
     failed_once = False
 
     def fail_first_metadata_write(self, *args, **kwargs):
@@ -418,7 +418,9 @@ def test_paid_probe_retry_after_metadata_failure_does_not_call_provider_twice(
             raise RuntimeError("injected metadata write failure after paid probe")
         return original_create_space(self, *args, **kwargs)
 
-    monkeypatch.setattr(EmbeddingStore, "create_space", fail_first_metadata_write)
+    monkeypatch.setattr(
+        EmbeddingStore, "create_space_in_transaction", fail_first_metadata_write
+    )
     action = _create_action(project._sheet_id, key="cr_probe_reconcile@1")
 
     first = _run(project, action, gateway=gw)

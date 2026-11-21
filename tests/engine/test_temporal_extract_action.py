@@ -1534,23 +1534,24 @@ def test_extract_batch_projects_every_compatible_current_transcript(
         _values, refs = project.get_values_with_refs(
             sheet_id, column_id, row_ids=[row_id]
         )
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[row_id],
-            spans=[{"span_id": span["id"], "rank": 0}],
-            sheet_id=sheet_id,
-            row_id=row_id,
-            column_id=column_id,
-            run_id=run_id,
-            op_id=op_id,
-            link_role="media_transcribe_temporal",
-            producer={"action_kind": "media.transcribe"},
-            metadata={
-                "schema_version": (TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION),
-                "semantic_type": "timestamped_transcript",
-            },
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[row_id],
+                spans=[{"span_id": span["id"], "rank": 0}],
+                sheet_id=sheet_id,
+                row_id=row_id,
+                column_id=column_id,
+                run_id=run_id,
+                op_id=op_id,
+                link_role="media_transcribe_temporal",
+                producer={"action_kind": "media.transcribe"},
+                metadata={
+                    "schema_version": (TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION),
+                    "semantic_type": "timestamped_transcript",
+                },
+            )
 
     action, bound = _extract_action(
         sheet_id=sheet_id,

@@ -64,16 +64,17 @@ def _text_output(project, source_cell, text_column, blob, pages, *, page=None):
             page_end=page or len(pages),
             quote=pages[page - 1] if page else "\n\n".join(pages),
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[source_cell[1]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=source_cell[0],
-        row_id=source_cell[1],
-        column_id=text_column,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[source_cell[1]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=source_cell[0],
+            row_id=source_cell[1],
+            column_id=text_column,
+            link_role="primary_support",
+        )
     return ref.ref_id, artifact["id"], span, link
 
 
@@ -217,29 +218,31 @@ def test_find_file_uses_selected_text_with_ordinary_text_publication_coordinates
                 ],
             )
         _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[cell[1]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=text,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.read_pdf_text"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=text,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.read_pdf_text"},
+            )
         _, alternatives = project.get_values_with_refs(cell[0], _other, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=alternatives[cell[1]],
-            spans=[{"span_id": _alternative[2]["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=_other,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.ocr"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=alternatives[cell[1]],
+                spans=[{"span_id": _alternative[2]["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=_other,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.ocr"},
+            )
     params = FindOperation(
         action_kind="map.find",
         request={},
@@ -321,17 +324,18 @@ def test_queued_find_publishes_designated_text_with_exact_page_citation(
     span = chosen[2]
     if copied_grounding:
         _, refs = project.get_values_with_refs(cell[0], text, [cell[1]])
-        record_citation(
-            project,
-            subject_kind="cell",
-            subject_ref=refs[cell[1]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=cell[0],
-            row_id=cell[1],
-            column_id=text,
-            link_role="media_ocr_grounding",
-            producer={"action_kind": "media.read_pdf_text"},
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell",
+                subject_ref=refs[cell[1]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=cell[0],
+                row_id=cell[1],
+                column_id=text,
+                link_role="media_ocr_grounding",
+                producer={"action_kind": "media.read_pdf_text"},
+            )
     else:
         # Use the actual producer descriptor: a complete page snippet,
         # with no quote and no copied cell grounding link.
@@ -632,16 +636,17 @@ def test_find_ignores_later_partial_quote_and_newline_only_prepared_page(make_pr
             selector=anchors[2]["selector"],
         )
     _, refs = project.get_values_with_refs(cell[0], other, [cell[1]])
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[cell[1]],
-        spans=[{"span_id": partial["id"]}],
-        sheet_id=cell[0],
-        row_id=cell[1],
-        column_id=other,
-        producer={"action_kind": "map.extract"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[cell[1]],
+            spans=[{"span_id": partial["id"]}],
+            sheet_id=cell[0],
+            row_id=cell[1],
+            column_id=other,
+            producer={"action_kind": "map.extract"},
+        )
     request = ActionRequest(
         action_id="map.find",
         scope={"kind": "sheet_rows", "sheet_id": cell[0], "row_ids": [cell[1]]},

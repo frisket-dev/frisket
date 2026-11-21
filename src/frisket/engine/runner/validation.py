@@ -173,9 +173,9 @@ def confirmation_context(
 
     Returns the ENVELOPE rather than the digest because two consumers need
     two halves of one object and must not build it twice: the gate hashes it
-    (:func:`confirmation_context_hash`), and the writer persists its ``quote``
+    (:func:`confirmation_context_hash`), and the writer persists its ``estimate``
     onto the consent row so dispatch can read the rated figure back. A second
-    construction of the quote would be a second answer to "what did the user
+    construction of the estimate would be a second answer to "what did the user
     approve".
     """
 
@@ -667,13 +667,13 @@ def _bind_rated_estimate(
     resolved: ResolvedExecution,
     estimate: Mapping[str, Any],
 ) -> ResolvedExecution:
-    """Bind the canonical rated quote into routed consent identity.
+    """Bind the canonical rated estimate into routed consent identity.
 
-    The quote must change the promise-set hash when tariffs change. Prefer a
+    The estimate must change the promise-set hash when tariffs change. Prefer a
     non-cost claim so settlement's provider cost basis remains untouched.
     """
     consent_estimate = ConsentEstimate.from_estimate(estimate)
-    quote_json = json.dumps(
+    estimate_json = json.dumps(
         consent_estimate.model_dump(mode="json"),
         sort_keys=True,
         separators=(",", ":"),
@@ -701,7 +701,7 @@ def _bind_rated_estimate(
         return resolved
     original = promises[target_index]
     basis = dict(original.basis or {})
-    basis["consent_quote_json"] = quote_json
+    basis["consent_estimate_json"] = estimate_json
     promises[target_index] = Promise.make(
         original.field,
         original.op,
@@ -985,12 +985,12 @@ def _estimate_run(
         bound = getattr(resolution.cost_basis, "bound", None)
         out = {
             "cost": None if bound is None else float(bound),
-            "cost_source": "cloud_route_quote" if bound is not None else "unknown",
+            "cost_source": "cloud_route_estimate" if bound is not None else "unknown",
             "pricing_key": getattr(resolution.cost_basis, "pricing_key", None),
             "rows": len(rows),
             **_resolved_presentation_labels(
                 resolution,
-                cost_source="cloud_route_quote" if bound is not None else "unknown",
+                cost_source="cloud_route_estimate" if bound is not None else "unknown",
             ),
         }
         # The route already rendered inputs to quote them. Disclose PDF token
@@ -1376,7 +1376,7 @@ def validate_spec(
         est = estimate_result.presentation
         if resolved_execution is not None:
             if estimate_result.bound_resolution is None:
-                raise RuntimeError("routed estimate did not bind its consent quote")
+                raise RuntimeError("routed estimate did not bind its consent estimate")
             resolved_execution = estimate_result.bound_resolution
             trusted_decision = (
                 trusted_consent_authorizer(
@@ -1505,7 +1505,7 @@ def validate_spec(
                         else CONSENT_BASIS_ALLOWANCE
                     )
                     # Persist the same projection that was hashed.
-                    unrouted_confirmation_estimate = context.quote.model_dump(
+                    unrouted_confirmation_estimate = context.estimate.model_dump(
                         mode="json"
                     )
     elif explicit_resume_scope is not None:
@@ -1532,7 +1532,7 @@ def validate_spec(
         backfill_est = backfill_result.presentation
         if isinstance(resume_outcome, ResolvedExecution):
             if backfill_result.bound_resolution is None:
-                raise RuntimeError("routed estimate did not bind its consent quote")
+                raise RuntimeError("routed estimate did not bind its consent estimate")
             resume_outcome = backfill_result.bound_resolution
             claims_payload = backfill_est.get("claims")
             if claims_payload:
@@ -1624,7 +1624,7 @@ def validate_spec(
                         else CONSENT_BASIS_ALLOWANCE
                     )
                     # Persist the same projection that was hashed.
-                    unrouted_confirmation_estimate = context.quote.model_dump(
+                    unrouted_confirmation_estimate = context.estimate.model_dump(
                         mode="json"
                     )
 

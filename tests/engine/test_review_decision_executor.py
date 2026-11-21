@@ -1163,21 +1163,22 @@ def _attach_cell_evidence(
             span_kind="whole",
             snippet="reviewable map result evidence",
         )
-    return record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=seeded["sheet_id"],
-        row_id=row_id,
-        column_id=seeded["risk_column_id"],
-        run_id=seeded["run_id"],
-        op_id=seeded["map_op_id"],
-        producer={
-            "source_action_kind": "map.python",
-            "field": "risk",
-        },
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=seeded["sheet_id"],
+            row_id=row_id,
+            column_id=seeded["risk_column_id"],
+            run_id=seeded["run_id"],
+            op_id=seeded["map_op_id"],
+            producer={
+                "source_action_kind": "map.python",
+                "field": "risk",
+            },
+        )
 
 
 def test_review_decision_edit_and_reject_clear_stale_active_evidence(

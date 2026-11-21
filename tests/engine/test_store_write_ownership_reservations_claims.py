@@ -26,6 +26,7 @@ from frisket.engine.executor.project_run_terminalization import (
     AbandonedRunRecoveryAuthority,
     CurrentWriterTerminalAuthority,
     terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
@@ -40,6 +41,7 @@ from frisket.execution.attempt import (
     claim,
     open_attempt,
     set_attempt_state,
+    set_attempt_state_in_transaction,
 )
 from frisket.execution.attempt_authority import (
     AttemptAuthority,
@@ -260,11 +262,12 @@ JOINING_WRITES = {
         project,
         _seed_run(project),
     ),
-    "attempt.set_attempt_state_join": lambda project: set_attempt_state(
-        project,
-        "attempt_missing",
-        "halted",
-        commit=False,
+    "attempt.set_attempt_state_in_transaction": lambda project: (
+        set_attempt_state_in_transaction(
+            project,
+            "attempt_missing",
+            "halted",
+        )
     ),
     "authority.mint_in_transaction": lambda project: _authority(
         project
@@ -349,13 +352,14 @@ JOINING_WRITES = {
             receipt=_running_receipt("receipt-none"),
         )
     ),
-    "terminalize.join": lambda project: terminalize_project_run(
-        project,
-        run_id=_seed_run(project),
-        receipt_id="receipt-none",
-        status="cancelled",
-        authority=AbandonedRunRecoveryAuthority(require_cancel_intent=False),
-        commit=False,
+    "terminalize.in_transaction": lambda project: (
+        terminalize_project_run_in_transaction(
+            project,
+            run_id=_seed_run(project),
+            receipt_id="receipt-none",
+            status="cancelled",
+            authority=AbandonedRunRecoveryAuthority(require_cancel_intent=False),
+        )
     ),
 }
 
@@ -553,9 +557,9 @@ def test_admit_attempt_rolls_back_when_row_authorizations_insert_fails(project):
         meter_key="rows",
         meter_units_per_quantity_unit="1",
         ceiling_mode="none",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="platform_commercial_terms",
-        row_quote_quantities=((1, "1"),),
+        row_estimate_quantities=((1, "1"),),
     )
     commitment = AttemptCommitment(
         attempt_id=attempt_id,

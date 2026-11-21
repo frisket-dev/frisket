@@ -836,7 +836,7 @@ def _cloud_model_cost_basis(
         ceiling_mode="none",
         row_settlement_mode="all_metered",
         charge_authority="frisket_cloud_receipt",
-        row_quote_quantities=None,
+        row_estimate_quantities=None,
     )
 
 
@@ -1483,25 +1483,25 @@ def project_uncovered_user_claims(
         return []
     principal = effective.principal
     claims = [p for p in promise_set.promises if p.audience == "user_claim"]
-    quote_json = next(
+    estimate_json = next(
         (
-            (claim.basis or {})["consent_quote_json"]
+            (claim.basis or {})["consent_estimate_json"]
             for claim in claims
-            if (claim.basis or {}).get("consent_quote_json") is not None
+            if (claim.basis or {}).get("consent_estimate_json") is not None
         ),
         None,
     )
-    if quote_json is not None:
+    if estimate_json is not None:
         from frisket.engine.runner.confirmation_context import estimated_usd
 
-        # The rated retail quote is what the user will pay. It governs
+        # The rated retail estimate is what the user will pay. It governs
         # allowance; neutral provider cost bounds retain their own rates.
-        estimated = estimated_usd(json.loads(quote_json))
+        estimated = estimated_usd(json.loads(estimate_json))
         within_allowance = (
             estimated is not None and Decimal(str(estimated)) <= effective.threshold_usd
         )
     else:
-        # Before a quote is attached, only known bounded costs can be covered.
+        # Before an estimate is attached, only known bounded costs can be covered.
         costs = [p for p in claims if p.field == "cost"]
         within_allowance = bool(costs) and all(
             p.op == "le"
@@ -1510,7 +1510,7 @@ def project_uncovered_user_claims(
             for p in costs
         )
     allowance_payer: Promise | None = None
-    if within_allowance and quote_json is not None:
+    if within_allowance and estimate_json is not None:
         from frisket.cloud_execution import CloudPayerSubject
         from frisket.project_settings import read_project_settings
 

@@ -85,7 +85,7 @@ def _estimate_promise(resolved: ResolvedExecution):
     return next(
         promise
         for promise in resolved.promise_set.promises
-        if "consent_quote_json" in (promise.basis or {})
+        if "consent_estimate_json" in (promise.basis or {})
     )
 
 
@@ -181,10 +181,10 @@ def test_tariff_drift_invalidates_exact_match_without_rewriting_provider_basis(
         first_estimate_promise.field == second_estimate_promise.field == "egress_class"
     )
     first_consent_estimate = json.loads(
-        first_estimate_promise.basis["consent_quote_json"]
+        first_estimate_promise.basis["consent_estimate_json"]
     )
     second_consent_estimate = json.loads(
-        second_estimate_promise.basis["consent_quote_json"]
+        second_estimate_promise.basis["consent_estimate_json"]
     )
     assert first_consent_estimate["policy_id"] == "test.tariff.v1"
     assert second_consent_estimate["policy_id"] == "test.tariff.v2"

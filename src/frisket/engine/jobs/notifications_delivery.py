@@ -772,7 +772,6 @@ def _apply_terminal_result(
             status=result.status,
             last_error=result.error,
             provider_ref=result.provider_ref,
-            commit=False,
         )
         if changed and channel is not None:
             _record_attempt(project, request=request, channel=channel, result=result)
@@ -805,7 +804,6 @@ def _record_retry_result(
         changed = project.record_notification_delivery_request_error(
             int(request["id"]),
             last_error=error,
-            commit=False,
         )
         if changed:
             _record_attempt(project, request=request, channel=channel, result=result)
@@ -1025,7 +1023,6 @@ def _record_attempt(
         provider_ref=result.provider_ref,
         error=result.error,
         response_meta=result.response_meta,
-        commit=False,
     )
 
 

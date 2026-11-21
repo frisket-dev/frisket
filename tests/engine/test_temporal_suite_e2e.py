@@ -239,23 +239,24 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         transcript_column_id,
         row_ids=[row_id],
     )
-    evidence_link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=span_refs,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=transcript_column_id,
-        run_id=transcript_run_id,
-        op_id=transcript_op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-        },
-    )
+    with write_transaction(project.db):
+        evidence_link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=span_refs,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=transcript_column_id,
+            run_id=transcript_run_id,
+            op_id=transcript_op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+            },
+        )
     return _SeededMedia(
         sheet_id=sheet_id,
         row_id=row_id,

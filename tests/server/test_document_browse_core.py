@@ -349,16 +349,17 @@ def test_split_source_range_is_bounded_to_current_cell(docs):
             page_end=3,
         )
     _, refs = project.get_values_with_refs(sheet, source, [rows[0]])
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[rows[0]],
-        sheet_id=sheet,
-        row_id=rows[0],
-        column_id=source,
-        link_role="source_provenance",
-        spans=[{"span_id": span["id"]}],
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[rows[0]],
+            sheet_id=sheet,
+            row_id=rows[0],
+            column_id=source,
+            link_role="source_provenance",
+            spans=[{"span_id": span["id"]}],
+        )
     result = page(docs, limit=2)
     assert result["items"][0]["source_page_range"] == {"start": 3, "end": 3}
     assert result["items"][1]["source_page_range"] is None

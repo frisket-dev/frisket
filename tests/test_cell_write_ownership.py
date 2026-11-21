@@ -301,3 +301,32 @@ def test_server_thread_handoffs_end_a_unit_of_work(tmp_path: Path):
         "or wrap the callable in ends_unit_of_work"
     )
     assert problems == [f"src/server/routes.py:{line}{suffix}" for line in (3, 4, 5, 6)]
+
+
+def test_commit_parameters_are_banned_outside_transactions_module(tmp_path: Path):
+    # rule19: synthetic modules verify the commit-parameter gate without a repo.
+    pkg = tmp_path / "src/pkg"
+    pkg.mkdir(parents=True)
+    (pkg / "transactions.py").write_text(
+        "def write_transaction(db, *, commit: bool = True):\n    pass\n"
+    )
+    (pkg / "store.py").write_text(
+        "def save_row(db, *, commit: bool = True):\n"
+        "    pass\n"
+        "async def async_save(db, commit=False):\n"
+        "    pass\n"
+        "def save_row_in_transaction(db):\n"
+        "    commit = True\n"
+        "    return commit\n"
+    )
+    problems = checker.check_commit_parameters(
+        root=tmp_path,
+        scope="src/pkg",
+        owner="src/pkg/transactions.py",
+    )
+    assert problems == [
+        "src/pkg/store.py:1: function 'save_row' defines a 'commit' parameter "
+        "outside src/pkg/transactions.py; split owning and *_in_transaction write paths",
+        "src/pkg/store.py:3: function 'async_save' defines a 'commit' parameter "
+        "outside src/pkg/transactions.py; split owning and *_in_transaction write paths",
+    ]

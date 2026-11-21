@@ -306,11 +306,10 @@ def test_reduce_terminalizer_joins_materialization_transaction(
         key="reduce_effects@sha256:terminal-transaction-join",
     )
 
-    real_terminalize = reduces.terminalize_project_run
+    real_terminalize = reduces.terminalize_project_run_in_transaction
 
     def cut_after_join(*args, **kwargs):
         assert project.db.in_transaction
-        assert kwargs["commit"] is False
         terminalization = real_terminalize(*args, **kwargs)
         assert terminalization.disposition == "terminalized"
         assert terminalization.receipt_disposition == "updated"
@@ -343,7 +342,9 @@ def test_reduce_terminalizer_joins_materialization_transaction(
             "injected after joined reduce terminalization, before outer commit"
         )
 
-    monkeypatch.setattr(reduces, "terminalize_project_run", cut_after_join)
+    monkeypatch.setattr(
+        reduces, "terminalize_project_run_in_transaction", cut_after_join
+    )
 
     result = _run(project, action, router)
     assert result.status == "failed"

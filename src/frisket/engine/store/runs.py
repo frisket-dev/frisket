@@ -1276,19 +1276,19 @@ class RunResultStore:
         checkpoint: tuple[str, int, str] | None = None,
         checkpoint_action_kind: str | None = None,
         defer_generation_seal: bool = False,
-        evidence_writer: Callable[[], None] | None = None,
+        citation_writer: Callable[[], None] | None = None,
     ) -> None:
-        """Publish results with optional program-owned evidence in one transaction.
+        """Publish results with optional program-owned citations in one transaction.
 
         The store owns result persistence, row-effect retirement, and result-head
-        projection.  A program may supply its domain-specific evidence write as a
+        projection.  A program may supply its domain-specific citation write as a
         closure; any failure rolls that closure and every publication effect back
         together.  Deferred generations still project only when their existing
         sealing policy permits it.
         """
         if checkpoint is not None and not checkpoint_action_kind:
             raise ValueError("checkpoint publication requires its action kind")
-        if checkpoint is None and evidence_writer is None:
+        if checkpoint is None and citation_writer is None:
             self.write_results(
                 run_id,
                 batch,
@@ -1323,7 +1323,7 @@ class RunResultStore:
                     checkpoint=checkpoint,
                     checkpoint_action_kind=checkpoint_action_kind,
                     defer_generation_seal=defer_generation_seal,
-                    citation_writer=evidence_writer,
+                    citation_writer=citation_writer,
                 )
         except (
             DocumentTextPublicationRefused,

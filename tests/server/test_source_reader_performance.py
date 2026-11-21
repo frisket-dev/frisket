@@ -199,15 +199,16 @@ def test_two_hundred_prepared_pages_keep_verified_ask_quotes_under_budget(
             "prepared_ref_id,outcome FROM current_cell_values WHERE row_id=? AND column_id=?",
             (row, column),
         ).fetchone()
-        record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref=current_value_ref(head, row_id=row, column_id=column),
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet,
-            row_id=row,
-            column_id=column,
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="cell_value",
+                subject_ref=current_value_ref(head, row_id=row, column_id=column),
+                spans=[{"span_id": span["id"]}],
+                sheet_id=sheet,
+                row_id=row,
+                column_id=column,
+            )
         tracemalloc.start()
         started = time.monotonic()
         opened = read_source_text(project, cell, anchor="TAIL-NEEDLE", limit=50)

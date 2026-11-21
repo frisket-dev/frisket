@@ -82,20 +82,21 @@ def _write_layer(
             for start, end, entity_type in spans_in
         ]
     _values, refs = project.get_values_with_refs(sheet, ents_col, row_ids=[row_id])
-    return record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[
-            {"span_id": span["id"], "rank": i, "span_role": "annotation"}
-            for i, span in enumerate(spans)
-        ],
-        sheet_id=sheet,
-        row_id=row_id,
-        column_id=ents_col,
-        layer_family="entities",
-        producer={"kind": "map.ner", "engine": "gliner"},
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[
+                {"span_id": span["id"], "rank": i, "span_role": "annotation"}
+                for i, span in enumerate(spans)
+            ],
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents_col,
+            layer_family="entities",
+            producer={"kind": "map.ner", "engine": "gliner"},
+        )
 
 
 def _seed(make_project, *, body_text: str = BODY, content_hash=None):

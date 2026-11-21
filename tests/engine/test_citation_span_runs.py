@@ -95,32 +95,33 @@ def _seed_two_run_link(
             end_ms=run1_start + 1000,
             quote="a distinct, later thing",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
-        spans=[
-            {
-                "span_id": span_a["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": span_b["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": span_c["id"],
-                "rank": 1,
-                "span_role": "support",
-                "required": True,
-            },
-        ],
-        producer={"source_action_kind": "test"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
+            spans=[
+                {
+                    "span_id": span_a["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": span_b["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": span_c["id"],
+                    "rank": 1,
+                    "span_role": "support",
+                    "required": True,
+                },
+            ],
+            producer={"source_action_kind": "test"},
+        )
     project.db.commit()
     return {
         "link": link,
@@ -210,26 +211,27 @@ def test_citation_temporal_runs_ignores_uncited_spans(project: Project) -> None:
             end_ms=2900,
             quote="context, not cited",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
-        spans=[
-            {
-                "span_id": cited["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            },
-            {
-                "span_id": uncited["id"],
-                "rank": 1,
-                "span_role": "support",
-                "required": False,
-            },
-        ],
-        producer={"source_action_kind": "test"},
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={"kind": "run_result", "row_id": 1, "column_id": 1},
+            spans=[
+                {
+                    "span_id": cited["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                },
+                {
+                    "span_id": uncited["id"],
+                    "rank": 1,
+                    "span_role": "support",
+                    "required": False,
+                },
+            ],
+            producer={"source_action_kind": "test"},
+        )
     project.db.commit()
 
     runs = citation_temporal_runs(project, link["stable_id"])

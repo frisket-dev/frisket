@@ -169,6 +169,8 @@ _HANDOFF_CALLS = frozenset(
     {"to_thread", "run_in_threadpool", "run_in_executor", "run_sync"}
 )
 
+COMMIT_PARAM_SCOPE = "src/frisket"
+
 
 _IDENT = r'(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_]\w*)'
 _TABLE = rf"(?P<table>{_IDENT}(?:\s*\.\s*{_IDENT})?)"
@@ -490,6 +492,41 @@ def check_thread_handoffs(
     return problems
 
 
+def _commit_param_defs(path: Path) -> list[tuple[int, str]]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if any(param.arg == "commit" for param in params):
+            hits.append((node.lineno, node.name))
+    return sorted(hits)
+
+
+def check_commit_parameters(
+    *,
+    root: Path,
+    scope: str = COMMIT_PARAM_SCOPE,
+    owner: str = TRANSACTION_OWNER,
+) -> list[str]:
+    problems: list[str] = []
+    for path in sorted((root / scope).rglob("*.py")):
+        relative = path.relative_to(root).as_posix()
+        if relative == owner:
+            continue
+        problems.extend(
+            f"{relative}:{line}: function {name!r} defines a 'commit' parameter "
+            f"outside {owner}; split owning and *_in_transaction write paths"
+            for line, name in _commit_param_defs(path)
+        )
+    return problems
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -517,6 +554,7 @@ def main(argv: list[str] | None = None) -> int:
         else check_transaction_owners(root=args.root)
         + check_explicit_cursors(root=args.root)
         + check_thread_handoffs(root=args.root)
+        + check_commit_parameters(root=args.root)
     )
     for problem in problems:
         print(problem)

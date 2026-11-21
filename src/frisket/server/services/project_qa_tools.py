@@ -13,7 +13,8 @@ from urllib.parse import urlsplit
 
 from frisket.engine.store import Project
 from frisket.engine.store.prepared_content import prepared_coverage_warnings
-from frisket.engine.store.project_qa import ProjectQAStore
+from frisket.engine.store.project_qa import ProjectQACitationInput, ProjectQAStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.retrieval.contracts import (
     LocatedHit,
     RetrievalScope,
@@ -592,8 +593,7 @@ class ProjectQATools:
         except (LookupError, ValueError) as exc:
             raise ValueError("source_changed") from exc
         db = self.project.db
-        db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(db, what="project QA search citation"):
             for dependency in binding.dependencies:
                 if (
                     db.execute(
@@ -695,24 +695,22 @@ class ProjectQATools:
                 **(citation_target or {}),
             }
             fts_anchor = self._retrieval_fts_anchor(query, hit)
-            citation = self._source_handle(
-                label=(
-                    f"Search hit · {self._sheet_name(source_cell[0])} "
-                    f"· row {source_cell[1]} "
-                    f"· {column['name']}"
-                ),
-                source_kind="citation" if citation_target else "cell",
-                locator=locator,
-                excerpt=hit.snippet or "",
-                metadata={
-                    "search": query,
-                    **({"fts_anchor": fts_anchor} if fts_anchor else {}),
-                },
+            citation = self._source_handle_in_transaction(
+                ProjectQACitationInput(
+                    label=(
+                        f"Search hit · {self._sheet_name(source_cell[0])} "
+                        f"· row {source_cell[1]} "
+                        f"· {column['name']}"
+                    ),
+                    source_kind="citation" if citation_target else "cell",
+                    locator=locator,
+                    excerpt=hit.snippet or "",
+                    metadata={
+                        "search": query,
+                        **({"fts_anchor": fts_anchor} if fts_anchor else {}),
+                    },
+                )
             )
-            db.commit()
-        except BaseException:
-            db.rollback()
-            raise
         self._citation_ids.add(citation["id"])
         return {
             "sheet_id": source_cell[0],
@@ -1006,6 +1004,30 @@ class ProjectQATools:
             raise ProjectQAScopeError("source kind cannot be opened")
         return citation
 
+    def _source_handle_key(self, citation: ProjectQACitationInput) -> str:
+        return canonical_json(
+            {
+                "kind": citation.source_kind,
+                "locator": dict(citation.locator),
+                "label": citation.label,
+                "excerpt": citation.excerpt,
+                "metadata": dict(citation.metadata or {}),
+            }
+        )
+
+    def _source_handle_in_transaction(
+        self, citation_input: ProjectQACitationInput
+    ) -> dict[str, Any]:
+        key = self._source_handle_key(citation_input)
+        citation = self._source_handles.get(key)
+        if citation is None:
+            citation = self.store.add_citation_in_transaction(
+                self.turn_id, citation_input
+            )
+            self._source_handles[key] = citation
+        self._citation_ids.add(citation["id"])
+        return citation
+
     def _source_handle(
         self,
         *,
@@ -1015,15 +1037,14 @@ class ProjectQATools:
         excerpt: str | None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        key = canonical_json(
-            {
-                "kind": source_kind,
-                "locator": locator,
-                "label": label,
-                "excerpt": excerpt,
-                "metadata": metadata or {},
-            }
+        citation_input = ProjectQACitationInput(
+            label=label,
+            source_kind=source_kind,
+            locator=locator,
+            excerpt=excerpt,
+            metadata=metadata or {},
         )
+        key = self._source_handle_key(citation_input)
         citation = self._source_handles.get(key)
         if citation is None:
             citation = self.store.add_citation(

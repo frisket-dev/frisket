@@ -1214,23 +1214,24 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         seeded["columns"]["transcript"],
         row_ids=[seeded["row_id"]],
     )
-    primary_link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[seeded["row_id"]],
-        spans=span_refs,
-        sheet_id=seeded["sheet_id"],
-        row_id=seeded["row_id"],
-        column_id=seeded["columns"]["transcript"],
-        run_id=seeded["transcript_run_id"],
-        op_id=seeded["transcript_op_id"],
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-        },
-    )
+    with write_transaction(project.db):
+        primary_link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[seeded["row_id"]],
+            spans=span_refs,
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_id"],
+            column_id=seeded["columns"]["transcript"],
+            run_id=seeded["transcript_run_id"],
+            op_id=seeded["transcript_op_id"],
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+            },
+        )
     alternate_column_id = project.add_column(
         seeded["sheet_id"],
         "alternate transcript",
@@ -1287,23 +1288,24 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         alternate_column_id,
         row_ids=[seeded["row_id"]],
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=alternate_refs[seeded["row_id"]],
-        spans=[{"span_id": alternate_span["id"], "rank": 0}],
-        sheet_id=seeded["sheet_id"],
-        row_id=seeded["row_id"],
-        column_id=alternate_column_id,
-        run_id=alternate_run_id,
-        op_id=alternate_op_id,
-        link_role="media_transcribe_temporal",
-        producer={"action_kind": "media.transcribe"},
-        metadata={
-            "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
-            "semantic_type": "timestamped_transcript",
-        },
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=alternate_refs[seeded["row_id"]],
+            spans=[{"span_id": alternate_span["id"], "rank": 0}],
+            sheet_id=seeded["sheet_id"],
+            row_id=seeded["row_id"],
+            column_id=alternate_column_id,
+            run_id=alternate_run_id,
+            op_id=alternate_op_id,
+            link_role="media_transcribe_temporal",
+            producer={"action_kind": "media.transcribe"},
+            metadata={
+                "schema_version": TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
+                "semantic_type": "timestamped_transcript",
+            },
+        )
     primary_transcript = resolve_timestamped_transcript(
         project,
         sheet_id=seeded["sheet_id"],

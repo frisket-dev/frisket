@@ -67,18 +67,19 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
             page_start=2,
             quote="$1,250,000",
         )
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=output_col,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-1",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_col,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-1",
+        )
 
     listed = list_cell_citations(
         project,
@@ -103,10 +104,17 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     assert viewer["artifacts"][0]["filename"] == "contract.pdf"
     assert viewer["artifacts"][0]["spans"][0]["quote"] == "$1,250,000"
 
-    stale = mark_citations_stale_for_cell_refs(
-        project,
-        [{"row_id": row_id, "column_id": output_col, "current_value_ref": current_ref}],
-    )
+    with write_transaction(project.db):
+        stale = mark_citations_stale_for_cell_refs(
+            project,
+            [
+                {
+                    "row_id": row_id,
+                    "column_id": output_col,
+                    "current_value_ref": current_ref,
+                }
+            ],
+        )
     assert stale == [link["stable_id"]]
     listed_stale = list_cell_citations(
         project,

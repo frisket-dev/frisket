@@ -346,7 +346,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
     import frisket.engine.executor.cluster_program as backend
 
     project, sheet, source, execute = cluster_project
-    original = host.terminalize_project_run
+    original = host.terminalize_project_run_in_transaction
     compute = backend.compute_reviewed_clusters
     calls = []
 
@@ -365,7 +365,7 @@ def test_cluster_publication_rolls_back_then_retries_without_recomputing(
             raise RuntimeError("terminal handoff failure")
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(host, "terminalize_project_run", broken)
+    monkeypatch.setattr(host, "terminalize_project_run_in_transaction", broken)
     with pytest.raises(RuntimeError, match="terminal handoff failure"):
         execute()
     assert [column["name"] for column in project.columns(sheet)] == ["name"]

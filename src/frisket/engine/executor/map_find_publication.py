@@ -465,7 +465,7 @@ def write_find_result(
             project.db.execute("UPDATE ops SET barrier=1 WHERE id=?", (write.op_id,))
         from frisket.engine.executor.project_run_terminalization import (
             UnclaimedRunTerminalAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
         from frisket.engine.runner.publication import PUBLISH_NULL, PUBLISH_VALUE
         from frisket.engine.runner.result_generations import _compatibility_key
@@ -709,7 +709,7 @@ def write_find_result(
             ],
             errors=list(scan.issues),
         )
-        terminalization = terminalize_project_run(
+        terminalization = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
@@ -718,7 +718,6 @@ def write_find_result(
             authority=UnclaimedRunTerminalAuthority(),
             terminal_receipt=receipt,
             receipt_source_statuses={"running"},
-            commit=False,
         )
         if (
             terminalization.disposition != "terminalized"

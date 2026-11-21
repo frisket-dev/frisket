@@ -42,17 +42,18 @@ def _attach_whole_cell_evidence(
             span_kind="whole",
             snippet="cell evidence",
         )
-    return record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=subject_ref,
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-    )
+    with write_transaction(project.db):
+        return record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=subject_ref,
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+        )
 
 
 def _operation_action(kind: str, *, key: str, expected_op_id: int) -> dict:
@@ -301,50 +302,52 @@ def test_investigative_evidence_substrate_contract(make_project) -> None:
             ),
         ]
 
-    link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id,
-        op_id=op_id,
-        receipt_id="receipt-map-extract",
-        link_role="primary_support",
-        confidence=0.91,
-        producer={
-            "action_kind": "map.extract",
-            "model": "provider/model",
-            "grounding_method": "model_bbox",
-        },
-        metadata={"warnings": ["cross_artifact_support"]},
-        spans=[
-            {
-                "span_id": span["id"],
-                "rank": index,
-                "span_role": "support",
-                "required": index == 1,
-            }
-            for index, span in enumerate(spans)
-        ],
-    )
-    unrelated_same_cell = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            **current_ref,
-            "run_id": run_id + 999,
-            "kind": "run_result",
-        },
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=column_id,
-        run_id=run_id + 999,
-        op_id=op_id,
-        link_role="support",
-        spans=[{"span_id": spans[0]["id"]}],
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id,
+            op_id=op_id,
+            receipt_id="receipt-map-extract",
+            link_role="primary_support",
+            confidence=0.91,
+            producer={
+                "action_kind": "map.extract",
+                "model": "provider/model",
+                "grounding_method": "model_bbox",
+            },
+            metadata={"warnings": ["cross_artifact_support"]},
+            spans=[
+                {
+                    "span_id": span["id"],
+                    "rank": index,
+                    "span_role": "support",
+                    "required": index == 1,
+                }
+                for index, span in enumerate(spans)
+            ],
+        )
+    with write_transaction(project.db):
+        unrelated_same_cell = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                **current_ref,
+                "run_id": run_id + 999,
+                "kind": "run_result",
+            },
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            run_id=run_id + 999,
+            op_id=op_id,
+            link_role="support",
+            spans=[{"span_id": spans[0]["id"]}],
+        )
 
     assert {
         "source_artifacts",

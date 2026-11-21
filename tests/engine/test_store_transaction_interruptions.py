@@ -151,7 +151,8 @@ def test_joined_transaction_rolls_back_interrupted_owned_row(
     db = _interrupt_project_db(project, monkeypatch, "INSERT INTO rows", error)
 
     with pytest.raises(failure) as caught:
-        project.add_row_with_undo(sheet_id, {"value": "new"}, {"value": column_id})
+        with write_transaction(project.db):
+            project.add_row_with_undo(sheet_id, {"value": "new"}, {"value": column_id})
 
     assert caught.value is error
     assert not db.in_transaction

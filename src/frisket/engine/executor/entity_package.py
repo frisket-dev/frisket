@@ -209,20 +209,21 @@ class FollowTheMoneyImportCapability:
                 diagnostics=tuple(plan["diagnostics"]),
             )
             invocation.context.check_cancelled()
-            observed = invocation.record(
-                inputs=inputs,
-                outputs=outputs,
-                op_ids=(applied.op_id,),
-                evidence=(
-                    ReceiptEvidence(
-                        ref={
-                            "kind": "entity_dataset_import",
-                            "dataset": result.model_dump(mode="json"),
-                        },
-                        retention="materialized",
+            observed = invocation.record_in_transaction(
+                invocation.RecordUpdate(
+                    inputs=tuple(inputs),
+                    outputs=tuple(outputs),
+                    action_ids=(applied.op_id,),
+                    citations=(
+                        ReceiptEvidence(
+                            ref={
+                                "kind": "entity_dataset_import",
+                                "dataset": result.model_dump(mode="json"),
+                            },
+                            retention="materialized",
+                        ),
                     ),
-                ),
-                commit=False,
+                )
             )
             project.db.commit()
         except BaseException as error:

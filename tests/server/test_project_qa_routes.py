@@ -170,15 +170,16 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(client):
                 span_kind="text",
                 quote="Ada signed the letter.",
             )
-        link = record_citation(
-            project,
-            subject_kind="cell_value",
-            subject_ref=refs[rows[0]],
-            spans=[{"span_id": span["id"]}],
-            sheet_id=sheet,
-            row_id=rows[0],
-            column_id=column,
-        )
+        with write_transaction(project.db):
+            link = record_citation(
+                project,
+                subject_kind="cell_value",
+                subject_ref=refs[rows[0]],
+                spans=[{"span_id": span["id"]}],
+                sheet_id=sheet,
+                row_id=rows[0],
+                column_id=column,
+            )
         scope = {
             "kind": "sources",
             "sources": [{"kind": "rows", "sheet_id": sheet, "row_ids": [rows[0]]}],

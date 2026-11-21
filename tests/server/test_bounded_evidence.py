@@ -85,16 +85,19 @@ def _native(client, *, megabytes=1):
             for left, right in ((start, start + 12), (start + 5, start + 24))
         ]
     _, refs = project.get_values_with_refs(sheet, entities, [row])
-    link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=entities,
-        layer_family="entities",
-        spans=[{"span_id": span["id"], "span_role": "annotation"} for span in spans],
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=entities,
+            layer_family="entities",
+            spans=[
+                {"span_id": span["id"], "span_role": "annotation"} for span in spans
+            ],
+        )
     return SimpleNamespace(
         client=client,
         pid=pid,
@@ -177,12 +180,13 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(client
             text_layer_hash=_hash(fx.text),
             text_surface_id=fx.surface["id"],
         )
-    link = record_citation(
-        fx.project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": entire["id"]}, {"span_id": fx.spans[0]["id"]}],
-    )
+    with write_transaction(fx.project.db):
+        link = record_citation(
+            fx.project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": entire["id"]}, {"span_id": fx.spans[0]["id"]}],
+        )
     endpoint = f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     response = fx.client.get(
         endpoint,
@@ -308,12 +312,13 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(client):
             text_layer_hash=_hash(text),
             text_surface_id=surface["id"],
         )
-    link = record_citation(
-        fx.project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]}],
-    )
+    with write_transaction(fx.project.db):
+        link = record_citation(
+            fx.project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]}],
+        )
     endpoint = f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     response = fx.client.get(
         endpoint,
@@ -391,12 +396,13 @@ def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_histo
             text_layer_hash=_hash(text),
             text_surface_id=surface["id"],
         )
-    link = record_citation(
-        fx.project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]}],
-    )
+    with write_transaction(fx.project.db):
+        link = record_citation(
+            fx.project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]}],
+        )
     response = fx.client.get(
         f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer",
         params={
@@ -464,12 +470,13 @@ def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(cli
             page_start=3,
             page_end=3,
         )
-    link = record_citation(
-        fx.project,
-        subject_kind="test",
-        subject_ref={"kind": "test"},
-        spans=[{"span_id": span["id"]}],
-    )
+    with write_transaction(fx.project.db):
+        link = record_citation(
+            fx.project,
+            subject_kind="test",
+            subject_ref={"kind": "test"},
+            spans=[{"span_id": span["id"]}],
+        )
     response = fx.client.get(
         f"/api/projects/{fx.pid}/citations/{link['stable_id']}/viewer"
     )

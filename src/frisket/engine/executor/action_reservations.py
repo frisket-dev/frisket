@@ -308,19 +308,18 @@ def _recover_stale_receipt_attempt_in_transaction(project, receipt, params_hash)
     ):
         from .project_run_terminalization import (
             AbandonedRunRecoveryAuthority,
-            terminalize_project_run,
+            terminalize_project_run_in_transaction,
         )
 
         # A stopped Change cannot resume. Its abandoned exact run may still
         # close the receipt and claims; returned facts remain intact. The
         # owner refuses live writers and ambiguous reserved effects itself.
-        outcome = terminalize_project_run(
+        outcome = terminalize_project_run_in_transaction(
             project,
             run_id=run_id,
             receipt_id=str(_row_value(receipt, "id")),
             status="cancelled",
             authority=AbandonedRunRecoveryAuthority(require_cancel_intent=True),
-            commit=False,
         )
         if outcome.disposition == "terminalized":
             terminalized_run_id = run_id

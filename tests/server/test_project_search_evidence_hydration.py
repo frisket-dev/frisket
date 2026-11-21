@@ -102,17 +102,21 @@ def _seed_ocr(project: Project) -> None:
     _values, refs = project.get_values_with_refs(
         sheet_id, text_column_id, row_ids=[row_id]
     )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": int(region["id"])}, {"span_id": int(trade_region["id"])}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=text_column_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row_id],
+            spans=[
+                {"span_id": int(region["id"])},
+                {"span_id": int(trade_region["id"])},
+            ],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=text_column_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr"},
+        )
 
 
 def _search(

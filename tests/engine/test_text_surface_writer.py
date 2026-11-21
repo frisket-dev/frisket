@@ -407,13 +407,13 @@ class TestSpanAndLinkThreading:
                 span_kind="text",
                 quote="hello",
             )
-        link = record_citation(
-            p,
-            subject_kind="cell",
-            subject_ref={"row_id": 2, "column_id": 9},
-            spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
-            layer_family="entities",
-        )
+            link = record_citation(
+                p,
+                subject_kind="cell",
+                subject_ref={"row_id": 2, "column_id": 9},
+                spans=[{"span_id": span["id"], "rank": 0, "span_role": "annotation"}],
+                layer_family="entities",
+            )
         row = p.db.execute(
             "SELECT layer_family FROM citations WHERE id=?", (link["id"],)
         ).fetchone()
@@ -438,13 +438,14 @@ class TestSpanAndLinkThreading:
                 quote="hello",
             )
         with pytest.raises(ValueError):
-            record_citation(
-                p,
-                subject_kind="cell",
-                subject_ref={},
-                spans=[{"span_id": span["id"], "rank": 0}],
-                layer_family=bad,
-            )
+            with write_transaction(p.db):
+                record_citation(
+                    p,
+                    subject_kind="cell",
+                    subject_ref={},
+                    spans=[{"span_id": span["id"], "rank": 0}],
+                    layer_family=bad,
+                )
 
     def test_link_without_family_stays_null(self, make_project):
         p = make_project("s")
@@ -456,12 +457,12 @@ class TestSpanAndLinkThreading:
                 span_kind="text",
                 quote="hello",
             )
-        link = record_citation(
-            p,
-            subject_kind="cell",
-            subject_ref={},
-            spans=[{"span_id": span["id"], "rank": 0}],
-        )
+            link = record_citation(
+                p,
+                subject_kind="cell",
+                subject_ref={},
+                spans=[{"span_id": span["id"], "rank": 0}],
+            )
         row = p.db.execute(
             "SELECT layer_family FROM citations WHERE id=?", (link["id"],)
         ).fetchone()

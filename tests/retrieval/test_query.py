@@ -653,18 +653,19 @@ def test_prepared_ocr_indexes_one_text_source_and_skips_positions_metadata(
             bbox=[{"x0": 0.1, "y0": 0.2, "x1": 0.9, "y1": 0.4}],
         )
     _values, refs = project.get_values_with_refs(sheet, ocr_text, row_ids=[row])
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[row],
-        spans=[{"span_id": int(region["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=ocr_text,
-        op_id=op_id,
-        link_role="media_ocr_grounding",
-        producer={"action_kind": "media.ocr", "engine": "fixture"},
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[row],
+            spans=[{"span_id": int(region["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=ocr_text,
+            op_id=op_id,
+            link_role="media_ocr_grounding",
+            producer={"action_kind": "media.ocr", "engine": "fixture"},
+        )
 
     drain_index(project)
     response = search(project, request)
@@ -1759,21 +1760,22 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
             page_end=1,
             preview={"blob_hash": page_hash, "mime": "image/png"},
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": page_image,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=page_image,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
     drain_index(project)
 
     response = search(
@@ -1793,21 +1795,22 @@ def test_coverage_counts_an_imported_pdf_page_instead_of_its_rendered_image(
     )
     assert (gap.eligible_count, gap.prepared_count) == (2, 0)
 
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": document,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=document,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": document,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=document,
+            link_role="primary_support",
+        )
     project.db.execute("BEGIN IMMEDIATE")
     op_id = project.append_change_in_transaction("import.pdf")
     prepared = PreparedContentStore(project).stage_reference(

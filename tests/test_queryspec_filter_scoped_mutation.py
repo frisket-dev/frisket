@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from helpers import make_client as _client
 from frisket.contracts.action import ActionResult, Receipt
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_project(
@@ -275,24 +276,26 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
         sheet_id, columns["status"], row_ids=[rows["a"]]
     )
     current_ref = refs[rows["a"]]
-    exact = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=current_ref,
-        spans=[],
-        sheet_id=sheet_id,
-        row_id=rows["a"],
-        column_id=columns["status"],
-    )
-    unrelated = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={**current_ref, "kind": "other_value"},
-        spans=[],
-        sheet_id=sheet_id,
-        row_id=rows["a"],
-        column_id=columns["status"],
-    )
+    with write_transaction(project.db):
+        exact = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=current_ref,
+            spans=[],
+            sheet_id=sheet_id,
+            row_id=rows["a"],
+            column_id=columns["status"],
+        )
+    with write_transaction(project.db):
+        unrelated = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={**current_ref, "kind": "other_value"},
+            spans=[],
+            sheet_id=sheet_id,
+            row_id=rows["a"],
+            column_id=columns["status"],
+        )
 
     response = client.post(
         f"/api/projects/{pid}/actions/v1/run",

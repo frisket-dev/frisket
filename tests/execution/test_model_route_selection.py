@@ -116,7 +116,7 @@ def test_cloud_model_estimate_and_run_price_the_same_uncapped_purchase(
         pricing_policy=policy,
         consent_coverage=coverage,
     )
-    assert estimate["cost_source"] == "cloud_route_quote"
+    assert estimate["cost_source"] == "cloud_route_estimate"
     assert estimate["billed_cost"] > 0
     assert estimate["rows"] == 2
 

@@ -168,53 +168,53 @@ def test_citations_upgrade_preserves_links_spans_and_ask_threads(make_project) -
             quote="Budget allocation confirmed.",
             snippet="Budget allocation confirmed.",
         )
-    active_link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=value_ref,
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=col_id,
-        link_role="primary_support",
-        status="active",
-        confidence=0.92,
-        producer={"action_kind": "map.extract", "model": "test/model"},
-        spans=[
-            {
-                "span_id": span_primary["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-                "note": "first",
-            },
-            {
-                "span_id": span_extra["id"],
-                "rank": 1,
-                "span_role": "support",
-                "required": False,
-                "note": "second",
-            },
-        ],
-    )
-    stale_link = record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref={"kind": "legacy"},
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=col_id,
-        link_role="primary_support",
-        status="stale",
-        stale_reason="manual_edit",
-        spans=[
-            {
-                "span_id": span_primary["id"],
-                "rank": 0,
-                "span_role": "support",
-                "required": True,
-            }
-        ],
-    )
+        active_link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=value_ref,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=col_id,
+            link_role="primary_support",
+            status="active",
+            confidence=0.92,
+            producer={"action_kind": "map.extract", "model": "test/model"},
+            spans=[
+                {
+                    "span_id": span_primary["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                    "note": "first",
+                },
+                {
+                    "span_id": span_extra["id"],
+                    "rank": 1,
+                    "span_role": "support",
+                    "required": False,
+                    "note": "second",
+                },
+            ],
+        )
+        stale_link = record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref={"kind": "legacy"},
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=col_id,
+            link_role="primary_support",
+            status="stale",
+            stale_reason="manual_edit",
+            spans=[
+                {
+                    "span_id": span_primary["id"],
+                    "rank": 0,
+                    "span_role": "support",
+                    "required": True,
+                }
+            ],
+        )
 
     qa_store = ProjectQAStore(project)
     thread = qa_store.create_thread(title="Bridge inquiry", scope={"kind": "project"})
