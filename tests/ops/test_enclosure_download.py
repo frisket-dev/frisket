@@ -7,6 +7,7 @@ from helpers import make_client as _client
 from http_test_helpers import drain_queue
 from frisket.engine.jobs import Worker
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _project(client: TestClient):
@@ -436,12 +437,13 @@ def test_feed_config_queued_downloads_new_enclosures(tmp_path, monkeypatch):
     monkeypatch.setattr(enclosures, "download_url", _fake_download())
     client = _client(tmp_path)
     pid, project = _project(client)
-    source_id = FeedStore(project).add_feed(
-        name="Podcast",
-        kind="rss",
-        url="https://feed.example/rss.xml",
-        config={"download_enclosures": "queued"},
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            name="Podcast",
+            kind="rss",
+            url="https://feed.example/rss.xml",
+            config={"download_enclosures": "queued"},
+        )
     feed = (
         "<?xml version='1.0'?><rss version='2.0'><channel><title>Podcast</title>"
         "<item><guid>ep1</guid><title>Episode</title>"

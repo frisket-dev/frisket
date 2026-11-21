@@ -26,6 +26,7 @@ from frisket.engine.store.effect_checkpoints import (
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.attempt import StaleAttemptWriter
+from frisket.engine.store.transactions import write_transaction
 
 UNIT = {
     "family": "test_family",
@@ -550,18 +551,20 @@ def test_account_returned_is_idempotent(store) -> None:
         calls.append(checkpoint)
         return 0.5
 
-    first = store.account_returned(
-        checkpoint_id,
-        **unit,
-        payload={"cost": 0.0, "quote": "replay \ud800"},
-        accrue=accrue,
-    )
-    second = store.account_returned(
-        checkpoint_id,
-        **unit,
-        payload={"cost": 0.0, "quote": "replay \ud800"},
-        accrue=accrue,
-    )
+    with write_transaction(store.db):
+        first = store.account_returned(
+            checkpoint_id,
+            **unit,
+            payload={"cost": 0.0, "quote": "replay \ud800"},
+            accrue=accrue,
+        )
+    with write_transaction(store.db):
+        second = store.account_returned(
+            checkpoint_id,
+            **unit,
+            payload={"cost": 0.0, "quote": "replay \ud800"},
+            accrue=accrue,
+        )
     assert first == pytest.approx(0.5)
     assert second == 0.0
     assert len(calls) == 1

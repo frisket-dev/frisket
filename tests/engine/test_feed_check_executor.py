@@ -16,6 +16,7 @@ from frisket.actions.types import (
     SourceChecker,
 )
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 
 class ReportParams(ActionParams):
@@ -55,8 +56,9 @@ def test_custom_source_check_records_actual_capability_arguments(
     )
     project = make_project("custom")
     store = FeedStore(project)
-    source_id = store.add_feed(name="API", kind="api")
-    store.record_feed_check(source_id, cursor="existing")
+    with write_transaction(project.db):
+        source_id = store.add_feed(name="API", kind="api")
+        store.record_feed_check(source_id, cursor="existing")
     bound = BoundTypedActionRequest.bind(
         registered,
         ActionRequest(
@@ -92,7 +94,8 @@ def test_custom_source_check_records_actual_capability_arguments(
     )
 
     # Receipt replay must not need the handler's target to still exist.
-    store.delete_feed(source_id)
+    with write_transaction(project.db):
+        store.delete_feed(source_id)
     replay = run_typed_feed_action(project, "custom-project", bound)
     assert replay.status == "completed", replay.errors
     assert replay.receipt_id == result.receipt_id
@@ -129,17 +132,18 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
 
     del tmp_path
     store = FeedStore(project)
-    return {
-        "url_source_id": store.add_feed(
-            name="Search feed",
-            kind="courtlistener.custom",
-            url="https://example.test/search",
-            config={"query": {"court": "ca9", "precedential": True}},
-        ),
-        "rss_source_id": store.add_feed(
-            name="RSS feed", kind="rss", url="https://example.test/feed.xml"
-        ),
-    }
+    with write_transaction(project.db):
+        return {
+            "url_source_id": store.add_feed(
+                name="Search feed",
+                kind="courtlistener.custom",
+                url="https://example.test/search",
+                config={"query": {"court": "ca9", "precedential": True}},
+            ),
+            "rss_source_id": store.add_feed(
+                name="RSS feed", kind="rss", url="https://example.test/feed.xml"
+            ),
+        }
 
 
 def _make_action(seeded: dict[str, Any]) -> dict[str, Any]:
@@ -288,7 +292,8 @@ def test_source_check_replay_normalizes_omitted_and_explicit_defaults(
     from frisket.engine.store.feeds import FeedStore
 
     project = make_project("defaults")
-    source_id = FeedStore(project).add_feed(name="API", kind="api")
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(name="API", kind="api")
     base = {
         "action_id": "source.check",
         "scope": {"kind": "project"},
@@ -341,7 +346,8 @@ def test_source_check_replays_after_feed_is_deleted(
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         first = env.run_primary()
         assert first.status == "completed", first.errors
-        FeedStore(env.project).delete_feed(env.seeded["url_source_id"])
+        with write_transaction(env.project.db):
+            FeedStore(env.project).delete_feed(env.seeded["url_source_id"])
 
         replay = env.run_primary()
 
@@ -439,7 +445,8 @@ def test_source_check_null_cursor_preserves_cursor_and_records_error(
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         store = FeedStore(env.project)
         source_id = env.seeded["url_source_id"]
-        store.record_feed_check(source_id, cursor="existing-cursor")
+        with write_transaction(env.project.db):
+            store.record_feed_check(source_id, cursor="existing-cursor")
         result = env.run(
             _source_check_action(
                 source_id,

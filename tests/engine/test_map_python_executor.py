@@ -26,6 +26,7 @@ from frisket.execution.attempt import (
     StaleAttemptWriter,
     abandon_stale_dispatching_attempts,
 )
+from frisket.engine.store.transactions import write_transaction
 
 _GENERATED_COLUMNS = ("__result_entities", "python_result", "word_count")
 
@@ -499,13 +500,14 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             (writer_attempt_id,),
         )
         store.db.commit()
-        sweep_results.append(
-            abandon_stale_dispatching_attempts(
-                store.project,
-                run_id,
-                max_age=timedelta(hours=6),
+        with write_transaction(store.project.db):
+            sweep_results.append(
+                abandon_stale_dispatching_attempts(
+                    store.project,
+                    run_id,
+                    max_age=timedelta(hours=6),
+                )
             )
-        )
 
     monkeypatch.setattr(RunResultStore, "publish_result_batch", write_then_sweep)
     with case_env(CASES[0], tmp_path, monkeypatch) as env:

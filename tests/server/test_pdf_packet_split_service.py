@@ -1351,7 +1351,7 @@ def test_apply_rechecks_document_text_without_blocking_unrelated_edits(
     )[0]
     with project.transaction_scope():
         ensure_document_text_role(
-            project, source_column_id=file_col, text_column_id=text_col, commit=False
+            project, source_column_id=file_col, text_column_id=text_col
         )
     scope = PdfPacketScopeService(workspace)
     registry = ActionPreviewJobRegistry()

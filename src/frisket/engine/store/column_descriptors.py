@@ -153,7 +153,7 @@ def set_descriptor(
             field = DESCRIPTOR_FIELDS[property_name]
             info.setdefault(field, {}).setdefault(str(column_id), column[0])
             info.setdefault(f"{field}_after", {})[str(column_id)] = value
-            set_undo_info(project, op_id, info, commit=False)
+            set_undo_info(project, op_id, info)
             project_column_descriptors(db, [column_id])
         from .current_cells import refresh_current_cells
 

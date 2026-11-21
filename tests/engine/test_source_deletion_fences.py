@@ -352,15 +352,16 @@ def test_direct_map_runner_stops_on_persisted_cancel_without_server_callback(
     from frisket.engine.store.output_claims import OutputColumnClaimStore
 
     claims = OutputColumnClaimStore(project)
-    _, conflict = claims.acquire(
-        sheet_id=sheet,
-        output_names=["answer"],
-        action_kind=request.action_id,
-        run_id=prepared.run_id,
-        op_id=prepared.op_id,
-        claim_token="direct-claim",
-        details={"output_fields": list(plan.output_fields)},
-    )
+    with write_transaction(claims.db):
+        _, conflict = claims.acquire(
+            sheet_id=sheet,
+            output_names=["answer"],
+            action_kind=request.action_id,
+            run_id=prepared.run_id,
+            op_id=prepared.op_id,
+            claim_token="direct-claim",
+            details={"output_fields": list(plan.output_fields)},
+        )
     assert conflict is None
     with write_transaction(claims.db):
         claims.bind_to_run(

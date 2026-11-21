@@ -27,6 +27,7 @@ from frisket.engine.jobs import (
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
 from frisket.search_index import drain_index
+from frisket.engine.store.transactions import write_transaction
 
 
 def _feed(items: list[dict], feed_title: str = "Queued Feed") -> str:
@@ -70,12 +71,13 @@ def _register(workspace, fetch, queue=None):
 def test_source_poll_worker_ingests_enabled_rss(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="News",
-        kind="rss",
-        url="https://example.com/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="News",
+            kind="rss",
+            url="https://example.com/feed.xml",
+            schedule="@hourly",
+        )
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
@@ -110,12 +112,13 @@ def test_source_poll_alert_notification_enqueues_external_delivery_only_for_even
 ):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="News",
-        kind="rss",
-        url="https://example.com/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="News",
+            kind="rss",
+            url="https://example.com/feed.xml",
+            schedule="@hourly",
+        )
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     feeds = [
@@ -231,13 +234,14 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
 ):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="Podcast",
-        kind="rss",
-        url="https://example.com/podcast.xml",
-        schedule="@hourly",
-        config={"download_enclosures": "queued"},
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="Podcast",
+            kind="rss",
+            url="https://example.com/podcast.xml",
+            schedule="@hourly",
+            config={"download_enclosures": "queued"},
+        )
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
@@ -327,13 +331,14 @@ def test_source_poll_worker_uses_v1_source_poll_receipt_and_enqueues_enclosures(
 def test_source_poll_worker_skips_disabled_feed(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="Paused",
-        kind="rss",
-        url="https://example.com/feed.xml",
-        schedule="@hourly",
-        enabled=False,
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="Paused",
+            kind="rss",
+            url="https://example.com/feed.xml",
+            schedule="@hourly",
+            enabled=False,
+        )
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
@@ -395,12 +400,13 @@ def test_source_poll_worker_skips_missing_feed(tmp_path):
 def test_source_poll_worker_skips_non_rss_feed(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="API",
-        kind="api",
-        url="https://example.com/api",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="API",
+            kind="api",
+            url="https://example.com/api",
+            schedule="@hourly",
+        )
     p.close()
     q = SqliteJobQueue(workspace / ".queue.db")
     jid = q.enqueue(
@@ -435,12 +441,13 @@ def test_source_poll_failure_retry_replays_same_logical_poll(tmp_path):
 
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="Flaky",
-        kind="rss",
-        url="https://example.com/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="Flaky",
+            kind="rss",
+            url="https://example.com/feed.xml",
+            schedule="@hourly",
+        )
     p.close()
     with controlled_time() as t:
         q = t.queue(workspace / ".queue.db")
@@ -514,13 +521,14 @@ def test_unavailable_destination_check_preserves_scheduled_interval(tmp_path):
     workspace = tmp_path / "ws"
     with closing(_project(workspace)) as project:
         sheet = project.add_sheet("Feed")
-        source_id = FeedStore(project).add_feed(
-            "Feed",
-            kind="rss",
-            url="https://example.test/feed",
-            sheet_id=sheet,
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            source_id = FeedStore(project).add_feed(
+                "Feed",
+                kind="rss",
+                url="https://example.test/feed",
+                sheet_id=sheet,
+                schedule="@hourly",
+            )
         project.delete_sheet(sheet)
     with closing(SqliteJobQueue(workspace / ".queue.db")) as queue:
         [scheduled] = enqueue_due_feed_polls(
@@ -571,37 +579,38 @@ def test_unavailable_destination_check_preserves_scheduled_interval(tmp_path):
 def test_scheduler_enqueues_due_enabled_sources_once(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    due = FeedStore(p).add_feed(
-        name="Due",
-        kind="rss",
-        url="https://example.com/due.xml",
-        schedule="@hourly",
-    )
-    FeedStore(p).add_feed(
-        name="Disabled",
-        kind="rss",
-        url="https://example.com/disabled.xml",
-        schedule="@hourly",
-        enabled=False,
-    )
-    FeedStore(p).add_feed(
-        name="Manual",
-        kind="rss",
-        url="https://example.com/manual.xml",
-        schedule=None,
-    )
-    FeedStore(p).add_feed(
-        name="Unsupported",
-        kind="api",
-        url="https://example.com/api",
-        schedule="@hourly",
-    )
-    fresh = FeedStore(p).add_feed(
-        name="Fresh",
-        kind="rss",
-        url="https://example.com/fresh.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        due = FeedStore(p).add_feed(
+            name="Due",
+            kind="rss",
+            url="https://example.com/due.xml",
+            schedule="@hourly",
+        )
+        FeedStore(p).add_feed(
+            name="Disabled",
+            kind="rss",
+            url="https://example.com/disabled.xml",
+            schedule="@hourly",
+            enabled=False,
+        )
+        FeedStore(p).add_feed(
+            name="Manual",
+            kind="rss",
+            url="https://example.com/manual.xml",
+            schedule=None,
+        )
+        FeedStore(p).add_feed(
+            name="Unsupported",
+            kind="api",
+            url="https://example.com/api",
+            schedule="@hourly",
+        )
+        fresh = FeedStore(p).add_feed(
+            name="Fresh",
+            kind="rss",
+            url="https://example.com/fresh.xml",
+            schedule="@hourly",
+        )
     p.db.execute(
         "UPDATE sources SET last_checked_at=? WHERE id=?",
         ("2026-06-13 11:30:00", fresh),
@@ -642,12 +651,13 @@ def test_scheduler_enqueues_due_enabled_sources_once(tmp_path):
 def test_source_poll_success_after_error_emits_recovery_notification(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    sid = FeedStore(p).add_feed(
-        name="Recovering",
-        kind="rss",
-        url="https://example.com/recovering.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="Recovering",
+            kind="rss",
+            url="https://example.com/recovering.xml",
+            schedule="@hourly",
+        )
     p.db.execute("UPDATE sources SET last_status='error' WHERE id=?", (sid,))
     p.db.commit()
     p.close()
@@ -682,12 +692,13 @@ def test_source_poll_success_after_error_emits_recovery_notification(tmp_path):
 def test_scheduler_enqueues_stale_checked_source(tmp_path):
     workspace = tmp_path / "ws"
     p = _project(workspace)
-    stale = FeedStore(p).add_feed(
-        name="Stale",
-        kind="rss",
-        url="https://example.com/stale.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p.db):
+        stale = FeedStore(p).add_feed(
+            name="Stale",
+            kind="rss",
+            url="https://example.com/stale.xml",
+            schedule="@hourly",
+        )
     p.db.execute(
         "UPDATE sources SET last_checked_at=? WHERE id=?",
         ("2026-06-13 10:00:00", stale),
@@ -735,13 +746,14 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
     projects_root = tmp_path / "projects"
     workspace = projects_root / "23"
     p = _project(workspace, "news")
-    sid = FeedStore(p).add_feed(
-        name="Podcast",
-        kind="rss",
-        url="https://example.com/podcast.xml",
-        schedule="@hourly",
-        config={"download_enclosures": "queued"},
-    )
+    with write_transaction(p.db):
+        sid = FeedStore(p).add_feed(
+            name="Podcast",
+            kind="rss",
+            url="https://example.com/podcast.xml",
+            schedule="@hourly",
+            config={"download_enclosures": "queued"},
+        )
     p.close()
 
     q = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
@@ -812,20 +824,22 @@ def test_scheduler_keeps_workspace_roots_distinct_for_hosted_slugs(tmp_path):
     root1.mkdir(parents=True)
     root2.mkdir(parents=True)
     p1 = Project.create(root1 / "news.frisket", name="news")
-    sid1 = FeedStore(p1).add_feed(
-        name="Org 1",
-        kind="rss",
-        url="https://example.com/1.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p1.db):
+        sid1 = FeedStore(p1).add_feed(
+            name="Org 1",
+            kind="rss",
+            url="https://example.com/1.xml",
+            schedule="@hourly",
+        )
     p1.close()
     p2 = Project.create(root2 / "news.frisket", name="news")
-    sid2 = FeedStore(p2).add_feed(
-        name="Org 2",
-        kind="rss",
-        url="https://example.com/2.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(p2.db):
+        sid2 = FeedStore(p2).add_feed(
+            name="Org 2",
+            kind="rss",
+            url="https://example.com/2.xml",
+            schedule="@hourly",
+        )
     p2.close()
     q = SqliteJobQueue(data / "queue" / ".queue.db")
 

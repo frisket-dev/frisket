@@ -99,10 +99,15 @@ def test_materialized_child_does_not_own_ancestry_but_keeps_source_identity(proj
         project.add_blob(value.encode())
         for value in ("source", "middle", "leaf", "dead-source", "dead-leaf")
     ]
-    for child, parent in ((middle, source), (leaf, middle), (dead_leaf, dead_source)):
-        project.record_blob_derivation(
-            derived_hash=child, source_hash=parent, op="test"
-        )
+    with write_transaction(project.db):
+        for child, parent in (
+            (middle, source),
+            (leaf, middle),
+            (dead_leaf, dead_source),
+        ):
+            project.record_blob_derivation(
+                derived_hash=child, source_hash=parent, op="test"
+            )
     root_cell(project, {"blob": leaf})
     assert project._referenced_blob_hashes() == {leaf}
     assert set(project.gc_blobs()["hashes"]) == {source, middle, dead_source, dead_leaf}
@@ -375,9 +380,20 @@ def test_gc_preserves_outer_transaction(project):
     assert project.db.execute("SELECT hash FROM blobs").fetchone()[0] == orphan
 
 
-def test_returned_orphan_hashes_are_complete_not_a_truncated_page(project):
+def _add_many_blobs(project, count: int) -> list[str]:
+    prepared = []
+    for i in range(count):
+        data = str(i).encode()
+        digest = project.blob_store.put(data)
+        prepared.append((digest, len(data)))
     with write_transaction(project.db):
-        hashes = {project.add_blob(str(i).encode(), commit=False) for i in range(1100)}
+        for digest, size in prepared:
+            project_blobs.publish_prepared_blob(project, digest=digest, size=size)
+    return [digest for digest, _ in prepared]
+
+
+def test_returned_orphan_hashes_are_complete_not_a_truncated_page(project):
+    hashes = set(_add_many_blobs(project, 1100))
     result = project.gc_blobs()
     assert result["blobs_removed"] == 1100
     assert set(result["hashes"]) == hashes
@@ -395,8 +411,7 @@ def test_no_blobs_does_not_scan_root_text(project, monkeypatch):
 
 def test_delete_sheet_streams_surviving_roots_in_bounded_batches(project, monkeypatch):
     count = 3000
-    with write_transaction(project.db):
-        hashes = [project.add_blob(str(i).encode(), commit=False) for i in range(count)]
+    hashes = _add_many_blobs(project, count)
     sheet = project.add_sheet("survivors")
     column = project.add_column(sheet, "value", type="json")
     project.add_rows(

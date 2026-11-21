@@ -14,13 +14,14 @@ def test_feed_store_preserves_feed_check_lifecycle(
     project = make_project("Sources")
     store = FeedStore(project)
 
-    source_id = store.add_feed(
-        "Feed",
-        kind="rss",
-        url="https://example.test/feed.xml",
-        config={"title_field": "title"},
-        schedule="hourly",
-    )
+    with write_transaction(project.db):
+        source_id = store.add_feed(
+            "Feed",
+            kind="rss",
+            url="https://example.test/feed.xml",
+            config={"title_field": "title"},
+            schedule="hourly",
+        )
     source = store.get_feed(source_id)
     assert source is not None
     assert source["last_status"] == "never"

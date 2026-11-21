@@ -457,7 +457,6 @@ def publish_import_blobs(
                     source_hash=records[packet.source_id].digest,
                     op="pdf_packet_split",
                     params={"page_start": page_start, "page_end": page_end},
-                    commit=False,
                 )
             span = record_source_span(
                 project,

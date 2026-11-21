@@ -62,12 +62,14 @@ def write_transaction(
         require_transaction(db, what)
         yield
         return
-    db.execute("BEGIN IMMEDIATE")
+    was_open = db.in_transaction
     try:
+        db.execute("BEGIN IMMEDIATE")
         yield
         db.commit()
     except BaseException:
-        db.rollback()
+        if not was_open and db.in_transaction:
+            db.rollback()
         raise
 
 

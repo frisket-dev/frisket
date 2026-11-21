@@ -12,6 +12,7 @@ from frisket.engine.jobs import search_index as search_index_job
 from frisket.engine.pdf_render import PdfRenderError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.evidence import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
@@ -1359,12 +1360,12 @@ def test_source_file_edit_retires_pending_text(
         [{"File": {"blob": digest}, "Text": "authority original text"}],
         {"File": file_column, "Text": text_column},
     )[0]
-    ensure_document_text_role(
-        project,
-        source_column_id=file_column,
-        text_column_id=text_column,
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=file_column,
+            text_column_id=text_column,
+        )
     project.db.execute("BEGIN IMMEDIATE")
     op_id = project.append_change("prepare.test", commit=False)
     artifact = record_source_artifact(

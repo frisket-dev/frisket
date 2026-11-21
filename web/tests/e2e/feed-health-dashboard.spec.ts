@@ -31,52 +31,53 @@ workspace, pid = sys.argv[1:3]
 project = Project(Path(workspace) / f"{pid}.frisket")
 try:
     feed_store = FeedStore(project)
-    failing = feed_store.add_feed(
-        "Failing API source",
-        kind="api_list_dicts",
-        url="https://example.gov/api/items",
-        config={
-            "schema_version": "frisket.source.api_list_dicts.v1",
-            "method": "GET",
-            "url": "https://example.gov/api/items",
-            "list_path": "/results",
-            "item_id_path": "/id",
-            "schema_policy": "additive",
-        },
-        schedule="@hourly",
-        enabled=True,
-    )
-    disabled = feed_store.add_feed(
-        "Disabled Court source",
-        kind="courtlistener_docket",
-        url="https://www.courtlistener.com/docket/123456/example/",
-        config={
-            "schema_version": "frisket.source.courtlistener_docket.v1",
-            "docket_url": "https://www.courtlistener.com/docket/123456/example/",
-            "keywords": ["injunction"],
-            "include_parties": True,
-            "include_documents": True,
-            "recap_pdf_policy": "link_only",
-        },
-        schedule="@daily",
-        enabled=False,
-    )
-    never = feed_store.add_feed(
-        "Never-run YouTube source",
-        kind="youtube_channel",
-        url="https://www.youtube.com/@fixturechannel",
-        config={
-            "schema_version": "frisket.source.youtube.v1",
-            "channel_url": "https://www.youtube.com/@fixturechannel",
-            "max_pages_per_poll": 5,
-        },
-        schedule=None,
-        enabled=True,
-    )
+    with write_transaction(project.db):
+        failing = feed_store.add_feed(
+            "Failing API source",
+            kind="api_list_dicts",
+            url="https://example.gov/api/items",
+            config={
+                "schema_version": "frisket.source.api_list_dicts.v1",
+                "method": "GET",
+                "url": "https://example.gov/api/items",
+                "list_path": "/results",
+                "item_id_path": "/id",
+                "schema_policy": "additive",
+            },
+            schedule="@hourly",
+            enabled=True,
+        )
+        disabled = feed_store.add_feed(
+            "Disabled Court source",
+            kind="courtlistener_docket",
+            url="https://www.courtlistener.com/docket/123456/example/",
+            config={
+                "schema_version": "frisket.source.courtlistener_docket.v1",
+                "docket_url": "https://www.courtlistener.com/docket/123456/example/",
+                "keywords": ["injunction"],
+                "include_parties": True,
+                "include_documents": True,
+                "recap_pdf_policy": "link_only",
+            },
+            schedule="@daily",
+            enabled=False,
+        )
+        never = feed_store.add_feed(
+            "Never-run YouTube source",
+            kind="youtube_channel",
+            url="https://www.youtube.com/@fixturechannel",
+            config={
+                "schema_version": "frisket.source.youtube.v1",
+                "channel_url": "https://www.youtube.com/@fixturechannel",
+                "max_pages_per_poll": 5,
+            },
+            schedule=None,
+            enabled=True,
+        )
 
-    # Sparse legacy run, then a success, then two failures so health can show
-    # both missing-metadata warnings and consecutive failure state.
-    feed_store.record_feed_check(failing, status="ok", new_rows=1)
+        # Sparse legacy run, then a success, then two failures so health can show
+        # both missing-metadata warnings and consecutive failure state.
+        feed_store.record_feed_check(failing, status="ok", new_rows=1)
     with write_transaction(project.db):
         success = feed_store.start_feed_check(failing)
         feed_store.finish_feed_check(

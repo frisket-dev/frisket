@@ -18,6 +18,7 @@ from test_result_generation_store import (
     _start_claimed_run,
     _write,
 )
+from frisket.engine.store.transactions import write_transaction
 
 
 def _publish_replacement(tmp_path: Path):
@@ -273,26 +274,30 @@ def test_direct_edit_undo_and_redo_preserve_values_with_claimed_column(
                 }
             ]
         )
-        created, conflict = claims.acquire(
-            sheet_id=sheet_id,
-            output_names=["generated"],
-            action_kind="map.regex_extract",
-            claim_token="claim:edit-transition",
-        )
+        with write_transaction(claims.db):
+            created, conflict = claims.acquire(
+                sheet_id=sheet_id,
+                output_names=["generated"],
+                action_kind="map.regex_extract",
+                claim_token="claim:edit-transition",
+            )
         assert len(created) == 1 and conflict is None
         assert project.undo() == edit_op_id
         assert project.get_values(sheet_id, column_id)[row_ids[0]] == "first:0"
-        claims.release(claim_token="claim:edit-transition")
-        created, conflict = claims.acquire(
-            sheet_id=sheet_id,
-            output_names=["generated"],
-            action_kind="map.regex_extract",
-            claim_token="claim:edit-redo",
-        )
+        with write_transaction(claims.db):
+            claims.release(claim_token="claim:edit-transition")
+        with write_transaction(claims.db):
+            created, conflict = claims.acquire(
+                sheet_id=sheet_id,
+                output_names=["generated"],
+                action_kind="map.regex_extract",
+                claim_token="claim:edit-redo",
+            )
         assert len(created) == 1 and conflict is None
         assert project.redo() == edit_op_id
         assert project.get_values(sheet_id, column_id)[row_ids[0]] == "manual"
-        claims.release(claim_token="claim:edit-redo")
+        with write_transaction(claims.db):
+            claims.release(claim_token="claim:edit-redo")
     finally:
         project.close()
 

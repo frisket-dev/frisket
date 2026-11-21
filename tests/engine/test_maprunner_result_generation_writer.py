@@ -221,13 +221,14 @@ def test_managed_recovery_refuses_claim_without_frozen_descriptors(
         "map.regex_extract",
     )
     claims = OutputColumnClaimStore(project)
-    created, conflict = claims.acquire(
-        sheet_id=sheet_id,
-        output_names=["cleaned"],
-        action_kind="map.regex_extract",
-        claim_token="old-claim-without-output-fields",
-        details={},
-    )
+    with write_transaction(claims.db):
+        created, conflict = claims.acquire(
+            sheet_id=sheet_id,
+            output_names=["cleaned"],
+            action_kind="map.regex_extract",
+            claim_token="old-claim-without-output-fields",
+            details={},
+        )
     assert len(created) == 1 and conflict is None
     with write_transaction(claims.db):
         assert (

@@ -51,15 +51,16 @@ def _seed_precomputed_run(
         )
     )
     claim_token = f"output-claim:{receipt_id}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["Match"],
-        action_kind="map.find",
-        receipt_id=receipt_id,
-        run_id=run_id,
-        op_id=op_id,
-        claim_token=claim_token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["Match"],
+            action_kind="map.find",
+            receipt_id=receipt_id,
+            run_id=run_id,
+            op_id=op_id,
+            claim_token=claim_token,
+        )
     assert conflict is None
     assert len(claims) == 1
     ResultGenerationStore(project).declare(

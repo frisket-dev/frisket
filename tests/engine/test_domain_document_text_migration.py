@@ -2,6 +2,7 @@ from contextlib import closing
 
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import ensure_document_text_role
+from frisket.engine.store.transactions import write_transaction
 from frisket.upgrades.project.domain_document_text_migration import (
     adopt_legacy_document_text,
 )
@@ -76,7 +77,8 @@ def _publish(project, sheet, source, column, row, blob, text):
         run, [column], claim_token=auth.claim_token, terminal_disposition="completed"
     )
     runs.point_column_at_run(op, column, run)
-    OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
     return ref.ref_id
 
 
@@ -175,9 +177,10 @@ def test_explicit_role_is_never_replaced_by_newer_alternative(tmp_path):
     with closing(project):
         _publish(project, sheet, source, left, rows[0], blob, "chosen")
         _publish(project, sheet, source, right, rows[0], blob, "newest")
-        ensure_document_text_role(
-            project, source_column_id=source, text_column_id=left, commit=True
-        )
+        with write_transaction(project.db):
+            ensure_document_text_role(
+                project, source_column_id=source, text_column_id=left
+            )
         assert _adopt(project) == {}
         assert (
             project.db.execute(
@@ -270,7 +273,8 @@ def test_failed_result_facts_survive_adoption(tmp_path):
         generations.seal(
             run, [right], claim_token=auth.claim_token, terminal_disposition="failed"
         )
-        OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
+        with write_transaction(project.db):
+            OutputColumnClaimStore(project).release(claim_token=auth.claim_token)
         before = [
             tuple(row)
             for row in project.db.execute(

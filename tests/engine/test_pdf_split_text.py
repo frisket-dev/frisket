@@ -73,12 +73,12 @@ def _child(tmp_path, monkeypatch, *, child_count=1):
             source_row_id=rows[0],
             source_column_id=columns["media"],
         )
-    ensure_document_text_role(
-        project,
-        source_column_id=columns["media"],
-        text_column_id=columns["text"],
-        commit=True,
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project,
+            source_column_id=columns["media"],
+            text_column_id=columns["text"],
+        )
     source_identity, text_identity = capture_pdf_split_text_identities(
         project,
         row_id=rows[0],

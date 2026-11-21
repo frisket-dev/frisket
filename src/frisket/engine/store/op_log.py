@@ -22,7 +22,11 @@ from frisket.engine.store.current_cells import (
     refresh_current_cells,
 )
 from frisket.engine.store.result_generations import ResultGenerationStore
-from frisket.engine.store.transactions import inserted_rowid, write_transaction
+from frisket.engine.store.transactions import (
+    inserted_rowid,
+    require_transaction,
+    write_transaction,
+)
 
 
 def _valid_review_metadata(value: Any) -> bool:
@@ -79,15 +83,13 @@ def _record_undo_records(
     record_structural_changes(db, change_id, undo_info)
 
 
-def set_undo_info(
-    project: Any, change_id: int, undo_info: dict[str, Any], *, commit: bool = True
-) -> None:
-    """Replace an operation's undo info and the undo records derived from it."""
-    with write_transaction(project.db, commit=commit, what="change undo info"):
-        project.db.execute(
-            "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), change_id)
-        )
-        _record_undo_records(project.db, change_id, undo_info)
+def set_undo_info(project: Any, change_id: int, undo_info: dict[str, Any]) -> None:
+    """Replace an operation's undo info and derived undo records in the caller's transaction."""
+    require_transaction(project.db, "change undo info")
+    project.db.execute(
+        "UPDATE ops SET undo_info=? WHERE id=?", (json.dumps(undo_info), change_id)
+    )
+    _record_undo_records(project.db, change_id, undo_info)
 
 
 HISTORY_ORDER = "COALESCE(change_order,0),id"
@@ -398,7 +400,7 @@ def step_operation(
                 for column_id in undo_info["created_columns"]
                 if (row := project.get_column(column_id)) is not None
             }
-            set_undo_info(project, target_change_id, undo_info, commit=False)
+            set_undo_info(project, target_change_id, undo_info)
         from .changes import ChangeStore
 
         ChangeStore(project).revert(target_change_id)

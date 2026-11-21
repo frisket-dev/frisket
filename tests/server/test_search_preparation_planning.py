@@ -697,9 +697,10 @@ def test_sparse_prepared_text_keeps_search_gap_and_cached_blank_page(
     if selected_page:
         value["page"] = selected_page
     row = project.add_rows(sheet, [{"document": value}], {"document": document})[0]
-    ensure_document_text_role(
-        project, source_column_id=document, text_column_id=output, commit=True
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=output
+        )
     project.db.execute("BEGIN IMMEDIATE")
     op = project.append_change("media.read_pdf_text", commit=False)
     artifact = record_source_artifact(
@@ -875,9 +876,10 @@ def test_legacy_ready_text_not_shadowed_by_newer_unready_result(
         "prepared",
     )
 
-    ensure_document_text_role(
-        project, source_column_id=document, text_column_id=newer_column, commit=True
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=newer_column
+        )
     assert planning._has_current_result(project, source, "native_pdf") is (
         len(newer_pages) == 2
     )
@@ -901,9 +903,10 @@ def test_empty_native_text_allows_one_ocr_preparation_pass(
     )
     assert result.status == "completed", result.errors
     text_column = result.outputs[0].column_id
-    ensure_document_text_role(
-        project, source_column_id=document, text_column_id=text_column, commit=True
-    )
+    with write_transaction(project.db):
+        ensure_document_text_role(
+            project, source_column_id=document, text_column_id=text_column
+        )
     source = resolve_cell_blob_source(
         project, sheet_id=sheet, row_id=row, column_id=document
     )

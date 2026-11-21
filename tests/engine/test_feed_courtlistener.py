@@ -30,6 +30,7 @@ from frisket.feeds.runtime import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "project-source-courtlistener"
@@ -867,12 +868,13 @@ def test_courtlistener_validation_caps_and_provider_failure_redaction(
         CourtListenerDocketFeedChecker(provider=failing_provider), replace=True
     )
     failed_project = make_project("Failed")
-    source_id = FeedStore(failed_project).add_feed(
-        name="Failing docket",
-        kind=COURTLISTENER_DOCKET_KIND,
-        url=DOCKET_URL,
-        config={"docket_id": DOCKET_ID},
-    )
+    with write_transaction(failed_project.db):
+        source_id = FeedStore(failed_project).add_feed(
+            name="Failing docket",
+            kind=COURTLISTENER_DOCKET_KIND,
+            url=DOCKET_URL,
+            config={"docket_id": DOCKET_ID},
+        )
     failed = run_action_spec(
         failed_project,
         _feed_poll_action(
@@ -945,19 +947,20 @@ def test_courtlistener_scheduled_feed_dispatches_generic_source_poll(
     workspace.mkdir()
     project = Project.create(workspace / "news.frisket", name="news")
     try:
-        courtlistener_source_id = FeedStore(project).add_feed(
-            name="CourtListener",
-            kind=COURTLISTENER_DOCKET_KIND,
-            url=DOCKET_URL,
-            schedule="@hourly",
-            config={"docket_id": DOCKET_ID, "max_entries_per_poll": 1},
-        )
-        FeedStore(project).add_feed(
-            name="Unsupported API",
-            kind="api",
-            url="https://example.com/api",
-            schedule="@hourly",
-        )
+        with write_transaction(project.db):
+            courtlistener_source_id = FeedStore(project).add_feed(
+                name="CourtListener",
+                kind=COURTLISTENER_DOCKET_KIND,
+                url=DOCKET_URL,
+                schedule="@hourly",
+                config={"docket_id": DOCKET_ID, "max_entries_per_poll": 1},
+            )
+            FeedStore(project).add_feed(
+                name="Unsupported API",
+                kind="api",
+                url="https://example.com/api",
+                schedule="@hourly",
+            )
     finally:
         project.close()
 

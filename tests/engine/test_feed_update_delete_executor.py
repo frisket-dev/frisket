@@ -8,6 +8,7 @@ import pytest
 
 from executor_harness import CatalogEntry, ExecutorCase, Gate, case_env
 from frisket.engine.store import Project
+from frisket.engine.store.transactions import write_transaction
 
 
 def _source_update_action(
@@ -51,15 +52,16 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
 
     del tmp_path
     store = FeedStore(project)
-    source_id = store.add_feed(
-        name="Policy feed",
-        kind="rss",
-        url="https://example.test/feed.xml",
-        config={"download_enclosures": "skip"},
-        schedule="@hourly",
-        enabled=True,
-    )
-    store.record_feed_check(source_id, new_rows=3, status="ok")
+    with write_transaction(project.db):
+        source_id = store.add_feed(
+            name="Policy feed",
+            kind="rss",
+            url="https://example.test/feed.xml",
+            config={"download_enclosures": "skip"},
+            schedule="@hourly",
+            enabled=True,
+        )
+        store.record_feed_check(source_id, new_rows=3, status="ok")
     return {"source_id": source_id}
 
 

@@ -4,6 +4,7 @@ import dataclasses
 
 import pytest
 from action_test_helpers import legacy_params_hash
+from frisket.engine.store.transactions import write_transaction
 
 
 # --- the generic action.run job kind ---------------------------------------
@@ -1089,12 +1090,13 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
     project = Project(project_path)
     try:
         sheet_id = project.add_sheet("Claims")
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["result"],
-            action_kind=action_kind,
-            receipt_id=receipt_id,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["result"],
+                action_kind=action_kind,
+                receipt_id=receipt_id,
+            )
         assert len(claims) == 1
         assert conflict is None
 
@@ -1152,12 +1154,13 @@ def test_action_job_success_releases_claim_for_every_success_status(
     project = Project(project_path)
     try:
         sheet_id = project.add_sheet("Claims")
-        claims, conflict = OutputColumnClaimStore(project).acquire(
-            sheet_id=sheet_id,
-            output_names=["result"],
-            action_kind=action_kind,
-            receipt_id=receipt_id,
-        )
+        with write_transaction(project.db):
+            claims, conflict = OutputColumnClaimStore(project).acquire(
+                sheet_id=sheet_id,
+                output_names=["result"],
+                action_kind=action_kind,
+                receipt_id=receipt_id,
+            )
         assert len(claims) == 1
         assert conflict is None
 

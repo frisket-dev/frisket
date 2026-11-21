@@ -18,6 +18,7 @@ from frisket.engine.jobs.queue import (
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_nonterminal_attempt(project: Project) -> None:
@@ -100,15 +101,17 @@ def test_base_reset_drain_reports_every_hit_and_authority_independent_of_status(
     projects_root = tmp_path / "projects"
     project = Project.create(projects_root / "9" / "busy.frisket", name="busy")
     sheet_id = project.add_sheet("Claims")
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["generated"],
-        action_kind="map.classify",
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["generated"],
+            action_kind="map.classify",
+        )
     assert len(claims) == 1 and conflict is None
-    OutputColumnClaimStore(project).release(
-        claim_token=str(claims[0]["claim_token"]), status="released"
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(
+            claim_token=str(claims[0]["claim_token"]), status="released"
+        )
     assert EffectCheckpointStore(project.db).reserve(
         "checkpoint_reset_drain",
         family="model_call",
@@ -207,11 +210,12 @@ def test_reset_drain_refuses_a_symlinked_projects_subtree(tmp_path: Path) -> Non
     outside = tmp_path / "outside"
     project = Project.create(outside / "busy.frisket", name="busy")
     sheet_id = project.add_sheet("Claims")
-    OutputColumnClaimStore(project).acquire(
-        sheet_id=sheet_id,
-        output_names=["generated"],
-        action_kind="map.classify",
-    )
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).acquire(
+            sheet_id=sheet_id,
+            output_names=["generated"],
+            action_kind="map.classify",
+        )
     project.close()
     (projects_root / "mounted").symlink_to(outside, target_is_directory=True)
     sealed = tmp_path / "sealed"

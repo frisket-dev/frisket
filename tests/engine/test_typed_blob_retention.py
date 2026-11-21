@@ -47,7 +47,10 @@ def add_value(project, name, value, *, type="json"):
 def test_independent_file_survives_reclaimed_source_with_provenance(project):
     source = project.add_blob(b"original recording")
     child = project.add_blob(b"materialized clip")
-    project.record_blob_derivation(derived_hash=child, source_hash=source, op="clip")
+    with write_transaction(project.db):
+        project.record_blob_derivation(
+            derived_hash=child, source_hash=source, op="clip"
+        )
     add_value(project, "saved clip", {"blob": child})
     result = reclaim_local_blobs(project, dry_run=False)
     assert result["blobs_removed"] == 1

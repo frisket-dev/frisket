@@ -429,7 +429,6 @@ def _materialize(
             "deleted_rows": old_rows,
             **({"created_sheets": [child_id]} if existing_child_id is None else {}),
         },
-        commit=False,
     )
     store_capture(project, capture, owner_op_id=op_id, output_sheet_id=child_id)
     ChangeStore(project).close(op_id)

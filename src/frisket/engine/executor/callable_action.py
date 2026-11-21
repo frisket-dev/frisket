@@ -32,6 +32,7 @@ from frisket.engine.executor.action_inventory import ExecutorDeps, _TypedProject
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
     _finalize_reserved_action_receipt,
+    _finalize_reserved_action_receipt_in_transaction,
     _reserve_running_action_receipt,
 )
 from frisket.engine.executor.action_support import ActionCtx
@@ -154,16 +155,24 @@ class CallableInvocation:
 
     def _persist(self, receipt, *, before_commit=None, commit=True):
         try:
-            failure = _finalize_reserved_action_receipt(
-                self.project,
-                self.action,
-                params_hash=receipt.params_hash,
-                project_id=receipt.project_id,
-                receipt=receipt,
-                result_from_existing_fn=_existing_result,
-                before_commit=before_commit,
-                commit=commit,
-            )
+            if commit:
+                failure = _finalize_reserved_action_receipt(
+                    self.project,
+                    self.action,
+                    params_hash=receipt.params_hash,
+                    project_id=receipt.project_id,
+                    receipt=receipt,
+                    result_from_existing_fn=_existing_result,
+                    before_commit=before_commit,
+                )
+            else:
+                failure = _finalize_reserved_action_receipt_in_transaction(
+                    self.project,
+                    self.action,
+                    receipt=receipt,
+                    result_from_existing_fn=_existing_result,
+                    before_commit=before_commit,
+                )
         except BaseException:
             # Cancellation bypasses the shared helper's ordinary error channel.
             self.project.db.rollback()

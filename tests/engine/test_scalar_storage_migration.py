@@ -22,6 +22,7 @@ from tests.engine.test_bundle_schema_fence import (
     _remove_execution_metadata,
 )
 from tests.engine.test_current_cells_migration import _prior_bundle
+from frisket.engine.store.transactions import write_transaction
 
 
 _PREDECESSOR_CURRENT_CELLS = """
@@ -170,7 +171,8 @@ def _seed_mixed_origins(path: Path) -> tuple[int, int, int, list[int]]:
         terminal_disposition="completed",
     )
     results.point_column_at_run(op_id, output_column_id, run_id)
-    OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
+    with write_transaction(project.db):
+        OutputColumnClaimStore(project).release(claim_token=authority.claim_token)
     project.apply_edits(
         [
             {

@@ -40,13 +40,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
-from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, ClassVar
 
 from .value_codec import repair_unicode_value
-from .transactions import write_transaction
+from .transactions import require_transaction, write_transaction
 
 # The retained payload written when an OPERATOR (frisket reconcile) decides a
 # reserved unit's unknown provider effect really happened.  It is an
@@ -542,50 +541,46 @@ class EffectCheckpointStore:
         writer_attempt_id: str | None = None,
         claim_token: str | None = None,
         claimless_direct_effect: bool = False,
-        commit: bool = True,
     ) -> float:
-        """Idempotently persist a ``returned`` unit's accounting without consuming.
+        """Idempotently persist a ``returned`` unit's accounting in the caller's
+        transaction without consuming.
 
         The cancelled-after-return shape: facts and spend are historical truth
         even though no result may commit.  The first call accrues and rewrites
         the payload (the caller passes its zero-cost replay); replays return
         ``0.0`` without re-running ``accrue``."""
 
-        if not commit and not self.db.in_transaction:
-            raise InvalidCheckpointState(
-                "account_returned(commit=False) requires its caller transaction"
+        require_transaction(self.db, "EffectCheckpointStore.account_returned")
+        checkpoint = self._verified_unit(
+            checkpoint_id,
+            family=family,
+            group_key=group_key,
+            unit_key=unit_key,
+            action_kind=action_kind,
+            identity=identity,
+            expected_state="returned",
+        )
+        self._fence_returned(
+            run_id=run_id,
+            writer_attempt_id=writer_attempt_id,
+            claim_token=claim_token,
+            claimless_direct_effect=claimless_direct_effect,
+            authorized_attempt_id=checkpoint["authorized_attempt_id"],
+        )
+        if checkpoint["accounting_persisted"]:
+            return 0.0
+        cost = float(accrue(checkpoint))
+        encoded = _returned_payload_json(payload)
+        updated = self.db.execute(
+            "UPDATE effect_checkpoints SET payload=?, accounting_persisted=1 "
+            "WHERE id=? AND state='returned' AND accounting_persisted=0",
+            (encoded, checkpoint_id),
+        ).rowcount
+        if updated != 1:
+            raise CheckpointLost(
+                "the returned effect checkpoint was lost mid-accounting"
             )
-        with write_transaction(self.db) if commit else nullcontext():
-            checkpoint = self._verified_unit(
-                checkpoint_id,
-                family=family,
-                group_key=group_key,
-                unit_key=unit_key,
-                action_kind=action_kind,
-                identity=identity,
-                expected_state="returned",
-            )
-            self._fence_returned(
-                run_id=run_id,
-                writer_attempt_id=writer_attempt_id,
-                claim_token=claim_token,
-                claimless_direct_effect=claimless_direct_effect,
-                authorized_attempt_id=checkpoint["authorized_attempt_id"],
-            )
-            if checkpoint["accounting_persisted"]:
-                return 0.0
-            cost = float(accrue(checkpoint))
-            encoded = _returned_payload_json(payload)
-            updated = self.db.execute(
-                "UPDATE effect_checkpoints SET payload=?, accounting_persisted=1 "
-                "WHERE id=? AND state='returned' AND accounting_persisted=0",
-                (encoded, checkpoint_id),
-            ).rowcount
-            if updated != 1:
-                raise CheckpointLost(
-                    "the returned effect checkpoint was lost mid-accounting"
-                )
-            return cost
+        return cost
 
     def consume_and_retire(
         self,

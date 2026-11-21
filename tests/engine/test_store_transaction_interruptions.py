@@ -106,7 +106,7 @@ def test_commit_flag_transaction_rolls_back_interrupted_claim(
         project, monkeypatch, "INSERT INTO output_column_claims", error
     )
 
-    with pytest.raises(failure) as caught:
+    with pytest.raises(failure) as caught, write_transaction(project.db):
         OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id, output_names=["value"], action_kind="derive.test"
         )
@@ -133,7 +133,6 @@ def test_commit_false_leaves_interrupted_caller_transaction_to_its_owner(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="derive.test",
-            commit=False,
         )
 
     assert db.in_transaction

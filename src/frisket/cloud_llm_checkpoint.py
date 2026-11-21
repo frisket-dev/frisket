@@ -26,6 +26,7 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointStore,
     canonical_json,
 )
+from frisket.engine.store.transactions import write_transaction
 
 _FAMILY = "model_call"
 _SCHEMA = "frisket.cloud_llm_checkpoint.v1"
@@ -255,19 +256,20 @@ class CloudLLMCheckpointCoordinator:
                         )
                 return 0.0
 
-            store.account_returned(
-                ref.checkpoint_id,
-                family=_FAMILY,
-                group_key=ref.group_key,
-                unit_key=ref.unit_key,
-                action_kind=ref.action_kind,
-                identity=ref.identity,
-                payload=returned["payload"],
-                accrue=verify_accounted,
-                run_id=original_run,
-                writer_attempt_id=owner,
-                claimless_direct_effect=True,
-            )
+            with write_transaction(self.project.db):
+                store.account_returned(
+                    ref.checkpoint_id,
+                    family=_FAMILY,
+                    group_key=ref.group_key,
+                    unit_key=ref.unit_key,
+                    action_kind=ref.action_kind,
+                    identity=ref.identity,
+                    payload=returned["payload"],
+                    accrue=verify_accounted,
+                    run_id=original_run,
+                    writer_attempt_id=owner,
+                    claimless_direct_effect=True,
+                )
             store.consume_and_retire(
                 ref.checkpoint_id,
                 family=_FAMILY,

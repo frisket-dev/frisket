@@ -1,12 +1,14 @@
 from frisket.engine.store.feeds import FeedStore
+from frisket.engine.store.transactions import write_transaction
 
 
 def test_manual_feed_http_returns_destination_and_visible_cancellable_job(client):
     pid = client.post("/api/projects", json={"name": "Feed"}).json()["id"]
     project = client.app.state.workspace.get(pid)
-    sid = FeedStore(project).add_feed(
-        "My feed", kind="rss", url="https://example.test/feed"
-    )
+    with write_transaction(project.db):
+        sid = FeedStore(project).add_feed(
+            "My feed", kind="rss", url="https://example.test/feed"
+        )
     response = client.post(
         f"/api/projects/{pid}/actions/v1/run",
         json={

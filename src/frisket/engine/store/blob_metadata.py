@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.engine.store.transactions import write_transaction
+from frisket.engine.store.transactions import require_transaction, write_transaction
 
 
 BLOB_METADATA_MAX_JSON_BYTES = 4 * 1024 * 1024
@@ -160,33 +160,26 @@ class BlobMetadataDocumentStore:
         self,
         digest: str,
         update: Callable[[dict[str, Any]], Mapping[str, Any]],
-        *,
-        commit: bool = True,
     ) -> dict[str, Any]:
-        """Update the complete document under a lock acquired before its read.
+        """Update the complete document inside the caller's write transaction."""
 
-        ``commit=False`` joins the caller's open transaction.
-        """
-
-        with write_transaction(
-            self.db, commit=commit, what="blob metadata document update"
-        ):
-            row = self.db.execute(
-                "SELECT metadata FROM blobs WHERE hash=?", (digest,)
-            ).fetchone()
-            if row is None:
-                raise KeyError(f"no blob {digest}")
-            current = self._decode_document(row["metadata"])
-            proposed = update(current)
-            if not isinstance(proposed, Mapping):
-                raise TypeError("blob metadata update must return an object")
-            encoded = canonical_blob_metadata_json(proposed)
-            cur = self.db.execute(
-                "UPDATE blobs SET metadata=? WHERE hash=?", (encoded, digest)
-            )
-            if cur.rowcount != 1:  # pragma: no cover - protected by write lock
-                raise KeyError(f"no blob {digest}")
-            return self._decode_document(encoded)
+        require_transaction(self.db, "blob metadata document update")
+        row = self.db.execute(
+            "SELECT metadata FROM blobs WHERE hash=?", (digest,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"no blob {digest}")
+        current = self._decode_document(row["metadata"])
+        proposed = update(current)
+        if not isinstance(proposed, Mapping):
+            raise TypeError("blob metadata update must return an object")
+        encoded = canonical_blob_metadata_json(proposed)
+        cur = self.db.execute(
+            "UPDATE blobs SET metadata=? WHERE hash=?", (encoded, digest)
+        )
+        if cur.rowcount != 1:  # pragma: no cover - protected by write lock
+            raise KeyError(f"no blob {digest}")
+        return self._decode_document(encoded)
 
     def compare_and_swap_metadata_namespace(
         self,

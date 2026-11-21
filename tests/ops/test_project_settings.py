@@ -101,8 +101,8 @@ def test_concurrent_settings_patches_merge_inside_project_transaction(
             first_written.wait(timeout=1)
         return settings
 
-    def coordinated_write(candidate, settings, *, commit=True):
-        result = original_write(candidate, settings, commit=commit)
+    def coordinated_write(candidate, settings):
+        result = original_write(candidate, settings)
         if getattr(thread_state, "role", None) == "first":
             first_written.set()
         return result

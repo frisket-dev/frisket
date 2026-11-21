@@ -74,6 +74,7 @@ class QueuedV1ActionEntry:
     kind: str
     params_model: type[BaseModel]
     reserve_action: Callable[..., dict[str, Any] | ActionResult]
+    reserve_action_in_transaction: Callable[..., dict[str, Any] | ActionResult]
     requires_atomic_publication: Callable[[BaseModel], bool]
     cleanup_reservation: Callable[..., None]
     mark_runner_spec: Callable[..., dict[str, Any]]
@@ -242,6 +243,7 @@ def _queued_v1_action_entry(
         kind=spec.kind,
         params_model=spec.params_model,
         reserve_action=lifecycle.reserve,
+        reserve_action_in_transaction=lifecycle.reserve_in_transaction,
         requires_atomic_publication=lifecycle.requires_atomic_publication,
         cleanup_reservation=lifecycle.cleanup_reservation,
         mark_runner_spec=lifecycle.mark_runner_spec,

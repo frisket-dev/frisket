@@ -98,7 +98,6 @@ class ProjectModelRoutesService:
             write_project_settings(
                 project,
                 settings.model_copy(update={"model_execution_routes": routes}),
-                commit=False,
             )
         return ProjectModelRouteSelection(model_id=canonical, route=route)
 
@@ -160,7 +159,7 @@ class ProjectModelRoutesService:
     ) -> ProjectSettings:
         composition, inventory = self._context(project, request_context)
         materialized = self._materialized_settings(project, composition, inventory)
-        return write_project_settings(project, materialized, commit=False)
+        return write_project_settings(project, materialized)
 
     def _context(
         self, project: Any, request_context: Any = None

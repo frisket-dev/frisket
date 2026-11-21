@@ -10,6 +10,7 @@ from frisket.server.app import create_app
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.feeds import FeedStore
 from helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
@@ -76,14 +77,16 @@ def _seed_offset_pages(tmp_path: Path) -> tuple[TestClient, str, int, int, int]:
         )
         run_ids.append(run_id)
     project.db.commit()
-    source_id = FeedStore(project).add_feed(
-        "Offset feed",
-        kind="rss",
-        url="https://example.test/feed.xml",
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Offset feed",
+            kind="rss",
+            url="https://example.test/feed.xml",
+            schedule="@hourly",
+        )
     for index in range(5):
-        FeedStore(project).record_feed_check(source_id, status="ok", new_rows=index)
+        with write_transaction(project.db):
+            FeedStore(project).record_feed_check(source_id, status="ok", new_rows=index)
     project.db.commit()
     return client, project_id, run_ids[-1], topic_col, source_id
 

@@ -16,6 +16,7 @@ from frisket.features.alerts.triggers import (
     trigger_source_materialized_alerts,
 )
 from frisket.features.alerts.service import AlertBindingError
+from frisket.engine.store.transactions import write_transaction
 
 
 PROJECT_ID = "source-watch-project"
@@ -100,13 +101,14 @@ def _feed_poll_action(source_id: int, key: str) -> dict[str, Any]:
 
 def _create_project(tmp_path: Path) -> tuple[Project, int]:
     project = Project.create(tmp_path / "source-watch.frisket", name="Source Watch")
-    source_id = FeedStore(project).add_feed(
-        "Public Notices",
-        kind="rss",
-        url="https://feeds.example/notices.xml",
-        config={"merge_strategy": "append-new"},
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Public Notices",
+            kind="rss",
+            url="https://feeds.example/notices.xml",
+            config={"merge_strategy": "append-new"},
+            schedule="@hourly",
+        )
     return project, source_id
 
 
@@ -346,13 +348,14 @@ def test_v1_source_poll_action_triggers_alert_check(
         "/api/projects", json={"name": "Source trigger route"}
     ).json()["id"]
     project = client.app.state.workspace.get(project_id)
-    source_id = FeedStore(project).add_feed(
-        "Public Notices",
-        kind="rss",
-        url="https://feeds.example/notices.xml",
-        config={"merge_strategy": "append-new"},
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Public Notices",
+            kind="rss",
+            url="https://feeds.example/notices.xml",
+            config={"merge_strategy": "append-new"},
+            schedule="@hourly",
+        )
     alert_id = add_alert(
         project,
         "Budget watch",
@@ -488,13 +491,14 @@ def test_v1_source_poll_job_enqueues_embedding_refresh(
 
     pid = client.post("/api/projects", json={"name": "src emb"}).json()["id"]
     project = client.app.state.workspace.get(pid)
-    source_id = FeedStore(project).add_feed(
-        "Notices",
-        kind="rss",
-        url="https://feeds.example/x.xml",
-        config={"merge_strategy": "append-new"},
-        schedule="@hourly",
-    )
+    with write_transaction(project.db):
+        source_id = FeedStore(project).add_feed(
+            "Notices",
+            kind="rss",
+            url="https://feeds.example/x.xml",
+            config={"merge_strategy": "append-new"},
+            schedule="@hourly",
+        )
 
     def _one(guid: str, title: str) -> dict[str, Any]:
         return {

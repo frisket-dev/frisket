@@ -361,56 +361,54 @@ def _mark(document):
     return {**document, "marked": True}
 
 
-def test_blob_document_update_commit_false_requires_caller_transaction(
-    project, blob_digest
-):
+def test_blob_document_update_requires_caller_transaction(project, blob_digest):
     with pytest.raises(RuntimeError, match="requires a caller transaction"):
         BlobMetadataDocumentStore(project).transactionally_update_document(
-            blob_digest, _mark, commit=False
+            blob_digest, _mark
         )
 
     assert not project.db.in_transaction
     assert "marked" not in _committed_blob_metadata(project, blob_digest)
 
 
-def test_blob_document_update_commit_false_joins_caller_transaction(
-    project, blob_digest
-):
+def test_blob_document_update_joins_caller_transaction(project, blob_digest):
     _open_caller_transaction(project)
 
     BlobMetadataDocumentStore(project).transactionally_update_document(
-        blob_digest, _mark, commit=False
+        blob_digest, _mark
     )
 
     assert project.db.in_transaction
     assert "marked" not in _committed_blob_metadata(project, blob_digest)
     project.db.commit()
     assert "marked" in _committed_blob_metadata(project, blob_digest)
+    assert _committed_sheet_name(project) == CALLER_SHEET_NAME
 
 
-def test_blob_document_update_commit_true_inside_caller_transaction_refuses(
-    project, blob_digest
-):
+def test_blob_document_update_rolls_back_with_caller_transaction(project, blob_digest):
+    _open_caller_transaction(project)
+
+    BlobMetadataDocumentStore(project).transactionally_update_document(
+        blob_digest, _mark
+    )
+    project.db.rollback()
+
+    assert not project.db.in_transaction
+    assert "marked" not in _committed_blob_metadata(project, blob_digest)
+
+
+def test_media_probe_replace_owns_its_transaction(project, blob_digest):
     _open_caller_transaction(project)
 
     with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
-        BlobMetadataDocumentStore(project).transactionally_update_document(
-            blob_digest, _mark
-        )
+        MediaBlobStore(project).replace_probe_metadata(blob_digest, {"kind": "audio"})
 
     assert project.db.in_transaction
     project.db.rollback()
 
-
-def test_blob_document_update_owns_its_transaction_when_none_is_open(
-    project, blob_digest
-):
-    BlobMetadataDocumentStore(project).transactionally_update_document(
-        blob_digest, _mark
-    )
-
+    MediaBlobStore(project).replace_probe_metadata(blob_digest, {"kind": "audio"})
     assert not project.db.in_transaction
-    assert "marked" in _committed_blob_metadata(project, blob_digest)
+    assert "_media_probe_v1" in _committed_blob_metadata(project, blob_digest)
 
 
 def _write_namespace(_current, proposal):

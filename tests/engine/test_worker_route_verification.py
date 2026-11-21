@@ -201,14 +201,15 @@ def _prepare_local_run(project, spec, *, confirmed=False) -> int:
         allow_action_lifecycle_only_programs=True,
         authority=open_attempt_authority(project),
     ).prepare_run(spec, program=request.program, confirmed=confirmed)
-    request.entry.mark_prepared(
-        project,
-        receipt_id=reservation["receipt_id"],
-        run_id=progress.run_id,
-        attempt_id=None,
-        output_fields=reservation["output_fields"],
-        program=request.program,
-    )
+    with write_transaction(project.db):
+        request.entry.mark_prepared(
+            project,
+            receipt_id=reservation["receipt_id"],
+            run_id=progress.run_id,
+            attempt_id=None,
+            output_fields=reservation["output_fields"],
+            program=request.program,
+        )
     _PREPARED_QUEUES[(str(project.path), progress.run_id)] = (
         action_body,
         request,
@@ -286,13 +287,14 @@ def _claimed_output_authority(project, run_id: int) -> tuple[str, set[int]]:
             )
         return token, {int(row["id"]) for row in columns}
     token = f"output-claim:worker-route-verification:{run_id}"
-    claims, conflict = OutputColumnClaimStore(project).acquire(
-        sheet_id=int(run["sheet_id"]),
-        output_names=[str(row["name"]) for row in columns],
-        action_kind=str(run["action_kind"]),
-        run_id=run_id,
-        claim_token=token,
-    )
+    with write_transaction(project.db):
+        claims, conflict = OutputColumnClaimStore(project).acquire(
+            sheet_id=int(run["sheet_id"]),
+            output_names=[str(row["name"]) for row in columns],
+            action_kind=str(run["action_kind"]),
+            run_id=run_id,
+            claim_token=token,
+        )
     assert conflict is None
     assert len(claims) == len(columns)
     with write_transaction(project.db):
@@ -346,14 +348,15 @@ def _handle(root: Path, run_id: int, spec: dict) -> dict:
                 (attempt_id,),
             )
             project.db.commit()
-        request.entry.mark_prepared(
-            project,
-            receipt_id=reservation["receipt_id"],
-            run_id=run_id,
-            attempt_id=attempt_id,
-            output_fields=reservation["output_fields"],
-            program=request.program,
-        )
+        with write_transaction(project.db):
+            request.entry.mark_prepared(
+                project,
+                receipt_id=reservation["receipt_id"],
+                run_id=run_id,
+                attempt_id=attempt_id,
+                output_fields=reservation["output_fields"],
+                program=request.program,
+            )
         payload = {
             "project_id": "proj",
             "run_id": run_id,
@@ -703,14 +706,15 @@ def test_dead_target_after_abandoned_dispatch_uses_recovery_authority(
     )
     project.db.commit()
     set_attempt_state(project, attempt.attempt_id, "abandoned")
-    request.entry.mark_prepared(
-        project,
-        receipt_id=reservation["receipt_id"],
-        run_id=run_id,
-        attempt_id=attempt.attempt_id,
-        output_fields=reservation["output_fields"],
-        program=request.program,
-    )
+    with write_transaction(project.db):
+        request.entry.mark_prepared(
+            project,
+            receipt_id=reservation["receipt_id"],
+            run_id=run_id,
+            attempt_id=attempt.attempt_id,
+            output_fields=reservation["output_fields"],
+            program=request.program,
+        )
 
     # Credentials disappear before the redelivery can dispatch. It must
     # terminalize the receipt through abandoned-run recovery, not claim that

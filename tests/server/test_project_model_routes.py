@@ -185,14 +185,15 @@ def test_pin_materializes_configured_blocked_choice_without_liveness_probe(
     )
     workspace = _workspace(tmp_path, monkeypatch, provider)
     project_id = workspace.create("Legacy Cloud first")["id"]
-    write_project_settings(
-        workspace.get(project_id),
-        ProjectSettings(
-            cloud_user_id=7,
-            cloud_account_id=41,
-            cloud_execution_preference="cloud_first",
-        ),
-    )
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(
+            workspace.get(project_id),
+            ProjectSettings(
+                cloud_user_id=7,
+                cloud_account_id=41,
+                cloud_execution_preference="cloud_first",
+            ),
+        )
 
     settings = ProjectModelRoutesService(workspace).pin_ready_routes(project_id)
 
@@ -205,7 +206,8 @@ def test_pin_leaves_unconfigured_model_unset(tmp_path, monkeypatch) -> None:
     provider = _Provider()
     workspace = _workspace(tmp_path, monkeypatch, provider)
     project_id = workspace.create("No configured routes")["id"]
-    write_project_settings(workspace.get(project_id), ProjectSettings())
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(workspace.get(project_id), ProjectSettings())
 
     settings = ProjectModelRoutesService(workspace).pin_ready_routes(project_id)
 
@@ -430,7 +432,8 @@ def test_exact_cloud_offer_authorizes_qualified_engine_route(
 def test_route_mutation_ignores_unrelated_option_dependent_models(tmp_path) -> None:
     workspace = Workspace(tmp_path / "workspace")
     project_id = workspace.create("One model route")["id"]
-    write_project_settings(workspace.get(project_id), ProjectSettings())
+    with workspace.get(project_id).transaction_scope():
+        write_project_settings(workspace.get(project_id), ProjectSettings())
 
     selected = ProjectModelRoutesService(workspace).set_route(
         project_id,
@@ -543,10 +546,11 @@ def test_connection_pinning_keeps_earlier_project_when_a_later_pin_fails(
         workspace.create("Second matching project")["id"],
     ]
     for project_id in project_ids:
-        write_project_settings(
-            workspace.get(project_id),
-            ProjectSettings(cloud_user_id=7),
-        )
+        with workspace.get(project_id).transaction_scope():
+            write_project_settings(
+                workspace.get(project_id),
+                ProjectSettings(cloud_user_id=7),
+            )
     service = ProjectModelRoutesService(workspace)
     original_pin = service.pin_ready_routes
     pinned: list[str] = []
