@@ -13,7 +13,7 @@ export function ReviewResearch({ bundle, field }: {
 }) {
   const { projectApi: api } = useWorkspaceStores();
   const [open, setOpen] = useState(false);
-  const companion = (bundle.items ?? [...bundle.fields, ...bundle.evidence])
+  const companion = (bundle.items ?? [...bundle.fields, ...bundle.supportingColumns])
     .find(item => item.outputKey === 'sources');
 
   const research = useLoader(

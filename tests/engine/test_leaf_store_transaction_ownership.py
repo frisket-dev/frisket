@@ -14,7 +14,7 @@ import sqlite3
 
 import pytest
 
-from frisket.engine.store import cells, evidence, notifications, op_log
+from frisket.engine.store import cells, citations as evidence, notifications, op_log
 from frisket.engine.store.credentials import replace_secret_consumers
 from frisket.engine.store.media_blobs import MediaBlobStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore

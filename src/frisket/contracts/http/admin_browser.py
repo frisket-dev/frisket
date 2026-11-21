@@ -9,7 +9,7 @@ from pydantic import Field, JsonValue
 from frisket.contracts.http.models import QueryWireModel, WireModel
 
 
-AdminOrgRole = Literal["owner", "admin", "member"]
+AdminOrganizationRole = Literal["owner", "admin", "member"]
 AdminJobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
 AdminCancelOutcome = Literal[
     "cancelled",
@@ -60,14 +60,14 @@ class AdminBrowserUser(WireModel):
     user_id: int = Field(gt=0)
     email: str
     name: str | None
-    role: AdminOrgRole
+    role: AdminOrganizationRole
     created_at: str | None
 
 
 class AdminBrowserPendingInvite(WireModel):
     email: str
-    org_id: int = Field(gt=0)
-    role: AdminOrgRole
+    organization_id: int = Field(gt=0)
+    role: AdminOrganizationRole
     expires_at: str | None
 
 
@@ -80,51 +80,51 @@ class AdminBrowserOrganization(WireModel):
 
 
 class AdminBrowserUserCapabilities(WireModel):
-    assignable_roles: list[AdminOrgRole]
+    assignable_roles: list[AdminOrganizationRole]
     invite_ttl_days: int = Field(gt=0)
     magic_link_ttl_minutes: int = Field(gt=0)
 
 
 class AdminBrowserUsersV1(WireModel):
     schema_version: Literal["frisket.admin_users.v1"]
-    orgs: list[AdminBrowserOrganization]
+    organizations: list[AdminBrowserOrganization]
     capabilities: AdminBrowserUserCapabilities
 
 
 class AdminBrowserInviteRequest(WireModel):
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     email: str = Field(min_length=3, max_length=320)
 
 
 class AdminBrowserInviteResult(WireModel):
     ok: bool
     sent: bool
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     email: str
-    role: AdminOrgRole
+    role: AdminOrganizationRole
     expires_at: str | None
 
 
 class AdminBrowserUpdateRoleRequest(WireModel):
-    org_id: int = Field(gt=0)
-    role: AdminOrgRole
+    organization_id: int = Field(gt=0)
+    role: AdminOrganizationRole
 
 
 class AdminBrowserUpdateRoleResult(WireModel):
     ok: bool
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     user_id: int = Field(gt=0)
-    role: AdminOrgRole
+    role: AdminOrganizationRole
     self: bool
 
 
-class AdminBrowserTargetOrgQuery(QueryWireModel):
-    org_id: int = Field(gt=0)
+class AdminBrowserTargetOrganizationQuery(QueryWireModel):
+    organization_id: int = Field(gt=0)
 
 
 class AdminBrowserRemoveUserResult(WireModel):
     ok: bool
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     user_id: int | None = Field(default=None, gt=0)
     email: str | None
     membership_removed: bool
@@ -134,7 +134,7 @@ class AdminBrowserRemoveUserResult(WireModel):
 
 class AdminBrowserRevokeInviteResult(WireModel):
     ok: bool
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     email: str
     revoked: bool
 
@@ -195,7 +195,7 @@ class AdminBrowserCancelV1(WireModel):
 
 
 class AdminBrowserAuditQuery(QueryWireModel):
-    org_id: int | None = Field(default=None, gt=0)
+    organization_id: int | None = Field(default=None, gt=0)
     project_id: str | None = None
     user: str | None = None
     action: str | None = None
@@ -209,8 +209,8 @@ class AdminBrowserAuditEvent(WireModel):
     created_at: str | None
     actor_user_id: int | None
     actor_email: str | None
-    org_id: int | None
-    org_name: str | None
+    organization_id: int | None
+    organization_name: str | None
     project_id: str | int | None
     project_name: str | None
     action: str
@@ -221,19 +221,19 @@ class AdminBrowserAuditEvent(WireModel):
     context: dict[str, JsonValue]
 
 
-class AdminBrowserAuditOrgOption(WireModel):
+class AdminBrowserAuditOrganizationOption(WireModel):
     id: int = Field(gt=0)
     name: str
 
 
 class AdminBrowserAuditProjectOption(WireModel):
-    org_id: int = Field(gt=0)
+    organization_id: int = Field(gt=0)
     project_id: str
     name: str
 
 
 class AdminBrowserAuditFilterOptions(WireModel):
-    orgs: list[AdminBrowserAuditOrgOption]
+    organizations: list[AdminBrowserAuditOrganizationOption]
     projects: list[AdminBrowserAuditProjectOption]
     actions: list[str]
 
@@ -258,7 +258,7 @@ class AdminBrowserErrorEvent(WireModel):
     message: str
     stack: str | None
     route: str | None
-    org_id: int | None
+    organization_id: int | None
     user_id: int | None
     project_id: str | None
     sheet_id: str | None
@@ -298,7 +298,7 @@ __all__ = [
     "AdminBrowserJobsV1",
     "AdminBrowserRemoveUserResult",
     "AdminBrowserRevokeInviteResult",
-    "AdminBrowserTargetOrgQuery",
+    "AdminBrowserTargetOrganizationQuery",
     "AdminBrowserUpdateRoleRequest",
     "AdminBrowserUpdateRoleResult",
     "AdminBrowserUsersV1",

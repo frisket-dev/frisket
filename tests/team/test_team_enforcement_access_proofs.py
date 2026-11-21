@@ -41,8 +41,8 @@ class _RecordingProjectAccess:
         user_id: int,
         slug: str,
         *,
-        preferred_org_id: int | None = None,
-        scope_org_id: int | None = None,
+        preferred_organization_id: int | None = None,
+        scope_organization_id: int | None = None,
     ) -> dict[str, Any] | None:
         return {"org_id": 1, "storage_org_id": 1, "slug": slug}
 
@@ -450,7 +450,10 @@ def test_organization_role_port_takes_priority_over_server_admin_fallback(
     with TestClient(with_port, raise_server_exceptions=False) as client:
         refused = client.get("/api/spend")
     assert refused.status_code == 403, refused.text
-    assert refused.json()["detail"] == "only an org owner or admin can view org spend"
+    assert (
+        refused.json()["detail"]
+        == "only an organization owner or admin can view organization spend"
+    )
 
     with TestClient(without_port, raise_server_exceptions=False) as client:
         allowed = client.get("/api/spend")
@@ -490,7 +493,8 @@ def test_spend_requires_organization_owner_or_admin_for_session_and_pat(
     assert access.required_roles == []
     if expected == 403:
         assert (
-            response.json()["detail"] == "only an org owner or admin can view org spend"
+            response.json()["detail"]
+            == "only an organization owner or admin can view organization spend"
         )
 
 

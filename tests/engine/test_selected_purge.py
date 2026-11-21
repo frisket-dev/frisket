@@ -1094,7 +1094,7 @@ def test_column_purge_preserves_unselected_source_baseline_fields(project):
 
 
 def test_source_purge_scrubs_citation_text_but_preserves_materialized_child(project):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_source_artifact,
         record_source_span,
         record_text_surface,
@@ -1269,7 +1269,7 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
 ):
     from pathlib import Path
     from frisket.engine.store.blob_backend import BlobNotFoundError
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
     from frisket.engine.store.project_blobs import reclaim_local_blobs
     from frisket.retrieval.store import RetrievalStore
 
@@ -1355,7 +1355,7 @@ def test_shared_source_erases_previews_and_search_but_keeps_output_and_resumes(
 
 def test_citation_snapshot_failure_restores_immutability_and_reruns(project):
     import sqlite3
-    from frisket.engine.store.evidence import record_source_artifact
+    from frisket.engine.store.citations import record_source_artifact
 
     source = add(project, "source", "original text")
     with write_transaction(project.db):

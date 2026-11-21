@@ -70,13 +70,13 @@ describe('Ask citation navigation', () => {
     const { result } = renderHook(() => useAskNavigation([], commands));
     const citation: AskCitation = {
       ...documentCitation,
-      source_kind: 'evidence',
+      source_kind: 'citation',
       target: {
-        kind: 'evidence',
+        kind: 'cell_citation',
         sheet_id: 1,
         row_id: 2,
         column_id: 3,
-        evidence_link_id: 'link',
+        citation_id: 'link',
         artifact_id: 'artifact',
         span_id: 'phrase-start',
         span_ids: ['phrase-start', 'phrase-end'],

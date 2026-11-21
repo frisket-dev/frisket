@@ -424,9 +424,9 @@ def _document_browse(
         placeholders = ",".join("?" for _ in row_ids)
         for provenance in project.db.execute(
             "SELECT link.row_id, span.page_start, span.page_end "
-            f"FROM {current_values_sql(project.db, [int(source['id'])], row_ids)} cell JOIN evidence_links link "
+            f"FROM {current_values_sql(project.db, [int(source['id'])], row_ids)} cell JOIN citations link "
             "ON link.row_id=cell.row_id AND link.column_id=cell.column_id "
-            "JOIN evidence_link_spans member ON member.link_id=link.id "
+            "JOIN citation_spans member ON member.citation_id=link.id "
             "JOIN source_spans span ON span.id=member.span_id "
             "JOIN source_artifacts artifact ON artifact.id=span.artifact_id "
             f"WHERE cell.column_id=? AND cell.row_id IN ({placeholders}) "

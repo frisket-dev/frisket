@@ -112,7 +112,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         )
         assert (
             project.db.execute(
-                "SELECT COUNT(*) FROM evidence_links WHERE run_id=?", (run_id,)
+                "SELECT COUNT(*) FROM citations WHERE run_id=?", (run_id,)
             ).fetchone()[0]
             == 0
         )
@@ -169,7 +169,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
         )
         assert project.get_values(sheet, output)[row] == "# Recovered document"
         links = project.db.execute(
-            "SELECT column_id, receipt_id FROM evidence_links WHERE run_id=? AND link_role='source_provenance'",
+            "SELECT column_id, receipt_id FROM citations WHERE run_id=? AND link_role='source_provenance'",
             (run_id,),
         ).fetchall()
         assert [(link["column_id"], link["receipt_id"]) for link in links] == [

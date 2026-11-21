@@ -91,13 +91,13 @@ def test_member_reads_status_but_only_owner_validates_and_saves(
     member_headers = {"x-role": "member"}
     owner_headers = {"x-role": "owner"}
 
-    status = client.get("/api/org/models-gateway", headers=member_headers)
+    status = client.get("/api/organization/models-gateway", headers=member_headers)
     assert status.status_code == 200
     assert status.json()["authority"] == "organization"
     assert status.json()["can_mutate"] is False
     assert (
         client.post(
-            "/api/org/models-gateway/validate",
+            "/api/organization/models-gateway/validate",
             headers=member_headers,
             json={"origin": ORIGIN, "token": TOKEN},
         ).status_code
@@ -105,14 +105,14 @@ def test_member_reads_status_but_only_owner_validates_and_saves(
     )
 
     validated = client.post(
-        "/api/org/models-gateway/validate",
+        "/api/organization/models-gateway/validate",
         headers=owner_headers,
         json={"origin": ORIGIN, "token": TOKEN},
     )
     assert validated.status_code == 200
     receipt = validated.json()["validation_token"]
     saved = client.put(
-        "/api/org/models-gateway",
+        "/api/organization/models-gateway",
         headers=owner_headers,
         json={"origin": ORIGIN, "token": TOKEN, "validation_token": receipt},
     )

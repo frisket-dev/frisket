@@ -1022,7 +1022,7 @@ def attempt_borne_by(
     """
     from frisket.execution.credential_use import (
         ENV_KEY,
-        ORG_BYOK_KEY,
+        ORGANIZATION_BYOK_KEY,
         PROJECT_KEY,
         credential_class_of,
     )
@@ -1036,7 +1036,7 @@ def attempt_borne_by(
     ).fetchall()
     if not rows:
         return None
-    operator_held = {PROJECT_KEY, ORG_BYOK_KEY, ENV_KEY}
+    operator_held = {PROJECT_KEY, ORGANIZATION_BYOK_KEY, ENV_KEY}
     providers = {
         str(row["provider"])
         for row in rows

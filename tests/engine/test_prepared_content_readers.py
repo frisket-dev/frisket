@@ -7,7 +7,7 @@ from helpers import stored_output_descriptor
 
 from frisket.engine.store import Project
 from frisket.engine.store.current_cells import refresh_current_cell_pairs
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,

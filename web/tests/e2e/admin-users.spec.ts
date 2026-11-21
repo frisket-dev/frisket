@@ -14,7 +14,7 @@ test('admin page distinguishes member removal from invite revocation and retains
       invite_ttl_days: 14,
       magic_link_ttl_minutes: 15,
     },
-    orgs: [
+    organizations: [
       {
         id: 1,
         name: 'News Lab',
@@ -38,7 +38,7 @@ test('admin page distinguishes member removal from invite revocation and retains
         pending_invites: [
           {
             email: 'pending@news.org',
-            org_id: 1,
+            organization_id: 1,
             expires_at: '2026-06-28T10:00:00Z',
           },
         ],
@@ -78,8 +78,8 @@ test('admin page distinguishes member removal from invite revocation and retains
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        orgs: [],
-        totals: { orgs: 0 },
+        organizations: [],
+        totals: { organizations: 0 },
       }),
     });
   });
@@ -109,31 +109,31 @@ test('admin page distinguishes member removal from invite revocation and retains
       return;
     }
     if (request.method() === 'POST' && url.pathname === '/api/admin/browser/users/invite') {
-      const body = request.postDataJSON() as { org_id: number; email: string };
-      users.orgs[0].pending_invites.push({
+      const body = request.postDataJSON() as { organization_id: number; email: string };
+      users.organizations[0].pending_invites.push({
         email: body.email.toLowerCase(),
-        org_id: body.org_id,
+        organization_id: body.organization_id,
         expires_at: '2026-06-28T10:00:00Z',
       });
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ sent: true, org_id: body.org_id, email: body.email }),
+        body: JSON.stringify({ sent: true, organization_id: body.organization_id, email: body.email }),
       });
       return;
     }
     if (request.method() === 'PATCH' && url.pathname === '/api/admin/browser/users/8/role') {
       const body = request.postDataJSON() as { role: 'owner' | 'admin' | 'member' };
-      users.orgs[0].users[1].role = body.role;
+      users.organizations[0].users[1].role = body.role;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ok: true, user_id: 8, org_id: 1, role: body.role }),
+        body: JSON.stringify({ ok: true, user_id: 8, organization_id: 1, role: body.role }),
       });
       return;
     }
     if (request.method() === 'DELETE' && url.pathname === '/api/admin/browser/users/8') {
-      expect(url.searchParams.get('org_id')).toBe('1');
+      expect(url.searchParams.get('organization_id')).toBe('1');
       memberRemovalAttempts += 1;
       if (memberRemovalAttempts === 1) {
         await route.fulfill({
@@ -143,7 +143,7 @@ test('admin page distinguishes member removal from invite revocation and retains
         });
         return;
       }
-      users.orgs[0].users = users.orgs[0].users.filter((user) => user.id !== 8);
+      users.organizations[0].users = users.organizations[0].users.filter((user) => user.id !== 8);
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -151,7 +151,7 @@ test('admin page distinguishes member removal from invite revocation and retains
           ok: true,
           membership_removed: true,
           user_id: 8,
-          org_id: 1,
+          organization_id: 1,
         }),
       });
       return;
@@ -163,7 +163,7 @@ test('admin page distinguishes member removal from invite revocation and retains
         || url.pathname === '/api/admin/browser/users/invites/pending%40news.org'
       )
     ) {
-      users.orgs[0].pending_invites = users.orgs[0].pending_invites.filter(
+      users.organizations[0].pending_invites = users.organizations[0].pending_invites.filter(
         (invite) => invite.email !== 'pending@news.org',
       );
       await route.fulfill({
@@ -223,7 +223,7 @@ test('admin page distinguishes member removal from invite revocation and retains
     ok: true,
     membership_removed: true,
     user_id: 8,
-    org_id: 1,
+    organization_id: 1,
   });
   await expect(panel.getByTestId('admin-users-table')).not.toContainText('reporter@news.org');
   await expect(panel.getByTestId('admin-users-notice')).toContainText('User access revoked');
@@ -255,7 +255,7 @@ test('password sign-in refreshes identity at an unchanged admin URL with a fragm
   await page.route('**/api/admin/browser/users', (route) => route.fulfill({ json: {
     schema_version: 'frisket.admin_users.v1',
     capabilities: { assignable_roles: ['owner', 'admin', 'member'], invite_ttl_days: 14, magic_link_ttl_minutes: 15 },
-    orgs: [],
+    organizations: [],
   } }));
   await page.goto('/admin/users?section=current#review');
   await page.getByTestId('sign-in-email').fill('owner@example.test');

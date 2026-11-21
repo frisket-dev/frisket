@@ -48,11 +48,11 @@ class TestFreshBundle:
         p = make_project("t")
         assert "text_surfaces" in _tables(p.db)
         assert "text_surface_id" in _cols(p.db, "source_spans")
-        assert "layer_family" in _cols(p.db, "evidence_links")
+        assert "layer_family" in _cols(p.db, "citations")
         idx = _indexes(p.db)
         assert "idx_text_surfaces_cell" in idx
         assert "idx_source_spans_text_surface" in idx
-        assert "idx_evidence_link_spans_annotation" in idx
+        assert "idx_citation_spans_annotation" in idx
         triggers = _triggers(p.db)
         assert "trg_source_spans_char_integrity_insert" in triggers
         assert "trg_source_spans_char_integrity_update" in triggers

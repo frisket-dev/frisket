@@ -33,7 +33,7 @@ const EXPECTED_COMMAND_TYPES: ReadonlyArray<WorkspaceCommand['type']> = [
   'openRow',
   'openColumn',
   'openSource',
-  'openEvidence',
+  'openCitation',
   'openMap',
   'openGraph',
   'openActionRoute',

@@ -20,6 +20,7 @@ from frisket.upgrades.project.consent_estimate_migration import (
     CONSENT_ESTIMATE_TO_DIGEST,
 )
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
+from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 
 
 OLD_SCHEMA_DIGEST = "frisket.schema.v1:caa3ac7c8aaa66153dd8e2cad5950942"
@@ -288,6 +289,9 @@ def test_research_pause_column_migration_preserves_pending_pause(
         "ALTER TABLE project_qa_research_runs "
         "RENAME COLUMN pending_pause_json TO pending_approval_json"
     )
+    project.db.commit()
+    _downgrade_to_pre_citations_schema(project.db)
+    project.db.execute("BEGIN")
     project.db.execute(
         "UPDATE meta SET value=? WHERE key=?",
         (CONSENT_ESTIMATE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

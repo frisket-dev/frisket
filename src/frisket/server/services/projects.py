@@ -42,7 +42,7 @@ from frisket.engine.store.sheet_lifecycle import (
 )
 from frisket.features.graph.sheet_graph import sheet_materialized_kind
 from frisket.engine.store.document_text import document_text_column_ids_by_sheet
-from frisket.engine.store.evidence import sheet_cited_column_ids
+from frisket.engine.store.citations import sheet_cited_column_ids
 from frisket.engine.store.lineage import build_lineage_dag
 from frisket.engine.store.text_annotations import annotated_text_column_ids
 from frisket.engine.store.staleness import compute_sync_states
@@ -108,7 +108,8 @@ def _network_policy_response(project: Any) -> dict[str, Any]:
     policy = project.network_policy()
     return {
         "schemaVersion": NETWORK_POLICY_SCHEMA_VERSION,
-        **policy,
+        "mode": policy["mode"],
+        "organization_default": policy["org_default"],
         # The resolved two-state value the gate actually reads, so the UI can
         # honestly say what "inherit" currently means for this project.
         "effective": project.effective_network_policy(),

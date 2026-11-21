@@ -140,13 +140,13 @@ def _project(client: TestClient) -> tuple[str, int]:
 
 def _save_organization_key(client: TestClient, *, key: str = SECRET) -> None:
     validated = client.post(
-        "/api/org/keys/validate", json={"provider": "openai", "key": key}
+        "/api/organization/keys/validate", json={"provider": "openai", "key": key}
     )
     assert validated.status_code == 200, validated.text
     receipt = validated.json()["validation_token"]
     assert isinstance(receipt, str) and receipt
     saved = client.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={
             "provider": "openai",
             "key": key,

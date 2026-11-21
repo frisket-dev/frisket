@@ -162,7 +162,7 @@ def test_queued_composition_uses_claimed_and_durable_facts_then_replays_without_
     observed.clear()
     snapshot = {"reservation_id": 17, "owner": {"kind": "edition"}}
     attach_run_edition_run_context(project, run_id, snapshot)
-    storage_key = ProjectStorageKey(storage_org_id=41, project_slug="proj")
+    storage_key = ProjectStorageKey(storage_organization_id=41, project_slug="proj")
     payload[CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY] = storage_key
     payload["edition_run_context"] = {"reservation_id": "payload-is-not-authority"}
 

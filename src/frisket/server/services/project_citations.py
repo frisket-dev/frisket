@@ -1,4 +1,4 @@
-"""Project evidence services for local server routes."""
+"""Project citation services for local server routes."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from frisket.server.workspace import Workspace
 from frisket.engine.store import Project
 from frisket.engine.store.current_value_windows import CurrentValueChanged
 from frisket.engine.store.blob_backend import BlobNotFoundError
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     list_cell_citations,
     list_column_citations,
     resolve_citation_viewer,
@@ -56,7 +56,7 @@ class ProjectCitationsService:
     def __init__(self, workspace: Workspace):
         self._workspace = workspace
 
-    def cell_evidence(
+    def cell_citations(
         self,
         project_id: str,
         *,
@@ -170,7 +170,7 @@ class ProjectCitationsService:
                 bare_json=True,
             ) from exc
 
-    def column_evidence(
+    def column_citations(
         self,
         project_id: str,
         *,
@@ -179,7 +179,7 @@ class ProjectCitationsService:
         row_ids: str | None,
     ) -> Any:
         """The Grounded Answers reading view's middle-pane batch — one request per column
-        instead of one `cell_evidence` request per row."""
+        instead of one `cell_citations` request per row."""
         project = self._project_or_404(project_id)
         if not _column_belongs_to_sheet(
             project, sheet_id=sheet_id, column_id=column_id
@@ -203,10 +203,10 @@ class ProjectCitationsService:
             project_id=project_id,
         )
 
-    def evidence_viewer(
+    def citation_viewer(
         self,
         project_id: str,
-        evidence_link_id: str,
+        citation_id: str,
         *,
         locate_current: bool = False,
         text_artifact_id: int | None = None,
@@ -220,7 +220,7 @@ class ProjectCitationsService:
             try:
                 viewer = resolve_citation_viewer(
                     snapshot,
-                    evidence_link_id,
+                    citation_id,
                     project_id=project_id,
                     text_artifact_id=text_artifact_id,
                     text_start=text_start,
@@ -244,10 +244,10 @@ class ProjectCitationsService:
                 raise ProjectCitationsRouteError(
                     404,
                     _v1_action_error(
-                        code="evidence_link_not_found",
-                        message="No evidence link exists with that id in this project.",
-                        field="evidence_link_id",
-                        details={"evidence_link_id": evidence_link_id},
+                        code="citation_not_found",
+                        message="No citation exists with that id in this project.",
+                        field="citation_id",
+                        details={"citation_id": citation_id},
                     ),
                     bare_json=True,
                 ) from exc
@@ -265,7 +265,7 @@ class ProjectCitationsService:
                 else viewer
             )
 
-    async def evidence_span_clip(
+    async def citation_span_clip(
         self,
         project_id: str,
         span_stable_id: str,
@@ -335,24 +335,22 @@ class ProjectCitationsService:
             background=BackgroundTask(shutil.rmtree, scratch, ignore_errors=True),
         )
 
-    async def evidence_link_run_clip(
+    async def citation_run_clip(
         self,
         project_id: str,
-        evidence_link_id: str,
+        citation_id: str,
         run_index: int,
         *,
         pad_ms: int,
     ) -> FileResponse:
-        """citation-span-runs-v1: ffmpeg-cut ONE clip spanning a citation's
-        whole contiguous run (start of the run's first cited span -> end of
-        its last -- store.evidence.citation_temporal_runs, the same grouping
-        the viewer payload used to render the run). Link-level (not
-        span-level) because "download this run" is what the citation/link
-        download affordance offers; per-segment clips stay on the existing
-        span route. Mirrors evidence_span_clip's guard/cut/stream shape."""
+        """Cut one clip spanning a citation's contiguous temporal run.
+
+        Uses store.citations.citation_temporal_runs so the downloaded range
+        matches the viewer's highlighted run.
+        """
         project = self._project_or_404(project_id)
         try:
-            source = resolve_link_run_clip_source(project, evidence_link_id, run_index)
+            source = resolve_link_run_clip_source(project, citation_id, run_index)
             start_ms, end_ms = padded_range(source, pad_ms=pad_ms)
         except ClipError as exc:
             raise ProjectCitationsRouteError(
@@ -360,9 +358,9 @@ class ProjectCitationsService:
                 _v1_action_error(
                     code=exc.code,
                     message=exc.message,
-                    field="evidence_link_id",
+                    field="citation_id",
                     details={
-                        "evidence_link_id": evidence_link_id,
+                        "citation_id": citation_id,
                         "run_index": run_index,
                     },
                 ),
@@ -387,9 +385,9 @@ class ProjectCitationsService:
                 _v1_action_error(
                     code="blob_missing",
                     message="Source blob is missing from project storage.",
-                    field="evidence_link_id",
+                    field="citation_id",
                     details={
-                        "evidence_link_id": evidence_link_id,
+                        "citation_id": citation_id,
                         "run_index": run_index,
                     },
                 ),
@@ -402,9 +400,9 @@ class ProjectCitationsService:
                 _v1_action_error(
                     code=exc.code,
                     message=exc.message,
-                    field="evidence_link_id",
+                    field="citation_id",
                     details={
-                        "evidence_link_id": evidence_link_id,
+                        "citation_id": citation_id,
                         "run_index": run_index,
                     },
                 ),

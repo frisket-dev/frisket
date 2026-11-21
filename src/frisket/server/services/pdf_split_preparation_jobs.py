@@ -242,7 +242,7 @@ class PdfSplitPreparationJobs:
                         if not int(child["start"]) <= page <= int(child["end"]):
                             continue
                         provenance = project.db.execute(
-                            "SELECT span.artifact_id FROM evidence_links link JOIN evidence_link_spans linked ON linked.link_id=link.id "
+                            "SELECT span.artifact_id FROM citations link JOIN citation_spans linked ON linked.citation_id=link.id "
                             "JOIN source_spans span ON span.id=linked.span_id WHERE link.op_id=? AND link.row_id=? AND link.column_id=? "
                             "AND link.link_role='source_provenance' AND span.page_start<=? AND span.page_end>=? ORDER BY link.id LIMIT 1",
                             (session.op_id, row_id, media_column, page, page),

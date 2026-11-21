@@ -112,8 +112,8 @@ def _resolve_prepared_target(
 ) -> tuple[dict[str, Any], str]:
     prepared_cell = locator.get("prepared_cell")
     prepared_ref = locator.get("prepared_value_ref")
-    prepared_link_id = locator.get("prepared_evidence_link_id")
-    if prepared_cell is None and prepared_ref is None and prepared_link_id is None:
+    prepared_citation_id = locator.get("prepared_citation_id")
+    if prepared_cell is None and prepared_ref is None and prepared_citation_id is None:
         return target, status
     if not isinstance(prepared_cell, Mapping):
         return target, "changed"
@@ -124,8 +124,8 @@ def _resolve_prepared_target(
         _cell, _source, prepared = read_source_with_prepared(
             project,
             source_cell,
-            evidence_link_id=(
-                str(prepared_link_id) if prepared_link_id is not None else None
+            citation_id=(
+                str(prepared_citation_id) if prepared_citation_id is not None else None
             ),
         )
     except (KeyError, TypeError, ValueError):
@@ -148,16 +148,16 @@ def _resolve_prepared_target(
     }, status
 
 
-def _resolve_evidence_target(
+def _resolve_citation_target(
     project: Project,
     locator: dict[str, Any],
     target: dict[str, Any],
     status: str,
 ) -> tuple[dict[str, Any], str] | None:
-    from frisket.engine.store.evidence import resolve_citation_viewer
+    from frisket.engine.store.citations import resolve_citation_viewer
 
     try:
-        viewer = resolve_citation_viewer(project, locator["evidence_link_id"])
+        viewer = resolve_citation_viewer(project, locator["citation_id"])
     except KeyError:
         return None
     span_exists = any(
@@ -179,8 +179,8 @@ def _resolve_evidence_target(
     navigation = locator.get("navigation") or {}
     span_ids = []
     if (
-        navigation.get("kind") == "evidence"
-        and navigation.get("evidence_link_id") == locator["evidence_link_id"]
+        navigation.get("kind") == "citation"
+        and navigation.get("citation_id") == locator["citation_id"]
         and navigation.get("span_id") == locator["span_id"]
     ):
         available = {
@@ -197,8 +197,8 @@ def _resolve_evidence_target(
         )
     return {
         **target,
-        "kind": "evidence",
-        **{key: locator[key] for key in ("evidence_link_id", "artifact_id", "span_id")},
+        "kind": "cell_citation",
+        **{key: locator[key] for key in ("citation_id", "artifact_id", "span_id")},
         **({"span_ids": span_ids} if len(span_ids) > 1 else {}),
     }, status
 
@@ -291,11 +291,11 @@ def _resolve_project_citation(
     target, status = _resolve_prepared_target(
         project, (sheet_id, row_id, column_id), locator, target, status
     )
-    if citation["source_kind"] == "evidence":
-        evidence = _resolve_evidence_target(project, locator, target, status)
-        if evidence is None:
+    if citation["source_kind"] == "citation":
+        resolved = _resolve_citation_target(project, locator, target, status)
+        if resolved is None:
             return result
-        target, status = evidence
+        target, status = resolved
     elif status == "current":
         navigation = locator.get("navigation")
         if isinstance(navigation, dict) and navigation.get("kind") == "document":
@@ -332,6 +332,6 @@ def resolve_citation(
         return _resolve_web_citation(result, locator, projected["url"])
     if citation["source_kind"] == "query":
         return _resolve_query_citation(project, result, locator)
-    if citation["source_kind"] in {"cell", "evidence"}:
+    if citation["source_kind"] in {"cell", "citation"}:
         return _resolve_project_citation(project, citation, result)
     return result

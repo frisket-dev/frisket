@@ -48,7 +48,7 @@ describe('row source documents', () => {
     mocks.getRowSourceDocuments.mockResolvedValue({
       schema_version: 'frisket.row_source_documents.v1', sheet_id: 1, row_id: 1,
       ancestry_found: false, lineage_stale: false, lineage_freshness: 'unknown',
-      unavailable_source_count: 0, truncated: false, evidence_links: [], documents: [],
+      unavailable_source_count: 0, truncated: false, citations: [], documents: [],
     });
     render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />);
     expect(await screen.findByTestId('row-source-documents-freshness')).toHaveTextContent('have not been checked');
@@ -60,7 +60,7 @@ describe('row source documents', () => {
     const payload = {
       schema_version: 'frisket.row_source_documents.v1', sheet_id: 1, row_id: 1,
       ancestry_found: false, lineage_stale: false,
-      unavailable_source_count: 0, truncated: false, evidence_links: [], documents: [],
+      unavailable_source_count: 0, truncated: false, citations: [], documents: [],
     };
     mocks.getRowSourceDocuments.mockResolvedValueOnce({ ...payload, lineage_freshness: 'checking' })
       .mockResolvedValue({ ...payload, lineage_freshness: 'synced' });
@@ -82,7 +82,7 @@ describe('row source documents', () => {
       lineage_stale: false,
       unavailable_source_count: 0,
       truncated: false,
-      evidence_links: [],
+      citations: [],
       documents: [document(1, 11, 101, 'Left documents'), document(2, 22, 202, 'Right documents', 3)],
     });
     const onOpenDocument = vi.fn();
@@ -105,13 +105,13 @@ describe('row source documents', () => {
       lineage_stale: false,
       unavailable_source_count: 1,
       truncated: true,
-      evidence_links: [{
+      citations: [{
         id: 4,
         stable_id: 'evidence_link:4',
         export_ref: 'evidence_link:4',
         status: 'active',
         role: 'primary_support',
-        evidence_kind: 'text',
+        citation_kind: 'text',
         span_count: 1,
         artifact_count: 1,
         snippet: 'exact quoted text',
@@ -131,7 +131,7 @@ describe('row source documents', () => {
     mocks.getRowSourceDocuments.mockResolvedValueOnce({
       schema_version: 'frisket.row_source_documents.v1', sheet_id: 1, row_id: 1,
       ancestry_found: false, lineage_stale: false, unavailable_source_count: 0, truncated: false,
-      evidence_links: [], documents: [],
+      citations: [], documents: [],
     });
     const view = render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />);
     await waitFor(() => expect(mocks.getRowSourceDocuments).toHaveBeenCalled());
@@ -140,7 +140,7 @@ describe('row source documents', () => {
     mocks.getRowSourceDocuments.mockResolvedValueOnce({
       schema_version: 'frisket.row_source_documents.v1', sheet_id: 2, row_id: 2,
       ancestry_found: true, lineage_stale: false, unavailable_source_count: 0, truncated: false,
-      evidence_links: [], documents: [],
+      citations: [], documents: [],
     });
     view.rerender(<RowSourceDocuments rowId="2" onOpenDocument={() => {}} />);
     expect(await screen.findByTestId('row-source-documents-empty')).toHaveTextContent('No readable source document found');
@@ -150,7 +150,7 @@ describe('row source documents', () => {
     mocks.getRowSourceDocuments.mockResolvedValue({
       schema_version: 'frisket.row_source_documents.v1', sheet_id: 9, row_id: 90,
       ancestry_found: true, lineage_stale: true, unavailable_source_count: 0, truncated: false,
-      evidence_links: [], documents: [document(2, 22, 202, 'Right documents')],
+      citations: [], documents: [document(2, 22, 202, 'Right documents')],
     });
     render(<RowSourceDocuments rowId="90" onOpenDocument={() => {}} />);
     expect(await screen.findByTestId('row-source-documents-stale')).toHaveTextContent(
@@ -169,7 +169,7 @@ describe('row source documents', () => {
       .mockResolvedValueOnce({
         schema_version: 'frisket.row_source_documents.v1', sheet_id: 2, row_id: 2,
         ancestry_found: false, lineage_stale: false, unavailable_source_count: 0, truncated: false,
-        evidence_links: [], documents: [],
+        citations: [], documents: [],
       });
     const view = render(<RowSourceDocuments rowId="1" onOpenDocument={() => {}} />);
     expect(firstSignal?.aborted).toBe(false);

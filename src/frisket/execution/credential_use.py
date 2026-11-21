@@ -73,7 +73,7 @@ ENV_KEY = "env_key"
 PROJECT_KEY = "project_key"
 #: The organization's own provider key (BYOK). The class a
 #: ``cost_posture='org_key'`` consent names, and the ONLY one it accepts.
-ORG_BYOK_KEY = "org_byok_key"
+ORGANIZATION_BYOK_KEY = "organization_byok_key"
 #: No external credential was selected at all (in-process work, a cache hit,
 #: or an unconfigured provider). Never satisfies a constraint that names a
 #: key — fail closed and say which.
@@ -83,7 +83,7 @@ CREDENTIAL_CLASSES = (
     PLATFORM_KEY,
     ENV_KEY,
     PROJECT_KEY,
-    ORG_BYOK_KEY,
+    ORGANIZATION_BYOK_KEY,
     NO_CREDENTIAL,
 )
 
@@ -95,14 +95,14 @@ _FUNDING_CREDENTIAL_CLASSES: dict[type, frozenset[str]] = {
     # The open edition: the operator runs and pays for everything, and every
     # credential in reach is theirs. Any of their own keys satisfies it; the
     # platform's does not.
-    OperatorBorne: frozenset({ENV_KEY, PROJECT_KEY, ORG_BYOK_KEY}),
+    OperatorBorne: frozenset({ENV_KEY, PROJECT_KEY, ORGANIZATION_BYOK_KEY}),
     # Platform-metered: the charge authority's key, or the user is being
     # charged for a call their own account paid for.
     PlatformMetered: frozenset({PLATFORM_KEY}),
     # BYOK: the organization's key, and nothing else. Not the deployment's env
     # key (that is the operator's, billed to the operator, and shared across
     # every tenant of the deployment), and not a project key.
-    ByokZero: frozenset({ORG_BYOK_KEY}),
+    ByokZero: frozenset({ORGANIZATION_BYOK_KEY}),
 }
 
 #: The route row's PINNED ``credential_source`` token per funding class — the
@@ -122,7 +122,7 @@ _SOURCE_CLASS: dict[str, str] = {
     "platform_key": PLATFORM_KEY,
     "local": ENV_KEY,
     "project_key": PROJECT_KEY,
-    "org_byok": ORG_BYOK_KEY,
+    "org_byok": ORGANIZATION_BYOK_KEY,
     "none": NO_CREDENTIAL,
     "cache": NO_CREDENTIAL,
 }
@@ -131,14 +131,14 @@ _CLASS_COPY = {
     PLATFORM_KEY: "the platform credential",
     ENV_KEY: "this deployment's environment credential",
     PROJECT_KEY: "this project's stored credential",
-    ORG_BYOK_KEY: "your organization's own provider key",
+    ORGANIZATION_BYOK_KEY: "your organization's own provider key",
     NO_CREDENTIAL: "no credential at all",
 }
 
 _CLASSES_COPY = {
-    frozenset({ENV_KEY, PROJECT_KEY, ORG_BYOK_KEY}): "your own credential",
+    frozenset({ENV_KEY, PROJECT_KEY, ORGANIZATION_BYOK_KEY}): "your own credential",
     frozenset({PLATFORM_KEY}): _CLASS_COPY[PLATFORM_KEY],
-    frozenset({ORG_BYOK_KEY}): _CLASS_COPY[ORG_BYOK_KEY],
+    frozenset({ORGANIZATION_BYOK_KEY}): _CLASS_COPY[ORGANIZATION_BYOK_KEY],
 }
 
 

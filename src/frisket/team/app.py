@@ -570,8 +570,8 @@ def _sync_project_network_policy(
     if policy["mode"] != mode or policy["org_default"] != org_default:
         project.set_network_policy(
             mode=mode,
-            org_default=org_default,
-            clear_org_default=org_default is None,
+            organization_default=org_default,
+            clear_organization_default=org_default is None,
         )
 
 
@@ -685,10 +685,10 @@ class TeamProjectAccess:
         user_id: int,
         slug: str,
         *,
-        preferred_org_id: int | None = None,
-        scope_org_id: int | None = None,
+        preferred_organization_id: int | None = None,
+        scope_organization_id: int | None = None,
     ) -> dict[str, Any] | None:
-        if scope_org_id not in (None, self.org_id):
+        if scope_organization_id not in (None, self.org_id):
             return None
         with self.engine.connect() as cx:
             exists = cx.execute(
@@ -719,8 +719,10 @@ class TeamProjectAccess:
         ).scalar_one_or_none()
         return "owner" if membership == "owner" else None
 
-    def can_on_project(self, org_id: int, slug: str, user_id: int, need: str) -> bool:
-        if org_id != self.org_id or need not in self.ROLES:
+    def can_on_project(
+        self, organization_id: int, slug: str, user_id: int, need: str
+    ) -> bool:
+        if organization_id != self.org_id or need not in self.ROLES:
             return False
         with self.engine.connect() as cx:
             role = self._role(cx, user_id, slug)
@@ -1576,10 +1578,12 @@ def create_team_app(
                 detail=f"{pid}:{body.mode}",
             )
         project = core.state.workspace.get(pid)
+        policy = project.network_policy()
         return ProjectNetworkResponse.model_validate(
             {
                 "schemaVersion": "frisket.project_network_policy.v1",
-                **project.network_policy(),
+                "mode": policy["mode"],
+                "organization_default": policy["org_default"],
                 "effective": project.effective_network_policy(),
             }
         )
@@ -1629,8 +1633,8 @@ def create_team_app(
             )
         return result
 
-    @app.get("/api/org/network")
-    def get_org_network(request: Request) -> dict[str, Any]:
+    @app.get("/api/organization/network")
+    def get_organization_network(request: Request) -> dict[str, Any]:
         require_organization_member(request, browser=True)
         with engine.connect() as cx:
             network_default = cx.execute(
@@ -1641,8 +1645,8 @@ def create_team_app(
             "effective_default": (network_default or "on"),
         }
 
-    @app.patch("/api/org/network")
-    def update_org_network(
+    @app.patch("/api/organization/network")
+    def update_organization_network(
         request: Request, body: _OrganizationNetworkBody
     ) -> dict[str, Any]:
         """Organization-wide default for projects whose mode is "inherit" (egress-gate
@@ -1672,7 +1676,7 @@ def create_team_app(
                 cx,
                 user_id=actor["id"],
                 org_id=org_id,
-                action="org_network_default_updated",
+                action="organization_network_default_updated",
                 detail=str(body.network_default),
             )
         return {
@@ -1681,11 +1685,11 @@ def create_team_app(
         }
 
     @app.get(
-        "/api/org/media-proxy/status",
+        "/api/organization/media-proxy/status",
         response_model=OrganizationMediaProxyStatus,
         responses=http_error_responses(401, 403, 500),
     )
-    def org_media_proxy_status(request: Request) -> dict[str, Any]:
+    def organization_media_proxy_status(request: Request) -> dict[str, Any]:
         """Member-readable media egress proxy status for run-failure
         remediation UI. Deliberately boolean-only: members learn whether a
         proxy is configured and currently carrying traffic, never its URL
@@ -1889,7 +1893,7 @@ def create_team_app(
         return {"ok": True, "removed": bool(result.rowcount)}
 
     @app.post(
-        "/api/org/tokens",
+        "/api/organization/tokens",
         response_model=ApiTokenCreateResponse,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 422, 500),
@@ -1930,7 +1934,7 @@ def create_team_app(
         )
 
     @app.get(
-        "/api/org/tokens",
+        "/api/organization/tokens",
         response_model=ApiTokenList,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
@@ -1977,7 +1981,7 @@ def create_team_app(
         )
 
     @app.delete(
-        "/api/org/tokens/{token_id}",
+        "/api/organization/tokens/{token_id}",
         response_model=ApiTokenRevokeResponse,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 422, 500),
@@ -2254,15 +2258,15 @@ _TEAM_LOCAL_MODEL_DECLARATIONS = tuple(
         "outer",
         "session_or_pat",
         (
-            ("list_org_local_endpoints", "GET"),
-            ("post_org_models_pull", "POST"),
-            ("setup_org_model_engine", "POST"),
-            ("get_org_models_gateway", "GET"),
-            ("validate_org_models_gateway", "POST"),
-            ("set_org_models_gateway", "PUT"),
-            ("list_org_model_pulls", "GET"),
-            ("get_org_model_pull", "GET"),
-            ("cancel_org_model_pull", "POST"),
+            ("list_organization_local_endpoints", "GET"),
+            ("post_organization_models_pull", "POST"),
+            ("setup_organization_model_engine", "POST"),
+            ("get_organization_models_gateway", "GET"),
+            ("validate_organization_models_gateway", "POST"),
+            ("set_organization_models_gateway", "PUT"),
+            ("list_organization_model_pulls", "GET"),
+            ("get_organization_model_pull", "GET"),
+            ("cancel_organization_model_pull", "POST"),
         ),
     )
 )

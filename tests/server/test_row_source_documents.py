@@ -6,7 +6,7 @@ from frisket.engine.store import staleness
 from frisket.engine.executor.actions import run_action_spec
 from frisket.engine.store import Project
 from frisket.engine.store.changes import ChangeStore
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,
@@ -22,7 +22,7 @@ from frisket.engine.store.materialization import (
     write_contributor_table,
 )
 from frisket.engine.store.media_blobs import media_cell
-from frisket.server.services.project_evidence import (
+from frisket.server.services.project_citations import (
     ProjectCitationsRouteError,
     ProjectCitationsService,
 )
@@ -175,7 +175,7 @@ def test_join_row_sources_find_every_original_document_and_existing_evidence(
     assert payload["ancestry_found"] is True
     assert payload["unavailable_source_count"] == 0
     assert payload["truncated"] is False
-    assert [link["stable_id"] for link in payload["evidence_links"]] == [evidence_id]
+    assert [link["stable_id"] for link in payload["citations"]] == [evidence_id]
     assert {
         (document["sheet_name"], document["column_name"], document["row_id"])
         for document in payload["documents"]
@@ -374,7 +374,7 @@ def test_refreshed_ancestor_marks_downstream_partial_membership_stale(
     assert [document["sheet_name"] for document in payload["documents"]] == [
         "Right documents"
     ]
-    assert payload["evidence_links"] == []
+    assert payload["citations"] == []
 
 
 def test_real_right_side_refresh_marks_join_lineage_incomplete(make_project) -> None:
@@ -472,7 +472,7 @@ def test_mismatched_row_subject_is_not_exposed_as_current_evidence(
     payload = ProjectCitationsService(_Workspace(project)).row_source_documents(  # type: ignore[arg-type]
         "project", row_id=child[1]
     )
-    assert payload["evidence_links"] == []
+    assert payload["citations"] == []
     assert payload["documents"]
 
 
@@ -589,11 +589,11 @@ def test_row_evidence_summaries_are_capped_and_report_truncation(
         )
     finally:
         project.db.set_trace_callback(None)
-    assert len(payload["evidence_links"]) == 64
+    assert len(payload["citations"]) == 64
     assert payload["truncated"] is True
     assert payload["documents"]
     assert any(
-        "FROM EVIDENCE_LINKS" in statement.upper()
+        "FROM CITATIONS" in statement.upper()
         and "SUBJECT_REF_JSON" in statement.upper()
         and "LIMIT 65" in statement.upper()
         for statement in statements

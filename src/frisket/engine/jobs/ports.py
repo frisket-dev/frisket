@@ -84,7 +84,7 @@ class TrustedJobOrganizationUnavailable(enum.Enum):
     """
 
     NO_JOB_ROW = "no_job_row"
-    JOB_ROW_HAS_NO_ORGANIZATION = "job_row_has_no_org"
+    JOB_ROW_HAS_NO_ORGANIZATION = "job_row_has_no_organization"
 
 
 type TrustedJobOrganization = (

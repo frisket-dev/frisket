@@ -9,7 +9,7 @@ pytest.importorskip(
     reason="requires the entities extra: pip install 'frisket-data[entities]'",
 )
 
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

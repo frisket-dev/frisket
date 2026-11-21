@@ -16,7 +16,7 @@ class AdminOverviewTotals(WireModel):
     # FastAPI's response filter for a managed composition's renderer.
     __pydantic_extra__: dict[str, JsonValue] = Field(init=False)
 
-    orgs: int
+    organizations: int
     # These open-team counts are absent from the managed producer. Keeping the
     # annotation non-null with a default makes each optional only by omission:
     # exclude_unset preserves managed bytes and explicit null fails.

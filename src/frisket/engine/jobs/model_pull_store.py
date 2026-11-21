@@ -761,7 +761,7 @@ def _iso(value: datetime | None) -> str | None:
 def to_dto(row: ModelPullRow, *, allow_remove: bool = True) -> dict[str, Any]:
     """The ONE ``frisket.model_pull.v4`` wire shape -- shared by the local
     tier's ``/api/providers/models/pull*`` routes and the team tier's
-    ``/api/org/models/pull*`` routes, so the surfaces cannot drift on field
+    ``/api/organization/models/pull*`` routes, so the surfaces cannot drift on field
     names/types even though they are gated and scoped differently.
 
     The nested ``artifact`` object is null for an Ollama pull and, for an

@@ -420,10 +420,10 @@ class Workspace:
             return None
 
         def open_declared_project(key: ProjectStorageKey, path: Path) -> Project:
-            if key.storage_org_id != declared_organization_id:
+            if key.storage_organization_id != declared_organization_id:
                 raise ValueError(
-                    f"claimed storage identity (org {key.storage_org_id}) does "
-                    f"not belong to this workspace (org {declared_organization_id})"
+                    f"claimed storage identity (organization {key.storage_organization_id}) does "
+                    f"not belong to this workspace (organization {declared_organization_id})"
                 )
             return Project(path, blob_store=factory(key.project_slug))
 
@@ -451,7 +451,7 @@ class Workspace:
                 return Project(path, blob_store=blob_store)
             return self.project_opener(
                 ProjectStorageKey(
-                    storage_org_id=require_opener_storage_organization_id(
+                    storage_organization_id=require_opener_storage_organization_id(
                         self.queue_storage_organization_id
                     ),
                     project_slug=project_id,
@@ -531,7 +531,7 @@ class Workspace:
         project_keys = project.provider_model_keys()
         # Hosted / injected base router: layer project keys over organization secrets.
         # The team edition resolves its organization keys for each request so a key
-        # written through /api/org/keys becomes effective immediately without
+        # written through /api/organization/keys becomes effective immediately without
         # restarting the process.  The resolver is deliberately key-only: its
         # composition boundary fixes the non-secret provenance to org_byok.
         resolved_organization_keys = (

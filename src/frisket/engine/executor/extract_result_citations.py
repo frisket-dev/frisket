@@ -19,7 +19,7 @@ from frisket.engine.executor.extract_citations import (
     _span_is_usable,
     _text_hash,
 )
-from frisket.engine.store.evidence import record_citation
+from frisket.engine.store.citations import record_citation
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -67,8 +67,8 @@ def _captured_transcript(project, sources, *, sheet_id, row_id):
             artifact_id, span_ids = anchor["artifact_id"], anchor["span_ids"]
         elif ref.get("kind") == "run_result" and ref.get("run_id") is not None:
             spans = project.db.execute(
-                "SELECT s.id, s.artifact_id FROM evidence_links l "
-                "JOIN evidence_link_spans ls ON ls.link_id=l.id "
+                "SELECT s.id, s.artifact_id FROM citations l "
+                "JOIN citation_spans ls ON ls.citation_id=l.id "
                 "JOIN source_spans s ON s.id=ls.span_id "
                 # A transcription's segment-list output shares the text output's
                 # evidence. Resolve through the captured producing run, not through

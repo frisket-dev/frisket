@@ -19,7 +19,7 @@ describe('named browser auth operations', () => {
     expect(oidcSignInUrl('work sso', '/device?user_code=A')).toBe(
       '/auth/oidc/work%20sso?returnTo=%2Fdevice%3Fuser_code%3DA',
     );
-    expect(googleOAuthStartUrl()).toBe('/api/org/oauth/google/start');
+    expect(googleOAuthStartUrl()).toBe('/api/organization/oauth/google/start');
   });
 
 });

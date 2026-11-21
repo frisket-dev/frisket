@@ -209,7 +209,7 @@ class InviteService:
                 cx,
                 user_id=actor_user_id,
                 org_id=self._organization_id,
-                action="org_invite_set",
+                action="organization_invite_set",
                 detail=clean_email,
             )
         return {
@@ -251,7 +251,7 @@ class InviteService:
                     cx,
                     user_id=actor_user_id,
                     org_id=self._organization_id,
-                    action="org_invite_revoked",
+                    action="organization_invite_revoked",
                     detail=clean_email,
                 )
             return bool(result.rowcount)

@@ -325,7 +325,7 @@ def test_runtime_filter_retains_full_project_read_api_and_outer_transaction(
 
 
 def test_split_source_range_is_bounded_to_current_cell(docs):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,

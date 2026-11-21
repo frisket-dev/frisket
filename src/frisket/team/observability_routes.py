@@ -320,7 +320,7 @@ def register_observability_routes(
         require_user(request, browser=True, admin=True)
         with engine.connect() as cx:
             totals = {
-                "orgs": int(
+                "organizations": int(
                     cx.execute(
                         sa.select(sa.func.count()).select_from(orgs)
                     ).scalar_one()

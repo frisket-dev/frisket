@@ -428,7 +428,7 @@ def test_operation_key_is_scoped_to_the_authenticated_actor(
     engine = app.state.control_engine
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
         created = _post_project(
@@ -687,7 +687,7 @@ def test_completed_operation_refuses_a_different_lifetime_at_the_same_slug(
     project_id = "replaced-mapping"
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
         original = _post_project(
             client,
@@ -846,7 +846,7 @@ def test_completed_operation_replay_preserves_newer_project_role(
     project_id = "role-replay"
     try:
         owner_id, org_id = _sign_in(client, engine, shared=True)
-        invited = client.post("/api/org/invite", json={"email": _MEMBER_EMAIL})
+        invited = client.post("/api/organization/invite", json={"email": _MEMBER_EMAIL})
         assert invited.status_code == 200, invited.text
 
         client.cookies.clear()

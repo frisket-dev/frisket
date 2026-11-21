@@ -27,7 +27,7 @@ export function useColumnCitations(
   const subscribe = useCallback((listener: () => void) => {
     if (key === null || columnId === null) return () => {};
     return cache.subscribe(gridApi, key, listener, async () => {
-      const payload = await gridApi.getColumnEvidence(sheetId, columnId, { rowIds: [...rowIds] });
+      const payload = await gridApi.getColumnCitations(sheetId, columnId, { rowIds: [...rowIds] });
       const byRow: ColumnCitationsSnapshot['byRow'] = {};
       for (const row of payload.rows) byRow[String(row.row_id)] = row.links;
       return { status: 'ready', byRow };

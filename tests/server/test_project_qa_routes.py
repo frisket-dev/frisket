@@ -139,7 +139,7 @@ def test_empty_cell_citation_remains_current_until_the_cell_changes(client):
 
 
 def test_query_and_prepared_evidence_citations_reopen_current_sources(client):
-    from frisket.engine.store.evidence import (
+    from frisket.engine.store.citations import (
         record_citation,
         record_source_artifact,
         record_source_span,
@@ -220,11 +220,11 @@ def test_query_and_prepared_evidence_citations_reopen_current_sources(client):
         assert result.status_code == 200, result.text
         assert result.json()["status"] == "current"
         assert result.json()["target"] == {
-            "kind": "evidence",
+            "kind": "cell_citation",
             "sheet_id": sheet,
             "row_id": rows[0],
             "column_id": column,
-            "evidence_link_id": link["stable_id"],
+            "citation_id": link["stable_id"],
             "artifact_id": artifact["stable_id"],
             "span_id": span["stable_id"],
             "span_ids": [],

@@ -169,7 +169,7 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
             "bundles"
         ][0]
         assert [field["column_name"] for field in bundle["fields"]] == ["source"]
-        assert {field["column_name"] for field in bundle["evidence"]} == {
+        assert {field["column_name"] for field in bundle["supporting_columns"]} == {
             "Geometry",
             "Search copy",
         }

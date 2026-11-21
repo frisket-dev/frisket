@@ -7,7 +7,7 @@ from typing import Any
 
 from frisket.actions.types import RowSource
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_citation
+from frisket.engine.store.citations import record_citation
 
 
 def propagate_list_item_citations(

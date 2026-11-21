@@ -15,7 +15,7 @@ from frisket.actions.types import ActionRequest
 from frisket.ai.llm import ModelRouter
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import list_cell_citations, resolve_citation_viewer
+from frisket.engine.store.citations import list_cell_citations, resolve_citation_viewer
 
 workspace, pid = sys.argv[1:]
 record = json.loads(Path('web/tests/fixtures/text-citation-live.json').read_text())

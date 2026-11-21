@@ -172,7 +172,7 @@ def _remote_link(argv: list[str]) -> int:
     config_store.save_config(updated)
     default_note = " (default)" if updated["default_server"] == name else ""
     _say(
-        f"Linked '{name}'{default_note}: {url} — org '{ping.get('org')}', "
+        f"Linked '{name}'{default_note}: {url} — organization '{ping.get('organization')}', "
         f"server version {ping.get('server_version')}"
     )
     return EXIT_OK
@@ -205,7 +205,7 @@ def _remote_status(argv: list[str]) -> int:
         _say(f"  ready: NOT ready ({failures})")
     label = ping.get("token_label") or "unlabeled"
     _say(
-        f"  org: {ping.get('org')}   server version: {ping.get('server_version')}   "
+        f"  organization: {ping.get('organization')}   server version: {ping.get('server_version')}   "
         f"token: {label}"
     )
     return EXIT_OK
@@ -377,7 +377,7 @@ def _users_list(argv: list[str]) -> int:
             **user,
             "status": "active",
         }
-        for organization in listed.get("orgs", [])
+        for organization in listed.get("organizations", [])
         for user in organization.get("users", [])
     ] + [
         {
@@ -385,7 +385,7 @@ def _users_list(argv: list[str]) -> int:
             "status": "invited",
             "created_at": None,
         }
-        for organization in listed.get("orgs", [])
+        for organization in listed.get("organizations", [])
         for invite in organization.get("pending_invites", [])
     ]
     if not rows_payload:

@@ -183,34 +183,34 @@ def register_team_models_gateway_routes(
     router = APIRouter(route_class=ModelsGatewayAPIRoute)
 
     @router.get(
-        "/api/org/models-gateway",
+        "/api/organization/models-gateway",
         response_model=ModelsGatewayStatus,
         response_model_exclude_unset=True,
         responses=http_error_responses(401, 403, 500),
     )
-    def get_org_models_gateway(request: Request) -> dict:
+    def get_organization_models_gateway(request: Request) -> dict:
         actor = require_member(request)
         return service.status(can_mutate=member_can_mutate(actor))
 
     @router.post(
-        "/api/org/models-gateway/validate",
+        "/api/organization/models-gateway/validate",
         response_model=ModelsGatewayValidationResponse,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def validate_org_models_gateway(
+    def validate_organization_models_gateway(
         request: Request, body: ModelsGatewayCandidateRequest
     ) -> dict:
         require_owner(request)
         return service.validate_candidate(origin=body.origin, token=body.token)
 
     @router.put(
-        "/api/org/models-gateway",
+        "/api/organization/models-gateway",
         response_model=ModelsGatewayStatus,
         response_model_exclude_unset=True,
         responses=http_error_responses(400, 401, 403, 422, 500),
     )
-    def set_org_models_gateway(
+    def set_organization_models_gateway(
         request: Request, body: ModelsGatewaySaveRequest
     ) -> dict:
         require_owner(request)

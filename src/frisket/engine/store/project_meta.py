@@ -357,15 +357,15 @@ def set_network_policy(
     project: Any,
     *,
     mode: str | None = None,
-    org_default: str | None = None,
-    clear_org_default: bool = False,
+    organization_default: str | None = None,
+    clear_organization_default: bool = False,
 ) -> dict[str, Any]:
     policy = project.network_policy()
     if mode is not None:
         policy["mode"] = mode
-    if org_default is not None:
-        policy["org_default"] = org_default
-    if clear_org_default:
+    if organization_default is not None:
+        policy["org_default"] = organization_default
+    if clear_organization_default:
         policy["org_default"] = None
     return _persist_network_policy(project, policy)
 

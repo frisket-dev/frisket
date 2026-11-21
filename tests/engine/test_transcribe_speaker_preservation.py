@@ -34,7 +34,10 @@ def test_evidence_span_selector_carries_speaker():
 
 
 def _speaker_artifact(project: Project) -> tuple[int, int, int]:
-    from frisket.engine.store.evidence import record_source_artifact, record_source_span
+    from frisket.engine.store.citations import (
+        record_source_artifact,
+        record_source_span,
+    )
 
     sheet = project.add_sheet("data")
     (row_id,) = project.add_rows(sheet, [{}], {})
@@ -66,7 +69,7 @@ def _speaker_artifact(project: Project) -> tuple[int, int, int]:
 
 
 def test_segment_stream_reads_speaker_back(project: Project):
-    from frisket.engine.store.evidence import record_source_span
+    from frisket.engine.store.citations import record_source_span
     from frisket.engine.store.transcript_segment_stream import _segments_for_artifact
 
     _sheet, _row_id, artifact_id = _speaker_artifact(project)

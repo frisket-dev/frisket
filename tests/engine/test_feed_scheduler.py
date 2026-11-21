@@ -757,7 +757,7 @@ def test_hosted_source_poll_handler_enqueues_followups_under_claimed_root(tmp_pa
     p.close()
 
     q = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
-    key = ProjectStorageKey(storage_org_id=23, project_slug="news")
+    key = ProjectStorageKey(storage_organization_id=23, project_slug="news")
     opened: list[tuple[ProjectStorageKey, Path]] = []
 
     def opener(storage_key, path):

@@ -9,6 +9,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import ConsentRegistry, RouteStore
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
 from frisket.upgrades.project.edit_precedence_migration import COPY_PRECEDENCE_TO_DIGEST
+from tests.engine.test_citations_migration import _downgrade_to_pre_citations_schema
 
 
 def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None:
@@ -56,6 +57,9 @@ def test_consents_quote_json_survives_upgrade_as_estimate_json(tmp_path) -> None
                 '{"threshold_usd": 1.0}',
             ),
         )
+        db.commit()
+        _downgrade_to_pre_citations_schema(db)
+        db.execute("BEGIN")
         db.execute(
             "UPDATE meta SET value=? WHERE key=?",
             (COPY_PRECEDENCE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),

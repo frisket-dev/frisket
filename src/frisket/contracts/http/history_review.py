@@ -187,7 +187,7 @@ class ReviewBundleItem(WireModel):
     review_state: str | None
     review_decision: Literal["accept", "reject", "reject_clear", "edit"] | None
     review_note: str | None
-    role: Literal["field", "evidence"]
+    role: Literal["field", "supporting"]
     chore: bool
     changed: bool = False
     applied: bool = False
@@ -220,7 +220,7 @@ class ReviewBundle(WireModel):
     sources: list[ReviewBundleSource] = Field(default_factory=list)
     review_note: str | None = None
     fields: list[ReviewBundleItem]
-    evidence: list[ReviewBundleItem]
+    supporting_columns: list[ReviewBundleItem]
     items: list[ReviewBundleItem]
 
 

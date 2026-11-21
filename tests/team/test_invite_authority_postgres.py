@@ -183,7 +183,7 @@ def test_postgres_demotion_serializes_before_owner_invite_create(
             cx.execute(
                 sa.select(sa.func.count())
                 .select_from(audit_log)
-                .where(audit_log.c.action == "org_invite_set")
+                .where(audit_log.c.action == "organization_invite_set")
             ).scalar_one()
             == 0
         )
@@ -261,7 +261,8 @@ def test_postgres_claim_between_invite_check_and_upsert_rolls_back_shadow(
                 sa.select(sa.func.count())
                 .select_from(audit_log)
                 .where(
-                    audit_log.c.action == "org_invite_set", audit_log.c.detail == email
+                    audit_log.c.action == "organization_invite_set",
+                    audit_log.c.detail == email,
                 )
             ).scalar_one()
             == 0

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
 from frisket.engine.store import Project
-from frisket.engine.store.evidence import record_citation, sheet_cited_column_ids
+from frisket.engine.store.citations import record_citation, sheet_cited_column_ids
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -171,7 +171,7 @@ def test_helper_is_distinct_ascending_and_sheet_scoped(tmp_path: Path) -> None:
         # A different sheet's active link must not leak across sheet_id.
         assert sheet_cited_column_ids(project, ids["other_sheet_id"]) == [
             project.db.execute(
-                "SELECT column_id FROM evidence_links WHERE sheet_id=?",
+                "SELECT column_id FROM citations WHERE sheet_id=?",
                 (ids["other_sheet_id"],),
             ).fetchone()["column_id"]
         ]

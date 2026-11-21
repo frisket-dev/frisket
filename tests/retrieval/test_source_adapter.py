@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.prepared_content import (
     PreparedContentStore,
     PreparedPageDraft,

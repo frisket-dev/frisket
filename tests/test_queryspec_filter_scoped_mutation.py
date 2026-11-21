@@ -267,7 +267,7 @@ def test_filter_scoped_cell_edit_resolves_rowset_before_mutation_and_replay(
 def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
     tmp_path: Path,
 ) -> None:
-    from frisket.engine.store.evidence import record_citation
+    from frisket.engine.store.citations import record_citation
 
     client = _client(tmp_path)
     pid, sheet_id, rows, columns = _seed_project(client)
@@ -309,7 +309,7 @@ def test_filter_scoped_cell_edit_stales_only_exact_prior_evidence(
     statuses = {
         str(row["stable_id"]): (str(row["status"]), row["stale_reason"])
         for row in project.db.execute(
-            "SELECT stable_id, status, stale_reason FROM evidence_links"
+            "SELECT stable_id, status, stale_reason FROM citations"
         ).fetchall()
     }
     assert statuses[exact["stable_id"]] == ("stale", "manual_cell_edit")

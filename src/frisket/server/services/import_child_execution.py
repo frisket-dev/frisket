@@ -39,7 +39,7 @@ def import_execution_context(
     return replace(
         ExecutionCompositionContext.direct(),
         storage_key=ProjectStorageKey(
-            storage_org_id=workspace.queue_storage_organization_id,
+            storage_organization_id=workspace.queue_storage_organization_id,
             project_slug=project_id,
         ),
         edition_snapshot=snapshot,

@@ -17,7 +17,7 @@ from frisket.contracts.http.pdf_packet_splits import (
 from frisket.engine.jobs import HandlerRegistry, Worker
 from frisket.engine.store.cell_writes import BaseCellWrite, replace_base_cells
 from frisket.engine.store.import_sessions import ImportInProgress
-from frisket.engine.store.evidence import record_source_artifact
+from frisket.engine.store.citations import record_source_artifact
 from frisket.engine.store.ocr_word_stream import resolve_ocr_word_stream
 from frisket.engine.store.pdf_split_intake import pdf_split_status
 from frisket.engine.store.prepared_content import (
@@ -789,7 +789,7 @@ def test_durable_source_publication_rolls_back_rows_and_lineage_on_write_failure
     assert project.visible_row_ids(started["sheet_id"]) == []
     for table in (
         "source_artifacts",
-        "evidence_links",
+        "citations",
         "blob_derivations",
         "import_session_rows",
     ):

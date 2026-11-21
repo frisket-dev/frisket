@@ -106,7 +106,7 @@ def test_catalogs_reflect_supported_key_scopes(tmp_path):
         router=ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, use_env_keys=False),
     ) as client:
         pid = client.post("/api/projects", json={"name": "Keys"}).json()["id"]
-        organization = client.get("/api/org/provider-catalog")
+        organization = client.get("/api/organization/provider-catalog")
         assert organization.status_code == 200, organization.text
         assert [p["id"] for p in organization.json()["providers"]] == [
             "anthropic",

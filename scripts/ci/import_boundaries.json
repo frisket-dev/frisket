@@ -61,11 +61,11 @@
     },
     {
       "id": "store-split-leaves-do-not-import-the-project-facade",
-      "comment": "project.py split: extracted store leaf modules must never re-import the Project facade, or the split re-fuses. Wildcard over the store package; the excludes are the facade itself plus the frozen set of pre-split stores that already take a typed Project (evidence, media_clip, artifact_timeline). New leaf modules get no exclusion — they receive the project duck-typed.",
+      "comment": "project.py split: extracted store leaf modules must never re-import the Project facade, or the split re-fuses. Wildcard over the store package; the excludes are the facade itself plus the frozen set of pre-split stores that already take a typed Project (citations, media_clip, artifact_timeline). New leaf modules get no exclusion — they receive the project duck-typed.",
       "modules": ["frisket.engine.store.*"],
       "exclude": [
         "frisket.engine.store.project",
-        "frisket.engine.store.evidence",
+        "frisket.engine.store.citations",
         "frisket.engine.store.media_clip",
         "frisket.engine.store.artifact_timeline"
       ],

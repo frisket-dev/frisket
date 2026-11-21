@@ -994,9 +994,9 @@ def _material_preparation_coverage(
                  OR lower(blob.mime) LIKE 'video/%')
             AND NOT (lower(blob.mime) LIKE 'image/%' AND EXISTS (
               SELECT 1
-              FROM main.evidence_links AS image_link
-              JOIN main.evidence_link_spans AS image_linked
-                ON image_linked.link_id=image_link.id
+              FROM main.citations AS image_link
+              JOIN main.citation_spans AS image_linked
+                ON image_linked.citation_id=image_link.id
               JOIN main.source_spans AS image_span
                 ON image_span.id=image_linked.span_id
               JOIN main.source_artifacts AS pdf_artifact
@@ -1048,7 +1048,7 @@ def _material_preparation_coverage(
                    LIMIT 1
                  ) OR EXISTS (
                    SELECT 1
-                   FROM main.evidence_links AS link
+                   FROM main.citations AS link
                    JOIN main.current_cell_values AS current
                      ON current.row_id=link.row_id
                     AND current.column_id=link.column_id
@@ -1076,12 +1076,12 @@ def _material_preparation_coverage(
                          current.origin_run_id
                      AND EXISTS (
                        SELECT 1
-                       FROM main.evidence_link_spans AS linked_span
+                       FROM main.citation_spans AS linked_span
                        JOIN main.source_spans AS span
                          ON span.id=linked_span.span_id
                        JOIN main.source_artifacts AS artifact
                          ON artifact.id=span.artifact_id
-                       WHERE linked_span.link_id=link.id
+                       WHERE linked_span.citation_id=link.id
                          AND artifact.source_sheet_id=eligible.sheet_id
                          AND artifact.source_row_id=eligible.row_id
                          AND artifact.source_column_id=eligible.column_id

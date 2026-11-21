@@ -32,7 +32,7 @@ export type WorkspaceCommand =
   | { type: 'openRow'; sheetId: string; rowId: string; columnId?: string }
   | { type: 'openColumn'; columnId: string }
   | { type: 'openSource'; sourceId: string }
-  | { type: 'openEvidence'; linkId: string | number; host?: 'modalOrPeek' | 'mainView' }
+  | { type: 'openCitation'; linkId: string | number; host?: 'modalOrPeek' | 'mainView' }
   | { type: 'openMap'; columnId?: string }
   | { type: 'openGraph' }
   | { type: 'openActionRoute'; actionKind?: string }
@@ -78,7 +78,7 @@ export interface GridViewHandle {
 export interface ChromeHandle {
   readonly store: Store<unknown>;
   /** = openCitationViewerForWorkspace */
-  openEvidence(linkId: string | number, host?: 'modalOrPeek' | 'mainView'): void;
+  openCitation(linkId: string | number, host?: 'modalOrPeek' | 'mainView'): void;
   /** = navigation.openMap's inline body */
   openMap(columnId?: string): void;
   /** = openGraphPanel */

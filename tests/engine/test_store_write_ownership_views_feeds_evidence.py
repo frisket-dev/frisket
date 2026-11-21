@@ -16,7 +16,7 @@ import pytest
 
 from frisket.ai.embeddings import EmbeddingStore, make_space_descriptor
 from frisket.ai.embeddings.store import IndexCountUpdate
-from frisket.engine.store import alerts, evidence, extraction_layouts
+from frisket.engine.store import alerts, citations as evidence, extraction_layouts
 from frisket.engine.store.feeds import FeedStore
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.transactions import write_transaction

@@ -235,7 +235,7 @@ def test_equal_pdf_bytes_keep_separate_document_and_page_associations(
         )
         assert ref["column_id"] == sheet["columns"]["Preview"]
         link = project.db.execute(
-            "SELECT row_id, column_id FROM evidence_links WHERE id=?",
+            "SELECT row_id, column_id FROM citations WHERE id=?",
             (ref["evidence_link_id"],),
         ).fetchone()
         assert tuple(link) == (ref["row_id"], ref["column_id"])
@@ -302,7 +302,7 @@ def test_invalid_staged_file_never_publishes_sql(
             "blobs",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
         ):
             assert (
                 project.db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0

@@ -92,12 +92,12 @@ class ProjectAccess(Protocol):
         user_id: int,
         slug: str,
         *,
-        preferred_org_id: int | None = None,
-        scope_org_id: int | None = None,
+        preferred_organization_id: int | None = None,
+        scope_organization_id: int | None = None,
     ) -> dict[str, Any] | None: ...
 
     def can_on_project(
-        self, org_id: int, slug: str, user_id: int, need: str
+        self, organization_id: int, slug: str, user_id: int, need: str
     ) -> bool: ...
 
 
@@ -264,7 +264,7 @@ class _Enforcer:
             "action.code_execution": self._policy_action_code_execution,
             "notification.owner": self._policy_notification_owner,
             "notification.route_test": self._policy_notification_route_test,
-            "org.spend": self._policy_org_spend,
+            "organization.spend": self._policy_organization_spend,
             "review.decision": self._policy_review_decision,
         }
 
@@ -350,8 +350,8 @@ class _Enforcer:
                 project_ctx = self._project_access.resolve_project_for_user_id(
                     int(user["id"]),
                     project_id,
-                    preferred_org_id=int(user["org_id"]),
-                    scope_org_id=_pat_scope(user),
+                    preferred_organization_id=int(user["org_id"]),
+                    scope_organization_id=_pat_scope(user),
                 )
             except ValueError as exc:
                 raise _Conflict("ambiguous project id") from exc
@@ -435,7 +435,7 @@ class _Enforcer:
         ):
             policy.required_project_role = "editor"
 
-    def _policy_org_spend(self, policy: _Evaluation) -> None:
+    def _policy_organization_spend(self, policy: _Evaluation) -> None:
         """Organization-wide usage is an organization-administration view.
 
         With an ``organization_role`` port injected, the organization's own owner/admin see it.
@@ -451,7 +451,9 @@ class _Enforcer:
                 return
         elif policy.user["email"] in self._admin_emails():
             return
-        raise _Forbidden("only an org owner or admin can view org spend")
+        raise _Forbidden(
+            "only an organization owner or admin can view organization spend"
+        )
 
     def _policy_action_code_execution(self, policy: _Evaluation) -> None:
         if self._denied(body=policy.body):

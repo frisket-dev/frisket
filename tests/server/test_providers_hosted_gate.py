@@ -6,7 +6,7 @@ hosted per-organization tenant sub-apps carried /api/providers* and tenant dispa
 capability gates (segs[0] in {spend, admin, projects}) never applied — any
 signed-in user of any organization could read process-env key hints, write key
 material to the organization workspace file (bypassing KEY_MANAGER_ROLES on
-/api/org/keys), and use the validate probe as an unmetered oracle for
+/api/organization/keys), and use the validate probe as an unmetered oracle for
 testing arbitrary keys via the server's egress.
 """
 

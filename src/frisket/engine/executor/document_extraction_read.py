@@ -37,7 +37,7 @@ from frisket.engine.pdf_page_source import (
 from frisket.engine.sandbox.media_sync import run_media_sync
 from frisket.engine.store.blob_backend import BlobStoreError, validate_blob_digest
 from frisket.engine.store.ocr_word_stream import iter_ocr_word_streams
-from frisket.engine.store.evidence import (
+from frisket.engine.store.citations import (
     record_citation,
     record_source_artifact,
     record_source_span,

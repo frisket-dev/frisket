@@ -17,7 +17,7 @@ def _platform_composition_without_execution_offers() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
             edition="cloud",
-            org_id="org-hybrid-catalog",
+            organization_id="org-hybrid-catalog",
             funding=PlatformMetered(),
         ),
         provider=StaticExecutionTargetProvider(env={}),

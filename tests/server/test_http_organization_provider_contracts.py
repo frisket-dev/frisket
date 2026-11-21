@@ -38,39 +38,39 @@ ROUTES = {
     "provider_catalog": RouteTruth(
         "tenant",
         "GET",
-        "/api/org/provider-catalog",
+        "/api/organization/provider-catalog",
         "OrganizationProviderCatalog",
         None,
         frozenset({401, 500}),
     ),
-    "list_org_keys": RouteTruth(
+    "list_organization_keys": RouteTruth(
         "outer",
         "GET",
-        "/api/org/keys",
+        "/api/organization/keys",
         "OrganizationKeyList",
         None,
         frozenset({401, 403, 500}),
     ),
-    "set_org_key": RouteTruth(
+    "set_organization_key": RouteTruth(
         "outer",
         "POST",
-        "/api/org/keys",
+        "/api/organization/keys",
         "OrganizationKeySave",
         "OrganizationKeySaveRequest",
         frozenset({400, 401, 403, 422, 500}),
     ),
-    "validate_org_key": RouteTruth(
+    "validate_organization_key": RouteTruth(
         "outer",
         "POST",
-        "/api/org/keys/validate",
+        "/api/organization/keys/validate",
         "OrganizationKeyValidation",
         "OrganizationKeyValidationRequest",
         frozenset({400, 401, 403, 404, 422, 500, 501}),
     ),
-    "delete_org_key": RouteTruth(
+    "delete_organization_key": RouteTruth(
         "outer",
         "DELETE",
-        "/api/org/keys/{provider}",
+        "/api/organization/keys/{provider}",
         "OrganizationKeyDelete",
         None,
         frozenset({400, 401, 403, 500}),
@@ -80,10 +80,10 @@ ROUTES = {
 OPERATION_IDS = frozenset(
     {
         "tenant.provider_catalog.get",
-        "outer.list_org_keys.get",
-        "outer.set_org_key.post",
-        "outer.validate_org_key.post",
-        "outer.delete_org_key.delete",
+        "outer.list_organization_keys.get",
+        "outer.set_organization_key.post",
+        "outer.validate_organization_key.post",
+        "outer.delete_organization_key.delete",
     }
 )
 
@@ -150,33 +150,33 @@ def test_exact_policy_identity_auth_and_browser_membership_are_declared_once() -
             True,
         ),
         (
-            "outer.list_org_keys.get",
+            "outer.list_organization_keys.get",
             "outer",
-            "list_org_keys",
+            "list_organization_keys",
             "GET",
             "session_or_pat",
             True,
         ),
         (
-            "outer.set_org_key.post",
+            "outer.set_organization_key.post",
             "outer",
-            "set_org_key",
+            "set_organization_key",
             "POST",
             "session_or_pat",
             True,
         ),
         (
-            "outer.validate_org_key.post",
+            "outer.validate_organization_key.post",
             "outer",
-            "validate_org_key",
+            "validate_organization_key",
             "POST",
             "session_or_pat",
             True,
         ),
         (
-            "outer.delete_org_key.delete",
+            "outer.delete_organization_key.delete",
             "outer",
-            "delete_org_key",
+            "delete_organization_key",
             "DELETE",
             "session_or_pat",
             True,
@@ -204,7 +204,7 @@ def test_team_organization_provider_routes_have_one_typed_wire_owner(
         == "frisket.contracts.http.organization_providers"
     )
     assert route.response_model.__name__ == truth.response_model
-    if name == "list_org_keys":
+    if name == "list_organization_keys":
         assert issubclass(route.response_model, RootModel)
     else:
         assert issubclass(route.response_model, WireModel)
@@ -276,12 +276,18 @@ def test_organization_provider_response_dto_accept_reject_matrix(
     catalog = _response_model(
         routes_by_name, "provider_catalog", "OrganizationProviderCatalog"
     )
-    keys = _response_model(routes_by_name, "list_org_keys", "OrganizationKeyList")
-    save = _response_model(routes_by_name, "set_org_key", "OrganizationKeySave")
-    validation = _response_model(
-        routes_by_name, "validate_org_key", "OrganizationKeyValidation"
+    keys = _response_model(
+        routes_by_name, "list_organization_keys", "OrganizationKeyList"
     )
-    delete = _response_model(routes_by_name, "delete_org_key", "OrganizationKeyDelete")
+    save = _response_model(
+        routes_by_name, "set_organization_key", "OrganizationKeySave"
+    )
+    validation = _response_model(
+        routes_by_name, "validate_organization_key", "OrganizationKeyValidation"
+    )
+    delete = _response_model(
+        routes_by_name, "delete_organization_key", "OrganizationKeyDelete"
+    )
 
     full_provider = {
         "id": "openai",
@@ -398,9 +404,13 @@ def test_organization_provider_response_dto_accept_reject_matrix(
 def test_organization_key_request_dto_compatibility_matrix(
     routes_by_name: dict[str, tuple[str, APIRoute]],
 ) -> None:
-    save = _request_model(routes_by_name, "set_org_key", "OrganizationKeySaveRequest")
+    save = _request_model(
+        routes_by_name, "set_organization_key", "OrganizationKeySaveRequest"
+    )
     validation = _request_model(
-        routes_by_name, "validate_org_key", "OrganizationKeyValidationRequest"
+        routes_by_name,
+        "validate_organization_key",
+        "OrganizationKeyValidationRequest",
     )
 
     assert save.model_config.get("strict") in (None, False)
@@ -454,7 +464,9 @@ def test_organization_key_save_wire_keeps_its_public_hint_shape_not_a_cross_edit
 ) -> None:
     """The public route's audited hint response is not a generic save result."""
 
-    model = _response_model(routes_by_name, "set_org_key", "OrganizationKeySave")
+    model = _response_model(
+        routes_by_name, "set_organization_key", "OrganizationKeySave"
+    )
     assert model.model_validate(
         {"provider": "openai", "hint": "…abcd"}
     ).model_dump() == {
@@ -497,35 +509,39 @@ def test_real_team_auth_hint_token_save_delete_and_audit_control(
     _login(owner, app, "owner@example.com")
     _login(member, app, "member@example.com")
 
-    assert TestClient(app).get("/api/org/keys").status_code == 401
-    catalog = owner.get("/api/org/provider-catalog")
+    assert TestClient(app).get("/api/organization/keys").status_code == 401
+    catalog = owner.get("/api/organization/provider-catalog")
     assert catalog.status_code == 200, catalog.text
     providers = {row["id"]: row for row in catalog.json()["providers"]}
     assert providers["exa"]["kind"] == "search"
     assert providers["tavily"]["secret_name"] == "TAVILY_API_KEY"
     candidate = "tvly-f3a-candidate"
     checked = owner.post(
-        "/api/org/keys/validate", json={"provider": "tavily", "key": candidate}
+        "/api/organization/keys/validate", json={"provider": "tavily", "key": candidate}
     )
     assert checked.status_code == 200, checked.text
     token = checked.json()["validation_token"]
     assert isinstance(token, str) and token
     denied = member.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={"provider": "tavily", "key": candidate, "validation_token": token},
     )
     assert denied.status_code == 403, denied.text
     saved = owner.post(
-        "/api/org/keys",
+        "/api/organization/keys",
         json={"provider": "tavily", "key": candidate, "validation_token": token},
     )
     assert saved.status_code == 200, saved.text
     assert saved.json() == {"provider": "tavily", "hint": "...date"}
-    assert member.get("/api/org/keys").json() == [saved.json()]
-    deleted = owner.delete("/api/org/keys/tavily")
+    assert member.get("/api/organization/keys").json() == [saved.json()]
+    deleted = owner.delete("/api/organization/keys/tavily")
     assert deleted.status_code == 200, deleted.text
     assert deleted.json() == {"deleted": True}
     with app.state.control_engine.connect() as cx:
         actions = set(cx.execute(sa.select(audit_log.c.action)).scalars())
-    assert {"org_key_validation_requested", "org_key_set", "org_key_deleted"} <= actions
+    assert {
+        "organization_key_validation_requested",
+        "organization_key_set",
+        "organization_key_deleted",
+    } <= actions
     assert validated == [("tavily", candidate)]

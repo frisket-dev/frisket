@@ -297,7 +297,7 @@ def _locate_bounded(
         **passage,
         "offset_unit": "utf16_code_unit",
         "ranges": ranges,
-        "evidence_link_id": viewer["link"]["stable_id"],
+        "citation_id": viewer["link"]["stable_id"],
         "artifact_stable_id": artifact["stable_id"],
         "recovered": True,
     }

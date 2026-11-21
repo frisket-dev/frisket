@@ -46,7 +46,7 @@ from frisket.engine.executor.project_run_terminalization import (
     terminalize_project_run,
     terminalize_project_run_in_transaction,
 )
-from frisket.engine.store import evidence, extraction_layouts
+from frisket.engine.store import citations, extraction_layouts
 from frisket.engine.store.artifact_timeline import (
     MediaTimelineSpec,
     ensure_media_timeline,
@@ -317,20 +317,20 @@ def _joining_write_cases(project) -> dict[str, Any]:
     _thread_id, turn_id = _seed_qa_turn(project)
     media_blob = project.add_blob(b"media", filename="clip.mp4", mime="video/mp4")
     with write_transaction(project.db):
-        src_art = evidence.record_source_artifact(
+        src_art = citations.record_source_artifact(
             project,
             artifact_kind="av",
             media_type="video/mp4",
             blob_hash=media_blob,
             duration_ms=10_000,
         )
-        derived_art = evidence.record_source_artifact(
+        derived_art = citations.record_source_artifact(
             project,
             artifact_kind="av",
             media_type="video/mp4",
             duration_ms=2_000,
         )
-        span = evidence.record_source_span(
+        span = citations.record_source_span(
             project, artifact_id=int(src_art["id"]), span_kind="page", page_start=1
         )
     emb_ctx, _emb_run_id, emb_model = _seed_embedding_batch_context(project)
@@ -415,7 +415,7 @@ def _joining_write_cases(project) -> dict[str, Any]:
                 precision="exact",
             )
         ),
-        "evidence.record_citation": lambda: evidence.record_citation(
+        "citations.record_citation": lambda: citations.record_citation(
             project,
             subject_kind="cell",
             subject_ref={"kind": "cell", "row_id": _row_id(project)},
@@ -424,8 +424,8 @@ def _joining_write_cases(project) -> dict[str, Any]:
             row_id=_row_id(project),
             column_id=_column_id(project),
         ),
-        "evidence.mark_citations_stale_for_cell_refs": lambda: (
-            evidence.mark_citations_stale_for_cell_refs(
+        "citations.mark_citations_stale_for_cell_refs": lambda: (
+            citations.mark_citations_stale_for_cell_refs(
                 project,
                 [
                     {
@@ -485,8 +485,8 @@ def _joining_write_cases(project) -> dict[str, Any]:
         "callable_invocation.record_in_transaction",
         "artifact_timeline.ensure_media_timeline_in_transaction",
         "artifact_timeline.write_rate1_timeline_segment",
-        "evidence.record_citation",
-        "evidence.mark_citations_stale_for_cell_refs",
+        "citations.record_citation",
+        "citations.mark_citations_stale_for_cell_refs",
         "output_families.create_or_reuse",
         "cells.add_row_with_undo",
         "project_qa.add_citation_in_transaction",
@@ -527,7 +527,7 @@ def _owning_write_cases(project) -> dict[str, Any]:
     alert_id, alert_run_id = _seed_alert_run(project)
     media_blob = project.add_blob(b"own-media", filename="own.mp4", mime="video/mp4")
     with write_transaction(project.db):
-        text_art = evidence.record_source_artifact(
+        text_art = citations.record_source_artifact(
             project, artifact_kind="text", media_type="text/plain"
         )
     lease_token = acquire_lease(
@@ -702,24 +702,24 @@ def test_joined_writes_remain_invisible_until_commit_and_roll_back_with_caller(p
     _thread_id, turn_id = _seed_qa_turn(project)
     media_blob = project.add_blob(b"joined-media", filename="j.mp4", mime="video/mp4")
     with write_transaction(project.db):
-        src_art = evidence.record_source_artifact(
+        src_art = citations.record_source_artifact(
             project,
             artifact_kind="av",
             media_type="video/mp4",
             blob_hash=media_blob,
             duration_ms=10_000,
         )
-        derived_art = evidence.record_source_artifact(
+        derived_art = citations.record_source_artifact(
             project, artifact_kind="av", media_type="video/mp4", duration_ms=2_000
         )
-        span = evidence.record_source_span(
+        span = citations.record_source_span(
             project, artifact_id=int(src_art["id"]), span_kind="page", page_start=1
         )
     emb_ctx, emb_run_id, emb_model = _seed_embedding_batch_context(project)
 
     rows_before = _committed_count(project, "rows")
     cols_before = _committed_count(project, "columns")
-    links_before = _committed_count(project, "evidence_links")
+    links_before = _committed_count(project, "citations")
     calls_before = _committed_count(project, "model_calls")
 
     _open_caller_transaction(project)
@@ -746,7 +746,7 @@ def test_joined_writes_remain_invisible_until_commit_and_roll_back_with_caller(p
         source_end_ms=2_000,
         precision="exact",
     )
-    evidence.record_citation(
+    citations.record_citation(
         project,
         subject_kind="cell",
         subject_ref={"kind": "cell", "row_id": _row_id(project)},
@@ -777,7 +777,7 @@ def test_joined_writes_remain_invisible_until_commit_and_roll_back_with_caller(p
     _assert_caller_work_kept_uncommitted(project)
     assert _committed_count(project, "notification_delivery_attempts") == 0
     assert _committed_count(project, "artifact_timeline_segments") == 0
-    assert _committed_count(project, "evidence_links") == links_before
+    assert _committed_count(project, "citations") == links_before
     assert _committed_count(project, "columns") == cols_before
     assert _committed_count(project, "rows") == rows_before
     assert _committed_count(project, "project_qa_citations") == 0
@@ -791,7 +791,7 @@ def test_joined_writes_remain_invisible_until_commit_and_roll_back_with_caller(p
     assert not project.db.in_transaction
     assert _committed_count(project, "notification_delivery_attempts") == 0
     assert _committed_count(project, "artifact_timeline_segments") == 0
-    assert _committed_count(project, "evidence_links") == links_before
+    assert _committed_count(project, "citations") == links_before
     assert _committed_count(project, "columns") == cols_before
     assert _committed_count(project, "rows") == rows_before
     assert _committed_count(project, "project_qa_citations") == 0

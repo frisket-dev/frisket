@@ -275,7 +275,7 @@ def _runless_handler_case(
         "project_id": untrusted_project_id,
         "action_job": envelope.to_json(),
         CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: ProjectStorageKey(
-            storage_org_id=trusted_organization_id,
+            storage_organization_id=trusted_organization_id,
             project_slug=trusted_project_id,
         ),
     }

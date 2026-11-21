@@ -73,7 +73,7 @@ def _counts(project: Project) -> dict[str, int]:
             "blobs",
             "source_artifacts",
             "source_spans",
-            "evidence_links",
+            "citations",
             "prepared_page_versions",
             "prepared_content_sets",
             "prepared_content_refs",
@@ -177,8 +177,8 @@ def test_pdf_publication_retains_pages_original_and_replays_without_source(
     assert len({ref["artifact_id"] for ref in native_pages}) == 2
     provenance = project.db.execute(
         "SELECT span.artifact_id,span.page_start,span.page_end "
-        "FROM evidence_links link JOIN evidence_link_spans membership "
-        "ON membership.link_id=link.id "
+        "FROM citations link JOIN citation_spans membership "
+        "ON membership.citation_id=link.id "
         "JOIN source_spans span ON span.id=membership.span_id "
         "WHERE link.link_role='source_provenance' ORDER BY link.row_id"
     ).fetchall()
