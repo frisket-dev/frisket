@@ -357,7 +357,7 @@ def test_queued_provider_failure_uses_join_terminal_writer_fence(
 
     from frisket.ai.llm import LLMError
     from frisket.ai.embeddings.backends import REMOTE_EMBED_MODEL
-    from frisket.team.security.secrets import encrypt_secret
+    from frisket.security.secrets import encrypt_secret
 
     class FailingRemoteEmbedder:
         async def embed_batch_async(self, _texts):

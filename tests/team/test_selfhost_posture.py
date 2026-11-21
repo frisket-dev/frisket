@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from frisket.team.security.secrets import using_default_master_key
+from frisket.security.secrets import using_default_master_key
 
 
 ROOT = Path(__file__).resolve().parents[2]

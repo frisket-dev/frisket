@@ -14,6 +14,7 @@ from frisket.engine.jobs import runs as run_jobs
 from frisket.engine.executor.action_reservations import (
     _local_endpoint_bindings_for_runner_spec,
 )
+from frisket import local_provider_config
 from frisket.server import provider_config
 from frisket.server.workspace import Workspace
 
@@ -184,7 +185,7 @@ def test_discovery_does_not_probe_or_rewrite_an_already_configured_origin(
         "outcome": "already_added",
     }
     assert config_path.read_bytes() == before
-    configured = provider_config.load_local_endpoints(tmp_path)
+    configured = local_provider_config.load_local_endpoints(tmp_path)
     assert configured == (existing,)
 
 

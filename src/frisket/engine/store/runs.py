@@ -62,6 +62,50 @@ RESULT_WARNING_MAX_CHARS = 2_000
 
 
 @dataclass(frozen=True)
+class ProjectModelProvenanceSummary:
+    """Run-level model usage and recorded cost aggregates for one project."""
+
+    models: list[dict[str, Any]]
+    touched: list[str]
+    total_cost: float
+
+
+def project_model_provenance_summary(project: Any) -> ProjectModelProvenanceSummary:
+    """Aggregate touched models and recorded cost across a project's runs."""
+    model_rows = project.db.execute(
+        "SELECT model, COUNT(*) AS runs, "
+        "COALESCE(SUM(completed_rows), 0) AS rows, "
+        "COALESCE(SUM(cost_actual), 0) AS cost "
+        "FROM runs GROUP BY model ORDER BY model"
+    ).fetchall()
+    models: list[dict[str, Any]] = []
+    touched: list[str] = []
+    total_cost = 0.0
+    for row in model_rows:
+        model = row["model"]
+        if not model:
+            continue
+        provider = model.split("/", 1)[0] if "/" in model else None
+        cost = float(row["cost"] or 0.0)
+        total_cost += cost
+        touched.append(model)
+        models.append(
+            {
+                "model": model,
+                "provider": provider,
+                "runs": row["runs"],
+                "rows": row["rows"],
+                "cost": cost,
+            }
+        )
+    return ProjectModelProvenanceSummary(
+        models=models,
+        touched=touched,
+        total_cost=total_cost,
+    )
+
+
+@dataclass(frozen=True)
 class RunResumeAdmission:
     """The outcome of one ``begin_run_resume`` attempt plus the pre-resume
     run state it observed under the admission transaction.

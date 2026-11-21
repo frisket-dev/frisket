@@ -773,12 +773,12 @@ def _configured_llm_providers(
     the route has the ``Workspace`` in scope — this function stays
     ``Project``-only otherwise, matching every other call site (tests,
     launcher/global catalog) that has no workspace at all."""
-    from frisket.server import provider_config
+    from frisket import local_provider_config
 
-    keyed = set(provider_config.ENV_VAR)
+    keyed = set(local_provider_config.ENV_VAR)
     providers: set[str] = {
         provider
-        for provider, env_name in provider_config.ENV_VAR.items()
+        for provider, env_name in local_provider_config.ENV_VAR.items()
         if os.environ.get(env_name)
     }
     if effective_router is not None:
@@ -803,7 +803,7 @@ def _configured_llm_providers(
     try:
         root = project.path.parent
         providers.update(
-            k for k in provider_config.resolve_effective_keys(root) if k in keyed
+            k for k in local_provider_config.resolve_effective_keys(root) if k in keyed
         )
     except Exception:
         pass

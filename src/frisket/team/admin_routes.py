@@ -44,7 +44,7 @@ from frisket.team.schema import (
     record_audit,
     users,
 )
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 
 # Invited accounts join by opening the printed link; there is no email
 # transport behind this surface, so the link lives as long as the invite

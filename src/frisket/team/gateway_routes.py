@@ -29,7 +29,7 @@ from frisket.server.services.models_gateway import ModelsGatewayService
 from frisket.team.control_plane import control_plane_engine
 from frisket.team.db import atomic_upsert, locked_transaction
 from frisket.team.schema import org_env_vars
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 
 
 def resolve_team_models_gateway(

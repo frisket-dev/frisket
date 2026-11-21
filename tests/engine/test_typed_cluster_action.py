@@ -63,7 +63,7 @@ def test_remote_cluster_exact_consent_accounting_and_cache(
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project, sheet, source, execute = cluster_project
     router, adapter = _remote_embedding_router()
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     with write_transaction(project.db):
         project.set_provider_key(

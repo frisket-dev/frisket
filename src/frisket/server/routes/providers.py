@@ -13,7 +13,10 @@ import os
 
 from fastapi import FastAPI, HTTPException
 
-from frisket.ai.llm.endpoint_config import LocalModelEndpointConfig
+from frisket.ai.llm.endpoint_config import (
+    LocalModelEndpointConfig,
+    resolve_env_local_endpoint,
+)
 from frisket.contracts.http.local_providers import (
     ArtifactPullRequest,
     ArtifactUninstallRequest,
@@ -39,6 +42,11 @@ from frisket.engine.jobs.model_pull import (
     schedule_model_pull,
 )
 from frisket.engine.jobs.queue import SERVER_SCOPED_JOB_PAYLOAD_KEY
+from frisket.local_provider_config import (
+    InvalidProviderConfigError,
+    load_local_provider_keys,
+    resolve_local_endpoints,
+)
 from frisket.server import provider_config
 from frisket.server.route_errors import (
     RouteError,
@@ -169,7 +177,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 edge_auth=body.edge_auth,
                 pull_enabled=body.pull_enabled,
             )
-        except (provider_config.InvalidProviderConfigError, ValueError) as exc:
+        except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
         return provider_config.build_provider_catalog(root, dict(os.environ))
 
@@ -181,7 +189,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
     def discover_local_endpoints() -> LocalEndpointDiscoveryResponse:
         try:
             return provider_config.discover_local_endpoints(root)
-        except (provider_config.InvalidProviderConfigError, ValueError) as exc:
+        except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
 
     @app.patch(
@@ -194,9 +202,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         endpoint_id: str,
         body: LocalEndpointPatchRequest,
     ) -> LocalProviderCatalog:
-        env_endpoint, _notes = provider_config.resolve_env_local_endpoint(
-            dict(os.environ)
-        )
+        env_endpoint, _notes = resolve_env_local_endpoint(dict(os.environ))
         if env_endpoint is not None and env_endpoint.endpoint_id == endpoint_id:
             raise HTTPException(
                 409,
@@ -210,7 +216,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
             raise HTTPException(
                 404, f"unknown local model endpoint: {endpoint_id}"
             ) from exc
-        except (provider_config.InvalidProviderConfigError, ValueError) as exc:
+        except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
         return provider_config.build_provider_catalog(root, dict(os.environ))
 
@@ -221,9 +227,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         responses=http_error_responses(400, 404, 409, 500),
     )
     def delete_local_endpoint(endpoint_id: str) -> LocalProviderCatalog:
-        env_endpoint, _notes = provider_config.resolve_env_local_endpoint(
-            dict(os.environ)
-        )
+        env_endpoint, _notes = resolve_env_local_endpoint(dict(os.environ))
         if env_endpoint is not None and env_endpoint.endpoint_id == endpoint_id:
             raise HTTPException(
                 409,
@@ -234,7 +238,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
                 root,
                 endpoint_id,
             )
-        except (provider_config.InvalidProviderConfigError, ValueError) as exc:
+        except (InvalidProviderConfigError, ValueError) as exc:
             raise HTTPException(400, str(exc)) from exc
         if not deleted:
             raise HTTPException(404, f"unknown local model endpoint: {endpoint_id}")
@@ -303,7 +307,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         env: dict, endpoint_id: str
     ) -> LocalModelEndpointConfig:
         """Validate the explicitly selected daemon before enqueueing its pull."""
-        local_endpoints, _notes = provider_config.resolve_local_endpoints(root, env)
+        local_endpoints, _notes = resolve_local_endpoints(root, env)
         local_endpoint = next(
             (
                 endpoint
@@ -588,7 +592,7 @@ def register_provider_config_routes(app: FastAPI, *, workspace: Workspace) -> No
         key = (
             (body.key or "").strip()
             or env.get(provider_config.ENV_VAR[normalized])
-            or provider_config.load_local_provider_keys(root).get(normalized)
+            or load_local_provider_keys(root).get(normalized)
         )
         if not key:
             return ProviderValidationResponse(

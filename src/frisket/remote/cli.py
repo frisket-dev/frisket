@@ -613,7 +613,7 @@ def _secrets_push(argv: list[str]) -> int:
         if not env_file.is_file():
             raise UsageError(f"env file not found: {env_file}")
 
-    from frisket.team.security.secrets import key_hint
+    from frisket.security.secrets import key_hint
 
     _, _, client = _client_for(args.server)
     providers = _known_providers(client)

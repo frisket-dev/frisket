@@ -20,7 +20,7 @@ from frisket.ai.embeddings import build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.ai.llm import ModelRouter
 from frisket.server.app import create_app
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from helpers import replace_test_source_cell
 from frisket.engine.store.transactions import write_transaction
 

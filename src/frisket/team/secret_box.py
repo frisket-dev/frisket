@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-from frisket.team.security.secrets import (
+from frisket.security.secrets import (
     decrypt_secret,
     encrypt_secret,
     load_or_create_secret_key,

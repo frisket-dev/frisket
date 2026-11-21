@@ -25,7 +25,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from frisket.contracts.http.oauth_connections import OAuthConnectionList
 from frisket.server.route_errors import http_error_responses
 from frisket.team.auth_challenges import AuthChallengeStore
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 from frisket.team.config import TeamConfig
 from frisket.team.schema import oauth_connections, record_audit
 from frisket.team.secret_box import TeamSecretBox

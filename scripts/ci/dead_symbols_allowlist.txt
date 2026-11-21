@@ -187,6 +187,6 @@ src/frisket/table_import/reader.py::_RawRows  unreferenced
 src/frisket/team/bootstrap.py::init_identity_schema  frisket-cloud
 src/frisket/team/identity_store.py::IdentityStore.has_project_access_for_email  frisket-cloud
 src/frisket/team/schema.py::_positive_int_env  frisket-cloud
-src/frisket/team/security/secrets.py::using_default_master_key  frisket-cloud
+src/frisket/security/secrets.py::using_default_master_key  frisket-cloud
 src/frisket/testing.py::<module>  frisket-cloud
 src/frisket/testing.py::llm_cache_path  test-only

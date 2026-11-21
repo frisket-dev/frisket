@@ -23,7 +23,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from frisket.team.security.secrets import decrypt_secret, encrypt_secret
+from frisket.security.secrets import decrypt_secret, encrypt_secret
 from frisket.authoring.workbench.plugin_subprocess import (
     _missing_project_plugin_secrets,
     _project_plugin_secrets,

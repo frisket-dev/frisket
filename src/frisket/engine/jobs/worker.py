@@ -151,19 +151,6 @@ def _non_retryable_safe_error(exc: NonRetryableJobError) -> SafeError:
     )
 
 
-def _default_table_analysis_runner(
-    project: Any,
-    project_id: str,
-    draft_id: str,
-    settings_revision: int,
-) -> object:
-    """Enter the server-owned scanner with an already trusted project."""
-
-    from frisket.server.services.table_imports import run_table_analysis
-
-    return run_table_analysis(project, project_id, draft_id, settings_revision)
-
-
 class HandlerRegistry:
     """The ONE registration surface for a worker composition.
 
@@ -543,7 +530,7 @@ def register_production_handlers(
     )
     import_table_analysis_registration = register_import_table_analysis_handler(
         registry,
-        run_analysis=run_table_analysis or _default_table_analysis_runner,
+        run_analysis=run_table_analysis,
         workspace_root=root,
         require_storage_identity=strict_cloud_storage,
         workspace_root_storage_organization_id=workspace_root_storage_organization_id,

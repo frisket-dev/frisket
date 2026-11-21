@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from frisket import local_provider_config
 from frisket.server import provider_config
 
 pytestmark = pytest.mark.realtime
@@ -84,7 +85,7 @@ def test_every_mutation_refuses_invalid_config_without_changing_bytes(
     path.write_bytes(original)
 
     with pytest.raises(
-        provider_config.InvalidProviderConfigError,
+        local_provider_config.InvalidProviderConfigError,
         match="cannot safely update invalid provider settings",
     ):
         mutation(root)
@@ -100,7 +101,7 @@ def test_mutation_refuses_to_publish_an_invalid_postimage(tmp_path: Path) -> Non
         return None, True
 
     with pytest.raises(
-        provider_config.InvalidProviderConfigError,
+        local_provider_config.InvalidProviderConfigError,
         match="every value a non-empty string",
     ):
         provider_config._mutate_config_file(root, publish_invalid)

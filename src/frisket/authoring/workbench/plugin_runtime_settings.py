@@ -19,7 +19,7 @@ from frisket.authoring.workbench.plugin_runtime_status import (
 )
 from frisket.contracts.plugin import LoadedPluginManifest
 from frisket.engine.store import Project
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 
 
 def list_workbench_plugin_env_vars(

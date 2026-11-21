@@ -506,11 +506,17 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     control_database_url = os.environ.get("FRISKET_DATABASE_URL")
     registration_options = {}
     team_database_url = os.environ.get("FRISKET_TEAM_DATABASE_URL")
-    if not hosted and database_url and team_database_url:
-        from frisket.team.worker_ports import team_worker_ports_from_env
+    if not hosted and ((database_url and team_database_url) or control_database_url):
+        from frisket.team.worker_ports import (
+            open_control_plane_worker_ports,
+            team_worker_ports_from_env,
+        )
 
-        registration_options["worker_ports"] = team_worker_ports_from_env()
-        control_database_url = team_database_url
+        if database_url and team_database_url:
+            registration_options["worker_ports"] = team_worker_ports_from_env()
+            control_database_url = team_database_url
+        else:
+            registration_options["worker_ports"] = open_control_plane_worker_ports()
     embedding_runtime = None
     if not hosted:
         from frisket.ai.embeddings.runtime import EmbeddingRuntime
@@ -520,6 +526,9 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         embedding_runtime = EmbeddingRuntime()
         registration_options["embedding_runtime"] = embedding_runtime
         registration_options["prepare_enclosures_for_search"] = True
+        registration_options["run_table_analysis"] = _load(
+            "frisket.server.services.table_imports:run_table_analysis"
+        )
     cloud_client = None
     if not hosted and not database_url:
         from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore

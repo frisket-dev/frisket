@@ -21,7 +21,7 @@ import pytest
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store import Project
 from frisket.project_settings import write_project_mcp_servers
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from executor_harness import run_action_with_confirmation
 
 

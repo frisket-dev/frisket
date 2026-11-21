@@ -11,7 +11,8 @@ from frisket.execution.definitions import (
     MODELS_GATEWAY_TOKEN_ENV,
     MODELS_GATEWAY_URL_ENV,
 )
-from frisket.server.provider_config import ENV_VAR, KEY_PROVIDERS, provider_key_status
+from frisket.local_provider_config import ENV_VAR, KEY_PROVIDERS
+from frisket.server.provider_config import provider_key_status
 from frisket.server.services.selector_choices_capabilities import (
     SelectorCapabilities,
     SelectorModelsGatewayStatusFor,

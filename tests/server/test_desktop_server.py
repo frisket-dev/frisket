@@ -364,7 +364,7 @@ def test_desktop_upgrade_keeps_existing_project_secrets_key(tmp_path, monkeypatc
     from frisket.ai.llm import pricing_refresh
     from frisket.operability import structured_logging
     from frisket.server import app as app_module, desktop, static_serving
-    from frisket.team.security.secrets import decrypt_secret, encrypt_secret
+    from frisket.security.secrets import decrypt_secret, encrypt_secret
 
     workspace = tmp_path / "workspace"
     profile_dir = tmp_path / "profile"

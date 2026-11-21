@@ -559,7 +559,7 @@ The four platform jobs' own inputs, stated in full beside each workflow's
   modules that branch on the OS for process trees, file locking, reserved names
   and app paths (`recipe_fence_posture`, `retrieval/native`,
   `operability/diagnostics`, `cloud_connection`, `project_identity`,
-  `server/workspace`, `team/security/secrets`, `ops/ytdlp`,
+  `server/workspace`, `security/secrets`, `ops/ytdlp`,
   `ops/media_metadata`, `ops/integrations/mcp_stdio`);
 - any added or removed line under `src/` that branches on the OS or starts,
   signals or confines a process (`sys.platform`, `os.name`, `subprocess`,

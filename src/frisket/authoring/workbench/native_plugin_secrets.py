@@ -15,7 +15,7 @@ from frisket.authoring.workbench.plugin_subprocess import (
     _required_plugin_env_names,
     is_reserved_core_secret_name,
 )
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 
 
 def required_plugin_secret_names(binding: RuntimeBindingSpec) -> tuple[str, ...]:

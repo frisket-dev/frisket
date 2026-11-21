@@ -23,6 +23,7 @@ from fastapi.testclient import TestClient
 from frisket.ai.llm.model_catalog import MODEL_ENTRIES
 from frisket.ai.llm.pricing import model_price
 from frisket.project_settings import read_project_settings
+from frisket import local_provider_config
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.services.project_model_routes import (
@@ -73,7 +74,7 @@ def test_env_var_wins_over_file_key(tmp_path, monkeypatch) -> None:
     provider_config.save_local_provider_key(root, "openai", "sk-file-loser")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-env-winner")
 
-    effective = provider_config.resolve_effective_keys(root, env=dict(os.environ))
+    effective = local_provider_config.resolve_effective_keys(root, env=dict(os.environ))
     # env-owned provider is dropped from the file layer so the router falls back
     # to the environment for it (env wins on conflict).
     assert "openai" not in effective
@@ -92,11 +93,11 @@ def test_search_keys_and_preference_are_workspace_scoped(tmp_path) -> None:
     provider_config.save_local_provider_key(root, "tavily", "tvly-file-key")
     assert provider_config.save_search_provider(root, "tavily") == "tavily"
 
-    assert provider_config.load_search_provider(root) == "tavily"
-    assert provider_config.resolve_search_credentials(
+    assert local_provider_config.load_search_provider(root) == "tavily"
+    assert local_provider_config.resolve_search_credentials(
         root, {"EXA_API_KEY": "exa-env-key"}
     ) == {"exa": "exa-env-key", "tavily": "tvly-file-key"}
-    assert provider_config.load_local_provider_keys(root) == {
+    assert local_provider_config.load_local_provider_keys(root) == {
         "exa": "exa-file-key",
         "tavily": "tvly-file-key",
     }

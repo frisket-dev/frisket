@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from frisket.engine.store import Project
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from tests.engine.test_reduce_effect_checkpoint import (
     _CountingSummaryAdapter,
     _action,

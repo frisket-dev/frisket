@@ -17,7 +17,7 @@ from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from test_native_pdf_text_action import _pdf_bytes, _request, _source
 from test_document_text_authority import _project_with_selection, _OTHER_BLOB
 from helpers import run_writer_authority_fixture

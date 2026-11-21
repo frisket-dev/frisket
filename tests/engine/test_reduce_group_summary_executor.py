@@ -803,7 +803,7 @@ def test_reduce_group_summary_refuses_an_exhausted_project_key_before_provider_c
     once the key is exhausted, even a confirmed grouped reduce refuses before
     its first per-group request."""
     from frisket.ai.llm import ModelRouter
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     with case_env(CASES[0], tmp_path, monkeypatch) as env:
         with write_transaction(env.project.db):

@@ -57,7 +57,7 @@ from frisket.engine.runner import (
 from frisket.engine.runner.validation import (
     TrustedConsentRefused,
 )
-from frisket.server.provider_config import KEY_PROVIDERS
+from frisket.local_provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
 from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore

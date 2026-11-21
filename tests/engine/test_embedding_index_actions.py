@@ -18,7 +18,7 @@ from frisket.actions.system import root_action_catalog, validate_root_action
 from frisket.ai.embeddings import EmbeddingStore, build_batch_result
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.store.runs import RunResultStore
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from helpers import replace_test_source_cell, write_claimless_test_model_calls
 from unified_embedding_probe import UnifiedEmbeddingProbe
 from frisket.engine.store.transactions import write_transaction

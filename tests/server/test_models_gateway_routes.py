@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from frisket import local_provider_config
 from frisket.server import provider_config
 from frisket.server.app import create_app
 from frisket.server.routes.models_gateway import register_models_gateway_routes
@@ -142,7 +143,7 @@ def test_gateway_save_pins_routes_after_validation_before_persisting(
     events = []
 
     def pin_routes() -> None:
-        assert provider_config.resolve_models_gateway(tmp_path, env={}) is None
+        assert local_provider_config.resolve_models_gateway(tmp_path, env={}) is None
         events.append("pin")
 
     client = _client(
@@ -167,7 +168,7 @@ def test_gateway_save_pins_routes_after_validation_before_persisting(
 
     assert response.status_code == 200
     assert events == ["pin"]
-    assert provider_config.resolve_models_gateway(tmp_path, env={}) is not None
+    assert local_provider_config.resolve_models_gateway(tmp_path, env={}) is not None
 
 
 def test_solo_app_wires_gateway_save_to_project_route_pinning(
@@ -255,7 +256,7 @@ def test_gateway_save_reports_route_pinning_refusal_without_persisting(
             "message": "Fix the project target configuration and retry.",
         }
     }
-    preserved = provider_config.resolve_models_gateway(tmp_path, env={})
+    preserved = local_provider_config.resolve_models_gateway(tmp_path, env={})
     assert preserved is not None
     assert preserved.origin == "https://existing.example.test"
     assert preserved.token == "existing-token"
@@ -285,7 +286,7 @@ def test_failed_validation_preserves_previous_config(tmp_path, monkeypatch) -> N
         "engines": [],
     }
     assert TOKEN not in response.text
-    resolved = provider_config.resolve_models_gateway(tmp_path, env={})
+    resolved = local_provider_config.resolve_models_gateway(tmp_path, env={})
     assert resolved is not None
     assert resolved.origin == "https://working.example.test"
     assert resolved.token == "working-token"
@@ -371,7 +372,7 @@ def test_receipt_binds_scope_normalized_origin_token_and_protocol(
             json={**changed, "validation_token": receipt},
         )
         assert response.status_code == 400
-    assert provider_config.resolve_models_gateway(tmp_path, env={}) is None
+    assert local_provider_config.resolve_models_gateway(tmp_path, env={}) is None
 
 
 def test_passive_status_never_probes_and_recheck_bypasses_cached_probe(

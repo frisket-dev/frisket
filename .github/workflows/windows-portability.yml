@@ -75,7 +75,7 @@ jobs:
           # the native engine workers, the CLI and its signal handling, the
           # model-server environment, and the modules that branch on the OS
           # for process trees, file locking, reserved names and app paths.
-          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|team/security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
+          platform_code='src/frisket/(runtime|engine/sandbox|engine/_workers|cli|data/model-server)/|src/frisket/(engine/recipe_fence_posture|retrieval/native|operability/diagnostics|cloud_connection|project_identity|server/workspace|security/secrets|ops/ytdlp|ops/media_metadata|ops/integrations/mcp_stdio)\.py$'
           # A changed Python line anywhere under src/ that branches on the OS
           # or starts, signals or confines a process, the same in all four.
           platform_lines='sys\.platform|os\.name|platform\.(system|machine)\(|(import|from) +(fcntl|msvcrt|winreg|_winapi|termios|pwd|grp|resource)\b|creationflags|start_new_session|preexec_fn|os\.(kill|killpg|setsid|setpgrp|fork|getpgid)\(|signal\.(SIG|signal\()|subprocess\.(Popen|run|call|check_call|check_output)\(|create_subprocess_|multiprocessing|ctypes'
@@ -149,7 +149,7 @@ jobs:
       - run: uv sync --dev --locked --extra asr
       - name: Import Windows-sensitive package graph
         run: >-
-          uv run --no-sync python -c "import av; import cv2; import huggingface_hub; import onnx_asr; import onnxruntime; import rapidocr; import frisket; import frisket.cli; import frisket.operability.doctor.embeddings; import frisket.engine.jobs.queue; import frisket.engine.jobs.worker; import frisket.sdk.ops.transcribe_engines; import frisket.project_identity; import frisket.authoring.action_registry; import frisket.engine.sandbox; import frisket.engine.sandbox.broker; import frisket.engine.sandbox.shim; import frisket.team.security.secrets; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace; import frisket.team.app; import frisket.team.team_bootstrap; import frisket.ops.ytdlp"
+          uv run --no-sync python -c "import av; import cv2; import huggingface_hub; import onnx_asr; import onnxruntime; import rapidocr; import frisket; import frisket.cli; import frisket.operability.doctor.embeddings; import frisket.engine.jobs.queue; import frisket.engine.jobs.worker; import frisket.sdk.ops.transcribe_engines; import frisket.project_identity; import frisket.authoring.action_registry; import frisket.engine.sandbox; import frisket.engine.sandbox.broker; import frisket.engine.sandbox.shim; import frisket.security.secrets; import frisket.server.app; import frisket.server.services.projects; import frisket.server.workspace; import frisket.team.app; import frisket.team.team_bootstrap; import frisket.ops.ytdlp"
       - name: Run RapidOCR portable worker and session contracts
         run: >-
           uv run --no-sync pytest -q tests/engine/test_rapidocr_worker.py tests/engine/test_rapidocr_session.py

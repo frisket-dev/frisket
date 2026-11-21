@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.team.security.secrets import decrypt_secret, encrypt_secret, key_hint
+from frisket.security.secrets import decrypt_secret, encrypt_secret, key_hint
 from frisket.engine.store.credentials import ProviderKeyDecryptError
 from frisket.engine.store.transactions import write_transaction
 

@@ -210,7 +210,7 @@ def _build(tmp_path: Path, composition: _Composition) -> tuple[Workspace, Projec
 
     project = Project.create(root / f"{composition.label}.frisket", name="p")
     if composition.project_key:
-        from frisket.team.security.secrets import encrypt_secret, key_hint
+        from frisket.security.secrets import encrypt_secret, key_hint
 
         with write_transaction(project.db):
             project.set_provider_key(

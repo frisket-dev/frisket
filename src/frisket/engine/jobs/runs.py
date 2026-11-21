@@ -45,8 +45,16 @@ from frisket.ai.llm import (
 )
 from frisket.ai.llm.endpoint_config import (
     LocalModelEndpointConfig,
+    resolve_env_local_endpoint,
 )
 from frisket.ai.models.gateway_config import ModelsGatewayConnection
+from frisket.local_provider_config import (
+    configured_search_service,
+    resolve_effective_keys,
+    resolve_local_endpoints,
+    resolve_models_gateway,
+    resolve_search_credentials,
+)
 from frisket.ops.base import persisted_action_program_invocation_halt
 from frisket.engine.runner import MapRunner, RunProgress
 from frisket.engine.sandbox.shim import SandboxTeardownError
@@ -301,9 +309,6 @@ def _organization_local_server_env_bundle(
     remain excluded for organization runs exactly as before; this is ONLY the
     local-model endpoint bundle crossing the ``use_env_keys=False`` gate.
     """
-    # Config loading only — no HTTP machinery rides in through this import.
-    from frisket.server.provider_config import resolve_env_local_endpoint
-
     config, _notes = resolve_env_local_endpoint(os.environ if env is None else env)
     return config
 
@@ -319,8 +324,6 @@ def resolve_run_local_endpoints(
     if org_id is not None:
         config = _organization_local_server_env_bundle(env)
         return (config,) if config is not None else ()
-    from frisket.server.provider_config import resolve_local_endpoints
-
     configs, _notes = resolve_local_endpoints(root, env)
     return configs
 
@@ -363,8 +366,6 @@ def resolve_run_models_gateway(
             org_id=int(trusted_organization_id),
             control_database_url=control_database_url,
         )
-    from frisket.server.provider_config import resolve_models_gateway
-
     return resolve_models_gateway(root, env)
 
 
@@ -385,7 +386,7 @@ def resolve_run_keys(
     server process already gives the copilot/previews, without which a run
     fails per-row with the missing-key remediation while the copilot works.
     """
-    if org_id is not None and control_database_url:
+    if org_id is not None and control_database_url and credentials is not None:
         keys = dict(
             credentials.provider_keys(
                 org_id=int(org_id),
@@ -400,9 +401,6 @@ def resolve_run_keys(
         # paid operator credential look like the zero-rated lane when a
         # malformed hosted worker omitted its control DB.
         return None, "local"
-    # Config loading only — no HTTP machinery rides in through this import.
-    from frisket.server.provider_config import resolve_effective_keys
-
     keys = resolve_effective_keys(workspace_root)
     return (keys or None), "local"
 
@@ -430,8 +428,6 @@ def resolve_run_search_credentials(
         )
     if not allow_local_credentials:
         return {}
-    from frisket.server.provider_config import resolve_search_credentials
-
     return resolve_search_credentials(workspace_root)
 
 
@@ -443,8 +439,6 @@ def build_run_search_service(
     control_database_url: str | None,
     allow_local_credentials: bool,
 ) -> Any:
-    from frisket.server.provider_config import configured_search_service
-
     return configured_search_service(
         workspace_root,
         credential_source="org_byok"

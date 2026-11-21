@@ -12,6 +12,7 @@ from frisket.contracts.http.paging import offset_page_meta
 from frisket.server.run_status import public_run_progress
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
+from frisket.engine.store.runs import project_model_provenance_summary
 
 
 def _run_summary(row: Any) -> dict[str, Any]:
@@ -51,32 +52,10 @@ def provenance_manifest_payload(
     Aggregates remain whole-project summaries. Recent run and receipt detail
     rows are page-bounded because those lists grow with long-lived projects.
     """
-    model_rows = p.db.execute(
-        "SELECT model, COUNT(*) AS runs, "
-        "COALESCE(SUM(completed_rows), 0) AS rows, "
-        "COALESCE(SUM(cost_actual), 0) AS cost "
-        "FROM runs GROUP BY model ORDER BY model"
-    ).fetchall()
-    models = []
-    touched = []
-    total_cost = 0.0
-    for row in model_rows:
-        model = row["model"]
-        if not model:
-            continue
-        provider = model.split("/", 1)[0] if "/" in model else None
-        cost = float(row["cost"] or 0.0)
-        total_cost += cost
-        touched.append(model)
-        models.append(
-            {
-                "model": model,
-                "provider": provider,
-                "runs": row["runs"],
-                "rows": row["rows"],
-                "cost": cost,
-            }
-        )
+    model_summary = project_model_provenance_summary(p)
+    models = model_summary.models
+    touched = model_summary.touched
+    total_cost = model_summary.total_cost
 
     action_kind_rows = p.db.execute(
         "SELECT action_kind, COUNT(*) AS runs, "

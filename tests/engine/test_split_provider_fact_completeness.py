@@ -204,7 +204,7 @@ def test_exhausted_structured_repair_still_persists_paid_wire_facts(
     from frisket.ai.llm import LLMResponse, ModelRouter
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.runs import RunResultStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     secret = "structured-exhaustion-project-key"
 
@@ -284,7 +284,7 @@ def test_output_limited_structured_response_persists_one_neutral_wire_fact(
     from frisket.ai.llm import LLMResponse, ModelRouter
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.runs import RunResultStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     secret = "output-limit-project-key"
     provider_reason = "max_tokens"
@@ -370,7 +370,7 @@ def test_paid_invalid_wire_survives_transport_failure_during_repair(
     from frisket.ai.llm import LLMError, LLMResponse, ModelRouter
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.runs import RunResultStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     secret = "repair-transport-failure-project-key"
 

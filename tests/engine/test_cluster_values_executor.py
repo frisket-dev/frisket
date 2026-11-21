@@ -534,7 +534,7 @@ def test_semantic_cluster_refuses_an_exhausted_project_key_before_embedding(
     """cluster.values bypasses MapRunner, but its semantic warm can call the
     project's OpenAI embedding key.  An exhausted cap must stop that pre-txn
     warm before any text leaves the process."""
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-exhausted")
@@ -571,7 +571,7 @@ def test_semantic_cluster_persists_remote_fact_and_receipts_the_provider_cost(
     """The semantic warm is a paid provider effect, not a local clustering
     detail.  Its durable fact, project-key accrual, and completed receipt must
     all describe the same remote call and amount."""
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-provider-fact")
@@ -689,7 +689,7 @@ def test_semantic_cluster_replay_and_vector_cache_do_not_double_spend(
     action over the same content uses the vector cache. Neither is a new
     provider effect, even after the first call has exhausted the key's cap."""
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-cache-accounting")
@@ -785,7 +785,7 @@ def test_semantic_cluster_sidecar_commit_failure_reconciles_without_second_call(
     """
     from frisket.engine.executor.actions import run_action_spec
     from frisket.retrieval.store import RetrievalStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = Project.create(
@@ -933,7 +933,7 @@ def test_semantic_cluster_retry_matches_checkpoints_to_stable_batches(
     from frisket.engine.executor.actions import run_action_spec
     from frisket.retrieval.sources import input_hash, representation_id
     from frisket.retrieval.store import CachedRepresentation, RetrievalStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-stable-batches")
@@ -1051,7 +1051,7 @@ def test_semantic_cluster_terminal_receipt_and_context_transfer_are_atomic(
     from frisket.engine.executor.actions import run_action_spec
     from frisket.engine.store.output_claims import OutputColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
-    from frisket.team.security.secrets import encrypt_secret, key_hint
+    from frisket.security.secrets import encrypt_secret, key_hint
 
     monkeypatch.setenv("FRISKET_DISABLE_LOCAL_EMBED", "1")
     project = make_project("cluster-values-receipt-atomic")

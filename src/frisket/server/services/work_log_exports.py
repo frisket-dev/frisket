@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from frisket.server.exports.work_log import (
+from frisket.exports.work_log import (
     build_work_log_payload,
     simple_text_pdf,
     work_log_html,

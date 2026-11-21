@@ -19,8 +19,12 @@ from frisket.ai.models.gateway_config import (
 )
 from frisket.contracts.http.models_gateway import ModelsGatewayEngineCapability
 from frisket.redaction import redact_text
+from frisket.local_provider_config import (
+    InvalidProviderConfigError,
+    resolve_models_gateway,
+)
 from frisket.server import provider_config
-from frisket.team.security.secrets import key_hint
+from frisket.security.secrets import key_hint
 
 MODELS_GATEWAY_PROBE_TIMEOUT_SECONDS = 10.0
 MODELS_GATEWAY_PROBE_CONNECT_TIMEOUT_SECONDS = 2.0
@@ -269,9 +273,7 @@ class ModelsGatewayService:
         return cls(
             authority="workspace",
             receipt_scope=receipt_scope,
-            resolve_connection=lambda: provider_config.resolve_models_gateway(
-                workspace_root, env
-            ),
+            resolve_connection=lambda: resolve_models_gateway(workspace_root, env),
             save_connection=lambda origin, token: (
                 provider_config.save_local_models_gateway(
                     workspace_root, origin=origin, token=token
@@ -319,7 +321,7 @@ class ModelsGatewayService:
             connection = self.resolve_connection()
         except (
             InvalidModelsGatewayConfig,
-            provider_config.InvalidProviderConfigError,
+            InvalidProviderConfigError,
         ) as exc:
             return {
                 "schemaVersion": "frisket.models_gateway.v1",
@@ -390,7 +392,7 @@ class ModelsGatewayService:
                 connection = self.resolve_connection()
             except (
                 InvalidModelsGatewayConfig,
-                provider_config.InvalidProviderConfigError,
+                InvalidProviderConfigError,
             ) as exc:
                 connection = None
                 probe = _empty_probe(str(exc))

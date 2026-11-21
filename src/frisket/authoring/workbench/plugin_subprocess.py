@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 from frisket.engine.sandbox.shim import (
     run_sandboxed,
     run_sandboxed_stdout_lines,

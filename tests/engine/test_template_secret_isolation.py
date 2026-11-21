@@ -11,7 +11,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.engine.executor.actions import run_action_spec
 from frisket.ops.integrations.mcp_project import project_mcp_launch_config
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from tests.ops.test_api_call import _allow_egress as _allow_egress
 from frisket.engine.store.transactions import write_transaction
 

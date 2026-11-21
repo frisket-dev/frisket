@@ -28,7 +28,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.value_codec import decode_stored_value
 from frisket.execution.attempt import StaleAttemptWriter
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from frisket.engine.store.transactions import write_transaction
 
 PROJECT_ID = "project-reduce-effects"

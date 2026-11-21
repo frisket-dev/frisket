@@ -31,7 +31,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import ActionProgram
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from typed_model_fixtures import model_plan, run_with_exact_confirmation
 from frisket.engine.store.transactions import write_transaction
 

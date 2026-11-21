@@ -41,7 +41,7 @@ from frisket.server.services.project_qa_web import (
     safe_web_url,
     search_web,
 )
-from frisket.team.security.secrets import encrypt_secret, key_hint
+from frisket.security.secrets import encrypt_secret, key_hint
 from frisket.engine.store.transactions import write_transaction
 
 

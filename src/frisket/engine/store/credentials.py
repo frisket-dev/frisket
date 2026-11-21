@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from frisket.engine.store.transactions import require_transaction, write_transaction
-from frisket.team.security.secrets import decrypt_secret
+from frisket.security.secrets import decrypt_secret
 
 
 class ProviderKeyDecryptError(RuntimeError):

@@ -13,8 +13,7 @@ from frisket.authoring.action_metadata import (
 )
 from frisket.engine.receipt_index import work_log_receipt_summaries
 from frisket.engine.store import Project
-from frisket.engine.store.runs import RunResultStore
-from frisket.server.provenance_payloads import provenance_manifest_payload
+from frisket.engine.store.runs import RunResultStore, project_model_provenance_summary
 
 
 def export_value(value: Any, *, limit: int = 180) -> str:
@@ -42,28 +41,28 @@ def markdown_table_cell(value: Any) -> str:
     )
 
 
+def _decode_run_params(raw: str | None) -> dict[str, Any]:
+    try:
+        parsed = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def build_work_log_payload(
     project: Project,
     project_id: str,
     *,
     include_receipts: bool = True,
 ) -> dict[str, Any]:
-    def spec(raw: str | None) -> dict[str, Any]:
-        try:
-            return json.loads(raw or "{}")
-        except ValueError:
-            return {}
-
     sheets = project.sheets()
     history_rows = project.history()
     run_rows = project.db.execute("SELECT * FROM runs ORDER BY id").fetchall()
-    # Touched models and total cost are the provenance manifest's facts; read
-    # them from the one builder so the work log can never disagree with it.
-    provenance = provenance_manifest_payload(
-        project, project_id, runs_limit=0, receipts_limit=0
-    )
+    # Touched models and total cost share the provenance manifest's builder so
+    # the work log can never disagree with it.
+    provenance = project_model_provenance_summary(project)
     receipts = _receipt_summaries(project) if include_receipts else []
-    action_kind_by_op_id = _action_kind_by_op_id(receipts)
+    action_kind_by_operation_id = _action_kind_by_operation_id(receipts)
     project_name = str(project.get_meta("name", project_id) or project_id)
     runs = []
     for run in run_rows:
@@ -114,7 +113,7 @@ def build_work_log_payload(
                     "error": row["error"],
                 }
             )
-        run_spec = spec(run["params"])
+        run_spec = _decode_run_params(run["params"])
         runs.append(
             {
                 "id": run["id"],
@@ -129,7 +128,7 @@ def build_work_log_payload(
                 "examples": examples,
             }
         )
-    payload = {
+    return {
         "project_id": project_id,
         "project_name": project_name,
         "export_action_kind": "export.work_log",
@@ -143,39 +142,115 @@ def build_work_log_payload(
         ],
         "operations": [
             {
-                "id": op["id"],
-                "kind": op["kind"],
-                "label": op["label"],
-                "action_kind": action_kind_by_op_id.get(int(op["id"])),
-                "status": op["status"],
-                "created_at": op["created_at"],
+                "id": operation["id"],
+                "kind": operation["kind"],
+                "label": operation["label"],
+                "action_kind": action_kind_by_operation_id.get(int(operation["id"])),
+                "status": operation["status"],
+                "created_at": operation["created_at"],
             }
-            for op in history_rows
+            for operation in history_rows
         ],
         "runs": runs,
         "receipts": receipts,
-        "touched_models": provenance["touched"],
-        "total_cost": float(provenance["total_cost"]),
+        "touched_models": provenance.touched,
+        "total_cost": float(provenance.total_cost),
     }
-    return payload
 
 
-def _action_kind_by_op_id(receipts: list[dict[str, Any]]) -> dict[int, str]:
-    action_kind_by_op_id: dict[int, str] = {}
+def _action_kind_by_operation_id(receipts: list[dict[str, Any]]) -> dict[int, str]:
+    action_kind_by_id: dict[int, str] = {}
     for receipt in receipts:
         action_kind = str(receipt.get("action_kind") or "")
         if not action_kind:
             continue
-        for op_id in receipt.get("op_ids") or []:
+        for operation_id in receipt.get("op_ids") or []:
             try:
-                action_kind_by_op_id[int(op_id)] = action_kind
+                action_kind_by_id[int(operation_id)] = action_kind
             except (TypeError, ValueError):
                 continue
-    return action_kind_by_op_id
+    return action_kind_by_id
 
 
 def _receipt_summaries(project: Project) -> list[dict[str, Any]]:
     return work_log_receipt_summaries(project)
+
+
+def _markdown_runs_section(runs: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "## Runs", ""]
+    if not runs:
+        lines.append("_No runs recorded._")
+        return lines
+    lines.extend(
+        [
+            "| Run | Action | Model | Rows | Failed | Cost | Outputs |",
+            "|---:|---|---|---:|---:|---:|---|",
+        ]
+    )
+    for run in runs:
+        lines.append(
+            "| {id} | {action} | {model} | {done}/{total} | {failed} | "
+            "${cost:.4f} | {outputs} |".format(
+                id=run["id"],
+                action=markdown_table_cell(run["action_kind"]),
+                model=markdown_table_cell(run["model"] or "local/non-model"),
+                done=run["completed_rows"],
+                total=run["total_rows"],
+                failed=run["failed_rows"],
+                cost=run["cost"],
+                outputs=markdown_table_cell(", ".join(run["outputs"]) or "none"),
+            )
+        )
+        if run.get("prompt"):
+            lines.extend(
+                [
+                    "",
+                    f"Prompt for run {run['id']}:",
+                    "",
+                    "> " + str(run["prompt"]).replace("\n", "\n> "),
+                    "",
+                ]
+            )
+        if run["examples"]:
+            lines.extend(
+                [
+                    "",
+                    f"Example changes for run {run['id']}:",
+                    "",
+                    "| Row | Column | Value |",
+                    "|---:|---|---|",
+                ]
+            )
+            for ex in run["examples"]:
+                value = f"ERROR: {ex['error']}" if ex["error"] else ex["value"]
+                lines.append(
+                    f"| {ex['row']} | {markdown_table_cell(ex['column'])} | "
+                    f"{markdown_table_cell(value)} |"
+                )
+    return lines
+
+
+def _markdown_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
+    lines = ["", "## Action Receipts", ""]
+    if not receipts:
+        lines.append("_No action receipts recorded._")
+        return lines
+    lines.extend(
+        [
+            "| Receipt | Action | Status | Ops | Outputs | Evidence |",
+            "|---|---|---|---|---|---|",
+        ]
+    )
+    for receipt in receipts:
+        lines.append(
+            f"| {markdown_table_cell(receipt['id'])} | "
+            f"{markdown_table_cell(receipt['action_kind'])} | "
+            f"{markdown_table_cell(receipt['status'])} | "
+            f"{markdown_table_cell(', '.join(str(item) for item in receipt['op_ids']) or 'none')} | "
+            f"{markdown_table_cell(', '.join(receipt['outputs']) or 'none')} | "
+            f"{markdown_table_cell(', '.join(receipt['evidence']) or 'none')} |"
+        )
+    return lines
 
 
 def work_log_markdown(payload: dict[str, Any]) -> str:
@@ -208,88 +283,19 @@ def work_log_markdown(payload: dict[str, Any]) -> str:
         lines.extend(
             ["| # | Kind | Action | Status | Created |", "|---:|---|---|---|---|"]
         )
-        for op in payload["operations"]:
-            action_label = op.get("action_kind") or op["label"]
+        for operation in payload["operations"]:
+            action_label = operation.get("action_kind") or operation["label"]
             lines.append(
-                f"| {op['id']} | {markdown_table_cell(op['kind'])} | "
+                f"| {operation['id']} | {markdown_table_cell(operation['kind'])} | "
                 f"{markdown_table_cell(action_label)} | "
-                f"{markdown_table_cell(op['status'])} | "
-                f"{markdown_table_cell(op['created_at'])} |"
+                f"{markdown_table_cell(operation['status'])} | "
+                f"{markdown_table_cell(operation['created_at'])} |"
             )
     else:
         lines.append("_No operations recorded._")
 
-    lines.extend(["", "## Runs", ""])
-    if payload["runs"]:
-        lines.extend(
-            [
-                "| Run | Action | Model | Rows | Failed | Cost | Outputs |",
-                "|---:|---|---|---:|---:|---:|---|",
-            ]
-        )
-        for run in payload["runs"]:
-            lines.append(
-                "| {id} | {action} | {model} | {done}/{total} | {failed} | "
-                "${cost:.4f} | {outputs} |".format(
-                    id=run["id"],
-                    action=markdown_table_cell(run["action_kind"]),
-                    model=markdown_table_cell(run["model"] or "local/non-model"),
-                    done=run["completed_rows"],
-                    total=run["total_rows"],
-                    failed=run["failed_rows"],
-                    cost=run["cost"],
-                    outputs=markdown_table_cell(", ".join(run["outputs"]) or "none"),
-                )
-            )
-            if run.get("prompt"):
-                lines.extend(
-                    [
-                        "",
-                        f"Prompt for run {run['id']}:",
-                        "",
-                        "> " + str(run["prompt"]).replace("\n", "\n> "),
-                        "",
-                    ]
-                )
-            if run["examples"]:
-                lines.extend(
-                    [
-                        "",
-                        f"Example changes for run {run['id']}:",
-                        "",
-                        "| Row | Column | Value |",
-                        "|---:|---|---|",
-                    ]
-                )
-                for ex in run["examples"]:
-                    value = f"ERROR: {ex['error']}" if ex["error"] else ex["value"]
-                    lines.append(
-                        f"| {ex['row']} | {markdown_table_cell(ex['column'])} | "
-                        f"{markdown_table_cell(value)} |"
-                    )
-    else:
-        lines.append("_No runs recorded._")
-
-    receipts = payload.get("receipts") or []
-    lines.extend(["", "## Action Receipts", ""])
-    if receipts:
-        lines.extend(
-            [
-                "| Receipt | Action | Status | Ops | Outputs | Evidence |",
-                "|---|---|---|---|---|---|",
-            ]
-        )
-        for receipt in receipts:
-            lines.append(
-                f"| {markdown_table_cell(receipt['id'])} | "
-                f"{markdown_table_cell(receipt['action_kind'])} | "
-                f"{markdown_table_cell(receipt['status'])} | "
-                f"{markdown_table_cell(', '.join(str(op) for op in receipt['op_ids']) or 'none')} | "
-                f"{markdown_table_cell(', '.join(receipt['outputs']) or 'none')} | "
-                f"{markdown_table_cell(', '.join(receipt['evidence']) or 'none')} |"
-            )
-    else:
-        lines.append("_No action receipts recorded._")
+    lines.extend(_markdown_runs_section(payload["runs"]))
+    lines.extend(_markdown_receipts_section(payload.get("receipts") or []))
     return "\n".join(lines) + "\n"
 
 
@@ -297,14 +303,70 @@ def html_cell(value: Any) -> str:
     return html.escape(export_value(value)).replace("\n", "<br>")
 
 
-def work_log_html(payload: dict[str, Any]) -> str:
-    def e(value: Any) -> str:
-        return html.escape("" if value is None else str(value))
+def _html_escape(value: Any) -> str:
+    return html.escape("" if value is None else str(value))
 
+
+def _html_runs_section(runs: list[dict[str, Any]]) -> list[str]:
+    rows = ["<h2>Runs</h2>"]
+    if not runs:
+        rows.append('<p class="muted">No runs recorded.</p>')
+        return rows
+    rows.append(
+        "<table><thead><tr><th>Run</th><th>Action</th><th>Model</th><th>Rows</th><th>Failed</th><th>Cost</th><th>Outputs</th></tr></thead><tbody>"
+    )
+    for run in runs:
+        rows.append(
+            f"<tr><td>{run['id']}</td><td>{_html_escape(run['action_kind'])}</td><td>{_html_escape(run['model'])}</td>"
+            f"<td>{run['completed_rows']}/{run['total_rows']}</td><td>{run['failed_rows']}</td>"
+            f"<td>${run['cost']:.4f}</td><td>{_html_escape(', '.join(run['outputs']) or 'none')}</td></tr>"
+        )
+    rows.append("</tbody></table>")
+    for run in runs:
+        if run.get("prompt"):
+            rows.append(
+                f"<h3>Prompt for run {run['id']}</h3><pre>{_html_escape(run['prompt'])}</pre>"
+            )
+        if run["examples"]:
+            rows.append(f"<h3>Example changes for run {run['id']}</h3>")
+            rows.append(
+                "<table><thead><tr><th>Row</th><th>Column</th><th>Value</th></tr></thead><tbody>"
+            )
+            for ex in run["examples"]:
+                value = f"ERROR: {ex['error']}" if ex["error"] else ex["value"]
+                cls = ' class="error"' if ex["error"] else ""
+                rows.append(
+                    f"<tr><td>{ex['row']}</td><td>{_html_escape(ex['column'])}</td><td{cls}>{html_cell(value)}</td></tr>"
+                )
+            rows.append("</tbody></table>")
+    return rows
+
+
+def _html_receipts_section(receipts: list[dict[str, Any]]) -> list[str]:
+    rows = ["<h2>Action Receipts</h2>"]
+    if not receipts:
+        rows.append('<p class="muted">No action receipts recorded.</p>')
+        return rows
+    rows.append(
+        "<table><thead><tr><th>Receipt</th><th>Action</th><th>Status</th><th>Ops</th><th>Outputs</th><th>Evidence</th></tr></thead><tbody>"
+    )
+    for receipt in receipts:
+        rows.append(
+            f"<tr><td>{_html_escape(receipt['id'])}</td><td>{_html_escape(receipt['action_kind'])}</td>"
+            f"<td>{_html_escape(receipt['status'])}</td>"
+            f"<td>{_html_escape(', '.join(str(item) for item in receipt['op_ids']) or 'none')}</td>"
+            f"<td>{_html_escape(', '.join(receipt['outputs']) or 'none')}</td>"
+            f"<td>{_html_escape(', '.join(receipt['evidence']) or 'none')}</td></tr>"
+        )
+    rows.append("</tbody></table>")
+    return rows
+
+
+def work_log_html(payload: dict[str, Any]) -> str:
     rows = [
         "<!doctype html>",
         '<html><head><meta charset="utf-8">',
-        f"<title>Work log: {e(payload['project_name'])}</title>",
+        f"<title>Work log: {_html_escape(payload['project_name'])}</title>",
         "<style>"
         "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
         "color:#1f2937;margin:32px;line-height:1.45}"
@@ -317,8 +379,8 @@ def work_log_html(payload: dict[str, Any]) -> str:
         ".metric strong{display:block;font-size:20px}.muted{color:#667085}.error{color:#b42318}"
         "pre{white-space:pre-wrap;background:#f7f9fc;border:1px solid #dfe5ee;border-radius:6px;padding:10px}"
         "</style></head><body>",
-        f"<h1>Work log: {e(payload['project_name'])}</h1>",
-        f'<p class="muted">Project id: <code>{e(payload["project_id"])}</code></p>',
+        f"<h1>Work log: {_html_escape(payload['project_name'])}</h1>",
+        f'<p class="muted">Project id: <code>{_html_escape(payload["project_id"])}</code></p>',
         '<section class="summary">',
         f'<div class="metric"><span>Sheets</span><strong>{len(payload["sheets"])}</strong></div>',
         f'<div class="metric"><span>Operations</span><strong>{len(payload["operations"])}</strong></div>',
@@ -330,71 +392,25 @@ def work_log_html(payload: dict[str, Any]) -> str:
     ]
     for sheet in payload["sheets"]:
         rows.append(
-            f"<tr><td>{e(sheet['name'])}</td><td>{sheet['rows']}</td><td>{sheet['columns']}</td></tr>"
+            f"<tr><td>{_html_escape(sheet['name'])}</td><td>{sheet['rows']}</td><td>{sheet['columns']}</td></tr>"
         )
     rows.extend(["</tbody></table>", "<h2>Operation History</h2>"])
     if payload["operations"]:
         rows.append(
             "<table><thead><tr><th>#</th><th>Kind</th><th>Action</th><th>Status</th><th>Created</th></tr></thead><tbody>"
         )
-        for op in payload["operations"]:
-            action_label = op.get("action_kind") or op["label"]
+        for operation in payload["operations"]:
+            action_label = operation.get("action_kind") or operation["label"]
             rows.append(
-                f"<tr><td>{op['id']}</td><td>{e(op['kind'])}</td><td>{e(action_label)}</td>"
-                f"<td>{e(op['status'])}</td><td>{e(op['created_at'])}</td></tr>"
+                f"<tr><td>{operation['id']}</td><td>{_html_escape(operation['kind'])}</td><td>{_html_escape(action_label)}</td>"
+                f"<td>{_html_escape(operation['status'])}</td><td>{_html_escape(operation['created_at'])}</td></tr>"
             )
         rows.append("</tbody></table>")
     else:
         rows.append('<p class="muted">No operations recorded.</p>')
 
-    rows.append("<h2>Runs</h2>")
-    if payload["runs"]:
-        rows.append(
-            "<table><thead><tr><th>Run</th><th>Action</th><th>Model</th><th>Rows</th><th>Failed</th><th>Cost</th><th>Outputs</th></tr></thead><tbody>"
-        )
-        for run in payload["runs"]:
-            rows.append(
-                f"<tr><td>{run['id']}</td><td>{e(run['action_kind'])}</td><td>{e(run['model'])}</td>"
-                f"<td>{run['completed_rows']}/{run['total_rows']}</td><td>{run['failed_rows']}</td>"
-                f"<td>${run['cost']:.4f}</td><td>{e(', '.join(run['outputs']) or 'none')}</td></tr>"
-            )
-        rows.append("</tbody></table>")
-        for run in payload["runs"]:
-            if run.get("prompt"):
-                rows.append(
-                    f"<h3>Prompt for run {run['id']}</h3><pre>{e(run['prompt'])}</pre>"
-                )
-            if run["examples"]:
-                rows.append(f"<h3>Example changes for run {run['id']}</h3>")
-                rows.append(
-                    "<table><thead><tr><th>Row</th><th>Column</th><th>Value</th></tr></thead><tbody>"
-                )
-                for ex in run["examples"]:
-                    value = f"ERROR: {ex['error']}" if ex["error"] else ex["value"]
-                    cls = ' class="error"' if ex["error"] else ""
-                    rows.append(
-                        f"<tr><td>{ex['row']}</td><td>{e(ex['column'])}</td><td{cls}>{html_cell(value)}</td></tr>"
-                    )
-                rows.append("</tbody></table>")
-    else:
-        rows.append('<p class="muted">No runs recorded.</p>')
-    receipts = payload.get("receipts") or []
-    rows.append("<h2>Action Receipts</h2>")
-    if receipts:
-        rows.append(
-            "<table><thead><tr><th>Receipt</th><th>Action</th><th>Status</th><th>Ops</th><th>Outputs</th><th>Evidence</th></tr></thead><tbody>"
-        )
-        for receipt in receipts:
-            rows.append(
-                f"<tr><td>{e(receipt['id'])}</td><td>{e(receipt['action_kind'])}</td>"
-                f"<td>{e(receipt['status'])}</td>"
-                f"<td>{e(', '.join(str(op) for op in receipt['op_ids']) or 'none')}</td>"
-                f"<td>{e(', '.join(receipt['outputs']) or 'none')}</td>"
-                f"<td>{e(', '.join(receipt['evidence']) or 'none')}</td></tr>"
-            )
-        rows.append("</tbody></table>")
-    else:
-        rows.append('<p class="muted">No action receipts recorded.</p>')
+    rows.extend(_html_runs_section(payload["runs"]))
+    rows.extend(_html_receipts_section(payload.get("receipts") or []))
     rows.append("</body></html>")
     return "\n".join(rows)
 
@@ -418,9 +434,11 @@ def work_log_pdf_lines(payload: dict[str, Any]) -> list[str]:
         )
     lines.extend(["", "Operation History"])
     if payload["operations"]:
-        for op in payload["operations"]:
-            action_label = op.get("action_kind") or op["label"]
-            lines.append(f"- #{op['id']} {op['kind']}: {action_label} ({op['status']})")
+        for operation in payload["operations"]:
+            action_label = operation.get("action_kind") or operation["label"]
+            lines.append(
+                f"- #{operation['id']} {operation['kind']}: {action_label} ({operation['status']})"
+            )
     else:
         lines.append("- No operations recorded.")
     lines.extend(["", "Runs"])
@@ -445,13 +463,13 @@ def work_log_pdf_lines(payload: dict[str, Any]) -> list[str]:
     lines.extend(["", "Action Receipts"])
     if receipts:
         for receipt in receipts:
-            ops = ", ".join(str(op) for op in receipt["op_ids"]) or "none"
+            operation_ids = ", ".join(str(item) for item in receipt["op_ids"]) or "none"
             outputs = ", ".join(receipt["outputs"]) or "none"
-            evidence = ", ".join(receipt["evidence"]) or "none"
+            citations = ", ".join(receipt["evidence"]) or "none"
             lines.append(
                 f"- {receipt['id']} {receipt['action_kind']} "
-                f"({receipt['status']}), ops: {ops}, outputs: {outputs}, "
-                f"evidence: {evidence}"
+                f"({receipt['status']}), ops: {operation_ids}, outputs: {outputs}, "
+                f"evidence: {citations}"
             )
     else:
         lines.append("- No action receipts recorded.")

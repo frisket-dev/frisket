@@ -338,7 +338,7 @@ def test_work_log_payload_omits_deleted_rows_and_hidden_columns(make_project) ->
     e.g. map.python's ``__result_entities``) are invisible on the normal read
     path, so an exported-and-re-emitted work log must not resurrect either.
     """
-    from frisket.server.exports.work_log import build_work_log_payload
+    from frisket.exports.work_log import build_work_log_payload
 
     project = make_project("Hidden")
     _run_seed_action(project, _seed_import_action())

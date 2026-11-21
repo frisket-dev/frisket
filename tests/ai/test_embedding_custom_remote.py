@@ -24,7 +24,7 @@ from frisket.server.embedding_catalog import embedding_provider_catalog_payload
 from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
-from frisket.team.security.secrets import encrypt_secret
+from frisket.security.secrets import encrypt_secret
 from helpers import write_claimless_test_model_calls
 from frisket.engine.store.transactions import write_transaction
 

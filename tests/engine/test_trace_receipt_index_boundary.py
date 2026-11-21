@@ -9,7 +9,7 @@ import pytest
 
 import frisket.engine.receipt_index as receipt_index
 import frisket.operability.trace as trace
-from frisket.server.exports.work_log import build_work_log_payload
+from frisket.exports.work_log import build_work_log_payload
 from frisket.engine.store import Project
 
 
