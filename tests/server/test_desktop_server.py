@@ -284,7 +284,13 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
     monkeypatch.setattr(
         supervisor, "stop_service", lambda worker: events.append(("stop", worker))
     )
-    monkeypatch.setattr(uvicorn, "Config", lambda *_args, **_kwargs: object())
+    config_kwargs: list[dict[str, object]] = []
+
+    def fake_config(*_args, **kwargs):
+        config_kwargs.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(uvicorn, "Config", fake_config)
     monkeypatch.setattr(uvicorn, "Server", lambda _config: FakeServer())
 
     assert (
@@ -298,6 +304,11 @@ def test_unexpected_worker_exit_stops_server_nonzero_and_cleans_up(
         )
         == 1
     )
+    assert len(config_kwargs) == 1
+    assert config_kwargs[0]["host"] == "127.0.0.1"
+    assert config_kwargs[0]["loop"] == "asyncio"
+    assert config_kwargs[0]["log_config"] is None
+    assert config_kwargs[0]["proxy_headers"] is False
     assert app.state.standalone_runtime.worker_exited_unexpectedly is True
     assert events.index("models-start") < events.index("models-stop")
     assert any(item[0] == "run" for item in events if isinstance(item, tuple))
