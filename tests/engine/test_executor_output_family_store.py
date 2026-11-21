@@ -76,7 +76,7 @@ def test_family_reuse_rejects_hidden_generated_columns_without_reviving(
         sheet_id,
         "meta_details",
         type="text",
-        ai_generated=True,
+        generated=True,
         format="markdown",
         hidden=True,
     )
@@ -110,7 +110,7 @@ def test_family_reuse_rejects_wrong_type_without_coercion(make_project) -> None:
         sheet_id,
         "meta_kind",
         type="text",
-        ai_generated=True,
+        generated=True,
         format="markdown",
     )
 

@@ -25,7 +25,7 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointRef,
     EffectCheckpointStore,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from typed_model_fixtures import model_plan
 from frisket.engine.store.transactions import write_transaction
@@ -317,7 +317,7 @@ def _age_run_attempts(project: Project, run_id: int) -> None:
         (run_id,),
     )
     project.db.execute(
-        "UPDATE output_column_claims SET "
+        "UPDATE generated_column_claims SET "
         "lease_expires_at=datetime('now', '-1 second') "
         "WHERE run_id=? AND status='active'",
         (run_id,),
@@ -344,7 +344,7 @@ def _ambiguous_run(
     confirmed = _confirmed_spec(first, _spec(sheet))
     claim_token = "output-claim:test:cli-reconcile"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet,
             output_names=["relevance"],
             action_kind="classify",
@@ -361,7 +361,7 @@ def _ambiguous_run(
     )
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=prepared.run_id,
                 expected_output_names=["relevance"],
@@ -424,7 +424,7 @@ def _fresh_successor(project: Project, provider, confirmed: dict):
     runner = _runner(project, router)
     token = f"output-claim:test:cli-successor:{uuid.uuid4()}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=int(confirmed["sheet_id"]),
             output_names=["relevance"],
             action_kind="classify",
@@ -440,7 +440,7 @@ def _fresh_successor(project: Project, provider, confirmed: dict):
     )
     with write_transaction(project.db):
         assert (
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=token,
                 run_id=prepared.run_id,
                 expected_output_names=["relevance"],
@@ -473,7 +473,7 @@ def test_discard_makes_the_ambiguous_row_retryable_end_to_end(
         assert refused.halted_code == "external_effect_reconciliation_required"
         assert provider.calls == 1
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=claim_token, status="failed"
             )
 
@@ -542,7 +542,7 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
         refused = _resume(project, provider, confirmed, run_id, claim_token)
         assert refused.halted_code == "external_effect_reconciliation_required"
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=claim_token, status="failed"
             )
         assert provider.calls == 1

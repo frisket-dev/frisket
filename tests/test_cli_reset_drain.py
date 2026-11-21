@@ -17,7 +17,7 @@ from frisket.engine.jobs.queue import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.effect_checkpoints import EffectCheckpointStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.effect_checkpoints import EffectCheckpointRef
 
@@ -103,14 +103,14 @@ def test_base_reset_drain_reports_every_hit_and_authority_independent_of_status(
     project = Project.create(projects_root / "9" / "busy.frisket", name="busy")
     sheet_id = project.add_sheet("Claims")
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["generated"],
             action_kind="map.classify",
         )
     assert len(claims) == 1 and conflict is None
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(
+        GeneratedColumnClaimStore(project).release(
             claim_token=str(claims[0]["claim_token"]), status="released"
         )
 
@@ -215,7 +215,7 @@ def test_reset_drain_refuses_a_symlinked_projects_subtree(tmp_path: Path) -> Non
     project = Project.create(outside / "busy.frisket", name="busy")
     sheet_id = project.add_sheet("Claims")
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).acquire(
+        GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["generated"],
             action_kind="map.classify",
@@ -317,7 +317,7 @@ def test_reset_drain_counts_a_null_attempt_state_as_nonterminal(tmp_path: Path) 
     bundle.mkdir(parents=True)
     connection = sqlite3.connect(bundle / "project.db")
     try:
-        connection.execute("CREATE TABLE output_column_claims (status TEXT)")
+        connection.execute("CREATE TABLE generated_column_claims (status TEXT)")
         connection.execute("CREATE TABLE effect_checkpoints (state TEXT)")
         connection.execute("CREATE TABLE execution_attempts (state TEXT)")
         connection.execute("INSERT INTO execution_attempts VALUES (NULL)")

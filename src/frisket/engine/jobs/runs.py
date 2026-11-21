@@ -60,7 +60,7 @@ from frisket.engine.runner import MapRunner, RunProgress
 from frisket.engine.sandbox.shim import SandboxTeardownError
 from frisket.engine.store import Project
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
-from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+from frisket.engine.store.generated_column_claims import ClaimLeaseRenewalFailed
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.engine.worker_version import code_version
@@ -913,9 +913,11 @@ def register_project_run_handler(
             )
             durable_output_fields = None
             if claim_token is not None:
-                from frisket.engine.store.output_claims import OutputColumnClaimStore
+                from frisket.engine.store.generated_column_claims import (
+                    GeneratedColumnClaimStore,
+                )
 
-                durable_output_fields = OutputColumnClaimStore(
+                durable_output_fields = GeneratedColumnClaimStore(
                     project
                 ).active_output_fields(
                     claim_token=claim_token,

@@ -75,7 +75,7 @@ def _seed_timestamped_transcript(
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     op_id = project.append_change(
         "media.transcribe",
@@ -412,13 +412,13 @@ def test_topic_range_must_name_the_selected_transcript_evidence(
         int(seeded["sheet_id"]),
         "Topic sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     sidecar_column_id = project.add_column(
         int(seeded["sheet_id"]),
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
         "json",
-        ai_generated=True,
+        generated=True,
         hidden=True,
     )
     topic_value = {

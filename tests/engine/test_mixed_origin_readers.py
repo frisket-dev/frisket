@@ -47,7 +47,7 @@ def test_scalar_only_ai_results_are_not_a_live_reader_lane(make_project) -> None
     project = make_project("scalar-only-reader")
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
-    output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    output_column_id = project.add_column(sheet_id, "generated", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"source": "value"}, {"source": "failure"}],
@@ -140,7 +140,7 @@ def mixed_reader(make_project) -> _MixedReaderFixture:
     project = make_project("Mixed readers")
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
-    output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
+    output_column_id = project.add_column(sheet_id, "generated", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [

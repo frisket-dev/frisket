@@ -7,8 +7,8 @@ instead of every guarded migration module.
 
 from __future__ import annotations
 
-from frisket.upgrades.project.receipt_records_migration import (
-    RECEIPT_RECORDS_TO_DIGEST,
+from frisket.upgrades.project.generated_columns_migration import (
+    GENERATED_COLUMNS_TO_DIGEST,
 )
 
-CURRENT_CHAIN_TIP_DIGEST = RECEIPT_RECORDS_TO_DIGEST
+CURRENT_CHAIN_TIP_DIGEST = GENERATED_COLUMNS_TO_DIGEST

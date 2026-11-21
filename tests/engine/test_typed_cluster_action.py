@@ -295,21 +295,21 @@ def test_partial_vector_cache_loss_recovers_paid_full_batch(
     assert live.errors[0].code == "idempotency_in_progress", live.model_dump()
     assert len(adapter.calls) == 1
     from frisket.execution.attempt import abandon_stale_dispatching_attempts
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project.db.execute(
         "UPDATE execution_attempts SET created_at='2000-01-01T00:00:00Z' WHERE state='dispatching'"
     )
     project.db.execute(
-        "UPDATE output_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
+        "UPDATE generated_column_claims SET lease_expires_at='2000-01-01T00:00:00Z' WHERE status='active'"
     )
     project.db.commit()
     run_id = project.db.execute("SELECT id FROM runs").fetchone()[0]
     with write_transaction(project.db):
         assert abandon_stale_dispatching_attempts(project, run_id) == 1
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     for claim in project.db.execute(
-        "SELECT id FROM output_column_claims WHERE run_id=? AND status='active'",
+        "SELECT id FROM generated_column_claims WHERE run_id=? AND status='active'",
         (run_id,),
     ).fetchall():
         with write_transaction(claims.db):
@@ -532,7 +532,7 @@ def test_stop_after_cluster_rows_before_publication_closes_cancelled(
     assert run["current_attempt_id"] is None
     assert (
         project.db.execute(
-            "SELECT count(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT count(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
             (result.run_id,),
         ).fetchone()[0]
         == 0

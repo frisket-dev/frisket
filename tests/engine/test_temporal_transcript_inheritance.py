@@ -45,7 +45,7 @@ def _add_timestamped_transcript(
     marked: bool = True,
     language: str | None = None,
 ):
-    column_id = project.add_column(sheet_id, name, type_name, ai_generated=True)
+    column_id = project.add_column(sheet_id, name, type_name, generated=True)
     op_id = project.append_change(
         "media.transcribe",
         {"kind": "media.transcribe", "params": {"output_name": name}},

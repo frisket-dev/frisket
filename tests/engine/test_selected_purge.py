@@ -267,7 +267,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
 
     source_sheet = project.add_sheet("source")
     source_column = project.add_column(
-        source_sheet, "generated", type="text", ai_generated=True
+        source_sheet, "generated", type="text", generated=True
     )
     source_row = project.add_rows(
         source_sheet, [{"generated": "input"}], {"generated": source_column}
@@ -311,7 +311,7 @@ def test_purge_keeps_independent_reapply_results_replayable(project):
         )
     runs.finish_run(source_run, fence=authority.fence())
     destination = project.add_sheet("copies")
-    output = project.add_column(destination, "saved", type="text", ai_generated=True)
+    output = project.add_column(destination, "saved", type="text", generated=True)
     first, second = project.add_rows(
         destination,
         [{"saved": None}, {"saved": None}],
@@ -363,7 +363,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
 
     sheet = project.add_sheet("source-cohort")
     source = project.add_column(sheet, "source", type="text")
-    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    output = project.add_column(sheet, "generated", type="text", generated=True)
     first, second = project.add_rows(
         sheet,
         [{"source": "remove"}, {"source": "retain"}],
@@ -409,9 +409,7 @@ def test_real_reapply_after_source_cohort_purge_refuses_only_purged_row(project)
     # The independently retained outcome on the row being purged keeps its
     # source result alive while that source row itself is removed.
     saved_sheet = project.add_sheet("independent-copy")
-    saved_column = project.add_column(
-        saved_sheet, "saved", type="text", ai_generated=True
-    )
+    saved_column = project.add_column(saved_sheet, "saved", type="text", generated=True)
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
     from frisket.engine.store.changes import ChangeStore, start_change
     from frisket.engine.store.current_cells import refresh_current_cells
@@ -478,7 +476,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
 
     sheet = project.add_sheet("published-results")
     source = project.add_column(sheet, "source", type="text")
-    output = project.add_column(sheet, "generated", type="text", ai_generated=True)
+    output = project.add_column(sheet, "generated", type="text", generated=True)
     unowned, shared = project.add_rows(
         sheet,
         [{"source": "unowned"}, {"source": "shared"}],
@@ -533,9 +531,7 @@ def test_purge_removes_unowned_published_result_but_retains_shared_result(
             )
 
     saved_sheet = project.add_sheet("independent-owner")
-    saved_column = project.add_column(
-        saved_sheet, "saved", type="text", ai_generated=True
-    )
+    saved_column = project.add_column(saved_sheet, "saved", type="text", generated=True)
     [saved_row] = project.add_rows(saved_sheet, [{}], {})
     copy_op = project.append_change("run.reapply", {"action_kind": "run.reapply"})
     # Reapply only copies onto the source row; a copy owned by a row in
@@ -852,7 +848,7 @@ def test_late_result_refusal_keeps_paid_usage(project):
 
     sheet = project.add_sheet("late-provider")
     source = project.add_column(sheet, "source")
-    output = project.add_column(sheet, "generated", ai_generated=True)
+    output = project.add_column(sheet, "generated", generated=True)
     row = project.add_rows(sheet, [{"source": "paid request"}], {"source": source})[0]
     op_id = project.append_change(
         "map.regex_extract", {"pattern": "(.*)", "output": "generated"}

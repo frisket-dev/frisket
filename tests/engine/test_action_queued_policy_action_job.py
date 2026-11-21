@@ -679,7 +679,7 @@ def test_action_run_renewal_failure_is_rethrown_for_queue_retry(
 ) -> None:
     from frisket.engine.executor.action_jobs import run_action_run_job
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import ClaimLeaseRenewalFailed
+    from frisket.engine.store.generated_column_claims import ClaimLeaseRenewalFailed
     from frisket.engine.store.receipts import ReceiptStore
 
     project_id = "proj-actionjob-renewal"
@@ -1035,7 +1035,7 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
         action_job_failure_result,
     )
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
 
     project_id = "project-action-job-cas-loss"
@@ -1052,7 +1052,7 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
     with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["result"],
                 action_kind=action_kind,
@@ -1083,7 +1083,7 @@ def test_action_job_terminalization_cas_loss_is_atomic(tmp_path, monkeypatch) ->
 
         stored = ReceiptStore(project).parsed_by_id(receipt_id)
         claim = project.db.execute(
-            "SELECT status FROM output_column_claims WHERE receipt_id=?",
+            "SELECT status FROM generated_column_claims WHERE receipt_id=?",
             (receipt_id,),
         ).fetchone()
         assert stored is not None and stored.status == "running"
@@ -1097,7 +1097,7 @@ def test_action_job_success_releases_claim_for_every_success_status(
 ) -> None:
     from frisket.engine.executor.action_jobs import action_job_success_result
     from frisket.engine.store import Project
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project_id = f"project-action-job-claim-{terminal_status}"
     receipt_id = f"receipt_action_job_claim_{terminal_status}"
@@ -1113,7 +1113,7 @@ def test_action_job_success_releases_claim_for_every_success_status(
     with closing(Project(project_path)) as project:
         sheet_id = project.add_sheet("Claims")
         with write_transaction(project.db):
-            claims, conflict = OutputColumnClaimStore(project).acquire(
+            claims, conflict = GeneratedColumnClaimStore(project).acquire(
                 sheet_id=sheet_id,
                 output_names=["result"],
                 action_kind=action_kind,
@@ -1131,7 +1131,7 @@ def test_action_job_success_releases_claim_for_every_success_status(
         )
 
         claim = project.db.execute(
-            "SELECT status FROM output_column_claims WHERE receipt_id=?",
+            "SELECT status FROM generated_column_claims WHERE receipt_id=?",
             (receipt_id,),
         ).fetchone()
         assert result.status == terminal_status

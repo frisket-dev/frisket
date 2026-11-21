@@ -128,7 +128,7 @@ def test_positioned_layer(make_project):
     assert layer["positioned"] is True
     assert layer["layer_family"] == "entities"
     assert layer["producer"] == {"kind": "map.ner", "engine": "gliner"}
-    assert layer["output_column"]["name"] == "entities"
+    assert layer["generated_column"]["name"] == "entities"
     assert layer["counts"] == {"shown": 1, "total": 1, "invalid": 0}
     span = layer["spans"][0]
     assert (span["start"], span["end"]) == (0, 12)
@@ -404,7 +404,7 @@ def test_all_corrupt_geometry_is_unpositioned(make_project):
         "toggle_key": f"{sheet}:{ents}:entities",
         "layer_family": "entities",
         "producer": {"kind": "map.ner", "engine": "gliner"},
-        "output_column": {"id": ents, "name": "entities"},
+        "generated_column": {"id": ents, "name": "entities"},
         "positioned": False,
         "unpositioned": {"reason": "invalid_geometry", "total": 1},
     }

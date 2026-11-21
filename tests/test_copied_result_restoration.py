@@ -32,7 +32,7 @@ def _copy_into_existing(work):
         {"source_run_id": original.run_id},
         output_names={"answer": "Copy"},
         replace_existing=True,
-        expected_output_columns={"Copy": target},
+        expected_generated_columns={"Copy": target},
     )
     assert copied.status == "completed", copied.errors
     op = project.op_cursor
@@ -154,7 +154,7 @@ def test_reapply_explicit_replacement_checks_selected_column_identity(work):
         {"source_run_id": original.run_id},
         output_names={"answer": "Copy"},
         replace_existing=True,
-        expected_output_columns={"Copy": target + 1000},
+        expected_generated_columns={"Copy": target + 1000},
         key="stale-replacement",
     )
     assert result.status == "failed"

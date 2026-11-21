@@ -73,7 +73,7 @@ class OutputFamilyStore:
                 row = existing[name]
                 if (
                     bool(row["hidden"])
-                    or not bool(row["ai_generated"])
+                    or not bool(row["generated"])
                     or str(row["type"]) != str(field["column_type"])
                     or row["format"] != field.get("format")
                 ):
@@ -102,7 +102,7 @@ class OutputFamilyStore:
             position += 1
             inserted = self.db.execute(
                 "INSERT INTO columns "
-                "(sheet_id,name,type,ai_generated,format,hidden,"
+                "(sheet_id,name,type,generated,format,hidden,"
                 "default_hidden,position) VALUES (?,?,?,1,?,?,?,?)",
                 (
                     sheet_id,

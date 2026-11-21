@@ -332,7 +332,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert columns["group"]["type"] == "text"
     assert columns["rows"]["type"] == "integer"
     assert columns["summary"]["type"] == "text"
-    assert columns["summary"]["ai_generated"] == 1
+    assert columns["summary"]["generated"] == 1
     assert columns["summary"]["current_run_id"] == result.run_id
 
     summary_rows = [

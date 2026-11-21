@@ -136,7 +136,7 @@ def test_queued_document_returned_checkpoint_recovers_without_provider_repeat(
             project, typed_action_for_request(body), _allow_existing_outputs=True
         )
         claim = project.db.execute(
-            "SELECT claim_token FROM output_column_claims WHERE run_id=?", (run_id,)
+            "SELECT claim_token FROM generated_column_claims WHERE run_id=?", (run_id,)
         ).fetchone()[0]
         runner = _default_map_runner_factory(
             project, ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY)

@@ -87,7 +87,7 @@ def _location() -> dict[str, object]:
 def _hit() -> dict[str, object]:
     return {
         "column_name": "body",
-        "ai_generated": False,
+        "generated": False,
         "snippet": "budget",
         "score": 0.8,
         "source": {

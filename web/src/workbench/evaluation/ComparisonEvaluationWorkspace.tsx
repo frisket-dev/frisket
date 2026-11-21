@@ -58,7 +58,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const linkRef = useRef(e.link);
   useLayoutEffect(() => { linkRef.current = e.link; }, [e.link]);
   const [view, setView] = useState<'each_other' | 'expected'>(p.initialView ?? 'each_other');
-  const [field, setField] = useState(p.state.context.output_columns[0]?.logical_key ?? '');
+  const [field, setField] = useState(p.state.context.generated_columns[0]?.logical_key ?? '');
   const [filter, setFilter] = useState<EvaluationRowFilter>('all');
   const [menu, setMenu] = useState(false);
   const menuAnchor = useRef<HTMLButtonElement>(null);
@@ -78,7 +78,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
   const expectedSave = useRef<Promise<boolean>>(Promise.resolve(true));
   const running = p.state.sequenceStatus === 'running';
   const response = e.response;
-  const currentField = p.state.context.output_columns.find((column) => column.logical_key === field);
+  const currentField = p.state.context.generated_columns.find((column) => column.logical_key === field);
   const expectedField = e.link?.fields.find((item) => item.logical_key === field);
   const sourceUnavailable = e.link !== null && !isExpectedLinkAvailable(e.link);
   const rule = expectedField?.rule ?? unlinkedRules[field] ?? 'exact';
@@ -288,7 +288,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
     {e.error && <div className="action-compare-notice" role="alert">{e.error}<Button onClick={e.refresh}>Retry</Button></div>}
     <div className="comparison-field-toolbar">
       <span>Scoring field</span>
-      <div role="group" aria-label="Scoring field">{p.state.context.output_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
+      <div role="group" aria-label="Scoring field">{p.state.context.generated_columns.map((column) => <Button key={column.logical_key} aria-pressed={field === column.logical_key} onClick={() => void selectField(column.logical_key)}>{column.current_name}</Button>)}</div>
       {view === 'expected' && e.link && <>{(['all', 'any_miss', 'best_misses', 'everyone_misses'] as const).map((value) => <Button key={value} aria-pressed={filter === value} disabled={scoreBusy || (value === 'best_misses' && !bestKey)} onClick={() => setFilter(value)}>
         {{ all: 'All', any_miss: 'Any miss', best_misses: 'Best misses', everyone_misses: 'Everyone misses' }[value]}
       </Button>)}</>}
@@ -303,7 +303,7 @@ export function ComparisonEvaluationWorkspace(p: ComparisonEvaluationWorkspacePr
       mode={queue.mode} groups={reviewGroups} expectedValue={expectedText} rule={rule} busy={scoreBusy} error={e.error}
       toolbar={<>
         <PanelSelect ariaLabel="Review field" value={field} disabled={scoreBusy}
-          options={p.state.context.output_columns.map(column => ({ value: column.logical_key, label: column.current_name }))}
+          options={p.state.context.generated_columns.map(column => ({ value: column.logical_key, label: column.current_name }))}
           onValueChange={(next) => { void flushExpected().then(saved => { if (saved) { setDraft(null); setField(next); } }); }} />
         {queue.mode !== 'disagreements' && <PanelSelect ariaLabel="Review answers" value={queue.filter} disabled={scoreBusy}
           options={[{ value: 'all', label: 'All answers' }, { value: 'to_score', label: 'To score by hand' }, { value: 'misses', label: 'Misses' }]}

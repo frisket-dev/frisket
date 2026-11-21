@@ -527,7 +527,7 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     tmp_path: Path,
 ) -> None:
     """An installed Action whose output names an existing SOURCE column
-    (``ai_generated=False``) is refused by the shared typed map-rows output
+    (``generated=False``) is refused by the shared typed map-rows output
     plan before the handler is invoked, rather than silently overwriting human
     data. Running in process on the native host does not soften that: the
     plugin gets exactly the builtin refusal. Post-cutover there is no plugin
@@ -562,7 +562,7 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     before = _sheet_data(client, project_id, sheet_id)
     before_column = _columns_by_name(before)[output_key]
-    assert before_column["ai_generated"] is False
+    assert before_column["generated"] is False
     preserved = {row_ids[0]: "keep-me-one", row_ids[1]: "keep-me-two"}
     assert _cell_values(before, column_name=output_key) == preserved
 
@@ -575,13 +575,13 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     assert not marker_path.exists()
     assert refused["status"] == "failed"
-    assert refused["errors"][0]["code"] == "output_column_exists"
+    assert refused["errors"][0]["code"] == "generated_column_exists"
     assert refused["errors"][0]["details"]["columns"] == [output_key]
     assert token not in refused["_response_text"]
     after_refusal = _sheet_data(client, project_id, sheet_id)
     after_refusal_column = _columns_by_name(after_refusal)[output_key]
     assert after_refusal_column["id"] == before_column["id"]
-    assert after_refusal_column["ai_generated"] is False
+    assert after_refusal_column["generated"] is False
     assert _cell_values(after_refusal, column_name=output_key) == preserved
 
     # replace_existing is not an override for human data: replacement is
@@ -596,13 +596,13 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     )
     assert not marker_path.exists()
     assert replaced["status"] == "failed"
-    assert replaced["errors"][0]["code"] == "output_column_exists"
+    assert replaced["errors"][0]["code"] == "generated_column_exists"
     assert "only generated columns can be replaced" in replaced["errors"][0]["message"]
     assert replaced["errors"][0]["details"]["columns"] == [output_key]
     after_replace = _sheet_data(client, project_id, sheet_id)
     after_replace_column = _columns_by_name(after_replace)[output_key]
     assert after_replace_column["id"] == before_column["id"]
-    assert after_replace_column["ai_generated"] is False
+    assert after_replace_column["generated"] is False
     assert _cell_values(after_replace, column_name=output_key) == preserved
 
     # The refusal is about the COLLISION, not the Action: renaming the output
@@ -620,12 +620,12 @@ def test_plugin_action_writes_fail_closed_on_source_column_collision(
     assert published["status"] == "completed", published["_response_text"]
     assert marker_path.exists()
     after_publish = _sheet_data(client, project_id, sheet_id)
-    assert _columns_by_name(after_publish)[fresh_name]["ai_generated"] is True
+    assert _columns_by_name(after_publish)[fresh_name]["generated"] is True
     assert _cell_values(after_publish, column_name=fresh_name) == {
         row_ids[0]: f"{token}|Ada",
         row_ids[1]: f"{token}|Grace",
     }
-    assert _columns_by_name(after_publish)[output_key]["ai_generated"] is False
+    assert _columns_by_name(after_publish)[output_key]["generated"] is False
     assert _cell_values(after_publish, column_name=output_key) == preserved
 
 

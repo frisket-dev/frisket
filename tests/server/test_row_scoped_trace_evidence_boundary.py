@@ -92,7 +92,7 @@ def _seed_project(
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("events")
     story_col = project.add_column(sheet_id, "story")
-    topic_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    topic_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"story": "alpha"}, {"story": "beta"}, {"story": "gamma"}],

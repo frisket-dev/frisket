@@ -236,13 +236,13 @@ try:
         column_name = str(payload["column_name"])
         column_id = columns.get(column_name)
         if column_id is None:
-            column_id = project.add_column(sheet_id, column_name, "text", ai_generated=True)
+            column_id = project.add_column(sheet_id, column_name, "text", generated=True)
         op_id = project.append_change(
             producer_kind,
             {
                 "schema_version": "frisket.action.v2",
                 "kind": producer_kind,
-                "params": {"output_column": column_name},
+                "params": {"generated_column": column_name},
             },
             label=producer_kind,
         )
@@ -251,7 +251,7 @@ try:
             sheet_id,
             producer_kind,
             model="fixture/model",
-            params={"output_column": column_name},
+            params={"generated_column": column_name},
             total_rows=1,
             row_ids=[row_id],
         )

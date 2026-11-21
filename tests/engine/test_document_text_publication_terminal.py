@@ -104,7 +104,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             **request,
             "idempotency_key": "replacement-document-text",
             "replace_existing": True,
-            "expected_output_columns": {"prepared text": text_id},
+            "expected_generated_columns": {"prepared text": text_id},
         }
         response = service.run_action(project_id, request)
         assert response.status_code == 200, response.payload
@@ -186,7 +186,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
             assert receipt.status == "queued" and receipt.provider_use == provider_use
             assert (
                 project.db.execute(
-                    "SELECT status FROM output_column_claims WHERE claim_token=?",
+                    "SELECT status FROM generated_column_claims WHERE claim_token=?",
                     (f"output-claim:{receipt_id}",),
                 ).fetchone()[0]
                 == "active"
@@ -215,7 +215,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert receipt.errors[0].code == "source_changed"
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                "SELECT status FROM generated_column_claims WHERE claim_token=?",
                 (f"output-claim:{receipt_id}",),
             ).fetchone()[0]
             == "failed"

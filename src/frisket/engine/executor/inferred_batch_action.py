@@ -544,7 +544,7 @@ def _publish(
         CurrentWriterTerminalAuthority,
         terminalize_project_run_in_transaction,
     )
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
     from frisket.engine.store.receipts import ReceiptStore
     from frisket.engine.store.result_generations import ResultGenerationStore
     from frisket.execution.attempt import StaleAttemptWriter
@@ -555,7 +555,7 @@ def _publish(
     project.db.execute("BEGIN IMMEDIATE")
     try:
         run = project.db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
-        claims = OutputColumnClaimStore(project)
+        claims = GeneratedColumnClaimStore(project)
         column_ids = claims.active_column_ids(claim_token=claim, run_id=run_id)
         error = None
         cancelled = (

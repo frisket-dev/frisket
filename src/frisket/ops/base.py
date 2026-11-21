@@ -555,7 +555,7 @@ class ActionProgram:
     def retired_output_names(self, spec: dict) -> list[str]:
         """Output-column names a PRIOR run of this program's output emitted but
         the current `spec` no longer does. On a
-        fresh run MapRunner hides any of these that still exist as ai_generated
+        fresh run MapRunner hides any of these that still exist as generated
         columns (hide-by-default + a provenance note) instead of stranding stale
         values. The program owns its "output family" knowledge; MapRunner owns
         the generic hide+provenance hook. Default: nothing to retire."""

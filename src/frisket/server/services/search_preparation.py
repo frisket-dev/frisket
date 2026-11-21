@@ -261,7 +261,7 @@ def _document_text_target(
                 sheet_id,
                 name,
                 type="text",
-                ai_generated=True,
+                generated=True,
             )
         elif not role.source_active or role.source_hidden:
             raise ValueError("designated document text source column is unavailable")
@@ -1772,7 +1772,8 @@ class SearchPreparationService:
     def _retryable_action_errors(errors: object) -> bool:
         return isinstance(errors, list) and any(
             isinstance(error, dict)
-            and error.get("code") in {"idempotency_in_progress", "output_column_busy"}
+            and error.get("code")
+            in {"idempotency_in_progress", "generated_column_busy"}
             for error in errors
         )
 
@@ -1904,11 +1905,11 @@ class SearchPreparationService:
 
         def replace_owned_outputs(body: dict[str, Any]) -> dict[str, Any]:
             body["replace_existing"] = True
-            body["expected_output_columns"] = {
+            body["expected_generated_columns"] = {
                 name: columns.get(name) for name in body["output_names"].values()
             }
             if text_target is not None:
-                body["expected_output_columns"][text_target.name] = (
+                body["expected_generated_columns"][text_target.name] = (
                     text_target.column_id
                 )
             return body

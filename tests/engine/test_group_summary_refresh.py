@@ -852,7 +852,7 @@ def test_group_final_receipt_failure_recovers_saved_groups_without_rebuying(
     ] == original_facts
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE status='active'"
+            "SELECT COUNT(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )

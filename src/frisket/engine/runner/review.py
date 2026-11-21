@@ -176,7 +176,7 @@ def _source_context(project: Project, sheet_id: int, row_id: int) -> dict[str, A
 
     context: dict[str, Any] = {}
     for column in project.columns(sheet_id):
-        if column["ai_generated"]:
+        if column["generated"]:
             continue
         value = project.get_values(sheet_id, column["id"], row_ids=[row_id]).get(row_id)
         if value is not None:

@@ -31,7 +31,7 @@ _SQLITE_PARAM_CHUNK_SIZE = 500
 class MaterializedColumnSpec:
     name: str
     type: str
-    ai_generated: bool = False
+    generated: bool = False
     hidden: bool = False
     format: str | None = None
 
@@ -97,7 +97,7 @@ class ContributorTableWrite(SingleParentChildSheetWrite):
 class EdgeTableColumnSpec:
     name: str
     type: str
-    ai_generated: bool = True
+    generated: bool = True
     hidden: bool = False
     format: str | None = None
 
@@ -139,7 +139,7 @@ class EdgeTableWrite:
 class AggregateColumnSpec:
     name: str
     type: str
-    ai_generated: bool = False
+    generated: bool = False
     hidden: bool = False
     format: str | None = None
 
@@ -219,13 +219,13 @@ def _insert_sheet_schema(
     for idx, column in enumerate(plan.columns, start=1):
         cur.execute(
             "INSERT INTO columns (sheet_id, name, type, position, "
-            "ai_generated, hidden, format) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "generated, hidden, format) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 sheet_id,
                 column.name,
                 canonical_column_type(column.type),
                 idx,
-                int(column.ai_generated),
+                int(column.generated),
                 int(column.hidden),
                 column.format,
             ),

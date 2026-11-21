@@ -212,7 +212,7 @@ def test_reused_generated_column_converges_inside_mode_b_transaction(project: Pr
         sheet_id,
         "result",
         type="number",
-        ai_generated=True,
+        generated=True,
         format="json",
         semantic_type="entity_mentions",
     )

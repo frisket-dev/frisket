@@ -105,7 +105,7 @@ def test_bbox_filter_works_for_run_backed_geo_point(project):
     """
     sheet = project.add_sheet("generated")
     name_col = project.add_column(sheet, "name", type="text")
-    geo_col = project.add_column(sheet, "loc", type="geo_point", ai_generated=True)
+    geo_col = project.add_column(sheet, "loc", type="geo_point", generated=True)
     rows = project.add_rows(
         sheet,
         [{"name": "inside"}, {"name": "outside"}],

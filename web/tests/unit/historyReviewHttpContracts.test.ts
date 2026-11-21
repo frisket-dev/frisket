@@ -46,7 +46,7 @@ const columnRunsFixture = {
     id: 5,
     name: 'Label',
     type: 'text',
-    ai_generated: true,
+    generated: true,
     current_run_id: 9,
   },
   offset: 2,
@@ -99,7 +99,7 @@ const historyFixture = {
         started_at: '2026-08-11 00:00:00',
         finished_at: null,
         worker_version: null,
-        output_columns: [{ id: 5, name: 'Label' }],
+        generated_columns: [{ id: 5, name: 'Label' }],
         row_errors: {
           total_failed_rows: 1,
           groups: [{

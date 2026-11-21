@@ -82,7 +82,7 @@ class ProjectDebugService:
                     "id": column["id"],
                     "name": column["name"],
                     "type": column["type"],
-                    "ai_generated": bool(column["ai_generated"]),
+                    "generated": bool(column["generated"]),
                     "hidden": bool(column["hidden"]),
                     "current_run_id": column["current_run_id"],
                 }

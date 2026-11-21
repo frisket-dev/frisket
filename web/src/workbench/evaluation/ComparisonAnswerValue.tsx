@@ -6,7 +6,7 @@ import type { ActionCompareSessionSnapshot } from '../actionCompareSession';
 export function ComparisonAnswerValue({ state, rowId, field, value }: {
   state: ActionCompareSessionSnapshot; rowId: number; field: string; value: JsonValue | undefined;
 }) {
-  const output = state.context.output_columns.find((column) => column.logical_key === field);
+  const output = state.context.generated_columns.find((column) => column.logical_key === field);
   const column: ColumnDef = { id: String(output?.column_id ?? field), name: output?.current_name ?? field,
     type: output?.column_type as ColumnDef['type'] ?? 'text', format: output?.format, semanticType: output?.semantic_type };
   const rendered: CellValue = value == null ? null : typeof value === 'object' ? JSON.stringify(value) : value;

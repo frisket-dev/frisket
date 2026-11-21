@@ -38,7 +38,7 @@ from frisket.engine.store.citations import (
     record_source_span,
 )
 from frisket.sdk.media import (
-    media_output_column_value_hash,
+    media_generated_column_value_hash,
     media_replay_row_ids,
 )
 from frisket.engine.executor.action_receipts import _result_from_receipt
@@ -50,7 +50,7 @@ from frisket.engine.executor.action_reservations import (
 from frisket.engine.executor.action_support import (
     ActionCtx,
 )
-from frisket.sdk.replay import _replay_output_column_row
+from frisket.sdk.replay import _replay_generated_column_row
 from frisket.engine.store import Project
 from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.materialization import (
@@ -264,7 +264,7 @@ def _resolve_web_capture_page_inputs(
         ).fetchone()
         if output_column is not None and output_column["hidden"]:
             return ActionError(
-                code="output_column_exists",
+                code="generated_column_exists",
                 message=f"{action_kind} output name is reserved by a hidden column",
                 action_kind=action_kind,
                 field="params.output_name",
@@ -801,13 +801,13 @@ def _finalize_web_capture_page_links(
                 op_spec=op_spec,
                 columns=[
                     MaterializedColumnSpec(
-                        name=names["url"], type="link", ai_generated=True
+                        name=names["url"], type="link", generated=True
                     ),
                     MaterializedColumnSpec(
-                        name=names["anchor_text"], type="text", ai_generated=True
+                        name=names["anchor_text"], type="text", generated=True
                     ),
                     MaterializedColumnSpec(
-                        name=names["source_url"], type="link", ai_generated=True
+                        name=names["source_url"], type="link", generated=True
                     ),
                 ],
                 rows=materialized_rows,
@@ -876,7 +876,7 @@ def _web_capture_page_add_generated_column(
             )
         return int(row["id"])
     cur = project.db.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, hidden, "
+        "INSERT INTO columns (sheet_id, name, type, generated, format, hidden, "
         "position) VALUES (?, ?, ?, 1, NULL, 0, "
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
         (
@@ -997,7 +997,7 @@ def _web_capture_page_output_ref(
         "failed_rows": [
             int(row["row_id"]) for row in row_results if row.get("status") == "error"
         ],
-        "value_hash": media_output_column_value_hash(
+        "value_hash": media_generated_column_value_hash(
             project,
             sheet_id=params.sheet_id,
             column_id=output_column_id,
@@ -1145,7 +1145,7 @@ def _web_capture_page_links_receipt(
     }
     rows_ref = dict(write.materialized_rows_ref)
     rows_ref["value_hashes"] = {
-        name: media_output_column_value_hash(
+        name: media_generated_column_value_hash(
             project,
             sheet_id=write.sheet_id,
             column_id=int(write.column_ids[names[name]]),
@@ -1493,7 +1493,7 @@ def _web_capture_page_replay_error(
         row_ids = media_replay_row_ids(ref, receipt=receipt, output_name=output.name)
         if isinstance(row_ids, ActionError):
             return row_ids
-        column = _replay_output_column_row(
+        column = _replay_generated_column_row(
             project, receipt, column_id=column_id, sheet_id=sheet_id
         )
         expected_type = ref.get("column_type")
@@ -1504,7 +1504,7 @@ def _web_capture_page_replay_error(
             )
         if column is None or column["type"] != expected_type:
             return stale(replay + "generated column is missing", column_id=column_id)
-        if ref.get("value_hash") != media_output_column_value_hash(
+        if ref.get("value_hash") != media_generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=column_id,
@@ -1668,7 +1668,7 @@ def _web_capture_page_links_replay_error(
             or column["type"] != expected_type
         ):
             return stale("links generated column is missing or changed", output=name)
-        if value_hashes[name] != media_output_column_value_hash(
+        if value_hashes[name] != media_generated_column_value_hash(
             project,
             sheet_id=sheet_id,
             column_id=column_id,

@@ -373,7 +373,7 @@ def test_output_family_and_evidence_publish_atomically(
     other = None
     try:
         _publish_initial_generation(project, sheet, column, rows)
-        evidence_column = project.add_column(sheet, "evidence", ai_generated=True)
+        evidence_column = project.add_column(sheet, "evidence", generated=True)
         op_id = project.append_change("map.extract", label="two-output family")
         store = RunResultStore(project)
         run_id = store.start_run(

@@ -217,7 +217,7 @@ def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
     before_columns = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
             (child_id,),
         )
     ]
@@ -254,7 +254,7 @@ def test_refresh_reuses_typed_runtime_output_names_and_column_ids(
     after_columns = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
             (child_id,),
         )
     ]

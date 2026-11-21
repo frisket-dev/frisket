@@ -146,7 +146,7 @@ def _seed_project(project: Project, source_path: Path) -> _SeededMedia:
         sheet_id,
         "transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     with write_transaction(project.db):
         blob_hash = project.add_blob_from_path(

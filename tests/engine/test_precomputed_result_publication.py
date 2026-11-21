@@ -8,7 +8,7 @@ from frisket.engine.store.transactions import write_transaction
 from frisket.engine.runner.publication import PUBLISH_VALUE
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
@@ -21,7 +21,7 @@ def _seed_precomputed_run(
     sheet_id = project.add_sheet("Findings")
     source_column_id = project.add_column(sheet_id, "source", type="text")
     output_column_id = project.add_column(
-        sheet_id, "Match", type="text", ai_generated=True
+        sheet_id, "Match", type="text", generated=True
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -51,7 +51,7 @@ def _seed_precomputed_run(
     )
     claim_token = f"output-claim:{receipt_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["Match"],
             action_kind="map.find",

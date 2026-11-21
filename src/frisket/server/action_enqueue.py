@@ -63,7 +63,7 @@ from frisket.engine.runner.validation import (
 )
 from frisket.local_provider_config import KEY_PROVIDERS
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.transactions import require_transaction, write_transaction
 from frisket.execution.attempt import STALE_DISPATCHING_AGE
@@ -528,7 +528,7 @@ def _queue_v1_project_run_request(
                 )
                 claim_token = f"output-claim:{reservation['receipt_id']}"
                 output_column_ids = list(
-                    OutputColumnClaimStore(project).active_column_ids(
+                    GeneratedColumnClaimStore(project).active_column_ids(
                         claim_token=claim_token,
                         run_id=progress.run_id,
                     )
@@ -551,7 +551,7 @@ def _queue_v1_project_run_request(
                         )
                     ),
                 )
-                renewed = OutputColumnClaimStore(project).renew(
+                renewed = GeneratedColumnClaimStore(project).renew(
                     claim_token=claim_token,
                     run_id=progress.run_id,
                     lease_seconds=int(STALE_DISPATCHING_AGE.total_seconds()),

@@ -169,11 +169,13 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
             ctx.project, target.sheet_id, [state["target_column"]["id"]]
         )
         if ctx.extras.get("preview") is not True:
-            from frisket.engine.store.output_claims import OutputColumnClaimStore
+            from frisket.engine.store.generated_column_claims import (
+                GeneratedColumnClaimStore,
+            )
 
             writer_attempt_id = _require_writer_attempt_id(ctx.extras)
             with ctx.project.transaction_scope():
-                OutputColumnClaimStore.require_current_writer(
+                GeneratedColumnClaimStore.require_current_writer(
                     ctx.project.db,
                     fence=WriterFence.claimed(
                         run_id=ctx.extras["run_id"],

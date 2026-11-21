@@ -296,7 +296,7 @@ def _search_hit_payload(
     return {
         "column_name": str(column["name"]) if column is not None else None,
         "source_name": source_name,
-        "ai_generated": bool(column["ai_generated"]) if column is not None else False,
+        "generated": bool(column["generated"]) if column is not None else False,
         "snippet": hit.snippet or "",
         "score": hit.rank_score,
         "source": _source_payload(hit.part.source),

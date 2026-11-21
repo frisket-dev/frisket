@@ -68,7 +68,7 @@ def _sheet_id(action: dict[str, Any]) -> int:
 # transaction; both must therefore expose the same complete pending tuple.
 PRECOMMIT_BOUNDARY_TARGETS = {
     1: "frisket.engine.store.receipts.ReceiptStore.insert_queued",
-    2: "frisket.engine.store.output_claims.OutputColumnClaimStore.acquire",
+    2: "frisket.engine.store.generated_column_claims.GeneratedColumnClaimStore.acquire",
     3: "frisket.engine.store.project.Project.add_column_in_transaction",
     4: "frisket.engine.store.project.Project.append_change_in_transaction",
     5: "frisket.engine.store.project.Project.set_undo_info",
@@ -95,7 +95,7 @@ OUTPUT_WRITER_TARGETS = {
 
 PROJECT_COUNT_QUERIES = {
     "receipts": "SELECT COUNT(*) FROM receipts",
-    "output_column_claims": "SELECT COUNT(*) FROM output_column_claims",
+    "generated_column_claims": "SELECT COUNT(*) FROM generated_column_claims",
     "ops": "SELECT COUNT(*) FROM ops",
     "runs": "SELECT COUNT(*) FROM runs",
     "run_scopes": "SELECT COUNT(*) FROM run_scopes",
@@ -296,7 +296,7 @@ def _seed_case(
                 sheet_id,
                 "markdown",
                 type="text",
-                ai_generated=True,
+                generated=True,
                 format=None,
             )
         elif action_kind != "enrich.geocode":
@@ -306,7 +306,7 @@ def _seed_case(
                 sheet_id,
                 "location",
                 type="text",
-                ai_generated=True,
+                generated=True,
                 hidden=True,
             )
         elif output_writer_variant == "retype":
@@ -314,14 +314,14 @@ def _seed_case(
                 sheet_id,
                 "location",
                 type="text",
-                ai_generated=True,
+                generated=True,
             )
         elif output_writer_variant == "semantic_retype":
             column_id = project.add_column(
                 sheet_id,
                 "location",
                 type="geo_point",
-                ai_generated=True,
+                generated=True,
             )
             with write_transaction(project.db):
                 project.set_column_semantic_type(column_id, "packet_10_prior_geocode")
@@ -342,7 +342,7 @@ def _seed_case(
             sheet_id,
             "location_retired",
             type="category",
-            ai_generated=True,
+            generated=True,
         )
     if confirm_action:
         action = _confirmed_action(ActionRunService(workspace), action)
@@ -589,7 +589,7 @@ def _project_snapshot(project: Any) -> dict[str, Any]:
         "columns": [
             tuple(row)
             for row in project.db.execute(
-                "SELECT id, sheet_id, name, type, format, ai_generated, "
+                "SELECT id, sheet_id, name, type, format, generated, "
                 "hidden, default_hidden, semantic_type, current_run_id "
                 "FROM columns ORDER BY id"
             ).fetchall()
@@ -672,7 +672,7 @@ def _prepared_tuple(
         "col.semantic_type AS column_semantic_type, "
         "col.format AS column_format, "
         "col.current_run_id AS column_run_id "
-        "FROM output_column_claims c "
+        "FROM generated_column_claims c "
         "JOIN columns col ON col.id=c.column_id "
         "WHERE c.run_id=? AND c.status='active' "
         "ORDER BY col.position, col.id",
@@ -871,7 +871,7 @@ def test_unowned_generated_column_is_refused_before_writer_mutation(
 
     assert result.payload["status"] == "failed"
     if "action_id" in action:
-        assert result.payload["errors"][0]["code"] == "output_column_exists"
+        assert result.payload["errors"][0]["code"] == "generated_column_exists"
     assert _project_snapshot(project) == baseline
     assert (
         workspace.queue.list_project_jobs(

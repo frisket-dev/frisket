@@ -19,7 +19,7 @@ const showError = vi.fn();
 function prepare() {
   calls.getLinks.mockResolvedValue({ links: [{ id: 3, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [], hidden: false }] });
   calls.previewLink.mockResolvedValue({ matched: 1 });
-  calls.getContext.mockImplementation(async ({ source }) => ({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: source.run_id === 101 ? 1 : 2, name: 'sheet' }, output_columns: [] }));
+  calls.getContext.mockImplementation(async ({ source }) => ({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: source.run_id === 101 ? 1 : 2, name: 'sheet' }, generated_columns: [] }));
   const getSheetData = vi.fn(async (id: string) => ({ rows: [{ id: id === '1' ? '10' : '20' }] }));
   return { getSheetData } as unknown as GridApiPort;
 }
@@ -69,7 +69,7 @@ it('updates only explicitly changed rules after saving an existing link', async 
 
 it('keeps unavailable links visible for removal but omits their virtual columns and previews', async () => {
   const api = prepare();
-  calls.getLinks.mockResolvedValue({ links: [{ id: 4, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, output_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false, available: false, unavailable_reason: 'Expected sheet was removed' }] });
+  calls.getLinks.mockResolvedValue({ links: [{ id: 4, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, generated_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false, available: false, unavailable_reason: 'Expected sheet was removed' }] });
   const { result } = renderHook(() => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, [], [], '', showError));
   await waitFor(() => expect(result.current.unavailableLinks).toHaveLength(1));
   expect(result.current.expectedColumns).toEqual([]);
@@ -79,7 +79,7 @@ it('keeps unavailable links visible for removal but omits their virtual columns 
 
 it('keeps same-sheet links during refresh without leaking them across sheet switches', async () => {
   const api = prepare();
-  const first = { id: 3, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, output_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false };
+  const first = { id: 3, action_id: 'map.ask', target_sheet_id: 1, expected_sheet_id: 2, target_sheet_name: 'Current', expected_sheet_name: 'Other', keys: [], fields: [{ expected_column_id: 22, generated_column_id: 11, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' }], hidden: false };
   let finishRefresh!: (value: { links: typeof first[] }) => void;
   calls.getLinks.mockResolvedValueOnce({ links: [first] }).mockImplementationOnce(() => new Promise(resolve => { finishRefresh = resolve; })).mockImplementation(() => new Promise(() => {}));
   const { result, rerender } = renderHook(({ project, current }) => useWorkspaceExpectedAnswers(project, current, sheets, api, [], [], '', showError),
@@ -103,7 +103,7 @@ it('discovers a run after its pending context becomes available on completion', 
   calls.getContext.mockRejectedValueOnce(new ApiError(409, 'Run is still pending'))
     .mockResolvedValueOnce({ available: true, draft: { action_id: 'map.ask' },
       sheet: { id: 1, name: 'Current' },
-      output_columns: [{ column_id: 11, current_name: 'answer', logical_key: 'answer' }] });
+      generated_columns: [{ column_id: 11, current_name: 'answer', logical_key: 'answer' }] });
   const { result, rerender } = renderHook(({ version }) => useWorkspaceExpectedAnswers('p', sheets[0], sheets, api, [], [], String(version), showError),
     { initialProps: { version: 0 } });
   await waitFor(() => expect(calls.getContext).toHaveBeenCalledTimes(1));
@@ -121,7 +121,7 @@ it('keeps one discovery in flight across row updates and retries after completio
   const api = prepare();
   let finish!: (value: unknown) => void;
   calls.getContext.mockImplementationOnce(() => new Promise((_resolve, reject) => { finish = () => reject(new ApiError(409, 'Run pending')); }))
-    .mockResolvedValueOnce({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: 1, name: 'Current' }, output_columns: [] });
+    .mockResolvedValueOnce({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: 1, name: 'Current' }, generated_columns: [] });
   const { result, rerender } = renderHook(({ signal, sheet }) => useWorkspaceExpectedAnswers('p', sheet, sheets, api, [], [], signal, showError),
     { initialProps: { signal: '', sheet: sheets[0] } });
   await waitFor(() => expect(calls.getContext).toHaveBeenCalledTimes(1));
@@ -143,7 +143,7 @@ it('accepts an in-flight successful discovery despite intervening completion upd
   rerender({ signal: 'other:complete' });
   rerender({ signal: 'other:complete,third:complete' });
   expect(calls.getContext).toHaveBeenCalledTimes(1);
-  await act(async () => finish({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: 1, name: 'Current' }, output_columns: [] }));
+  await act(async () => finish({ available: true, draft: { action_id: 'map.ask' }, sheet: { id: 1, name: 'Current' }, generated_columns: [] }));
   await waitFor(() => expect(result.current.joinActions).toEqual([expect.objectContaining({ actionId: 'map.ask' })]));
   expect(calls.getContext).toHaveBeenCalledTimes(1);
 });

@@ -36,7 +36,7 @@ def _receipt(project, receipt_id, run_id=None):
     ReceiptStore(project).insert_running(receipt)
     if run_id is not None:
         project.db.execute(
-            "UPDATE output_column_claims SET receipt_id=? WHERE run_id=?",
+            "UPDATE generated_column_claims SET receipt_id=? WHERE run_id=?",
             (receipt_id, run_id),
         )
         project.db.commit()
@@ -101,7 +101,7 @@ def test_cutover_keeps_saved_result_and_closes_generation_claim_and_receipt(
         == "saved"
     )
     assert not project.db.execute(
-        "SELECT 1 FROM output_column_claims WHERE status='active'"
+        "SELECT 1 FROM generated_column_claims WHERE status='active'"
     ).fetchone()
     assert RunResultStore(project).get_run(run.run_id)["current_attempt_id"] is None
     assert not any(retire_legacy_project_work(project).values())
@@ -263,7 +263,7 @@ def test_cutover_retains_staged_results_without_replacing_published_values(
 
 def test_unsupported_output_owner_rolls_back_all_project_retirement(make_project):
     project, run, _, _ = _claimed(make_project)
-    project.db.execute("UPDATE output_column_claims SET receipt_id=NULL")
+    project.db.execute("UPDATE generated_column_claims SET receipt_id=NULL")
     project.db.execute("DELETE FROM receipts")
     project.db.commit()
     before = list(project.db.iterdump())

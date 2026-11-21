@@ -300,7 +300,7 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
     columns_before = [
         tuple(row)
         for row in project.db.execute(
-            "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+            "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
             (child_id,),
         )
     ]
@@ -367,7 +367,7 @@ def test_refresh_preserves_renamed_item_grounding_and_retires_previous_links(
         assert [
             tuple(row)
             for row in project.db.execute(
-                "SELECT id, name, type, ai_generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
+                "SELECT id, name, type, generated, hidden, format FROM columns WHERE sheet_id=? ORDER BY position",
                 (child_id,),
             )
         ] == columns_before

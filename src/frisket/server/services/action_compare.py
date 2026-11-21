@@ -165,7 +165,7 @@ class ActionCompareService:
             "sample_fingerprint": sample_fingerprint,
             "locked_params": locked_params,
             "source_columns": source_columns,
-            "output_columns": output_columns,
+            "generated_columns": output_columns,
             "expected_output_signature": output_signature,
             "replacement_targets": replacement_targets,
             "source_rows": source_rows,
@@ -296,7 +296,7 @@ def _resolve_draft(project, raw_draft: Mapping[str, Any]):
             bound = typed_action_for_request(request.model_dump(mode="json"))
         canonical = normalized_typed_request_identity(bound)
         canonical.pop("replace_existing", None)
-        canonical.pop("expected_output_columns", None)
+        canonical.pop("expected_generated_columns", None)
         canonical.pop("implementation_identity", None)
         body = {**canonical, "idempotency_key": "action-compare-context"}
         plan = resolve_map_preview(project, body)
@@ -355,7 +355,7 @@ def _resolve_run_draft(project, *, run_id: int, column_id: int):
     }
     canonical = reconstructed.draft
     canonical.pop("replace_existing", None)
-    canonical.pop("expected_output_columns", None)
+    canonical.pop("expected_generated_columns", None)
     canonical.pop("implementation_identity", None)
     canonical["output_names"] = current_names
     canonical["scope"] = {

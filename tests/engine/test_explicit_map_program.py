@@ -11,7 +11,7 @@ import pytest
 from frisket.ai.llm import ModelRouter
 from frisket.engine.runner import MapRunner, validation
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.execution.attempt_authority import UnroutedOnlyAuthority
 from frisket.ops.base import ActionContext, ActionProgram
 from frisket.engine.store.transactions import write_transaction
@@ -113,7 +113,7 @@ def test_explicit_program_drives_prepare_and_run_without_registry(
     spec, _ = _seed(project)
     program = _ExplicitProgram()
     claim_token = f"output-claim:test:{uuid.uuid4()}"
-    claim_store = OutputColumnClaimStore(project)
+    claim_store = GeneratedColumnClaimStore(project)
     with write_transaction(claim_store.db):
         claims, conflict = claim_store.acquire(
             sheet_id=int(spec["sheet_id"]),

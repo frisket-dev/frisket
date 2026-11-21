@@ -416,7 +416,7 @@ CASES = [
             error_codes=frozenset(
                 {
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "external_rows_failed",
                     "stale_replay",
                     "idempotency_conflict",
@@ -443,9 +443,9 @@ CASES = [
                 expected_status="needs_confirmation",
             ),
             Gate(
-                "output_column_exists",
+                "generated_column_exists",
                 _source_collision_action,
-                "output_column_exists",
+                "generated_column_exists",
             ),
         ),
         expect_counts={

@@ -5,7 +5,7 @@ import pytest
 from frisket.engine.projections.point_backend import GeoProjectionBackend
 from frisket.engine.runner.result_generations import _compatibility_key
 from frisket.engine.store import Project
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.runs import RunResultStore
 from helpers import run_writer_authority_fixture, write_claimed_test_results
@@ -76,7 +76,7 @@ def test_undo_restores_old_point_and_redo_restores_edit(project):
 def _seed_ai_run(project: Project, values_by_row):
     sheet = project.add_sheet("p")
     name_col = project.add_column(sheet, "n", type="text")
-    geo_col = project.add_column(sheet, "loc", type="geo_point", ai_generated=True)
+    geo_col = project.add_column(sheet, "loc", type="geo_point", generated=True)
     rows = project.add_rows(
         sheet,
         [{"n": "a"}, {"n": "b"}],
@@ -166,7 +166,7 @@ def test_same_descriptor_rerun_projects_completed_rows_before_seal(project):
             terminal_disposition="completed",
         )
     RunResultStore(project).finish_run(run2, fence=authority.fence())
-    OutputColumnClaimStore(project).finish_current_writer(
+    GeneratedColumnClaimStore(project).finish_current_writer(
         fence=authority.fence(),
         attempt_state="effected",
     )

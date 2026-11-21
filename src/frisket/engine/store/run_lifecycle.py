@@ -51,7 +51,7 @@ def require_terminal_writer(
     permits new effects or writing result cells.
     """
     from frisket.execution.attempt import StaleAttemptWriter
-    from .output_claims import OutputColumnClaimStore
+    from .generated_column_claims import GeneratedColumnClaimStore
 
     run_id = fence.run_id
     writer_attempt_id = fence.writer_attempt_id
@@ -77,7 +77,7 @@ def require_terminal_writer(
         terminal_status == "cancelled" and row[1] is not None and bool(row[2])
     )
     try:
-        OutputColumnClaimStore.require_current_writer(
+        GeneratedColumnClaimStore.require_current_writer(
             project.db,
             fence=fence,
             output_column_ids=frozenset(output_column_ids),

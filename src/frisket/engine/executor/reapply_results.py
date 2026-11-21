@@ -153,7 +153,7 @@ def reapply_results(project, project_id, bound):
                 }
                 if hidden.intersection(output_names.values()):
                     raise TypedMapRowsPlanError(
-                        "output_column_exists",
+                        "generated_column_exists",
                         "Reapply cannot replace hidden active output columns; choose a new name",
                     )
                 names, preconditions = resolve_row_output_targets(
@@ -170,7 +170,7 @@ def reapply_results(project, project_id, bound):
                             column["semantic_type"],
                         ) != (field.column_type, field.format, field.semantic_type):
                             raise TypedMapRowsPlanError(
-                                "output_column_exists",
+                                "generated_column_exists",
                                 "A partial copy requires a compatible output column; choose a new column",
                             )
                 op_id = project.append_change_in_transaction(
@@ -188,7 +188,7 @@ def reapply_results(project, project_id, bound):
                             scope.sheet_id,
                             names[field.key],
                             type=field.column_type,
-                            ai_generated=True,
+                            generated=True,
                             format=field.format,
                             semantic_type=field.semantic_type,
                         )

@@ -12,9 +12,9 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
     project = make_project("exact-summary")
     sheet_id = project.add_sheet("Rows")
     source_id = project.add_column(sheet_id, "source")
-    answer_id = project.add_column(sheet_id, "answer", ai_generated=True)
-    category_id = project.add_column(sheet_id, "category", ai_generated=True)
-    support_id = project.add_column(sheet_id, "answer_confidence", ai_generated=True)
+    answer_id = project.add_column(sheet_id, "answer", generated=True)
+    category_id = project.add_column(sheet_id, "category", generated=True)
+    support_id = project.add_column(sheet_id, "answer_confidence", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"source": "one"}, {"source": "two"}],
@@ -61,7 +61,7 @@ def test_review_summary_keeps_exact_bundle_and_visibility_semantics(
 
     hidden_sheet_id = project.add_sheet("Hidden")
     hidden_output_id = project.add_column(
-        hidden_sheet_id, "hidden_answer", ai_generated=True
+        hidden_sheet_id, "hidden_answer", generated=True
     )
     hidden_row_id = project.add_rows(hidden_sheet_id, [{}], {})[0]
     hidden_op_id = project.append_change("map", {"phase": "hidden sheet fixture"})

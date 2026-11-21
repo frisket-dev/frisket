@@ -10,7 +10,7 @@ import pytest
 
 from frisket.contracts.action import ActionError
 from frisket.sdk.media import (
-    media_output_column_value_hash,
+    media_generated_column_value_hash,
     media_replay_row_ids,
     media_successful_result_row_ids,
     media_text_hash,
@@ -38,16 +38,18 @@ class _FakeValuesProject:
 
 def test_media_generated_column_value_hash_deterministic_and_value_sensitive() -> None:
     base = _FakeValuesProject({1: "a", 2: {"blob": "sha256:x"}})
-    first = media_output_column_value_hash(
+    first = media_generated_column_value_hash(
         base, sheet_id=1, column_id=2, row_ids=[1, 2]
     )
-    second = media_output_column_value_hash(
+    second = media_generated_column_value_hash(
         base, sheet_id=1, column_id=2, row_ids=[1, 2]
     )
     assert first == second
     changed = _FakeValuesProject({1: "a", 2: {"blob": "sha256:y"}})
     assert (
-        media_output_column_value_hash(changed, sheet_id=1, column_id=2, row_ids=[1, 2])
+        media_generated_column_value_hash(
+            changed, sheet_id=1, column_id=2, row_ids=[1, 2]
+        )
         != first
     )
 

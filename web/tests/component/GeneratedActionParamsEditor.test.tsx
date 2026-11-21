@@ -449,7 +449,7 @@ describe('GeneratedActionParamsEditor', () => {
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7, row_ids: [11, 12, 13] },
       replace_existing: true,
-      expected_output_columns: { pdf_party: 101 },
+      expected_generated_columns: { pdf_party: 101 },
     }), 'run');
   });
 
@@ -465,7 +465,7 @@ describe('GeneratedActionParamsEditor', () => {
     expect(onExecute).toHaveBeenCalledWith(expect.objectContaining({
       scope: { kind: 'sheet_rows', sheet_id: 7 },
       replace_existing: true,
-      expected_output_columns: { pdf_party: 101 },
+      expected_generated_columns: { pdf_party: 101 },
     }), 'run');
 
     fireEvent.click(screen.getByTestId('generated-action-run-scope-menu-button'));
@@ -515,7 +515,7 @@ describe('GeneratedActionParamsEditor', () => {
       scope: { kind: 'sheet_rows', sheet_id: 7 },
     }), 'run');
     expect(onExecute.mock.lastCall?.[0]).not.toHaveProperty('replace_existing');
-    expect(onExecute.mock.lastCall?.[0]).not.toHaveProperty('expected_output_columns');
+    expect(onExecute.mock.lastCall?.[0]).not.toHaveProperty('expected_generated_columns');
   });
 
   it('adds Compare to the ordinary Run menu without adding replacement intent', async () => {

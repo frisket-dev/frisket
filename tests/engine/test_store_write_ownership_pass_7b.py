@@ -274,7 +274,7 @@ def _seed_alert_run(project) -> tuple[int, int]:
 def _seed_embedding_batch_context(project) -> tuple[ActionContext, int, str]:
     sheet_id = _sheet_id(project)
     row_id = _row_id(project)
-    out_col = project.add_column(sheet_id, "out", ai_generated=True)
+    out_col = project.add_column(sheet_id, "out", generated=True)
     op_id = project.append_change("map", {"action_kind": "map.semantic_join"})
     run_id = RunResultStore(project).start_run(
         op_id, sheet_id, "map.semantic_join", row_ids=[row_id], total_rows=1

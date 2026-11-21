@@ -92,7 +92,7 @@ def test_generation_coverage_preserves_column_and_hidden_row_semantics(
     empty_sheet = project.add_sheet("Empty")
     column_ids = {
         "generated": project.add_column(
-            rows_sheet, "generated", type="integer", ai_generated=True
+            rows_sheet, "generated", type="integer", generated=True
         ),
         "second": project.add_column(rows_sheet, "second"),
         "other": project.add_column(other_sheet, "other"),

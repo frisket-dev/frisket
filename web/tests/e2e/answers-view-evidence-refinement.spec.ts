@@ -65,7 +65,7 @@ try:
     run_store = RunResultStore(project)
     sheet_id = project.add_sheet("Hearings")
     source_col = project.add_column(sheet_id, "Source", "file")
-    finding_col = project.add_column(sheet_id, "Finding", "text", ai_generated=True)
+    finding_col = project.add_column(sheet_id, "Finding", "text", generated=True)
     row_a = project.add_rows(sheet_id, [{"Source": "hearingA.wav"}], {"Source": source_col})[0]
     row_b = project.add_rows(sheet_id, [{"Source": "hearingB.wav"}], {"Source": source_col})[0]
 

@@ -46,10 +46,10 @@ def temporal_persistence_errors() -> list[ActionErrorSpec]:
     )
 
 
-def output_column_busy_error() -> ActionErrorSpec:
+def generated_column_busy_error() -> ActionErrorSpec:
     return ActionErrorSpec(
-        code="output_column_busy",
-        message="The target output column is claimed by a running action.",
+        code="generated_column_busy",
+        message="The target generated column is claimed by a running action.",
     )
 
 
@@ -108,13 +108,13 @@ def op_errors(
         ),
         *validation,
         *error_specs(
-            output_column_exists=(
-                "The requested output columns already exist."
+            generated_column_exists=(
+                "The requested generated columns already exist."
                 if multi_output
-                else "The requested output column already exists."
+                else "The requested generated column already exists."
             )
         ),
-        output_column_busy_error(),
+        generated_column_busy_error(),
     ]
     # `cost_confirmation` is the non-model way to reach the same error: an op
     # whose cost is UNPRICEABLE (an authored URL has no readable meter) gates on

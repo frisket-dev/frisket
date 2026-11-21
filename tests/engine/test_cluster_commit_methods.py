@@ -173,7 +173,7 @@ def test_generated_column_exists_guard(make_project):
         project, _commit(sid), project_id=PROJECT_ID
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
 
 
 def test_contract_rejects_irrelevant_knobs():

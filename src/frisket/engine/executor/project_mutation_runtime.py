@@ -12,7 +12,7 @@ from frisket.engine.executor.action_inventory import _TypedProjectEnvelope
 from frisket.engine.store.edit_overlays import (
     write_edit_overlay as write_store_edit_overlay,
 )
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
 
 class Refusal(Exception):
@@ -117,11 +117,11 @@ def claimed_column(
     action_kind: str,
     field: str = "params.column_id",
 ) -> None:
-    claim = OutputColumnClaimStore(project).active_for_columns({column_id})
+    claim = GeneratedColumnClaimStore(project).active_for_columns({column_id})
     if claim is None:
         return
     refuse(
-        "output_column_busy",
+        "generated_column_busy",
         "The target output column is claimed by a running action.",
         action_kind=action_kind,
         field=field,

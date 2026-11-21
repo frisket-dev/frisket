@@ -301,9 +301,7 @@ def test_preview_marks_overwrite_of_existing_column(make_project) -> None:
         ),
     )
     assert not isinstance(plan, ActionError), plan
-    existing = project.add_column(
-        sheet_id, "n_chars", type="integer", ai_generated=True
-    )
+    existing = project.add_column(sheet_id, "n_chars", type="integer", generated=True)
     before = _counts(project)
     # Driven at the runner level: an output name that matches an existing
     # column is marked as an overwrite (the overlay replaces that column's

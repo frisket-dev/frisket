@@ -113,7 +113,7 @@ def test_http_column_runs_use_action_metadata(client) -> None:
         "id": phone_column["id"],
         "name": "phone",
         "type": "text",
-        "ai_generated": True,
+        "generated": True,
         # regex_extract is generation-managed: the wire deliberately reports
         # no scalar current run for managed columns — exact heads own value
         # authority, and latest_run_id/mixed_origins carry the chronology.

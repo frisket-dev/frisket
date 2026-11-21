@@ -128,7 +128,7 @@ function SearchHitRow({
             {locationLabel && <span className="search-hit-location">{locationLabel}</span>}
           </span>
           <span className="search-hit-snip">
-            <Snip text={hit.snippet} decodeEscapes={hit.ai_generated} />
+            <Snip text={hit.snippet} decodeEscapes={hit.generated} />
           </span>
         </span>
       </button>

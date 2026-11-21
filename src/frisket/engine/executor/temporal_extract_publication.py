@@ -272,7 +272,7 @@ def _write_extract_in_transaction(
 
     ChangeStore(project).start(op_id)
     cur.execute(
-        "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden) "
+        "INSERT INTO columns (sheet_id, name, type, position, generated, hidden) "
         "VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM columns "
         "WHERE sheet_id=?), 1, 0)",
         (
@@ -300,7 +300,7 @@ def _write_extract_in_transaction(
     transcript_column_ids: dict[int, int] = {}
     for source_column_id, transcript_name in transcript_names.items():
         cur.execute(
-            "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden) "
+            "INSERT INTO columns (sheet_id, name, type, position, generated, hidden) "
             "VALUES (?, ?, 'timestamped_transcript', "
             "(SELECT COALESCE(MAX(position), 0) + 1 "
             "FROM columns WHERE sheet_id=?), 1, 0)",
@@ -338,7 +338,7 @@ def _write_extract_in_transaction(
     for source_column_id, annotation_name in annotation_names.items():
         annotation = annotations_by_column[source_column_id]
         cur.execute(
-            "INSERT INTO columns (sheet_id, name, type, position, ai_generated, hidden) "
+            "INSERT INTO columns (sheet_id, name, type, position, generated, hidden) "
             "VALUES (?, ?, ?, (SELECT COALESCE(MAX(position), 0) + 1 "
             "FROM columns WHERE sheet_id=?), 0, 0)",
             (

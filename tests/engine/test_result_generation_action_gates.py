@@ -32,7 +32,7 @@ def _mutation_snapshot(project) -> tuple[object, ...]:  # noqa: ANN001
             "results",
             "model_calls",
             "receipts",
-            "output_column_claims",
+            "generated_column_claims",
         )
     )
 
@@ -44,14 +44,14 @@ def _document_text_admission(project, tmp_path):
     sheet, source, row, _digest = _source(
         project, tmp_path, pdf=_pdf_bytes("first designated text")
     )
-    text = project.add_column(sheet, "Text", type="text", ai_generated=True)
+    text = project.add_column(sheet, "Text", type="text", generated=True)
     with write_transaction(project.db):
         ensure_document_text_role(project, source_column_id=source, text_column_id=text)
     request = {
         **_request(sheet, row, key="designated-first-generation"),
         "output_names": {"text": "Text"},
         "replace_existing": True,
-        "expected_output_columns": {"Text": text},
+        "expected_generated_columns": {"Text": text},
     }
     return sheet, source, row, text, request
 
@@ -139,7 +139,7 @@ def test_generation_free_designated_text_admits_ocr_without_adopting_blocks(
         action_id="media.ocr",
         params={"source": "source", "engine": "rapidocr"},
         output_names={"text": "Text", "blocks": "Positions"},
-        expected_output_columns={"Text": text, "Positions": None},
+        expected_generated_columns={"Text": text, "Positions": None},
     )
     before = _mutation_snapshot(project)
     plan = build_typed_map_rows_plan(project, typed_action_for_request(request))
@@ -183,9 +183,9 @@ def test_first_document_text_admission_requires_exact_generation_free_role(
         project.add_column(sheet, "another source", type="file")
         request["params"] = {"source": "another source"}
     elif mismatch == "unfenced":
-        request.pop("expected_output_columns")
+        request.pop("expected_generated_columns")
     elif mismatch == "different-target":
-        request["expected_output_columns"] = {"Text": source}
+        request["expected_generated_columns"] = {"Text": source}
     elif mismatch == "existing-value":
         project.apply_edits([{"row_id": row, "column_id": text, "value": "keep me"}])
     else:
@@ -239,14 +239,12 @@ def test_seeded_unrelated_ai_target_is_not_adopted(tmp_path, make_project):
 
     project = make_project("unrelated-seeded")
     sheet, source, row, _text, request = _document_text_admission(project, tmp_path)
-    unrelated = project.add_column(
-        sheet, "Unrelated Text", type="text", ai_generated=True
-    )
+    unrelated = project.add_column(sheet, "Unrelated Text", type="text", generated=True)
     _seed_prepared_base_text(
         project, sheet=sheet, source=source, row=row, target=unrelated
     )
     request["output_names"] = {"text": "Unrelated Text"}
-    request["expected_output_columns"] = {"Unrelated Text": unrelated}
+    request["expected_generated_columns"] = {"Unrelated Text": unrelated}
 
     before = _mutation_snapshot(project)
     with pytest.raises(TypedMapRowsPlanError):

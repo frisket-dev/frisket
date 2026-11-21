@@ -713,12 +713,12 @@ def test_typed_model_retry_changes_only_empty_failed_output_type(
     else:
         retry["params"]["fields"][0]["type"] = "text"
     # Explicit identity targets cannot silently become a new column.
-    explicit = {**retry, "expected_output_columns": {"person": old_id}}
+    explicit = {**retry, "expected_generated_columns": {"person": old_id}}
     refused = run_confirmed(explicit, {"answer": "Ada"})
     assert refused.status == "failed"
     assert refused.errors[0].code in {
         "output_target_changed",
-        "output_column_exists",
+        "generated_column_exists",
     }
     calls_before = len(requests)
     recovered = run_confirmed(retry, {"answer": "Ada"})
@@ -732,7 +732,7 @@ def test_typed_model_retry_changes_only_empty_failed_output_type(
         }
     else:
         assert recovered.status == "failed"
-        assert recovered.errors[0].code == "output_column_exists"
+        assert recovered.errors[0].code == "generated_column_exists"
         assert len(requests) == calls_before
         assert project.get_column(old_id)["active"] == 1
     assert (
@@ -810,7 +810,7 @@ def test_typed_ask_retry_preserves_manual_edit_history_on_failed_output(
         project, retry, _data_router(requests, {"answer": "Ada"}), action
     )
     assert result.status == "failed", result.errors
-    assert result.errors[0].code == "output_column_exists"
+    assert result.errors[0].code == "generated_column_exists"
     assert len(requests) == calls_before
     assert project.get_column(column_id)["active"] == 1
     assert [
@@ -1520,7 +1520,7 @@ def test_queued_model_rows_replacement_refuses_target_rename_before_worker(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE receipt_id=? AND status='active'",
             (queued.receipt_id,),
         ).fetchone()[0]

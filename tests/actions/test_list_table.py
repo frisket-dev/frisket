@@ -202,7 +202,7 @@ def test_parent_column_alias_cannot_overwrite_an_item_projection():
         [{"name": "item"}],
         parent_values={"name": "parent"},
         copied_columns=[
-            ListCopiedColumn(name="name", type="text", format=None, ai_generated=False)
+            ListCopiedColumn(name="name", type="text", format=None, generated=False)
         ],
     )
     with pytest.raises(TableError, match="collides"):
@@ -214,7 +214,7 @@ def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(
 ):
     project = make_project("p")
     sheet = project.add_sheet("source")
-    column = project.add_column(sheet, "items", "json", ai_generated=True)
+    column = project.add_column(sheet, "items", "json", generated=True)
     rows = project.add_rows(sheet, [{"items": ["a", "b"]}], {"items": column})
     reader = AdmittedListTableReader(project, "custom.expand")
     result = reader.read(
@@ -222,7 +222,7 @@ def test_reader_holds_snapshot_uses_actual_source_and_retains_item_associations(
     )
     assert [item.value for item in result] == ["a", "b"]
     assert reader.parent_sheet_id == sheet
-    assert reader.source_ai_generated is True
+    assert reader.source_generated is True
     live_items = list(result)
     assert set(reader.sources) == {item.source for item in live_items}
     assert [reader.item_associations[item.source]["item_index"] for item in result] == [

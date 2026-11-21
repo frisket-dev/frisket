@@ -3,7 +3,7 @@
 Normal reads use the transactionally maintained current-cell projection.
 Replay discovers candidate identities separately and reads their saved results.
 
-Also hosts the replay preserve+surface derivation (hand-edited ai_generated
+Also hosts the replay preserve+surface derivation (hand-edited generated
 cells whose current-run value differs) and the column type/format registries.
 Free functions over the facade's per-thread SQLite connection; ``project``
 stays duck-typed (``Any``) so this leaf never re-imports the facade module."""
@@ -78,7 +78,7 @@ def _replay_source(
 ) -> tuple[bool, int | None]:
     column = project.db.execute(
         "SELECT c.current_run_id FROM columns c JOIN sheets s ON s.id=c.sheet_id "
-        "WHERE c.id=? AND c.sheet_id=? AND c.ai_generated=1 "
+        "WHERE c.id=? AND c.sheet_id=? AND c.generated=1 "
         "AND c.hidden=0 AND s.hidden=0",
         (column_id, sheet_id),
     ).fetchone()
@@ -230,7 +230,7 @@ def add_column_in_transaction(
     sheet_id: int,
     name: str,
     type: str = "text",
-    ai_generated: bool = False,
+    generated: bool = False,
     format: str | None = None,
     hidden: bool = False,
     default_hidden: bool = False,
@@ -272,13 +272,13 @@ def add_column_in_transaction(
         )
         pointer_sql = "" if generation_managed else ", current_run_id=NULL"
         project.db.execute(
-            "UPDATE columns SET hidden=?, default_hidden=?, type=?, ai_generated=?, "
+            "UPDATE columns SET hidden=?, default_hidden=?, type=?, generated=?, "
             f"format=?, semantic_type=?{pointer_sql} WHERE id=?",
             (
                 int(hidden),
                 int(default_hidden),
                 type,
-                int(ai_generated),
+                int(generated),
                 format,
                 semantic_type,
                 existing_hidden["id"],
@@ -287,7 +287,7 @@ def add_column_in_transaction(
         refresh_current_cells(project.db, column_ids=[int(existing_hidden["id"])])
         return existing_hidden["id"]
     cur = project.db.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, "
+        "INSERT INTO columns (sheet_id, name, type, generated, format, "
         "hidden, default_hidden, semantic_type, position) VALUES "
         "(?, ?, ?, ?, ?, ?, ?, ?, "
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
@@ -295,7 +295,7 @@ def add_column_in_transaction(
             sheet_id,
             name,
             type,
-            int(ai_generated),
+            int(generated),
             format,
             int(hidden),
             int(default_hidden),
@@ -311,7 +311,7 @@ def add_column(
     sheet_id: int,
     name: str,
     type: str = "text",
-    ai_generated: bool = False,
+    generated: bool = False,
     format: str | None = None,
     hidden: bool = False,
     default_hidden: bool = False,
@@ -336,7 +336,7 @@ def add_column(
             sheet_id,
             name,
             type=type,
-            ai_generated=ai_generated,
+            generated=generated,
             format=format,
             hidden=hidden,
             default_hidden=default_hidden,
@@ -858,7 +858,7 @@ def pending_replay_values(
 ) -> dict[int, dict[str, Any]]:
     """The replay-pending cells of a column, keyed by row_id.
 
-    A cell is pending iff its column is ai_generated, its live value is a
+    A cell is pending iff its column is generated, its live value is a
     manual-edit overlay, and the published replay-origin ``results.value``
     beneath it differs from the edit and has not been durably dismissed.
     Row-page aware; pass ``row_ids`` for a viewport-scoped set (badges).
@@ -981,10 +981,10 @@ def _replay_candidate_query(
     projection: str,
 ) -> tuple[str, list[Any], int] | None:
     col = project.db.execute(
-        "SELECT id, sheet_id, current_run_id, ai_generated FROM columns WHERE id=?",
+        "SELECT id, sheet_id, current_run_id, generated FROM columns WHERE id=?",
         (column_id,),
     ).fetchone()
-    if col is None or not col["ai_generated"]:
+    if col is None or not col["generated"]:
         return None
     generation_managed, managed_origin_run_id = _managed_replay_origin_run_id(
         project, column_id
@@ -1023,7 +1023,7 @@ def _replay_candidate_query(
 def _replay_pending_candidates(
     project: Any, sheet_id: int, column_id: int, row_ids: list[int] | None
 ) -> list[dict[str, Any]]:
-    """Rows of an ai_generated column that were hand-edited AND whose
+    """Rows of an generated column that were hand-edited AND whose
     published replay-origin result carries a DIFFERING fresh generated value.
 
     Derived at read time (staleness.py idiom): a single indexed query joins

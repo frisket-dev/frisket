@@ -822,13 +822,13 @@ def _insert_feed_poll_column_in_txn(
     ).fetchone()
     if existing_hidden:
         cur.execute(
-            "UPDATE columns SET hidden=0, type=?, ai_generated=0, default_hidden=?, "
+            "UPDATE columns SET hidden=0, type=?, generated=0, default_hidden=?, "
             "current_run_id=NULL WHERE id=?",
             (type, int(default_hidden), existing_hidden["id"]),
         )
         return int(existing_hidden["id"])
     cur.execute(
-        "INSERT INTO columns (sheet_id, name, type, ai_generated, format, hidden, "
+        "INSERT INTO columns (sheet_id, name, type, generated, format, hidden, "
         "default_hidden, position) VALUES (?, ?, ?, 0, NULL, 0, ?, "
         "(SELECT COALESCE(MAX(position),0)+1 FROM columns WHERE sheet_id=?))",
         (sheet_id, name, type, int(default_hidden), sheet_id),

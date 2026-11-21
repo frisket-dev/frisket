@@ -43,8 +43,8 @@ def test_debug_and_row_totals_use_call_facts_without_poisoning_secondary_cells(
         row_id = project.db.execute(
             "SELECT id FROM rows WHERE sheet_id=?", (sheet,)
         ).fetchone()[0]
-        answer = project.add_column(sheet, "answer", ai_generated=True)
-        detail = project.add_column(sheet, "detail", ai_generated=True)
+        answer = project.add_column(sheet, "answer", generated=True)
+        detail = project.add_column(sheet, "detail", generated=True)
         run_id = RunResultStore(project).start_run(
             project.append_change("map"), sheet, "map.ask", total_rows=1
         )

@@ -88,7 +88,7 @@ class _EvidenceService:
                     "toggle_key": "7:4:entities",
                     "layer_family": "entities",
                     "producer": {"kind": "map.ner", "engine": "gliner"},
-                    "output_column": {"id": 4, "name": "entities"},
+                    "generated_column": {"id": 4, "name": "entities"},
                     "positioned": True,
                     "counts": {"shown": 1, "total": 1, "invalid": 0},
                     "spans": [

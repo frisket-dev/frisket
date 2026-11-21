@@ -11,7 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.import_sessions import (
     ImportSessionConflict,
     set_import_session_rows_hidden,
@@ -392,7 +392,7 @@ def step_operation(
         project, target_change_id, undo_info, reverting=reverting
     )
     column_ids = operation_touched_column_ids(project, target_change_id, undo_info)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     if not reverting:
         # A queued job can reserve a released name before creating its column
         # or appending an operation (and thus before discarding this redo).
@@ -423,7 +423,7 @@ def step_operation(
             (int(not selective), target_change_id),
         )
         project.db.execute(
-            "UPDATE output_column_claims SET status='released',released_at=datetime('now') "
+            "UPDATE generated_column_claims SET status='released',released_at=datetime('now') "
             "WHERE status='active' AND (op_id=? OR run_id IN (SELECT id FROM runs WHERE op_id=?))",
             (target_change_id, target_change_id),
         )
@@ -573,7 +573,7 @@ def undo(project: Any) -> int | None:
         except ClaimedOperation as exc:
             claim = exc.claim
             raise ValueError(
-                "output_column_busy: operation "
+                "generated_column_busy: operation "
                 f"{exc.op_id} "
                 f"touches actively claimed column {claim['column_id']}"
             )
@@ -594,7 +594,7 @@ def redo(project: Any) -> int | None:
         except ClaimedOperation as exc:
             claim = exc.claim
             raise ValueError(
-                "output_column_busy: operation "
+                "generated_column_busy: operation "
                 f"{exc.op_id} touches actively claimed column {claim['column_id']}"
             )
         except CorruptOperation as exc:

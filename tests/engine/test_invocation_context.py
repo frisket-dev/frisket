@@ -148,7 +148,7 @@ def test_context_normal_run_and_cancellation_use_shared_lifecycle(project, batch
     )
     assert (
         store.db.execute(
-            "SELECT count(*) FROM output_column_claims WHERE status='active'"
+            "SELECT count(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -323,7 +323,7 @@ def test_circuit_breaker_stops_an_inflight_context_and_settles_receipt(project):
     assert store.db.execute("SELECT error FROM results").fetchone()[0]
     assert (
         store.db.execute(
-            "SELECT count(*) FROM output_column_claims WHERE status='active'"
+            "SELECT count(*) FROM generated_column_claims WHERE status='active'"
         ).fetchone()[0]
         == 0
     )
@@ -494,7 +494,7 @@ def test_queued_context_cancellation_finalizes_receipt_attempt_and_claims(
         )
         assert (
             project.db.execute(
-                "SELECT count(*) FROM output_column_claims WHERE status='active'"
+                "SELECT count(*) FROM generated_column_claims WHERE status='active'"
             ).fetchone()[0]
             == 0
         )

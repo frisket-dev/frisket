@@ -566,7 +566,7 @@ def _generated_columns(project: Project, sheet_id: int) -> dict[str, int]:
     return {
         str(row["name"]): int(row["id"])
         for row in project.db.execute(
-            "SELECT id, name FROM columns WHERE sheet_id=? AND ai_generated=1 "
+            "SELECT id, name FROM columns WHERE sheet_id=? AND generated=1 "
             "ORDER BY position, id",
             (sheet_id,),
         ).fetchall()

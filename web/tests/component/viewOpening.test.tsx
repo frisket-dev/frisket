@@ -85,7 +85,7 @@ const SHEET_LIST_WIRE = [1, 2].map((id) => ({
   dependent_sheet_ids: [],
   columns: [
     {
-      id: 7, name: 'text', type: 'text', ai_generated: false,
+      id: 7, name: 'text', type: 'text', generated: false,
       format: null, semantic_type: null, current_run_id: null, latest_run_id: null,
       generation_managed: false, mixed_origins: false, transcript_status: null,
       media_download_candidate: null, replay_pending_count: 0, default_hidden: false,
@@ -100,7 +100,7 @@ const SHEET_DATA_WIRE = {
       id: 11,
       name: 'text',
       type: 'text',
-      ai_generated: false,
+      generated: false,
       format: null,
       current_run_id: null,
       transcript_status: null,

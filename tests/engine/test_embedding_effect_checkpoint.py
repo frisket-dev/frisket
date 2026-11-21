@@ -637,7 +637,7 @@ def test_embedding_terminalizer_joins_caller_transaction(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=?",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=?",
             (run_id,),
         ).fetchone()[0]
         == 0

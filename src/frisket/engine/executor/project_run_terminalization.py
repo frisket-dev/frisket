@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal
 
 from frisket.contracts.action import ActionError, Receipt
 from frisket.engine.store.document_text import DocumentTextPublicationRefused
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
@@ -491,14 +491,14 @@ def _terminalize_project_run_body(
     if isinstance(authority, NeverDispatchedRunTerminalAuthority):
         active_claims = db.execute(
             "SELECT run_id, receipt_id, action_kind, claim_token "
-            "FROM output_column_claims WHERE status='active' "
+            "FROM generated_column_claims WHERE status='active' "
             "AND (run_id=? OR receipt_id=?)",
             (run_id, receipt_id),
         ).fetchall()
     else:
         active_claims = db.execute(
             "SELECT run_id, receipt_id, action_kind, claim_token "
-            "FROM output_column_claims WHERE run_id=? AND status='active'",
+            "FROM generated_column_claims WHERE run_id=? AND status='active'",
             (run_id,),
         ).fetchall()
     claimless = authority.claimless_direct_effect
@@ -934,7 +934,7 @@ def _terminalize_project_run_body(
         # disposition still refuses loudly inside seal()).
         stale_claimed_output_name = (
             db.execute(
-                "SELECT 1 FROM output_column_claims claim "
+                "SELECT 1 FROM generated_column_claims claim "
                 "JOIN columns column ON column.id=claim.column_id "
                 "WHERE claim.run_id=? AND claim.status='active' "
                 "AND claim.output_name<>column.name LIMIT 1",
@@ -1080,7 +1080,7 @@ def _terminalize_project_run_body(
 
     released = 0
     if not claimless and receipt_disposition != "missing":
-        claim_store = OutputColumnClaimStore(project)
+        claim_store = GeneratedColumnClaimStore(project)
         terminal_claim_status = (
             "released" if status in {"completed", "partial"} else status
         )

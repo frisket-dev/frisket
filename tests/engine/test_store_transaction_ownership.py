@@ -142,7 +142,7 @@ def test_finish_run_in_transaction_requires_caller_transaction(project):
 @pytest.fixture
 def review_target(project):
     sheet_id = _sheet_id(project)
-    output = project.add_column(sheet_id, "answer", ai_generated=True)
+    output = project.add_column(sheet_id, "answer", generated=True)
     row_id = int(project.db.execute("SELECT id FROM rows").fetchone()[0])
     run_id = _managed_run(
         project, sheet_id=sheet_id, columns=[output], row_ids=[row_id]

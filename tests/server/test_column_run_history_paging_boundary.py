@@ -27,7 +27,7 @@ def _seed_column_run_history(
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("stories")
     source_col = project.add_column(sheet_id, "story")
-    topic_col = project.add_column(sheet_id, "topic", ai_generated=True)
+    topic_col = project.add_column(sheet_id, "topic", generated=True)
     row_ids = project.add_rows(
         sheet_id,
         [{"story": "alpha"}, {"story": "beta"}],

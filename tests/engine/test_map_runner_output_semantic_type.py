@@ -19,7 +19,7 @@ from frisket.engine.runner import preparation
 from frisket.engine.runner.validation import _ValidatedSpec
 from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.runner.result_generations import declare_prepared_outputs
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.transactions import write_transaction
@@ -123,7 +123,7 @@ class TestFreshGeneratedColumnSemanticType:
 
 
 class TestReuseConvergesSemanticType:
-    """~L152-157: a re-run onto an EXISTING ai_generated column must
+    """~L152-157: a re-run onto an EXISTING generated column must
     converge the stored semantic_type onto whatever the recipe declares NOW
     -- not keep a stale marker, in either direction (adding one, changing
     one, or clearing one)."""
@@ -141,7 +141,7 @@ class TestReuseConvergesSemanticType:
         token = f"output-claim:test-semantic:{prepared.run_id}"
         names = list(prepared.out_cols)
         with write_transaction(p.db):
-            claims, conflict = OutputColumnClaimStore(p).acquire(
+            claims, conflict = GeneratedColumnClaimStore(p).acquire(
                 sheet_id=sheet_id,
                 output_names=names,
                 action_kind="test.fake_semantic",
@@ -150,7 +150,7 @@ class TestReuseConvergesSemanticType:
             )
         assert conflict is None and len(claims) == len(names)
         with write_transaction(p.db):
-            OutputColumnClaimStore(p).bind_to_run(
+            GeneratedColumnClaimStore(p).bind_to_run(
                 claim_token=token,
                 run_id=prepared.run_id,
                 expected_output_names=names,
@@ -176,7 +176,7 @@ class TestReuseConvergesSemanticType:
             **authority.terminal_kwargs(),
         )
         with write_transaction(p.db):
-            OutputColumnClaimStore(p).release(claim_token=token)
+            GeneratedColumnClaimStore(p).release(claim_token=token)
         return prepared
 
     def test_second_run_adds_a_semantic_type_the_first_run_lacked(self, make_project):

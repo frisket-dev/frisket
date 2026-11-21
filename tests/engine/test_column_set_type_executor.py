@@ -244,7 +244,7 @@ CASES = [
                     "timeline_duration_required",
                     "ambiguous_time_mapping",
                     "range_out_of_bounds",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }

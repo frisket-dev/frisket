@@ -101,7 +101,7 @@ raise RuntimeError('death hook not reached')
             (run_id,),
         )
         reopened.db.execute(
-            "UPDATE output_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
+            "UPDATE generated_column_claims SET lease_expires_at='2000-01-01' WHERE run_id=?",
             (run_id,),
         )
         reopened.db.execute(
@@ -241,7 +241,7 @@ def test_stop_before_group_metadata_batch_closes_cancelled_owner(project, monkey
     assert RunResultStore(project).get_run(result.run_id)["status"] == "cancelled"
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+            "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
             (result.run_id,),
         ).fetchone()[0]
         == 0

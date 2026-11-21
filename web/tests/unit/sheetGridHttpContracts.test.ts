@@ -18,7 +18,7 @@ const sheetColumnWire = {
   id: 9,
   name: 'Title',
   type: 'text',
-  ai_generated: false,
+  generated: false,
   format: null,
   semantic_type: null,
   current_run_id: null,
@@ -73,7 +73,7 @@ afterEach(() => {
 describe('sheet and grid HTTP contracts', () => {
   it('keeps successful cell warnings in provenance without inventing an error', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({
-      total: 1, columns: [{ ...sheetColumnWire, ai_generated: true }],
+      total: 1, columns: [{ ...sheetColumnWire, generated: true }],
       rows: [{ id: 11, cells: { 9: 'Pages one and three' }, meta: { 9: {
         warnings: ['Page 2 failed during OCR.'],
         current_value_ref: { kind: 'run_result', row_id: 11, column_id: 9, run_id: 4, op_id: 5 },
@@ -136,7 +136,7 @@ describe('sheet and grid HTTP contracts', () => {
         default_hidden: false, current_run_id: null, latest_run_id: null,
         generation_managed: false, mixed_origins: false, transcript_status: null,
         media_download_candidate: 'media.fetch_url', replay_pending_count: 0,
-        ai_generated: false,
+        generated: false,
       }],
     })));
     const page = await realApi.getSheetData('7', 0, 25);
@@ -848,7 +848,7 @@ describe('sheet and grid HTTP contracts', () => {
           transcript_status: null,
           media_download_candidate: null,
           replay_pending_count: 1,
-          ai_generated: true,
+          generated: true,
         }],
         rows: [{
           id: 11,
@@ -991,7 +991,7 @@ describe('sheet and grid HTTP contracts', () => {
         transcript_status: null,
         media_download_candidate: null,
         replay_pending_count: 0,
-        ai_generated: true,
+        generated: true,
       }],
       rows: [{
         id: 11,

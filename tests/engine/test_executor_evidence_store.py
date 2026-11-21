@@ -21,7 +21,7 @@ def test_evidence_store_records_lists_resolves_and_stales_cell_evidence(
     project = make_project("Evidence")
     sheet_id = project.add_sheet("Docs")
     source_col = project.add_column(sheet_id, "source", type="file")
-    output_col = project.add_column(sheet_id, "answer", type="text", ai_generated=True)
+    output_col = project.add_column(sheet_id, "answer", type="text", generated=True)
     row_id = project.add_rows(
         sheet_id, [{"source": "contract.pdf"}], {"source": source_col}
     )[0]

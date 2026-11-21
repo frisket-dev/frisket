@@ -32,7 +32,7 @@ def request_row_source_freshness(
     runs = project.db.execute(
         "SELECT DISTINCT head.origin_run_id FROM effective_current_cells head "
         "JOIN columns col ON col.id=head.column_id "
-        "WHERE head.row_id=? AND head.origin_run_id IS NOT NULL AND col.ai_generated=1",
+        "WHERE head.row_id=? AND head.origin_run_id IS NOT NULL AND col.generated=1",
         (row_id,),
     ).fetchall()
     states.extend(

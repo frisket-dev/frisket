@@ -14,7 +14,7 @@ export function ComparisonSources({ state, rowId, field }: { state: ActionCompar
   const { context } = state;
   const bundle = useMemo(() => {
     const basis = context.comparison_basis;
-    const fields: ReviewBundleField[] = basis.kind === 'run' ? context.output_columns.flatMap((column) => {
+    const fields: ReviewBundleField[] = basis.kind === 'run' ? context.generated_columns.flatMap((column) => {
       if (column.column_id == null) return [];
       const cell = context.baseline_rows?.[String(rowId)]?.[column.logical_key];
       return [{ id: `${column.column_id}:${rowId}`, runId: String(cell?.origin.run_id ?? basis.run_id),

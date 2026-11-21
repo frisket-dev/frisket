@@ -431,7 +431,7 @@ def resolve_entity_mention_occurrences(
     layers = [
         layer
         for layer in resolved["layers"]
-        if int(layer["output_column"]["id"]) == effective_column_id
+        if int(layer["generated_column"]["id"]) == effective_column_id
     ]
     if not isinstance(cell_text, str) or not layers:
         return base

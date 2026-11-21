@@ -274,7 +274,7 @@ def _resolve_reduce_group_summary_inputs(
         name: {
             "column_id": int(columns[name]["id"]),
             "type": str(columns[name]["type"]),
-            "ai_generated": bool(columns[name]["ai_generated"]),
+            "generated": bool(columns[name]["generated"]),
             "current_run_id": columns[name]["current_run_id"],
         }
         for name in params.input_columns
@@ -286,7 +286,7 @@ def _resolve_reduce_group_summary_inputs(
             "name": params.group_by,
             "column_id": int(group_source["id"]),
             "type": str(group_source["type"]),
-            "ai_generated": bool(group_source["ai_generated"]),
+            "generated": bool(group_source["generated"]),
             "current_run_id": group_source["current_run_id"],
         }
     return {
@@ -824,7 +824,7 @@ def _reduce_group_summary_receipt(
                     "column_id": info["column_id"],
                     "name": name,
                     "type": info["type"],
-                    "ai_generated": info["ai_generated"],
+                    "generated": info["generated"],
                     "current_run_id": info["current_run_id"],
                 },
             )

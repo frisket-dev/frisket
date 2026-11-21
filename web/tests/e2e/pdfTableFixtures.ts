@@ -12,7 +12,7 @@ export async function stubPdfTableProducer(page: Page, pid: string, columnId: nu
     human_score: { passed: 0, graded: 0 }, judge_scores: [],
   };
   const history: HttpColumnRunsPage = {
-    column: { id: columnId, name: 'pdf_tables', type: 'json', ai_generated: true,
+    column: { id: columnId, name: 'pdf_tables', type: 'json', generated: true,
       current_run_id: 4100, latest_run_id: 4100, mixed_origins: false },
     current_run: run, latest_run: run, current_run_loaded: true, latest_run_loaded: true,
     offset: 0, limit: 1, total: 1, has_more: false, next_offset: null, runs: [run],

@@ -506,7 +506,7 @@ def _write_ner_result_citations(
     if not captures or not isinstance(claim_token, str) or not claim_token:
         return
     claim = project.db.execute(
-        "SELECT receipt_id FROM output_column_claims "
+        "SELECT receipt_id FROM generated_column_claims "
         "WHERE claim_token=? AND run_id=? AND op_id=? AND column_id=? "
         "AND status='active'",
         (claim_token, run_id, op_id, int(output_column_id)),

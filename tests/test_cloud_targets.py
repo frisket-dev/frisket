@@ -57,7 +57,7 @@ from frisket.execution.targets import (
 )
 from frisket.engine.runner import MapRunner
 from frisket.engine.runner.validation import ClaimsGate
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.project_settings import ProjectSettings, write_project_settings
 from frisket.engine.store.transactions import write_transaction
@@ -1493,7 +1493,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["value"],
             action_kind="map.extract",
@@ -1504,7 +1504,7 @@ def test_cloud_llm_map_run_uses_routed_transport_and_retires_child_checkpoint(
 
     def bind_claim(progress):
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).bind_to_run(
+            GeneratedColumnClaimStore(project).bind_to_run(
                 claim_token=claim_token,
                 run_id=progress.run_id,
                 expected_output_names=["value"],

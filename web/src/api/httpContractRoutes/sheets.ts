@@ -104,7 +104,7 @@ function mapSheetColumn(column: SheetColumnWire): SheetMeta['columns'][number] {
     mediaDownloadCandidate: column.media_download_candidate,
     replayPendingCount: column.replay_comparison_available === false ? null : column.replay_pending_count ?? 0,
     ...(column.replay_comparison_available === false ? { replayComparisonAvailable: false } : {}),
-    ...(column.ai_generated ? {
+    ...(column.generated ? {
       ai: {
         actionName: 'AI run',
         prompt: '',
@@ -193,7 +193,7 @@ function mapSheetRows(wire: SheetDataWire): SheetRowsContractPage {
               opId: null,
             },
             model: '',
-            actionName: column?.ai_generated ? 'AI run' : '',
+            actionName: column?.generated ? 'AI run' : '',
             cost: 0,
             confidence,
             justification: meta.justification ?? (meta.error ? `Error: ${meta.error}` : ''),

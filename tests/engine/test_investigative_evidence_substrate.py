@@ -83,7 +83,7 @@ def _seed_generated_cell(project: Project) -> tuple[int, int, int, int, int, dic
     sheet_id = project.add_sheet("Documents")
     source_column_id = project.add_column(sheet_id, "Source", "file")
     output_column_id = project.add_column(
-        sheet_id, "Contract value", "text", ai_generated=True
+        sheet_id, "Contract value", "text", generated=True
     )
     row_id = project.add_rows(
         sheet_id,

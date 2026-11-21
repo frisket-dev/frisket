@@ -154,7 +154,7 @@ def _check_state(project: Project, seeded: dict[str, Any], result: Any) -> None:
     assert model_use["cost_actual"] > 0
     assert receipt.inputs[0].ref == {
         "kind": "model_rows_input_column",
-        "ai_generated": False,
+        "generated": False,
         "source_receipt_id": None,
         "source_run_id": None,
         "name": "country",
@@ -238,7 +238,7 @@ CASES = [
                 {
                     "invalid_action_request",
                     "invalid_input_ref",
-                    "output_column_exists",
+                    "generated_column_exists",
                     "model_cost_requires_confirmation",
                     "model_run_failed",
                     "idempotency_conflict",
@@ -256,7 +256,9 @@ CASES = [
         patch=_patch_provider,
         gates=(
             Gate("invalid_input_ref", _missing_source, "invalid_input_ref"),
-            Gate("output_column_exists", _output_collision, "output_column_exists"),
+            Gate(
+                "generated_column_exists", _output_collision, "generated_column_exists"
+            ),
             Gate(
                 "idempotency_conflict",
                 _conflict,

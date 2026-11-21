@@ -282,7 +282,7 @@ class SheetDataColumn(WireModel):
     id: int
     name: str
     type: str
-    ai_generated: bool
+    generated: bool
     format: str | None
     # Explicit semantic-contract marker (currently only 'entity_mentions',
     # written by map.ner) — never inferred from cell contents. None means
@@ -304,7 +304,7 @@ class SheetDataColumn(WireModel):
     media_download_candidate: Literal["media.ytdlp_download", "media.fetch_url"] | None
     # Full-column count of edited generated cells with a differing fresh
     # value, feeding the header chip. 0 when nothing is pending or the
-    # column is not ai_generated.
+    # column is not generated.
     replay_pending_count: int | None = Field(default=0, ge=0)
     replay_comparison_available: bool = True
     default_hidden: bool = False
@@ -659,7 +659,7 @@ class ActionRunStatusRun(WireModel):
     failed_rows: int = Field(ge=0)
     cost_actual: float | None
     cost_estimate: float | None
-    output_columns: list[ActionJobColumn] = Field(default_factory=list)
+    generated_columns: list[ActionJobColumn] = Field(default_factory=list)
     row_errors: RunRowErrorSummary | None = None
     public_status: ActionRunPublicStatus
 
@@ -744,7 +744,7 @@ class ActionJobTiming(WireModel):
 class ActionJobContext(WireModel):
     sheet_id: int
     sheet_name: str | None = None
-    output_columns: list[ActionJobColumn] = Field(default_factory=list)
+    generated_columns: list[ActionJobColumn] = Field(default_factory=list)
 
 
 class ActionJob(WireModel):

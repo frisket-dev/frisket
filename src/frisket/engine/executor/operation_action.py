@@ -167,7 +167,7 @@ class _OperationStep:
         except ClaimedOperation as exc:
             claim = exc.claim
             _refuse(
-                "output_column_busy",
+                "generated_column_busy",
                 "The target output column is claimed by a running action.",
                 action_kind=self._action.kind,
                 field="params.expected_op_id",

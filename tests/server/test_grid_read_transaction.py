@@ -78,7 +78,7 @@ def test_grid_metadata_excludes_unpublished_paired_output(make_project):
     project = make_project("paired")
     sheet = project.add_sheet("Rows")
     columns = [
-        project.add_column(sheet, name, ai_generated=True)
+        project.add_column(sheet, name, generated=True)
         for name in ("answer", "explanation")
     ]
     [row] = project.add_rows(sheet, [{}], {})

@@ -244,7 +244,7 @@ def test_judge_rejects_non_generated_answer_before_model_work(
         "judge_source_url",
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "column_not_ai_generated"
+    assert result.errors[0].code == "column_not_generated"
     assert result.errors[0].field == "params.judged_column"
     assert result.errors[0].message == (
         "map.judge answer to grade must be an AI-generated column"

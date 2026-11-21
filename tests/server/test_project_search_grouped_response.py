@@ -88,8 +88,8 @@ class _Project:
     def columns(self, sheet_id: int) -> list[dict[str, object]]:
         assert sheet_id == 1
         return [
-            {"id": 3, "name": "source", "type": "video", "ai_generated": False},
-            {"id": 4, "name": "notes", "type": "text", "ai_generated": True},
+            {"id": 3, "name": "source", "type": "video", "generated": False},
+            {"id": 4, "name": "notes", "type": "text", "generated": True},
         ]
 
 
@@ -491,7 +491,7 @@ def test_navigation_normalizes_sqlite_column_rows(monkeypatch) -> None:
             assert sheet_id == 1
             return list(
                 self.db.execute(
-                    "SELECT 3 AS id,'source' AS name,'video' AS type,0 AS ai_generated"
+                    "SELECT 3 AS id,'source' AS name,'video' AS type,0 AS generated"
                 )
             )
 

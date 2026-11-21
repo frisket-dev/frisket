@@ -1874,7 +1874,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     run_id = int(queued.payload["run_id"])
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         ).fetchone()[0]
@@ -1898,7 +1898,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
     )
     assert (
         project.db.execute(
-            "SELECT COUNT(*) FROM output_column_claims "
+            "SELECT COUNT(*) FROM generated_column_claims "
             "WHERE receipt_id=? AND status='active'",
             (receipt_id,),
         ).fetchone()[0]
@@ -1907,7 +1907,7 @@ def test_stop_uses_action_run_cancellation_and_releases_output_claims(
 
 
 @pytest.mark.parametrize(
-    "error_code", ["idempotency_in_progress", "output_column_busy"]
+    "error_code", ["idempotency_in_progress", "generated_column_busy"]
 )
 def test_raced_action_reservation_defers_without_poisoning_batch(
     tmp_path, monkeypatch, error_code

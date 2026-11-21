@@ -1113,7 +1113,7 @@ def _sheet_data_payload(
                             **({"outcome": head["outcome"]} if is_error else {}),
                         }
                     )
-        if bool(c["ai_generated"]) and generation_managed:
+        if bool(c["generated"]) and generation_managed:
             document_text_role = document_text_role_for_text_column(
                 project, text_column_id=column_id
             )
@@ -1193,7 +1193,7 @@ def _sheet_data_payload(
             else {
                 c["id"]: project.pending_replay_count(sheet_id, c["id"])
                 for c in cols
-                if bool(c["ai_generated"])
+                if bool(c["generated"])
                 and is_generation_managed(int(c["id"]))
                 and not has_mixed_origins(int(c["id"]))
             }
@@ -1222,7 +1222,7 @@ def _sheet_data_payload(
                 "id": c["id"],
                 "name": c["name"],
                 "type": c["type"],
-                "ai_generated": bool(c["ai_generated"]),
+                "generated": bool(c["generated"]),
                 "format": (c["format"] if "format" in c.keys() else None),
                 "semantic_type": (
                     c["semantic_type"] if "semantic_type" in c.keys() else None

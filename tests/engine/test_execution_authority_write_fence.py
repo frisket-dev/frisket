@@ -19,8 +19,8 @@ from frisket.engine.store.effect_checkpoints import (
     EffectCheckpointStore,
     row_effect_ref,
 )
-from frisket.engine.store.output_claims import (
-    OutputColumnClaimStore,
+from frisket.engine.store.generated_column_claims import (
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
@@ -43,7 +43,7 @@ def _seed_claimed_run(
     output_column_id = project.add_column(
         sheet_id,
         "python_result",
-        ai_generated=True,
+        generated=True,
     )
     row_ids = project.add_rows(
         sheet_id,
@@ -70,7 +70,7 @@ def _seed_claimed_run(
         )
     )
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["python_result"],
             action_kind="map.python",
@@ -82,7 +82,7 @@ def _seed_claimed_run(
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
         )
@@ -155,7 +155,7 @@ def test_pre_dispatch_cleanup_preserves_live_dispatching_authority(
         )
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                "SELECT status FROM generated_column_claims WHERE claim_token=?",
                 (claim_token,),
             ).fetchone()[0]
             == "active"
@@ -283,7 +283,7 @@ def _authority_snapshot(project: Project, run_id: int) -> dict[str, Any]:
             tuple(row)
             for row in project.db.execute(
                 "SELECT id, run_id, claim_token, status "
-                "FROM output_column_claims WHERE run_id=? ORDER BY id",
+                "FROM generated_column_claims WHERE run_id=? ORDER BY id",
                 (run_id,),
             ).fetchall()
         ],
@@ -302,7 +302,7 @@ def test_just_claimed_attempt_survives_an_immediate_sweep(tmp_path: Path) -> Non
             age_hours=7,
         )
         lease = project.db.execute(
-            "SELECT renewed_at, lease_expires_at FROM output_column_claims "
+            "SELECT renewed_at, lease_expires_at FROM generated_column_claims "
             "WHERE run_id=? AND status='active'",
             (run_id,),
         ).fetchone()
@@ -363,18 +363,18 @@ def test_terminal_queue_job_cannot_release_a_live_claimed_writer(
             result={"status": "queue-terminal"},
         )
         project.db.execute(
-            "UPDATE output_column_claims SET job_id=? WHERE run_id=? AND claim_token=?",
+            "UPDATE generated_column_claims SET job_id=? WHERE run_id=? AND claim_token=?",
             (job_id, run_id, claim_token),
         )
         project.db.commit()
 
         lease = project.db.execute(
-            "SELECT lease_expires_at FROM output_column_claims "
+            "SELECT lease_expires_at FROM generated_column_claims "
             "WHERE run_id=? AND claim_token=? AND status='active'",
             (run_id, claim_token),
         ).fetchone()
         assert lease is not None and lease["lease_expires_at"] is not None
-        blocker = OutputColumnClaimStore(project, queue=queue).active_for_columns(
+        blocker = GeneratedColumnClaimStore(project, queue=queue).active_for_columns(
             [column_id]
         )
 
@@ -382,7 +382,7 @@ def test_terminal_queue_job_cannot_release_a_live_claimed_writer(
         assert blocker["claim_token"] == claim_token
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims "
+                "SELECT status FROM generated_column_claims "
                 "WHERE run_id=? AND claim_token=?",
                 (run_id, claim_token),
             ).fetchone()[0]
@@ -414,7 +414,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             age_hours=7,
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),
@@ -449,7 +449,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             == 0
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),
@@ -472,7 +472,7 @@ def test_map_python_claim_lease_is_liveness_without_model_calls(
             state="dispatching",
         )
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).renew(
+            GeneratedColumnClaimStore(project).renew(
                 claim_token=claim_token,
                 run_id=run_id,
                 lease_seconds=int(timedelta(hours=6).total_seconds()),
@@ -704,7 +704,7 @@ def test_writer_fence_requires_claim_coverage_for_every_fact_column(
                 (run_id,),
             ).fetchone()[0],
             "unclaimed",
-            ai_generated=True,
+            generated=True,
         )
         _insert_attempt(
             project,
@@ -897,7 +897,7 @@ def test_claimless_writer_must_remain_the_current_dispatch_holder(
     checkpoints = EffectCheckpointStore(project.db)
     with closing(project):
         with write_transaction(project.db):
-            OutputColumnClaimStore(project).release(
+            GeneratedColumnClaimStore(project).release(
                 claim_token=claim_token,
                 status="released",
             )
@@ -1007,7 +1007,7 @@ def test_terminal_claim_release_refuses_a_replaced_writer(
     tmp_path: Path,
 ) -> None:
     project, run_id, _rows, _column_id, claim_token = _seed_claimed_run(tmp_path)
-    claims = OutputColumnClaimStore(project)
+    claims = GeneratedColumnClaimStore(project)
     with closing(project):
         _insert_attempt(
             project,
@@ -1134,7 +1134,7 @@ def test_queued_terminal_failure_uses_current_writer_fence(
             )
             assert (
                 project.db.execute(
-                    "SELECT status FROM output_column_claims WHERE claim_token=?",
+                    "SELECT status FROM generated_column_claims WHERE claim_token=?",
                     (claim_token,),
                 ).fetchone()[0]
                 == "failed"
@@ -1187,7 +1187,7 @@ def test_running_cancel_without_writer_tuple_retains_durable_authority(
         )
         assert (
             project.db.execute(
-                "SELECT status FROM output_column_claims WHERE claim_token=?",
+                "SELECT status FROM generated_column_claims WHERE claim_token=?",
                 (claim_token,),
             ).fetchone()[0]
             == "active"
@@ -1212,7 +1212,7 @@ def test_renewal_failure_rolls_back_batch_and_leaves_run_alive(
         def fail_renew(*_args: Any, **_kwargs: Any) -> int:
             raise sqlite3.OperationalError("injected renewal failure")
 
-        monkeypatch.setattr(OutputColumnClaimStore, "renew", fail_renew)
+        monkeypatch.setattr(GeneratedColumnClaimStore, "renew", fail_renew)
         with pytest.raises(sqlite3.OperationalError, match="renewal failure"):
             RunResultStore(project).write_results(
                 run_id,
@@ -1266,7 +1266,7 @@ def test_returned_checkpoint_does_not_need_publication_lease_renewal(
             raise sqlite3.OperationalError("injected checkpoint renewal failure")
 
         monkeypatch.setattr(
-            OutputColumnClaimStore,
+            GeneratedColumnClaimStore,
             "renew_in_transaction",
             fail_renew,
         )
@@ -1300,7 +1300,7 @@ def test_write_and_abandonment_have_one_serialized_winner(
             age_hours=7,
         )
         project.db.execute(
-            "UPDATE output_column_claims "
+            "UPDATE generated_column_claims "
             "SET lease_expires_at=datetime('now', '-1 second') "
             "WHERE run_id=? AND status='active'",
             (run_id,),

@@ -57,7 +57,7 @@ function context(baselineMode: 'preview' | 'current_values' = 'current_values'):
       101: { body: valueCell('Alpha source') },
       102: { body: valueCell('Beta source') },
     },
-    output_columns: [{
+    generated_columns: [{
       logical_key: 'answer', column_id: 13, current_name: 'answer',
       column_type: 'text', format: null, hidden: false, schema: {},
     }],
@@ -638,7 +638,7 @@ describe('createActionCompareRunner', () => {
     const renamed = context('preview');
     renamed.draft.output_names = { answer: 'renamed answer' };
     renamed.comparison_basis = { kind: 'draft', draft: renamed.draft };
-    renamed.output_columns[0].current_name = 'renamed answer';
+    renamed.generated_columns[0].current_name = 'renamed answer';
     const api = {
       getContext: vi.fn().mockResolvedValue(renamed),
       startPreview: vi.fn().mockResolvedValue({
@@ -701,8 +701,8 @@ describe('createActionCompareRunner', () => {
     expect(api.getContext).not.toHaveBeenCalled();
 
     const ambiguous = context('preview');
-    ambiguous.output_columns.push({
-      ...ambiguous.output_columns[0], logical_key: 'reason', current_name: 'answer',
+    ambiguous.generated_columns.push({
+      ...ambiguous.generated_columns[0], logical_key: 'reason', current_name: 'answer',
     });
     const ambiguousVariant = createActionCompareSession(
       { context: ambiguous }, { runVariant: vi.fn<ActionCompareVariantRun>() },

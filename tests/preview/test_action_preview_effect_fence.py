@@ -684,7 +684,7 @@ _ZERO_WRITE_TABLES = {
     "execution_attempts",
     "model_calls",
     "ops",
-    "output_column_claims",
+    "generated_column_claims",
     "promise_sets",
     "receipts",
     "results",

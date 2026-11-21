@@ -7,7 +7,7 @@ from typing import Any, Literal
 from frisket.contracts.action import ActionError
 from frisket.engine.store.runs import FAILURE_OUTCOMES, outcome_sql_list
 from frisket.engine.store.result_generations import decode_result_warnings
-from frisket.sdk.replay import output_column_result_value_hash
+from frisket.sdk.replay import generated_column_result_value_hash
 
 
 _RECEIPT_WARNING_ROW_LIMIT = 100
@@ -155,7 +155,7 @@ def maprunner_output_refs(
     ]
 
 
-def _output_columns_by_name(
+def _generated_columns_by_name(
     project: Any,
     *,
     run_id: int,
@@ -353,7 +353,7 @@ def capture_maprunner_facts(
         ).fetchall()
     ]
     output_names = [field_def["name"] for field_def in output_fields]
-    columns_by_name = _output_columns_by_name(
+    columns_by_name = _generated_columns_by_name(
         project,
         run_id=run_id,
         sheet_id=sheet_id,
@@ -374,7 +374,7 @@ def capture_maprunner_facts(
         # predate this run. Whether a hash mismatch is fatal on replay is a
         # function of the op's replay scope (sdk/replay.py), not of whether
         # the hash was captured.
-        value_hash = output_column_result_value_hash(
+        value_hash = generated_column_result_value_hash(
             project, run_id=run_id, sheet_id=sheet_id, column_id=col_id, row_ids=row_ids
         )
         output_facts.append(
@@ -412,7 +412,7 @@ def capture_maprunner_facts(
                     "name": name,
                     "column_id": col_id,
                     "type": str(col["type"]),
-                    "ai_generated": bool(col["ai_generated"]),
+                    "generated": bool(col["generated"]),
                     "source_run_id": source_run_id,
                     "source_receipt_id": source_receipt_id,
                 }

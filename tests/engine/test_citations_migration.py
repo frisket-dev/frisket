@@ -19,11 +19,12 @@ from frisket.engine.store.project_qa import ProjectQAStore
 from frisket.engine.store.schema import RECEIPT_RECORDS_META_KEY, SCHEMA_DIGEST
 from frisket.engine.store.transactions import write_transaction
 from frisket.server.services.project_qa_citations import resolve_citation
-from frisket.upgrades.project.receipt_records_migration import (
-    RECEIPT_RECORDS_TO_DIGEST,
-)
+from frisket.upgrades.project._tip import CURRENT_CHAIN_TIP_DIGEST
 from frisket.upgrades.project.research_pause_migration import (
     RESEARCH_PAUSE_TO_DIGEST,
+)
+from tests.engine.test_generated_columns_migration import (
+    _downgrade_generated_columns_schema,
 )
 
 _LEGACY_TABLES_DDL = """
@@ -118,6 +119,7 @@ def _downgrade_to_pre_citations_schema(db: sqlite3.Connection) -> None:
         db.execute("DROP TABLE citations")
         db.execute("DROP VIEW IF EXISTS current_document_text_selections")
         db.execute(legacy_view_sql)
+        _downgrade_generated_columns_schema(db)
         db.execute("DELETE FROM meta WHERE key=?", (RECEIPT_RECORDS_META_KEY,))
         db.execute(
             "UPDATE meta SET value=? WHERE key='schema_digest'",
@@ -287,7 +289,7 @@ def test_citations_upgrade_preserves_links_spans_and_ask_threads(make_project) -
                 "SELECT value FROM meta WHERE key='schema_digest'"
             ).fetchone()[0]
             == SCHEMA_DIGEST
-            == RECEIPT_RECORDS_TO_DIGEST
+            == CURRENT_CHAIN_TIP_DIGEST
         )
         tables = {
             row[0]

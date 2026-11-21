@@ -15,7 +15,7 @@ from frisket.contracts.http.models import RunRowErrorSummary, WireModel
 from frisket.contracts.http.action_compare import ActionDraft, ActionDraftScope
 
 
-class HistoryOutputColumn(WireModel):
+class HistoryGeneratedColumn(WireModel):
     id: int
     name: str
 
@@ -34,7 +34,7 @@ class HistoryRun(WireModel):
     started_at: str
     finished_at: str | None
     worker_version: str | None
-    output_columns: list[HistoryOutputColumn]
+    generated_columns: list[HistoryGeneratedColumn]
     row_errors: RunRowErrorSummary | None
 
 
@@ -86,7 +86,7 @@ class ColumnRunColumn(WireModel):
     id: int
     name: str
     type: str
-    ai_generated: bool
+    generated: bool
     current_run_id: int | None
     latest_run_id: int | None
     mixed_origins: bool
@@ -334,7 +334,7 @@ __all__ = [
     "ColumnRunColumn",
     "ColumnRunsPage",
     "HistoryOperation",
-    "HistoryOutputColumn",
+    "HistoryGeneratedColumn",
     "HistoryPage",
     "HistoryRevision",
     "HistoryRun",

@@ -170,7 +170,7 @@ CASES = [
                     "invalid_action_request",
                     "cell_target_not_found",
                     "column_value_validation_failed",
-                    "output_column_busy",
+                    "generated_column_busy",
                     "idempotency_conflict",
                     "project_write_failed",
                 }
@@ -538,7 +538,7 @@ def test_cell_edit_query_row_limit_admits_the_exact_total(make_project) -> None:
 
 def test_cell_edit_query_rejects_claimed_column_without_writes(make_project) -> None:
     from frisket.engine.executor.actions import run_action_spec
-    from frisket.engine.store.output_claims import OutputColumnClaimStore
+    from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 
     project = make_project("claimed-query-edit")
     sheet_id = project.add_sheet("Tasks")
@@ -549,7 +549,7 @@ def test_cell_edit_query_rejects_claimed_column_without_writes(make_project) -> 
     project.add_rows(sheet_id, [{"sequence": 1, "status": "open"}], columns)
     before = _write_counts(project)
     with write_transaction(project.db):
-        _claims, conflict = OutputColumnClaimStore(project).acquire(
+        _claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["status"],
             action_kind="map.ask",
@@ -568,7 +568,7 @@ def test_cell_edit_query_rejects_claimed_column_without_writes(make_project) -> 
         project_id="claimed-query-edit",
     )
     assert result.status == "failed"
-    assert result.errors[0].code == "output_column_busy"
+    assert result.errors[0].code == "generated_column_busy"
     assert _write_counts(project) == before
 
 

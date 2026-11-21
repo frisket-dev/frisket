@@ -33,7 +33,7 @@ import pytest
 
 from frisket.ai.models.metadata import ModelCallMeta
 from frisket.engine.store.execution_routes import RouteStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.writer_fence import WriterFence
 from frisket.execution.promise_compiler import (
@@ -69,7 +69,7 @@ def project(make_project):
 
 def _make_run(project) -> int:
     sheet_id = project.add_sheet("Media")
-    project.add_column(sheet_id, "transcript", ai_generated=True)
+    project.add_column(sheet_id, "transcript", generated=True)
     row_ids = project.add_rows(sheet_id, [{}], {})
     cur = project.db.execute("INSERT INTO ops (kind, spec) VALUES ('map', '{}')")
     op_id = int(cur.lastrowid)
@@ -82,7 +82,7 @@ def _make_run(project) -> int:
     )
     claim_token = f"output-claim:anchor-o2-o3:{run_id}"
     with write_transaction(project.db):
-        claims, conflict = OutputColumnClaimStore(project).acquire(
+        claims, conflict = GeneratedColumnClaimStore(project).acquire(
             sheet_id=sheet_id,
             output_names=["transcript"],
             action_kind="media.transcribe",
@@ -92,7 +92,7 @@ def _make_run(project) -> int:
     assert conflict is None
     assert len(claims) == 1
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).bind_to_run(
+        GeneratedColumnClaimStore(project).bind_to_run(
             claim_token=claim_token,
             run_id=run_id,
             expected_output_names=["transcript"],
@@ -116,7 +116,7 @@ def _make_run(project) -> int:
 def _writer_authority(project, run_id: int) -> dict[str, WriterFence]:
     row = project.db.execute(
         "SELECT r.current_attempt_id, c.claim_token "
-        "FROM runs r JOIN output_column_claims c ON c.run_id=r.id "
+        "FROM runs r JOIN generated_column_claims c ON c.run_id=r.id "
         "WHERE r.id=? AND c.status='active' LIMIT 1",
         (run_id,),
     ).fetchone()

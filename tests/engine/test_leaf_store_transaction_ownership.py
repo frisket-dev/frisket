@@ -17,7 +17,7 @@ import pytest
 from frisket.engine.store import cells, citations as evidence, notifications, op_log
 from frisket.engine.store.credentials import replace_secret_consumers
 from frisket.engine.store.media_blobs import MediaBlobStore
-from frisket.engine.store.output_claims import OutputColumnClaimStore
+from frisket.engine.store.generated_column_claims import GeneratedColumnClaimStore
 from frisket.engine.store.transactions import write_transaction
 
 CALLER_SHEET_NAME = "Caller edit"
@@ -151,10 +151,10 @@ JOINING_WRITES = {
         hint="…key",
         spend_cap_micro=None,
     ),
-    "bind_to_run": lambda project: OutputColumnClaimStore(project).bind_to_run(
+    "bind_to_run": lambda project: GeneratedColumnClaimStore(project).bind_to_run(
         claim_token="claim:none", run_id=1
     ),
-    "output_claim_release": lambda project: OutputColumnClaimStore(project).release(
+    "output_claim_release": lambda project: GeneratedColumnClaimStore(project).release(
         claim_token="claim:none"
     ),
 }

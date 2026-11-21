@@ -35,9 +35,9 @@ from frisket.actions.types import RowError
 from frisket.engine.runner.validation import ExecutionResolutionRefused
 from frisket.engine.runner.map_runner import ResultEvidenceWriteFailed
 from frisket.engine.sandbox.shim import SandboxTeardownError
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.result_generations import GenerationDeclarationConflict
 from frisket.engine.store.receipts import (
@@ -729,7 +729,7 @@ def _terminalize_unclaimed_prepared_run(
                 "unbound prepared cleanup cannot close declared result generations"
             )
         if project.db.execute(
-            "SELECT 1 FROM output_column_claims WHERE status='active' "
+            "SELECT 1 FROM generated_column_claims WHERE status='active' "
             "AND run_id=? LIMIT 1",
             (run_id,),
         ).fetchone():
@@ -814,12 +814,14 @@ def _has_live_managed_writer(project: Any, prepared_run: Any | None) -> bool:
 
 def _release_output_claim(project: Any, claim_token: str, *, status: str) -> None:
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).release(claim_token=claim_token, status=status)
+        GeneratedColumnClaimStore(project).release(
+            claim_token=claim_token, status=status
+        )
 
 
 def _discard_output_claim(project: Any, receipt_id: str) -> None:
     with write_transaction(project.db):
-        OutputColumnClaimStore(project).discard_for_receipt(receipt_id=receipt_id)
+        GeneratedColumnClaimStore(project).discard_for_receipt(receipt_id=receipt_id)
 
 
 def _run_reserved_maprunner_action(
@@ -1340,7 +1342,7 @@ def _run_reserved_maprunner_action(
         ).fetchone()
         if attempt_row is not None and attempt_row["state"] == "dispatching":
             try:
-                OutputColumnClaimStore(project).finish_current_writer(
+                GeneratedColumnClaimStore(project).finish_current_writer(
                     fence=WriterFence(
                         run_id=progress.run_id,
                         writer_attempt_id=progress.writer_attempt_id,

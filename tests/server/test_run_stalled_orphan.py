@@ -219,7 +219,7 @@ def test_failed_job_with_live_writer_surfaces_reconciliation_stall(tmp_path):
             tuple(
                 tuple(row)
                 for row in project.db.execute(
-                    "SELECT * FROM output_column_claims WHERE run_id=? ORDER BY id",
+                    "SELECT * FROM generated_column_claims WHERE run_id=? ORDER BY id",
                     (run_id,),
                 ).fetchall()
             ),
@@ -347,7 +347,7 @@ def test_queued_status_retains_declared_column_identity_after_rename_and_name_re
     assert status.status_code == 200, status.text
     assert status.json()["run"]["public_status"]["status"] == "queued"
     expected = [{"id": output_id, "name": "Renamed output"}]
-    assert status.json()["run"]["output_columns"] == expected
+    assert status.json()["run"]["generated_columns"] == expected
     detail = client.get(f"/api/projects/{pid}/actions/jobs/{job_id}")
     assert detail.status_code == 200, detail.text
-    assert detail.json()["context"]["output_columns"] == expected
+    assert detail.json()["context"]["generated_columns"] == expected

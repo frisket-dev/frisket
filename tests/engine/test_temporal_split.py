@@ -79,7 +79,7 @@ def _seed_media(
             sheet_id,
             "transcript",
             "timestamped_transcript",
-            ai_generated=True,
+            generated=True,
         )
     blob_hash = project.add_blob(
         b"source-video-bytes" * 32,
@@ -1236,7 +1236,7 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         seeded["sheet_id"],
         "alternate transcript",
         "timestamped_transcript",
-        ai_generated=True,
+        generated=True,
     )
     alternate_op_id = project.append_change(
         "media.transcribe",
@@ -1317,13 +1317,13 @@ def test_topic_split_media_and_transcript_share_atomic_overlapping_chunks(
         seeded["sheet_id"],
         "Topic sections",
         "timeline_ranges",
-        ai_generated=True,
+        generated=True,
     )
     sidecar_column_id = project.add_column(
         seeded["sheet_id"],
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
         "json",
-        ai_generated=True,
+        generated=True,
         hidden=True,
     )
     topic_value = {

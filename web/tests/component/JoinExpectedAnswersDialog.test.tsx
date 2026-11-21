@@ -25,12 +25,12 @@ it('blocks ambiguous matching in either direction and defaults an exact-name fie
   expect(screen.getByLabelText('Match rule for answer')).toHaveValue('exact');
   await waitFor(() => expect(screen.getByRole('button', { name: 'Join' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Join' }));
-  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ fields: [expect.objectContaining({ expected_column_id: 22, output_column_id: 12, rule: 'exact' })] }), []));
+  await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ fields: [expect.objectContaining({ expected_column_id: 22, generated_column_id: 12, rule: 'exact' })] }), []));
 });
 
 it('edits the output family belonging to an existing link when two runs share an action', async () => {
   const second = { id: 'run2', actionId: 'ask', label: 'Ask · second run', targetSheetId: 1, outputs: [{ id: 13, name: 'other answer', logicalKey: 'other' }] };
-  const existing: ExpectedLinkDraft = { ...link, fields: [{ expected_column_id: 22, output_column_id: 13, logical_key: 'other', rule: 'hand', hidden: false, source: 'import' }] };
+  const existing: ExpectedLinkDraft = { ...link, fields: [{ expected_column_id: 22, generated_column_id: 13, logical_key: 'other', rule: 'hand', hidden: false, source: 'import' }] };
   render(<JoinExpectedAnswersDialog sheets={sheets} actions={[...actions, second]} initialLink={existing} initialStep="columns" onPreview={vi.fn().mockResolvedValue(preview)} onSave={vi.fn()} onImport={vi.fn()} onClose={vi.fn()} />);
   expect(screen.getByLabelText('Role for answer')).toHaveValue('13');
   expect(screen.getByLabelText('Match rule for answer')).toHaveValue('hand');
@@ -41,8 +41,8 @@ it('submits only deliberately changed match rules when editing an existing link'
   const extendedSheets = [sheets[0], { ...sheets[1], columns: [...sheets[1].columns, { id: 23, name: 'other' }] }];
   const extendedActions = [{ ...actions[0], outputs: [...actions[0].outputs, { id: 13, name: 'other', logicalKey: 'other' }] }];
   const existing: ExpectedLinkDraft = { ...link, fields: [
-    { expected_column_id: 22, output_column_id: 12, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' },
-    { expected_column_id: 23, output_column_id: 13, logical_key: 'other', rule: 'hand', hidden: false, source: 'import' },
+    { expected_column_id: 22, generated_column_id: 12, logical_key: 'answer', rule: 'exact', hidden: false, source: 'import' },
+    { expected_column_id: 23, generated_column_id: 13, logical_key: 'other', rule: 'hand', hidden: false, source: 'import' },
   ] };
   const onSave = vi.fn().mockResolvedValue(undefined);
   render(<JoinExpectedAnswersDialog sheets={extendedSheets} actions={extendedActions} initialLink={existing} initialStep="columns" onPreview={vi.fn().mockResolvedValue(preview)} onSave={onSave} onImport={vi.fn()} onClose={vi.fn()} />);

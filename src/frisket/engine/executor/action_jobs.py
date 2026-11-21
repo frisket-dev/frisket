@@ -17,9 +17,9 @@ from frisket.contracts.action import (
     ReceiptIO,
 )
 from frisket.project_opener import ProjectOpener
-from frisket.engine.store.output_claims import (
+from frisket.engine.store.generated_column_claims import (
     ClaimLeaseRenewalFailed,
-    OutputColumnClaimStore,
+    GeneratedColumnClaimStore,
 )
 from frisket.engine.store.receipts import (
     FINISHED_RECEIPT_STATUSES,
@@ -243,7 +243,7 @@ def _terminalize_action_job_receipt(
                 f"failed to terminalize {action_kind} receipt {receipt_id!r} to "
                 f"{status!r} (current status {receipt.status!r})"
             )
-        OutputColumnClaimStore(project).release_for_receipt(
+        GeneratedColumnClaimStore(project).release_for_receipt(
             receipt_id=receipt_id,
             status="released" if status in {"completed", "partial"} else status,
         )
@@ -380,7 +380,7 @@ def _terminalize_formula_attached_run(
         "SELECT status, current_attempt_id FROM runs WHERE id=?", (run_id,)
     ).fetchone()
     claims = project.db.execute(
-        "SELECT DISTINCT claim_token FROM output_column_claims "
+        "SELECT DISTINCT claim_token FROM generated_column_claims "
         "WHERE run_id=? AND receipt_id=? AND status='active'",
         (run_id, receipt_id),
     ).fetchall()

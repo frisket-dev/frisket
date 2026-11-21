@@ -265,7 +265,7 @@ def test_reapply_checks_prepared_targets_before_writing(work):
     refused = run(
         "run.reapply",
         {"source_run_id": original.run_id},
-        expected_output_columns={"Answer": None},
+        expected_generated_columns={"Answer": None},
         replace_existing=True,
     )
     assert refused.status == "failed"
@@ -323,7 +323,7 @@ def test_reapply_replaces_original_generated_output_and_keeps_hand_edits(work):
         "run.reapply",
         {"source_run_id": original.run_id},
         replace_existing=True,
-        expected_output_columns={"Answer": column},
+        expected_generated_columns={"Answer": column},
     )
     assert reapplied.status == "completed", reapplied.errors
     assert dict(project.get_values(sheet, column)) == {
@@ -412,7 +412,7 @@ def test_reapply_retains_original_output_type_after_column_retype(work):
         replace_existing=True,
     )
     assert refused.status == "failed"
-    assert refused.errors[0].code == "output_column_exists"
+    assert refused.errors[0].code == "generated_column_exists"
     replaced = run(
         "run.reapply",
         {"source_run_id": original.run_id},

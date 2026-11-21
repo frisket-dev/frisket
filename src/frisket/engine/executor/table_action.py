@@ -1513,15 +1513,13 @@ def _projection_initial_values(readers, row, ordinal):
     return row
 
 
-def _list_output_ai_generated(list_reader, name, resolved_output_names):
+def _list_output_generated(list_reader, name, resolved_output_names):
     logical = next(
         (key for key, resolved in resolved_output_names.items() if resolved == name),
         name,
     )
     copied = {column.name: column for column in list_reader.copied_columns}.get(logical)
-    return (
-        copied.ai_generated if copied is not None else list_reader.source_ai_generated
-    )
+    return copied.generated if copied is not None else list_reader.source_generated
 
 
 def _perform_table_in_txn(
@@ -1605,12 +1603,12 @@ def _perform_table_in_txn(
                     type=column.type,
                     format=column.format,
                     hidden=column.hidden,
-                    ai_generated=any(
+                    generated=any(
                         column.name in reader.generated_columns()
                         for reader in projections
                     )
                     if projections
-                    else _list_output_ai_generated(
+                    else _list_output_generated(
                         list_reader, column.name, resolved_output_names
                     )
                     if list_reader is not None

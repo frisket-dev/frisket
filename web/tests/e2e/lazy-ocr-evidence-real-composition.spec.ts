@@ -22,7 +22,7 @@ try:
     row_id = int(project.db.execute("SELECT id FROM rows WHERE sheet_id=? ORDER BY id LIMIT 1", (sheet_id,)).fetchone()["id"])
     source_column_id = int(project.db.execute("SELECT id FROM columns WHERE sheet_id=? AND type='file'", (sheet_id,)).fetchone()["id"])
     blob_hash = project.db.execute("SELECT hash FROM blobs ORDER BY rowid LIMIT 1").fetchone()["hash"]
-    text_column_id = project.add_column(sheet_id, "Text", "text", ai_generated=True)
+    text_column_id = project.add_column(sheet_id, "Text", "text", generated=True)
     op_id = project.append_change("media.ocr", {"schema_version": "frisket.action.v2", "kind": "media.ocr", "params": {"output_name": "Text"}}, label="fixture OCR")
     runs = RunResultStore(project)
     run_id = runs.start_run(op_id, sheet_id, "media.ocr", model="local/fixture", params={"output_name": "Text"}, total_rows=1, row_ids=[row_id])

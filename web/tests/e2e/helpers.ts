@@ -107,7 +107,7 @@ export interface WireColumn {
   id: number;
   name: string;
   type: string;
-  ai_generated: boolean;
+  generated: boolean;
   /** Display hint ('markdown', 'filesize', …) or null. */
   format?: string | null;
 }
@@ -473,7 +473,7 @@ if not worker.run_once():
         while time.time() < deadline:
             row = project.db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
             active_claims = project.db.execute(
-                "SELECT COUNT(*) FROM output_column_claims WHERE run_id=? AND status='active'",
+                "SELECT COUNT(*) FROM generated_column_claims WHERE run_id=? AND status='active'",
                 (run_id,),
             ).fetchone()[0]
             if row is not None and row["status"] == "completed" and active_claims == 0:

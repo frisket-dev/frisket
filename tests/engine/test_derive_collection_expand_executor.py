@@ -489,7 +489,7 @@ def test_metadata_has_link_type_no_ai_flag_and_authoritative_provider_facts(
         0
     ]
     columns = project.db.execute(
-        "SELECT name,type,ai_generated FROM columns WHERE sheet_id=? ORDER BY position",
+        "SELECT name,type,generated FROM columns WHERE sheet_id=? ORDER BY position",
         (sheet,),
     ).fetchall()
     assert [tuple(row) for row in columns] == [

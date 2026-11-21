@@ -850,12 +850,12 @@ class ActionPreviewRunService:
             comparison_context = {
                 "sheet_id": facts["sheet"]["id"],
                 "action_id": body["action_id"],
-                "output_columns": [
+                "generated_columns": [
                     {
                         key: item[key]
                         for key in ("logical_key", "column_id", "current_name")
                     }
-                    for item in facts["output_columns"]
+                    for item in facts["generated_columns"]
                 ],
                 "row_ids": list(prepared.row_ids),
                 "source_column_ids": source_ids,
@@ -1085,7 +1085,7 @@ class ActionPreviewRunService:
         for row_id in context["row_ids"]:
             cells = result.values.get(row_id, {}) if result else {}
             row = {}
-            for output in context["output_columns"]:
+            for output in context["generated_columns"]:
                 raw = cells.get(output["current_name"])
                 if raw is None:
                     if job.status == "error":
@@ -1133,7 +1133,7 @@ class ActionPreviewRunService:
         return {
             "sheet_id": context["sheet_id"],
             "action_id": context["action_id"],
-            "output_columns": copy.deepcopy(context["output_columns"]),
+            "generated_columns": copy.deepcopy(context["generated_columns"]),
             "rows": rows,
             "source_fingerprints": dict(context["source_fingerprints"]),
             "settings": copy.deepcopy(context["settings"]),
