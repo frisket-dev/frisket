@@ -173,7 +173,7 @@ class TestQueueWiringMatchesStandaloneWorker:
         # Never the multi-tenant hosted posture (queue-hosted-
         # posture-explicit-v1): the open team server has no claimed
         # ProjectStorageKey routing and never populates storage_org_id.
-        assert queue._hosted_storage is False  # noqa: SLF001
+        assert queue._cloud_storage is False  # noqa: SLF001
         # And never falls back to the local per-workspace .queue.db file.
         assert not (config.data_dir / QUEUE_DB_NAME).exists()
 

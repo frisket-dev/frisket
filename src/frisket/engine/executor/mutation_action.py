@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from frisket.engine.store.transactions import inserted_rowid
 import json
 import logging
-from typing import Any, Mapping, TypeGuard
+from typing import Any, TypeGuard
 
 from frisket.actions.core import _ProjectAction
 from frisket.actions.mutations import COLUMN_DISPLAY_FORMATS
@@ -39,7 +40,6 @@ from frisket.actions.types import (
     RowsAppender,
     RowsUpdater,
     SheetRows,
-    UpdatedImportedRows,
     RowDeleter,
     TableError,
 )
@@ -69,7 +69,10 @@ from frisket.engine.executor.action_lifecycle import (
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.action_receipts import _receipt_ops_are_applied
 from frisket.engine.executor.action_families.imports import _compact_import_rowset_ref
-from frisket.engine.executor.import_sources import open_local_file_reader
+from frisket.engine.executor.import_sources import (
+    BoundLocalFile,
+    open_local_file_reader,
+)
 from frisket.engine.executor.map_rows_action import typed_request_hash
 from frisket.engine.executor.project_mutation_runtime import (
     CallOnce as _CallOnce,
@@ -444,6 +447,7 @@ class _RowsAppender(_CallOnce):
     ) -> None:
         super().__init__(project, cur, action, params_hash)
         self._max_rows = max_rows
+        self._file_sources: Mapping[str, BoundLocalFile] | None = None
 
     def append(
         self,
@@ -459,6 +463,8 @@ class _RowsAppender(_CallOnce):
 
         with open_local_file_reader(self._file_sources) as reader:
             produced = import_csv(params, reader)
+            if not isinstance(produced.rows, Iterable):
+                raise TypeError("import_csv must produce synchronous rows")
             return self._append_rows(
                 columns=tuple(params.columns),
                 rows=(row.output.root for row in produced.rows),
@@ -470,6 +476,8 @@ class _RowsAppender(_CallOnce):
 
         with open_local_file_reader(self._file_sources) as reader:
             produced = import_xlsx(params, reader)
+            if not isinstance(produced.rows, Iterable):
+                raise TypeError("import_xlsx must produce synchronous rows")
             return self._append_rows(
                 columns=tuple(params.columns),
                 rows=(row.output.root for row in produced.rows),
@@ -1267,7 +1275,6 @@ def _result_and_receipt(
         | CreatedColumn
         | CreatedRow
         | AppendedRows
-        | UpdatedImportedRows
         | DeletedRows
         | RetypedColumn
         | EditedCells
@@ -1439,36 +1446,6 @@ def _result_and_receipt(
         if returned.source:
             inputs.append(ReceiptIO(name="import_source", ref=dict(returned.source)))
         outputs = [ReceiptIO(name="appended_rows", ref=ref)]
-        supporting_records = [ReceiptEvidence(ref=ref, retention="pinned")]
-    elif isinstance(returned, UpdatedImportedRows):
-        plan = capability._plan
-        ref = {
-            "kind": "updated_import_rows",
-            "sheet_id": returned.sheet_id,
-            "row_ids": list(returned.row_ids),
-            "row_count": len(returned.row_ids),
-            "edit_count": returned.edit_count,
-            "cleared_cells": plan.cleared_cells,
-            "matched": plan.matched,
-            "unmatched": plan.unmatched,
-            "op_id": returned.op_id,
-        }
-        output = ActionOutput(
-            kind="edit",
-            name="updated_rows",
-            sheet_id=returned.sheet_id,
-            row_ids=list(returned.row_ids),
-            ref=ref,
-        )
-        inputs = [
-            ReceiptIO(
-                name="target_sheet",
-                ref={"kind": "target_sheet", "sheet_id": returned.sheet_id},
-            )
-        ]
-        if returned.source:
-            inputs.append(ReceiptIO(name="import_source", ref=dict(returned.source)))
-        outputs = [ReceiptIO(name="updated_rows", ref=ref)]
         supporting_records = [ReceiptEvidence(ref=ref, retention="pinned")]
     elif isinstance(returned, DeletedRows):
         ref = {

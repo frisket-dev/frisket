@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import { REPO_ROOT } from './helpers';
 import { testPython } from '../support/testPython';
 
 type ReviewClassifyField = {
@@ -10,11 +11,6 @@ type ReviewClassifyField = {
   name: string;
   type: string;
 };
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 /** Enter the public review route without reloading the already-open workspace. */
 export async function openReviewRoute(page: Page, pid: string, sheetId: number): Promise<void> {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 import math
 from collections.abc import Callable
 from pathlib import Path
@@ -62,8 +63,11 @@ TranscriptionRequestBuilder = Callable[
 ]
 
 
+@dataclass
 class _RemoteTranscriptionResponseError(HostedEngineError, RuntimeError):
     """A paid response that could not produce a usable transcript."""
+
+    status_code: int | None = None
 
 
 def _mai_audio_format(filename: str, content_type: str) -> str:
@@ -191,8 +195,18 @@ def _remote_response_accounting(
 
 
 def _halt_unless_consented_credential(
-    route: Any, selected_source: Any, effect: str, *, context: CredentialUseContext
+    route: Any,
+    selected_source: Any,
+    effect: str,
+    *,
+    context: CredentialUseContext | None,
 ) -> None:
+    if context is None:
+        raise ActionProgramInvocationHalt(
+            "promise_violation",
+            f"{effect} is missing its trusted request credential context; "
+            "review the claims and re-consent to resume",
+        )
     try:
         require_consented_credential(
             cost_posture=route.cost_posture,
@@ -223,7 +237,7 @@ class OpenAITranscriptionAdapter:
                 )
             except LLMError as exc:
                 raise RuntimeError(str(exc)) from exc
-        if not base or not key:
+        if router is None or not base or not key:
             raise RuntimeError(
                 f"remote transcription needs a configured '{provider}' "
                 f"provider (set {provider.upper()}_API_KEY or an org key) — "
@@ -337,8 +351,8 @@ class OpenAITranscriptionAdapter:
                         response=response,
                         warning=f"{provider} returned HTTP {response.status_code}; request cost is unknown",
                     ),
+                    status_code=response.status_code,
                 )
-                error.status_code = response.status_code
                 raise error from None
             return response
 

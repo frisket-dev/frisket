@@ -1,6 +1,5 @@
 import { FORM_LABELS } from '../../actions/formLabels';
 import { Button } from '../Button';
-import { useEffect, useRef } from 'react';
 import {
   transcribeActiveTarget,
   transcribeActiveTargetOptionReason,
@@ -10,6 +9,7 @@ import {
 import { EngineLanguageControl } from './EngineLanguageControl';
 import { TranscribeDiarizationControl } from './TranscribeDiarizationControl';
 import { useEditorProblem } from './useEditorProblem';
+import { useOnKeyChange } from './paramsBodyHooks';
 import type { GeneratedActionParamsBodyProps } from './GeneratedActionParamsBody';
 import { PanelSelect } from '../PanelSelect';
 
@@ -18,17 +18,14 @@ const TRANSCRIBE_OPTIONS = ['language', 'model_size', 'context', 'vad', 'clean',
 
 export function OcrParamsBody({ params, setParams, engine, Field }:
   GeneratedActionParamsBodyProps<'media.ocr'>) {
-  const previousEngine = useRef(engine?.id);
-  useEffect(() => {
-    if (previousEngine.current === engine?.id) return;
-    previousEngine.current = engine?.id;
+  useOnKeyChange(engine?.id, () => {
     if (engine?.language?.mode === 'fixed' && params.language
       && params.language !== engine.language.fixed_language) {
       const next = { ...params };
       delete next.language;
       setParams(next);
     }
-  }, [engine, params, setParams]);
+  });
   const offersPositionChoice = engine?.ocr_options?.keep_text_position === true;
   return <>
     <Field name="source" label={FORM_LABELS.document} />
@@ -70,16 +67,13 @@ export function TranscribeParamsBody({ params, setParams, setEditorProblem, engi
       ? [{ value: modelSize, label: `Unavailable saved value: ${modelSize}`, disabled: true }]
       : []),
   ];
-  const previousEngine = useRef(engine?.id);
-  useEffect(() => {
-    if (previousEngine.current === engine?.id) return;
-    previousEngine.current = engine?.id;
+  useOnKeyChange(engine?.id, () => {
     // A deliberate engine switch starts with its defaults. Never rewrite a
     // saved request on mount, nor carry another engine's unsupported knobs.
     const next = { ...params };
     for (const name of TRANSCRIBE_OPTIONS) delete next[name];
     setParams(next);
-  }, [engine, params, setParams]);
+  });
   const speakerParams: Record<string, string> = {};
   for (const name of SPEAKER_FIELDS) {
     const value = params[name];

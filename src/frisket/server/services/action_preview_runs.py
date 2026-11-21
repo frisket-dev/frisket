@@ -403,8 +403,9 @@ class ActionPreviewRunService:
                         prepared_work_scope=plan.work_scope,
                     )
                     claim(project, attempt, claimless_direct_effect=True)
-                return asyncio.run(
-                    plan.run(
+
+                async def _run_plan() -> TablePreviewResult:
+                    return await plan.run(
                         ScratchActionPreviewRunContext(
                             project=project,
                             resolved_execution=resolved,
@@ -421,7 +422,8 @@ class ActionPreviewRunService:
                             cancel_event=cancel_event,
                         )
                     )
-                )
+
+                return asyncio.run(_run_plan())
             except BaseException as exc:
                 failure = exc
                 raise
@@ -457,7 +459,7 @@ class ActionPreviewRunService:
                 project_id,
                 total,
                 run,
-                **({"receipt": receipt} if receipt is not None else {}),
+                receipt=receipt,
                 replacement_key=replacement_key,
             )
         except BaseException:
@@ -589,7 +591,7 @@ class ActionPreviewRunService:
             registered = None
             if kind in NEW_ACTION_IDS:
                 registered = ACTION_REGISTRY.get(kind)
-            elif isinstance(body.get("action_id"), str):
+            elif isinstance(body.get("action_id"), str) and isinstance(kind, str):
                 installed = resolve_installed_action(project, kind)
                 if installed is not None:
                     registered = installed[0]
@@ -1182,7 +1184,7 @@ class ActionPreviewRunService:
         ):
             return None
         artifact = result.artifacts.get(artifact_id)
-        if artifact is None:
+        if artifact is None or artifact.path is None:
             return None
         try:
             # Open before response streaming: expiry can unlink the scratch path,
@@ -1215,7 +1217,7 @@ def _comparison_estimate_response(estimate: dict[str, Any]) -> ActionPreviewRunR
 
 def _job_payload(job: PreviewJob) -> dict[str, Any]:
     result = job.result
-    progress = dict(job.progress)
+    progress: dict[str, Any] = dict(job.progress)
     if (
         job.status == "running"
         and int(progress.get("done") or 0) == 0

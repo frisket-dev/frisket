@@ -1307,7 +1307,7 @@ def test_anchor_ocr_organization_byok_consent_refuses_the_deployments_env_key(
         organization = CredentialOwner.organization("org-a")
         composition = ExecutionComposition(
             facts=CompositionFacts(
-                edition="hosted",
+                edition="cloud",
                 org_id="org-a",
                 funding=ByokZero(),
             ),

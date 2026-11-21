@@ -626,10 +626,8 @@ def test_action_registry_store_refuses_removed_keys_on_publish_and_lookup(
 
 def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
     tmp_path,
+    monkeypatch,
 ) -> None:
-    # Typed built-in params are closed models, so free-form nested user data
-    # in ``spec.params`` only exists on the plugin recipe path, which remains.
-    from helpers import install_action_program, remove_action_program
     from frisket.ops.base import ActionProgram
 
     class OpaqueParamsProgram(ActionProgram):
@@ -646,10 +644,10 @@ def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
             return spec["input_columns"]
 
     kind = "opaque_params.plugin"
-    install_action_program(
-        OpaqueParamsProgram(name="opaque_params", version="plugin-v1", llm=False),
-        action_kind=kind,
-        plugin="opaque_params",
+    program = OpaqueParamsProgram(name="opaque_params", version="plugin-v1", llm=False)
+    monkeypatch.setattr(
+        "frisket.authoring.action_registry.get_action_program",
+        lambda action_kind: program if action_kind == kind else None,
     )
     spec = {
         "action_kind": kind,
@@ -659,24 +657,21 @@ def test_action_artifact_preserves_nested_recipe_vocabulary_as_opaque_user_data(
             "recipe_version": "family-v2",
         },
     }
-    try:
-        artifact = build_action_artifact(
-            name="Recipe vocabulary is data",
-            spec=spec,
-            publisher={"recipe": "newsroom style guide"},
-            dataset={"metadata": {"recipe_version": "curation-v3"}},
-            checks=[
-                {
-                    "name": "eval.fixture",
-                    "status": "passed",
-                    "evidence": {"recipe": {"score": 1}, "recipe_version": "eval-v1"},
-                },
-            ],
-            now="2026-08-29T00:00:00Z",
-        )
-        stored = ActionRegistryStore(tmp_path).publish(artifact)
-    finally:
-        remove_action_program(kind)
+    artifact = build_action_artifact(
+        name="Recipe vocabulary is data",
+        spec=spec,
+        publisher={"recipe": "newsroom style guide"},
+        dataset={"metadata": {"recipe_version": "curation-v3"}},
+        checks=[
+            {
+                "name": "eval.fixture",
+                "status": "passed",
+                "evidence": {"recipe": {"score": 1}, "recipe_version": "eval-v1"},
+            },
+        ],
+        now="2026-08-29T00:00:00Z",
+    )
+    stored = ActionRegistryStore(tmp_path).publish(artifact)
     assert stored["spec"]["params"] == spec["params"]
     assert stored["publisher"]["recipe"] == "newsroom style guide"
     assert stored["receipts"][0]["dataset"]["metadata"] == {

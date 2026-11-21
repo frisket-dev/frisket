@@ -8,10 +8,11 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from frisket.actions.types import Row, RowError, SheetColumnRef
+from frisket.actions.core import MapRows
+from frisket.actions.types import Row, RowError, RowResult, SheetColumnRef
 from frisket.engine.executor.map_rows_action import _TypedMapRowsProgram
 from frisket.engine.executor.semantic_join_matcher import AdmittedSemanticMatcher
-from frisket.engine.runner.row_inputs import row_source_snapshot
+from frisket.engine.runner.row_inputs import RowInputValues, row_source_snapshot
 from frisket.ops.cost_source import (
     cost_estimate,
     free_local_estimate,
@@ -84,6 +85,15 @@ def validate_semantic_join_pins(project, state, *, replaced_source_columns=()):
             raise SemanticJoinSourceChanged(
                 f"semantic join {role} changed after admission"
             )
+
+
+def _require_writer_attempt_id(extras: dict[str, Any]) -> str:
+    from frisket.execution.attempt import StaleAttemptWriter, attempt_in_scope
+
+    attempt = attempt_in_scope(extras)
+    if attempt is None:
+        raise StaleAttemptWriter("semantic join requires an active attempt writer")
+    return attempt.attempt_id
 
 
 class _SemanticJoinProgram(_TypedMapRowsProgram):
@@ -159,16 +169,13 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
         )
         if ctx.extras.get("preview") is not True:
             from frisket.engine.store.output_claims import OutputColumnClaimStore
-            from frisket.execution.attempt import attempt_in_scope
 
-            attempt = attempt_in_scope(ctx.extras)
+            writer_attempt_id = _require_writer_attempt_id(ctx.extras)
             with ctx.project.transaction_scope():
                 OutputColumnClaimStore.require_current_writer(
                     ctx.project.db,
                     run_id=ctx.extras["run_id"],
-                    writer_attempt_id=attempt.attempt_id
-                    if attempt is not None
-                    else None,
+                    writer_attempt_id=writer_attempt_id,
                     claim_token=ctx.extras["claim_token"],
                 )
                 store_capture(
@@ -207,29 +214,32 @@ class _SemanticJoinProgram(_TypedMapRowsProgram):
         expected = self._source_values[row_id]
         if row_values.get(source.name) != expected:
             raise ValueError("semantic join source cell changed after admission")
+        assert self._matcher is not None
         matcher = self._matcher.bind_row(ctx, expected_source=expected)
         try:
+            assert isinstance(self._terminal, MapRows)
             produced = self._terminal.handler(self._params, Row(row_values), matcher)
             if inspect.isawaitable(produced):
                 produced = await produced
+            assert isinstance(produced, RowResult)
             matcher.validate_output(produced.output)
             if ctx.extras.get("preview") is not True:
                 from frisket.engine.store.receipts import ReceiptStore
-                from frisket.execution.attempt import attempt_in_scope
 
-                attempt = attempt_in_scope(ctx.extras)
+                writer_attempt_id = _require_writer_attempt_id(ctx.extras)
                 ReceiptStore(ctx.project).record_semantic_match(
                     matcher.evidence(),
                     run_id=ctx.extras["run_id"],
-                    writer_attempt_id=attempt.attempt_id
-                    if attempt is not None
-                    else None,
+                    writer_attempt_id=writer_attempt_id,
                     claim_token=ctx.extras["claim_token"],
                 )
             publication = self._prepare_publication(produced)
             if ctx.extras.get("preview") is not True:
                 from frisket.engine.store.consumed_sources import capture_fingerprint
 
+                assert isinstance(row_values, RowInputValues)
+                assert isinstance(row_values.consumed_capture, dict)
+                assert self._target_capture is not None
                 # The corpus is stored once at the actual read. Each returned
                 # row/checkpoint refers to the corpus it really matched, even
                 # when a resumed run later reads an equal-text contribution.

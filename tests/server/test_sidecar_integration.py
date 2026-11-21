@@ -1298,7 +1298,7 @@ def test_recipe_catalog_surfaces_sidecar_engine_availability(client, monkeypatch
     gateway = _gateway_target(hints)
     assert gateway["available"] is True
     assert gateway["models"] == [TURBO_MODEL_ID]
-    assert transcribe_engines["openai/whisper-1"]["tier"] == "hosted"
+    assert transcribe_engines["openai/whisper-1"]["tier"] == "remote"
     assert "remote" not in transcribe_engines  # deleted at the engine-roster cutover
 
 

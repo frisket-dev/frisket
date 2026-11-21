@@ -54,7 +54,7 @@ def test_maintenance_skips_staging_and_incomplete_bundles(
         return Project(path)
 
     monkeypatch.setattr(module, "Project", direct_open)
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=scoped)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=scoped)
     try:
         getattr(module, function_name)(
             queue=queue,
@@ -85,7 +85,7 @@ def test_global_hosted_recovery_skips_staging_without_losing_valid_project(tmp_p
         calls.append((key, path))
         return Project(path)
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     try:
         reconcile_notification_delivery_requests(
             queue, workspace_root=root, project_opener=opener
@@ -126,7 +126,7 @@ def test_discovery_does_not_swallow_valid_project_processing_failure(
         assert key == ProjectStorageKey(23, "valid")
         raise RuntimeError("valid project unavailable")
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     try:
         with caplog.at_level(logging.WARNING):
             getattr(module, function_name)(

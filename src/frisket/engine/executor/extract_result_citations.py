@@ -360,7 +360,7 @@ class ExtractResultCitations:
                 continue
             field = self.fields[logical]
             value = cell.get("value")
-            warnings = list(cell.get("warnings") or ())
+            warnings: list[str] = list(cell.get("warnings") or ())
             failures, links, unsupported = [], [], []
             if logical in self.required_fields and _is_missing_value(value):
                 failures.append("required_field_missing")

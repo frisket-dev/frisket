@@ -72,11 +72,11 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await openViewsPanel(page);
   const viewsContribution = page
     .getByTestId('discover-panel')
-    .getByTestId('workbench-contribution-frisket-core-panel-saved-views');
+    .getByTestId('workbench-contribution-frisket-core-panel-views');
   await expect(viewsContribution).toBeVisible();
   await expect(viewsContribution).toHaveAttribute('data-host', 'leftSidebar');
   await expect(viewsContribution).toHaveAttribute('data-slot', 'scope');
-  await expect(viewsContribution.getByTestId('saved-views-list')).toBeVisible();
+  await expect(viewsContribution.getByTestId('views-list')).toBeVisible();
 
   // Save the currently applied filter. The sheet-bar action opens the create
   // state in Views; it does not mount a second, inline implementation.
@@ -94,7 +94,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
 
   await page.getByTestId('save-as-view').click();
   await expect(page.getByTestId('discover-tab-Views')).toHaveAttribute('aria-selected', 'true');
-  const createForm = viewsContribution.getByTestId('saved-view-create');
+  const createForm = viewsContribution.getByTestId('view-create');
   await expect(createForm).toBeVisible();
   await createForm.getByLabel('View name').fill('Open only');
 
@@ -109,15 +109,15 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
 
   // Success returns to the list, where the persisted filter is legible.
   await expect(createForm).toHaveCount(0);
-  const savedItem = viewsContribution.getByTestId('saved-view-item').filter({ hasText: 'Open only' });
+  const savedItem = viewsContribution.getByTestId('view-item').filter({ hasText: 'Open only' });
   await expect(savedItem).toBeVisible();
   await expect(savedItem).toBeFocused();
-  await expect(savedItem.getByTestId('saved-view-filter-summary')).toContainText('1 filter');
+  await expect(savedItem.getByTestId('view-filter-summary')).toContainText('1 filter');
 
   // Applying marks the grid as actively represented by this Saved View.
-  await savedItem.getByTestId('apply-saved-view').click();
+  await savedItem.getByTestId('apply-view').click();
   await expect(savedItem.getByText('Active')).toBeVisible();
-  await expect(page.getByTestId('active-saved-view-chip')).toContainText('Open only');
+  await expect(page.getByTestId('active-view-chip')).toContainText('Open only');
   await expect(page.getByText('Applied Open only', { exact: true })).toBeAttached();
   await page.screenshot({ path: 'test-results/domain-saved-view.png', fullPage: true });
 
@@ -126,8 +126,8 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   await page.getByTestId('clear-grid-filter').click();
   await expect(page.getByTestId('active-grid-filter')).toHaveCount(0);
   await savedItem.getByRole('button', { name: 'Rename Open only' }).click();
-  const editForm = viewsContribution.getByTestId('saved-view-edit');
-  await expect(editForm.getByTestId('saved-view-filter-summary')).toContainText('1 filter');
+  const editForm = viewsContribution.getByTestId('view-edit');
+  await expect(editForm.getByTestId('view-filter-summary')).toContainText('1 filter');
   const nameInput = editForm.getByLabel('View name');
   const renameButton = editForm.getByRole('button', { name: 'Rename view' });
   await nameInput.fill('   ');
@@ -159,7 +159,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
   expect(await patch.json()).toMatchObject({ name: 'Open status', spec: { selection: { filters } } });
 
   await expect(editForm).toHaveCount(0);
-  const renamedItem = viewsContribution.getByTestId('saved-view-item').filter({ hasText: 'Open status' });
+  const renamedItem = viewsContribution.getByTestId('view-item').filter({ hasText: 'Open status' });
   await expect(renamedItem).toBeVisible();
   await expect(renamedItem).toBeFocused();
   const stored = await (await page.request.get(`/api/projects/${pid}/views?sheet_id=${sheetId}`)).json();
@@ -170,9 +170,9 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
 
   // A definition update is deliberately separate from Rename. It captures
   // the current grid only after confirmation; Escape makes no request.
-  const updateAction = renamedItem.getByTestId('update-saved-view-definition');
+  const updateAction = renamedItem.getByTestId('update-view-definition');
   await updateAction.click();
-  const updateDialog = page.getByTestId('update-saved-view-confirmation');
+  const updateDialog = page.getByTestId('update-view-confirmation');
   await expect(updateDialog).toBeVisible();
   await expect(updateDialog).toContainText('current selection');
   let definitionRequests = 0;
@@ -195,7 +195,7 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
     res.request().method() === 'PUT' &&
     res.status() === 200,
   );
-  await page.getByTestId('confirm-update-saved-view').click();
+  await page.getByTestId('confirm-update-view').click();
   const definition = await definitionResponse;
   expect(definition.request().postDataJSON()).toMatchObject({
     selection: { scope: { kind: 'sheet', sheet_id: sheetId }, filters: [], order: [] },
@@ -210,19 +210,19 @@ test('Saved Views is a sheet-scoped Discover contribution with list, create, and
     res.status() === 200,
   );
   await viewsContribution
-    .getByTestId('saved-view-item')
+    .getByTestId('view-item')
     .filter({ hasText: 'Open status' })
-    .getByTestId('delete-saved-view')
+    .getByTestId('delete-view')
     .click();
-  const deleteDialog = page.getByTestId('delete-saved-view-confirmation');
+  const deleteDialog = page.getByTestId('delete-view-confirmation');
   await expect(deleteDialog).toBeVisible();
   await expect(deleteDialog).toContainText('Deleting this view cannot be undone.');
-  await deleteDialog.getByTestId('confirm-delete-saved-view').click();
+  await deleteDialog.getByTestId('confirm-delete-view').click();
   await deleteResponse;
   await expect(
-    viewsContribution.getByTestId('saved-view-item').filter({ hasText: 'Open status' }),
+    viewsContribution.getByTestId('view-item').filter({ hasText: 'Open status' }),
   ).toHaveCount(0);
-  await expect(viewsContribution.getByTestId('saved-views-list')).toBeFocused();
+  await expect(viewsContribution.getByTestId('views-list')).toBeFocused();
   expect((await page.request.get(`/api/projects/${pid}/views/${saved.id}`)).status()).toBe(404);
 });
 
@@ -242,9 +242,9 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   await openToolbarOverflow(page);
-  const viewsTrigger = page.getByTestId('open-saved-views-submenu');
+  const viewsTrigger = page.getByTestId('open-views-submenu');
   await viewsTrigger.hover();
-  const menu = page.getByTestId('saved-views-overflow-menu');
+  const menu = page.getByTestId('views-overflow-menu');
   await expect(menu).toBeVisible();
   const overflowBox = await page.getByTestId('toolbar-overflow-menu').boundingBox();
   const menuBox = await menu.boundingBox();
@@ -259,19 +259,19 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   expect(menuBox!.y).toBeGreaterThanOrEqual(8);
   expect(menuBox!.y + menuBox!.height).toBeLessThanOrEqual(892);
 
-  await menu.getByTestId('saved-views-overflow-new').click();
-  await expect(page.getByTestId('saved-view-create')).toBeVisible();
-  await page.getByTestId('saved-view-editor-cancel').click();
+  await menu.getByTestId('views-overflow-new').click();
+  await expect(page.getByTestId('view-create')).toBeVisible();
+  await page.getByTestId('view-editor-cancel').click();
 
   await openToolbarOverflow(page);
   await viewsTrigger.focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByTestId(`saved-views-overflow-view-${seeded.id}`)).toBeFocused();
+  await expect(page.getByTestId(`views-overflow-view-${seeded.id}`)).toBeFocused();
   await page.keyboard.press('ArrowLeft');
   await expect(viewsTrigger).toBeFocused();
   await expect(menu).toBeHidden();
   await page.keyboard.press('ArrowRight');
-  await expect(page.getByTestId(`saved-views-overflow-view-${seeded.id}`)).toBeFocused();
+  await expect(page.getByTestId(`views-overflow-view-${seeded.id}`)).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(viewsTrigger).toBeFocused();
   await expect(menu).toBeHidden();
@@ -284,7 +284,7 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
       hasOpenFilter(url, statusColumnId)
     );
   });
-  await page.getByTestId(`saved-views-overflow-view-${seeded.id}`).click();
+  await page.getByTestId(`views-overflow-view-${seeded.id}`).click();
   await applyResponse;
   await expect(page.getByTestId('active-grid-filter')).toContainText(/status.*open/i);
   await expect(page.getByText('Applied Open only', { exact: true })).toBeAttached();
@@ -293,17 +293,17 @@ test('Saved Views overflow offers new, apply, and open-panel shortcuts', async (
   // The menu closes after application, so reopen it to verify the same
   // active marker appears at this second apply entry point too.
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await expect(page.getByTestId(`saved-views-overflow-view-${seeded.id}`)).toContainText('Active');
+  await page.getByTestId('open-views-submenu').click();
+  await expect(page.getByTestId(`views-overflow-view-${seeded.id}`)).toContainText('Active');
 
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await expect(page.getByTestId('discover-tab-Views')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByTestId('saved-views-list')).toBeVisible();
+  await expect(page.getByTestId('views-list')).toBeVisible();
   await expect(
     page
-      .getByTestId('saved-view-item')
+      .getByTestId('view-item')
       .filter({ hasText: 'All rows' })
-      .getByTestId('saved-view-filter-summary'),
+      .getByTestId('view-filter-summary'),
   ).toHaveText('No filters');
 });
 
@@ -344,16 +344,16 @@ test('a delayed Sheet A response cannot replace the active Sheet B Views list', 
   );
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await sheetARequested;
   await page.getByTestId(`workbench-mainView-tab-${sheetB}`).click();
-  const views = page.getByTestId('saved-views-list');
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Sheet B view' })).toBeVisible();
+  const views = page.getByTestId('views-list');
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Sheet B view' })).toBeVisible();
 
   releaseSheetA();
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Sheet B view' })).toBeVisible();
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Sheet A view' })).toHaveCount(0);
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Sheet B view' })).toBeVisible();
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Sheet A view' })).toHaveCount(0);
 });
 
 test('same-sheet Saved View publications retire older list success and failure', async ({ page }) => {
@@ -366,7 +366,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   ).json();
   await openProject(page, pid, sheetId);
   await openViewsPanel(page);
-  await expect(page.getByTestId('saved-view-item').filter({ hasText: 'Existing view' })).toBeVisible();
+  await expect(page.getByTestId('view-item').filter({ hasText: 'Existing view' })).toBeVisible();
 
   await openDiscoverTab(page, 'Sources');
   let releaseStaleCreateList!: () => void;
@@ -379,12 +379,12 @@ test('same-sheet Saved View publications retire older list success and failure',
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([existing]) });
   }, { times: 1 });
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await staleCreateListRequested;
 
-  await page.getByTestId('create-saved-view').click();
-  const createForm = page.getByTestId('saved-view-create');
+  await page.getByTestId('create-view').click();
+  const createForm = page.getByTestId('view-create');
   await createForm.getByLabel('View name').fill('Published view');
   const createResponse = page.waitForResponse((response) =>
     response.request().method() === 'POST' &&
@@ -392,7 +392,7 @@ test('same-sheet Saved View publications retire older list success and failure',
   );
   await createForm.getByRole('button', { name: 'Save view' }).click();
   const created = await (await createResponse).json();
-  const published = page.getByTestId('saved-view-item').filter({ hasText: 'Published view' });
+  const published = page.getByTestId('view-item').filter({ hasText: 'Published view' });
   await expect(published).toBeFocused();
   releaseStaleCreateList();
   await expect(published).toBeVisible();
@@ -408,15 +408,15 @@ test('same-sheet Saved View publications retire older list success and failure',
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([existing, created]) });
   }, { times: 1 });
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   await staleDeleteListRequested;
-  await published.getByTestId('delete-saved-view').click();
-  await page.getByTestId('confirm-delete-saved-view').click();
+  await published.getByTestId('delete-view').click();
+  await page.getByTestId('confirm-delete-view').click();
   await expect(published).toHaveCount(0);
   releaseStaleDeleteList();
-  await expect(page.getByTestId('saved-view-item').filter({ hasText: 'Published view' })).toHaveCount(0);
-  await expect(page.getByTestId('saved-view-item').filter({ hasText: 'Existing view' })).toBeFocused();
+  await expect(page.getByTestId('view-item').filter({ hasText: 'Published view' })).toHaveCount(0);
+  await expect(page.getByTestId('view-item').filter({ hasText: 'Existing view' })).toBeFocused();
 
   await openDiscoverTab(page, 'Sources');
   let releaseStaleFailure!: () => void;
@@ -436,13 +436,13 @@ test('same-sheet Saved View publications retire older list success and failure',
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify([existing]) });
   });
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await page.getByTestId('saved-views-overflow-open-panel').click();
+  await page.getByTestId('open-views-submenu').click();
+  await page.getByTestId('views-overflow-open-panel').click();
   // Opening the populated submenu loads its entries, then Open panel performs
   // the semantic reveal + load. The first response remains delayed while the
   // newer request publishes successfully.
   await expect.poll(() => requestNumber).toBe(2);
-  await expect(page.getByTestId('saved-view-item').filter({ hasText: 'Existing view' })).toBeVisible();
+  await expect(page.getByTestId('view-item').filter({ hasText: 'Existing view' })).toBeVisible();
   releaseStaleFailure();
   await expect(page.getByText('stale Saved View failure')).toHaveCount(0);
 });
@@ -463,18 +463,18 @@ test('viewers can apply Saved Views but have no creation or mutation entry point
 
   await openProject(page, pid, sheetId);
   await openViewsPanel(page);
-  const row = page.getByTestId('saved-view-item').filter({ hasText: 'Viewer can apply' });
-  await expect(row.getByTestId('apply-saved-view')).toBeVisible();
-  await expect(page.getByTestId('create-saved-view')).toHaveCount(0);
+  const row = page.getByTestId('view-item').filter({ hasText: 'Viewer can apply' });
+  await expect(row.getByTestId('apply-view')).toBeVisible();
+  await expect(page.getByTestId('create-view')).toHaveCount(0);
   await expect(page.getByTestId('save-as-view')).toHaveCount(0);
-  await expect(row.getByTestId('edit-saved-view')).toHaveCount(0);
-  await expect(row.getByTestId('update-saved-view-definition')).toHaveCount(0);
-  await expect(row.getByTestId('delete-saved-view')).toHaveCount(0);
+  await expect(row.getByTestId('edit-view')).toHaveCount(0);
+  await expect(row.getByTestId('update-view-definition')).toHaveCount(0);
+  await expect(row.getByTestId('delete-view')).toHaveCount(0);
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  await expect(page.getByTestId('saved-views-overflow-new')).toHaveCount(0);
-  await expect(page.getByTestId(`saved-views-overflow-view-${saved.id}`)).toBeVisible();
+  await page.getByTestId('open-views-submenu').click();
+  await expect(page.getByTestId('views-overflow-new')).toHaveCount(0);
+  await expect(page.getByTestId(`views-overflow-view-${saved.id}`)).toBeVisible();
 });
 
 test('Saved Views editor actions remain usable at Discover’s constrained width', async ({ page }) => {
@@ -493,8 +493,8 @@ test('Saved Views editor actions remain usable at Discover’s constrained width
   expect(discoverBox?.width).toBeGreaterThanOrEqual(219);
   expect(discoverBox?.width).toBeLessThanOrEqual(221);
 
-  await page.getByTestId('create-saved-view').click();
-  const createForm = page.getByTestId('saved-view-create');
+  await page.getByTestId('create-view').click();
+  const createForm = page.getByTestId('view-create');
   const createName = createForm.getByLabel('View name');
   const save = createForm.getByRole('button', { name: 'Save view' });
   const cancel = createForm.getByRole('button', { name: 'Cancel' });
@@ -512,13 +512,13 @@ test('Saved Views editor actions remain usable at Discover’s constrained width
   const saved = await (await createResponse).json();
   await expect(createForm).toHaveCount(0);
 
-  const item = page.getByTestId('saved-view-item').filter({ hasText: 'Narrow view' });
+  const item = page.getByTestId('view-item').filter({ hasText: 'Narrow view' });
   const rename = item.getByRole('button', { name: 'Rename Narrow view' });
   const updateDefinition = item.getByRole('button', { name: 'Save changes to Narrow view' });
   await expect(rename).toBeVisible();
   await expect(updateDefinition).toBeVisible();
   await rename.click();
-  const editForm = page.getByTestId('saved-view-edit');
+  const editForm = page.getByTestId('view-edit');
   const update = editForm.getByRole('button', { name: 'Rename view' });
   await expect(update).toBeVisible();
   await editForm.getByLabel('View name').fill('Narrow view renamed');
@@ -531,7 +531,7 @@ test('Saved Views editor actions remain usable at Discover’s constrained width
   await update.click();
   await renameResponse;
   const panel = page.getByTestId('views-panel');
-  await expect(page.getByTestId('saved-view-item').filter({ hasText: 'Narrow view renamed' })).toBeVisible();
+  await expect(page.getByTestId('view-item').filter({ hasText: 'Narrow view renamed' })).toBeVisible();
   expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
 });
 
@@ -560,19 +560,19 @@ test('Saved Views summarizes filters, sorting, and custom displayed columns in o
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openViewsPanel(page);
 
-  const views = page.getByTestId('saved-views-list');
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Open cities' }))
+  const views = page.getByTestId('views-list');
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Open cities' }))
     .toContainText('1 filter · 1 sort · 2 columns');
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Everything' }))
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Everything' }))
     .toContainText('No filters');
-  await expect(views.getByTestId('saved-view-item').filter({ hasText: 'Everything' }))
+  await expect(views.getByTestId('view-item').filter({ hasText: 'Everything' }))
     .not.toContainText(/columns|ascending/i);
 });
 
 test('Saved Views overflow adds local search only above eight views and resets it when closed', async ({
   page,
 }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-saved-views-overflow-search'));
+  const pid = await createProject(page.request, uniqueName('e2e-views-overflow-search'));
   const sheetId = await importCsv(page.request, pid, 'rows.csv', 'status\nopen\n');
   const views = await Promise.all(
     Array.from({ length: 9 }, (_, index) =>
@@ -587,10 +587,10 @@ test('Saved Views overflow adds local search only above eight views and resets i
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
 
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
-  const menu = page.getByTestId('saved-views-overflow-menu');
-  const list = menu.getByTestId('saved-views-overflow-list');
-  await expect(menu.getByTestId('saved-views-overflow-count')).toHaveCount(0);
+  await page.getByTestId('open-views-submenu').click();
+  const menu = page.getByTestId('views-overflow-menu');
+  const list = menu.getByTestId('views-overflow-list');
+  await expect(menu.getByTestId('views-overflow-count')).toHaveCount(0);
   await expect(menu.getByLabel('Search views')).toBeVisible();
   await expect(list).toHaveCount(1);
   await expect.poll(() => list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
@@ -606,24 +606,24 @@ test('Saved Views overflow adds local search only above eight views and resets i
   });
   const search = menu.getByLabel('Search views');
   await search.fill('VIEW 9');
-  await expect(list.getByTestId(`saved-views-overflow-view-${views[8].id}`)).toBeVisible();
-  await expect(list.getByTestId(`saved-views-overflow-view-${views[0].id}`)).toHaveCount(0);
+  await expect(list.getByTestId(`views-overflow-view-${views[8].id}`)).toBeVisible();
+  await expect(list.getByTestId(`views-overflow-view-${views[0].id}`)).toHaveCount(0);
   expect(listRequests).toBe(0);
 
   await search.fill('does not exist');
   await expect(menu.getByText('No matching views')).toBeVisible();
-  await expect(menu.getByTestId('saved-views-overflow-new')).toBeVisible();
-  await expect(menu.getByTestId('saved-views-overflow-open-panel')).toBeVisible();
+  await expect(menu.getByTestId('views-overflow-new')).toBeVisible();
+  await expect(menu.getByTestId('views-overflow-open-panel')).toBeVisible();
 
   await page.keyboard.press('Escape');
   await expect(menu).not.toBeVisible();
   await expect(page.getByTestId('toolbar-overflow-menu')).toBeVisible();
-  await page.getByTestId('open-saved-views-submenu').click();
-  await expect(page.getByTestId('saved-views-overflow-menu').getByLabel('Search views')).toHaveValue('');
+  await page.getByTestId('open-views-submenu').click();
+  await expect(page.getByTestId('views-overflow-menu').getByLabel('Search views')).toHaveValue('');
 });
 
 test('Saved Views overflow does not show a search field at exactly eight views', async ({ page }) => {
-  const pid = await createProject(page.request, uniqueName('e2e-saved-views-overflow-eight'));
+  const pid = await createProject(page.request, uniqueName('e2e-views-overflow-eight'));
   const sheetId = await importCsv(page.request, pid, 'rows.csv', 'status\nopen\n');
   await Promise.all(
     Array.from({ length: 8 }, (_, index) =>
@@ -635,9 +635,9 @@ test('Saved Views overflow does not show a search field at exactly eight views',
   await openProject(page, pid, sheetId);
   await expect(page.getByTestId('grid')).toBeVisible({ timeout: 15_000 });
   await openToolbarOverflow(page);
-  await page.getByTestId('open-saved-views-submenu').click();
+  await page.getByTestId('open-views-submenu').click();
 
-  const menu = page.getByTestId('saved-views-overflow-menu');
-  await expect(menu.getByTestId('saved-views-overflow-count')).toHaveCount(0);
+  const menu = page.getByTestId('views-overflow-menu');
+  await expect(menu.getByTestId('views-overflow-count')).toHaveCount(0);
   await expect(menu.getByLabel('Search views')).toHaveCount(0);
 });

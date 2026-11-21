@@ -194,7 +194,7 @@ class _SyntheticProvider:
 def _execution_composition() -> ExecutionComposition:
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             funding=PlatformMetered(),
         ),
         provider=_SyntheticProvider(),

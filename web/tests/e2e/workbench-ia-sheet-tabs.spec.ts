@@ -1,6 +1,3 @@
-import { execFileSync } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import {
   clickRunButton,
@@ -9,6 +6,8 @@ import {
   listSheets,
   openAction,
   openProject,
+  primeMapRowsReplies,
+  typedActionRequest,
   type WireSheet,
   uniqueName,
 } from './helpers';
@@ -21,7 +20,6 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as DERIVE_MODEL,
 } from './replayModelScenario';
-import { testPython } from '../support/testPython';
 
 // workbench-ia-sheet-tabs-v1 (Workbench IA increment 3): the Navigate region —
 // browser-style sheet tabs above the grid; the vertical sidebar sheet list is
@@ -92,11 +90,6 @@ test('clicking a tab switches the active sheet (grid content changes)', async ({
 // still POSTs the removed /api/projects/{pid}/derive endpoint, which 404s and
 // leaves that project with no child sheet.)
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
-
 const DERIVE_CSV =
   'episode,description\n' +
   '"Fitness episode","The host reads an AG1 ad with code ROGAN and a Cash App spot offering a signup bonus."\n' +
@@ -142,103 +135,46 @@ async function selectDescriptionSource(page: Page): Promise<void> {
 }
 
 function primeDeriveObjectCache(pid: string, sheetId: number): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw = sys.argv[1], sys.argv[2], sys.argv[3]
-sheet_id = int(sheet_id_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    input_columns = [
-        c["name"] for c in project.columns(sheet_id) if not c["ai_generated"]
-    ]
-    action = {
-        "action_id": "map.extract",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": input_columns,
-            "model": ${JSON.stringify(DERIVE_MODEL)},
-            "instruction": ${JSON.stringify(DERIVE_PROMPT)},
-            "fields": [
-                {
-                    "name": "sponsors",
-                    "type": "list",
-                    "description": "Sponsors mentioned in this episode",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "company": {"type": "string", "description": "Sponsor company name"},
-                            "coupon": {"type": "string", "description": "Coupon code or discount"},
-                            "product": {"type": "string", "description": "Product being advertised"},
-                        },
-                        "required": ["company", "coupon", "product"],
-                    },
-                }
-            ],
-            "grounding": {"enabled": False},
-        },
-        "output_names": {"sponsors": "sponsors"},
-        "idempotency_key": "e2e-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-    values = {
-        name: project.get_values(sheet_id, columns[name])
-        for name in input_columns
-    }
-    payloads = [
+  const action = typedActionRequest('map.extract', {
+    sheetId,
+    params: {
+      source: ['episode', 'description'],
+      model: DERIVE_MODEL,
+      instruction: DERIVE_PROMPT,
+      fields: [
         {
-            "sponsors": [
-                {"company": "AG1", "coupon": "ROGAN", "product": "daily greens supplement"},
-                {"company": "Cash App", "coupon": "signup bonus", "product": "mobile payments app"},
-            ],
+          name: 'sponsors',
+          type: 'list',
+          description: 'Sponsors mentioned in this episode',
+          items: {
+            type: 'object',
+            properties: {
+              company: { type: 'string', description: 'Sponsor company name' },
+              coupon: { type: 'string', description: 'Coupon code or discount' },
+              product: { type: 'string', description: 'Product being advertised' },
+            },
+            required: ['company', 'coupon', 'product'],
+          },
         },
-        {
-            "sponsors": [
-                {"company": "Squarespace", "coupon": "10% off", "product": "website builder"},
-                {"company": "AG1", "coupon": "ROGAN", "product": "daily greens supplement"},
-            ],
-        },
-    ]
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id, payload in zip(project.visible_row_ids(sheet_id), payloads, strict=True):
-            row_values = {name: values[name].get(row_id) for name in input_columns}
-            call = plan.program.render(row_values, spec)
-            req = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            cache.put(
-                request_key(req, plan.program.version),
-                LLMResponse(
-                    content=None,
-                    data=payload,
-                    tokens_in=180,
-                    tokens_out=90,
-                    cost=0.0004,
-                    model=spec["model"],
-                ),
-            )
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
+      ],
+      grounding: { enabled: false },
+    },
+    outputNames: { sponsors: 'sponsors' },
   });
+  primeMapRowsReplies(pid, action, [
+    {
+      sponsors: [
+        { company: 'AG1', coupon: 'ROGAN', product: 'daily greens supplement' },
+        { company: 'Cash App', coupon: 'signup bonus', product: 'mobile payments app' },
+      ],
+    },
+    {
+      sponsors: [
+        { company: 'Squarespace', coupon: '10% off', product: 'website builder' },
+        { company: 'AG1', coupon: 'ROGAN', product: 'daily greens supplement' },
+      ],
+    },
+  ]);
 }
 
 async function waitForSheet(

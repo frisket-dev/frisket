@@ -516,9 +516,10 @@ def create_app(
     if gateway_service is not None:
         models_gateway_connection_resolver = gateway_service.resolve_connection
 
-        def models_gateway_status_for(can_mutate: bool) -> Mapping[str, Any]:
+        def _gateway_status_for(can_mutate: bool) -> Mapping[str, Any]:
             return gateway_service.passive_status(can_mutate=can_mutate)
 
+        models_gateway_status_for = _gateway_status_for
         register_models_gateway_routes(app, service=gateway_service)
 
     resolved_cloud_store = (
@@ -654,10 +655,19 @@ def create_app(
         await asyncio.to_thread(ends_unit_of_work(action_preview_job_registry.shutdown))
 
     app.router.add_event_handler("shutdown", _shutdown_action_preview_jobs)
-    from frisket.operability.telemetry import build_product_telemetry_runtime
+    from frisket.operability.telemetry import Edition, build_product_telemetry_runtime
 
+    telemetry_edition: Edition
+    if edition == "solo":
+        telemetry_edition = "solo"
+    elif edition == "team":
+        telemetry_edition = "team"
+    elif edition == "cloud":
+        telemetry_edition = "cloud"
+    else:
+        raise ValueError(f"unsupported edition: {edition!r}")
     app.state.product_telemetry = build_product_telemetry_runtime(
-        edition=edition,
+        edition=telemetry_edition,
         destination=product_telemetry_destination,
     )
     register_product_telemetry_routes(
@@ -694,10 +704,12 @@ def create_app(
             configure_models_gateway=edition == "solo" and enable_provider_config,
         )
 
-        def selector_capabilities_for(
+        def _default_selector_capabilities_for(
             _request: Request, _pid: str
         ) -> SelectorCapabilities:
             return solo_capabilities
+
+        selector_capabilities_for = _default_selector_capabilities_for
 
     register_selector_choices_routes(
         app,
@@ -831,11 +843,15 @@ def create_app(
     )
 
     ws.search_preparation_setup_completed = search_preparation_service.setup_completed
-    ws.search_preparation_import_completed = lambda project_id, receipt_id, sheet_id: (
+
+    def _on_search_preparation_import_completed(
+        project_id: str, receipt_id: str, sheet_id: int
+    ) -> None:
         search_preparation_service.create_after_import(
             project_id, receipt_id=receipt_id, sheet_id=sheet_id
         )
-    )
+
+    ws.search_preparation_import_completed = _on_search_preparation_import_completed
     # The callback is only a latency wake. Durable pending intents retain the
     # exact materialization job id, and recovery correlates that identity
     # before hydrating a plan.

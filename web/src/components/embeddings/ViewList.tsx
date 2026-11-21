@@ -75,7 +75,7 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
   if (sheetId == null) return null;
   if (error) {
     return (
-      <p className="panel-error" role="alert" data-testid={`embedding-lens-list-error-${index.indexId}`}>
+      <p className="panel-error" role="alert" data-testid={`embedding-view-list-error-${index.indexId}`}>
         {error}
       </p>
     );
@@ -83,17 +83,17 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
   if (!views || views.length === 0) return null;
 
   return (
-    <div className="embedding-lenses" data-testid={`embedding-lenses-${index.indexId}`}>
+    <div className="embedding-views" data-testid={`embedding-views-${index.indexId}`}>
       <span className="form-label">Views</span>
-      <ul className="embedding-lens-list">
+      <ul className="embedding-view-list">
         {views.map((view) => (
-          <li key={view.id} className="embedding-lens" data-testid={`embedding-lens-${view.id}`}>
-            <div className="embedding-lens-head">
-              <span className="embedding-lens-name">{view.name}</span>
+          <li key={view.id} className="embedding-view" data-testid={`embedding-view-${view.id}`}>
+            <div className="embedding-view-head">
+              <span className="embedding-view-name">{view.name}</span>
               <Button
                 type="button"
 
-                data-testid={`embedding-lens-open-${view.id}`}
+                data-testid={`embedding-view-open-${view.id}`}
                 disabled={resolveAction.busy && openId === view.id}
                 onClick={() => void open(view.id, view.name)}
               >
@@ -101,14 +101,14 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
               </Button>
             </div>
             {openId === view.id && resolveAction.error && (
-              <p className="panel-error" role="alert" data-testid={`embedding-lens-resolve-error-${view.id}`}>
+              <p className="panel-error" role="alert" data-testid={`embedding-view-resolve-error-${view.id}`}>
                 {resolveAction.error}
               </p>
             )}
             {openId === view.id && resolved && (
               <ul
-                className="embedding-lens-results"
-                data-testid={`embedding-lens-results-${view.id}`}
+                className="embedding-view-results"
+                data-testid={`embedding-view-results-${view.id}`}
               >
                 {resolved.refs.length === 0 && (
                   <li className="form-hint">No matching rows.</li>
@@ -116,11 +116,11 @@ export function ViewList({ apiPort, index, reloadKey }: ViewListProps) {
                 {resolved.refs.map((row) => (
                   <li
                     key={row.row_id}
-                    className="embedding-lens-result-row"
-                    data-testid={`embedding-lens-result-row-${row.row_id}`}
+                    className="embedding-view-result-row"
+                    data-testid={`embedding-view-result-row-${row.row_id}`}
                   >
-                    <span className="embedding-lens-result-rowid">row {row.row_id}</span>
-                    <span className="embedding-lens-result-score">
+                    <span className="embedding-view-result-rowid">row {row.row_id}</span>
+                    <span className="embedding-view-result-score">
                       {row.search_score != null ? `d ${row.search_score.toFixed(3)}` : 'd —'}
                       {' · '}
                       {row.similarity_score != null ? `score ${row.similarity_score.toFixed(3)}` : 'score —'}

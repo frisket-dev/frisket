@@ -55,12 +55,12 @@ function catalog(): ActionCatalogPayload {
         kind: 'map.translate',
         ui_hints: {
           engines: [
-            { id: 'llm', label: 'LLM translation', tier: 'hosted', billable: true, available: true },
-            { id: 'deepl', label: 'DeepL API', tier: 'hosted', billable: true, available: true },
+            { id: 'llm', label: 'LLM translation', tier: 'remote', billable: true, available: true },
+            { id: 'deepl', label: 'DeepL API', tier: 'remote', billable: true, available: true },
             {
               id: 'google_translate',
               label: 'Google Cloud Translation',
-              tier: 'hosted',
+              tier: 'remote',
               billable: true,
               available: true,
             },

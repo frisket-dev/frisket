@@ -188,7 +188,7 @@ class ProjectQATools:
         self._source_chars = 0
         self._output_grants_provider = output_grants_provider
         self._embedding_runtime = embedding_runtime
-        self._setup_scope = setup_scope
+        self._setup_scope: Literal["workspace", "organization"] | None = setup_scope
         self._research = research
         self.cancel_event = threading.Event()
         self._project_action_catalog_payload = (
@@ -825,13 +825,13 @@ class ProjectQATools:
         source_changed = bool(unavailable_file_cells)
         for group in response.results:
             hit = group.primary
+            column_id = hit.binding.column_id
             column = (
-                columns.get(hit.binding.column_id)
-                if hit.binding.sheet_id == sheet_id
-                and hit.binding.column_id is not None
+                columns.get(column_id)
+                if hit.binding.sheet_id == sheet_id and column_id is not None
                 else None
             )
-            if column is None:
+            if column is None or column_id is None:
                 source_changed = True
                 continue
             try:
@@ -839,12 +839,12 @@ class ProjectQATools:
                     self._record_retrieval_hit(
                         query,
                         hit,
-                        column,
+                        dict(column),
                         prepared_target=prepared_targets.get(
                             (
                                 hit.binding.sheet_id,
                                 hit.binding.row_id,
-                                hit.binding.column_id,
+                                column_id,
                             )
                         ),
                     )
@@ -1043,8 +1043,10 @@ class ProjectQATools:
     ) -> tuple[tuple[int, int, int], dict[str, Any], dict[str, Any] | None]:
         """Keep file-scope authorization on its source cell while reading text."""
         locator = citation["locator"]
-        source_cell = tuple(
-            int(locator[key]) for key in ("sheet_id", "row_id", "column_id")
+        source_cell = (
+            int(locator["sheet_id"]),
+            int(locator["row_id"]),
+            int(locator["column_id"]),
         )
         return read_source_with_prepared(
             self.project,
@@ -1614,7 +1616,7 @@ class ProjectQATools:
             raise ProjectQAScopeError("sheet is outside this turn's scope")
         scope = self.turn["scope"]
         if scope["kind"] == "project":
-            return None, set(), set()
+            return None, set(), ()
         rows: set[int] = set()
         whole_sheet = False
         file_cells: set[tuple[int, int]] = set()

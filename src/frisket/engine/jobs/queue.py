@@ -278,10 +278,10 @@ def normalize_queue_organization_id(value: object) -> int | None:
 def _validate_cloud_attribution(
     refs: Mapping[str, object], body: Mapping[str, object]
 ) -> None:
-    """hosted-job-attribution-v1: on the hosted store, refuse a job that names
-    no owner. Called only when the queue's DECLARED posture is ``hosted=True``
+    """Cloud job attribution: on the Cloud store, refuse a job that names
+    no owner. Called only when the queue's DECLARED posture is ``cloud=True``
     (queue-hosted-posture-explicit-v1), so the local single-user tier and the
-    self-hosted team server — both of which open the queue ``hosted=False`` and
+    self-hosted team server — both of which open the queue ``cloud=False`` and
     enqueue these same kinds with no organization at all — never reach it.
 
     Two facts, deliberately not merged (they diverge on a hosted tenant
@@ -738,14 +738,14 @@ class JobQueue:
         locator: str | Path,
         *,
         schema_mode: str = "initialize",
-        hosted: bool = False,
+        cloud: bool = False,
         clock: Callable[[], datetime] | None = None,
     ):
         url = _queue_engine_url(locator)
         self._clock: Callable[[], datetime] = clock or _now
         self._terminalization_hook: TerminalizationHook | None = None
         # Storage posture is explicit and independently testable from dialect.
-        self._hosted_storage = hosted
+        self._cloud_storage = cloud
         connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
         self.engine = sa.create_engine(url, future=True, connect_args=connect_args)
         self._is_sqlite = self.engine.dialect.name == "sqlite"
@@ -787,7 +787,7 @@ class JobQueue:
     def _notify_terminal(self, event: str, job: Job | None) -> None:
         if job is None or self._terminalization_hook is None:
             return
-        self._terminalization_hook(event, job, hosted=self._hosted_storage)
+        self._terminalization_hook(event, job, cloud=self._cloud_storage)
 
     @staticmethod
     def _job(row) -> Job:
@@ -836,7 +836,7 @@ class JobQueue:
         now = self._clock()
         body = payload or {}
         refs = _job_refs(kind, body)
-        if self._hosted_storage:
+        if self._cloud_storage:
             _validate_cloud_attribution(refs, body)
         try:
             with engine_write_transaction(self.engine) as cx:
@@ -903,8 +903,8 @@ class JobQueue:
         authority_id = uuid.uuid4().hex
         c = jobs_table.c
         claim_filters = [c.status == "queued", c.available_at <= now]
-        if self._hosted_storage:
-            # Hosted project jobs without physical identity remain unclaimable.
+        if self._cloud_storage:
+            # Cloud project jobs without physical identity remain unclaimable.
             claim_filters.append(
                 sa.or_(c.project_id.is_(None), c.storage_org_id.isnot(None))
             )
@@ -1778,16 +1778,16 @@ def open_queue(
     workspace: str | Path | None = None,
     database_url: str | None = None,
     schema_mode: str | None = None,
-    hosted: bool = False,
+    cloud: bool = False,
     clock: Callable[[], datetime] | None = None,
 ) -> JobQueue:
-    """Backend selection: an explicit database_url means the hosted run queue
+    """Backend selection: an explicit database_url means the shared run queue
     (Postgres); otherwise the queue is `<workspace>/.queue.db`.
 
-    ``hosted`` is the DECLARED tenancy/storage posture (queue-hosted-posture-
+    ``cloud`` is the DECLARED tenancy/storage posture (queue-hosted-posture-
     explicit-v1), threaded from the composition root — never inferred from the
     engine dialect. It defaults to ``False`` so local one-command paths can
-    never accidentally acquire hosted posture; only the hosted app / hosted
+    never accidentally acquire Cloud posture; only the Cloud app / Cloud
     worker wiring declares it ``True``.
 
     ``clock`` is ``JobQueue``'s injected time source, threaded
@@ -1800,8 +1800,8 @@ def open_queue(
             "FRISKET_RUN_QUEUE_SCHEMA_MODE", "initialize"
         )
         return JobQueue(
-            database_url, schema_mode=selected_mode, hosted=hosted, clock=clock
+            database_url, schema_mode=selected_mode, cloud=cloud, clock=clock
         )
     if workspace is None:
         raise ValueError("open_queue needs a workspace or a database_url")
-    return JobQueue(Path(workspace) / QUEUE_DB_NAME, hosted=hosted, clock=clock)
+    return JobQueue(Path(workspace) / QUEUE_DB_NAME, cloud=cloud, clock=clock)

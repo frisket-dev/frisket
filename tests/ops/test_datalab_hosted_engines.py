@@ -1078,7 +1078,7 @@ def test_datalab_ocr_engine_consults_project_keys_not_just_env(monkeypatch, tmp_
 
     engines = by_id(None)
     assert engines["datalab"]["available"] is False
-    assert engines["datalab"]["tier"] == "hosted"
+    assert engines["datalab"]["tier"] == "remote"
     assert engines["datalab"]["billable"] is True
     assert "license" not in engines["datalab"]  # vendor's own hosted product
     assert "DATALAB_API_KEY" in engines["datalab"]["error"]
@@ -1112,7 +1112,7 @@ def test_datalab_to_markdown_engine_consults_project_keys_not_just_env(
 
     engines = by_id(None)
     assert engines["datalab"]["available"] is False
-    assert engines["datalab"]["tier"] == "hosted"
+    assert engines["datalab"]["tier"] == "remote"
     assert "license" not in engines["datalab"]
     assert engines["datalab"]["pricing"]["provider"] == "Datalab"
 

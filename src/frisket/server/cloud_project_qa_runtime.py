@@ -37,7 +37,8 @@ class SoloCloudProjectQATurnRuntime:
         self.cloud_llm_coordinator = coordinator
         self.selected_egress_class = selected_egress_class
 
-    def call_scope(self, _router: Any) -> AbstractContextManager[None]:
+    def call_scope(self, router: Any) -> AbstractContextManager[None]:
+        del router
         return nullcontext()
 
     def settle_call(self, *, project: Any, turn_id: str, call_id: str) -> None:
@@ -75,6 +76,11 @@ class SoloCloudProjectQARuntimePort:
             self._workspace.edition_execution_composition_context_for(),
         )
         model = turn["model"] or default_project_ask_model(router, composition)
+        if not isinstance(model, str) or not model:
+            raise CloudExecutionRefused(
+                "execution_route_unavailable",
+                "No AI model is configured for Ask.",
+            )
         provider = composition.provider_for_resolution()
         request = composition.resolution_request(
             model,

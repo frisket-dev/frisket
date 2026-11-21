@@ -153,13 +153,13 @@ export async function capturePanelScenes(page: Page, shot: Shot) {
   await expect(page.getByTestId('import-workspace-dialog')).toHaveCount(0);
 
   await openViews(page);
-  await expect(page.getByTestId('saved-views-list')).toContainText('No views yet.');
+  await expect(page.getByTestId('views-list')).toContainText('No views yet.');
   await shot(page, 'Side panels', 'views-empty', 'src/workspace/ViewsPanel.tsx');
-  await page.getByTestId('create-saved-view').click();
+  await page.getByTestId('create-view').click();
   await page.getByTestId('view-name-input').fill('Planning records');
   await shot(page, 'Side panels', 'view-create', 'src/workspace/ViewsPanel.tsx');
   await page.getByTestId('save-view-button').click();
-  await expect(page.getByTestId('saved-view-item')).toHaveCount(1);
+  await expect(page.getByTestId('view-item')).toHaveCount(1);
   await expect(page.getByTestId('views-panel')).toHaveAttribute('aria-busy', 'false');
   await shot(page, 'Side panels', 'views-populated', 'src/workspace/ViewsPanel.tsx');
 

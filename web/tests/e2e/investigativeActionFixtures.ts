@@ -2,12 +2,8 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
+import { REPO_ROOT } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 interface SeededEvidenceCell {
   rowId: number;

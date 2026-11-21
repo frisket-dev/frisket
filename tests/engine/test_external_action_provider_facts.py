@@ -1,7 +1,7 @@
-"""Durable-fact closure for shipped paid non-LLM recipe effects.
+"""Durable-fact closure for shipped paid non-LLM action effects.
 
 These are action-level regressions: the provider adapter is stubbed one layer
-below the recipe, while the real 402 echo, MapRunner result writer, receipt
+below the action, while the real 402 echo, MapRunner result writer, receipt
 builder, and durable ``model_calls`` table all run unchanged.
 """
 

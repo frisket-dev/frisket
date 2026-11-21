@@ -45,8 +45,21 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.routing import Match, Mount, get_route_path
+from starlette.routing import Match, Mount
 from starlette.types import Scope
+
+
+def _route_path(scope: Scope) -> str:
+    path: str = scope["path"]
+    root_path: str = scope.get("root_path", "")
+    if not root_path or not path.startswith(root_path):
+        return path
+    if path == root_path:
+        return ""
+    if path[len(root_path)] == "/":
+        return path[len(root_path) :]
+    return path
+
 
 STATIC_DIR_ENV = "FRISKET_STATIC_DIR"
 
@@ -75,7 +88,7 @@ class _NamespaceGuardedMount(Mount):
 
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
         if scope.get("type") in ("http", "websocket"):
-            path = get_route_path(scope)
+            path = _route_path(scope)
             for namespace in _RESERVED_NAMESPACES:
                 if path == namespace or path.startswith(namespace + "/"):
                     return Match.NONE, {}
@@ -108,6 +121,8 @@ class SPAStaticFiles(StaticFiles):
         self.map_config = map_config or {}
 
     def _index_response(self) -> HTMLResponse:
+        if self.directory is None:
+            raise RuntimeError("SPAStaticFiles requires a static directory")
         index_path = Path(self.directory) / "index.html"
         html = index_path.read_text(encoding="utf-8")
         statements: list[str] = []

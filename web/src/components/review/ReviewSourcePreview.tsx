@@ -12,7 +12,7 @@ import { OverflowRow } from '../OverflowRow';
 import { focusedReviewArtifact, reviewTextPassageTargets, reviewCitationSources, sourceLocation, sourcesForField, type ReviewCitationPayload } from './reviewCitationSources';
 import styles from './ReviewSourcePreview.module.css';
 
-const LazyArtifactSource = lazy(() => import('../evidence/ArtifactSource').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
+const LazyArtifactSource = lazy(() => import('../citations/ArtifactSource').then(({ ArtifactSource }) => ({ default: ArtifactSource })));
 
 type LoadState =
   | { key: string; phase: 'ready'; payloads: ReviewCitationPayload[] }

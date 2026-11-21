@@ -392,8 +392,10 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   must set it. A worktree also needs `UV_PROJECT_ENVIRONMENT=<main>/.venv`,
   `UV_NO_SYNC=1` and `PYTHONPATH=<worktree>/src` for the backend.
 - `FRISKET_CACHE_MODE=replay_strict` keeps the run keyless: model calls
-  replay from the committed response cache or fail. Without it some specs make
-  cheap real calls.
+  replay from the committed response cache or fail. Even without it,
+  `scripts/e2e/e2e_backend.sh` only sources `.secrets/frisket.env` when
+  `FRISKET_E2E_ALLOW_LIVE_SPEND=1` is set (opt-in live spend, e.g. for
+  `npm run e2e:goldens` or a paid reseed).
 - About 50 tests read four demo projects (`scripts/e2e/seed_demo.py`) from a
   cache in `~/.frisket/e2e-ws`. The `seed` setup builds the ones the cache
   lacks, each on its own (a failed row or project does not stop the others),
@@ -407,7 +409,8 @@ FRISKET_TEST_PYTHON=../.venv/bin/python FRISKET_CACHE_MODE=replay_strict \
   (`scripts/e2e/prime_replies.py`), fixture search results for "Tariff
   impacts" in place of a web search (which has no replay), and a fixture
   transcript for "Council audio", so no speech model runs. Without
-  `replay_strict` and with model keys it makes the real calls (about $0.25)
+  `replay_strict` and with `FRISKET_E2E_ALLOW_LIVE_SPEND=1` (or exported
+  model keys) it makes the real calls (about $0.25)
   and transcribes "Council audio" locally with the pinned Whisper base
   model, which `python scripts/e2e/fetch_whisper_model.py` puts in the
   Hugging Face cache. Delete a project from the cache to rebuild it.

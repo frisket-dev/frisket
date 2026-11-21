@@ -14,6 +14,7 @@ import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { stubPdfTableProducer } from './pdfTableFixtures';
 import {
+  REPO_ROOT,
   clickHeaderMenu,
   createProject,
   editCells,
@@ -26,11 +27,6 @@ import {
 } from './helpers';
 import type { JsonValue } from '../../src/api/types';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const PDF_TABLE_EXCLUDED_COLUMNS = [
   'source_row_id',

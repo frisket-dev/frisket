@@ -38,6 +38,7 @@ from frisket.engine.executor.value_cluster import (
     validate_cluster_source,
 )
 from frisket.contracts.action import ActionError, ReceiptEvidence
+from frisket.engine.store.receipts import ReceiptStatus
 from frisket.engine.executor.action_receipts import _result_from_receipt
 from frisket.engine.executor.action_reservations import (
     _output_claim_token,
@@ -199,10 +200,20 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
     run_id, receipt_id = kwargs["run_id"], kwargs["receipt_id"]
     writer, claim = kwargs.get("writer_attempt_id"), kwargs.get("claim_token")
     terminal_status = kwargs.get("terminal_status", "completed")
-    if writer is None or claim != _output_claim_token(receipt_id):
+    if (
+        writer is None
+        or not isinstance(claim, str)
+        or claim != _output_claim_token(receipt_id)
+    ):
         raise StaleAttemptWriter("Cluster publication needs its exact writer claim")
 
-    def abort(code, message, *, status="failed", commit=True):
+    def abort(
+        code: str,
+        message: str,
+        *,
+        status: ReceiptStatus = "failed",
+        commit: bool = True,
+    ):
         if commit:
             project.db.execute("BEGIN IMMEDIATE")
         try:
@@ -411,11 +422,16 @@ def finalize_cluster_action(project, action, _params, *, bound, **kwargs):
             "UPDATE ops SET spec=? WHERE id=?",
             (json.dumps(op_spec, sort_keys=True, allow_nan=False), run["op_id"]),
         )
+        receipt_terminal_status = receipt.status
+        if receipt_terminal_status == "needs_confirmation":
+            raise StaleAttemptWriter(
+                "Cluster publication cannot terminalize with needs_confirmation"
+            )
         outcome = terminalize_project_run(
             project,
             run_id=run_id,
             receipt_id=receipt_id,
-            status=receipt.status,
+            status=receipt_terminal_status,
             run_status=terminal_status,
             authority=CurrentWriterTerminalAuthority(
                 writer_attempt_id=writer, claim_token=claim
@@ -473,34 +489,10 @@ def typed_cluster_queue_spec(bound, *, initial_plan=None, cluster_state=None):
         runner_spec.update(cluster_plan_from_state(bound, cluster_state).spec_dict())
     envelope = _typed_request_envelope(bound)
 
-    def resolve(project, _params, spec, router):
-        from frisket.engine.runner import ProviderKeyRefusal
-
-        try:
-            plan = initial_plan or prepare_cluster_action(project, bound, router=router)
-            validate_cluster_source(project, plan.spec["cluster_values"]["source"])
-            spec.clear()
-            spec.update(plan.spec_dict())
-            return {
-                "cluster_values": spec["cluster_values"],
-                "resume_run_id": _cluster_resume_run_id(
-                    project, bound, spec["cluster_values"]
-                ),
-                "input_column_ids": dict(plan.source_column_ids),
-                "input_column_types": dict(plan.source_column_types),
-                "output_names": dict(plan.output_names),
-                "output_target_preconditions": dict(plan.output_target_preconditions),
-            }
-        except ProviderKeyRefusal as exc:
-            return ActionError(
-                code=exc.error_code,
-                message=exc.action_message(),
-                action_kind=bound.action.action_id,
-                field=exc.field,
-                details=dict(exc.details),
-            )
-        except (TypeError, ValueError) as exc:
-            return _typed_plan_error(bound.action.action_id, exc)
+    def resolve(project, _params, spec, router=None):
+        return _resolve_cluster_spec(
+            project, bound, spec, router=router, initial_plan=initial_plan
+        )
 
     def guard(project, payload, _params):
         try:
@@ -548,6 +540,43 @@ def typed_cluster_queue_spec(bound, *, initial_plan=None, cluster_state=None):
         resolve_needs_router=True,
     )
     return envelope, spec, program
+
+
+def _resolve_cluster_spec(
+    project: Any,
+    bound: Any,
+    spec: dict[str, Any],
+    *,
+    router: Any = None,
+    initial_plan: Any = None,
+) -> dict[str, Any] | ActionError:
+    from frisket.engine.runner import ProviderKeyRefusal
+
+    try:
+        plan = initial_plan or prepare_cluster_action(project, bound, router=router)
+        validate_cluster_source(project, plan.spec["cluster_values"]["source"])
+        spec.clear()
+        spec.update(plan.spec_dict())
+        return {
+            "cluster_values": spec["cluster_values"],
+            "resume_run_id": _cluster_resume_run_id(
+                project, bound, spec["cluster_values"]
+            ),
+            "input_column_ids": dict(plan.source_column_ids),
+            "input_column_types": dict(plan.source_column_types),
+            "output_names": dict(plan.output_names),
+            "output_target_preconditions": dict(plan.output_target_preconditions),
+        }
+    except ProviderKeyRefusal as exc:
+        return ActionError(
+            code=exc.error_code,
+            message=exc.action_message(),
+            action_kind=bound.action.action_id,
+            field=exc.field,
+            details=dict(exc.details),
+        )
+    except (TypeError, ValueError) as exc:
+        return _typed_plan_error(bound.action.action_id, exc)
 
 
 def _cluster_resume_run_id(project, bound, state):
@@ -727,8 +756,8 @@ def run_typed_cluster_action(
         kind=bound.action.action_id,
         params_model=type(bound.params),
         runner_spec_fn=queued.runner_spec_fn,
-        resolve_fn=lambda project, params, spec: queued.resolve_fn(
-            project, params, spec, router
+        resolve_fn=lambda project, _params, spec: _resolve_cluster_spec(
+            project, bound, spec, router=router
         ),
         precheck_fn=queued.precheck_fn,
         write_fn=finalize_owned_direct_writer,

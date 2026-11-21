@@ -7,7 +7,7 @@ import asyncio
 import logging
 import re
 from contextlib import AbstractContextManager, nullcontext
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 if TYPE_CHECKING:
@@ -86,7 +86,9 @@ class ProjectQAAnswer(BaseModel):
     citation_ids: list[str] = Field(default_factory=list, max_length=100)
 
 
-async def _complete_before_cancellation(awaitable: Awaitable[Any]) -> Any:
+async def _complete_before_cancellation(
+    awaitable: Coroutine[Any, Any, Any],
+) -> Any:
     """Drain one durable fact plus its settlement before honouring cancellation."""
 
     task = asyncio.create_task(awaitable)
@@ -200,6 +202,8 @@ async def run_turn(
     )
     tool_lock = asyncio.Lock()
     model_id = selected_model or turn["model"] or default_project_ask_model(router)
+    if not isinstance(model_id, str) or not model_id:
+        raise ValueError("Project Ask requires a configured model")
 
     async def before_request(request: LLMRequest) -> None:
         if selected_egress_class is not None and not model_call_cannot_go_live(router):
