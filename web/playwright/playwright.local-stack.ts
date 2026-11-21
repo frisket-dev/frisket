@@ -3,40 +3,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-
-interface E2EWorkspaceCleanupModule {
-  prepareE2EWorkspace(options: {
-    workspace: string;
-    runId: string;
-    env?: NodeJS.ProcessEnv;
-    tmpDir?: string;
-  }): void;
-  pruneStaleBaseWorkspaceProjects(options: {
-    workspace: string;
-    env?: NodeJS.ProcessEnv;
-    runId?: string;
-    now?: number;
-    log?: (...args: unknown[]) => void;
-  }): void;
-  pruneStaleE2EWorkspaces(options: {
-    env?: NodeJS.ProcessEnv;
-    tmpDir?: string;
-    currentWorkspace?: string;
-    now?: number;
-    log?: (...args: unknown[]) => void;
-  }): void;
-  removeActiveMarker(workspace: string): void;
-}
-
-const require = createRequire(import.meta.url);
-const {
+import {
   prepareE2EWorkspace,
   pruneStaleBaseWorkspaceProjects,
   pruneStaleE2EWorkspaces,
   removeActiveMarker,
-} = require('../e2e-workspace-cleanup.mjs') as E2EWorkspaceCleanupModule;
+} from '../e2e-workspace-cleanup.mjs';
 
 export const shellQuote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
 const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
