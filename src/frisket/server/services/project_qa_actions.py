@@ -169,32 +169,32 @@ def _estimate_facts(
     """Accept only a normal server estimate with an integer billed amount."""
 
     if estimate_provider is None:
-        return None, "normal action quote is unavailable"
+        return None, "normal action estimate is unavailable"
     try:
         result = estimate_provider(action)
     except (KeyError, TypeError, ValueError):
-        return None, "normal action quote is unavailable"
+        return None, "normal action estimate is unavailable"
     estimate = result.get("estimate") if isinstance(result, Mapping) else None
     if not isinstance(estimate, Mapping):
-        return None, "normal action quote is unavailable"
+        return None, "normal action estimate is unavailable"
     billed_cost = estimate.get("billed_cost")
     if (
         isinstance(billed_cost, bool)
         or not isinstance(billed_cost, int)
         or billed_cost < 0
     ):
-        return None, "normal action quote has unknown cost"
+        return None, "normal action estimate has unknown cost"
     requires_confirmation = estimate.get("requires_confirmation")
     if not isinstance(requires_confirmation, bool):
-        return None, "normal action quote is malformed"
+        return None, "normal action estimate is malformed"
     promise_set_hash = estimate.get("promise_set_hash")
     if requires_confirmation and (
         not isinstance(promise_set_hash, str) or not promise_set_hash
     ):
-        return None, "normal action quote is missing its confirmation promise"
+        return None, "normal action estimate is missing its confirmation promise"
     policy_id = estimate.get("policy_id")
     if not isinstance(policy_id, str) or not policy_id:
-        return None, "normal action quote is missing its policy"
+        return None, "normal action estimate is missing its policy"
     return {"estimate": dict(estimate)}, None
 
 
@@ -233,7 +233,7 @@ def _prepared_payload(
         "effects": effects,
         "catalog_effects": list(catalog_effects),
         "required_capabilities": list(required_capabilities),
-        "quote": estimate,
+        "estimate": estimate,
         "automatic_eligible": automatic_eligible,
         "preparation_reason": effects_reason or estimate_reason,
         "scope": prepared.request.scope.model_dump(mode="json"),
@@ -243,14 +243,14 @@ def _prepared_payload(
 
 
 def _non_estimate_authority(payload: Mapping[str, Any]) -> dict[str, Any]:
-    """Compare durable authority while allowing only quote-derived drift."""
+    """Compare durable authority while allowing only estimate-derived drift."""
 
     return {
         key: value
         for key, value in payload.items()
         if key
         not in {
-            "quote",
+            "estimate",
             "preparation_reason",
             "automatic_eligible",
             "payload_identity",
@@ -416,7 +416,7 @@ class ProjectAskActionService:
             dispatch_id=reference.dispatch_id,
             estimate_provider=self._estimate_provider,
         )
-        if current["quote"] is None and _non_estimate_authority(
+        if current["estimate"] is None and _non_estimate_authority(
             current
         ) == _non_estimate_authority(stored):
             raise ProjectAskActionUnpriced(
@@ -427,7 +427,7 @@ class ProjectAskActionService:
             )
         if current != stored:
             raise ValueError("prepared action changed; reprepare it before launch")
-        if current["quote"] is None:
+        if current["estimate"] is None:
             raise ValueError(str(current["preparation_reason"]))
         consent = self._authorize_dispatch(current)
         if (
@@ -435,16 +435,16 @@ class ProjectAskActionService:
             or consent.get("payload_identity") != current["payload_identity"]
         ):
             raise ValueError("prepared action requires current consent")
-        estimate = current["quote"]["estimate"]
+        estimate = current["estimate"]["estimate"]
         promise_set_hash = estimate.get("promise_set_hash")
         if estimate["requires_confirmation"]:
             if consent.get("promise_set_hash") != promise_set_hash:
                 raise ValueError(
-                    "prepared action consent does not match the normal quote"
+                    "prepared action consent does not match the normal estimate"
                 )
             if confirmation_hash is not None and confirmation_hash != promise_set_hash:
                 raise ValueError(
-                    "confirmation_hash does not match the normal action quote"
+                    "confirmation_hash does not match the normal action estimate"
                 )
             confirmation_hash = promise_set_hash
         elif confirmation_hash is not None and (

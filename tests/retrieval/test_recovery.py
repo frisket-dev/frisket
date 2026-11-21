@@ -17,7 +17,7 @@ from frisket.retrieval.store import (
 from frisket.retrieval.recovery import prepare_retrieval_on_open
 
 
-@pytest.mark.parametrize("kind", ["garbage", "foreign", "old_v1", "old_v2"])
+@pytest.mark.parametrize("kind", ["garbage", "foreign", "old_v1", "old_v2", "old_v3"])
 def test_unusable_retrieval_cache_is_preserved_and_rebuilt_on_open(tmp_path, kind):
     from frisket.search import drain_index, search_project
 

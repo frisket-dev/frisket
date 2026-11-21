@@ -3,7 +3,7 @@ import '@testing-library/jest-dom/vitest';
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { ActionExecutionRequest, ActionParamResolution, GeneratedActionDraft, RunEstimate } from '../../src/api/types';
 import { joinApi, joinLeft, joinRight, renderJoinForm } from '../support/renderJoinForm';
 import { installPopoverPolyfill } from '../support/domPolyfills';
 installPopoverPolyfill();
@@ -24,7 +24,7 @@ function choose(id: string, value: string) { fireEvent.change(screen.getByTestId
 function refresh() { fireEvent.click(screen.getByTestId('semantic-join-refresh-sheets')); }
 
 it('starts a fresh column launch with no optional carry columns', async () => {
-  const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }) => ({
+  const resolveParams = vi.fn(async ({ params }: { params: Record<string, unknown> }): Promise<ActionParamResolution> => ({
     diagnostics: (params.carry as string[] | undefined)?.includes(String(params.source))
       ? { carry: { ok: false, message: 'Carry columns must exclude the source.' } } : {},
     logical_outputs: [
@@ -59,7 +59,7 @@ it('preserves comma-bearing carry names as typed list items and excludes the sel
     { ...joinLeft.columns[2], id: '14', name: 'amount, usd' }] };
   joinApi.listSheets.mockResolvedValueOnce([primary, joinRight]);
   const view = renderJoinForm({ sheet: primary, initialDraft: { ...saved,
-    params: { ...saved.params, carry: ['amount, usd'] }, output_names: undefined } }, 'join.semantic');
+    params: { ...saved.params, carry: ['amount, usd'] }, output_names: {} } }, 'join.semantic');
   await ready();
   const user = userEvent.setup();
   await user.click(screen.getByTestId('field-semantic_carry_columns'));
@@ -121,7 +121,9 @@ it('keeps a missing target sheet as a repair and requires a deliberate target co
 });
 
 it('uses the host estimate and submits unchanged intent without manufacturing consent', async () => {
-  const estimateAction = vi.fn(async () => ({ cost: 0.02, rows: 2, llm: true }));
+  const estimateAction = vi.fn<(request: ActionExecutionRequest) => Promise<RunEstimate>>(async () => ({
+    cost: 0.02, rows: 2, billed_cost: 20_000, policy_id: 'test',
+  }));
   const view = renderJoinForm({ initialDraft: saved, selectedRowIds: ['101', '102'],
     hasExactRowScopeInitializer: true, estimateAction }, 'join.semantic');
   await ready(); await waitFor(() => expect(estimateAction).toHaveBeenCalled());

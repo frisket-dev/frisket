@@ -34,6 +34,7 @@ glossary = _load("lint_glossary_avoid")
 file_counts = _load("file_count_ratchet")
 web_types = _load("web_tests_type_ratchet")
 collection = _load("check_test_collection")
+web_hygiene = _load("lint_web_source_hygiene")
 
 
 def test_ruff_ratchet_flags_increases_and_new_files_only():
@@ -357,3 +358,43 @@ def test_glossary_avoid_reads_user_error_and_help_strings_only():
         'log("a quote here")\n'
     )
     assert glossary.python_text(source) == ["Overwrite it", "x_y", "Pick a recipe"]
+
+
+def test_native_select_failures_catches_unescaped_select_in_non_allowlisted_file(
+    tmp_path, monkeypatch
+):
+    web = tmp_path / "web"
+    src = web / "src"
+    components = src / "components"
+    components.mkdir(parents=True)
+    (components / "Widget.tsx").write_text(
+        'export function Widget() { return <select aria-label="Kind" />; }\n',
+        encoding="utf-8",
+    )
+    (components / "PanelSelect.tsx").write_text(
+        'export function PanelSelect() { return <select data-native-select-escape="panel-select-trigger" />; }\n',
+        encoding="utf-8",
+    )
+    (components / "FakeEscape.tsx").write_text(
+        'export function FakeEscape() { return <select data-native-select-escape="panel-select-trigger" />; }\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(web_hygiene, "REPO", tmp_path)
+    monkeypatch.setattr(web_hygiene, "WEB", web)
+    monkeypatch.setattr(web_hygiene, "SRC", src)
+
+    failures = web_hygiene.native_select_failures()
+    assert len(failures) == 2
+    assert failures[0].startswith("web/src/components/FakeEscape.tsx:1:")
+    assert "unrecognized escape 'panel-select-trigger'" in failures[0]
+    assert failures[1].startswith("web/src/components/Widget.tsx:1:")
+    assert "native <select> is forbidden" in failures[1]
+
+
+def test_native_select_escapes_are_present_and_live():
+    for rel, reason in web_hygiene.NATIVE_SELECT_ESCAPES.items():
+        path = web_hygiene.WEB / rel
+        assert path.is_file(), f"Stale NATIVE_SELECT_ESCAPES entry: {rel}"
+        assert f'data-native-select-escape="{reason}"' in path.read_text(
+            encoding="utf-8"
+        )

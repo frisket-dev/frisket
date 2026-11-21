@@ -1,6 +1,7 @@
 import './PanelPrimitives.css';
 import './citations/CitationReading.css';
 import { Button } from './Button';
+import { PanelSelect } from './PanelSelect';
 import { Download } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { CitationArtifact, CitationTextPassageTarget } from '../api/types';
@@ -146,7 +147,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
       onNavigate={(start) => setNavigation({ key: contextKey, target: currentTarget, spanId: currentTarget.spanId, start,
         locateCurrent: displayed.recovered === true,
         revision: window.retrieval_revision ?? undefined, attempt: (request?.attempt ?? 0) + 1 })} />}
-    {targets.length > 1 && <label>Citation passage <select aria-label="Citation passage" value={selectedSpan ?? focusSpanId ?? ''}
+    {targets.length > 1 && <label>Citation passage <PanelSelect aria-label="Citation passage" value={selectedSpan ?? focusSpanId ?? ''}
       disabled={loading} onChange={(event) => {
         const target = targets.find((item) => item.spanId === event.target.value);
         if (!target) return;
@@ -158,7 +159,7 @@ function WindowedSavedTextContext(props: SavedTextContextProps) {
       {targets.map((target, index) => <option key={`${target.evidenceLinkId}:${target.spanId}`} value={target.spanId}>
         {(artifact?.spans.find((span) => span.stable_id === target.spanId)?.quote || `Citation ${index + 1}`).slice(0, 100)}
       </option>)}
-    </select></label>}
+    </PanelSelect></label>}
     {error && <div role="alert">{error}<Button type="button" onClick={() => setNavigation({
       key: contextKey, target: request?.target ?? currentTarget, spanId: request?.spanId ?? focusSpanId,
       locateCurrent: request?.locateCurrent ?? displayed.recovered === true,

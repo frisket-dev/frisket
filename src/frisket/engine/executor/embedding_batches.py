@@ -1,9 +1,11 @@
 """Durable embedding facts before rebuildable vector-cache publication."""
 
+import asyncio
 import hashlib
 import json
 from typing import Any
 
+from frisket.engine.store.runs import RunResultStore
 from frisket.ops.base import ActionContext
 
 
@@ -24,8 +26,6 @@ def refuse_missing_paid_vectors(
 
     cancelled = ctx.extras.get("cancelled")
     if callable(cancelled) and cancelled():
-        import asyncio
-
         raise asyncio.CancelledError
 
     if not embedder_is_remote(model_id):
@@ -44,23 +44,21 @@ def refuse_missing_paid_vectors(
         )
 
 
-def record_embedding_batch(
+def _prepare_embedding_batch_write(
     ctx: ActionContext,
     model_id: str,
     batch: Any,
     texts: list[str],
     *,
-    commit: bool = True,
     identity_texts: list[str] | None = None,
-) -> float:
-    from frisket.ai.llm.types import provider_from_model_id
-    from frisket.ai.models.metadata import ModelCallMeta, PROVIDER_KIND
-    from frisket.engine.store.runs import RunResultStore
-    from frisket.execution.attempt import attempt_in_scope
+) -> tuple[int, dict[str, Any], str | None, str | None] | None:
     from frisket.ai.embeddings.backends import embedder_is_remote
+    from frisket.ai.llm.types import provider_from_model_id
+    from frisket.ai.models.metadata import PROVIDER_KIND, ModelCallMeta
+    from frisket.execution.attempt import attempt_in_scope
 
     if not embedder_is_remote(model_id):
-        return 0.0
+        return None
     run_id = ctx.extras.get("run_id")
     if type(run_id) is not int:
         raise RuntimeError("paid semantic matching requires a durable run")
@@ -116,11 +114,51 @@ def record_embedding_batch(
         column_id=None,
     )
     attempt = attempt_in_scope(ctx.extras)
+    attempt_id = attempt.attempt_id if attempt is not None else None
+    return run_id, fact, attempt_id, ctx.extras.get("claim_token")
+
+
+def record_embedding_batch_in_transaction(
+    ctx: ActionContext,
+    model_id: str,
+    batch: Any,
+    texts: list[str],
+    *,
+    identity_texts: list[str] | None = None,
+) -> float:
+    prepared = _prepare_embedding_batch_write(
+        ctx, model_id, batch, texts, identity_texts=identity_texts
+    )
+    if prepared is None:
+        return 0.0
+    run_id, fact, attempt_id, claim_token = prepared
+    return RunResultStore(ctx.project).write_returned_call_accounting_in_transaction(
+        run_id,
+        [{"row_id": fact["row_id"], "column_id": None, "model_calls": [fact]}],
+        writer_attempt_id=attempt_id,
+        claim_token=claim_token,
+        authorized_attempt_id=attempt_id,
+    )
+
+
+def record_embedding_batch(
+    ctx: ActionContext,
+    model_id: str,
+    batch: Any,
+    texts: list[str],
+    *,
+    identity_texts: list[str] | None = None,
+) -> float:
+    prepared = _prepare_embedding_batch_write(
+        ctx, model_id, batch, texts, identity_texts=identity_texts
+    )
+    if prepared is None:
+        return 0.0
+    run_id, fact, attempt_id, claim_token = prepared
     return RunResultStore(ctx.project).write_returned_call_accounting(
         run_id,
         [{"row_id": fact["row_id"], "column_id": None, "model_calls": [fact]}],
-        writer_attempt_id=attempt.attempt_id if attempt is not None else None,
-        claim_token=ctx.extras.get("claim_token"),
-        authorized_attempt_id=attempt.attempt_id if attempt is not None else None,
-        commit=commit,
+        writer_attempt_id=attempt_id,
+        claim_token=claim_token,
+        authorized_attempt_id=attempt_id,
     )

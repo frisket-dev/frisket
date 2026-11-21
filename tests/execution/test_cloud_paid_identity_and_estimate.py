@@ -186,7 +186,7 @@ def test_structured_llm_initial_estimate_is_not_a_spending_cap():
     )
     assert quantity == expected
     assert float(basis.estimated_quantity) == expected / 1_000_000
-    assert basis.row_quote_quantities is None
+    assert basis.row_estimate_quantities is None
     assert basis.pricing_key.endswith(
         ":anthropic:llm.complete:anthropic/claude-sonnet-4-5"
     )

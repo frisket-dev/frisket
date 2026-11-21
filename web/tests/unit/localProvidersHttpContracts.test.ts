@@ -99,9 +99,14 @@ interface LocalProvidersApi {
 }
 
 class MappedContractError extends Error {
-  constructor(readonly status: number, readonly payload: unknown) {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(status: number, payload: unknown) {
     super(`mapped contract error ${status}`);
     this.name = "MappedContractError";
+    this.status = status;
+    this.payload = payload;
   }
 }
 

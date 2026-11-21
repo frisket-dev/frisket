@@ -200,7 +200,7 @@ def compare_destination(
                 "invalid_dedup",
                 "Duplicate checking requires an existing key column.",
             )
-        if not complete:
+        if not complete or scan is None:
             return {
                 "state": "running",
                 "matched_columns": matched,

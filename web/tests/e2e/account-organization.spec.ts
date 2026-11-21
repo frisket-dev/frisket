@@ -1,7 +1,13 @@
 import { expect, test } from '@playwright/test';
 
 test('organization settings manage provider keys and secrets without leaking values', async ({ page }) => {
-  let keys = [
+  let keys: Array<{
+    provider: string;
+    hint: string;
+    spend_cap_usd: number | null;
+    spent_usd: number;
+    over_cap: boolean;
+  }> = [
     {
       provider: 'anthropic',
       hint: '...old1',

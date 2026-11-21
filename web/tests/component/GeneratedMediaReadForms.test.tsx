@@ -6,7 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { encodeSavedActionSpec, decodeSavedActionSpec } from '../../src/actions/savedActionSpec';
 import { isGeneratedActionCatalogEntry, type EngineOption, type GeneratedActionDraft,
-  type RunEstimate } from '../../src/api/types';
+  type GeneratedActionRequest, type RunEstimate } from '../../src/api/types';
 import { GeneratedActionForm } from '../../src/components/action-panel/GeneratedActionForm';
 import { columnDef } from '../support/domainFixtures';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -54,7 +54,7 @@ function form(kind: MediaAction, options: {
         || key === 'detected_language' && detects === true
       )) };
   });
-  const estimateAction = vi.fn(async () => options.estimate ?? {
+  const estimateAction = vi.fn<(request: GeneratedActionRequest) => Promise<RunEstimate>>(async () => options.estimate ?? {
     cost: 0, rows: 2, billed_cost: 0, policy_id: 'frisket.identity.v1',
   });
   const element = (columns: typeof sheet.columns) => <GeneratedActionForm projectId={`generated-media:${kind}`} catalogEntry={entry} actionTemplate={template}

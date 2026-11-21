@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from frisket.ai.embeddings.runtime import EmbeddingRuntime
+    from frisket.engine.executor.action_jobs import ActionJobExecutor
 
 from frisket.ai.llm import ResponseCache
 from frisket.authoring.workbench.plugin_runtime_shared import PluginCompositionPolicy
@@ -107,6 +108,14 @@ class NonRetryableJobError(RuntimeError):
     keep the existing retry-with-backoff semantics unchanged."""
 
 
+def _require_handler_lineage_identity(context: JobHandlerContext) -> tuple[int, str]:
+    job_id = context.job_id
+    authority_id = context.handler_authority_id
+    if job_id is None or not authority_id:
+        raise ValueError("handler lineage requires its claimed job and authority")
+    return job_id, authority_id
+
+
 def _safe_error_fields(error: SafeError) -> dict[str, object]:
     fields: dict[str, object] = {
         "error_code": error.code,
@@ -168,7 +177,7 @@ class HandlerRegistry:
     def __init__(self) -> None:
         self._handlers: dict[str, Handler] = {}
         self._registrations: dict[str, HandlerRegistration] = {}
-        self._action_executors: dict[str, Callable[[Any, Any], Any]] = {}
+        self._action_executors: dict[str, ActionJobExecutor] = {}
         self._recovery_hooks: list[Callable[[JobQueue], None]] = []
         self._maintenance_hooks: list[Callable[[JobQueue], None]] = []
         self._last_maintenance: float | None = None
@@ -256,9 +265,7 @@ class HandlerRegistry:
             )
         return self._install(kind, decorated, origin=origin)
 
-    def register_action_executor(
-        self, kind: str, fn: Callable[[Any, Any], Any]
-    ) -> None:
+    def register_action_executor(self, kind: str, fn: ActionJobExecutor) -> None:
         # Refuse incomplete worker composition before a queued job can be claimed.
         inspect.signature(fn).bind(None, None, execution=None)
         self._action_executors[kind] = fn
@@ -283,7 +290,7 @@ class HandlerRegistry:
     def get(self, kind: str) -> Handler | None:
         return self._handlers.get(kind)
 
-    def action_executor(self, kind: str) -> Callable[[Any, Any], Any] | None:
+    def action_executor(self, kind: str) -> ActionJobExecutor | None:
         return self._action_executors.get(kind)
 
     def kinds(self) -> list[str]:
@@ -1027,9 +1034,12 @@ class Worker:
                     )
                 from frisket.execution.handler_lineage import record_handler_lineage
 
+                job_id, authority_id = _require_handler_lineage_identity(
+                    handler_context
+                )
                 with record_handler_lineage(
-                    job_id=handler_context.job_id,
-                    authority_id=handler_context.handler_authority_id,
+                    job_id=job_id,
+                    authority_id=authority_id,
                     queue=self.queue,
                 ):
                     result = handler(handler_payload, handler_context)

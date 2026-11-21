@@ -618,7 +618,7 @@ def test_refresh_historical_multiparent_without_typed_identity_is_unavailable(
         project.db.execute(
             "UPDATE sheets SET parent_op_id=? WHERE id=?", (op_id, other_child)
         )
-        child_row = project.add_rows(other_child, [{}], {})[0]
+        child_row = project.add_rows_in_transaction(other_child, [{}], {})[0]
         project.db.execute(
             "INSERT INTO materialized_row_sources "
             "(materialized_row_id, source_row_id, source_sheet_id, op_id, role) "

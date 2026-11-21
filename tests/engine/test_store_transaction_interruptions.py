@@ -340,7 +340,7 @@ def test_set_descriptor_rolls_back_interrupted_descriptor_change(
     error = failure("interrupted after the descriptor UPDATE")
     db = _interrupt_project_db(project, monkeypatch, "UPDATE columns SET type", error)
 
-    with pytest.raises(failure) as caught:
+    with pytest.raises(failure) as caught, write_transaction(project.db):
         set_descriptor(project, column_id, "type", "number")
 
     assert caught.value is error

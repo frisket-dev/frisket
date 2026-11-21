@@ -14,23 +14,15 @@ and the accrued amount, and NO run row created.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.runs import RunResultStore
-from frisket.server.app import create_app
 from frisket.security.secrets import encrypt_secret, key_hint
 from http_test_helpers import post_v1_action_with_exact_confirmation
 from helpers import write_claimless_test_model_calls
 from frisket.engine.store.transactions import write_transaction
 
 KEY = "sk-test-not-a-real-key"
-
-
-def _client(tmp_path: Path) -> TestClient:
-    # No `router=` override: this is the local-tier default composition.
-    return TestClient(create_app(tmp_path / "workspace"))
 
 
 def _seed_project(client: TestClient) -> tuple[str, int]:
@@ -137,12 +129,11 @@ def _extract_runs(client: TestClient, pid: str) -> int:
     )
 
 
-def test_over_cap_launch_is_refused_and_queues_nothing(tmp_path: Path) -> None:
+def test_over_cap_launch_is_refused_and_queues_nothing(client: TestClient) -> None:
     """Live 2026-07-26 before this fix: 200 "queued", a run row, real money.
 
     The one assertion that would have caught it is the run count.
     """
-    client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     _capped_key(client, pid, cap_micro=1_000_000)  # $1
     _accrue(client, pid, cost_usd=2.0)  # $2 spent
@@ -163,12 +154,11 @@ def test_over_cap_launch_is_refused_and_queues_nothing(tmp_path: Path) -> None:
 
 
 def test_unenforceable_cap_launch_is_refused_and_queues_nothing(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
     """A capped key with a call of undeterminable price: "under the cap" is a
     guess, so the launch refuses rather than spending on a bound it cannot
     check."""
-    client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     _capped_key(client, pid, cap_micro=25_000_000)  # $25, nowhere near spent
     _accrue(client, pid, cost_usd=None)
@@ -185,9 +175,8 @@ def test_unenforceable_cap_launch_is_refused_and_queues_nothing(
     assert _extract_runs(client, pid) == 0
 
 
-def test_under_cap_launch_still_queues(tmp_path: Path) -> None:
+def test_under_cap_launch_still_queues(client: TestClient) -> None:
     """The refusal is a bound, not a brake: a key under its cap launches."""
-    client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     _capped_key(client, pid, cap_micro=25_000_000)
     _accrue(client, pid, cost_usd=2.0)
@@ -200,12 +189,11 @@ def test_under_cap_launch_still_queues(tmp_path: Path) -> None:
 
 
 def test_editing_the_cap_through_the_store_keeps_the_refusal_armed(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
     """Live 2026-07-26: lowering the cap zeroed the accrual, so the tightened
     cap read $0.00 spent and refused nothing. End to end, the tightening now
     bites on the very next launch."""
-    client = _client(tmp_path)
     pid, sheet_id = _seed_project(client)
     _capped_key(client, pid, cap_micro=25_000_000)
     _accrue(client, pid, cost_usd=2.0)

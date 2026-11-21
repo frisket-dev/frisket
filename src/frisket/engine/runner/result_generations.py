@@ -231,7 +231,6 @@ def declare_prepared_outputs(
                     "schema": field.get("schema") or {},
                 },
                 defer_publication=stage_output_group,
-                commit=False,
             )
         if any(descriptor_changing.values()):
             # A descriptor-changing replacement publishes as one whole output group.

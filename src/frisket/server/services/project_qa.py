@@ -11,7 +11,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from contextlib import nullcontext
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from weakref import WeakSet
 
 from frisket.ai.llm import LLMError
@@ -61,6 +61,11 @@ from frisket.redaction import safe_error
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from frisket.server.services.project_qa_research import ResearchSkillsUnavailable
 from frisket.server.unit_of_work import ends_unit_of_work
+
+if TYPE_CHECKING:
+    from frisket.server.cloud_project_qa_runtime import SoloCloudProjectQATurnRuntime
+
+    _TurnRuntime = ProjectQATurnRuntime | SoloCloudProjectQATurnRuntime
 
 logger = logging.getLogger(__name__)
 TurnRunner = Callable[[Project, Any, dict[str, Any], ProjectQAStore], Awaitable[Any]]
@@ -307,7 +312,7 @@ class ProjectQAService:
                 "write_mode",
                 "max_turns",
                 "turn_count",
-                "pending_approval",
+                "pending_pause",
             )
         }
         state.update(
@@ -729,7 +734,7 @@ class ProjectQAService:
         project: Project,
         turn: dict,
         store: ProjectQAStore,
-        runtime: ProjectQATurnRuntime | None = None,
+        runtime: _TurnRuntime | None = None,
         *,
         research: ResearchSession | None = None,
         project_id: str = "",
@@ -815,6 +820,7 @@ class ProjectQAService:
                         )
                         from frisket.server.services.project_qa_execution import (
                             ProjectQAExecutionService,
+                            ResearchSessionLike,
                         )
                         from frisket.server.services.project_qa_output_scope import (
                             derive_output_read_grants,
@@ -827,7 +833,7 @@ class ProjectQAService:
                             project_id,
                             turn,
                             store,
-                            research,
+                            cast(ResearchSessionLike, research),
                             catalog_payload_provider=host.catalog,
                             estimate_provider=host.estimate,
                             run_action=host.run,
@@ -961,7 +967,7 @@ class ProjectQAService:
                 if returned and len(accounted_cloud_calls) >= len(returned):
                     await await_thread_worker(cloud_coordinator.retire_returned)
 
-    async def _close_runtime(self, runtime: ProjectQATurnRuntime) -> None:
+    async def _close_runtime(self, runtime: _TurnRuntime) -> None:
         try:
             await runtime.aclose()
         except Exception:
@@ -971,7 +977,7 @@ class ProjectQAService:
         self,
         key: tuple[Project, str],
         task: asyncio.Task[None],
-        runtime: ProjectQATurnRuntime | None = None,
+        runtime: _TurnRuntime | None = None,
     ) -> None:
         if runtime is not None:
             cleanup = asyncio.create_task(self._close_runtime(runtime))
@@ -1055,7 +1061,7 @@ class ProjectQAService:
             if body.write_mode is not None:
                 preferences["write_mode"] = body.write_mode
             await session.resume(
-                pause_id=body.approval_id,
+                pause_id=body.pause_id,
                 expected_revision=body.expected_revision,
                 decision=body.decision,
                 actor=actor,

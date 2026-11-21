@@ -3,12 +3,12 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as api from '../../src/api/open';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { ActionParamResolution, GeneratedActionDraft } from '../../src/api/types';
 import { isGeneratedActionCatalogEntry } from '../../src/api/types';
 import { generatedActionTemplateFromCatalogEntry } from '../../src/actions/model';
 import { DeriveActionForm } from '../../src/components/action-panel/DeriveActionForm';
 import { sheetMeta } from '../support/actionFormFixtures';
-import { columnDef } from '../support/domainFixtures';
+import { aiMeta, columnDef } from '../support/domainFixtures';
 import { servedActionCatalog } from '../support/servedActionCatalog';
 import { installActionSelectorFixture } from '../support/selectorChoicesFixture';
 
@@ -26,7 +26,7 @@ extract.ui_hints.engines = extract.ui_hints.engines?.map((engine) => ({
 const sheet = sheetMeta([
   columnDef({ id: '1', name: 'headline', type: 'text' }),
   columnDef({ id: '2', name: 'notes', type: 'text' }),
-  columnDef({ id: '3', name: 'entities', type: 'json', ai: {} }),
+  columnDef({ id: '3', name: 'entities', type: 'json', ai: aiMeta() }),
 ], { id: '7' });
 
 beforeEach(() => {
@@ -43,7 +43,7 @@ function mount() {
   render(<DeriveActionForm projectId="derive-composite-test" catalogEntry={derive} extractEntry={extract}
     actionTemplate={generatedActionTemplateFromCatalogEntry(derive)!} sheet={sheet}
     initialSourceColumn="entities" running={false} onClose={vi.fn()}
-    resolveParams={async (request) => request.action_id === 'map.extract' && !request.params.model
+    resolveParams={async (request): Promise<ActionParamResolution> => request.action_id === 'map.extract' && !request.params.model
       ? { diagnostics: { __all__: { ok: false, message: 'the llm engine requires a model' } }, logical_outputs: [] }
       : { diagnostics: {}, logical_outputs:
         request.action_id === 'map.extract' ? [{ key: 'items', column_type: 'json' }] : [] }}

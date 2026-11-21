@@ -25,7 +25,12 @@ it('exposes the typed current revision from a save conflict', async () => {
     detail: { code: 'revision_conflict', message: 'Changed in Settings.', current_revision: 6 },
   }), { status: 409 }));
   const api = createProjectQAApi(() => 'project');
+  const expected: Partial<SkillProposalSaveError> = {
+    code: 'revision_conflict',
+    currentRevision: 6,
+    message: 'Changed in Settings.',
+  };
   await expect(api.saveSkillProposal('thread', 'turn', 'proposal', {
     request_id: 'request', content: '# Review', expected_revision: 3,
-  })).rejects.toMatchObject<Partial<SkillProposalSaveError>>({ code: 'revision_conflict', currentRevision: 6, message: 'Changed in Settings.' });
+  })).rejects.toMatchObject(expected);
 });

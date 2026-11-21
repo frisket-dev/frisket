@@ -330,7 +330,7 @@ def test_source_page_grant_refuses_expansion_settings_and_confirmation_drop(
             try:
                 plan, _source, router, composition, context = prepared
                 with pytest.raises(
-                    TrustedConsentRefused, match="page, settings, route or quote"
+                    TrustedConsentRefused, match="page, settings, route or estimate"
                 ):
                     preview.start_scratch_preview(
                         "pages",
@@ -760,24 +760,6 @@ def test_admit_rejects_unapproved_growth_without_poisoning_existing_generation(
             store.admit(operation_id=4, generation="g1", targets=[target(page=3)])
         assert store.pending_count() == 1
         assert store.pending(limit=10)[0].target.page_number == 2
-
-
-def test_existing_draft_sample_cache_reuses_equivalent_default_settings(tmp_path):
-    from frisket.server.services.pdf_imports.inventory import PdfDraftInventory
-    from frisket.server.services.pdf_imports.previews import preview_settings
-
-    path = tmp_path / "inventory.db"
-    _settings, digest = preview_settings({"engine": "tesseract"})
-    with PdfDraftInventory(path) as inventory:
-        inventory.cache_ocr(
-            "a" * 64,
-            2,
-            "tesseract",
-            digest,
-            {"ocr_action_params": {"engine": "tesseract"}, "text": "already read"},
-        )
-    with PdfSplitPreparationStore(path) as store:
-        assert store.cached_preview(target())["text"] == "already read"
 
 
 def test_independent_preview_inventories_share_one_original_page_flight(

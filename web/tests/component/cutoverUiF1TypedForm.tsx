@@ -104,7 +104,7 @@ export function mountTypedForm(options: MountTypedFormOptions) {
       : entry.ui_hints.logical_outputs,
   })));
   const estimateAction = vi.fn(options.estimateAction ?? (async () => ({
-    cost: 0, rows: options.sheet.rowCount, billed_cost: 0, policy_id: 'frisket.identity.v1',
+    cost: 0, rows: options.sheet?.rowCount ?? 0, billed_cost: 0, policy_id: 'frisket.identity.v1',
   })));
   const onExecute = vi.fn();
   const utils = render(

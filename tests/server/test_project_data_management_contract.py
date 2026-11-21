@@ -2,18 +2,13 @@ from __future__ import annotations
 
 import json
 
-from fastapi.testclient import TestClient
-
-from frisket.server.app import create_app
-
 
 def test_project_data_management_retention_contract_lists_supported_evidence_values(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post("/api/projects", json={"name": "Data Contract"}).json()
     pid = created["id"]
-    manifest_path = tmp_path / "workspace" / f"{pid}.frisket" / "manifest.json"
+    manifest_path = client.app.state.workspace.root / f"{pid}.frisket" / "manifest.json"
 
     initial = client.get(f"/api/projects/{pid}/retention")
 

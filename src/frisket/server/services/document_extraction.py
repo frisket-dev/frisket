@@ -58,7 +58,10 @@ class DocumentExtractionService:
         )
         if not row_ids:
             return ExtractionPreviewResponse(documents=[])
-        scope = SheetRows(sheet_id=body.sheet_id, row_ids=row_ids)
+        scope = SheetRows(
+            sheet_id=body.sheet_id,
+            row_ids=tuple(int(row_id) for row_id in row_ids),
+        )
         reader = AdmittedPositionedDocumentReader(
             project, scope=scope, params=params, row_limit=12, cancelled=cancelled
         )

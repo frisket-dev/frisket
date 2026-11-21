@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
+import type { FeedConfig, JsonValue } from '../../src/api/types';
 import { buildFeedInput, emptyForm, emptyFeedDefinition, feedToForm, type KnownFeedKind } from '../../src/components/feeds/feedConfig';
+
+function toJsonValue(value: unknown): JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(toJsonValue);
+  if (typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).flatMap(([k, v]) => (v === undefined ? [] : [[k, toJsonValue(v)]])),
+    );
+  }
+  throw new Error(`Non-JSON feed config value: ${String(value)}`);
+}
+
+function toFeedConfig(record: Record<string, unknown> | undefined): FeedConfig {
+  if (!record) return {};
+  return Object.fromEntries(
+    Object.entries(record).flatMap(([k, v]) => (v === undefined ? [] : [[k, toJsonValue(v)]])),
+  );
+}
 
 describe('the source definition shared by import and editing', () => {
   it.each<[KnownFeedKind, string, Record<string, unknown>]>([
@@ -18,7 +39,7 @@ describe('the source definition shared by import and editing', () => {
     expect(created.schedule).toBeNull();
     expect(created.url).toBe(kind === 'courtlistener_docket' ? null : url);
     const edited = feedToForm({ ...created, id: 7, name: 'Records', sheetId: null,
-      url: created.url ?? null, config: created.config ?? {}, schedule: created.schedule ?? null, enabled: created.enabled ?? true,
+      url: created.url ?? null, config: toFeedConfig(created.config), schedule: created.schedule ?? null, enabled: created.enabled ?? true,
       lastCheckedAt: null, lastStatus: null, newRowsTotal: 0 });
     expect(buildFeedInput(edited)).toEqual(created);
   });

@@ -16,6 +16,9 @@ from frisket.engine.store.project_qa_research import (
     ProjectQAResearchUnknownCost,
 )
 from frisket.engine.store.schema import SCHEMA_DIGEST, SCHEMA_DIGEST_META_KEY
+from frisket.upgrades.project.consent_estimate_migration import (
+    CONSENT_ESTIMATE_TO_DIGEST,
+)
 from tests.engine.test_bundle_schema_fence import _restore_legacy_authorities
 
 
@@ -69,7 +72,7 @@ def test_create_is_idempotent_and_lifecycle_updates_use_revision_cas(
     assert paused["revision"] == 4
     assert paused["state"] == "paused"
     assert paused["saved_messages"][0]["content"] == "partial"
-    assert paused["pending_approval"] == pending
+    assert paused["pending_pause"] == pending
     assert paused["output_grants"] == ["receipt-8"]
     assert paused["turn_count"] == 0
     with pytest.raises(ProjectQAResearchConflictError, match="revision"):
@@ -266,3 +269,58 @@ def test_research_schema_migration_preserves_existing_project_data(
         }
         assert "project_qa_research_runs" in tables
         assert "project_qa_research_operations" in tables
+
+
+def test_research_pause_column_migration_preserves_pending_pause(
+    make_project,
+) -> None:
+    project, store, research_row = _research(make_project)
+    pending = {
+        "id": "pause-upgrade-1",
+        "operation_id": "write-upgrade-1",
+        "kind": "action",
+        "title": "Add generated column",
+    }
+    paused = store.publish_pause(research_row["id"], pending)
+    path = project.path
+    project.db.execute("BEGIN")
+    project.db.execute(
+        "ALTER TABLE project_qa_research_runs "
+        "RENAME COLUMN pending_pause_json TO pending_approval_json"
+    )
+    project.db.execute(
+        "UPDATE meta SET value=? WHERE key=?",
+        (CONSENT_ESTIMATE_TO_DIGEST, SCHEMA_DIGEST_META_KEY),
+    )
+    project.db.commit()
+    row = project.db.execute(
+        "SELECT pending_approval_json FROM project_qa_research_runs WHERE id=?",
+        (research_row["id"],),
+    ).fetchone()
+    assert row is not None and "pause-upgrade-1" in row[0]
+    project.close()
+
+    with closing(Project(path)) as reopened:
+        assert reopened.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
+        columns = {
+            row[1]
+            for row in reopened.db.execute(
+                "PRAGMA table_info(project_qa_research_runs)"
+            )
+        }
+        assert "pending_pause_json" in columns
+        assert "pending_approval_json" not in columns
+        upgraded_store = ProjectQAResearchStore(reopened)
+        loaded = upgraded_store.get(research_row["id"])
+        assert loaded["state"] == "paused"
+        assert loaded["pending_pause"] == pending
+        resumed = upgraded_store.resume(
+            research_row["id"],
+            pause_id="pause-upgrade-1",
+            expected_revision=paused["revision"],
+            decision="approve",
+            actor="owner",
+        )
+        assert resumed["state"] == "running"
+        assert resumed["pending_pause"] is None
+        assert reopened.db.execute("PRAGMA foreign_key_check").fetchall() == []

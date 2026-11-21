@@ -65,8 +65,10 @@ def route_error_to_response(exc: RouteError) -> JSONResponse:
 
 
 def register_route_error_handler(app: FastAPI) -> None:
-    async def _handle_route_error(_request: Request, exc: RouteError) -> JSONResponse:
-        return route_error_to_response(exc)
+    async def _handle_route_error(_request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, RouteError):
+            return route_error_to_response(exc)
+        raise exc
 
     async def _handle_unexpected_error(
         request: Request, exc: Exception

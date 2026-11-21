@@ -39,7 +39,7 @@ def _publication(revision: SourceRevision, *, token: str) -> SourcePublication:
     )
     return SourcePublication(
         source_revision=revision,
-        recipe_id="passages:v1",
+        slice_id="passages:v1",
         channel="text",
         parts=(part,),
         bindings=(
@@ -67,7 +67,7 @@ def _publication(revision: SourceRevision, *, token: str) -> SourcePublication:
 def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="rare needle"))
 
         assert store.db.execute("PRAGMA page_size").fetchone()[0] == 16 * 1024
@@ -86,14 +86,14 @@ def test_store_uses_one_16k_contentless_sidecar_without_text_copy(tmp_path):
             "WHERE status IN ('pending','preparing') AND channel=? "
             "AND space_id IS ? "
             "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
-            "source_id,recipe_id,channel LIMIT 1",
+            "source_id,slice_id,channel LIMIT 1",
             ("text", "space:demo"),
         ).fetchall()
         marker_plan = store.db.execute(
             "EXPLAIN QUERY PLAN SELECT source_id FROM preparation "
             "WHERE status IN ('pending','preparing') "
             "ORDER BY CASE status WHEN 'preparing' THEN 0 ELSE 1 END,"
-            "source_id,recipe_id,channel LIMIT 1"
+            "source_id,slice_id,channel LIMIT 1"
         ).fetchall()
         assert any(
             "preparation_channel_work_order" in str(row[3]) for row in channel_plan
@@ -147,7 +147,7 @@ def test_binding_page_index_preserves_existing_retrieval_data(
         }
 
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="rare needle"))
         before = stored_rows(store)
         if existing_without_index:
@@ -193,7 +193,7 @@ def test_publication_batch_commits_once_and_is_visible_only_after_commit(tmp_pat
         statements = []
         store.db.set_trace_callback(statements.append)
         with store.publication_batch():
-            store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+            store.begin_preparation(revision, slice_id="passages:v1", channel="text")
             assert store.publish_source(_publication(revision, token="needle"))
             store.remove_cell_bindings_except(
                 sheet_id=1, row_id=2, column_id=3, keep_binding_ids=("binding:1",)
@@ -216,7 +216,7 @@ def test_failed_publication_aborts_batch_even_when_caught(tmp_path, monkeypatch)
         with pytest.raises(RuntimeError, match="publication batch failed"):
             with store.publication_batch():
                 store.begin_preparation(
-                    revision, recipe_id="passages:v1", channel="text"
+                    revision, slice_id="passages:v1", channel="text"
                 )
                 with pytest.raises(
                     sqlite3.OperationalError, match="publication failed"
@@ -224,7 +224,7 @@ def test_failed_publication_aborts_batch_even_when_caught(tmp_path, monkeypatch)
                     store.publish_source(_publication(revision, token="needle"))
                 with pytest.raises(RuntimeError, match="publication batch failed"):
                     store.queue_preparation(
-                        revision, recipe_id="retry:v1", channel="text"
+                        revision, slice_id="retry:v1", channel="text"
                     )
         assert not store.db.in_transaction
         for table in ("sources", "parts", "bindings", "preparation", "lexical_fts"):
@@ -232,7 +232,7 @@ def test_failed_publication_aborts_batch_even_when_caught(tmp_path, monkeypatch)
 
         monkeypatch.setattr(store, "_replace_lexical", replace_lexical)
         with store.publication_batch():
-            store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+            store.begin_preparation(revision, slice_id="passages:v1", channel="text")
             assert store.publish_source(_publication(revision, token="needle"))
         assert store.db.execute("SELECT count(*) FROM sources").fetchone()[0] == 1
 
@@ -251,13 +251,13 @@ def test_sqlite_rollback_refuses_every_subsequent_batch_mutation(
         )
         mutations = {
             "begin": lambda: store.begin_preparation(
-                revision, recipe_id="passages:v1", channel="text"
+                revision, slice_id="passages:v1", channel="text"
             ),
             "queue": lambda: store.queue_preparation(
-                revision, recipe_id="passages:v1", channel="text"
+                revision, slice_id="passages:v1", channel="text"
             ),
             "register": lambda: store.register_preparation(
-                revision, publication.bindings, recipe_id="passages:v1", channel="text"
+                revision, publication.bindings, slice_id="passages:v1", channel="text"
             ),
             "publish": lambda: store.publish_source(publication),
         }
@@ -266,7 +266,7 @@ def test_sqlite_rollback_refuses_every_subsequent_batch_mutation(
             with store.publication_batch():
                 with pytest.raises(sqlite3.IntegrityError, match="forced rollback"):
                     store.begin_preparation(
-                        revision, recipe_id="passages:v1", channel="text"
+                        revision, slice_id="passages:v1", channel="text"
                     )
                 with pytest.raises(RuntimeError, match="publication batch failed"):
                     mutations[first_mutation]()
@@ -318,19 +318,19 @@ def test_source_event_requeues_only_retryable_failed_target(
 ) -> None:
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.fail_preparation(
             revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             error_code=error_code,
             error_message="retry after a new source event",
         )
 
-        store.queue_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v1", channel="text")
 
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v1", channel="text"
+            revision.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None
         assert (state.status, state.error_code) == ("pending", None)
@@ -339,19 +339,19 @@ def test_source_event_requeues_only_retryable_failed_target(
 def test_source_event_does_not_retry_invalid_input(tmp_path) -> None:
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.fail_preparation(
             revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             error_code="invalid_input",
             error_message="the source bytes are not decodable",
         )
 
-        store.queue_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v1", channel="text")
 
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v1", channel="text"
+            revision.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None
         assert (state.status, state.error_code) == ("failed", "invalid_input")
@@ -430,8 +430,8 @@ def test_stale_worker_cannot_publish_over_new_target(tmp_path):
     old = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     new = SourceRevision("cell:2:3", "text", "cell_revision", 12)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(old, recipe_id="passages:v1", channel="text")
-        store.begin_preparation(new, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(old, slice_id="passages:v1", channel="text")
+        store.begin_preparation(new, slice_id="passages:v1", channel="text")
 
         assert not store.publish_source(_publication(old, token="stale needle"))
         assert store.publish_source(_publication(new, token="fresh needle"))
@@ -443,7 +443,7 @@ def test_stale_worker_cannot_publish_over_new_target(tmp_path):
             == 0
         )
         state = store.preparation_state(
-            new.source_id, recipe_id="passages:v1", channel="text"
+            new.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None
         assert (state.target_version_value, state.status, state.prepared_parts) == (
@@ -456,9 +456,9 @@ def test_stale_worker_cannot_publish_over_new_target(tmp_path):
 def test_republishing_revision_replaces_old_postings_atomically(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="firsttoken"))
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="secondtoken"))
 
         assert (
@@ -480,24 +480,24 @@ def test_failed_preparation_is_conditional_and_counts_are_maintained(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     newer = SourceRevision("cell:2:3", "text", "cell_revision", 12)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
-        store.begin_preparation(newer, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
+        store.begin_preparation(newer, slice_id="passages:v1", channel="text")
 
         assert not store.fail_preparation(
             revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             error_code="cancelled",
             error_message="old work cancelled",
         )
         assert store.fail_preparation(
             newer,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             error_code="encoder_unavailable",
             error_message="install the selected encoder",
         )
-        assert store.readiness_counts(recipe_id="passages:v1", channel="text") == {
+        assert store.readiness_counts(slice_id="passages:v1", channel="text") == {
             "pending": 0,
             "preparing": 0,
             "ready": 0,
@@ -510,23 +510,23 @@ def test_preparation_cursor_resumes_and_retargets_conditionally(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     newer = SourceRevision("cell:2:3", "text", "cell_revision", 12)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="seed"))
-        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v2", channel="text")
         state = store.next_preparation(channel="text")
         assert state is not None and state.status == "pending"
         assert state.source_revision == revision
 
-        store.begin_preparation(revision, recipe_id="passages:v2", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v2", channel="text")
         assert store.advance_preparation(
             revision,
-            recipe_id="passages:v2",
+            slice_id="passages:v2",
             channel="text",
             cursor_json='{"next_offset":128}',
         )
-        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v2", channel="text")
         resumed = store.preparation_state(
-            revision.source_id, recipe_id="passages:v2", channel="text"
+            revision.source_id, slice_id="passages:v2", channel="text"
         )
         assert resumed is not None
         assert (resumed.status, resumed.cursor_json) == (
@@ -534,15 +534,15 @@ def test_preparation_cursor_resumes_and_retargets_conditionally(tmp_path):
             '{"next_offset":128}',
         )
 
-        store.queue_preparation(newer, recipe_id="passages:v2", channel="text")
+        store.queue_preparation(newer, slice_id="passages:v2", channel="text")
         retargeted = store.preparation_state(
-            revision.source_id, recipe_id="passages:v2", channel="text"
+            revision.source_id, slice_id="passages:v2", channel="text"
         )
         assert retargeted is not None
         assert (retargeted.target_version_value, retargeted.cursor_json) == (12, None)
         assert not store.advance_preparation(
             revision,
-            recipe_id="passages:v2",
+            slice_id="passages:v2",
             channel="text",
             cursor_json='{"next_offset":256}',
         )
@@ -562,13 +562,13 @@ def test_preparation_space_is_an_exact_target_and_retarget_clears_cursor(tmp_pat
                     dependencies=(BindingDependency(2, 3, 11),),
                 ),
             ),
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             space_id="space:first",
         )
         assert store.advance_preparation(
             revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             space_id="space:first",
             cursor_json='{"next_offset":128}',
@@ -576,13 +576,13 @@ def test_preparation_space_is_an_exact_target_and_retarget_clears_cursor(tmp_pat
 
         store.queue_preparation(
             revision,
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
             space_id="space:second",
         )
 
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v1", channel="text"
+            revision.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None
         assert (state.space_id, state.status, state.cursor_json) == (
@@ -598,19 +598,19 @@ def test_preparation_space_is_an_exact_target_and_retarget_clears_cursor(tmp_pat
 def test_unavailable_preparation_requires_explicit_requeue(tmp_path):
     revision = SourceRevision("cell:2:3", "text", "cell_revision", 11)
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(_publication(revision, token="seed"))
-        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v2", channel="text")
         assert store.mark_preparation_unavailable(
             revision,
-            recipe_id="passages:v2",
+            slice_id="passages:v2",
             channel="text",
             reason="install the local encoder",
         )
-        store.queue_preparation(revision, recipe_id="passages:v2", channel="text")
+        store.queue_preparation(revision, slice_id="passages:v2", channel="text")
 
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v2", channel="text"
+            revision.source_id, slice_id="passages:v2", channel="text"
         )
         assert state is not None and state.status == "unavailable"
         assert store.next_preparation(channel="text") is None
@@ -631,7 +631,7 @@ def test_registration_atomically_exposes_bound_pending_source(tmp_path):
         store.register_preparation(
             revision,
             (binding,),
-            recipe_id="passages:v1",
+            slice_id="passages:v1",
             channel="text",
         )
 
@@ -663,7 +663,7 @@ def test_failed_registration_rolls_back_source_binding_and_work(tmp_path):
             store.register_preparation(
                 revision,
                 (binding,),
-                recipe_id="passages:v1",
+                slice_id="passages:v1",
                 channel="text",
             )
 
@@ -703,7 +703,7 @@ def test_bounded_batches_append_then_finalize_without_erasing_prior_parts(tmp_pa
     )
     second = SourcePublication(
         source_revision=revision,
-        recipe_id="passages:v1",
+        slice_id="passages:v1",
         channel="text",
         parts=(second_part,),
         bindings=(
@@ -724,10 +724,10 @@ def test_bounded_batches_append_then_finalize_without_erasing_prior_parts(tmp_pa
         complete=True,
     )
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(first)
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v1", channel="text"
+            revision.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None and state.status == "preparing"
         assert store.publish_source(second)
@@ -735,7 +735,7 @@ def test_bounded_batches_append_then_finalize_without_erasing_prior_parts(tmp_pa
         assert store.db.execute("SELECT count(*) FROM parts").fetchone()[0] == 2
         assert store.db.execute("SELECT count(*) FROM bindings").fetchone()[0] == 2
         state = store.preparation_state(
-            revision.source_id, recipe_id="passages:v1", channel="text"
+            revision.source_id, slice_id="passages:v1", channel="text"
         )
         assert state is not None
         assert (state.status, state.prepared_parts) == ("ready", 2)
@@ -750,7 +750,7 @@ def test_dataset_membership_and_binding_removal_have_explicit_ownership(tmp_path
         "named:secondary", part.part_id, representation.representation_id
     )
     with RetrievalStore(tmp_path).open() as store:
-        store.begin_preparation(revision, recipe_id="passages:v1", channel="text")
+        store.begin_preparation(revision, slice_id="passages:v1", channel="text")
         assert store.publish_source(publication)
         store.replace_named_dataset_members("named:secondary", (second_dataset,))
         assert {

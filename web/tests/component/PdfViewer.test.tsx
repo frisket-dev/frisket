@@ -49,11 +49,15 @@ type ObserverCallback = (entries: IntersectionObserverEntry[]) => void;
 class MockIntersectionObserver {
   static instances: MockIntersectionObserver[] = [];
   readonly observed = new Set<Element>();
+  private readonly callback: ObserverCallback;
+  readonly options?: IntersectionObserverInit;
 
   constructor(
-    private readonly callback: ObserverCallback,
-    readonly options?: IntersectionObserverInit,
+    callback: ObserverCallback,
+    options?: IntersectionObserverInit,
   ) {
+    this.callback = callback;
+    this.options = options;
     MockIntersectionObserver.instances.push(this);
   }
 

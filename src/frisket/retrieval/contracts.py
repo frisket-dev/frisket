@@ -190,7 +190,7 @@ class ScopedBinding:
 class IndexedPart:
     part_id: str
     source: SourceRevision
-    producer_recipe_id: str
+    producer_slice_id: str
     part_kind: str
     locator: SourceLocator
 
@@ -400,7 +400,7 @@ class ChannelCoverage:
 
     channel: str
     state: ChannelState
-    recipe_id: str | None = None
+    slice_id: str | None = None
     eligible_count: int | None = None
     prepared_count: int | None = None
     failed_count: int | None = None

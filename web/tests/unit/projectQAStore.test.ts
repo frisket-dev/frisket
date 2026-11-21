@@ -142,12 +142,12 @@ it('persists research preferences and resumes the exact pending approval revisio
     research_state: {
       id: 'research', revision: 4, state: 'paused', budget_micros: 5_000_000, reserved_micros: 0,
       settled_micros: 1_000_000, remaining_micros: 4_000_000, currency: 'USD', write_mode: 'ask_each',
-      max_turns: 8, turn_count: 2, pending_approval: { id: 'approval-budget', kind: 'budget' },
+      max_turns: 8, turn_count: 2, pending_pause: { id: 'pause-budget', kind: 'budget' },
     },
   };
   vi.mocked(api.submit).mockResolvedValueOnce(pausedTurn);
   vi.mocked(api.events).mockResolvedValue({ ...page, active_turn: pausedTurn });
-  vi.mocked(api.resumeResearch).mockResolvedValueOnce({ ...pausedTurn, research_state: { ...pausedTurn.research_state!, revision: 5, state: 'running', pending_approval: null } });
+  vi.mocked(api.resumeResearch).mockResolvedValueOnce({ ...pausedTurn, research_state: { ...pausedTurn.research_state!, revision: 5, state: 'running', pending_pause: null } });
   const handle = createProjectQAStore(api);
   await handle.initialize({ kind: 'project' });
   expect(handle.store.get().researchConfiguration?.web_provider).toBe('DDGS');
@@ -161,7 +161,7 @@ it('persists research preferences and resumes the exact pending approval revisio
 
   await handle.resumeResearch('continue', { budget_usd: '7' });
   expect(api.resumeResearch).toHaveBeenCalledWith('thread', 'turn', {
-    expected_revision: 4, approval_id: 'approval-budget', decision: 'continue', budget_usd: '7',
+    expected_revision: 4, pause_id: 'pause-budget', decision: 'continue', budget_usd: '7',
   }, expect.any(AbortSignal));
 });
 

@@ -104,7 +104,7 @@ export function ProjectAskDock({ initialScope, sheets, onClose, onInspectProposa
   const threadMenuPosition = useAnchoredPosition(threadTriggerRef, { enabled: threadMenuOpen, align: 'left', width: 260, gap: 4 });
   const optionsMenuPosition = useAnchoredPosition(optionsTriggerRef, { enabled: optionsOpen, align: 'left', width: 300, gap: 6 });
   const requestModel = state.model ?? (choice?.authored_selection.kind === 'model' ? choice.authored_selection.model : null);
-  const researchPause = pendingResearchPause(state.activeTurn?.research_state?.pending_approval);
+  const researchPause = pendingResearchPause(state.activeTurn?.research_state?.pending_pause);
   const tooManyRows = (state.scope?.sources ?? []).reduce((count, source) => count + (source.kind === 'rows' ? source.row_ids.length : 0), 0) > 1000;
   const canSend = !!requestModel && choice?.can_run === true && choice.authored_selection.kind === 'model'
     && choice.authored_selection.model === requestModel && !state.busy && !!state.draft.trim() && !!state.scope && !tooManyRows;

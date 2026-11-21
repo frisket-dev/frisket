@@ -10,6 +10,7 @@ import math
 import shutil
 import tempfile
 from pathlib import Path
+from typing import ClassVar
 
 from pydantic import TypeAdapter
 
@@ -58,6 +59,8 @@ def _video_frame_scale_args(max_dimension: int | None) -> list[str]:
 
 
 class _AdmittedMediaExtractor:
+    _binding: ClassVar[type[_BoundMediaExtractor]]
+
     def __init__(self, project, stager, *, cancelled=None, execution_limits=None):
         self._project = project
         self._stager = stager

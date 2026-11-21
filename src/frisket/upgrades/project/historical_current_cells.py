@@ -111,6 +111,10 @@ def cell_validity(
             and stored_value > 0
             else "invalid"
         )
+    if value_kind is None:
+        return "missing"
+    if stored_value is not None and not isinstance(stored_value, (str, int, float)):
+        return "invalid"
     try:
         value = decode_stored_value(value_kind, stored_value)
     except (TypeError, ValueError, RecursionError):

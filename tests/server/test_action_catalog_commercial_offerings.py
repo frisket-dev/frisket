@@ -104,7 +104,7 @@ def _offering(
             meter_units_per_quantity_unit="1" if document else "60",
             ceiling_mode="consented_quantity",
             row_settlement_mode=(
-                "all_metered" if document else "quoted_successful_rows"
+                "all_metered" if document else "estimated_successful_rows"
             ),
         ),
         charge_authority="synthetic-charge-authority",

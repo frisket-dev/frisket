@@ -283,11 +283,10 @@ def test_a_partial_unscoped_batch_leaves_nothing_for_its_caller_to_commit(
     broken["fact_version"] = None
     project.db.execute("BEGIN IMMEDIATE")
     with pytest.raises(sqlite3.IntegrityError, match="fact_version"):
-        store.write_unscoped_model_calls(
+        store.write_unscoped_model_calls_in_transaction(
             [_call(cost_usd=1.0, call_id="unscoped-first-valid"), broken],
             row_id=None,
             column_id=None,
-            commit=False,
         )
     project.db.commit()
     assert _spend(project).spent_micro == 0

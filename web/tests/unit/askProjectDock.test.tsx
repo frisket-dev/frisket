@@ -161,7 +161,7 @@ describe('ProjectAskDock research controls', () => {
       research_state: {
         id: 'research', revision: 3, state: 'paused', budget_micros: 1_000_000, reserved_micros: 0,
         settled_micros: 0, remaining_micros: 1_000_000, currency: 'USD', write_mode: 'ask_each', max_turns: null,
-        turn_count: 1, pending_approval: { id: 'approval', kind: 'action', title: 'Add a column',
+        turn_count: 1, pending_pause: { id: 'pause-1', kind: 'action', title: 'Add a column',
           effect: 'Writes one generated column.', targets: ['Sources'], can_skip: true },
       },
     };

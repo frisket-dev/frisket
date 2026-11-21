@@ -237,7 +237,7 @@ describe('RealApi action invocation safety (WEB-03-4A)', () => {
     expect(await projectApi.getRunProgress('77')).toMatchObject({
       targetColumnId: '2', actionName: 'Derive rows',
     });
-    const data = await projectApi.getSheetData('7');
+    const data = await projectApi.getSheetData('7', 0, 100);
     expect(data.columns.find((column) => column.name === 'found_items')?.ai).toMatchObject({
       actionName: 'Derive rows', prompt: 'Extract a list of items.', model: 'model-derive',
     });
@@ -713,14 +713,14 @@ it('keeps derive metadata on its returned column ID when the old name is reused,
   }));
   const launching = createProjectApi(projectId);
   await launching.runAction(request);
-  const data = await launching.getSheetData('7');
+  const data = await launching.getSheetData('7', 0, 100);
   expect(data.columns.find((column) => column.id === '2')?.ai).toMatchObject({
     actionName: 'Derive rows', prompt: 'Extract a list of items.', model: 'model-derive',
   });
   expect(data.columns.find((column) => column.id === '3')?.ai?.model).toBe('');
   const reloaded = createProjectApi(projectId);
   await reloaded.getColumnRuns('2');
-  const fresh = await reloaded.getSheetData('7');
+  const fresh = await reloaded.getSheetData('7', 0, 100);
   expect(fresh.columns.find((column) => column.id === '2')?.ai?.model).toBe('model-persisted-original');
   expect(fresh.columns.find((column) => column.id === '3')?.ai?.model).toBe('');
 });

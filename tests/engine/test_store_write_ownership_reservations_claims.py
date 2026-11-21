@@ -553,9 +553,9 @@ def test_admit_attempt_rolls_back_when_row_authorizations_insert_fails(project):
         meter_key="rows",
         meter_units_per_quantity_unit="1",
         ceiling_mode="none",
-        row_settlement_mode="quoted_successful_rows",
+        row_settlement_mode="estimated_successful_rows",
         charge_authority="platform_commercial_terms",
-        row_quote_quantities=((1, "1"),),
+        row_estimate_quantities=((1, "1"),),
     )
     commitment = AttemptCommitment(
         attempt_id=attempt_id,
@@ -680,8 +680,8 @@ def test_terminalize_project_run_rolls_back_atomically_on_claim_release_failure(
     receipt_id = "receipt-terminal-atomic"
     claim_token = f"output-claim:{receipt_id}"
     with write_transaction(project.db):
-        ReceiptStore(project).insert_running(
-            _running_receipt(receipt_id, run_id=run_id), commit=False
+        ReceiptStore(project).insert_running_in_transaction(
+            _running_receipt(receipt_id, run_id=run_id)
         )
         OutputColumnClaimStore(project).acquire(
             sheet_id=sheet_id,

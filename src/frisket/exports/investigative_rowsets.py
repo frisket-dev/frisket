@@ -9,7 +9,7 @@ current cell values into source-aware records that later mappers can consume.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, TypedDict
 
 from frisket.engine.store.evidence import list_cell_citations
 from frisket.exports import rowset as export_rowset
@@ -216,12 +216,17 @@ def _visible_row_ids(project: Project, sheet_id: int, *, batch_size: int) -> lis
     return row_ids
 
 
+class _RowMetadata(TypedDict):
+    position: int
+    parent_row_id: int | None
+
+
 def _row_metadata(
     project: Project, sheet_id: int, row_ids: list[int], *, batch_size: int
-) -> dict[int, dict[str, int | None]]:
+) -> dict[int, _RowMetadata]:
     if not row_ids:
         return {}
-    by_id: dict[int, dict[str, int | None]] = {}
+    by_id: dict[int, _RowMetadata] = {}
     chunk_size = max(1, min(int(batch_size), 500))
     for start in range(0, len(row_ids), chunk_size):
         chunk = row_ids[start : start + chunk_size]

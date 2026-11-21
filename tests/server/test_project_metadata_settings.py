@@ -2,13 +2,8 @@ from __future__ import annotations
 
 import json
 
-from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
-
-
-def test_project_metadata_settings_patch_updates_manifest(tmp_path) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
+def test_project_metadata_settings_patch_updates_manifest(client) -> None:
     created = client.post("/api/projects", json={"name": "Metadata"}).json()
     pid = created["id"]
 
@@ -28,19 +23,20 @@ def test_project_metadata_settings_patch_updates_manifest(tmp_path) -> None:
         "archived": False,
     }
     manifest = json.loads(
-        (tmp_path / "workspace" / f"{pid}.frisket" / "manifest.json").read_text()
+        (
+            client.app.state.workspace.root / f"{pid}.frisket" / "manifest.json"
+        ).read_text()
     )
     assert manifest["name"] == "Metadata renamed"
     assert manifest["description"] == "Tracked in settings"
 
 
 def test_project_metadata_settings_reject_sensitive_flag_without_mutating(
-    tmp_path,
+    client,
 ) -> None:
-    client = TestClient(create_app(tmp_path / "workspace"))
     created = client.post("/api/projects", json={"name": "Sensitive"}).json()
     pid = created["id"]
-    manifest_path = tmp_path / "workspace" / f"{pid}.frisket" / "manifest.json"
+    manifest_path = client.app.state.workspace.root / f"{pid}.frisket" / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["sensitive"] = True
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")

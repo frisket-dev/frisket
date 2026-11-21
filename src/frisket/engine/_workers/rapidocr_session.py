@@ -65,6 +65,14 @@ _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$")
 class RapidOCRSessionFailure(RuntimeError):
     """The persistent worker or its protocol is no longer usable."""
 
+    close_failures: tuple[BaseException, ...] = ()
+
+
+class _RapidOCRTeardownFailure(sandbox_shim.SandboxTeardownError):
+    """Aggregated teardown failure preserving each worker's close error."""
+
+    close_failures: tuple[BaseException, ...] = ()
+
 
 class RapidOCRSessionCancelled(RuntimeError):
     """Operator cancellation stopped and reaped an in-flight worker."""
@@ -124,10 +132,13 @@ def _cgroup_cpu_quota() -> int | None:
 
 def _effective_cpu_count() -> int:
     candidates: list[int] = []
-    try:
-        affinity = os.sched_getaffinity(0)
-    except (AttributeError, OSError):
-        affinity = None
+    getaffinity = getattr(os, "sched_getaffinity", None)
+    affinity: Any = None
+    if callable(getaffinity):
+        try:
+            affinity = getaffinity(0)
+        except (AttributeError, OSError):
+            affinity = None
     if affinity:
         candidates.append(len(affinity))
     try:
@@ -1065,9 +1076,9 @@ def _aggregate_close_failure(
         wrapped.close_failures = (only,)
         return wrapped
     detail = "; ".join(_describe_close_failure(error) for error in errors)
-    aggregated: BaseException
+    aggregated: RapidOCRSessionFailure | _RapidOCRTeardownFailure
     if teardown:
-        aggregated = sandbox_shim.SandboxTeardownError(
+        aggregated = _RapidOCRTeardownFailure(
             f"{len(errors)} RapidOCR workers failed to close cleanly: {detail}"
         )
     else:

@@ -140,7 +140,9 @@ class OcrEngines:
             provider=provider,
             provider_kind="platform_api",
             model_ids=[model or engine],
-            credential_source=reader(provider) if callable(reader) else "none",
+            credential_source=(
+                str(reader(provider) or "none") if callable(reader) else "none"
+            ),
             provider_reported_cost_usd=cost,
             provider_cost_usd=cost,
             units={

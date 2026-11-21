@@ -21,6 +21,7 @@ from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
 from frisket.execution.provider import ExecutionCompositionContext
 from frisket.server.services.action_runs import ActionRunService
 from frisket.server.workspace import Workspace
+from frisket.engine.store.transactions import write_transaction
 
 
 @pytest.fixture(autouse=True)
@@ -68,10 +69,10 @@ def _sheet_id(action: dict[str, Any]) -> int:
 PRECOMMIT_BOUNDARY_TARGETS = {
     1: "frisket.engine.store.receipts.ReceiptStore.insert_queued",
     2: "frisket.engine.store.output_claims.OutputColumnClaimStore.acquire",
-    3: "frisket.engine.store.project.Project.add_column",
-    4: "frisket.engine.store.project.Project.append_change",
+    3: "frisket.engine.store.project.Project.add_column_in_transaction",
+    4: "frisket.engine.store.project.Project.append_change_in_transaction",
     5: "frisket.engine.store.project.Project.set_undo_info",
-    6: "frisket.engine.store.runs.RunResultStore.start_run",
+    6: "frisket.engine.store.runs.RunResultStore.start_run_in_transaction",
     7: "frisket.engine.store.runs.RunResultStore.point_column_at_run",
     8: "frisket.engine.runner.preparation.retire_dropped_generated_columns",
     9: "frisket.engine.runner.validation.persist_resolved_execution",
@@ -83,8 +84,8 @@ PRECOMMIT_BOUNDARY_TARGETS = {
 }
 
 OUTPUT_WRITER_TARGETS = {
-    "add": "frisket.engine.store.project.Project.add_column",
-    "revive": "frisket.engine.store.project.Project.add_column",
+    "add": "frisket.engine.store.project.Project.add_column_in_transaction",
+    "revive": "frisket.engine.store.project.Project.add_column_in_transaction",
     "retype": "frisket.engine.store.project.Project.set_column_type",
     "semantic_retype": (
         "frisket.engine.store.project.Project.set_column_semantic_type"
@@ -322,7 +323,8 @@ def _seed_case(
                 type="geo_point",
                 ai_generated=True,
             )
-            project.set_column_semantic_type(column_id, "packet_10_prior_geocode")
+            with write_transaction(project.db):
+                project.set_column_semantic_type(column_id, "packet_10_prior_geocode")
         elif output_writer_variant != "add":
             raise AssertionError(output_writer_variant)
         if output_writer_variant in {
@@ -659,7 +661,7 @@ def _prepared_tuple(
         (attempt_id,),
     ).fetchall()
     cost_basis = json.loads(attempt["cost_basis_json"])
-    row_estimates = cost_basis.get("row_quote_quantities", [])
+    row_estimates = cost_basis.get("row_estimate_quantities", [])
     assert [
         (int(value["row_id"]), str(value["quoted_quantity"]))
         for value in row_authorizations

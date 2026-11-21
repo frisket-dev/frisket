@@ -68,7 +68,7 @@ describe('ActionPromptField', () => {
           originalScrollHeight,
         );
       } else {
-        delete (HTMLTextAreaElement.prototype as Partial<HTMLTextAreaElement>).scrollHeight;
+        Reflect.deleteProperty(HTMLTextAreaElement.prototype, 'scrollHeight');
       }
     }
   });

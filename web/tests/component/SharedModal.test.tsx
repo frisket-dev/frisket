@@ -40,12 +40,13 @@ describe('normalized controls preserve behavior', () => {
   });
   it('owns cancel without dismissing its parent and blocks cancel while busy', () => {
     const close = vi.fn(), parent = vi.fn();
-    const { rerender } = render(<div onCancel={parent}><Modal title="Confirm" onClose={close} busy>Working</Modal></div>);
+    const { container, rerender } = render(<Modal title="Confirm" onClose={close} busy>Working</Modal>);
+    container.addEventListener('cancel', parent);
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveAttribute('open');
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
     expect(close).not.toHaveBeenCalled(); expect(parent).not.toHaveBeenCalled();
-    rerender(<div onCancel={parent}><Modal title="Confirm" onClose={close}>Ready</Modal></div>);
+    rerender(<Modal title="Confirm" onClose={close}>Ready</Modal>);
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
     expect(close).toHaveBeenCalledOnce(); expect(parent).not.toHaveBeenCalled();
   });

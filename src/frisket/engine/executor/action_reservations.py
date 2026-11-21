@@ -241,10 +241,9 @@ def _terminalize_claimless_direct_failure(
     failed = prior.model_copy(update={"status": "failed", "errors": [error]})
     try:
         with write_transaction(project.db):
-            landed = ReceiptStore(project).update_body_status(
+            landed = ReceiptStore(project).update_body_status_in_transaction(
                 failed,
                 require_status="running",
-                commit=False,
             )
             if not landed:
                 project.db.rollback()
@@ -621,10 +620,9 @@ def _reserve_running_action_receipt(
         with write_transaction(project.db):
             existing = _receipt_for_idempotency(project, action.idempotency_key)
             if existing is None:
-                ReceiptStore(project).insert_running(
+                ReceiptStore(project).insert_running_in_transaction(
                     receipt,
                     edition_run_context=edition_run_context,
-                    commit=False,
                 )
     except Exception:
         logger.debug(
@@ -685,10 +683,9 @@ def _reserve_running_action_receipt_in_transaction(
                 "params_model": params_model,
             },
         )
-    ReceiptStore(project).insert_running(
+    ReceiptStore(project).insert_running_in_transaction(
         receipt,
         edition_run_context=edition_run_context,
-        commit=False,
     )
     return {"action_id": action_id, "receipt_id": receipt_id}
 
@@ -1422,8 +1419,8 @@ def _bind_receipt_to_prepared_run(
     receipt = receipt.model_copy(
         update={"run_id": run_id, "evidence": supporting_records}
     )
-    if not ReceiptStore(project).update_body_status(
-        receipt, require_status=receipt_status, commit=False
+    if not ReceiptStore(project).update_body_status_in_transaction(
+        receipt, require_status=receipt_status
     ):
         raise RuntimeError(
             f"{receipt_status} receipt {receipt_id!r} is no longer preparable"
@@ -1481,10 +1478,9 @@ def _mark_queued_action_enqueued(
     )
     try:
         with write_transaction(project.db):
-            updated = ReceiptStore(project).update_body_status(
+            updated = ReceiptStore(project).update_body_status_in_transaction(
                 receipt,
                 require_status="queued",
-                commit=False,
             )
             if updated:
                 OutputColumnClaimStore(project).bind_to_run(

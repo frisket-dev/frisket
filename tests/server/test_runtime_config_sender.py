@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
+from helpers import make_client
 
-from frisket.server.app import create_app
 
 # ---------------------------------------------------------------------------
 # Local server: GET /api/config carries an honest (null) sender -- the local
@@ -10,8 +9,7 @@ from frisket.server.app import create_app
 
 
 class TestLocalServerRuntimeConfigSender:
-    def test_default_workspace_reports_no_sender_identity(self, tmp_path):
-        client = TestClient(create_app(tmp_path / "workspace"))
+    def test_default_workspace_reports_no_sender_identity(self, client):
         resp = client.get("/api/config")
         assert resp.status_code == 200
         body = resp.json()
@@ -34,12 +32,12 @@ class TestLocalServerRuntimeConfigSender:
 class TestRuntimeConfigInstallPosture:
     def test_container_override_is_reported(self, tmp_path, monkeypatch):
         monkeypatch.setenv("FRISKET_IN_CONTAINER", "1")
-        client = TestClient(create_app(tmp_path / "workspace"))
+        client = make_client(tmp_path)
         assert client.get("/api/config").json()["in_container"] is True
 
     def test_direct_launch_reports_no_container(self, tmp_path, monkeypatch):
         monkeypatch.setenv("FRISKET_IN_CONTAINER", "false")
-        client = TestClient(create_app(tmp_path / "workspace"))
+        client = make_client(tmp_path)
         assert client.get("/api/config").json()["in_container"] is False
 
 

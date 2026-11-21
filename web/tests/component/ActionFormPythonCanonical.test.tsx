@@ -124,7 +124,7 @@ describe('typed Python consumer boundary', () => {
           onExecuteRegisteredAction={onExecute}
           inspectProposal={{ seq: 1, title: 'Saved Python', spec: draft }} />
       </WorkspaceStoresContext.Provider>);
-      expect(await screen.findByTestId('field-code')).toHaveValue(draft.params.code);
+      expect(await screen.findByTestId('field-code')).toHaveValue(String(draft.params.code));
       await waitFor(() => expect(screen.getByTestId('generated-action-run')).toBeEnabled());
       if (!hiddenOnly) {
         expect(screen.getByTestId('field-output-length')).toHaveValue('Measured length');

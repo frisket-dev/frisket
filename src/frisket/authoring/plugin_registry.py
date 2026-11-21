@@ -431,7 +431,9 @@ class PluginRegistry:
 
             unregister_plugin_matchers(plugin_id)
 
-    def unload_plugin_entries(self, plugin_id: str) -> dict[str, list[str]]:
+    def unload_plugin_entries(
+        self, plugin_id: str
+    ) -> dict[str, list[str] | dict[str, list[str]]]:
         """Remove process-local entries owned by one plugin id."""
         removed_manifests: list[str] = []
         removed_importers: list[str] = []

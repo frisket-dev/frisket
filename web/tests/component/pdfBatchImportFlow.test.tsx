@@ -117,12 +117,13 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
     state: 'open',
     paused: false,
     created_at: '2026-10-18T00:00:00Z',
+    expires_at: '2026-10-28T00:00:00Z',
     source_label: '2 files',
     preflight: { state: 'ready', free_bytes: 1_000_000 },
     manifest: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
     upload: { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true },
     analysis: { files_done: 2, files_total: 2 },
-    cleanup: { files_done: 0, files_total: 0, bytes_done: 0, bytes_total: 0, sealed: false },
+    cleanup: { bytes_done: 0, bytes_total: 0 },
     category_counts: categories,
     sample_ready_counts: { text: 1, suspicious: 1 },
     can_review_text: true,
@@ -136,11 +137,10 @@ function snapshot(revision = 1, patch: Partial<PdfImportSnapshot> = {}): PdfImpo
       destination: { kind: 'new', sheet_name: 'Imported PDFs' },
     },
     organization_summary: {
-      pdf_count: 2, page_count: 4, output_rows: 2, new_output_rows: 2,
+      pdf_count: 2, eligible_pdf_count: 2, page_count: 4, output_rows: 2, new_output_rows: 2,
       category_rows: categories, new_category_rows: categories, split_supported: true, max_interactive_pages: 2_000, split_limit_reason: null,
     },
-    destination: null,
-    match: { state: 'idle', checked: 0, total: 0, matched_count: 0, new_count: 2 },
+    match: { state: 'idle', checked: 0, total: 0, matched_count: 0, new_count: 2, error: null, new_category_counts: {} },
     semantic_setup: {
       setup_ref: 'embeddinggemma',
       display_name: 'EmbeddingGemma',
@@ -195,15 +195,17 @@ function createApi(initial = snapshot()) {
         size: 3,
         page_count: 2,
         category,
-        analysis_state: 'ready',
+        analysis_state: 'done' as const,
         sample_pages: [1],
         thumbnail_url: '/thumbnail',
         error: null,
       }],
       next_cursor: null,
+      extension_counts: [],
+      unlisted_extension_count: 0,
     })),
     reconcileReselection: vi.fn(async () => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', items: [],
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', items: [],
     })),
     upload: vi.fn(async () => current),
     analyze: vi.fn(async () => current),
@@ -236,14 +238,18 @@ function createApi(initial = snapshot()) {
     }),
     match: vi.fn(async () => current),
     getPage: vi.fn(async () => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
-      native_text: 'Broken native text', ocr_text: null, ocr_action_params: null, thumbnail_url: '/thumbnail',
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+      native_text: 'Broken native text', native_text_truncated: false, ocr_text: null, ocr_action_params: null,
+      ocr_blocks: [], thumbnail_url: '/thumbnail',
     })),
     thumbnailUrl: vi.fn(() => '/thumbnail'),
-    estimateOcrPreview: vi.fn(async () => ({ ocr_action_params: { engine: 'rapidocr' }, cached: false, estimate: null })),
+    estimateOcrPreview: vi.fn(async () => ({
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+      ocr_action_params: { engine: 'rapidocr' }, cached: false, estimate: null,
+    })),
     startOcrPreview: vi.fn(async () => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
-      ocr_action_params: { engine: 'rapidocr' }, job_id: 'preview-1', status: 'running', receipt_id: null,
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+      ocr_action_params: { engine: 'rapidocr' }, job_id: 'preview-1', status: 'running' as const, receipt_id: null,
       estimate: null, needs_confirmation: false,
     })),
     discard: vi.fn(async () => {
@@ -251,8 +257,8 @@ function createApi(initial = snapshot()) {
       return current;
     }),
     commit: vi.fn(async () => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', commit_id: 'commit-1',
-      status: 'accepted', manifest_hash: 'manifest-1', selected_total: 2,
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', commit_id: 'commit-1',
+      status: 'accepted' as const, manifest_hash: 'manifest-1', selected_total: 2,
       job: {
         commit_id: 'commit-1', import_ref: 'import-session-1', receipt_id: 'receipt-1',
         sheet_id: 42, state: 'running', committed_rows: 0, selected_total: 2, job_id: 7,
@@ -629,8 +635,8 @@ describe('PDF batch import flow', () => {
       packet: { blob_hash: 'a'.repeat(64), filename: 'PDFs', mime: 'application/pdf' as const, size: 6, page_count: 4 },
       organization: 'split_documents' as const,
       sources: [
-        { key: 'first', blob_hash: 'a'.repeat(64), filename: 'one.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 1, source_url: null },
-        { key: 'second', blob_hash: 'b'.repeat(64), filename: 'two.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 3, source_url: null },
+        { key: 'first', blob_hash: 'a'.repeat(64), filename: 'one.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 1, source_url: null, has_prepared: true, prepared_complete: true, prepared_page_count: 2 },
+        { key: 'second', blob_hash: 'b'.repeat(64), filename: 'two.pdf', size: 3, page_count: 2, page_start: 1, page_end: 2, display_start: 3, source_url: null, has_prepared: true, prepared_complete: true, prepared_page_count: 2 },
       ],
       fixed_starts: [1, 3], example_pages: [], sheet_scope: null,
       prepare: { job_id: 'prepare-1', progress: { status: 'done' as const, done: 4, total: 4, error: null }, pages_ready: [1, 2, 3, 4], native_text_pages: [1, 2, 3, 4], visual_pages_ready: 4 },
@@ -702,7 +708,7 @@ describe('PDF batch import flow', () => {
     const initial = snapshot(3, {
       choices: { ...snapshot().choices, organization: 'pages', destination },
       category_counts: { ...categories, text: 2, suspicious: 0 },
-      match: { state: 'ready', checked: 2, total: 2, matched_count: 1, new_count: 1,
+      match: { state: 'ready', checked: 2, total: 2, matched_count: 1, new_count: 1, error: null,
         new_category_counts: { ...categories, text: 1, suspicious: 0 } },
       organization_summary: { ...snapshot().organization_summary,
         output_rows: 8, new_output_rows: 3,
@@ -855,6 +861,8 @@ describe('PDF batch import flow', () => {
           thumbnail_url: '/image-thumbnail', error: null,
         }],
         next_cursor: null,
+        extension_counts: [],
+        unlisted_extension_count: 0,
       };
       if (category === 'other') return {
         items: [{
@@ -866,11 +874,12 @@ describe('PDF batch import flow', () => {
         extension_counts: [{ extension: '.txt', count: 1 }],
         unlisted_extension_count: 0,
       };
-      return { items: [], next_cursor: null };
+      return { items: [], next_cursor: null, extension_counts: [], unlisted_extension_count: 0 };
     });
     vi.mocked(api.getPage).mockImplementation(async (_projectId, _draftId, occurrenceId) => ({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: occurrenceId, page: 1,
-      native_text: '', ocr_text: null, ocr_action_params: null, thumbnail_url: '/image-thumbnail',
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: occurrenceId, page: 1,
+      native_text: '', native_text_truncated: false, ocr_text: null, ocr_action_params: null,
+      ocr_blocks: [], thumbnail_url: '/image-thumbnail',
     }));
     render(<PdfBatchImportFlow
       projectId="project-1" files={mixedFiles()} initialDestinationSheetId={9}
@@ -950,6 +959,8 @@ describe('PDF batch import flow', () => {
           thumbnail_url: '/thumbnail', error: null,
         }],
         next_cursor: null,
+        extension_counts: [],
+        unlisted_extension_count: 0,
       };
     });
     render(<PdfBatchImportFlow
@@ -970,6 +981,8 @@ describe('PDF batch import flow', () => {
         thumbnail_url: null, error: 'Could not read PDF.',
       }],
       next_cursor: null,
+      extension_counts: [],
+      unlisted_extension_count: 0,
     });
 
     expect(await screen.findByText('damaged.pdf')).toBeInTheDocument();
@@ -1251,17 +1264,17 @@ describe('PDF batch import flow', () => {
         uploadSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
       });
     });
-    let guard: (() => boolean) | null = null;
+    const guardRef: { current: (() => boolean) | null } = { current: null };
     const onError = vi.fn();
     render(<PdfBatchImportFlow
       projectId="project-1" files={files()} destinationSheets={[]} api={api}
-      onContextChange={vi.fn()} registerCloseGuard={(next) => { guard = next; }}
+      onContextChange={vi.fn()} registerCloseGuard={(next) => { guardRef.current = next; }}
       onImported={vi.fn()} onDiscarded={vi.fn()} onError={onError}
     />);
 
     await screen.findByRole('heading', { name: 'Add files' });
     await waitFor(() => expect(uploadSignal).toBeDefined());
-    expect(guard?.()).toBe(false);
+    expect(guardRef.current?.()).toBe(false);
     expect(await screen.findByTestId('pdf-batch-discard-dialog')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Keep working' })).toHaveFocus();
     await waitFor(() => expect(api.pause).toHaveBeenCalled());
@@ -1416,7 +1429,7 @@ describe('PDF batch import flow', () => {
         ...snapshot().choices,
         destination: { kind: 'existing', sheet_id: 17 },
       },
-      match: { state: 'ready', checked: 2, total: 2, matched_count: 1, new_count: 1 },
+      match: { state: 'ready', checked: 2, total: 2, matched_count: 1, new_count: 1, error: null, new_category_counts: {} },
     });
     const { api } = createApi(initial);
     render(<PdfBatchImportFlow
@@ -1448,6 +1461,8 @@ describe('PDF batch import flow', () => {
           thumbnail_url: '/text-thumbnail', error: null,
         }],
         next_cursor: null,
+        extension_counts: [],
+        unlisted_extension_count: 0,
       };
     });
     render(<PdfBatchImportFlow
@@ -1466,6 +1481,8 @@ describe('PDF batch import flow', () => {
         thumbnail_url: '/old-thumbnail', error: null,
       }],
       next_cursor: null,
+      extension_counts: [],
+      unlisted_extension_count: 0,
     });
 
     await waitFor(() => expect(screen.queryByText('old.pdf')).not.toBeInTheDocument());
@@ -1488,13 +1505,14 @@ describe('PDF batch import flow', () => {
     let resolveCompletedPage: ((value: Awaited<ReturnType<PdfImportsApi['getPage']>>) => void) | undefined;
     vi.mocked(api.getPage).mockImplementation(async () => {
       if (!started) return {
-        schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
-        native_text: 'Broken native text', ocr_text: null, ocr_action_params: null,
-        thumbnail_url: '/thumbnail',
+        schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+        native_text: 'Broken native text', native_text_truncated: false, ocr_text: null, ocr_action_params: null,
+        ocr_blocks: [], thumbnail_url: '/thumbnail',
       };
       return new Promise((resolve) => { resolveCompletedPage = resolve; });
     });
     vi.mocked(api.estimateOcrPreview).mockResolvedValue({
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
       ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, cached: false,
       estimate: { cost: 0.1, billed_cost: 100_000, rows: 1,
         requires_confirmation: true, promise_set_hash: 'preview-model-quote' },
@@ -1523,9 +1541,9 @@ describe('PDF batch import flow', () => {
 
     await waitFor(() => expect(api.getPage).toHaveBeenCalledTimes(2));
     resolveCompletedPage?.({
-      schema_version: 'frisket.pdf_import.v1', draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
-      native_text: 'Broken native text', ocr_text: 'Model OCR output',
-      ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, thumbnail_url: '/thumbnail',
+      schema_version: 'frisket.pdf_import.v1' as const, draft_id: 'draft-1', occurrence_id: 'suspicious-1', page: 1,
+      native_text: 'Broken native text', native_text_truncated: false, ocr_text: 'Model OCR output',
+      ocr_action_params: { engine: 'remote-ocr', model: 'vision-ocr-v2' }, ocr_blocks: [], thumbnail_url: '/thumbnail',
     });
     expect(await screen.findByText('Model OCR output')).toBeInTheDocument();
     expect(api.estimateOcrPreview).toHaveBeenCalledWith(
@@ -1604,7 +1622,7 @@ describe('PDF batch import flow', () => {
           ? { files_done: 2, files_total: 2, bytes_done: 6, bytes_total: 6, sealed: true }
           : server.upload,
         analysis: filesReady
-          ? { files_done: 2, files_total: 2, sealed: true }
+          ? { files_done: 2, files_total: 2 }
           : server.analysis,
       };
       return server;
@@ -1725,9 +1743,9 @@ it('refreshes files as text checking finishes without changing the selected samp
   vi.mocked(api.samples).mockImplementation(async () => ({
     items: (finished ? ['first', 'second'] : ['first']).map((name) => ({
       occurrence_id: name, logical_path: `folder/${name}.pdf`, filename: `${name}.pdf`,
-      size: 3, page_count: 2, category: 'suspicious', analysis_state: 'ready',
+      size: 3, page_count: 2, category: 'suspicious' as const, analysis_state: 'done' as const,
       sample_pages: [1], thumbnail_url: '/thumbnail', error: null,
-    })), next_cursor: null,
+    })), next_cursor: null, extension_counts: [], unlisted_extension_count: 0,
   }));
   render(<PdfBatchImportFlow projectId="project-1" files={files()} destinationSheets={[]}
     api={api} onContextChange={vi.fn()} registerCloseGuard={vi.fn()} onImported={vi.fn()}

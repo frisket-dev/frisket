@@ -215,7 +215,7 @@ def reconcile_rows_into_open_change(
         ).fetchone()
         value = canonical_column_type(column.type)
         if existing["type"] != value:
-            set_descriptor(project, column_id, "type", value, op_id=op_id, commit=False)
+            set_descriptor(project, column_id, "type", value, op_id=op_id)
     producer_id = create_base_cell_producer(db, stage_id=f"op:{op_id}", op_id=op_id)
     info = {"created_rows": [], "deleted_rows": [], "restored_rows": []}
     max_position = db.execute(

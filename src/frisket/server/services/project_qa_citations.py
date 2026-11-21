@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from frisket.engine.store import Project
@@ -114,6 +115,8 @@ def _resolve_prepared_target(
     prepared_link_id = locator.get("prepared_evidence_link_id")
     if prepared_cell is None and prepared_ref is None and prepared_link_id is None:
         return target, status
+    if not isinstance(prepared_cell, Mapping):
+        return target, "changed"
     try:
         expected_cell = tuple(
             int(prepared_cell[key]) for key in ("sheet_id", "row_id", "column_id")

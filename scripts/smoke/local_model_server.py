@@ -78,9 +78,10 @@ def main() -> None:
             ],
             check=True,
         )
-        # Model weights come from the Hugging Face Hub, which rate-limits the
-        # shared runner IPs; fetch them into the server's cache with a bounded
-        # Retry-After wait so the conversions below need no Hub API answer.
+        # Model weights come from the Hugging Face Hub, which rate-limits
+        # shared runner IPs and can hit transient DNS/transport errors; fetch
+        # them into the server's cache with bounded retries so conversions
+        # below need no Hub API answer.
         subprocess.run(
             [
                 str(runtime_python()),

@@ -27,6 +27,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.runs import RunResultStore
 from http_test_helpers import drain_queue
 from tests.helpers import write_claimed_test_results
+from frisket.engine.store.transactions import write_transaction
 
 
 PDF_BYTES = b"%PDF-1.4\n% table extraction fixture\n"
@@ -275,7 +276,8 @@ def _mutate_pdf_table_output_for_replay(
             ],
         )
         store.finish_run(run_id)
-        store.point_column_at_run(op_id, ref["column_id"], run_id)
+        with write_transaction(store.db):
+            store.point_column_at_run(op_id, ref["column_id"], run_id)
     project.db.commit()
 
 

@@ -707,7 +707,7 @@ def test_model_child_sheet_stale_resolved_rows_repauses_before_provider_call(
                 (env.seeded["sheet_id"],),
             ).fetchall()
         }
-        env.project.add_rows(
+        env.project.add_rows_in_transaction(
             env.seeded["sheet_id"],
             [
                 {

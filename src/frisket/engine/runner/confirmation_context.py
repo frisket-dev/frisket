@@ -492,10 +492,10 @@ ConfirmationScope = Annotated[
 
 
 class MoneyConfirmationContext(ContractModel):
-    """A gate that costs money: identity, live-resolved scope facts, quote.
+    """A gate that costs money: identity, live-resolved scope facts, estimate.
 
     ``family_kind`` is REQUIRED and inside the hash. Two families whose
-    scope identity and quote happened to coincide would otherwise mint the
+    scope identity and estimate happened to coincide would otherwise mint the
     same token, and an approval shown for one could be echoed to satisfy
     the other's gate — across executor architectures, where the two never
     share a code path to notice.
@@ -511,7 +511,7 @@ class MoneyConfirmationContext(ContractModel):
     # a provider id, a resolved prompt hash). Bound, never dropped: binding
     # more can only make a consent stricter.
     bindings: dict[str, Any] = Field(default_factory=dict)
-    quote: ConsentEstimate
+    estimate: ConsentEstimate
 
 
 class ScopeConfirmationContext(ContractModel):
@@ -519,7 +519,7 @@ class ScopeConfirmationContext(ContractModel):
     will do (``derive.join``'s projected fan-out, ``derive.collection_expand``'s
     previewed item count).
 
-    It has no ``quote`` field at all. Giving it one and setting it to a
+    It has no ``estimate`` field at all. Giving it one and setting it to a
     null/zero ConsentEstimate would put a cost sentinel in front of every
     reader of a gate that never had a cost — the union exists so that
     cannot happen.
@@ -559,12 +559,12 @@ def mint_confirmation_hash(
         and (context.scope.work_scope or {}).get("schema_version")
         == "frisket.work-scope-selection.v2"
     ):
-        # The saved quote remains the number the user saw. Approval binds the
+        # The saved estimate remains the number the user saw. Approval binds the
         # selected work and pricing policy, not a maximum sampled input cost.
         # Actual prepared operations acquire their own current budget hold.
         payload["schema_version"] = "frisket.approximate-confirmation.v2"
-        payload["quote"].pop("cost", None)
-        payload["quote"].pop("billed_cost", None)
+        payload["estimate"].pop("cost", None)
+        payload["estimate"].pop("billed_cost", None)
     encoded = json.dumps(
         payload,
         sort_keys=True,
@@ -593,7 +593,7 @@ def action_program_confirmation(
     return MoneyConfirmationContext(
         family_kind=family_kind,
         scope=scope,
-        quote=ConsentEstimate.from_estimate(estimate),
+        estimate=ConsentEstimate.from_estimate(estimate),
     )
 
 
@@ -622,7 +622,7 @@ def action_confirmation(
         bindings={
             key: value for key, value in estimate.items() if key not in estimate_fields
         },
-        quote=ConsentEstimate.from_estimate(
+        estimate=ConsentEstimate.from_estimate(
             {key: value for key, value in estimate.items() if key in estimate_fields}
         ),
     )

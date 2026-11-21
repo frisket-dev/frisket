@@ -104,7 +104,7 @@ describe('MediaSegmentsParamsBody', () => {
 
   it('reopens a saved repeat choice unchecked and uses only canonical checkbox state', async () => {
     const user = userEvent.setup();
-    render(<Harness initial={{ ...points, selection: { ...points.selection, repeat_for_rows: true } }} />);
+    render(<Harness initial={{ ...points, selection: { kind: 'draft_points', items: [{ at_ms: 30_000 }], repeat_for_rows: true } }} />);
     expect(screen.getByTestId('split-batch-confirm')).not.toBeChecked();
     expect(current().selection).toMatchObject({ repeat_for_rows: false });
     await user.click(screen.getByTestId('split-batch-confirm'));

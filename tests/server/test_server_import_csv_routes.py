@@ -7,9 +7,9 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.server.services.import_bulk import BulkImportLimits
 from frisket.server.services import import_csv_analysis
+from helpers import make_client
 
 
 def _raw_chunked_csv_upload(
@@ -193,12 +193,11 @@ def test_csv_append_refuses_duplicate_or_missing_destination_mapping(
 def test_direct_csv_request_limit_rejects_multipart_envelopes_before_staging(
     tmp_path: Path,
 ) -> None:
-    workspace = tmp_path / "workspace"
-    app = create_app(
-        workspace,
+    client = make_client(
+        tmp_path,
         bulk_import_limits=BulkImportLimits(max_request_bytes=512),
     )
-    client = TestClient(app)
+    app = client.app
     pid = client.post("/api/projects", json={"name": "CSV envelope quota"}).json()["id"]
 
     response = client.post(
@@ -214,12 +213,11 @@ def test_direct_csv_request_limit_rejects_multipart_envelopes_before_staging(
 def test_csv_import_request_limit_rejects_chunked_body_before_parsing(
     tmp_path: Path,
 ) -> None:
-    workspace = tmp_path / "workspace"
-    app = create_app(
-        workspace,
+    client = make_client(
+        tmp_path,
         bulk_import_limits=BulkImportLimits(max_request_bytes=512),
     )
-    client = TestClient(app)
+    app = client.app
     pid = client.post(
         "/api/projects", json={"name": "CSV import envelope quota"}
     ).json()["id"]
@@ -285,10 +283,8 @@ def test_direct_csv_publication_keeps_reversible_storage_and_public_receipt(
 
 
 def test_direct_csv_retry_replays_and_malformed_upload_is_not_published(
-    tmp_path: Path,
+    client,
 ) -> None:
-    workspace = tmp_path / "workspace"
-    client = TestClient(create_app(workspace))
     pid = client.post("/api/projects", json={"name": "CSV retry"}).json()["id"]
     upload = {"file": ("rows.csv", b"value,note\n1,a\n,b\n2,c\n", "text/csv")}
     first = client.post(f"/api/projects/{pid}/import/csv", files=upload)
@@ -504,10 +500,8 @@ def _sheet_cells(client: TestClient, pid: str, sheet_id: int) -> list[dict]:
 
 
 def test_import_csv_upload_reads_cp1252_without_replacing_characters(
-    tmp_path: Path,
+    client,
 ) -> None:
-    workspace_root = tmp_path / "workspace"
-    client = TestClient(create_app(workspace_root))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     raw = CP1252_BODY.encode("cp1252")
 
@@ -525,9 +519,7 @@ def test_import_csv_upload_reads_cp1252_without_replacing_characters(
     assert "�" not in str(rows)
 
 
-def test_import_csv_upload_honors_an_explicit_encoding(tmp_path: Path) -> None:
-    workspace_root = tmp_path / "workspace"
-    client = TestClient(create_app(workspace_root))
+def test_import_csv_upload_honors_an_explicit_encoding(client) -> None:
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     raw = "name\nJérôme\n".encode("iso-8859-2")
 
@@ -613,10 +605,8 @@ def test_explicit_utf8_strips_the_bom_from_import_headers(
     assert imported.json()["columns"] == ["name", "city"]
 
 
-def test_import_csv_upload_reads_utf16_from_its_bom(tmp_path: Path) -> None:
+def test_import_csv_upload_reads_utf16_from_its_bom(client) -> None:
     """Excel's "Unicode Text" export is UTF-16; its NUL bytes are legal UTF-8."""
-    workspace_root = tmp_path / "workspace"
-    client = TestClient(create_app(workspace_root))
     pid = client.post("/api/projects", json={"name": "CSV Upload"}).json()["id"]
     raw = "name\tcity\nMuñoz\tOslo\n".encode("utf-16")
 

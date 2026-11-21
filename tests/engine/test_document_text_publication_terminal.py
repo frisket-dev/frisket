@@ -129,7 +129,7 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         nonlocal changed
         assert not store.db.in_transaction
         store.db.execute("BEGIN IMMEDIATE")
-        op_id = store.project.append_change("edit", commit=False)
+        op_id = store.project.append_change_in_transaction("edit")
         insert_edits(
             store.db,
             op_id=op_id,
@@ -244,7 +244,8 @@ def test_source_changed_publication_refusal_closes_exact_worker(
         assert text_id not in json.loads(op[0]).get(
             "unpublished_generation_columns", []
         )
-        ResultGenerationStore(project).rebuild_heads([text_id])
+        with write_transaction(project.db):
+            ResultGenerationStore(project).rebuild_heads([text_id])
         rebuilt = project.db.execute(
             "SELECT run_id FROM cell_result_heads WHERE row_id=? AND column_id=?",
             (retained_row, text_id),
@@ -279,14 +280,15 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
         for key, value in authority.kwargs().items()
         if key != "authorized_attempt_id"
     }
-    ResultGenerationStore(project).declare(
-        run_id,
-        text_id,
-        output_role="text",
-        compatibility_key="document-text",
-        write_mode="create",
-        claim_token=authority.claim_token,
-    )
+    with write_transaction(project.db):
+        ResultGenerationStore(project).declare(
+            run_id,
+            text_id,
+            output_role="text",
+            compatibility_key="document-text",
+            write_mode="create",
+            claim_token=authority.claim_token,
+        )
     ref_id = project.db.execute("SELECT id FROM prepared_content_refs").fetchone()[0]
     call = {
         "id": "returned-checkpoint-call",
@@ -327,7 +329,7 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
         **writer_kwargs,
     ) == pytest.approx(0.125)
     project.db.execute("BEGIN IMMEDIATE")
-    edit_op = project.append_change("edit", commit=False)
+    edit_op = project.append_change_in_transaction("edit")
     insert_edits(
         project.db,
         op_id=edit_op,
@@ -342,8 +344,13 @@ def test_refused_checkpoint_publication_preserves_returned_accounting(make_proje
     for caller_owns_transaction in (False, True):
         if caller_owns_transaction:
             project.db.execute("BEGIN IMMEDIATE")
+        publish = (
+            store.publish_result_batch_in_transaction
+            if caller_owns_transaction
+            else store.publish_result_batch
+        )
         with pytest.raises(DocumentTextPublicationRefused):
-            store.publish_result_batch(
+            publish(
                 run_id,
                 batch,
                 checkpoint=("returned-document", row_id, "document-source"),

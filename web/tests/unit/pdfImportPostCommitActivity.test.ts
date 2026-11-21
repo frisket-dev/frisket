@@ -15,6 +15,7 @@ import { aiMeta, columnDef, row } from '../support/domainFixtures';
 function session(overrides: Partial<ImportSessionStatus> = {}): ImportSessionStatus {
   return {
     import_ref: 'import-00000000000000000000000000000000',
+    intake_kind: 'files',
     state: 'completed',
     admitted_files: 12,
     admitted_bytes: 1_000,
@@ -29,19 +30,26 @@ function session(overrides: Partial<ImportSessionStatus> = {}): ImportSessionSta
     search_preparation_status: 'none',
     search_preparation_batch_id: null,
     selected_total: 12,
+    estimated_rows: null,
+    processed_rows: 12,
+    skipped_duplicates: 0,
+    problem_count: 0,
+    source_label: null,
+    can_rerun_workbook: false,
+    source_error_groups: [],
     preparation_completed: 7,
     preparation_total: 12,
     ocr_completed: 3,
     ocr_total: 8,
     unreadable_total: 1,
+    preparation_stopped: false,
+    semantic_preparation_error: null,
     preparation_children: [{
       action_id: 'media.ocr',
       row_count: 8,
       completed_rows: 3,
       status: 'running',
       receipt_id: 'receipt',
-      run_id: null,
-      job_id: 43,
     }],
     reading_row_ids: [],
     waiting_row_ids: [],
@@ -114,19 +122,17 @@ describe('PDF import post-commit activity', () => {
     const activity = importActivity(session({
       state: 'running',
       preparation_children: [{
-        action_id: 'media.read_pdf_text',
+        action_id: 'media.ocr',
         row_count: 8,
         completed_rows: 3,
         status: 'partial',
         receipt_id: 'partial-receipt',
-        run_id: null,
-        job_id: 52,
       }],
     }));
 
-    expect(activity?.lines.find((line) => line.key === 'native')).toMatchObject({
+    expect(activity?.lines.find((line) => line.key === 'ocr')).toMatchObject({
       complete: false,
-      detail: '4 of 4 · needs attention',
+      detail: '3 of 8 · needs attention',
     });
   });
 
@@ -140,8 +146,6 @@ describe('PDF import post-commit activity', () => {
         completed_rows: 8,
         status: 'failed',
         receipt_id: null,
-        run_id: null,
-        job_id: null,
       }],
     }));
     const combined = composeImportSearchActivity(activity, null);

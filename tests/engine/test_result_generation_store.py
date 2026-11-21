@@ -127,16 +127,17 @@ def _declare(
 ) -> None:
     token = claimed_run.authority.claim_token
     assert token is not None
-    generations.declare(
-        claimed_run.run_id,
-        output_column_id,
-        output_role="match",
-        compatibility_key=compatibility_key,
-        write_mode=write_mode,
-        claim_token=token,
-        target_descriptor=target_descriptor,
-        defer_publication=defer_publication,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            claimed_run.run_id,
+            output_column_id,
+            output_role="match",
+            compatibility_key=compatibility_key,
+            write_mode=write_mode,
+            claim_token=token,
+            target_descriptor=target_descriptor,
+            defer_publication=defer_publication,
+        )
 
 
 def _seal(
@@ -148,12 +149,13 @@ def _seal(
 ) -> int:
     token = claimed_run.authority.claim_token
     assert token is not None
-    return generations.seal(
-        claimed_run.run_id,
-        [output_column_id],
-        claim_token=token,
-        terminal_disposition=disposition,
-    )
+    with write_transaction(generations.db):
+        return generations.seal(
+            claimed_run.run_id,
+            [output_column_id],
+            claim_token=token,
+            terminal_disposition=disposition,
+        )
 
 
 def _publish_initial_generation(
@@ -190,9 +192,10 @@ def _publish_initial_generation(
     # Transitional scalar mirror: claims acquired by current writers still
     # capture this as the replacement fence while live readers cut over to
     # exact heads.
-    RunResultStore(project).point_column_at_run(
-        first.op_id, output_column_id, first.run_id
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(
+            first.op_id, output_column_id, first.run_id
+        )
     RunResultStore(project).finish_run(
         first.run_id, **first.authority.terminal_kwargs()
     )
@@ -449,7 +452,8 @@ def test_aborted_descriptor_replacement_stays_unpublished_across_rebuild_and_ret
             == effect_count
         )
 
-        generations.rebuild_heads([column_id])
+        with write_transaction(generations.db):
+            generations.rebuild_heads([column_id])
         assert {
             head.run_id for head in generations.read_cell_heads(column_id).values()
         } == {first.run_id}
@@ -524,16 +528,17 @@ def test_coupled_abort_preserves_previous_heads_and_cannot_publish_on_retry(
             }
         ],
     )
-    assert (
-        generations.seal(
-            second.run_id,
-            [column_id],
-            claim_token=second.authority.claim_token,
-            terminal_disposition=disposition,
-            publish=False,
+    with write_transaction(generations.db):
+        assert (
+            generations.seal(
+                second.run_id,
+                [column_id],
+                claim_token=second.authority.claim_token,
+                terminal_disposition=disposition,
+                publish=False,
+            )
+            == 0
         )
-        == 0
-    )
     assert _seal(generations, second, column_id, disposition=disposition) == 0
     RunResultStore(project).finish_run(
         second.run_id, disposition, **second.authority.terminal_kwargs()
@@ -602,7 +607,8 @@ def test_deferred_fresh_generation_stays_unpublished_until_seal(
         ],
     )
     assert generations.read_cell_heads(output_column_id) == {}
-    assert generations.rebuild_heads([output_column_id]) == 0
+    with write_transaction(generations.db):
+        assert generations.rebuild_heads([output_column_id]) == 0
 
     assert _seal(generations, claimed_run, output_column_id) == 1
     assert generations.read_cell_heads(output_column_id)[row_ids[0]].value == (
@@ -859,7 +865,7 @@ def test_result_publication_preserves_ambient_transaction_ownership(
             "UPDATE ops SET label='ambient sentinel' WHERE id=?",
             (claimed_run.op_id,),
         )
-        store.publish_result_batch(
+        store.publish_result_batch_in_transaction(
             claimed_run.run_id,
             batch,
             writer_attempt_id=claimed_run.authority.writer_attempt_id,
@@ -872,7 +878,7 @@ def test_result_publication_preserves_ambient_transaction_ownership(
                 else None
             ),
             checkpoint_action_kind=("map.regex_extract" if with_checkpoint else None),
-            evidence_writer=(lambda: None) if with_evidence else None,
+            citation_writer=(lambda: None) if with_evidence else None,
         )
 
         assert project.db.in_transaction
@@ -1165,9 +1171,10 @@ def test_fresh_and_replacement_results_stream_then_seal_exact_heads(
     assert first_heads[row_ids[0]].justification == "first evidence 0"
 
     _seal(generations, first, output_column_id)
-    RunResultStore(project).point_column_at_run(
-        first.op_id, output_column_id, first.run_id
-    )
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(
+            first.op_id, output_column_id, first.run_id
+        )
     _release(project, first)
 
     targeted = row_ids[:3]
@@ -1398,14 +1405,15 @@ def test_generation_declaration_requires_a_frozen_run_scope(make_project) -> Non
         project, run_id, output_column_ids={output_column_id}
     )
     with pytest.raises(GenerationStateError, match="frozen row scope"):
-        ResultGenerationStore(project).declare(
-            run_id,
-            output_column_id,
-            output_role="generated",
-            compatibility_key="sha256:test-output-v1",
-            write_mode="create",
-            claim_token=authority.claim_token or "",
-        )
+        with write_transaction(project.db):
+            ResultGenerationStore(project).declare(
+                run_id,
+                output_column_id,
+                output_role="generated",
+                compatibility_key="sha256:test-output-v1",
+                write_mode="create",
+                claim_token=authority.claim_token or "",
+            )
     assert not ResultGenerationStore(project).bindings_for_run(run_id)
     project.close()
 
@@ -1440,16 +1448,17 @@ def test_seal_after_undo_cannot_publish_a_staged_generation(make_project) -> Non
         ],
     )
     assert project.undo() == claimed.op_id
-    assert (
-        generations.seal(
-            claimed.run_id,
-            [output_column_id],
-            claim_token=claimed.authority.claim_token or "",
-            terminal_disposition="cancelled",
-            publish=True,
+    with write_transaction(generations.db):
+        assert (
+            generations.seal(
+                claimed.run_id,
+                [output_column_id],
+                claim_token=claimed.authority.claim_token or "",
+                terminal_disposition="cancelled",
+                publish=True,
+            )
+            == 0
         )
-        == 0
-    )
     assert (
         project.db.execute(
             "SELECT published FROM results WHERE run_id=? AND row_id=? AND column_id=?",
@@ -1497,15 +1506,16 @@ def test_seal_publishes_only_complete_output_families(make_project) -> None:
         (first_column_id, "first"),
         (second_column_id, "second"),
     ):
-        generations.declare(
-            run_id,
-            column_id,
-            output_role=role,
-            compatibility_key=f"sha256:{role}-v1",
-            write_mode="create",
-            claim_token=token,
-            defer_publication=True,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                column_id,
+                output_role=role,
+                compatibility_key=f"sha256:{role}-v1",
+                write_mode="create",
+                claim_token=token,
+                defer_publication=True,
+            )
     store.write_results(
         run_id,
         [
@@ -1524,12 +1534,13 @@ def test_seal_publishes_only_complete_output_families(make_project) -> None:
         ],
         **authority.kwargs(),
     )
-    generations.seal(
-        run_id,
-        [first_column_id, second_column_id],
-        claim_token=token,
-        terminal_disposition="cancelled",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [first_column_id, second_column_id],
+            claim_token=token,
+            terminal_disposition="cancelled",
+        )
     assert (
         project.db.execute(
             "SELECT COUNT(*) FROM results WHERE run_id=? AND published=1", (run_id,)
@@ -1759,23 +1770,25 @@ def test_seal_partitions_projected_create_from_staged_output(
     assert token is not None
     generations = ResultGenerationStore(project)
     try:
-        generations.declare(
-            run_id,
-            active_column_id,
-            output_role="active",
-            compatibility_key="sha256:mixed-publication-v1",
-            write_mode="create",
-            claim_token=token,
-        )
-        generations.declare(
-            run_id,
-            staged_column_id,
-            output_role="staged",
-            compatibility_key="sha256:mixed-publication-v1",
-            write_mode="create",
-            claim_token=token,
-            defer_publication=True,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                active_column_id,
+                output_role="active",
+                compatibility_key="sha256:mixed-publication-v1",
+                write_mode="create",
+                claim_token=token,
+            )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                staged_column_id,
+                output_role="staged",
+                compatibility_key="sha256:mixed-publication-v1",
+                write_mode="create",
+                claim_token=token,
+                defer_publication=True,
+            )
         _write(
             project,
             claimed,
@@ -1820,15 +1833,16 @@ def test_seal_partitions_projected_create_from_staged_output(
             "_upsert_heads_from_key_table_uncommitted",
             observe_projection,
         )
-        assert (
-            generations.seal(
-                run_id,
-                [active_column_id, staged_column_id],
-                claim_token=token,
-                terminal_disposition="completed",
+        with write_transaction(generations.db):
+            assert (
+                generations.seal(
+                    run_id,
+                    [active_column_id, staged_column_id],
+                    claim_token=token,
+                    terminal_disposition="completed",
+                )
+                == 1
             )
-            == 1
-        )
         assert projected_tables == [{(row_ids[0], staged_column_id)}]
         assert generations.read_cell_heads(active_column_id)[row_ids[0]].value == (
             "already visible"
@@ -1940,12 +1954,14 @@ def test_rebuild_uses_applied_ops_includes_hidden_rows_and_restores_prior_heads(
     project.db.execute("UPDATE rows SET hidden=1 WHERE id=?", (row_ids[3],))
     project.db.execute("DELETE FROM cell_result_heads")
     project.db.commit()
-    assert generations.rebuild_heads() == 4
+    with write_transaction(generations.db):
+        assert generations.rebuild_heads() == 4
     assert generations.read_cell_heads(output_column_id) == expected_mixed
 
     project.db.execute("UPDATE ops SET status='undone' WHERE id=?", (second.op_id,))
     project.db.commit()
-    assert generations.rebuild_heads([output_column_id]) == 4
+    with write_transaction(generations.db):
+        assert generations.rebuild_heads([output_column_id]) == 4
     restored = generations.read_cell_heads(output_column_id)
     assert {head.run_id for head in restored.values()} == {first.run_id}
     assert restored[row_ids[0]].value == "first:0"
@@ -1954,7 +1970,8 @@ def test_rebuild_uses_applied_ops_includes_hidden_rows_and_restores_prior_heads(
 
     project.db.execute("UPDATE ops SET status='applied' WHERE id=?", (second.op_id,))
     project.db.commit()
-    assert generations.rebuild_heads([output_column_id]) == 4
+    with write_transaction(generations.db):
+        assert generations.rebuild_heads([output_column_id]) == 4
     assert generations.read_cell_heads(output_column_id) == expected_mixed
 
 
@@ -1978,14 +1995,15 @@ def test_declaration_is_idempotent_open_rejects_sealed_and_checks_base_contract(
     assert generations.get_binding(second.run_id, output_column_id) == binding
 
     with pytest.raises(GenerationDeclarationConflict, match="different immutable"):
-        generations.declare(
-            second.run_id,
-            output_column_id,
-            output_role="other-role",
-            compatibility_key="sha256:regex-text-v1",
-            write_mode="replace_scope",
-            claim_token=str(second.authority.claim_token),
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                second.run_id,
+                output_column_id,
+                output_role="other-role",
+                compatibility_key="sha256:regex-text-v1",
+                write_mode="replace_scope",
+                claim_token=str(second.authority.claim_token),
+            )
 
     _seal(generations, second, output_column_id, disposition="partial")
     with pytest.raises(GenerationSealedError, match="is sealed"):
@@ -1997,15 +2015,16 @@ def test_declaration_is_idempotent_open_rejects_sealed_and_checks_base_contract(
             output_column_id,
             disposition="cancelled",
         )
-    assert (
-        generations.seal(
-            second.run_id,
-            [output_column_id],
-            claim_token="already-released-or-successor",
-            terminal_disposition="partial",
+    with write_transaction(generations.db):
+        assert (
+            generations.seal(
+                second.run_id,
+                [output_column_id],
+                claim_token="already-released-or-successor",
+                terminal_disposition="partial",
+            )
+            == 0
         )
-        == 0
-    )
 
     # A third claim points at the first scalar base. Its incompatible managed
     # descriptor is refused even before any result can be written.
@@ -2086,30 +2105,33 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
     assert token is not None
 
     generations = ResultGenerationStore(project)
-    generations.declare(
-        run_id,
-        first_column_id,
-        output_role="first",
-        compatibility_key="sha256:multi-output-v1",
-        write_mode="create",
-        claim_token=token,
-    )
-    generations.declare(
-        run_id,
-        second_column_id,
-        output_role="second",
-        compatibility_key="sha256:multi-output-v1",
-        write_mode="create",
-        claim_token=token,
-    )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            first_column_id,
+            output_role="first",
+            compatibility_key="sha256:multi-output-v1",
+            write_mode="create",
+            claim_token=token,
+        )
+    with write_transaction(generations.db):
+        generations.declare(
+            run_id,
+            second_column_id,
+            output_role="second",
+            compatibility_key="sha256:multi-output-v1",
+            write_mode="create",
+            claim_token=token,
+        )
 
     with pytest.raises(GenerationStateError, match="complete declared output set"):
-        generations.seal(
-            run_id,
-            [first_column_id],
-            claim_token=token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(generations.db):
+            generations.seal(
+                run_id,
+                [first_column_id],
+                claim_token=token,
+                terminal_disposition="completed",
+            )
 
     _write(
         project,
@@ -2126,35 +2148,38 @@ def test_multi_output_declarations_freeze_before_effect_and_seal_as_a_group(
     with pytest.raises(
         GenerationDeclarationConflict, match="declaration set is already frozen"
     ):
-        generations.declare(
-            run_id,
-            late_column_id,
-            output_role="late",
-            compatibility_key="sha256:multi-output-v1",
-            write_mode="create",
-            claim_token=token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                late_column_id,
+                output_role="late",
+                compatibility_key="sha256:multi-output-v1",
+                write_mode="create",
+                claim_token=token,
+            )
 
-    generations.seal(
-        run_id,
-        [second_column_id, first_column_id],
-        claim_token=token,
-        terminal_disposition="completed",
-    )
+    with write_transaction(generations.db):
+        generations.seal(
+            run_id,
+            [second_column_id, first_column_id],
+            claim_token=token,
+            terminal_disposition="completed",
+        )
     assert {binding.state for binding in generations.bindings_for_run(run_id)} == {
         "sealed"
     }
     with pytest.raises(
         GenerationDeclarationConflict, match="declaration set is already frozen"
     ):
-        generations.declare(
-            run_id,
-            late_column_id,
-            output_role="late",
-            compatibility_key="sha256:multi-output-v1",
-            write_mode="create",
-            claim_token=token,
-        )
+        with write_transaction(generations.db):
+            generations.declare(
+                run_id,
+                late_column_id,
+                output_role="late",
+                compatibility_key="sha256:multi-output-v1",
+                write_mode="create",
+                claim_token=token,
+            )
 
 
 def test_progressive_head_failure_rolls_back_result_and_counters(

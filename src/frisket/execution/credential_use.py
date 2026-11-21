@@ -359,26 +359,24 @@ def require_consented_credential(
         )
 
     expected_owner = context.consented_owner
-    owner_is_required = cost_posture in {"platform_metered", "org_key"}
-    if owner_is_required and (expected_owner is None or actual_owner is None):
-        raise CredentialUseRefusal(
-            f"{effect} selected {_owner_copy(actual_owner)}, but this "
-            f"{cost_posture!r} consent does not carry both sides of the "
-            "credential-owner comparison; refusing before the call"
-        )
     expected_kind = {
         "platform_metered": "deployment",
         "org_key": "organization",
     }.get(cost_posture)
-    if expected_kind is not None and (
-        expected_owner.kind != expected_kind or actual_owner.kind != expected_kind
-    ):
-        raise CredentialUseRefusal(
-            f"{effect} carries {_owner_copy(actual_owner)} for a "
-            f"{cost_posture!r} consent naming {_owner_copy(expected_owner)}; "
-            f"both credential owners must identify a {expected_kind}; "
-            "refusing before the call"
-        )
+    if expected_kind is not None:
+        if expected_owner is None or actual_owner is None:
+            raise CredentialUseRefusal(
+                f"{effect} selected {_owner_copy(actual_owner)}, but this "
+                f"{cost_posture!r} consent does not carry both sides of the "
+                "credential-owner comparison; refusing before the call"
+            )
+        if expected_owner.kind != expected_kind or actual_owner.kind != expected_kind:
+            raise CredentialUseRefusal(
+                f"{effect} carries {_owner_copy(actual_owner)} for a "
+                f"{cost_posture!r} consent naming {_owner_copy(expected_owner)}; "
+                f"both credential owners must identify a {expected_kind}; "
+                "refusing before the call"
+            )
     if expected_owner is not None and actual_owner != expected_owner:
         raise CredentialUseRefusal(
             f"{effect} would run under {_owner_copy(actual_owner)}, but the "

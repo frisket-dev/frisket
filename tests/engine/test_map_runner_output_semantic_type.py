@@ -88,14 +88,14 @@ class TestFreshGeneratedColumnSemanticType:
             "field_name": "mentions",
             "semantic_type": "entity_mentions",
         }
-        prepared = preparation.prepare_validated(
-            p,
-            run_store,
-            spec,
-            validated=_validated(p, sheet_id, row_ids, spec),
-            resume_run_id=None,
-            defer_commits=False,
-        )
+        with write_transaction(p.db):
+            prepared = preparation.prepare_validated(
+                p,
+                run_store,
+                spec,
+                validated=_validated(p, sheet_id, row_ids, spec),
+                resume_run_id=None,
+            )
         col_id = prepared.out_cols["mentions"]
         assert p.get_column(col_id)["semantic_type"] == "entity_mentions"
         p.close()
@@ -109,14 +109,14 @@ class TestFreshGeneratedColumnSemanticType:
             "sheet_id": sheet_id,
             "field_name": "plain",
         }
-        prepared = preparation.prepare_validated(
-            p,
-            run_store,
-            spec,
-            validated=_validated(p, sheet_id, row_ids, spec),
-            resume_run_id=None,
-            defer_commits=False,
-        )
+        with write_transaction(p.db):
+            prepared = preparation.prepare_validated(
+                p,
+                run_store,
+                spec,
+                validated=_validated(p, sheet_id, row_ids, spec),
+                resume_run_id=None,
+            )
         col_id = prepared.out_cols["plain"]
         assert p.get_column(col_id)["semantic_type"] is None
         p.close()
@@ -130,14 +130,14 @@ class TestReuseConvergesSemanticType:
 
     def _run(self, p: Project, sheet_id: int, row_ids: list[int], spec: dict):
         run_store = RunResultStore(p)
-        prepared = preparation.prepare_validated(
-            p,
-            run_store,
-            spec,
-            validated=_validated(p, sheet_id, row_ids, spec),
-            resume_run_id=None,
-            defer_commits=False,
-        )
+        with write_transaction(p.db):
+            prepared = preparation.prepare_validated(
+                p,
+                run_store,
+                spec,
+                validated=_validated(p, sheet_id, row_ids, spec),
+                resume_run_id=None,
+            )
         token = f"output-claim:test-semantic:{prepared.run_id}"
         names = list(prepared.out_cols)
         with write_transaction(p.db):
@@ -163,12 +163,13 @@ class TestReuseConvergesSemanticType:
             prepared.run_id,
             output_column_ids=set(prepared.out_cols.values()),
         )
-        ResultGenerationStore(p).seal(
-            prepared.run_id,
-            prepared.out_cols.values(),
-            claim_token=token,
-            terminal_disposition="completed",
-        )
+        with write_transaction(p.db):
+            ResultGenerationStore(p).seal(
+                prepared.run_id,
+                prepared.out_cols.values(),
+                claim_token=token,
+                terminal_disposition="completed",
+            )
         run_store.finish_run(
             prepared.run_id,
             "completed",

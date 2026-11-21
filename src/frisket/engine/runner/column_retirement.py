@@ -184,7 +184,7 @@ def retire_dropped_generated_columns(
                 current_output_names,
             )
         ):
-            project.set_column_default_hidden(int(column["id"]), True, commit=False)
+            project.set_column_default_hidden(int(column["id"]), True)
             retired.append(
                 {
                     "column_id": int(column["id"]),

@@ -10,19 +10,17 @@ import { ReplaceForm } from '../../src/components/resolve/ReplaceForm';
 import type { ReplaceParams } from '../../src/generated/actionTypes';
 import { ParamsBodyHarness } from '../support/generatedParamsBodyHarness';
 import { createWorkspaceTestHarness } from '../support/workspaceTestHarness';
+import { sheetMeta } from '../support/actionFormFixtures';
 
 const api = createProjectApi('test-project');
 const { render } = createWorkspaceTestHarness({
   projectId: 'test-project', api: { projectApi: api },
 });
-const sheet: SheetMeta = {
-  id: '7', name: 'People', rowCount: 2542,
-  columns: [
-    { id: '11', name: 'employer', type: 'text' },
-    { id: '12', name: 'notes', type: 'text' },
-    { id: '13', name: 'score', type: 'number' },
-  ],
-};
+const sheet: SheetMeta = sheetMeta([
+  { id: '11', name: 'employer', type: 'text' },
+  { id: '12', name: 'notes', type: 'text' },
+  { id: '13', name: 'score', type: 'number' },
+], { id: '7', name: 'People', rowCount: 2542 });
 type PreviewInput = Parameters<typeof api.replaceRulesPreview>[0];
 const previewFor = (input: PreviewInput,
   overrides: Partial<ReplaceRulesPreview> = {}): ReplaceRulesPreview => ({

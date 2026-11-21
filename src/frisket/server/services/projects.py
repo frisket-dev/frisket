@@ -20,7 +20,7 @@ from frisket.ops.egress_policy import (
 from frisket.provider_definitions import KeyScope, provider_definition, providers_for
 from frisket.project_identity import validate_project_slug
 from frisket.project_settings import patch_project_settings, read_project_settings
-from frisket.retrieval.content import TextChunkRecipe, TranscriptChunkRecipe
+from frisket.retrieval.content import TextSliceSpec, TranscriptChunkRecipe
 from frisket.retrieval.media import (
     AudioWindowRecipe,
     FixedClipRecipe,
@@ -182,7 +182,7 @@ def _updated_retrieval_policy(
 ) -> PreparationPolicy:
     updates: dict[str, Any] = {}
     if "text_enabled" in patch:
-        updates["text_recipe"] = TextChunkRecipe() if patch["text_enabled"] else None
+        updates["text_recipe"] = TextSliceSpec() if patch["text_enabled"] else None
     if "transcript_enabled" in patch:
         updates["transcript_recipe"] = (
             TranscriptChunkRecipe() if patch["transcript_enabled"] else None

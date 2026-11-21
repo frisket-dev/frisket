@@ -28,6 +28,7 @@ class FileInventoryReader(Protocol):
 
     def files(self, ref: str) -> Iterable[InventoryFile]:
         """Yield the admitted occurrences in their durable inventory order."""
+        ...
 
 
 __all__ = ["FileInventoryReader", "InventoryFile"]

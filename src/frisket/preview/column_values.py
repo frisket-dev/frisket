@@ -24,6 +24,7 @@ from frisket.preview.common import (
 from frisket.querysets import ENTITY_MENTIONS_SEMANTIC_TYPE, column_semantic_type
 from frisket.engine.store import Project
 from frisket.engine.store.current_value_windows import read_current_column
+from frisket.engine.store.project import ProjectReadSnapshot
 
 COLUMN_VALUES_PREVIEW_SCHEMA_VERSION = "frisket.column_values_preview.v1"
 COLUMN_VALUES_DEFAULT_LIMIT = 500
@@ -370,10 +371,11 @@ def _bound_response(payload: dict[str, Any]) -> None:
         - len(json.dumps(payload, ensure_ascii=True).encode("utf-8"))
     )
     # Collection facets select members; whole-cell Resolve values are secondary.
-    for entries, target, envelope in (
-        (choices, facet["choices"] if facet is not None else [], facet),
-        (values, payload["values"], payload),
-    ):
+    sections: list[tuple[list[Any], list[Any], dict[str, Any]]] = []
+    if facet is not None:
+        sections.append((choices, facet["choices"], facet))
+    sections.append((values, payload["values"], payload))
+    for entries, target, envelope in sections:
         for entry in entries:
             cost = len(json.dumps(entry, ensure_ascii=True).encode("utf-8")) + 2
             if cost > remaining:
@@ -420,7 +422,7 @@ def resolve_column_values_preview(
 
 
 def _resolve_column_values_preview_snapshot(
-    project: Project,
+    project: Project | ProjectReadSnapshot,
     *,
     sheet_id: Any,
     input_column: Any,

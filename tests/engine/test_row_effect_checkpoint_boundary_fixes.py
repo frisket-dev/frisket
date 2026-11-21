@@ -433,7 +433,7 @@ def test_id_less_model_call_refuses_consume_of_returned_row(
             claim_token=claim_token,
         ),
     ):
-        with pytest.raises(ModelCallIdMissing):
+        with pytest.raises(ModelCallIdMissing), write_transaction(project.db):
             refuse()
 
     # Nothing moved: no result row, no second fact, checkpoint still returned.

@@ -22,6 +22,7 @@ describe('VariantBadge', () => {
 
     const iconName = variantBadgeIconName('C');
     expect(iconName).toBe('variantBadgeC');
+    if (!iconName) throw new Error('Expected iconName');
     expect(variantBadgeHeaderIcons[iconName]?.({
       fgColor: '#123456',
       bgColor: '#ffffff',

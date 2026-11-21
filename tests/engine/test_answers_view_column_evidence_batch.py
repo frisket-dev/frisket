@@ -64,7 +64,8 @@ def _seed_two_generated_rows(project: Project) -> dict[str, Any]:
         ],
     )
     RunResultStore(project).finish_run(run_id)
-    RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
+    with write_transaction(project.db):
+        RunResultStore(project).point_column_at_run(op_id, output_col, run_id)
     _values, refs = project.get_values_with_refs(sheet_id, output_col, row_ids=row_ids)
 
     with write_transaction(project.db):

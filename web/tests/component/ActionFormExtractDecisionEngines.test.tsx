@@ -5,6 +5,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ActionParamResolution } from '../../src/api/types';
 import { listProviders } from '../../src/api/open';
 import { selectorChoicesApi } from '../../src/api/selectorChoices';
 import { sheetMeta } from '../support/actionFormFixtures';
@@ -37,7 +38,7 @@ afterEach(() => {
 
 const citationMessage = 'Clef does not support citations. Turn Citations Off or choose a compatible model.';
 const fieldMessage = 'Clef supports category, boolean, and score fields only.';
-const resolveExtract: TypedResolveParams = async ({ params }) => {
+const resolveExtract: TypedResolveParams = async ({ params }): Promise<ActionParamResolution> => {
   const fields = params.fields as Array<{ name: string; type: string }>;
   const grounding = params.grounding as { enabled?: boolean } | undefined;
   if (params.engine !== 'llm') {

@@ -359,7 +359,15 @@ class _ReviewDecider(_CallOnce):
             )
         if decision == "reject_clear":
             _claimed_column(self._project, column_id, action_kind=self._action.kind)
-        state_before = str(target["review_state"])
+        raw_state_before = str(target["review_state"])
+        if raw_state_before == "unreviewed":
+            state_before: Literal["unreviewed", "verified", "rejected"] = "unreviewed"
+        elif raw_state_before == "verified":
+            state_before = "verified"
+        elif raw_state_before == "rejected":
+            state_before = "rejected"
+        else:
+            raise ValueError(f"unexpected review_state: {raw_state_before!r}")
         state_after = (
             "unreviewed"
             if decision == "clear"
@@ -1021,6 +1029,7 @@ def result_and_receipt(
     params_hash: str,
 ) -> tuple[ActionResult, Receipt]:
     if isinstance(returned, ReviewDecision):
+        assert isinstance(capability, _ReviewDecider)
         result, receipt = _review_result_and_receipt(
             returned,
             capability,
@@ -1031,6 +1040,7 @@ def result_and_receipt(
             params_hash=params_hash,
         )
     elif isinstance(returned, ReviewNote):
+        assert isinstance(capability, _ReviewNoter)
         result, receipt = _review_note_result_and_receipt(
             returned,
             capability,

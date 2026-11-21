@@ -32,11 +32,16 @@ import type { ModelPullDto } from '../../src/api/types';
 
 function pull(overrides: Partial<ModelPullDto>): ModelPullDto {
   return {
+    schemaVersion: 'frisket.model_pull.v4',
     id: 1,
     model: 'qwen3:8b',
     display_name: 'Qwen 3',
     operation_kind: 'local_model',
     capabilities: { cancel: true, retry: false, remove: false },
+    endpoint_id: null,
+    endpoint_origin: null,
+    initiated_by: null,
+    artifact: null,
     status: 'running',
     phase: 'downloading',
     total_bytes: null,

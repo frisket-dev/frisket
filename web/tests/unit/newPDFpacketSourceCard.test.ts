@@ -2,17 +2,18 @@ import { describe, expect, it } from 'vitest';
 
 import type { CitationArtifact } from '../../src/api/open';
 import { pdfPacketSourceCardData } from '../../src/components/citations/pdfPacketSourceCardModel';
+import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
-const artifact = {
+const artifact: CitationArtifact = evidenceArtifact({
   filename: 'FOIA packet.pdf',
   page_count: 196,
   external_ref: { kind: 'pdf_packet_split_source', sibling_count: 29 },
-  artifact_ref: {
-    blob: { hash: 'hash', url: '/api/blobs/hash', filename: 'FOIA packet.pdf' },
-  },
+  artifact_ref: artifactRef({
+    blob: blobRef('/api/blobs/hash', { hash: 'hash', filename: 'FOIA packet.pdf' }),
+  }),
   source_cell: { sheet_id: 17, row_id: 2, column_id: 4 },
-  spans: [{ selector: { kind: 'page_range', page_start: 17, page_end: 21 } }],
-} as CitationArtifact;
+  spans: [evidenceSpan({ selector: { kind: 'page_range', page_start: 17, page_end: 21 } })],
+});
 
 describe('PDF packet source card projection', () => {
   it('builds the deep link, range strip values, and sibling destination from evidence', () => {

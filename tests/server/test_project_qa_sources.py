@@ -232,7 +232,7 @@ def test_action_discovery_is_bounded_and_obeys_suggestions_setting(source):
         "title": "Transcribe council audio",
         "spec": draft,
     }
-    assert event["payload"]["prepared_action"]["quote"]["estimate"] == {
+    assert event["payload"]["prepared_action"]["estimate"]["estimate"] == {
         "billed_cost": 17,
         "policy_id": "normal-policy",
         "promise_set_hash": "confirmation-hash",
