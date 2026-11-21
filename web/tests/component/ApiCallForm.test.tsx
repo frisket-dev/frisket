@@ -2,11 +2,11 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { GeneratedActionDraft } from '../../src/api/types';
+import type { GeneratedActionDraft, JsonValue } from '../../src/api/types';
 import { renderApiCallForm } from '../support/apiCallActionFixture';
 
 afterEach(cleanup);
-function saved(request: Record<string, unknown>, output = 'response'): GeneratedActionDraft {
+function saved(request: Record<string, JsonValue>, output = 'response'): GeneratedActionDraft {
   return { action_id: 'map.api_call', scope: { kind: 'sheet_rows', sheet_id: 7 },
     params: { request }, output_names: { api_result: output } };
 }

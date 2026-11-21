@@ -4,7 +4,7 @@ import { cleanup, screen, waitFor, within, render } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { actionTemplatesFromCatalog } from '../../src/actions/model';
-import type { ActionCatalogPayload, GeneratedActionDraft, GeneratedActionRequest, ClusterValuesMethod } from '../../src/api/types';
+import type { ActionCatalogPayload, GeneratedActionDraft, GeneratedActionRequest, ClusterValuesMethod, JsonValue } from '../../src/api/types';
 import { WorkspaceStoresContext } from '../../src/bind/workspaceStoresContext';
 import { ActionPanel } from '../../src/components/ActionPanel';
 import { createJobStore } from '../../src/state/jobStore';
@@ -23,9 +23,11 @@ const OLD_HASH = `sha256:${'b'.repeat(64)}`;
 const CONFIRMATION = 'c'.repeat(64);
 const COMPLETED = { schema_version: 'frisket.action_result.v1', status: 'completed',
   run_id: null, job_id: null, receipt_id: 'receipt-cluster', outputs: [], errors: [] };
-const modes = [{ method: 'fingerprint' as const, knob: {} },
-  { method: 'ngram_fingerprint' as const, knob: { ngram_size: 3 } },
-  { method: 'semantic' as const, knob: { threshold: 0.91 } }];
+const modes: Array<{ method: ClusterValuesMethod; knob: Record<string, JsonValue> }> = [
+  { method: 'fingerprint', knob: {} },
+  { method: 'ngram_fingerprint', knob: { ngram_size: 3 } },
+  { method: 'semantic', knob: { threshold: 0.91 } },
+];
 let api = createProjectApi('cluster-action-panel');
 let stores: WorkspaceStores[] = [];
 afterEach(() => { cleanup(); stores.forEach((store) => store.dispose()); stores = [];
