@@ -611,7 +611,7 @@ def test_cloud_document_convert_keeps_source_provenance_and_external_accounting(
     assert transport.streams[0].closed
     [read] = owner.calls_by_row[row_id]
     assert read["external"] is True
-    assert read["tier"] == "hosted"
+    assert read["tier"] == "remote"
     assert read["document_read"] == {
         "kind": "text",
         "sheet_id": sheet_id,

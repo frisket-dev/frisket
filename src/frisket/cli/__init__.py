@@ -399,7 +399,7 @@ def _register_team_model_pull_handler(
     return True
 
 
-def _run_worker(argv: list[str], *, hosted: bool) -> int:
+def _run_worker(argv: list[str], *, cloud: bool) -> int:
     """Run the shared worker loop with an explicit registration boundary.
 
     Backend selection: an explicit --database-url (or, when no workspace is
@@ -411,13 +411,13 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     control-plane locator for handlers that need it."""
     import signal
 
-    command_name = "hosted-worker" if hosted else "worker"
-    if hosted and any(
+    command_name = "cloud-worker" if cloud else "worker"
+    if cloud and any(
         value == "--database-url" or value.startswith("--database-url=")
         for value in argv
     ):
         print(
-            "frisket hosted-worker: run-queue locator is environment-only",
+            "frisket cloud-worker: run-queue locator is environment-only",
             file=sys.stderr,
         )
         return 2
@@ -479,15 +479,15 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         None if args.workspace else os.environ.get("FRISKET_RUN_QUEUE_DATABASE_URL")
     )
     if database_url:
-        # Declare hosted posture only for the hosted worker pointed at
+        # Declare Cloud posture only for the Cloud worker pointed at
         # the real Postgres run queue. A named workspace always wins
         # over the env var above, so the local one-command path can
-        # never acquire hosted posture.
-        cloud_run_queue = hosted and database_url.startswith("postgresql")
+        # never acquire Cloud posture.
+        cloud_run_queue = cloud and database_url.startswith("postgresql")
         queue = open_queue(
             database_url=database_url,
             schema_mode="strict" if cloud_run_queue else None,
-            hosted=cloud_run_queue,
+            cloud=cloud_run_queue,
         )
         where = "run queue (database)"
         workspace = None
@@ -501,12 +501,12 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
     registry = default_registry()
     handler_root = _handler_workspace_root(workspace)
     register_handlers = (
-        register_cloud_handlers if hosted else register_production_handlers
+        register_cloud_handlers if cloud else register_production_handlers
     )
     control_database_url = os.environ.get("FRISKET_DATABASE_URL")
     registration_options = {}
     team_database_url = os.environ.get("FRISKET_TEAM_DATABASE_URL")
-    if not hosted and ((database_url and team_database_url) or control_database_url):
+    if not cloud and ((database_url and team_database_url) or control_database_url):
         from frisket.team.worker_ports import (
             open_control_plane_worker_ports,
             team_worker_ports_from_env,
@@ -518,7 +518,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         else:
             registration_options["worker_ports"] = open_control_plane_worker_ports()
     embedding_runtime = None
-    if not hosted:
+    if not cloud:
         from frisket.ai.embeddings.runtime import EmbeddingRuntime
 
         # The open local/team worker owns one encoder runtime for all claims.
@@ -530,7 +530,7 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
             "frisket.server.services.table_imports:run_table_analysis"
         )
     cloud_client = None
-    if not hosted and not database_url:
+    if not cloud and not database_url:
         from frisket.cloud_connection import CloudConnectionClient, CloudConnectionStore
         from frisket.cloud_execution import HttpCloudExecutionTransport
         from frisket.cloud_targets import CloudExecutionOverlay
@@ -555,10 +555,10 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
         control_database_url=control_database_url,
         **registration_options,
     )
-    if not hosted:
+    if not cloud:
         if database_url:
             # This branch is the TEAM worker (a run-queue-backed deployment,
-            # never an external managed composition -- that is `hosted=True`
+            # never an external managed composition -- that is `cloud=True`
             # and never reaches this call at all). Team organization surfaces have no per-
             # workspace opt-in file. The handler is unconditional because
             # non-local artifacts do not depend on a local endpoint; local
@@ -635,13 +635,13 @@ def _run_worker(argv: list[str], *, hosted: bool) -> int:
 def worker(argv: list[str]) -> int:
     """Run the trusted local/source-checkout worker."""
 
-    return _run_worker(argv, hosted=False)
+    return _run_worker(argv, cloud=False)
 
 
 def cloud_worker(argv: list[str]) -> int:
-    """Run the public-hosted worker with arbitrary code hard-disabled."""
+    """Run the Frisket Cloud worker with arbitrary code hard-disabled."""
 
-    return _run_worker(argv, hosted=True)
+    return _run_worker(argv, cloud=True)
 
 
 def _worker_argv(workspace: Path) -> list[str]:
@@ -684,7 +684,7 @@ def _subcommands() -> dict[str, tuple[str, str]]:
             "provision and migrate the Postgres run queue",
         ),
         "worker": ("frisket.cli:worker", "run the background worker by itself"),
-        "hosted-worker": (
+        "cloud-worker": (
             "frisket.cli:cloud_worker",
             "run the Cloud worker with code execution disabled",
         ),

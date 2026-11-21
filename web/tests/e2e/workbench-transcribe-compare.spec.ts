@@ -60,7 +60,7 @@ async function patchTranscribeCatalog(page: Page, projectId: string) {
     {
       id: 'stubprovider/whisper-1',
       label: 'Stub remote transcription',
-      tier: 'hosted',
+      tier: 'remote',
       billable: true,
       available: true,
       target_id: 'remote-api:stubprovider',

@@ -1,4 +1,4 @@
-"""Shared acceptance-boundary accounting for hosted document providers."""
+"""Shared acceptance-boundary accounting for remote document providers."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from frisket.ops.base import ActionContext
 from frisket.engine.store.runs import RunResultStore
 
 
-def persist_hosted_accepted_accounting(
+def persist_remote_accepted_accounting(
     ctx: ActionContext,
     accounting: dict[str, Any],
 ) -> None:
@@ -30,7 +30,7 @@ def persist_hosted_accepted_accounting(
         return
     calls = accounting.get("model_calls")
     if not isinstance(calls, list) or len(calls) != 1 or not isinstance(calls[0], dict):
-        raise RuntimeError("Hosted acceptance accounting requires one provider fact")
+        raise RuntimeError("Remote acceptance accounting requires one provider fact")
 
     admission = routed_admission_in_scope(ctx.extras)
     if admission is not None and (

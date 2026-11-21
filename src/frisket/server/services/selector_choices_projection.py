@@ -305,7 +305,7 @@ def _execution_route(
         sends_data_to = label
         account_id = payer.account_id
     elif (
-        composition.facts.edition == "hosted"
+        composition.facts.edition == "cloud"
         and (
             credential_source == "platform"
             or credential_source in {None, "missing"}
@@ -1162,7 +1162,7 @@ def _engine_destination(engine: Mapping[str, Any], target: Any) -> dict[str, str
         return {"kind": "local", "label": "On this device"}
     if tier == "sidecar":
         return {"kind": "unknown", "label": "Model server"}
-    if tier == "hosted":
+    if tier == "remote":
         return {"kind": "external", "label": "External provider"}
     return {"kind": "unknown", "label": "Destination unknown"}
 

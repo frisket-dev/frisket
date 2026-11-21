@@ -1141,9 +1141,9 @@ export interface EngineLicense {
 
 /** Three-tier engine remoteness vocabulary: 'local' = this process/box;
  *  'sidecar' = the operator's frisket-models service, which may be another
- *  machine — never labelled local; 'hosted' = leaves the operator's
+ *  machine — never labelled local; 'remote' = leaves the operator's
  *  infrastructure. */
-export type EngineTier = 'local' | 'sidecar' | 'hosted';
+export type EngineTier = 'local' | 'sidecar' | 'remote';
 
 export interface ClassificationOptionDeclaration {
   field_types: Array<'category' | 'score' | 'integer' | 'number' | 'boolean' | 'text'>;

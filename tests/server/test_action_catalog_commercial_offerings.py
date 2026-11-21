@@ -119,7 +119,7 @@ def _platform_composition(*, with_offer: bool) -> ExecutionComposition:
     provider = _SyntheticProvider()
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-catalog",
             funding=PlatformMetered(),
         ),
@@ -139,7 +139,7 @@ def _included_docling_composition(
     )
     return ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-catalog",
             funding=PlatformMetered(),
         ),
@@ -229,7 +229,7 @@ def test_managed_roster_is_the_exact_gateway_catalog_without_worker_metadata() -
     )
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-catalog",
             funding=ByokZero(),
         ),
@@ -318,7 +318,7 @@ def test_platform_composition_keeps_only_free_public_api_catalog_options(
     monkeypatch.setenv("OPENCAGE_API_KEY", "configured-own-key")
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-free-public",
             funding=PlatformMetered(),
         ),
@@ -394,7 +394,7 @@ def test_edition_target_can_offer_whisper_turbo_without_a_local_gateway() -> Non
     )
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-catalog",
             funding=PlatformMetered(),
         ),
@@ -441,7 +441,7 @@ def test_wildcard_target_materializes_only_the_exact_offered_engine() -> None:
     )
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-catalog",
             funding=PlatformMetered(),
         ),
@@ -466,7 +466,7 @@ def test_wildcard_target_materializes_only_the_exact_offered_engine() -> None:
 def test_own_key_composition_keeps_provider_direct_options() -> None:
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-byok",
             funding=ByokZero(),
         ),
@@ -488,7 +488,7 @@ def test_own_key_composition_keeps_provider_direct_options() -> None:
 def test_known_cloud_inventory_does_not_reconstruct_own_target_for_missing_route():
     composition = ExecutionComposition(
         facts=CompositionFacts(
-            edition="hosted",
+            edition="cloud",
             org_id="org-byok",
             funding=ByokZero(),
         ),

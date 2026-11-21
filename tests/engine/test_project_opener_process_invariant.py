@@ -91,7 +91,7 @@ def test_one_injected_opener_serves_every_open_path_in_the_process(
         # package directly so the booby-trapped module attributes never fire.
         return Project(path)
 
-    queue = SqliteJobQueue(tmp_path / "queue.db", hosted=True)
+    queue = SqliteJobQueue(tmp_path / "queue.db", cloud=True)
     app = create_app(
         root,
         queue=queue,

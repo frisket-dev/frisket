@@ -279,7 +279,7 @@ def test_platform_funding_without_an_offer_has_no_target_or_estimate(audio_proje
         transcription_program(_spec(sheet_id, engine="parakeet-tdt", diarize=True)),
         composition=_composition(
             project,
-            CompositionFacts(edition="hosted", funding=PlatformMetered()),
+            CompositionFacts(edition="cloud", funding=PlatformMetered()),
         ),
     )
     assert isinstance(outcome, Refusal)
@@ -298,7 +298,7 @@ def test_platform_inclusion_is_exact_free_and_not_presented_as_billing(
     composition = replace(
         _composition(
             project,
-            CompositionFacts(edition="hosted", funding=PlatformMetered()),
+            CompositionFacts(edition="cloud", funding=PlatformMetered()),
         ),
         included=(
             execution_provider.ExactExecutionMatch(
@@ -339,7 +339,7 @@ def test_composition_refuses_inclusion_not_supplied_by_provider(audio_project):
         replace(
             _composition(
                 project,
-                CompositionFacts(edition="hosted", funding=PlatformMetered()),
+                CompositionFacts(edition="cloud", funding=PlatformMetered()),
             ),
             included=(
                 execution_provider.ExactExecutionMatch(
@@ -360,7 +360,7 @@ def test_an_injected_offer_prices_the_exact_selected_target(audio_project, monke
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     composition = _composition(
         project,
-        CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        CompositionFacts(edition="cloud", funding=PlatformMetered()),
     )
     target = next(
         row for row in composition.provider.targets() if row.id == "models-gateway"
@@ -433,7 +433,7 @@ def test_bounded_scratch_offer_estimates_its_single_ephemeral_unit(
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     composition = _composition(
         project,
-        CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        CompositionFacts(edition="cloud", funding=PlatformMetered()),
     )
     target = next(
         row for row in composition.provider.targets() if row.id == "models-gateway"
@@ -499,7 +499,7 @@ def _resolved_gateway_offering(audio_project, monkeypatch, rate="0.000164"):
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
     composition = _composition(
         project,
-        CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        CompositionFacts(edition="cloud", funding=PlatformMetered()),
     )
     offering = CommercialOffering(
         match=CommercialOfferingMatch(
