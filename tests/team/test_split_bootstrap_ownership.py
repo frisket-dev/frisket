@@ -16,12 +16,15 @@ the excluded policy tables.
 
 from __future__ import annotations
 
+from decimal import Decimal
 import importlib
 import re
 from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+
+from frisket.team.bootstrap import PreSplitSchemaError, init_identity_schema
 
 pytestmark = pytest.mark.gap
 
@@ -74,7 +77,7 @@ USERS_OPEN_COLUMNS = frozenset(
         "id",
         "email",
         "name",
-        "cost_preapproval_usd",
+        "allowance_usd",
         "password_hash",
         "default_org_id",
         "created_at",
@@ -305,11 +308,6 @@ def test_team_bootstrap_stamps_a_queryable_schema_version_marker(tmp_path) -> No
 def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
     tmp_path: Path, marker_row: tuple[int, str, int] | None
 ) -> None:
-    from frisket.team.bootstrap import (
-        PreSplitSchemaError,
-        init_identity_schema,
-    )
-
     path = tmp_path / "stale-v4.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     with engine.begin() as cx:
@@ -359,8 +357,6 @@ def test_malformed_marker_refuses_before_mutating_legacy_challenge_schema(
 def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     tmp_path: Path,
 ) -> None:
-    from frisket.team.bootstrap import PreSplitSchemaError, init_identity_schema
-
     path = tmp_path / "stale-v5.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     _run_team_fresh_init(engine)(engine)
@@ -371,7 +367,7 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
     before = path.read_bytes()
 
     stale = sa.create_engine(f"sqlite:///{path}", future=True)
-    with pytest.raises(PreSplitSchemaError, match="version=7"):
+    with pytest.raises(PreSplitSchemaError, match="version=8"):
         init_identity_schema(stale)
     stale.dispose()
     assert path.read_bytes() == before
@@ -391,8 +387,6 @@ def test_v5_marker_refuses_before_creating_auth_attempt_buckets(
 def test_v6_identity_schema_upgrades_user_allowance_without_reset(
     tmp_path: Path,
 ) -> None:
-    from frisket.team.bootstrap import init_identity_schema
-
     path = tmp_path / "v6.db"
     engine = sa.create_engine(f"sqlite:///{path}", future=True)
     with engine.begin() as cx:
@@ -422,9 +416,63 @@ def test_v6_identity_schema_upgrades_user_allowance_without_reset(
             cx.exec_driver_sql(
                 "SELECT schema_version FROM schema_marker WHERE id = 1"
             ).scalar_one()
-            == 7
+            == 8
         )
         assert cx.exec_driver_sql(
-            "SELECT email, name, cost_preapproval_usd FROM users WHERE id = 1"
+            "SELECT email, name, allowance_usd FROM users WHERE id = 1"
         ).one() == ("owner@example.test", "Owner", None)
+    engine.dispose()
+
+
+def test_v7_identity_schema_renames_user_allowance_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "v7.db"
+    engine = sa.create_engine(f"sqlite:///{path}", future=True)
+    with engine.begin() as cx:
+        cx.exec_driver_sql(
+            "CREATE TABLE schema_marker ("
+            "id INTEGER PRIMARY KEY, edition VARCHAR NOT NULL, "
+            "schema_version INTEGER NOT NULL, stamped_at DATETIME)"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO schema_marker (id, edition, schema_version) "
+            "VALUES (1, 'team', 7)"
+        )
+        cx.exec_driver_sql(
+            "CREATE TABLE users ("
+            "id INTEGER PRIMARY KEY, email VARCHAR NOT NULL, name VARCHAR, "
+            "cost_preapproval_usd NUMERIC(18, 6), "
+            "password_hash VARCHAR, default_org_id INTEGER, created_at DATETIME)"
+        )
+        cx.exec_driver_sql(
+            "INSERT INTO users (id, email, name, cost_preapproval_usd) "
+            "VALUES (1, 'owner@example.test', 'Owner', 4.25), "
+            "(2, 'new@example.test', 'New User', NULL)"
+        )
+
+    for _ in range(2):
+        init_identity_schema(engine)
+
+    columns = {column["name"] for column in sa.inspect(engine).get_columns("users")}
+    assert "allowance_usd" in columns
+    assert "cost_preapproval_usd" not in columns
+    with engine.connect() as cx:
+        assert (
+            cx.exec_driver_sql(
+                "SELECT schema_version FROM schema_marker WHERE id = 1"
+            ).scalar_one()
+            == 8
+        )
+        rows = cx.exec_driver_sql(
+            "SELECT id, email, name, allowance_usd FROM users ORDER BY id"
+        ).all()
+        assert len(rows) == 2
+        assert (rows[0][0], rows[0][1], rows[0][2]) == (
+            1,
+            "owner@example.test",
+            "Owner",
+        )
+        assert Decimal(str(rows[0][3])) == Decimal("4.25")
+        assert rows[1] == (2, "new@example.test", "New User", None)
     engine.dispose()

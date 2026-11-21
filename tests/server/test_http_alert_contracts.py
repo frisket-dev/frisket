@@ -20,7 +20,7 @@ from pydantic import BaseModel, JsonValue, RootModel, ValidationError
 
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 from frisket.contracts.http.models import HttpError, WireModel
-from frisket.features.alerts.events import ALERT_CHECK_EVENT_SCHEMA_VERSION
+from frisket.alerts.events import ALERT_CHECK_EVENT_SCHEMA_VERSION
 from frisket.server.app import create_app
 from frisket.search_index import drain_index
 from tests.alert_helpers import post_alert

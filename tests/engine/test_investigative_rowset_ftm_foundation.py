@@ -10,7 +10,7 @@ from frisket.engine.store.evidence import (
     record_source_artifact,
     record_source_span,
 )
-from frisket.features.investigations.rowsets import (
+from frisket.exports.investigative_rowsets import (
     INVESTIGATIVE_ROWSET_SCHEMA_VERSION,
     InvestigativeRowsetError,
     resolve_investigative_rowset,
@@ -297,7 +297,7 @@ def test_unsupported_rowset_kinds_fail_with_typed_errors(
 def test_rowset_metadata_drift_fails_with_typed_error(
     make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from frisket.features.investigations import rowsets
+    from frisket.exports import investigative_rowsets as rowsets
 
     project = make_project("Drift")
     sheet_id = project.add_sheet("Rows")

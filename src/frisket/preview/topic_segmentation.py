@@ -24,8 +24,8 @@ from frisket.preview.common import (
     str_or_none,
 )
 from frisket.redaction import safe_error
-from frisket.features.temporal.transcript_boundaries import lock_transcript_boundaries
-from frisket.features.topic_segmentation.contracts import (
+from frisket.temporal.transcript_boundaries import lock_transcript_boundaries
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     BoundaryCandidate,
     DialogueUnit,
@@ -35,7 +35,7 @@ from frisket.features.topic_segmentation.contracts import (
     SegmentationSnapshot,
     WithinUnit,
 )
-from frisket.features.topic_segmentation.engines import (
+from frisket.topic_segmentation.engines import (
     engine_catalog,
     runtime_segmenter as get_segmenter,
 )

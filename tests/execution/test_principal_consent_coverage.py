@@ -130,7 +130,7 @@ def test_requestless_worker_uses_the_principal_pinned_at_admission(
     ).fetchone()
     assert dict(consent) == {
         "actor": alice.principal,
-        "grant_basis": "cost_preapproved",
+        "grant_basis": "allowance",
     }
 
     drain_queue(client, worker_id="principal-recovery")

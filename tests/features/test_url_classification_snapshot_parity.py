@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from frisket.features.url_classification.contract import (
+from frisket.url_classification.contract import (
     SNAPSHOT_PATH,
     SNAPSHOT_SCHEMA_VERSION,
     serialize_snapshot,
@@ -20,7 +20,7 @@ def test_snapshot_file_matches_the_serializer_output() -> None:
 
 
 def test_snapshot_is_a_faithful_projection_of_first_party_matchers() -> None:
-    from frisket.features.url_classification import registered_matchers
+    from frisket.url_classification import registered_matchers
 
     payload = json.loads(SNAPSHOT_PATH.read_text(encoding="utf-8"))
     assert payload["schema_version"] == SNAPSHOT_SCHEMA_VERSION

@@ -12,7 +12,7 @@ from frisket.notifications.emit import (
     alert_events_dedupe_key,
 )
 from frisket.engine.store import Project
-from frisket.features.alerts.events import decode_alert_check_event
+from frisket.alerts.events import decode_alert_check_event
 
 
 def alert_check_notification_candidate(

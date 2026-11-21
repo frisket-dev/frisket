@@ -203,7 +203,7 @@ def test_saved_observation_notification_recovers_without_requery(scene, monkeypa
     # Crash after baseline publication, before projecting any notification.
     queue = open_queue(workspace=project.path.parent / "queue")
     monkeypatch.setattr(
-        "frisket.features.alerts.service.evaluate_alert",
+        "frisket.alerts.service.evaluate_alert",
         lambda *args: pytest.fail("recovery must not query live data"),
     )
     reconcile_notification_delivery_requests(queue, workspace_root=project.path.parent)

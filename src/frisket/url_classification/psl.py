@@ -18,7 +18,7 @@ VENDORING (network at VENDOR time only, never at runtime):
   ``// COMMIT: 5ae2220ad86eab1364821329ff58d28828bddb19``.
 - Refresh command (re-fetch + re-pin, run from the repo root)::
 
-      uv run python -m frisket.features.url_classification.psl --refresh
+      uv run python -m frisket.url_classification.psl --refresh
 
   This overwrites the vendored ``.dat`` from the source URL and prints the new
   upstream VERSION/COMMIT to fold into ``PSL_SNAPSHOT_VERSION`` and the header
@@ -49,7 +49,7 @@ PSL_RETRIEVED = "2026-07-07"
 PSL_UPSTREAM_VERSION = "2026-07-06_09-10-11_UTC"
 PSL_UPSTREAM_COMMIT = "5ae2220ad86eab1364821329ff58d28828bddb19"
 
-_PSL_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "public_suffix_list.dat"
+_PSL_DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "public_suffix_list.dat"
 
 
 @lru_cache(maxsize=1)

@@ -137,7 +137,7 @@
     },
     {
       "id": "notifications-core-does-not-import-server",
-      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server or team layers, or engine producers and delivery jobs would need a layer exception.",
+      "comment": "frisket.notifications holds the candidate builders, the emit/route-planning core, delivery providers and secrets, digest composition and alert projections that engine jobs and server routes share. It must not depend on the server, team, or features layers, or engine producers and delivery jobs would need a layer exception.",
       "modules": [
         "frisket.notifications",
         "frisket.notifications.*"
@@ -146,13 +146,15 @@
         "frisket.server",
         "frisket.server.*",
         "frisket.team",
-        "frisket.team.*"
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
       ],
       "reject_unresolved_dynamic": true
     },
     {
       "id": "feeds-do-not-import-server",
-      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server or team layers.",
+      "comment": "frisket.feeds holds the feed checker registry, the RSS/YouTube/TikTok/CourtListener/API-list checkers and feed health. Engine poll and collection actions use them, so they must not depend on the server, team, or features layers.",
       "modules": [
         "frisket.feeds",
         "frisket.feeds.*"
@@ -161,13 +163,32 @@
         "frisket.server",
         "frisket.server.*",
         "frisket.team",
-        "frisket.team.*"
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "alerts-do-not-import-server-team-or-features",
+      "comment": "frisket.alerts holds alert event serialization, alert evaluation service, and feed/action alert triggers shared by engine stores, jobs, notifications, and server services. It must not depend on the server, team, or features layers.",
+      "modules": [
+        "frisket.alerts",
+        "frisket.alerts.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
       ],
       "reject_unresolved_dynamic": true
     },
     {
       "id": "exports-do-not-import-server",
-      "comment": "frisket.exports holds sheet export planning, row sets, media attachment policy and CSV/JSONL/Parquet rendering. Engine export actions use them, so they must not depend on the server or team layers.",
+      "comment": "frisket.exports holds sheet export planning, row sets, investigative rowset resolution, media attachment policy and CSV/JSONL/Parquet rendering. Engine export actions use them, so they must not depend on the server, team, or features layers.",
       "modules": [
         "frisket.exports",
         "frisket.exports.*"
@@ -176,29 +197,94 @@
         "frisket.server",
         "frisket.server.*",
         "frisket.team",
-        "frisket.team.*"
+        "frisket.team.*",
+        "frisket.features",
+        "frisket.features.*"
       ],
       "reject_unresolved_dynamic": true
     },
     {
+      "id": "followthemoney-does-not-import-server-team-engine-or-features",
+      "comment": "frisket.followthemoney holds the optional FollowTheMoney adapter, import planner, exporter, matcher, and write-plan helpers shared by engine entity-package actions, diagnostics, and graph neighborhood. It must not depend on server, team, engine, or features.",
+      "modules": [
+        "frisket.followthemoney",
+        "frisket.followthemoney.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "url-classification-does-not-import-server-team-engine-or-features",
+      "comment": "frisket.url_classification holds URL matcher contracts, PSL normalization, first-party matchers, and the matcher registry shared by engine fetch/collection actions, ops, feeds, plugins, and server hints. It must not depend on server, team, engine, or features.",
+      "modules": [
+        "frisket.url_classification",
+        "frisket.url_classification.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "temporal-does-not-import-server-team-engine-or-features",
+      "comment": "frisket.temporal holds pure temporal annotation projection, transcript boundary locking, and visual cut helpers shared by engine readers and preview. It must not depend on server, team, engine, or features.",
+      "modules": [
+        "frisket.temporal",
+        "frisket.temporal.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": true
+    },
+    {
+      "id": "topic-segmentation-does-not-import-server-team-engine-or-features",
+      "comment": "frisket.topic_segmentation holds topic segmentation contracts and local engines shared by engine readers, temporal helpers, actions, preview, and server hints. It must not depend on server, team, engine, or features.",
+      "modules": [
+        "frisket.topic_segmentation",
+        "frisket.topic_segmentation.*"
+      ],
+      "forbidden_imports": [
+        "frisket.server",
+        "frisket.server.*",
+        "frisket.team",
+        "frisket.team.*",
+        "frisket.engine",
+        "frisket.engine.*",
+        "frisket.features",
+        "frisket.features.*"
+      ],
+      "reject_unresolved_dynamic": false
+    },
+    {
       "id": "engine-does-not-import-features",
-      "comment": "Layer rule: the execution core must not depend on the features layer. The exclude list is the frozen set of feature consumers: entity_package (the FollowTheMoney dataset/package adapter), file_fetch and collection_read (URL classification), visual_cuts_read, topic_sections_read, temporal_annotations and temporal_finder_provenance (temporal and topic-segmentation adapters), jobs feeds/alerts and store alerts (alert events and triggers), and store media_download_candidates (URL classification). No other engine module may add such an import.",
+      "comment": "Layer rule: the execution core must not depend on the features layer.",
       "modules": [
         "frisket.engine",
         "frisket.engine.*"
-      ],
-      "exclude": [
-        "frisket.engine.executor.entity_package",
-        "frisket.engine.executor.file_fetch",
-        "frisket.engine.executor.temporal_annotations",
-        "frisket.engine.executor.temporal_finder_provenance",
-        "frisket.engine.executor.visual_cuts_read",
-        "frisket.engine.executor.topic_sections_read",
-        "frisket.engine.executor.collection_read",
-        "frisket.engine.jobs.feeds",
-        "frisket.engine.jobs.alerts",
-        "frisket.engine.store.media_download_candidates",
-        "frisket.engine.store.alerts"
       ],
       "forbidden_imports": [
         "frisket.features",

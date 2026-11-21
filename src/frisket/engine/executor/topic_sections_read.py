@@ -17,12 +17,12 @@ from frisket.engine.store.artifact_timeline import (
     canonical_json_hash,
     resolve_artifact_timeline,
 )
-from frisket.features.temporal.transcript_boundaries import lock_transcript_boundaries
+from frisket.temporal.transcript_boundaries import lock_transcript_boundaries
 from frisket.contracts.temporal_values import (
     TimelineRangesValue,
     canonical_temporal_hash,
 )
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     BetweenUnits,
     DialogueUnit,
     ExactTime,
@@ -33,7 +33,7 @@ from frisket.features.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
     WithinUnit,
 )
-from frisket.features.topic_segmentation import engines
+from frisket.topic_segmentation import engines
 
 
 def _encode_project_topic_texts(project, texts, *, embed, model_id):
