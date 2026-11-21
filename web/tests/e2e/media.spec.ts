@@ -3,18 +3,27 @@
 // playable /api/projects/{pid}/blobs/{digest} URL.
 // (playwright.config.ts launches Chromium with autoplay enabled.)
 
+import { promises as fs } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { routeV1ActionRun, routeV1ActionStatus } from './actionStatusFixtures';
 import {
   clickCell,
   clickCellLeadingControl,
+  createProject,
   listSheets,
   openAction,
   openProject,
   projectIdByName,
+  selectActionInputColumns,
   sheetColumns,
   sheetData,
+  uniqueName,
 } from './helpers';
+
+const SAMPLE_AUDIO_FILENAMES = [
+  'ann-arbor-policy-committee-2022-04-19-excerpt.mp3',
+  'ann-arbor-icpoc-2020-07-01-excerpt.mp3',
+] as const;
 
 test('audio row controls the one app-level player and actually plays', async ({ page }) => {
   const pid = await projectIdByName(page.request, 'Council audio');
@@ -88,7 +97,18 @@ test('audio grid leading control opens one dismissible player without opening ro
 });
 
 test('audio playback survives a run while new grid starts wait for terminal progress', async ({ page }) => {
-  const pid = await projectIdByName(page.request, 'Council audio');
+  const pid = await createProject(page.request, uniqueName('e2e-media-run-gate'));
+  const form = new FormData();
+  for (const filename of SAMPLE_AUDIO_FILENAMES) {
+    const bytes = await fs.readFile(
+      new URL(`../../../src/frisket/sample_content/audio/${filename}`, import.meta.url),
+    );
+    form.append('files', new Blob([bytes], { type: 'audio/mpeg' }), filename);
+  }
+  const imported = await page.request.post(`/api/projects/${pid}/import/files?sheet_name=files`, {
+    multipart: form,
+  });
+  expect(imported.ok()).toBeTruthy();
   const sheets = await listSheets(page.request, pid);
   const columns = await sheetColumns(page.request, pid, sheets[0].id);
   const runId = 8282;
@@ -107,8 +127,8 @@ test('audio playback survives a run while new grid starts wait for terminal prog
     sheetId: Number(sheets[0].id),
     status,
     live: status === 'running',
-    total: 1,
-    completed: status === 'complete' ? 1 : 0,
+    total: 2,
+    completed: status === 'complete' ? 2 : 0,
   }));
 
   await openProject(page, pid);
@@ -118,7 +138,8 @@ test('audio playback survives a run while new grid starts wait for terminal prog
   const firstSrc = await audio.getAttribute('src');
 
   await openAction(page, 'map.python');
-  await page.getByTestId('field-code').fill("result = row.get('transcript', '')");
+  await selectActionInputColumns(page, 'filename');
+  await page.getByTestId('field-code').fill("result = row.get('filename', '')");
   await page.getByTestId('generated-action-run').click();
   await expect(page.getByTestId('run-progress')).toContainText('running');
   await expect(audio).toHaveAttribute('src', firstSrc!);
