@@ -407,7 +407,7 @@ async def resolve_parakeet_artifacts(
                 cache_dir=cache_dir,
             )
 
-    if not payload:
+    if not payload and model_path is not None:
         return ParakeetArtifacts(
             cache_dir=cache_dir.resolve(strict=True),
             model_path=model_path,

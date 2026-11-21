@@ -198,7 +198,10 @@ class ImportSessionStore:
         )
         if updated.rowcount != 1:
             raise ImportSessionConflict("import session state changed")
-        return self.get(session.id)
+        refreshed = self.get(session.id)
+        if refreshed is None:
+            raise ImportSessionConflict("import session disappeared")
+        return refreshed
 
     def pause(
         self, session_id: str, authority: str, expected_cursor: int

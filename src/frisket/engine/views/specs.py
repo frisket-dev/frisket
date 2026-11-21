@@ -22,7 +22,7 @@ def _positive(value: Any, name: str) -> int:
     return value
 
 
-def normalize_selection(project: Any, value: dict[str, Any]) -> dict[str, Any]:
+def normalize_selection(project: Any, value: Any) -> dict[str, Any]:
     """Validate and retain stable column identities; never bind by a new name."""
     from frisket.contracts.view import ViewSelection
 
