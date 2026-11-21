@@ -8,8 +8,8 @@ Clean cut, then migrations
 The identity/commerce split was a pre-release clean cut: a database that
 predates it (identity and commerce fused on one `orgs` table) is still
 REJECTED rather than guessed at.  Once the split schema exists, however,
-versioned upgrades preserve its data.  In particular, v6 → v7 adds the
-user-owned cost pre-approval preference in place.
+versioned upgrades preserve its data in place (v6 -> v7 adds the user
+allowance column; v7 -> v8 renames it to `allowance_usd`).
 
 `ensure_clean_control_plane_schema` is that gate, and it is shared: an
 external hosted composition runs it too, via its own bootstrap module, so
@@ -27,7 +27,7 @@ from frisket.team.schema import metadata
 # Bumped only when the identity schema changes shape in a way that an existing
 # database cannot serve. The split itself is version 1: there is no version 0
 # to upgrade from, because pre-split databases are dropped, not migrated.
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 TEAM_EDITION = "team"
 
@@ -60,7 +60,7 @@ class PreSplitSchemaError(RuntimeError):
 
 
 def _upgrade_v6_to_v7(engine: sa.Engine, *, edition: str | None) -> bool:
-    """Add the user-owned pre-approval field without losing identity data."""
+    """Add the user-owned allowance field without losing identity data."""
 
     with engine.begin() as cx:
         marker = cx.execute(sa.select(schema_marker)).all()
@@ -75,7 +75,7 @@ def _upgrade_v6_to_v7(engine: sa.Engine, *, edition: str | None) -> bool:
         if "users" not in tables:
             return False
         columns = {column["name"] for column in sa.inspect(cx).get_columns("users")}
-        if "cost_preapproval_usd" not in columns:
+        if "cost_preapproval_usd" not in columns and "allowance_usd" not in columns:
             cx.execute(
                 sa.text(
                     "ALTER TABLE users ADD COLUMN cost_preapproval_usd NUMERIC(18, 6)"
@@ -84,7 +84,43 @@ def _upgrade_v6_to_v7(engine: sa.Engine, *, edition: str | None) -> bool:
         cx.execute(
             schema_marker.update()
             .where(schema_marker.c.id == 1)
-            .values(schema_version=SCHEMA_VERSION, stamped_at=datetime.now(UTC))
+            .values(schema_version=7, stamped_at=datetime.now(UTC))
+        )
+    return True
+
+
+def _upgrade_v7_to_v8(engine: sa.Engine, *, edition: str | None) -> bool:
+    """Rename the user allowance column in place without losing identity data."""
+
+    with engine.begin() as cx:
+        marker = cx.execute(sa.select(schema_marker)).all()
+        if (
+            len(marker) != 1
+            or marker[0].id != 1
+            or marker[0].schema_version != 7
+            or (edition is not None and marker[0].edition != edition)
+        ):
+            return False
+        tables = set(sa.inspect(cx).get_table_names())
+        if "users" not in tables:
+            return False
+        columns = {column["name"] for column in sa.inspect(cx).get_columns("users")}
+        if "allowance_usd" not in columns:
+            if "cost_preapproval_usd" in columns:
+                cx.execute(
+                    sa.text(
+                        "ALTER TABLE users "
+                        "RENAME COLUMN cost_preapproval_usd TO allowance_usd"
+                    )
+                )
+            else:
+                cx.execute(
+                    sa.text("ALTER TABLE users ADD COLUMN allowance_usd NUMERIC(18, 6)")
+                )
+        cx.execute(
+            schema_marker.update()
+            .where(schema_marker.c.id == 1)
+            .values(schema_version=8, stamped_at=datetime.now(UTC))
         )
     return True
 
@@ -110,18 +146,15 @@ def ensure_clean_control_plane_schema(
         if (
             len(markers) == 1
             and markers[0].id == 1
-            and markers[0].schema_version == SCHEMA_VERSION
             and (edition is None or markers[0].edition == edition)
         ):
-            return
-        if (
-            len(markers) == 1
-            and markers[0].id == 1
-            and markers[0].schema_version == 6
-            and (edition is None or markers[0].edition == edition)
-            and _upgrade_v6_to_v7(engine, edition=edition)
-        ):
-            return
+            version = markers[0].schema_version
+            if version == SCHEMA_VERSION:
+                return
+            if version == 6 and _upgrade_v6_to_v7(engine, edition=edition):
+                version = 7
+            if version == 7 and _upgrade_v7_to_v8(engine, edition=edition):
+                return
     raise PreSplitSchemaError(
         "control-plane database was not created by the current schema "
         f"(missing or incompatible {schema_marker.name!r}; expected "

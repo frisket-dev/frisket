@@ -49,8 +49,8 @@ users = sa.Table(
     sa.Column("id", sa.Integer, primary_key=True),
     sa.Column("email", sa.String, unique=True, nullable=False),
     sa.Column("name", sa.String),
-    # Null means the user has not yet answered the first-login spend prompt.
-    sa.Column("cost_preapproval_usd", sa.Numeric(18, 6)),
+    # Null means the user has not yet answered the first-login allowance prompt.
+    sa.Column("allowance_usd", sa.Numeric(18, 6)),
     # Null for identities authenticated only by an optional external channel.
     # Fresh server setup writes an Argon2id hash for its local owner.
     sa.Column("password_hash", sa.String),

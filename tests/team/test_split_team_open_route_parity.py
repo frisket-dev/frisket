@@ -227,10 +227,16 @@ def _effective_routes(app: Any) -> dict[tuple[str, str], tuple[str, str, str, st
     return effective
 
 
+OPEN_ALLOWANCE_KEYS = frozenset({"allowance_usd", "allowance_editable"})
+
+
 def _commerce_free(value: Any) -> bool:
     if isinstance(value, dict):
         return all(
-            not any(word in str(key).lower() for word in COMMERCE_WORDS)
+            (
+                str(key) in OPEN_ALLOWANCE_KEYS
+                or not any(word in str(key).lower() for word in COMMERCE_WORDS)
+            )
             and _commerce_free(item)
             for key, item in value.items()
         )

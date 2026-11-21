@@ -140,7 +140,7 @@ _ROUTE_FACT_FIELDS = (
 # able to say which grants a human answered and which the gate derived.
 CONSENT_BASIS_CONFIRMED = "user_confirmation"
 CONSENT_BASIS_EXACT_MATCH = "exact_match_derived"
-CONSENT_BASIS_PREAPPROVED = "cost_preapproved"
+CONSENT_BASIS_ALLOWANCE = "allowance"
 
 
 class RouteStoreError(RuntimeError):

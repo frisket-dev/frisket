@@ -66,9 +66,9 @@ from frisket.engine.runner.row_inputs import (
 )
 from frisket.engine.store import Project
 from frisket.engine.store.execution_routes import (
+    CONSENT_BASIS_ALLOWANCE,
     CONSENT_BASIS_CONFIRMED,
     CONSENT_BASIS_EXACT_MATCH,
-    CONSENT_BASIS_PREAPPROVED,
 )
 from frisket.engine.store.runs import RunResultStore
 from frisket.execution.resolve_for_action import (
@@ -1453,7 +1453,7 @@ def validate_spec(
                         resolved_execution.promise_set,
                         consent_coverage=consent_coverage,
                     )
-                    else CONSENT_BASIS_PREAPPROVED
+                    else CONSENT_BASIS_ALLOWANCE
                 )
         elif trusted_consent_authorizer is not None:
             raise TrustedConsentRefused("trusted consent requires a resolved execution")
@@ -1502,7 +1502,7 @@ def validate_spec(
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
                         if requires_confirmation
-                        else CONSENT_BASIS_PREAPPROVED
+                        else CONSENT_BASIS_ALLOWANCE
                     )
                     # Persist the same projection that was hashed.
                     unrouted_confirmation_estimate = context.quote.model_dump(
@@ -1621,7 +1621,7 @@ def validate_spec(
                     consent_basis = (
                         CONSENT_BASIS_CONFIRMED
                         if requires_confirmation
-                        else CONSENT_BASIS_PREAPPROVED
+                        else CONSENT_BASIS_ALLOWANCE
                     )
                     # Persist the same projection that was hashed.
                     unrouted_confirmation_estimate = context.quote.model_dump(
