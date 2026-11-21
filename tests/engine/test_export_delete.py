@@ -61,18 +61,12 @@ def make_project(client) -> tuple[str, int]:
 
 
 class TestExport:
-    def test_falsey_injected_blob_store_never_falls_back(self, tmp_path):
+    def test_falsey_injected_blob_store_never_falls_back(self, tmp_path, make_project):
         store = _FalseyFilesystemStore(root=tmp_path / "canonical-blobs")
-        with closing(
-            Project.create(
-                tmp_path / "falsey-store.frisket",
-                name="Falsey store",
-                blob_store=store,
-            )
-        ) as project:
-            assert project.blob_store is store
-            digest = project.add_blob(b"falsey stores are still valid")
-            assert project.read_blob(digest) == b"falsey stores are still valid"
+        project = make_project("Falsey store", blob_store=store)
+        assert project.blob_store is store
+        digest = project.add_blob(b"falsey stores are still valid")
+        assert project.read_blob(digest) == b"falsey stores are still valid"
 
     def test_export_db_manifest_and_blob_members_are_one_concurrent_snapshot(
         self,
