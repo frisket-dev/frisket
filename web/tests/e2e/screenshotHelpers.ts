@@ -59,13 +59,6 @@ export async function setTheme(page: Page, theme: 'light' | 'dark'): Promise<voi
   }, theme);
 }
 
-/** Bind a plain full-page `shoot(page, name)` to one output directory. */
-export function makeShoot(outDir: string) {
-  return async (page: Page, name: string): Promise<void> => {
-    await page.screenshot({ path: path.join(outDir, name), animations: 'disabled' });
-  };
-}
-
 /** One-off element screenshot (a specific testid's locator, not the full page). */
 export async function shootElement(
   page: Page,

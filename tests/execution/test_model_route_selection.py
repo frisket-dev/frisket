@@ -651,7 +651,7 @@ def test_metered_projection_preserves_exact_transcription_support():
     )
     owner = CredentialOwner.deployment("test")
     composition = ExecutionComposition(
-        facts=CompositionFacts(edition="hosted", funding=PlatformMetered()),
+        facts=CompositionFacts(edition="cloud", funding=PlatformMetered()),
         provider=StaticExecutionTargetProvider(),
         credential_use_context=CredentialUseContext(
             cost_posture="platform_metered",

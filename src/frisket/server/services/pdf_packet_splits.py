@@ -19,7 +19,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, Sequence
+from typing import Any, Callable, Iterator, Literal, Sequence, TypeVar
 from urllib.parse import quote
 
 from PIL import Image
@@ -166,6 +166,13 @@ class _ThumbnailLease:
 
     def close(self) -> None:
         self.path.unlink(missing_ok=True)
+
+
+_SampleOcrRequestT = TypeVar(
+    "_SampleOcrRequestT",
+    PdfPacketOcrEstimateRequest,
+    PdfPacketOcrJobRequest,
+)
 
 
 class PdfPacketSplitService:
@@ -769,8 +776,8 @@ class PdfPacketSplitService:
 
     @staticmethod
     def _sample_request(
-        body: PdfPacketOcrEstimateRequest,
-    ) -> PdfPacketOcrEstimateRequest:
+        body: _SampleOcrRequestT,
+    ) -> _SampleOcrRequestT:
         selection = body.ocr_selection
         if selection is None:
             engine = (body.engine or "").strip()
@@ -815,8 +822,10 @@ class PdfPacketSplitService:
         if source is not None and source.preview_inventory_path is not None:
             return source.preview_inventory_path
         paths = {item.preview_inventory_path for item in session.sources}
-        if len(paths) == 1 and None not in paths:
-            return next(iter(paths))
+        if len(paths) == 1:
+            only_path = next(iter(paths))
+            if only_path is not None:
+                return only_path
         return session.directory / "ocr-inventory.sqlite"
 
     def _estimate_source_sample(
@@ -833,6 +842,10 @@ class PdfPacketSplitService:
 
         if body.scope != "sample" or body.pages is None or len(body.pages) != 1:
             raise PdfPacketSplitRouteError(422, "choose one page for an OCR sample")
+        selection = body.ocr_selection
+        if selection is None:
+            raise PdfPacketSplitRouteError(422, "choose a concrete OCR engine or model")
+        selection_payload = selection.model_dump(mode="json")
         with self._admit_session(session, ready=True):
             self._refresh_text_sources(session)
             page = body.pages[0]
@@ -841,7 +854,7 @@ class PdfPacketSplitService:
             source = next(
                 item for item in session.sources if item.key == address.occurrence.key
             )
-            params = packet_ocr_params(body.ocr_selection.model_dump(mode="json"))
+            params = packet_ocr_params(selection_payload)
             coordinator = PdfPacketOcrCoordinator(
                 self._workspace,
                 preview_runs=self._preview_runs,
@@ -853,7 +866,7 @@ class PdfPacketSplitService:
                 source_key=source.key,
                 page=address.local_page,
                 revision=session.analysis_revision,
-                ocr_selection=body.ocr_selection.model_dump(mode="json"),
+                ocr_selection=selection_payload,
                 force_rescan=body.force_rescan,
                 request_context=request_context,
             )
@@ -1077,6 +1090,10 @@ class PdfPacketSplitService:
 
         if body.scope != "sample" or body.pages is None or len(body.pages) != 1:
             raise PdfPacketSplitRouteError(422, "choose one page for an OCR sample")
+        selection = body.ocr_selection
+        if selection is None:
+            raise PdfPacketSplitRouteError(422, "choose a concrete OCR engine or model")
+        selection_payload = selection.model_dump(mode="json")
         with self._admit_session(session, ready=True):
             self._sync_jobs(session)
             self._refresh_text_sources(session)
@@ -1086,7 +1103,7 @@ class PdfPacketSplitService:
             source = next(
                 item for item in session.sources if item.key == address.occurrence.key
             )
-            params = packet_ocr_params(body.ocr_selection.model_dump(mode="json"))
+            params = packet_ocr_params(selection_payload)
             self._refuse_running_ocr(session, params["engine"])
             saved = session.sample_estimate
             if (
@@ -1111,7 +1128,7 @@ class PdfPacketSplitService:
                     source_key=source.key,
                     page=address.local_page,
                     revision=session.analysis_revision,
-                    ocr_selection=body.ocr_selection.model_dump(mode="json"),
+                    ocr_selection=selection_payload,
                     force_rescan=body.force_rescan,
                     confirmation=body.confirmation,
                     request_context=request_context,

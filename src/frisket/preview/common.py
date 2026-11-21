@@ -177,7 +177,7 @@ def engine_descriptor(
 ) -> dict[str, Any]:
     """The per-engine descriptor ``ocr`` and ``transcribe``
     emit verbatim (only the table differed): the declaration's fields when the
-    engine is known, else an unknown id treated as billable hosted-tier."""
+    engine is known, else an unknown id treated as billable remote-tier."""
     decl = find_engine(table, engine)
     if decl is not None:
         return {
@@ -189,7 +189,7 @@ def engine_descriptor(
     return {
         "id": engine,
         "label": engine,
-        "tier": "hosted",
+        "tier": "remote",
         "billable": True,
     }
 

@@ -100,7 +100,7 @@ class _Creator(_CallOnce):
         if row is None:
             raise RuntimeError("created source is unavailable")
         self.after = dict(row)
-        result = _record(row)
+        result = _record(self.after)
         self.result = result
         return result
 
@@ -120,7 +120,7 @@ class _Updater(_CallOnce):
         if row is None:
             raise LookupError(source_id)
         self.after = dict(row)
-        result = UpdatedSource(_record(row), tuple(sorted(values)))
+        result = UpdatedSource(_record(self.after), tuple(sorted(values)))
         self.result = result
         return result
 
@@ -132,7 +132,7 @@ class _Deleter(_CallOnce):
         if row is None:
             raise LookupError(source_id)
         self.before = dict(row)
-        result = DeletedSource(_record(row), store.feed_checks_total(source_id))
+        result = DeletedSource(_record(self.before), store.feed_checks_total(source_id))
         store.delete_feed(source_id)
         self.result = result
         return result
@@ -174,7 +174,7 @@ class _Checker(_CallOnce):
             raise LookupError(source_id)
         self.after = dict(after)
         result = CheckedSource(
-            source=_record(after),
+            source=_record(self.after),
             source_run_id=source_run_id,
             status=status,
             new_rows=new_rows,

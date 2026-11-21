@@ -1,4 +1,4 @@
-"""One saved View definition: selection plus display preferences."""
+"""One View definition: selection plus display preferences."""
 
 from __future__ import annotations
 

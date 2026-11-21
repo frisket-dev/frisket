@@ -127,11 +127,9 @@ def _sheet_refresh_plan(
         return None
 
     derive_request = _reconstruct_derive_request(parent_op, idempotency_key)
-    saved_action = (
-        ACTION_REGISTRY.get(derive_request.action_id)
-        if derive_request is not None
-        else None
-    )
+    if derive_request is None:
+        return None
+    saved_action = ACTION_REGISTRY.get(derive_request.action_id)
     if (
         saved_action is not None
         and isinstance(saved_action.definition.run, CreateSheet)
@@ -350,6 +348,8 @@ def run_typed_sheet_refresh_action(
         from .action_reservations import _recover_stale_receipt_attempt
 
         existing = _recover_stale_receipt_attempt(project, existing, request_hash)
+        if existing is None:
+            return None
         if _recoverable_group_run(project, existing, request_hash) is not None:
             return None
         return _result_from_receipt(
@@ -380,24 +380,24 @@ def run_typed_sheet_refresh_action(
                 deps=deps,
                 prepared=capability.prepared_group,
             )
+        prepared = capability.prepared
+        assert prepared is not None
         project.db.execute("BEGIN IMMEDIATE")
         existing = replay()
         if existing is not None:
             project.db.rollback()
             return existing
         started = _begin_staged_refresh(
-            project, project_id, bound, capability.prepared, request_hash
+            project, project_id, bound, prepared, request_hash
         )
         project.db.commit()
-        facts = _publish_staged_refresh(
-            project, capability.prepared, started, deps=deps
-        )
+        facts = _publish_staged_refresh(project, prepared, started, deps=deps)
         action_id, receipt_id = started.action_id, started.receipt_id
         project.db.execute("BEGIN IMMEDIATE")
         require_refresh_writer(
             project,
-            sheet_id=capability.prepared.sheet_id,
-            parent_op_id=capability.prepared.parent_op_id,
+            sheet_id=prepared.sheet_id,
+            parent_op_id=prepared.parent_op_id,
             op_id=started.op_ids[0],
             token=started.receipt_id,
         )
@@ -650,7 +650,7 @@ def _refresh_sheet(
     }
     empty_schema = tuple(
         TableColumn(
-            key=logical_names.get(name, name),
+            key=logical_names.get(str(name), str(name)),
             type=column["type"],
             format=column["format"],
             hidden=bool(column["hidden"]),

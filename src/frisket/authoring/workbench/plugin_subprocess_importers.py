@@ -54,7 +54,9 @@ def run_plugin_importer_subprocess(
         )
     )
     if isinstance(secret_values, dict) and "_error" in secret_values:
-        return secret_values["_error"]
+        error_payload = secret_values["_error"]
+        assert isinstance(error_payload, dict)
+        return error_payload
     assert isinstance(secret_values, dict)
 
     module_path = str(metadata.get("module_path") or "")
@@ -101,7 +103,7 @@ def _run_child_importer(
     plugin_root: str,
     request: dict[str, Any],
     binding: Any,
-    source_label: str,
+    source_label: str | None,
     row_limit: int | None = None,
     cancelled: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
@@ -124,7 +126,9 @@ def _run_child_importer(
                     prefix = not builder.saw_done
                     break
         finally:
-            frames.close()
+            close_frames = getattr(frames, "close", None)
+            if callable(close_frames):
+                close_frames()
         if cancelled is not None and cancelled():
             raise TableError("action_cancelled", "Importer read was cancelled.")
         return builder.finish(prefix=prefix)
@@ -163,7 +167,9 @@ class _SpooledImporterRows:
 
 
 class _ImporterPlanBuilder:
-    def __init__(self, project: Project, *, binding: Any, source_label: str) -> None:
+    def __init__(
+        self, project: Project, *, binding: Any, source_label: str | None
+    ) -> None:
         self.project = project
         self.binding = binding
         self.source_label = source_label
@@ -269,12 +275,12 @@ class _ImporterPlanBuilder:
         }
 
     def _handle_error_frame(self, frame: dict[str, Any]) -> None:
-        error = frame.get("error") if isinstance(frame.get("error"), dict) else {}
+        raw_error = frame.get("error")
+        error: dict[str, Any] = raw_error if isinstance(raw_error, dict) else {}
+        details = error.get("details")
         self.diagnostics.extend(
             _sanitize_importer_diagnostics(
-                error.get("details", {}).get("diagnostics")
-                if isinstance(error.get("details"), dict)
-                else None
+                details.get("diagnostics") if isinstance(details, dict) else None
             )
         )
         self.error = _failed(

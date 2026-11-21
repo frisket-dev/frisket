@@ -12,7 +12,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, overload
 from urllib.parse import parse_qs, urlparse
 
 from frisket.redaction import redact_text
@@ -672,7 +672,7 @@ def _documents_for_entries(
     *,
     fallback: list[dict[str, Any]],
 ) -> list[tuple[dict[str, Any], dict[str, Any] | None]]:
-    nested = [
+    nested: list[tuple[dict[str, Any], dict[str, Any] | None]] = [
         (document, entry)
         for entry in entries
         for document in entry.get("recap_documents", [])
@@ -811,7 +811,11 @@ def _get_courtlistener_results(
             results.extend(page[:remaining])
         else:
             results.extend(page)
-        if max_results is not None and len(results) >= max_results:
+        if (
+            max_results is not None
+            and remaining is not None
+            and len(results) >= max_results
+        ):
             truncated = len(page) > remaining or raw_next is not None
             break
         if raw_next is None:
@@ -848,6 +852,16 @@ def _safe_courtlistener_next_url(value: Any, *, endpoint_url: str) -> str:
 def _endpoint_label(url: str) -> str:
     parsed = urlparse(url)
     return parsed.path or "/"
+
+
+@overload
+def _absolute_courtlistener_url(value: str | None, *, default: str) -> str: ...
+
+
+@overload
+def _absolute_courtlistener_url(
+    value: str | None, *, default: str | None
+) -> str | None: ...
 
 
 def _absolute_courtlistener_url(

@@ -2438,7 +2438,7 @@ export const ${panel.exportName} = ({ React, ctx }) =>
     'data-grid-sort': JSON.stringify(ctx?.gridState?.sort ?? null),
     'data-visible-columns': String(ctx?.gridState?.visibleColumnIds?.length ?? -1),
     'data-frozen-count': String(ctx?.gridState?.frozenColumnCount ?? -1),
-    'data-lens-id': String(ctx?.gridState?.activeLensId ?? 'none'),
+    'data-view-id': String(ctx?.gridState?.activeViewId ?? 'none'),
     'data-has-actions': String(ctx?.actions !== undefined),
   }, 'contract grid state panel');
 `,

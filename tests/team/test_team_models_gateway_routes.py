@@ -369,7 +369,7 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
             "--schedule-notification-digests-interval",
             "0",
         ],
-        hosted=False,
+        cloud=False,
     )
     assert result == 0
     assert len(captured) == 1

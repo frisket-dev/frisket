@@ -29,7 +29,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter, ResponseCache
-from frisket.authoring.plugin_registry import ActionProgramSpec, default_registry
 from frisket.server.app import create_app
 from frisket.exports.plan import build_sheet_export_plan
 from frisket.exports.sheet_csv import iter_export_csv_bytes
@@ -694,29 +693,3 @@ def export_sheet_csv_text(
         project, sheet_id, streaming_rowset=True, scope_row_ids=row_ids
     )
     return b"".join(iter_export_csv_bytes(project, plan, bom=False)).decode("utf-8")
-
-
-def install_action_program(
-    program: Any,
-    *,
-    action_kind: str,
-    plugin: str = "external",
-    registry: Any = None,
-) -> Any:
-    """Put ``program`` in a registry's action-program slot for one test.
-
-    Production code only reads this slot; tests fill it to drive the lookup
-    by ``action_kind`` and must undo it with :func:`remove_action_program`.
-    """
-    target = registry if registry is not None else default_registry()
-    with target._lock:
-        target._action_programs[action_kind] = ActionProgramSpec(
-            action_kind=action_kind, program=program, plugin=plugin
-        )
-    return program
-
-
-def remove_action_program(action_kind: str, *, registry: Any = None) -> None:
-    target = registry if registry is not None else default_registry()
-    with target._lock:
-        target._action_programs.pop(action_kind, None)

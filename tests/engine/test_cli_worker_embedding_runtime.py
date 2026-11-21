@@ -56,7 +56,7 @@ def test_local_worker_executes_semantic_index_with_owned_runtime(
         embedding_runtime_module, "EmbeddingRuntime", _RecordingEmbeddingRuntime
     )
 
-    assert _run_worker(["--drain", str(workspace)], hosted=False) == 0
+    assert _run_worker(["--drain", str(workspace)], cloud=False) == 0
 
     [runtime] = _RecordingEmbeddingRuntime.instances
     assert runtime.calls > 0

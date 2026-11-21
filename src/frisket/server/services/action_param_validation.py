@@ -14,7 +14,7 @@ is validated by the same path with no per-plugin wiring.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from types import UnionType
 from typing import Annotated, Any, Union, get_args, get_origin
 
@@ -132,18 +132,24 @@ def _union_member_shape(annotation: Any) -> str | None:
 
 
 def _selected_union_detail(
-    details: list[dict[str, Any]], annotation: Any, value: Any
-) -> dict[str, Any] | None:
+    details: Sequence[Mapping[str, Any]], annotation: Any, value: Any
+) -> Mapping[str, Any] | None:
     """Drop only direct shape mismatches from Pydantic's existing verdict."""
 
     member = _submitted_union_member(annotation, value)
     if member is None:
         return None
     shape = _union_member_shape(member)
-    mismatches = {
-        "array": frozenset({"model_type", "dict_type"}),
-        "object": frozenset({"list_type", "tuple_type", "set_type", "frozenset_type"}),
-    }.get(shape, frozenset())
+    mismatches = (
+        {
+            "array": frozenset({"model_type", "dict_type"}),
+            "object": frozenset(
+                {"list_type", "tuple_type", "set_type", "frozenset_type"}
+            ),
+        }.get(shape, frozenset())
+        if shape is not None
+        else frozenset()
+    )
     for detail in details:
         location = tuple(detail.get("loc", ()))
         if len(location) == 2 and str(detail.get("type")) in mismatches:
@@ -183,7 +189,7 @@ def _typed_param_diagnostics(
     competing object branch (or its internal type name).
     """
 
-    details_by_field: dict[str, list[dict[str, Any]]] = {}
+    details_by_field: dict[str, list[Mapping[str, Any]]] = {}
     for detail in error.errors(include_url=False, include_input=False):
         location = detail.get("loc", ())
         field = (
@@ -548,7 +554,11 @@ class ActionParamValidationService:
                     else:
                         try:
                             if isinstance(terminal, ModelRows):
-                                raw_row_ids = scope.get("row_ids")
+                                raw_row_ids = (
+                                    scope.get("row_ids")
+                                    if isinstance(scope, Mapping)
+                                    else None
+                                )
                                 validate_model_rows_project_inputs(
                                     self._workspace.get(project_id),
                                     action_id=kind,

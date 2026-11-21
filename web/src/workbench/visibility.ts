@@ -77,7 +77,7 @@ const WORKBENCH_VISIBILITY_HOST_POLICIES: readonly WorkbenchVisibilityHostPolicy
       'frisket.core.panel.sources',
       'frisket.investigative.panel.friendly_filters',
       'frisket.investigative.panel.mentions',
-      'frisket.core.panel.saved_views',
+      'frisket.core.panel.views',
       'frisket.core.panel.watches',
       'frisket.embeddings.panel.indexes',
     ],

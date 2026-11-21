@@ -110,8 +110,8 @@ async function expectEmbeddingPanelContribution(contribution: Locator) {
     'embedding.index.list',
     'embedding.index.policy.update',
     'embedding.index.refresh',
-    'embedding.lens.open',
     'embedding.provider.catalog.read',
+    'embedding.view.open',
     'host.navigation.openSheet',
   ].sort());
 }

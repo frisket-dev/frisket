@@ -30,13 +30,18 @@ fi
 # runs. A stale queue makes fresh tests wait behind orphaned work and surfaces
 # as misleading "running 0/N rows" UI timeouts.
 rm -f "$WS/.queue.db" "$WS/.queue.db-wal" "$WS/.queue.db-shm"
-if [ -f .secrets/frisket.env ]; then set -a; . .secrets/frisket.env; set +a; fi
+# Opt-in only: sourcing .secrets/frisket.env by default would let local runs
+# without FRISKET_CACHE_MODE=replay_strict spend real provider money.
+if [ "${FRISKET_E2E_ALLOW_LIVE_SPEND:-0}" = "1" ] && [ -f .secrets/frisket.env ]; then
+  set -a
+  . .secrets/frisket.env
+  set +a
+fi
 # Credential-gate specs (action-api-key-gate.spec.ts) assert the
 # needs-credential banner for actions whose key is UNSET. Real dev keys from
-# .secrets/frisket.env would satisfy resolve_credential (env wins over project
-# secrets, src/frisket/credentials.py) and silently break that premise, so
-# gate-tested credentials never reach the e2e backend. Provider model keys
-# stay: the seeder records real model calls.
+# the environment or .secrets/frisket.env would satisfy resolve_credential (env
+# wins over project secrets, src/frisket/credentials.py) and silently break
+# that premise, so gate-tested credentials never reach the e2e backend.
 unset CENSUS_API_KEY FEC_API_KEY
 if [ "${FRISKET_E2E_MINIMAL_DEPS:-0}" = "1" ]; then
   # Preserve the preceding keyless `uv sync --no-dev`; syncing here would

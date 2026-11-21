@@ -49,7 +49,7 @@ function entry(): ActionCatalogEntry {
       form_params: [
         { name: 'instructions', label: 'Extra context', type: 'textarea' },
       ],
-      engines: [{ id: 'llm', label: 'Language model', tier: 'hosted' }],
+      engines: [{ id: 'llm', label: 'Language model', tier: 'remote' }],
       logical_outputs: [{ key: 'result', column_type: 'json' }],
     },
     receipt_policy: 'writes_receipt',

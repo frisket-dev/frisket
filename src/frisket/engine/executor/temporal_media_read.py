@@ -197,7 +197,7 @@ class AdmittedTemporalMediaReader:
             media = MediaBlobStore.media_cell(
                 digest, mime=item.clip.payload.mime, filename=item.clip.payload.filename
             )
-            values = {column.key: None for column in schema}
+            values: dict[str, object] = {column.key: None for column in schema}
             preview_clock = None
             if self.preview_stager is not None:
                 with Path(item.clip.payload.path).open("rb") as stream:
@@ -227,9 +227,9 @@ class AdmittedTemporalMediaReader:
                 return handle
 
             values["clip"] = admit("clip", None, media, media_type)
-            values["source_range"] = _source_range_for_staged(item)
+            source_range = _source_range_for_staged(item)
+            values["source_range"] = source_range
             if self.preview_stager is not None:
-                source_range = values["source_range"]
                 values["source_range"] = admit(
                     "source_range",
                     None,

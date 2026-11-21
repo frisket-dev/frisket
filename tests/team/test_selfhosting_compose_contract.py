@@ -44,12 +44,12 @@ def test_source_compose_uses_a_version_independent_local_image_fallback() -> Non
 
 
 # ---------------------------------------------------------------------------
-# (c) the worker command: never the managed-worker-only hosted-worker
+# (c) the worker command: never the managed-worker-only cloud-worker
 # ---------------------------------------------------------------------------
 
 
 def test_worker_service_runs_the_self_hostable_worker_command() -> None:
-    """frisket hosted-worker is the managed-worker-only mode: it refuses to
+    """frisket cloud-worker is the managed-worker-only mode: it refuses to
     register handlers without an external worker edition and crash-loops
     forever on this artifact. `frisket worker` is the self-hostable
     entry point. This was the most severe rehearsal finding — wiring the
@@ -61,8 +61,8 @@ def test_worker_service_runs_the_self_hostable_worker_command() -> None:
         tokens = command.split()
     else:
         tokens = list(command)
-    assert "hosted-worker" not in tokens, (
-        "worker service must never run `frisket hosted-worker` "
+    assert "cloud-worker" not in tokens, (
+        "worker service must never run `frisket cloud-worker` "
         "(managed-worker-only, crash-loops without an external edition)"
     )
     assert tokens == ["frisket", "worker"], (

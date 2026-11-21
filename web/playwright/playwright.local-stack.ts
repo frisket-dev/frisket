@@ -195,7 +195,7 @@ function localPortPair(): { frontendPort: number; backendPort: number; fixedPort
   };
 }
 
-export function localStack() {
+export function localStack(options: { allowLiveSpend?: boolean } = {}) {
   // Feature E2E runs must not send analytics or stop at the telemetry choice.
   process.env.FRISKET_TELEMETRY ??= 'off';
   const { frontendPort, backendPort, fixedPorts } = localPortPair();
@@ -234,11 +234,14 @@ export function localStack() {
   prepareE2EWorkspace({ workspace, runId });
   process.once('exit', () => removeActiveMarker(workspace));
 
+  const allowLiveSpend =
+    options.allowLiveSpend || process.env.FRISKET_E2E_ALLOW_LIVE_SPEND === '1';
   const backendCommand =
     `FRISKET_E2E_WS=${shellQuote(workspace)} ` +
     `FRISKET_E2E_BASE_WS=${shellQuote(baseWorkspace)} ` +
     `FRISKET_E2E_BACKEND_PORT=${backendPort} ` +
     `FRISKET_E2E_ISOLATED=${process.env.FRISKET_E2E_ISOLATED} ` +
+    (allowLiveSpend ? 'FRISKET_E2E_ALLOW_LIVE_SPEND=1 ' : '') +
     'FRISKET_ENABLE_REAL_LOCAL_PLUGIN_SMOKE_HANDLER=1 ' +
     'bash ../scripts/e2e/e2e_backend.sh';
   const frontendCommand =

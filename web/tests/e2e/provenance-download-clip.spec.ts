@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { REPO_ROOT, createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
 import { testPython } from '../support/testPython';
 
 // The server contract
@@ -13,11 +13,6 @@ import { testPython } from '../support/testPython';
 // the viewer affordance sits beside the seek button on a temporal span and
 // downloads a real ffmpeg-cut clip of the span's own locally-resolvable blob
 // (no parent-video lineage traversal -- that's a separate gated task).
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav')).toString('base64');

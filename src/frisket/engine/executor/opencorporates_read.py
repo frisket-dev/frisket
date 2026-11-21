@@ -98,10 +98,10 @@ class AdmittedOpenCorporates:
     async def __aenter__(self):
         return self
 
-    def _ensure_started(self, ctx):
+    def _ensure_started(self, ctx) -> httpx.AsyncClient:
         self.check_active(ctx)
         if self.client is not None:
-            return
+            return self.client
         from frisket.authoring.workbench.plugin_subprocess import (
             _project_plugin_secrets,
         )
@@ -121,6 +121,7 @@ class AdmittedOpenCorporates:
             timeout=20,
             follow_redirects=False,
         )
+        return self.client
 
     async def __aexit__(self, *_):
         self.closed = True
@@ -133,6 +134,8 @@ class AdmittedOpenCorporates:
         from frisket.execution.attempt import attempt_in_scope
 
         writer = attempt_in_scope(ctx.extras)
+        if writer is None:
+            raise RuntimeError("OpenCorporates requires its admitted writer")
         ReceiptStore(ctx.project)._record_writer_supporting_record(
             {
                 "kind": "opencorporates_request",
@@ -164,7 +167,7 @@ class AdmittedOpenCorporates:
 
     async def __call__(self, frame, *, ctx=None):
         ctx = ctx or self.ctx
-        self._ensure_started(ctx)
+        client = self._ensure_started(ctx)
         try:
             call = _Call.model_validate(frame)
             if call.method == "reconcile":
@@ -174,7 +177,7 @@ class AdmittedOpenCorporates:
                     query["jurisdiction_code"] = arguments.jurisdiction_code
 
                 async def invoke():
-                    return await self.client.post(
+                    return await client.post(
                         "https://opencorporates.com/reconcile",
                         data={
                             "queries": json.dumps({"row": query}, separators=(",", ":"))
@@ -186,7 +189,7 @@ class AdmittedOpenCorporates:
                     raise ValueError("invalid company number")
 
                 async def invoke():
-                    return await self.client.get(
+                    return await client.get(
                         "https://api.opencorporates.com/v0.4/companies/"
                         + quote(arguments.jurisdiction_code, safe="")
                         + "/"
@@ -249,7 +252,7 @@ class AdmittedOpenCorporates:
                 payload = response.json()
                 if not isinstance(payload, dict):
                     raise ValueError("invalid provider response")
-                if call.method == "reconcile":
+                if isinstance(arguments, _Reconcile):
                     row = payload.get("row", payload)
                     value = row.get("result") if isinstance(row, dict) else None
                     if not isinstance(value, list) or not all(

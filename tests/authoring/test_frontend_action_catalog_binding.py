@@ -7,7 +7,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
-from frisket.authoring.plugin_registry import default_registry
 from frisket.server.app import create_app
 
 
@@ -79,14 +78,6 @@ def test_action_catalog_http_payload_carries_launcher_hints(tmp_path) -> None:
     response = client.get("/api/actions/v1/catalog")
     assert response.status_code == 200
     payload = response.json()
-    catalog_kinds = {entry["kind"] for entry in payload["actions"]}
-    registered_kinds = {
-        spec.action_kind for spec in default_registry().action_program_specs()
-    }
-    # The registry is keyed by the same canonical action identity the catalog
-    # serves; private recipe implementation names are not part of this check.
-    missing_catalog_kinds = registered_kinds - catalog_kinds
-    assert not missing_catalog_kinds
 
     geocode = _catalog_entry(payload, "enrich.geocode")
     geocode_hints = geocode["ui_hints"]

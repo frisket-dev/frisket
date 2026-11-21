@@ -10,11 +10,9 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, openProject, uniqueName } from './helpers';
+import { REPO_ROOT, createProject, openProject, uniqueName } from './helpers';
 import { testPython } from '../support/testPython';
 
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav')).toString('base64');
 

@@ -2,11 +2,8 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
-import { createProject, dblclickCell, openProject, sheetColumns, textPdf, uniqueName } from './helpers';
+import { REPO_ROOT, createProject, dblclickCell, openProject, sheetColumns, textPdf, uniqueName } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT = path.basename(process.cwd()) === 'web'
-  ? path.resolve(process.cwd(), '..') : process.cwd();
 
 function seedLazyEvidence(pid: string, sheetId: number): void {
   const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');

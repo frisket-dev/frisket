@@ -23,11 +23,8 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, importCsv, openProject, selectRow, uniqueName } from './helpers';
+import { REPO_ROOT, createProject, importCsv, openProject, selectRow, uniqueName } from './helpers';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web' ? path.resolve(process.cwd(), '..') : process.cwd();
 
 interface SeededAnswersSheet {
   sheetId: number;

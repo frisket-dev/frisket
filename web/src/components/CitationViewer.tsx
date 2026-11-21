@@ -5,12 +5,12 @@ import type { CitationViewerPayload } from '../api/open';
 import { useWorkspaceStores } from '../bind/useWorkspaceStores';
 import { PanelLoading } from './PanelPrimitives';
 import { WindowCloseButton } from './WindowCloseButton';
-import { ArtifactSource } from './evidence/ArtifactSource';
-import { ArtifactDetails, GroundingDegradedNotice, LinkSummary } from './evidence/CitationDetails';
-import { PdfPacketSourceCard } from './evidence/CitationDocumentSource';
-import type { RecoveryState } from './evidence/CitationTextSource';
-import { selectorNumber } from './evidence/citationSourceModel';
-import { pdfPacketSourceCardData } from './evidence/pdfPacketSourceCardModel';
+import { ArtifactSource } from './citations/ArtifactSource';
+import { ArtifactDetails, GroundingDegradedNotice, LinkSummary } from './citations/CitationDetails';
+import { PdfPacketSourceCard } from './citations/CitationDocumentSource';
+import type { RecoveryState } from './citations/CitationTextSource';
+import { selectorNumber } from './citations/citationSourceModel';
+import { pdfPacketSourceCardData } from './citations/pdfPacketSourceCardModel';
 
 interface CitationViewerProps {
   evidenceLinkId: string | number;

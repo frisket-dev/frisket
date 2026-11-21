@@ -62,7 +62,8 @@ def save_expected_answer(service, pid, raw):
             (
                 item
                 for item in store.links(project, sheet_id)
-                if item["action_id"] == context["draft"]["action_id"]
+                if item is not None
+                and item["action_id"] == context["draft"]["action_id"]
                 and any(
                     field["logical_key"] == body["logical_key"]
                     and field["output_column_id"] == output["column_id"]

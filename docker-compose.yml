@@ -212,7 +212,7 @@ services:
     image: ${FRISKET_IMAGE:-frisket-team:local}
     restart: unless-stopped
     # Self-hosted job execution. `frisket worker` is the self-hostable entry
-    # point with full recipe/code-execution capability. `frisket hosted-worker`
+    # point with full recipe/code-execution capability. `frisket cloud-worker`
     # is a different, managed-worker-only mode: it refuses to register
     # handlers at all unless an external managed-worker composition is
     # installed, and crash-loops forever on this artifact — never wire that

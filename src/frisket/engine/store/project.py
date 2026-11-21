@@ -36,10 +36,10 @@ from . import (
     op_log,
     project_blobs,
     project_meta,
-    saved_views,
     sheet_lifecycle,
     alerts,
 )
+from . import views as _views_store
 from .schema import (
     FORMAT_VERSION,
     SCHEMA,
@@ -590,12 +590,12 @@ class Project:
         with self.materialize_blob(digest) as path:
             return Path(path).read_bytes()
 
-    # ---------- saved_views: filter/flag views ----------
-    views = saved_views.views
-    get_view = saved_views.get_view
-    add_view = saved_views.add_view
-    update_view = saved_views.update_view
-    delete_view = saved_views.delete_view
+    # ---------- views: filter/flag views ----------
+    views = _views_store.views
+    get_view = _views_store.get_view
+    add_view = _views_store.add_view
+    update_view = _views_store.update_view
+    delete_view = _views_store.delete_view
 
     # ---------- alerts: alerts ----------
     get_alert = alerts.get_alert

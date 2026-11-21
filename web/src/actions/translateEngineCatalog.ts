@@ -62,11 +62,11 @@ const TRANSLATE_HY_MT2: LanguageDeclaration = {
 };
 
 export const TRANSLATE_ENGINE_FALLBACK: EngineOption[] = [
-  { id: 'llm', label: 'LLM translation (uses your model)', tier: 'hosted', billable: true, available: false, error: 'Action catalog unavailable', language: TRANSLATE_SINGLE_DETECTS },
+  { id: 'llm', label: 'LLM translation (uses your model)', tier: 'remote', billable: true, available: false, error: 'Action catalog unavailable', language: TRANSLATE_SINGLE_DETECTS },
   {
     id: 'deepl',
     label: 'DeepL API',
-    tier: 'hosted',
+    tier: 'remote',
     billable: true,
     available: false,
     error: 'Action catalog unavailable',
@@ -75,7 +75,7 @@ export const TRANSLATE_ENGINE_FALLBACK: EngineOption[] = [
   {
     id: 'google_translate',
     label: 'Google Cloud Translation',
-    tier: 'hosted',
+    tier: 'remote',
     billable: true,
     available: false,
     error: 'Action catalog unavailable',

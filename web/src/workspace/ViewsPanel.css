@@ -10,19 +10,19 @@
   min-width: 0;
 }
 .views-editor-actions,
-.saved-view-actions {
+.view-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.saved-views-list {
+.views-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
   min-width: 0;
 }
-.saved-view-item {
+.view-item {
   display: flex;
   align-items: flex-start;
   gap: 6px;
@@ -33,14 +33,14 @@
   background: var(--bg);
   padding: 6px;
 }
-.saved-view-main {
+.view-main {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
-.saved-view-apply {
+.view-apply {
   font-weight: 600;
   color: var(--text);
   max-width: 100%;
@@ -49,21 +49,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.saved-view-summary { overflow-wrap: anywhere; color: var(--text-light); font-size: 11px; }
-.saved-view-actions { flex: 0 0 auto; justify-content: flex-end; }
+.view-summary { overflow-wrap: anywhere; color: var(--text-light); font-size: 11px; }
+.view-actions { flex: 0 0 auto; justify-content: flex-end; }
 @media (max-width: 260px) {
   /* Discover supports a 220px edge panel. Keep row controls reachable rather
      than shrinking labels or letting the flex row force a horizontal scroll. */
-  .saved-view-item { flex-wrap: wrap; }
-  .saved-view-actions { width: 100%; justify-content: flex-start; }
+  .view-item { flex-wrap: wrap; }
+  .view-actions { width: 100%; justify-content: flex-start; }
   .views-editor-actions > .btn { flex: 1 1 auto; }
 }
 .views-empty {
   color: var(--text-light);
   font-size: 12px;
 }
-.active-saved-view-chip,
-.saved-view-active {
+.active-view-chip,
+.view-active {
   border: 1px solid var(--accent);
   border-radius: 999px;
   color: var(--accent);
@@ -73,6 +73,6 @@
   line-height: 1.5;
   padding: 1px 7px;
 }
-.active-saved-view-chip { cursor: pointer; }
+.active-view-chip { cursor: pointer; }
 
-.saved-view-active { align-self: flex-start; }
+.view-active { align-self: flex-start; }

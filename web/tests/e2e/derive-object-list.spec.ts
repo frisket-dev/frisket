@@ -7,13 +7,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import {
+  REPO_ROOT,
   clickRunButton,
   createProject,
   editCells,
   importCsv,
   listSheets,
   openAction,
+  primeMapRowsReplies,
   sheetData,
+  typedActionRequest,
   type WireSheet,
   uniqueName,
 } from './helpers';
@@ -27,11 +30,6 @@ import {
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
 import { testPython } from '../support/testPython';
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const CSV =
   'episode,description\n' +
@@ -104,147 +102,76 @@ finally:
 }
 
 function primeDeriveObjectCache(pid: string, sheetId: number): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import asyncio
-import sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter, ResponseCache, request_key
-from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
-from frisket.execution.dispatch_control import STANDALONE
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw = sys.argv[1], sys.argv[2], sys.argv[3]
-sheet_id = int(sheet_id_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    input_columns = [
-        c["name"] for c in project.columns(sheet_id) if not c["ai_generated"]
-    ]
-    action = {
-        "action_id": "map.extract",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": input_columns,
-            "model": ${JSON.stringify(MODEL)},
-            "instruction": ${JSON.stringify(PROMPT)},
-            "fields": [
-                {
-                    "name": "sponsors",
-                    "type": "list",
-                    "description": "Sponsors mentioned in this episode",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "company": {
-                                "type": "string",
-                                "description": "Sponsor company name",
-                            },
-                            "coupon": {
-                                "type": "string",
-                                "description": "Coupon code or discount",
-                            },
-                            "product": {
-                                "type": "string",
-                                "description": "Product being advertised",
-                            },
-                        },
-                        "required": ["company", "coupon", "product"],
-                    },
-                }
-            ],
-        },
-        "output_names": {"sponsors": "sponsors"},
-        "idempotency_key": "e2e-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {c["name"]: c["id"] for c in project.columns(sheet_id)}
-    values = {
-        name: project.get_values(sheet_id, columns[name])
-        for name in input_columns
-    }
-    payloads = [
+  const action = typedActionRequest('map.extract', {
+    sheetId,
+    params: {
+      source: ['episode', 'description'],
+      model: MODEL,
+      instruction: PROMPT,
+      fields: [
         {
-            "sponsors": {
-                "value": [
-                    {
-                        "company": "AG1",
-                        "coupon": "ROGAN",
-                        "product": "daily greens supplement",
-                    },
-                    {
-                        "company": "Cash App",
-                        "coupon": "signup bonus",
-                        "product": "mobile payments app",
-                    },
-                ],
-                "evidence": [[], []],
+          name: 'sponsors',
+          type: 'list',
+          description: 'Sponsors mentioned in this episode',
+          items: {
+            type: 'object',
+            properties: {
+              company: {
+                type: 'string',
+                description: 'Sponsor company name',
+              },
+              coupon: {
+                type: 'string',
+                description: 'Coupon code or discount',
+              },
+              product: {
+                type: 'string',
+                description: 'Product being advertised',
+              },
             },
+            required: ['company', 'coupon', 'product'],
+          },
         },
-        {
-            "sponsors": {
-                "value": [
-                    {
-                        "company": "Squarespace",
-                        "coupon": "10% off",
-                        "product": "website builder",
-                    },
-                    {
-                        "company": "AG1",
-                        "coupon": "ROGAN",
-                        "product": "daily greens supplement",
-                    },
-                ],
-                "evidence": [[], []],
-            },
-        },
-    ]
-    cache = ResponseCache(project.path / "project.cache.db")
-    router = ModelRouter(model_call_policy=LOCAL_PURCHASE_POLICY, cache=cache, cache_mode="replay_strict", use_env_keys=False)
-
-    async def prime_transport(req, *, recipe_version="1", trace=None, on_request=None, _execution):
-        assert _execution is STANDALONE
-        if on_request is not None:
-            on_request(req)
-        # Key the fixture after the real structured completer resolves schema
-        # references, just as the backend's transport cache will see it.
-        response = LLMResponse(
-            content=None,
-            data=payload,
-            tokens_in=180,
-            tokens_out=90,
-            cost=0.0004,
-            model=req.model,
-        )
-        cache.put(request_key(req, recipe_version), response)
-        return response
-
-    router.complete_transport = prime_transport
-    recording_router = router.for_execution(STANDALONE)
-    try:
-        for row_id, payload in zip(project.visible_row_ids(sheet_id), payloads, strict=True):
-            row_values = {name: values[name].get(row_id) for name in input_columns}
-            call = plan.program.render(row_values, spec)
-            req = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            asyncio.run(recording_router.complete(req, recipe_version=plan.program.version))
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), ['-c', script, workspace, pid, String(sheetId)], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
+      ],
+    },
+    outputNames: { sponsors: 'sponsors' },
   });
+  primeMapRowsReplies(pid, action, [
+    {
+      sponsors: {
+        value: [
+          {
+            company: 'AG1',
+            coupon: 'ROGAN',
+            product: 'daily greens supplement',
+          },
+          {
+            company: 'Cash App',
+            coupon: 'signup bonus',
+            product: 'mobile payments app',
+          },
+        ],
+        evidence: [[], []],
+      },
+    },
+    {
+      sponsors: {
+        value: [
+          {
+            company: 'Squarespace',
+            coupon: '10% off',
+            product: 'website builder',
+          },
+          {
+            company: 'AG1',
+            coupon: 'ROGAN',
+            product: 'daily greens supplement',
+          },
+        ],
+        evidence: [[], []],
+      },
+    },
+  ]);
 }
 
 async function waitForSheet(

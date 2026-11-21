@@ -13,7 +13,7 @@ import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, replace
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 import httpx
 
@@ -155,6 +155,26 @@ def _provider_kind(provider: str) -> str:
     return PROVIDER_KIND.get(provider, "platform_api")
 
 
+class _CompletionAdapter(Protocol):
+    async def complete(
+        self, req: LLMRequest, client: httpx.AsyncClient
+    ) -> LLMResponse: ...
+
+
+@runtime_checkable
+class _EmbeddingAdapter(Protocol):
+    async def embed_with_meta(
+        self, texts: list[str], model: str, client: httpx.AsyncClient
+    ) -> tuple[list[list[float]], dict]: ...
+
+
+def _safe_error_text(error: BaseException) -> str:
+    try:
+        return str(error)
+    except Exception:
+        return f"[UNPRINTABLE {type(error).__name__}]"
+
+
 class LocalEndpointAdapter:
     """Resolve every qualified local-model operation to one exact server."""
 
@@ -251,7 +271,7 @@ class ModelRouter:
                 }.items()
                 if env.get(env_name) and provider not in keys
             )
-        self._adapters: dict[str, object] = {}
+        self._adapters: dict[str, _CompletionAdapter] = {}
         anth = keys.get("anthropic") or env.get("ANTHROPIC_API_KEY")
         if anth:
             self._configured_keys["anthropic"] = anth
@@ -470,7 +490,7 @@ class ModelRouter:
             except Exception as e:  # noqa: BLE001 — a probe reports, never raises
                 secret_values = self._adapter_secret_values(adapter)
                 error = redact_text(
-                    e,
+                    _safe_error_text(e),
                     secret_values=secret_values,
                     max_chars=200,
                 )
@@ -947,11 +967,12 @@ class ModelRouter:
         adapter = self._adapters.get(provider)
         if provider == "ollama":
             _endpoint, adapter, requested = self._resolve_local_model(model)
-        if adapter is None or not hasattr(adapter, "embed_with_meta"):
+        if adapter is None or not isinstance(adapter, _EmbeddingAdapter):
             raise LLMError(
                 f"no embedding backend for '{provider}' "
                 f"(configured: {', '.join(self._adapters)})"
             )
+        embedding_adapter = adapter
         credential_source = self.credential_source_for(provider)
         estimate = estimate_embedding_cost(
             texts, modality=modality, provider=provider, model=requested, router=self
@@ -964,7 +985,9 @@ class ModelRouter:
             # Fresh per-call clients support the sync asyncio.run embedding seam.
             async with httpx.AsyncClient() as client:
                 try:
-                    return await adapter.embed_with_meta(texts, requested, client)
+                    return await embedding_adapter.embed_with_meta(
+                        texts, requested, client
+                    )
                 except LLMError as error:
                     raise self._safe_llm_error(
                         error, self._adapter_secret_values(adapter)
@@ -1057,7 +1080,7 @@ class ModelRouter:
 
     @staticmethod
     def _safe_llm_error(error: LLMError, secret_values: tuple[str, ...]) -> LLMError:
-        detail = redact_text(error, secret_values=secret_values)
+        detail = redact_text(_safe_error_text(error), secret_values=secret_values)
         if isinstance(error, SchemaViolation):
             error_type = (
                 OutputLimitReached
@@ -1161,7 +1184,7 @@ class ModelRouter:
     def _safe_transport_error(
         error: httpx.HTTPError, secret_values: tuple[str, ...]
     ) -> LLMError:
-        cause_detail = redact_text(error, secret_values=secret_values)
+        cause_detail = redact_text(_safe_error_text(error), secret_values=secret_values)
         return LLMError(
             redact_text(
                 f"transport error: {cause_detail}", secret_values=secret_values

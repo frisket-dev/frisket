@@ -75,10 +75,10 @@ function FailureHarness({ saving = false }: { saving?: boolean }) {
 describe('ViewsPanel confirmation focus', () => {
   it('recovers forced closure while busy and returns focus after later cancellation', async () => {
     const mounted = render(<FailureHarness />);
-    const trigger = screen.getByTestId('delete-saved-view');
+    const trigger = screen.getByTestId('delete-view');
     fireEvent.click(trigger);
     mounted.rerender(<FailureHarness saving />);
-    const dialog = screen.getByTestId('delete-saved-view-confirmation') as HTMLDialogElement;
+    const dialog = screen.getByTestId('delete-view-confirmation') as HTMLDialogElement;
     dialog.showModal = vi.fn(() => { dialog.setAttribute('open', ''); });
     dialog.close = () => { dialog.removeAttribute('open'); fireEvent(dialog, new Event('close')); };
     expect(dialog).toHaveAttribute('aria-busy', 'true');
@@ -87,20 +87,20 @@ describe('ViewsPanel confirmation focus', () => {
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
     expect(dialog).toHaveAttribute('open');
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
-    fireEvent.click(screen.getByTestId('confirm-delete-saved-view'));
+    fireEvent.click(screen.getByTestId('confirm-delete-view'));
     expect(screen.queryByText('Delete failed')).not.toBeInTheDocument();
     mounted.rerender(<FailureHarness />);
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
-    await waitFor(() => expect(screen.queryByTestId('delete-saved-view-confirmation')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByTestId('delete-view-confirmation')).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
   });
 
   it('returns focus to Delete after a failed request followed by Cancel', async () => {
     render(<FailureHarness />);
-    const trigger = screen.getByTestId('delete-saved-view');
+    const trigger = screen.getByTestId('delete-view');
 
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByTestId('confirm-delete-saved-view'));
+    fireEvent.click(screen.getByTestId('confirm-delete-view'));
     expect(await screen.findByText('Delete failed')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Cancel'));
 

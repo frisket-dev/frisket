@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { REPO_ROOT, createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
 import { testPython } from '../support/testPython';
 
 // A temporal citation whose source blob carries
@@ -13,11 +13,6 @@ import { testPython } from '../support/testPython';
 // webpage_url exists (YouTube gets a composed `t=` offset; any other
 // webpage_url still gets a plain link); graceful absence (no link, no
 // clutter) when the blob carries no webpage_url at all.
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav')).toString('base64');

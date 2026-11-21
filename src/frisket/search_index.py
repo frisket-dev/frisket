@@ -349,6 +349,7 @@ def index_batch(
         for scope in scopes:
             if processed >= batch_size or processed_bytes >= max_bytes:
                 break
+            assert retrieval is not None
             column, row = json.loads(scope.scan_cursor)
             if column == 0:
                 column = _next_column(snapshot.db, retrieval, scope, 0)
@@ -382,49 +383,54 @@ def index_batch(
                     row_id for row_id, _size in admitted if row_id in live_ids
                 ]
                 column_type = str(descriptor["type"]) if descriptor is not None else ""
+                sheet_id = (
+                    int(descriptor["sheet_id"]) if descriptor is not None else None
+                )
                 text_sources = (
                     resolve_cell_text_sources(
                         snapshot,
-                        sheet_id=int(descriptor["sheet_id"]),
+                        sheet_id=sheet_id,
                         column_id=column,
                         row_ids=admitted_live,
                     )
-                    if admitted_live and column_type in TEXT_SOURCE_COLUMN_TYPES
+                    if admitted_live
+                    and sheet_id is not None
+                    and column_type in TEXT_SOURCE_COLUMN_TYPES
                     else {}
                 )
                 resolved_sources = {}
-                for row_id in admitted_live:
-                    sheet_id = int(descriptor["sheet_id"])
-                    sources = []
-                    transcript = resolve_cell_transcript_source(
-                        snapshot,
-                        sheet_id=sheet_id,
-                        row_id=row_id,
-                        column_id=column,
-                    )
-                    if transcript is not None:
-                        sources.append(transcript)
-                    ocr = resolve_cell_ocr_text_source(
-                        snapshot,
-                        sheet_id=sheet_id,
-                        row_id=row_id,
-                        column_id=column,
-                    )
-                    if ocr is not None:
-                        sources.append(ocr)
-                    if column_type in TEXT_SOURCE_COLUMN_TYPES:
-                        if text_source := text_sources.get(row_id):
-                            sources.append(text_source)
-                    elif column_type in BLOB_SOURCE_COLUMN_TYPES:
-                        blob = resolve_cell_blob_source(
+                if sheet_id is not None:
+                    for row_id in admitted_live:
+                        sources = []
+                        transcript = resolve_cell_transcript_source(
                             snapshot,
                             sheet_id=sheet_id,
                             row_id=row_id,
                             column_id=column,
                         )
-                        if blob is not None:
-                            sources.append(blob)
-                    resolved_sources[row_id] = tuple(sources)
+                        if transcript is not None:
+                            sources.append(transcript)
+                        ocr = resolve_cell_ocr_text_source(
+                            snapshot,
+                            sheet_id=sheet_id,
+                            row_id=row_id,
+                            column_id=column,
+                        )
+                        if ocr is not None:
+                            sources.append(ocr)
+                        if column_type in TEXT_SOURCE_COLUMN_TYPES:
+                            if text_source := text_sources.get(row_id):
+                                sources.append(text_source)
+                        elif column_type in BLOB_SOURCE_COLUMN_TYPES:
+                            blob = resolve_cell_blob_source(
+                                snapshot,
+                                sheet_id=sheet_id,
+                                row_id=row_id,
+                                column_id=column,
+                            )
+                            if blob is not None:
+                                sources.append(blob)
+                        resolved_sources[row_id] = tuple(sources)
                 with retrieval.publication_batch():
                     for row_id, _size in admitted:
                         _raise_if_cancelled(cancel_event)

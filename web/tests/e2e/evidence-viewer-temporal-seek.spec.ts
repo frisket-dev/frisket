@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
+import { REPO_ROOT, createProject, dblclickCell, openProject, sheetColumns, uniqueName, type WireColumn } from './helpers';
 import { testPython } from '../support/testPython';
 
 // The evidence viewer's temporal path has a click-to-seek mechanic lifted from
@@ -17,11 +17,6 @@ import { testPython } from '../support/testPython';
 // 2.0s), three `temporal` spans (two ordinary, one pre-clamped to the
 // artifact's duration_ms the way the writer's overrun clamp leaves it —
 // `metadata.warnings: ["temporal_span_clamped_to_artifact_duration_ms"]`).
-
-const REPO_ROOT =
-  path.basename(process.cwd()) === 'web'
-    ? path.resolve(process.cwd(), '..')
-    : process.cwd();
 
 const MEDIA_DIR = path.resolve(process.cwd(), 'tests', 'fixtures', 'media');
 const AUDIO_FIXTURE_B64 = readFileSync(path.join(MEDIA_DIR, 'tiny-audio.wav')).toString('base64');

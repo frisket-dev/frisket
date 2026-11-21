@@ -1,4 +1,4 @@
-import { toWireJsonObject } from '../api/viewsLenses';
+import { toWireJsonObject } from '../api/views';
 import { normalizeGridFilterSpec } from './gridColumnState';
 import type { GridFilterSpec, GridSortSpec, SheetMeta, ViewSelection, ViewDefinitionInput, ViewPresentation, ViewColumnGroup } from '../api/types';
 

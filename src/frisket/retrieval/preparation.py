@@ -771,7 +771,7 @@ def process_text_preparation_batch(
         if work is None:
             return PreparationProgress(0, False, True)
         resolved = _resolve_work_source(project, store, work)
-        if resolved is None:
+        if not isinstance(resolved, ResolvedCellTextSource):
             store.fail_preparation(
                 work.source_revision,
                 recipe_id=work.recipe_id,
@@ -866,7 +866,11 @@ def process_text_preparation_batch(
         if not published:
             raise RuntimeError("text preparation was superseded during publication")
         if not complete:
-            cursor_json = _cursor_json(batch.continuation)
+            cursor_json = (
+                _cursor_json(batch.continuation)
+                if isinstance(batch.continuation, TextCursor)
+                else None
+            )
             if cursor_json is None or not store.advance_preparation(
                 resolved.source,
                 recipe_id=recipe.recipe_id,
@@ -939,25 +943,29 @@ def process_cited_text_preparation_batch(
             )
             return PreparationProgress(0, pending, not pending)
 
-        recipe: TextChunkRecipe | TranscriptChunkRecipe
         if isinstance(resolved, ResolvedCellTranscriptSource):
-            recipe = policy.transcript_recipe
-            if recipe is None or work.recipe_id != recipe.recipe_id:
+            selected_transcript = policy.transcript_recipe
+            if (
+                selected_transcript is None
+                or work.recipe_id != selected_transcript.recipe_id
+            ):
                 return PreparationProgress(0, True, False)
+            selected_id = selected_transcript.recipe_id
             batch = produce_transcript(
                 resolved.surface,
-                recipe,
+                selected_transcript,
                 max_parts=max_parts,
                 cursor=_transcript_cursor(work.cursor_json),
                 cancelled=cancelled,
             )
         else:
-            recipe = policy.text_recipe
-            if recipe is None or work.recipe_id != recipe.recipe_id:
+            selected_text = policy.text_recipe
+            if selected_text is None or work.recipe_id != selected_text.recipe_id:
                 return PreparationProgress(0, True, False)
+            selected_id = selected_text.recipe_id
             batch = produce_text(
                 resolved.surface,
-                recipe,
+                selected_text,
                 max_parts=max_parts,
                 cursor=_text_cursor(work.cursor_json),
                 cancelled=cancelled,
@@ -990,7 +998,7 @@ def process_cited_text_preparation_batch(
         if not store.publish_source(
             _publication(
                 resolved,
-                recipe_id=recipe.recipe_id,
+                recipe_id=selected_id,
                 channel=channel,
                 items=batch.items,
                 vectors=vectors,

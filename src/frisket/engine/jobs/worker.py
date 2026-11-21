@@ -452,10 +452,10 @@ def register_production_handlers(
         )
     # queue-hosted-posture-explicit-v1: strict storage-identity enforcement
     # follows the queue's DECLARED posture, never the engine dialect. A queue
-    # opened with hosted posture enforces the full identity contract even on a
+    # opened with Cloud posture enforces the full identity contract even on a
     # SQLite engine; a local queue never does.
     strict_cloud_storage = require_storage_identity and bool(
-        getattr(queue, "_hosted_storage", False)
+        getattr(queue, "_cloud_storage", False)
     )
     project_run_registration = register_project_run_handler(
         registry,

@@ -1,6 +1,4 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
@@ -12,6 +10,7 @@ import {
   createProject,
   importCsv,
   openProject,
+  primeMapRowsReplies,
   runAndWait,
   selectRow,
   sheetColumns,
@@ -24,7 +23,6 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
-import { testPython } from '../support/testPython';
 
 test.use({ deviceScaleFactor: 2 });
 
@@ -38,10 +36,6 @@ const CSV = `snippet
 "A council member's spouse won a city contract."
 "The county fair opened with record attendance."
 `;
-const REPO_ROOT = path.basename(process.cwd()) === 'web'
-  ? path.resolve(process.cwd(), '..')
-  : process.cwd();
-
 function classifyAction(sheetId: number, prompt: string, idempotencyKey: string) {
   return {
     action_id: 'map.classify',
@@ -69,81 +63,11 @@ function primeClassifyCache(
   prompt: string,
   topics: string[],
 ): void {
-  const workspace = process.env.FRISKET_E2E_WS
-    ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import json
-import sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_id_raw, model, prompt, labels_raw, topics_raw = sys.argv[1:]
-sheet_id = int(sheet_id_raw)
-labels = json.loads(labels_raw)
-topics = json.loads(topics_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    action = {
-        "action_id": "map.classify",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": ["snippet"],
-            "engine": "llm",
-            "model": model,
-            "context": prompt,
-            "fields": [{"name": "topic", "type": "category", "labels": labels}],
-            "include_justification": False,
-            "include_confidence": False,
-        },
-        "output_names": {"topic": "topic"},
-        "idempotency_key": "action-compare-connected-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
-    source_values = project.get_values(sheet_id, columns["snippet"])
-    row_ids = project.visible_row_ids(sheet_id)
-    if len(row_ids) != len(topics):
-        raise RuntimeError(f"expected {len(row_ids)} topics, received {len(topics)}")
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id, topic in zip(row_ids, topics, strict=True):
-            call = plan.program.render({"snippet": source_values.get(row_id)}, spec)
-            request = LLMRequest(
-                model=spec["model"],
-                messages=call.messages,
-                schema=call.schema,
-                max_tokens=call.max_tokens,
-            )
-            data = {"topic": topic}
-            cache.put(
-                request_key(request, plan.program.version),
-                LLMResponse(
-                    content=json.dumps(data),
-                    data=data,
-                    tokens_in=24,
-                    tokens_out=4,
-                    cost=0.0,
-                    model=spec["model"],
-                ),
-            )
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), [
-    '-c', script, workspace, pid, String(sheetId), MODEL, prompt,
-    JSON.stringify(LABELS), JSON.stringify(topics),
-  ], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    timeout: 60_000,
-    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
-  });
+  primeMapRowsReplies(
+    pid,
+    classifyAction(sheetId, prompt, 'action-compare-connected-cache-prime'),
+    topics.map((topic) => ({ topic })),
+  );
 }
 
 async function shoot(page: Page, name: string): Promise<void> {

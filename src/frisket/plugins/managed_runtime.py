@@ -30,21 +30,21 @@ class RuntimeSwitchNotAtJobBoundary(ManagedRuntimeError):
     """A runtime switch was attempted mid-job; switches happen only between jobs."""
 
 
-class HostedUpstreamFetchForbidden(ManagedRuntimeError):
-    """The hosted tier may not fetch from an arbitrary upstream channel."""
+class CloudUpstreamFetchForbidden(ManagedRuntimeError):
+    """The Cloud tier may not fetch from an arbitrary upstream channel."""
 
 
 class RuntimeTier(Enum):
     """Resolution trust tier. PERSONAL/self-host may fetch official upstream;
-    HOSTED resolves only from a first-party mirror or an image-bundled
+    CLOUD resolves only from a first-party mirror or an image-bundled
     artifact (no arbitrary-upstream fetch)."""
 
     PERSONAL = "personal"
-    HOSTED = "hosted"
+    CLOUD = "cloud"
 
 
-# Channel origins. Only "upstream" is arbitrary; it is forbidden on hosted.
-_HOSTED_ALLOWED_CHANNEL_KINDS = frozenset({"mirror", "bundled"})
+# Channel origins. Only "upstream" is arbitrary; it is forbidden on Cloud.
+_CLOUD_ALLOWED_CHANNEL_KINDS = frozenset({"mirror", "bundled"})
 
 
 class RuntimeChannel(Protocol):
@@ -201,7 +201,7 @@ class ManagedRuntimeService:
         The current pointer is never touched here."""
         try:
             digest, _ = self._fetch_verify_install(spec, channel=channel)
-        except HostedUpstreamFetchForbidden:
+        except CloudUpstreamFetchForbidden:
             # A forbidden-tier fetch is a security boundary, not a soft failure.
             raise
         except Exception:  # noqa: BLE001 — offline / mismatch: the updater never crashes a run
@@ -294,13 +294,13 @@ class ManagedRuntimeService:
         return actual, resolution
 
     def _gate_channel(self, channel: RuntimeChannel) -> None:
-        if self._tier is RuntimeTier.HOSTED:
+        if self._tier is RuntimeTier.CLOUD:
             kind = getattr(channel, "kind", "upstream")
-            if kind not in _HOSTED_ALLOWED_CHANNEL_KINDS:
+            if kind not in _CLOUD_ALLOWED_CHANNEL_KINDS:
                 # Raise before any fetch: no arbitrary-upstream bytes move on
-                # hosted (a no-community-arbitrary-code boundary).
-                raise HostedUpstreamFetchForbidden(
-                    f"hosted tier may not fetch from an arbitrary upstream channel "
+                # Cloud (a no-community-arbitrary-code boundary).
+                raise CloudUpstreamFetchForbidden(
+                    f"cloud tier may not fetch from an arbitrary upstream channel "
                     f"(kind={kind!r}); use a first-party mirror or image-bundled "
                     "artifact"
                 )

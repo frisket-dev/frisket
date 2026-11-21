@@ -42,7 +42,7 @@ describe('transcribe diarization declaration', () => {
         {
           id: 'parakeet_modal',
           label: 'Parakeet on Modal',
-          tier: 'hosted',
+          tier: 'remote',
           available: true,
           diarization: SORTFORMER,
         },
@@ -105,7 +105,7 @@ describe('transcribe diarization declaration', () => {
         {
           id: 'parakeet_modal',
           label: 'Parakeet on Modal',
-          tier: 'hosted',
+          tier: 'remote',
           available: true,
           diarization: SORTFORMER,
         },

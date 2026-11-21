@@ -1,9 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import type { JsonValue } from '../../src/api/types';
 import { activateComparisonCell, expectComparisonCell } from './actionCompareHelpers';
 
 import {
@@ -13,6 +12,7 @@ import {
   importCsv,
   openAction,
   openProject,
+  primeMapRowsReplies,
   runAndWait,
   sheetColumns,
   sheetData,
@@ -23,13 +23,9 @@ import {
   prepareOwnModelReplay,
   REPLAY_MODEL as MODEL,
 } from './replayModelScenario';
-import { testPython } from '../support/testPython';
 
 test.use({ deviceScaleFactor: 2 });
 
-const REPO_ROOT = path.basename(process.cwd()) === 'web'
-  ? path.resolve(process.cwd(), '..')
-  : process.cwd();
 const ARTIFACT_DIR = path.join(
   process.env.FRISKET_COMPARE_SCREENSHOTS
     ?? path.resolve('screenshots/action-compare-connected'),
@@ -45,7 +41,7 @@ type ExtractField = { name: string; type: 'text' | 'date' | 'json'; description:
 type ExtractSettings = {
   context: string;
   fields: ExtractField[];
-  rows: Array<Record<string, unknown>>;
+  rows: Array<Record<string, JsonValue>>;
 };
 
 const outputNames = (settings: ExtractSettings) => Object.fromEntries(
@@ -143,59 +139,11 @@ function extractAction(sheetId: number, settings: ExtractSettings, key: string) 
 }
 
 function primeExtractCache(pid: string, sheetId: number, settings: ExtractSettings): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import json, sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_raw, model, settings_raw = sys.argv[1:]
-sheet_id, settings = int(sheet_raw), json.loads(settings_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    action = {
-        "action_id": "map.extract",
-        "scope": {"kind": "sheet_rows", "sheet_id": sheet_id},
-        "params": {
-            "source": ["case_text"], "engine": "llm", "model": model,
-            "instruction": "Extract the requested public docket facts.",
-            "context": settings["context"], "fields": settings["fields"],
-            "include_confidence": False, "grounding": {"enabled": False},
-        },
-        "output_names": {field["name"]: field["name"] for field in settings["fields"]},
-        "idempotency_key": "action-compare-extract-cache-prime",
-    }
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
-    values = project.get_values(sheet_id, columns["case_text"])
-    row_ids = project.visible_row_ids(sheet_id)
-    if len(row_ids) != len(settings["rows"]):
-        raise RuntimeError("fixture row count does not match the imported sheet")
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id, data in zip(row_ids, settings["rows"], strict=True):
-            call = plan.program.render({"case_text": values.get(row_id)}, spec)
-            request = LLMRequest(model=spec["model"], messages=call.messages,
-                                 schema=call.schema, max_tokens=call.max_tokens)
-            cache.put(request_key(request, plan.program.version), LLMResponse(
-                content=json.dumps(data), data=data, tokens_in=52, tokens_out=12,
-                cost=0.0, model=spec["model"],
-            ))
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), [
-    '-c', script, workspace, pid, String(sheetId), MODEL, JSON.stringify(settings),
-  ], {
-    cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000,
-    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
-  });
+  primeMapRowsReplies(
+    pid,
+    extractAction(sheetId, settings, 'action-compare-extract-cache-prime'),
+    settings.rows,
+  );
 }
 
 function askAction(sheetId: number, question: string, key: string) {
@@ -217,50 +165,11 @@ function primeAskCache(
   question: string,
   answers: string[],
 ): void {
-  const workspace = process.env.FRISKET_E2E_WS ?? path.join(os.homedir(), '.frisket/e2e-ws');
-  const script = `
-import json, sys
-from pathlib import Path
-from frisket.actions.system import typed_action_for_request
-from frisket.ai.llm import LLMRequest, LLMResponse, ResponseCache, request_key
-from frisket.engine.executor.map_rows_action import build_typed_map_rows_plan
-from frisket.engine.store import Project
-
-workspace, pid, sheet_raw, action_raw, answers_raw = sys.argv[1:]
-sheet_id, action, answers = int(sheet_raw), json.loads(action_raw), json.loads(answers_raw)
-project = Project(Path(workspace) / f"{pid}.frisket")
-try:
-    plan = build_typed_map_rows_plan(project, typed_action_for_request(action))
-    spec = plan.spec_dict()
-    columns = {column["name"]: column["id"] for column in project.columns(sheet_id)}
-    values = project.get_values(sheet_id, columns["case_text"])
-    row_ids = project.visible_row_ids(sheet_id)
-    if len(row_ids) != len(answers):
-        raise RuntimeError("fixture answer count does not match the imported sheet")
-    cache = ResponseCache(project.path / "project.cache.db")
-    try:
-        for row_id, answer in zip(row_ids, answers, strict=True):
-            call = plan.program.render({"case_text": values.get(row_id)}, spec)
-            request = LLMRequest(model=spec["model"], messages=call.messages,
-                                 schema=call.schema, max_tokens=call.max_tokens)
-            data = {"answer": answer}
-            cache.put(request_key(request, plan.program.version), LLMResponse(
-                content=json.dumps(data), data=data, tokens_in=40, tokens_out=6,
-                cost=0.0, model=spec["model"],
-            ))
-    finally:
-        cache.close()
-finally:
-    project.close()
-`;
-  execFileSync(testPython(), [
-    '-c', script, workspace, pid, String(sheetId),
-    JSON.stringify(askAction(sheetId, question, 'action-compare-ask-cache-prime')),
-    JSON.stringify(answers),
-  ], {
-    cwd: REPO_ROOT, stdio: 'pipe', timeout: 60_000,
-    env: { ...process.env, PYTHONPATH: path.join(REPO_ROOT, 'src') },
-  });
+  primeMapRowsReplies(
+    pid,
+    askAction(sheetId, question, 'action-compare-ask-cache-prime'),
+    answers.map((answer) => ({ answer })),
+  );
 }
 
 async function shoot(page: Page, name: string): Promise<void> {
