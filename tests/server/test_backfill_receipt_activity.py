@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import (
     drain_queue,
     post_row_add_as_v1_action,
@@ -20,7 +20,7 @@ def _client(tmp_path: Path) -> TestClient:
     router, _ = canned_reply_router(
         {"beat": "a"}, tokens_in=25, tokens_out=10, cost=0.0
     )
-    return TestClient(create_app(tmp_path / "workspace", router=router))
+    return make_client(tmp_path, router=router)
 
 
 def _seed_project(client: TestClient) -> tuple[str, int]:

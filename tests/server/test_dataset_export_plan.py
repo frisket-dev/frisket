@@ -7,11 +7,9 @@ precedence, current_view query resolution, and the all_visible-only contract.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 from frisket.exports.plan import (
     ExportColumns,
@@ -19,11 +17,9 @@ from frisket.exports.plan import (
     iter_export_row_batches,
 )
 from frisket.exports.rowset import ExportError
-from frisket.server.app import create_app
 
 
-def _project(tmp_path: Path):
-    client = TestClient(create_app(tmp_path / "ws"))
+def _project(client):
     pid = client.post("/api/projects", json={"name": "Plan"}).json()["id"]
     return client.app.state.workspace.get(pid)
 
@@ -83,8 +79,8 @@ def _collect(project, plan) -> list[dict[str, Any]]:
     return out
 
 
-def test_current_sheet_plan_yields_typed_values(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_current_sheet_plan_yields_typed_values(client) -> None:
+    project = _project(client)
     sheet_id, _columns, _rows = _seed(project)
 
     plan = build_sheet_export_plan(project, sheet_id)
@@ -99,8 +95,8 @@ def test_current_sheet_plan_yields_typed_values(tmp_path: Path) -> None:
     assert isinstance(rows[2]["count"], int)
 
 
-def test_plan_preserves_manual_edit_precedence(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_plan_preserves_manual_edit_precedence(client) -> None:
+    project = _project(client)
     sheet_id, columns, rows = _seed(project)
 
     project.apply_edits(
@@ -112,8 +108,8 @@ def test_plan_preserves_manual_edit_precedence(tmp_path: Path) -> None:
     assert collected[0]["title"] == "A edited"  # manual edit > source cell
 
 
-def test_current_view_plan_resolves_filtered_sorted_rows(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_current_view_plan_resolves_filtered_sorted_rows(client) -> None:
+    project = _project(client)
     sheet_id, _columns, rows = _seed(project)
 
     plan = build_sheet_export_plan(project, sheet_id, query=_query(sheet_id))
@@ -125,8 +121,8 @@ def test_current_view_plan_resolves_filtered_sorted_rows(tmp_path: Path) -> None
     assert [row["title"] for row in collected] == ["C done", "B done"]
 
 
-def test_selected_columns_mode_is_rejected(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_selected_columns_mode_is_rejected(client) -> None:
+    project = _project(client)
     sheet_id, columns, _rows = _seed(project)
     with pytest.raises(ExportError) as excinfo:
         build_sheet_export_plan(
@@ -137,8 +133,8 @@ def test_selected_columns_mode_is_rejected(tmp_path: Path) -> None:
     assert excinfo.value.code == "unsupported_export_columns"
 
 
-def test_invalid_sheet_ref_raises_export_error(tmp_path: Path) -> None:
-    project = _project(tmp_path)
+def test_invalid_sheet_ref_raises_export_error(client) -> None:
+    project = _project(client)
     _seed(project)
     with pytest.raises(ExportError) as excinfo:
         build_sheet_export_plan(project, 9999)

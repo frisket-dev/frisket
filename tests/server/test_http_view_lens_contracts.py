@@ -1,15 +1,13 @@
 """Strict shared View shape, binding validation and paginated real HTTP reads."""
 
 import pytest
-from fastapi.testclient import TestClient
-from frisket.server.app import create_app
 from frisket.contracts.http.views_lenses import SavedView, SavedViewResolved
 from frisket.contracts.http.endpoint_catalog import BASE_ENDPOINT_CATALOG
 
 
 @pytest.fixture
-def view_api(tmp_path):
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+def view_api(client):
+    with client:
         pid = client.post("/api/projects", json={"name": "View test"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("records")

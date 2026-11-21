@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.types import LLMResponse
-from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
+from helpers import make_client
 
 
 SKILL = """---
@@ -108,7 +108,7 @@ def test_skill_saved_after_answer_is_used_on_selected_row_in_same_chat(
     provider = Provider()
     router._adapters["anthropic"] = provider
     monkeypatch.setattr(Workspace, "router_for", lambda self, project: router)
-    with TestClient(create_app(tmp_path / "workspace")) as client:
+    with make_client(tmp_path) as client:
         pid = client.post("/api/projects", json={"name": "Skill flow"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet_id = project.add_sheet("Suppliers")

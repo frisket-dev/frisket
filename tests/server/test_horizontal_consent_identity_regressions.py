@@ -19,7 +19,7 @@ from frisket.engine.store.runs import RunResultStore
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.execution.runtime_binding import ExecutionRouteVerificationFailed
 from frisket.ops.base import persisted_action_program_invocation_halt
-from frisket.server.app import create_app
+from helpers import make_client
 from http_test_helpers import drain_queue, post_cell_edit_as_v1_action
 from tests.server.test_r70_behavioral_pin import (
     _add_audio_row,
@@ -97,7 +97,7 @@ def test_confirmation_echo_keeps_scope_and_reads_edited_content(
         cache_mode="off",
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
-    client = TestClient(create_app(tmp_path / "workspace", router=router))
+    client = make_client(tmp_path, router=router)
     project_id = client.post("/api/projects", json={"name": "Scope"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("data")
@@ -325,7 +325,7 @@ def _unrouted_classify_client(tmp_path, monkeypatch, *, name: str):
         cache_mode="off",
     )
     router._adapters["anthropic"] = adapter  # noqa: SLF001
-    client = TestClient(create_app(tmp_path / "workspace", router=router))
+    client = make_client(tmp_path, router=router)
     project_id = client.post("/api/projects", json={"name": name}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("data")

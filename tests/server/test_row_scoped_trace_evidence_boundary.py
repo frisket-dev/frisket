@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import json
 import gzip
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from frisket.server.app import create_app
 from frisket.operability.trace import trace_path
 from frisket.engine.store.runs import RunResultStore
 from helpers import write_claimed_test_results
@@ -51,12 +49,12 @@ from helpers import write_claimed_test_results
     ],
 )
 def test_malformed_legacy_row_and_research_are_normalized_at_actual_endpoint(
-    tmp_path: Path,
+    client: TestClient,
     research,
     expected,
     incomplete,
 ) -> None:
-    client, project_id, run_id, row_ids, column_id, _ = _seed_project(tmp_path)
+    client, project_id, run_id, row_ids, column_id, _ = _seed_project(client)
     project = client.app.state.workspace.get(project_id)
     with gzip.open(trace_path(project.path, run_id), "at", encoding="utf-8") as stream:
         stream.write(
@@ -87,9 +85,8 @@ def test_malformed_legacy_row_and_research_are_normalized_at_actual_endpoint(
 
 
 def _seed_project(
-    tmp_path: Path, *, failed_row: bool = False
+    client: TestClient, *, failed_row: bool = False
 ) -> tuple[TestClient, str, int, list[int], int, int]:
-    client = TestClient(create_app(tmp_path / "ws"))
     project_id = client.post("/api/projects", json={"name": "Trace row"}).json()["id"]
     project = client.app.state.workspace.get(project_id)
     sheet_id = project.add_sheet("events")
@@ -180,9 +177,9 @@ def _seed_project(
 
 
 def test_action_run_trace_row_endpoint_returns_typed_row_scoped_evidence(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, run_id, row_ids, topic_col, _sheet_id = _seed_project(tmp_path)
+    client, project_id, run_id, row_ids, topic_col, _sheet_id = _seed_project(client)
 
     recorded = client.get(
         f"/api/projects/{project_id}/actions/runs/{run_id}/trace/rows/{row_ids[0]}",
@@ -258,10 +255,10 @@ def test_action_run_trace_row_endpoint_returns_typed_row_scoped_evidence(
 
 @pytest.mark.parametrize("trace_exists", [False, True])
 def test_trace_absence_preserves_exact_run_failed_cell_in_partial_run(
-    tmp_path: Path, trace_exists: bool
+    client: TestClient, trace_exists: bool
 ) -> None:
     client, project_id, run_id, row_ids, column_id, _ = _seed_project(
-        tmp_path, failed_row=True
+        client, failed_row=True
     )
     project = client.app.state.workspace.get(project_id)
     if not trace_exists:

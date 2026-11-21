@@ -4,8 +4,6 @@ import hashlib
 import tracemalloc
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
-
 from frisket.engine.store.evidence import (
     record_citation,
     record_source_artifact,
@@ -14,7 +12,6 @@ from frisket.engine.store.evidence import (
     resolve_citation_viewer,
 )
 from frisket.engine.store.text_annotations import resolve_text_annotations
-from frisket.server.app import create_app
 from frisket.engine.store.transactions import write_transaction
 
 
@@ -22,8 +19,7 @@ def _hash(text):
     return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
-def _native(tmp_path, *, megabytes=1):
-    client = TestClient(create_app(tmp_path / "workspace"))
+def _native(client, *, megabytes=1):
     pid = client.post("/api/projects", json={"name": "Passages"}).json()["id"]
     project = client.app.state.workspace.get(pid)
     sheet = project.add_sheet("documents")
@@ -117,9 +113,9 @@ def _native(tmp_path, *, megabytes=1):
 
 
 def test_annotation_tail_jump_clips_marks_and_keeps_fingerprint_without_large_values(
-    tmp_path,
+    client,
 ):
-    fx = _native(tmp_path)
+    fx = _native(client)
     occurrence = f"{fx.spans[0]['id']}:{fx.link['id']}"
     endpoint = f"/api/projects/{fx.pid}/cells/{fx.row}/{fx.body}/annotations"
     response = fx.client.get(
@@ -167,8 +163,8 @@ def test_annotation_tail_jump_clips_marks_and_keeps_fingerprint_without_large_va
     assert peak < 2 * 1024 * 1024
 
 
-def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(tmp_path):
-    fx = _native(tmp_path, megabytes=5)
+def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(client):
+    fx = _native(client, megabytes=5)
     with write_transaction(fx.project.db):
         entire = record_source_span(
             fx.project,
@@ -222,8 +218,8 @@ def test_large_viewer_quote_is_explicit_excerpt_and_context_stays_bounded(tmp_pa
     assert peak < 2 * 1024 * 1024
 
 
-def test_source_edits_reject_revision_and_keep_legacy_hash_staleness(tmp_path):
-    fx = _native(tmp_path)
+def test_source_edits_reject_revision_and_keep_legacy_hash_staleness(client):
+    fx = _native(client)
     endpoint = f"/api/projects/{fx.pid}/evidence/links/{fx.link['stable_id']}/viewer"
     context = fx.client.get(endpoint).json()["artifacts"][0]["text_context"]
     revision = context["window"]["retrieval_revision"]
@@ -260,8 +256,8 @@ def test_source_edits_reject_revision_and_keep_legacy_hash_staleness(tmp_path):
     )
 
 
-def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
-    fx = _native(tmp_path)
+def test_frozen_transcript_window_keeps_local_utf16_timestamps(client):
+    fx = _native(client)
     text = "a" * 100_000 + "😀 spoken words tail"
     start = text.index("spoken")
     with write_transaction(fx.project.db):
@@ -339,9 +335,9 @@ def test_frozen_transcript_window_keeps_local_utf16_timestamps(tmp_path):
 
 
 def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_history(
-    tmp_path,
+    client,
 ):
-    fx = _native(tmp_path)
+    fx = _native(client)
     lines = [f"{index:05} 😀 spoken words.\n" for index in range(10_000)]
     text = "".join(lines)
     width = len(lines[0])
@@ -435,8 +431,8 @@ def test_long_transcript_serves_only_window_segments_and_keeps_full_stored_histo
     )
 
 
-def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(tmp_path):
-    fx = _native(tmp_path)
+def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(client):
+    fx = _native(client)
     blob = fx.project.add_blob(
         b"%PDF-1.4", filename="source.pdf", mime="application/pdf"
     )
@@ -496,9 +492,9 @@ def test_viewer_projects_cited_pages_without_echoing_full_page_metadata_maps(tmp
 
 
 def test_large_locate_current_is_bounded_and_never_reports_partial_scan_as_no_match(
-    tmp_path,
+    client,
 ):
-    fx = _native(tmp_path, megabytes=5)
+    fx = _native(client, megabytes=5)
     endpoint = f"/api/projects/{fx.pid}/evidence/links/{fx.link['stable_id']}/viewer"
     fx.project.apply_edits(
         [{"row_id": fx.row, "column_id": fx.body, "value": "extra prefix " + fx.text}]

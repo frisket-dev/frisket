@@ -1,21 +1,20 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
 
 from frisket.engine.store.edit_overlays import write_edit_overlay
 from frisket.engine.store.runs import RunResultStore
-from frisket.server.app import create_app
 from helpers import write_claimed_test_results
 
 
 _LARGE_BYTES = 20 * 1024 * 1024
 
 
-def _seed_large_review(tmp_path: Path) -> tuple[TestClient, str, Any, dict[str, int]]:
-    client = TestClient(create_app(tmp_path / "ws"))
+def _seed_large_review(
+    client: TestClient,
+) -> tuple[TestClient, str, Any, dict[str, int]]:
     project_id = client.post("/api/projects", json={"name": "Bounded Review"}).json()[
         "id"
     ]
@@ -102,9 +101,9 @@ def _assert_bounded_bundle(bundle: dict[str, Any]) -> str:
 
 
 def test_review_get_and_post_bound_large_values_before_full_decode(
-    tmp_path: Path, monkeypatch
+    client: TestClient, monkeypatch
 ) -> None:
-    client, project_id, project, ids = _seed_large_review(tmp_path)
+    client, project_id, project, ids = _seed_large_review(client)
 
     def full_decode_forbidden(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("Review bundle hydration must use bounded reads")
@@ -163,9 +162,9 @@ def test_review_get_and_post_bound_large_values_before_full_decode(
 
 
 def test_manual_edit_does_not_replace_review_saved_answer_when_later_run_skips_row(
-    tmp_path: Path,
+    client: TestClient,
 ) -> None:
-    client, project_id, project, ids = _seed_large_review(tmp_path)
+    client, project_id, project, ids = _seed_large_review(client)
     _values, refs = project.get_values_with_refs(
         ids["sheet_id"], ids["output_id"], row_ids=[ids["row_id"]]
     )

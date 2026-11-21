@@ -6,12 +6,10 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import json
 import time
 
-from fastapi.testclient import TestClient
-
 from frisket.ai.llm import ModelRouter
 from frisket.ai.llm.types import LLMResponse
-from frisket.server.app import create_app
 from frisket.server.workspace import Workspace
+from helpers import make_client
 
 
 def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
@@ -84,7 +82,7 @@ def test_ask_calculation_opens_exact_underlying_records(tmp_path, monkeypatch):
     provider = Provider()
     router._adapters["anthropic"] = provider
     monkeypatch.setattr(Workspace, "router_for", lambda self, project: router)
-    with TestClient(create_app(tmp_path / "ws")) as client:
+    with make_client(tmp_path) as client:
         pid = client.post("/api/projects", json={"name": "Contracts"}).json()["id"]
         project = client.app.state.workspace.get(pid)
         sheet = project.add_sheet("Contracts")
