@@ -656,8 +656,6 @@ class ImportSessionService:
             "completed_rows",
             "status",
             "receipt_id",
-            "run_id",
-            "job_id",
         }
         return ImportSessionStatus(
             import_ref=ref,
@@ -682,6 +680,7 @@ class ImportSessionService:
             skipped_duplicates=progress["skipped_duplicates"],
             problem_count=progress["source_failed"],
             source_label="PDF split",
+            can_rerun_workbook=False,
             source_error_groups=errors,
             preparation_completed=0 if summary is None else summary.ocr_completed,
             preparation_total=0 if summary is None else summary.ocr_total,
@@ -1056,6 +1055,17 @@ class ImportSessionService:
                 if table_status is None
                 else table_issue_groups(directory, through=table_status.source_cursor)
             ),
+            preparation_completed=0,
+            preparation_total=0,
+            ocr_completed=0,
+            ocr_total=0,
+            unreadable_total=0,
+            preparation_stopped=False,
+            semantic_preparation_error=None,
+            preparation_children=[],
+            reading_row_ids=[],
+            waiting_row_ids=[],
+            failed_pages=0,
         )
 
     def _latest_provider_job(
