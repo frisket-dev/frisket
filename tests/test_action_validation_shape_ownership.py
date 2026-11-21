@@ -137,22 +137,18 @@ def test_typed_list_table_malformed_shapes_and_id_coercions_refuse_before_effect
     ),
 )
 def test_malformed_params_fail_before_project_effects(
-    tmp_path, kind: str, patch: dict[str, Any]
+    project, kind: str, patch: dict[str, Any]
 ) -> None:
-    project = Project.create(tmp_path / f"{kind}.frisket", name=kind)
-    try:
-        before = _project_counts(project)
-        spec = deepcopy(VALID_ACTIONS[kind])
-        spec["params"].update(patch)
+    before = _project_counts(project)
+    spec = deepcopy(VALID_ACTIONS[kind])
+    spec["params"].update(patch)
 
-        result = run_action_spec(project, spec, project_id="shape-ownership")
+    result = run_action_spec(project, spec, project_id="shape-ownership")
 
-        assert result.status == "failed"
-        assert result.errors[0].code == "invalid_action_request"
-        assert next(iter(patch)) in result.errors[0].message
-        assert _project_counts(project) == before
-    finally:
-        project.close()
+    assert result.status == "failed"
+    assert result.errors[0].code == "invalid_action_request"
+    assert next(iter(patch)) in result.errors[0].message
+    assert _project_counts(project) == before
 
 
 @pytest.mark.parametrize(

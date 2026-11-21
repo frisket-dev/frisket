@@ -5,7 +5,6 @@ from frisket.engine.store.transactions import write_transaction
 import asyncio
 import sqlite3
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -51,8 +50,7 @@ class _LegacyOmissionProgram(ActionProgram):
         }
 
 
-def _seed(tmp_path: Path) -> tuple[Project, int, int, list[int], int]:
-    project = Project.create(tmp_path / "outcomes.frisket", name="O")
+def _seed(project: Project) -> tuple[int, int, list[int], int]:
     sheet_id = project.add_sheet("Rows")
     text = project.add_column(sheet_id, "text", type="text")
     out = project.add_column(sheet_id, "out", type="text", ai_generated=True)
@@ -68,7 +66,7 @@ def _seed(tmp_path: Path) -> tuple[Project, int, int, list[int], int]:
         )
     ]
     op_id = project.append_change("map", {"recipe": "x"}, label="x")
-    return project, sheet_id, out, row_ids, op_id
+    return sheet_id, out, row_ids, op_id
 
 
 def test_outcome_constants_partition_failure_and_terminal() -> None:
@@ -102,9 +100,9 @@ def test_derive_shim_classifies_value_error_empty() -> None:
     )
 
 
-def test_result_sink_stores_redacted_detail_without_prefix(tmp_path: Path) -> None:
+def test_result_sink_stores_redacted_detail_without_prefix(project: Project) -> None:
     secret = "checkpoint1b-result-sink-secret"
-    project, sheet_id, out, row_ids, op_id = _seed(tmp_path)
+    sheet_id, out, row_ids, op_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
@@ -213,7 +211,7 @@ def test_missing_outputs_publish_explicit_null_or_error(make_project) -> None:
 
 
 def test_result_and_batch_error_boundaries_survive_hostile_stringification(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     secret = "checkpoint1b-hostile-str-secret"
 
@@ -226,7 +224,7 @@ def test_result_and_batch_error_boundaries_survive_hostile_stringification(
     assert cells["answer"]["error"] == "[UNPRINTABLE Evil]"
     assert secret not in cells["answer"]["error"]
 
-    project, sheet_id, out, row_ids, op_id = _seed(tmp_path)
+    sheet_id, out, row_ids, op_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
@@ -252,9 +250,9 @@ def test_result_and_batch_error_boundaries_survive_hostile_stringification(
 
 
 def test_failed_rows_counts_only_failures_and_backfill_skips_terminal(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, sheet_id, out, row_ids, op_id = _seed(tmp_path)
+    sheet_id, out, row_ids, op_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids
@@ -336,8 +334,10 @@ def test_failed_rows_counts_only_failures_and_backfill_skips_terminal(
     assert store.completed_result_row_ids(run_id, [out]) == set(row_ids)
 
 
-def test_withhold_result_value_marks_terminal_without_failing(tmp_path: Path) -> None:
-    project, sheet_id, out, row_ids, op_id = _seed(tmp_path)
+def test_withhold_result_value_marks_terminal_without_failing(
+    project: Project,
+) -> None:
+    sheet_id, out, row_ids, op_id = _seed(project)
     store = RunResultStore(project)
     run_id = store.start_run(
         op_id, sheet_id, "test.outcome", total_rows=6, row_ids=row_ids

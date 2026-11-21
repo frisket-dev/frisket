@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -148,23 +149,20 @@ def test_result_write_sheet_delete_blocked_but_undo_cancels_import(
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
-def test_only_importing_sheet_is_frozen(tmp_path: Path, state: str) -> None:
-    project = Project.create(tmp_path / f"scope-{state}.frisket", name="scope")
-    try:
-        writer = _session(project)
-        if state == "paused":
-            writer.pause(expected_cursor=0)
-        elif state == "cancelled":
-            writer.cancel(expected_cursor=0)
-        other = project.add_sheet("Other")
-        project.delete_sheet(other)
+def test_only_importing_sheet_is_frozen(make_project, state: str) -> None:
+    project = make_project(f"scope-{state}")
+    writer = _session(project)
+    if state == "paused":
+        writer.pause(expected_cursor=0)
+    elif state == "cancelled":
+        writer.cancel(expected_cursor=0)
+    other = project.add_sheet("Other")
+    project.delete_sheet(other)
 
-        with pytest.raises(ImportInProgress) as caught:
-            project.delete_sheet(writer.sheet_id)
-        assert caught.value.sheet_id == writer.sheet_id
-        assert caught.value.state == state
-    finally:
-        project.close()
+    with pytest.raises(ImportInProgress) as caught:
+        project.delete_sheet(writer.sheet_id)
+    assert caught.value.sheet_id == writer.sheet_id
+    assert caught.value.state == state
 
 
 @pytest.mark.parametrize("state", ["active", "paused", "cancelled"])
@@ -252,8 +250,7 @@ def test_bundle_export_round_trips_resolved_import(
         else:
             writer.remove_session(expected_cursor=1)
     archive = project.export(tmp_path / "export.zip")
-    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(archive, tmp_path / "restored.frisket")
+    ) as restored:
         assert ImportSessionStore(restored).get("import:guard").state == state
-    finally:
-        restored.close()

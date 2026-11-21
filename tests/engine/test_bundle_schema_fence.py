@@ -723,7 +723,7 @@ def test_a62_bundle_preserves_data_and_attempts_on_upgrade(tmp_path):
 
 @pytest.mark.parametrize("upgraded", [False, True])
 def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
-    tmp_path, upgraded
+    tmp_path, make_project, upgraded
 ):
     if upgraded:
         path, *_rest, run = _a62_bundle(tmp_path)
@@ -731,7 +731,7 @@ def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
     else:
         from frisket.engine.store.runs import RunResultStore
 
-        project = Project.create(tmp_path / "fresh.frisket", name="Fresh")
+        project = make_project("Fresh")
         sheet = project.add_sheet("Rows")
         op = project.append_change("map.classify")
         run = RunResultStore(project).start_run(op, sheet, "map.classify")
@@ -776,7 +776,8 @@ def test_receipt_attempt_constraints_match_fresh_and_upgraded_bundles(
     )
     assert db.execute("PRAGMA foreign_key_check").fetchall() == []
     db.commit()
-    project.close()
+    if upgraded:
+        project.close()
 
 
 def test_unknown_prior_digest_does_not_add_receipt_owner(tmp_path):

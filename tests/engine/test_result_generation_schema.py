@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from pathlib import Path
 
 import pytest
 
@@ -11,9 +10,8 @@ from frisket.engine.store.runs import RunResultStore
 
 
 def _seed_generation(
-    tmp_path: Path,
-) -> tuple[Project, int, int, int, int, int]:
-    project = Project.create(tmp_path / "generation-schema.frisket", name="Heads")
+    project: Project,
+) -> tuple[int, int, int, int, int]:
     sheet_id = project.add_sheet("Rows")
     source_column_id = project.add_column(sheet_id, "source")
     output_column_id = project.add_column(sheet_id, "generated", ai_generated=True)
@@ -37,7 +35,6 @@ def _seed_generation(
         total_rows=len(row_ids),
     )
     return (
-        project,
         sheet_id,
         output_column_id,
         row_ids[0],
@@ -86,11 +83,9 @@ def _declare_generation(
 
 
 def test_generation_schema_uses_exact_composite_identity_and_monotone_run_ids(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(project)
 
     generation_sql = str(
         project.db.execute(
@@ -145,11 +140,9 @@ def test_generation_schema_uses_exact_composite_identity_and_monotone_run_ids(
 
 
 def test_compaction_preserves_run_id_and_row_effect_checkpoint(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, sheet_id, _column_id, row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    sheet_id, _column_id, row_id, _other_row_id, run_id = _seed_generation(project)
     op_id = int(
         project.db.execute("SELECT op_id FROM runs WHERE id=?", (run_id,)).fetchone()[0]
     )
@@ -193,15 +186,13 @@ def test_compaction_preserves_run_id_and_row_effect_checkpoint(
     ],
 )
 def test_publication_effect_is_explicit_and_payload_coherent(
-    tmp_path: Path,
+    project: Project,
     value_kind: str | None,
     value: str | None,
     error: str | None,
     effect: str,
 ) -> None:
-    project, _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(project)
     _declare_generation(project, run_id=run_id, column_id=column_id)
 
     with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
@@ -214,11 +205,9 @@ def test_publication_effect_is_explicit_and_payload_coherent(
 
 
 def test_published_result_payload_is_immutable_but_review_state_is_not(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, _sheet_id, column_id, row_id, other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    _sheet_id, column_id, row_id, other_row_id, run_id = _seed_generation(project)
     _declare_generation(project, run_id=run_id, column_id=column_id)
     project.db.execute(
         "INSERT INTO results "
@@ -334,11 +323,9 @@ def test_published_result_payload_is_immutable_but_review_state_is_not(
 
 
 def test_generation_managed_results_require_an_explicit_effect(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, sheet_id, column_id, row_id, other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    sheet_id, column_id, row_id, other_row_id, run_id = _seed_generation(project)
     _declare_generation(project, run_id=run_id, column_id=column_id)
 
     with pytest.raises(
@@ -395,11 +382,9 @@ def test_generation_managed_results_require_an_explicit_effect(
 
 
 def test_legacy_null_sibling_result_freezes_the_complete_declaration_set(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(project)
     legacy_sibling_column_id = project.add_column(
         sheet_id, "legacy-sibling", ai_generated=True
     )
@@ -416,10 +401,8 @@ def test_legacy_null_sibling_result_freezes_the_complete_declaration_set(
         _declare_generation(project, run_id=run_id, column_id=column_id)
 
 
-def test_generation_declaration_and_state_are_forward_only(tmp_path: Path) -> None:
-    project, _sheet_id, column_id, _row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+def test_generation_declaration_and_state_are_forward_only(project: Project) -> None:
+    _sheet_id, column_id, _row_id, _other_row_id, run_id = _seed_generation(project)
     _declare_generation(
         project,
         run_id=run_id,
@@ -490,15 +473,13 @@ def test_generation_declaration_and_state_are_forward_only(tmp_path: Path) -> No
     ],
 )
 def test_generation_binding_delete_requires_permanent_op_discard(
-    tmp_path: Path,
+    project: Project,
     generation_state: str,
     write_mode: str,
     op_status: str,
     deletable: bool,
 ) -> None:
-    project, _sheet_id, column_id, _row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    _sheet_id, column_id, _row_id, _other_row_id, run_id = _seed_generation(project)
     _declare_generation(
         project,
         run_id=run_id,
@@ -535,11 +516,9 @@ def test_generation_binding_delete_requires_permanent_op_discard(
 
 
 def test_discard_gc_must_remove_head_before_generation_and_result(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
-    project, _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(
-        tmp_path
-    )
+    _sheet_id, column_id, row_id, _other_row_id, run_id = _seed_generation(project)
     _declare_generation(project, run_id=run_id, column_id=column_id)
     project.db.execute(
         "INSERT INTO results "

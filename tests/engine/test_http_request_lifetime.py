@@ -119,4 +119,3 @@ def test_requester_cannot_escape_completed_typed_invocation(
         assert not router._client.is_closed
     finally:
         asyncio.run(router._client.aclose())
-        project.close()

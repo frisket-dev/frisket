@@ -1,6 +1,7 @@
 """A real installed plugin action can complete through the research bridge."""
 
 from __future__ import annotations
+from contextlib import closing
 
 from pathlib import Path
 
@@ -109,7 +110,7 @@ async def test_research_executes_installed_plugin_and_grants_its_receipt(
         wait_child=child_runs.wait,
         rate_actual_cost=usd_to_micros,
     )
-    try:
+    with closing(project):
         prepared = await execution.prepare_action(
             "Stamp Ada",
             {
@@ -145,5 +146,3 @@ async def test_research_executes_installed_plugin_and_grants_its_receipt(
             row_id: f"Ada|{PLUGIN_ID}|{PLUGIN_ID}:stamp"
         }
         assert ledger.get(research["id"])["output_grants"] == [result["receipt_id"]]
-    finally:
-        project.close()

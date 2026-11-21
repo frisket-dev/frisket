@@ -11,6 +11,7 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
+from contextlib import closing
 import uuid
 
 import pytest
@@ -54,153 +55,150 @@ def test_list_surfaces_each_family_stuck_shape_and_orphans(
     tmp_path, make_project, capsys
 ):
     project = make_project("reconcile")
-    try:
-        store = EffectCheckpointStore(project.db)
-        run_id = _live_run_id(project)
+    store = EffectCheckpointStore(project.db)
+    run_id = _live_run_id(project)
 
-        # Ambiguous reserved rows, one per family. model_call carries its
-        # reserve-time recovery payload (where a secret could lurk).
-        assert store.reserve(
-            "cp-row-live",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key="7",
-            action_kind="classify",
-            identity=f"digest-{FAKE_SECRET}",
-        )
-        assert store.reserve(
-            "cp-row-orphan",
-            family="row_effect",
-            group_key="424242",
-            unit_key="9",
-            action_kind="classify",
-            identity="digest-2",
-        )
-        assert store.reserve(
-            "cp-model-call",
-            family="model_call",
-            group_key="entities.extract",
-            unit_key="cp-model-call",
-            action_kind="entities.extract",
-            identity="cp-model-call",
-            payload={"payload": {"api_key": FAKE_SECRET}, "provider_fact_id": None},
-        )
-        assert store.reserve(
-            "cp-plugin",
-            family="plugin_effect",
-            group_key="ns.effect",
-            unit_key="unit-1",
-            action_kind="plugin.kind",
-            identity="{}",
-        )
-        assert store.reserve(
-            "cp-reduce",
-            family="reduce_group_summary",
-            group_key="params:abc",
-            unit_key="group:def",
-            action_kind="reduce.group_summary",
-            identity="digest-3",
-        )
-        assert store.reserve(
-            "cp-embed-orphan",
-            family="embedding_index_refresh",
-            group_key="idx-gone",
-            unit_key="batch-1",
-            action_kind="embeddings.refresh",
-            identity="digest-4",
-        )
+    # Ambiguous reserved rows, one per family. model_call carries its
+    # reserve-time recovery payload (where a secret could lurk).
+    assert store.reserve(
+        "cp-row-live",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="7",
+        action_kind="classify",
+        identity=f"digest-{FAKE_SECRET}",
+    )
+    assert store.reserve(
+        "cp-row-orphan",
+        family="row_effect",
+        group_key="424242",
+        unit_key="9",
+        action_kind="classify",
+        identity="digest-2",
+    )
+    assert store.reserve(
+        "cp-model-call",
+        family="model_call",
+        group_key="entities.extract",
+        unit_key="cp-model-call",
+        action_kind="entities.extract",
+        identity="cp-model-call",
+        payload={"payload": {"api_key": FAKE_SECRET}, "provider_fact_id": None},
+    )
+    assert store.reserve(
+        "cp-plugin",
+        family="plugin_effect",
+        group_key="ns.effect",
+        unit_key="unit-1",
+        action_kind="plugin.kind",
+        identity="{}",
+    )
+    assert store.reserve(
+        "cp-reduce",
+        family="reduce_group_summary",
+        group_key="params:abc",
+        unit_key="group:def",
+        action_kind="reduce.group_summary",
+        identity="digest-3",
+    )
+    assert store.reserve(
+        "cp-embed-orphan",
+        family="embedding_index_refresh",
+        group_key="idx-gone",
+        unit_key="batch-1",
+        action_kind="embeddings.refresh",
+        identity="digest-4",
+    )
 
-        # A returned row_effect carrying a durable provider ERROR: stuck
-        # (replay re-commits the error), so listed.
-        assert store.reserve(
-            "cp-row-error",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key="8",
-            action_kind="classify",
-            identity="digest-5",
-        )
-        store.complete(
-            "cp-row-error",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key="8",
-            action_kind="classify",
-            identity="digest-5",
-            payload={"field": {"error": f"provider said no ({FAKE_SECRET})"}},
-        )
+    # A returned row_effect carrying a durable provider ERROR: stuck
+    # (replay re-commits the error), so listed.
+    assert store.reserve(
+        "cp-row-error",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="8",
+        action_kind="classify",
+        identity="digest-5",
+    )
+    store.complete(
+        "cp-row-error",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="8",
+        action_kind="classify",
+        identity="digest-5",
+        payload={"field": {"error": f"provider said no ({FAKE_SECRET})"}},
+    )
 
-        # A returned SUCCESS with a live referent: automatic resume consumes
-        # it free — not stuck, must NOT be listed.
-        assert store.reserve(
-            "cp-row-success",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key="11",
-            action_kind="classify",
-            identity="digest-6",
-        )
-        store.complete(
-            "cp-row-success",
-            family="row_effect",
-            group_key=str(run_id),
-            unit_key="11",
-            action_kind="classify",
-            identity="digest-6",
-            payload={"field": {"value": FAKE_SECRET, "cost": 0.1}},
-        )
+    # A returned SUCCESS with a live referent: automatic resume consumes
+    # it free — not stuck, must NOT be listed.
+    assert store.reserve(
+        "cp-row-success",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="11",
+        action_kind="classify",
+        identity="digest-6",
+    )
+    store.complete(
+        "cp-row-success",
+        family="row_effect",
+        group_key=str(run_id),
+        unit_key="11",
+        action_kind="classify",
+        identity="digest-6",
+        payload={"field": {"value": FAKE_SECRET, "cost": 0.1}},
+    )
 
-        # A returned row whose payload got corrupted: replay refuses forever,
-        # so listed for any family.
-        assert store.reserve(
-            "cp-corrupt",
-            family="reduce_group_summary",
-            group_key="params:zzz",
-            unit_key="group:zzz",
-            action_kind="reduce.group_summary",
-            identity="digest-7",
-        )
-        store.complete(
-            "cp-corrupt",
-            family="reduce_group_summary",
-            group_key="params:zzz",
-            unit_key="group:zzz",
-            action_kind="reduce.group_summary",
-            identity="digest-7",
-            payload={"ok": True},
-        )
-        project.db.execute(
-            "UPDATE effect_checkpoints SET payload='{not json' WHERE id='cp-corrupt'"
-        )
-        project.db.commit()
+    # A returned row whose payload got corrupted: replay refuses forever,
+    # so listed for any family.
+    assert store.reserve(
+        "cp-corrupt",
+        family="reduce_group_summary",
+        group_key="params:zzz",
+        unit_key="group:zzz",
+        action_kind="reduce.group_summary",
+        identity="digest-7",
+    )
+    store.complete(
+        "cp-corrupt",
+        family="reduce_group_summary",
+        group_key="params:zzz",
+        unit_key="group:zzz",
+        action_kind="reduce.group_summary",
+        identity="digest-7",
+        payload={"ok": True},
+    )
+    project.db.execute(
+        "UPDATE effect_checkpoints SET payload='{not json' WHERE id='cp-corrupt'"
+    )
+    project.db.commit()
 
-        # A consumed provider-audit row (the retained-forever plugin shape):
-        # deliberately kept, not stuck, must NOT be listed.
-        assert store.reserve(
-            "cp-plugin-audit",
-            family="plugin_effect",
-            group_key="ns.done",
-            unit_key="unit-2",
-            action_kind="plugin.kind",
-            identity="{}",
-        )
-        store.complete(
-            "cp-plugin-audit",
-            family="plugin_effect",
-            group_key="ns.done",
-            unit_key="unit-2",
-            action_kind="plugin.kind",
-            identity="{}",
-            payload={"envelope": FAKE_SECRET},
-        )
-        store.consume_group_retained(
-            family="plugin_effect",
-            group_key="ns.done",
-            action_kind="plugin.kind",
-            audit=lambda raw: {"response_bytes": len(raw or "")},
-        )
-    finally:
-        project.close()
+    # A consumed provider-audit row (the retained-forever plugin shape):
+    # deliberately kept, not stuck, must NOT be listed.
+    assert store.reserve(
+        "cp-plugin-audit",
+        family="plugin_effect",
+        group_key="ns.done",
+        unit_key="unit-2",
+        action_kind="plugin.kind",
+        identity="{}",
+    )
+    store.complete(
+        "cp-plugin-audit",
+        family="plugin_effect",
+        group_key="ns.done",
+        unit_key="unit-2",
+        action_kind="plugin.kind",
+        identity="{}",
+        payload={"envelope": FAKE_SECRET},
+    )
+    store.consume_group_retained(
+        family="plugin_effect",
+        group_key="ns.done",
+        action_kind="plugin.kind",
+        audit=lambda raw: {"response_bytes": len(raw or "")},
+    )
 
     rc = reconcile(["list", "--project", str(tmp_path / "reconcile.frisket")])
     out = capsys.readouterr()
@@ -474,8 +472,7 @@ def test_discard_makes_the_ambiguous_row_retryable_end_to_end(
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     bundle = tmp_path / "ambiguous.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         run_id, checkpoint_id, claim_token, provider, confirmed = _ambiguous_run(
             project
         )
@@ -506,8 +503,6 @@ def test_discard_makes_the_ambiguous_row_retryable_end_to_end(
         assert resumed.halted_code is None
         assert resumed.completed == 1
         assert provider.calls == 2
-    finally:
-        project.close()
 
 
 def test_accept_charged_records_the_decision_and_refuses_a_recall(
@@ -515,8 +510,7 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
 ):
     monkeypatch.setenv("FRISKET_COST_CONSENT_USD", "0")
     bundle = tmp_path / "accepted.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         run_id, checkpoint_id, claim_token, provider, confirmed = _ambiguous_run(
             project
         )
@@ -580,8 +574,6 @@ def test_accept_charged_records_the_decision_and_refuses_a_recall(
         assert resumed.done is True
         assert resumed.completed == 1
         assert provider.calls == 2
-    finally:
-        project.close()
 
 
 # ---------------------------------------------------------------------------
@@ -615,8 +607,7 @@ def _returned_unit(
 
 def test_discard_refusals_are_named_and_leave_rows_intact(tmp_path, capsys):
     bundle = tmp_path / "refuse.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         run_id = _live_run_id(project)
         success_id = _returned_unit(
@@ -648,8 +639,6 @@ def test_discard_refusals_are_named_and_leave_rows_intact(tmp_path, capsys):
             action_kind="plugin.kind",
             audit=lambda raw: {"response_bytes": len(raw or "")},
         )
-    finally:
-        project.close()
     args = ["--project", str(bundle)]
 
     # Unknown id: named, nothing guessed.
@@ -679,21 +668,17 @@ def test_discard_refusals_are_named_and_leave_rows_intact(tmp_path, capsys):
     assert rc == 1
     assert "already durable" in out.err
 
-    project = Project(bundle)
-    try:
+    with closing(Project(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         kept = store.get(success_id)
         assert kept is not None and kept["state"] == "returned"
         audit = store.get("cp-audit")
         assert audit is not None and audit["state"] == "consumed"
-    finally:
-        project.close()
 
 
 def test_discard_clears_returned_error_and_corrupt_and_orphaned_rows(tmp_path, capsys):
     bundle = tmp_path / "clearable.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         run_id = _live_run_id(project)
         # Durable provider error: the operator may clear it to retry fresh.
@@ -712,8 +697,6 @@ def test_discard_clears_returned_error_and_corrupt_and_orphaned_rows(tmp_path, c
         orphan_id = _returned_unit(
             store, "43", {"field": {"value": 1, "cost": 0.1}}, "424242"
         )
-    finally:
-        project.close()
     args = ["--project", str(bundle)]
 
     # Live-referent shapes report a retry path; the orphan reports removal of
@@ -735,14 +718,11 @@ def test_discard_clears_returned_error_and_corrupt_and_orphaned_rows(tmp_path, c
     assert "retryable" not in out.out
     assert FAKE_SECRET not in out.out + out.err
 
-    project = Project(bundle)
-    try:
+    with closing(Project(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         assert store.get(error_id) is None
         assert store.get(corrupt_id) is None
         assert store.get(orphan_id) is None
-    finally:
-        project.close()
 
 
 def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
@@ -755,12 +735,9 @@ def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
     of silently deleting the provider's durable paid response."""
 
     bundle = tmp_path / "race.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         run_id = _live_run_id(project)
-    finally:
-        project.close()
     unit = {
         "family": "row_effect",
         "group_key": str(run_id),
@@ -768,12 +745,9 @@ def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
         "action_kind": "classify",
         "identity": "digest-race",
     }
-    project = Project(bundle)
-    try:
+    with closing(Project(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         assert store.reserve("cp-race", **unit)
-    finally:
-        project.close()
 
     real_discard = EffectCheckpointStore.operator_discard
 
@@ -796,13 +770,10 @@ def test_discard_refuses_when_checkpoint_completes_between_read_and_delete(
     assert FAKE_SECRET not in out.out + out.err
 
     # The durable paid response SURVIVES for automatic resume to consume.
-    project = Project(bundle)
-    try:
+    with closing(Project(bundle)) as project:
         survived = EffectCheckpointStore(project.db).get("cp-race")
         assert survived is not None
         assert survived["state"] == "returned"
-    finally:
-        project.close()
 
 
 def test_reconcile_never_prints_payload_secrets_on_decisions(tmp_path, capsys):
@@ -810,8 +781,7 @@ def test_reconcile_never_prints_payload_secrets_on_decisions(tmp_path, capsys):
     payload; deciding it must print metadata only."""
 
     bundle = tmp_path / "secrets.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         store = EffectCheckpointStore(project.db)
         assert store.reserve(
             "cp-secret",
@@ -825,8 +795,6 @@ def test_reconcile_never_prints_payload_secrets_on_decisions(tmp_path, capsys):
                 "provider_fact_id": None,
             },
         )
-    finally:
-        project.close()
     args = ["--project", str(bundle)]
 
     rc = reconcile(["list", *args])
@@ -912,11 +880,8 @@ def _stuck_probe_receipt(
 
 def test_list_surfaces_the_stuck_embedding_probe_receipt(tmp_path, capsys):
     bundle = tmp_path / "probe-list.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         receipt_id = _stuck_probe_receipt(project)
-    finally:
-        project.close()
 
     rc = reconcile(["list", "--project", str(bundle)])
     out = capsys.readouterr()
@@ -928,8 +893,7 @@ def test_list_surfaces_the_stuck_embedding_probe_receipt(tmp_path, capsys):
 
 def test_discard_makes_the_stuck_probe_receipt_retryable(tmp_path, capsys):
     bundle = tmp_path / "probe-discard.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         receipt_id = _stuck_probe_receipt(project)
         idempotency_key = "embedding.index_create@sha256:probe-stuck"
 
@@ -948,16 +912,13 @@ def test_discard_makes_the_stuck_probe_receipt_retryable(tmp_path, capsys):
         assert rc == 0
         assert receipt_id not in out.out
         assert idempotency_key not in out.out
-    finally:
-        project.close()
 
 
 def test_accept_charged_decides_the_stuck_probe_receipt_and_refuses_recall(
     tmp_path, capsys
 ):
     bundle = tmp_path / "probe-accept.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         receipt_id = _stuck_probe_receipt(project)
 
         rc = reconcile(["accept-charged", receipt_id, "--project", str(bundle)])
@@ -987,8 +948,6 @@ def test_accept_charged_decides_the_stuck_probe_receipt_and_refuses_recall(
         out = capsys.readouterr()
         assert rc == 1
         assert "checkpoint_lost" in out.err
-    finally:
-        project.close()
 
 
 def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
@@ -997,8 +956,7 @@ def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
     only, never the receipt body."""
 
     bundle = tmp_path / "probe-secrets.frisket"
-    project = Project.create(bundle)
-    try:
+    with closing(Project.create(bundle)) as project:
         from frisket.contracts.action import Receipt, ReceiptEvidence
         from frisket.engine.store.receipts import receipt_body
 
@@ -1041,8 +999,6 @@ def test_reconcile_never_prints_probe_receipt_body_secrets(tmp_path, capsys):
             ),
         )
         project.db.commit()
-    finally:
-        project.close()
     args = ["--project", str(bundle)]
 
     rc = reconcile(["list", *args])

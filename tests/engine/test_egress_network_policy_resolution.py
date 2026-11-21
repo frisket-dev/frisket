@@ -3,6 +3,7 @@
 org_default, so a bare project resolves from its own mode alone."""
 
 from __future__ import annotations
+from contextlib import closing
 
 import pytest
 
@@ -60,11 +61,8 @@ def test_policy_survives_reopen(tmp_path) -> None:
     p = Project.create(tmp_path / "p.frisket")
     p.set_network_policy(mode="off")
     p.close()
-    reopened = Project(tmp_path / "p.frisket")
-    try:
+    with closing(Project(tmp_path / "p.frisket")) as reopened:
         assert reopened.effective_network_policy() == "off"
-    finally:
-        reopened.close()
 
 
 def test_corrupt_meta_self_heals_to_default(project) -> None:

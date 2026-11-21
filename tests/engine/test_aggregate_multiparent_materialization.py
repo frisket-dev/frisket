@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Any
 
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
@@ -109,8 +108,8 @@ def _membership_rows(project: Project, op_id: int) -> list[dict[str, Any]]:
     ]
 
 
-def _seed_entities_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "entities.frisket", name="entities")
+def _seed_entities_project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("entities")
     sheet_id = project.add_sheet("People")
     name_col = project.add_column(sheet_id, "name", type="text")
     row_ids = project.add_rows(
@@ -157,82 +156,79 @@ def _resolve_action(receipt_id: str) -> dict[str, Any]:
 
 
 def test_resolve_entities_writes_aggregate_membership_not_fake_parentage(
-    tmp_path: Path,
+    make_project,
 ):
     from frisket.engine.executor import actions as executor_actions
 
-    project, sheet_id, row_ids = _seed_entities_project(tmp_path)
-    try:
-        cluster = executor_actions.run_action_spec(
-            project,
-            _cluster_action(sheet_id),
-            project_id=PROJECT_ID,
-        )
-        assert cluster.status == "completed", cluster.errors
-        assert cluster.receipt_id is not None
-        result = executor_actions.run_action_spec(
-            project,
-            _resolve_action(cluster.receipt_id),
-            project_id=PROJECT_ID,
-        )
-        assert result.status == "completed", result.errors
-        entity_rows_ref = next(
-            ref
-            for ref in _receipt_refs(project, result.receipt_id)
-            if ref["kind"] == "materialized_rows"
-        )
-        entity_row_ids = entity_rows_ref["row_ids"]
-        parentage = project.db.execute(
-            "SELECT id, parent_row_id FROM rows "
-            f"WHERE id IN ({','.join('?' for _ in entity_row_ids)})",
-            entity_row_ids,
-        ).fetchall()
-        assert {row["parent_row_id"] for row in parentage} == {None}
+    project, sheet_id, row_ids = _seed_entities_project(make_project)
+    cluster = executor_actions.run_action_spec(
+        project,
+        _cluster_action(sheet_id),
+        project_id=PROJECT_ID,
+    )
+    assert cluster.status == "completed", cluster.errors
+    assert cluster.receipt_id is not None
+    result = executor_actions.run_action_spec(
+        project,
+        _resolve_action(cluster.receipt_id),
+        project_id=PROJECT_ID,
+    )
+    assert result.status == "completed", result.errors
+    entity_rows_ref = next(
+        ref
+        for ref in _receipt_refs(project, result.receipt_id)
+        if ref["kind"] == "materialized_rows"
+    )
+    entity_row_ids = entity_rows_ref["row_ids"]
+    parentage = project.db.execute(
+        "SELECT id, parent_row_id FROM rows "
+        f"WHERE id IN ({','.join('?' for _ in entity_row_ids)})",
+        entity_row_ids,
+    ).fetchall()
+    assert {row["parent_row_id"] for row in parentage} == {None}
 
-        membership = _membership_rows(project, result.op_ids[0])
-        assert {row["role"] for row in membership} == {"aggregate_source"}
-        source_variants_column = next(
-            column
-            for column in project.columns(result.outputs[0].sheet_id)
-            if column["name"] == "source_variants"
-        )
-        source_variants = project.get_values(
-            result.outputs[0].sheet_id, source_variants_column["id"]
-        )
-        expected_pairs = {
-            (entity_row_id, source_row_id)
-            for entity_row_id in entity_row_ids
-            for variant in source_variants[entity_row_id]
-            for source_row_id in variant["row_ids"]
-        }
-        assert {
-            (row["materialized_row_id"], row["source_row_id"]) for row in membership
-        } == expected_pairs
-        membership_ref = next(
-            ref
-            for ref in _receipt_refs(project, result.receipt_id)
-            if ref["kind"] == "materialized_row_sources"
-        )
-        assert membership_ref["row_count"] == len(membership)
+    membership = _membership_rows(project, result.op_ids[0])
+    assert {row["role"] for row in membership} == {"aggregate_source"}
+    source_variants_column = next(
+        column
+        for column in project.columns(result.outputs[0].sheet_id)
+        if column["name"] == "source_variants"
+    )
+    source_variants = project.get_values(
+        result.outputs[0].sheet_id, source_variants_column["id"]
+    )
+    expected_pairs = {
+        (entity_row_id, source_row_id)
+        for entity_row_id in entity_row_ids
+        for variant in source_variants[entity_row_id]
+        for source_row_id in variant["row_ids"]
+    }
+    assert {
+        (row["materialized_row_id"], row["source_row_id"]) for row in membership
+    } == expected_pairs
+    membership_ref = next(
+        ref
+        for ref in _receipt_refs(project, result.receipt_id)
+        if ref["kind"] == "materialized_row_sources"
+    )
+    assert membership_ref["row_count"] == len(membership)
 
-        project.db.execute(
-            "UPDATE rows SET parent_row_id=? WHERE id=?",
-            (row_ids[0], entity_row_ids[0]),
-        )
-        project.db.commit()
-        stale = executor_actions.run_action_spec(
-            project,
-            _resolve_action(cluster.receipt_id),
-            project_id=PROJECT_ID,
-        )
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-    finally:
-        project.close()
+    project.db.execute(
+        "UPDATE rows SET parent_row_id=? WHERE id=?",
+        (row_ids[0], entity_row_ids[0]),
+    )
+    project.db.commit()
+    stale = executor_actions.run_action_spec(
+        project,
+        _resolve_action(cluster.receipt_id),
+        project_id=PROJECT_ID,
+    )
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
 
 
-def _seed_reduce_project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "reduce.frisket", name="reduce")
+def _seed_reduce_project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("reduce")
     sheet_id = project.add_sheet("Feature Tour")
     columns = {
         "story": project.add_column(sheet_id, "story", type="text"),
@@ -280,134 +276,131 @@ def _reduce_action(sheet_id: int) -> dict[str, Any]:
 
 
 def test_reduce_group_summary_writes_aggregate_membership_and_replays_it(
-    tmp_path: Path,
+    make_project,
 ):
     from runner_test_helpers import run_action_with_exact_confirmation
 
-    project, sheet_id, source_row_ids = _seed_reduce_project(tmp_path)
+    project, sheet_id, source_row_ids = _seed_reduce_project(make_project)
     router, adapter = _summary_router()
-    try:
-        action = _reduce_action(sheet_id)
-        result = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        group_ref = next(
-            ref
-            for ref in _receipt_refs(project, result.receipt_id)
-            if ref["kind"] == "reduce_group_summary_groups"
-        )
-        summary_row_ids = [group["summary_row_id"] for group in group_ref["groups"]]
-        parentage = project.db.execute(
-            "SELECT id, parent_row_id FROM rows "
-            f"WHERE id IN ({','.join('?' for _ in summary_row_ids)})",
-            summary_row_ids,
-        ).fetchall()
-        assert {row["parent_row_id"] for row in parentage} == {None}
+    action = _reduce_action(sheet_id)
+    result = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    group_ref = next(
+        ref
+        for ref in _receipt_refs(project, result.receipt_id)
+        if ref["kind"] == "reduce_group_summary_groups"
+    )
+    summary_row_ids = [group["summary_row_id"] for group in group_ref["groups"]]
+    parentage = project.db.execute(
+        "SELECT id, parent_row_id FROM rows "
+        f"WHERE id IN ({','.join('?' for _ in summary_row_ids)})",
+        summary_row_ids,
+    ).fetchall()
+    assert {row["parent_row_id"] for row in parentage} == {None}
 
-        membership = _membership_rows(project, result.op_ids[0])
-        assert {row["role"] for row in membership} == {"aggregate_source"}
-        expected_pairs = {
-            (group["summary_row_id"], source_row_id)
-            for group in group_ref["groups"]
-            for source_row_id in group["source_row_ids"]
-        }
-        assert {
-            (row["materialized_row_id"], row["source_row_id"]) for row in membership
-        } == expected_pairs
-        assert {row["source_row_id"] for row in membership} == set(source_row_ids)
-        membership_ref = next(
-            ref
-            for ref in _receipt_refs(project, result.receipt_id)
-            if ref["kind"] == "materialized_row_sources"
-        )
-        assert membership_ref["row_count"] == len(membership)
-        summary_column_id = project.db.execute(
-            "SELECT id FROM columns WHERE sheet_id=? AND name='summary'",
-            (group_ref["summary_sheet_id"],),
-        ).fetchone()["id"]
-        assert (
-            project.db.execute(
-                "SELECT COUNT(*) FROM cells WHERE column_id=?",
-                (summary_column_id,),
-            ).fetchone()[0]
-            == 0
-        )
-        assert set(
-            project.get_values(
-                group_ref["summary_sheet_id"],
-                int(summary_column_id),
-                row_ids=summary_row_ids,
-            ).values()
-        ) == {
-            "Accountability stories share contracting risk.",
-            "Infrastructure stories share service disruption risk.",
-        }
-
-        replay = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert replay.status == "completed"
-        assert len(adapter.requests) == 2
-
-        original_body = _mutate_receipt_ref(
-            project,
-            result.receipt_id,
-            "materialized_rows",
-            lambda ref: ref.__setitem__("row_ids", ["not-an-int"]),
-        )
-        stale_from_malformed_rows = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert stale_from_malformed_rows.status == "failed"
-        assert stale_from_malformed_rows.errors[0].code == "stale_replay"
-        _replace_receipt_body(project, result.receipt_id, original_body)
-
-        original_body = _mutate_receipt_ref(
-            project,
-            result.receipt_id,
-            "reduce_group_summary_groups",
-            lambda ref: ref["groups"][0].__setitem__("source_row_ids", ["bad"]),
-        )
-        stale_from_malformed_group = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert stale_from_malformed_group.status == "failed"
-        assert stale_from_malformed_group.errors[0].code == "stale_replay"
-        _replace_receipt_body(project, result.receipt_id, original_body)
-
-        first_membership = membership[0]
+    membership = _membership_rows(project, result.op_ids[0])
+    assert {row["role"] for row in membership} == {"aggregate_source"}
+    expected_pairs = {
+        (group["summary_row_id"], source_row_id)
+        for group in group_ref["groups"]
+        for source_row_id in group["source_row_ids"]
+    }
+    assert {
+        (row["materialized_row_id"], row["source_row_id"]) for row in membership
+    } == expected_pairs
+    assert {row["source_row_id"] for row in membership} == set(source_row_ids)
+    membership_ref = next(
+        ref
+        for ref in _receipt_refs(project, result.receipt_id)
+        if ref["kind"] == "materialized_row_sources"
+    )
+    assert membership_ref["row_count"] == len(membership)
+    summary_column_id = project.db.execute(
+        "SELECT id FROM columns WHERE sheet_id=? AND name='summary'",
+        (group_ref["summary_sheet_id"],),
+    ).fetchone()["id"]
+    assert (
         project.db.execute(
-            "DELETE FROM materialized_row_sources "
-            "WHERE op_id=? AND materialized_row_id=? AND source_row_id=? "
-            "AND role='aggregate_source'",
-            (
-                result.op_ids[0],
-                first_membership["materialized_row_id"],
-                first_membership["source_row_id"],
-            ),
-        )
-        project.db.commit()
-        stale = run_action_with_exact_confirmation(
-            project,
-            action,
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert stale.status == "failed"
-        assert stale.errors[0].code == "stale_replay"
-        assert len(adapter.requests) == 2
-    finally:
-        project.close()
+            "SELECT COUNT(*) FROM cells WHERE column_id=?",
+            (summary_column_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert set(
+        project.get_values(
+            group_ref["summary_sheet_id"],
+            int(summary_column_id),
+            row_ids=summary_row_ids,
+        ).values()
+    ) == {
+        "Accountability stories share contracting risk.",
+        "Infrastructure stories share service disruption risk.",
+    }
+
+    replay = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert replay.status == "completed"
+    assert len(adapter.requests) == 2
+
+    original_body = _mutate_receipt_ref(
+        project,
+        result.receipt_id,
+        "materialized_rows",
+        lambda ref: ref.__setitem__("row_ids", ["not-an-int"]),
+    )
+    stale_from_malformed_rows = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert stale_from_malformed_rows.status == "failed"
+    assert stale_from_malformed_rows.errors[0].code == "stale_replay"
+    _replace_receipt_body(project, result.receipt_id, original_body)
+
+    original_body = _mutate_receipt_ref(
+        project,
+        result.receipt_id,
+        "reduce_group_summary_groups",
+        lambda ref: ref["groups"][0].__setitem__("source_row_ids", ["bad"]),
+    )
+    stale_from_malformed_group = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert stale_from_malformed_group.status == "failed"
+    assert stale_from_malformed_group.errors[0].code == "stale_replay"
+    _replace_receipt_body(project, result.receipt_id, original_body)
+
+    first_membership = membership[0]
+    project.db.execute(
+        "DELETE FROM materialized_row_sources "
+        "WHERE op_id=? AND materialized_row_id=? AND source_row_id=? "
+        "AND role='aggregate_source'",
+        (
+            result.op_ids[0],
+            first_membership["materialized_row_id"],
+            first_membership["source_row_id"],
+        ),
+    )
+    project.db.commit()
+    stale = run_action_with_exact_confirmation(
+        project,
+        action,
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert stale.status == "failed"
+    assert stale.errors[0].code == "stale_replay"
+    assert len(adapter.requests) == 2

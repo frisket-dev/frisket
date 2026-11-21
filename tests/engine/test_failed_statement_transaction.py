@@ -27,7 +27,6 @@ def project(make_project):
     finally:
         if project.db.in_transaction:
             project.db.rollback()
-        project.close()
 
 
 def _committed_ids(project) -> list[int]:

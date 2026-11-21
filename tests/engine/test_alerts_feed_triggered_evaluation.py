@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from tests.alert_helpers import add_alert
 
-from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -99,8 +98,8 @@ def _feed_poll_action(source_id: int, key: str) -> dict[str, Any]:
     }
 
 
-def _create_project(tmp_path: Path) -> tuple[Project, int]:
-    project = Project.create(tmp_path / "source-watch.frisket", name="Source Watch")
+def _create_project(make_project) -> tuple[Project, int]:
+    project = make_project("Source Watch")
     with write_transaction(project.db):
         source_id = FeedStore(project).add_feed(
             "Public Notices",
@@ -131,193 +130,185 @@ def _run_source_poll(
 
 
 def test_completed_source_poll_evaluates_affected_enabled_alerts(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, source_id = _create_project(tmp_path)
-    try:
-        first = _run_source_poll(
-            project,
-            source_id,
-            key="initial",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    }
-                ]
-            ),
-        )
-        first_materialized = feed_poll_materialization_from_receipt(
-            project,
-            project_id=PROJECT_ID,
-            receipt_id=first.receipt_id,
-        )
-        assert first_materialized is not None
-        sheet_id = first_materialized["sheet_id"]
+    project, source_id = _create_project(make_project)
+    first = _run_source_poll(
+        project,
+        source_id,
+        key="initial",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                }
+            ]
+        ),
+    )
+    first_materialized = feed_poll_materialization_from_receipt(
+        project,
+        project_id=PROJECT_ID,
+        receipt_id=first.receipt_id,
+    )
+    assert first_materialized is not None
+    sheet_id = first_materialized["sheet_id"]
 
-        project_alert = add_alert(
-            project,
-            "Project budget watch",
-            scope="project",
-            query={"kind": "fts", "q": "budget", "limit": 20},
-        )
-        sheet_alert = add_alert(
-            project,
-            "Sheet budget watch",
-            scope="sheet",
-            sheet_id=sheet_id,
-            query={"kind": "fts", "q": "budget", "limit": 20},
-        )
-        disabled_alert = add_alert(
-            project,
-            "Disabled budget watch",
-            scope="project",
-            query={"kind": "fts", "q": "budget", "limit": 20},
-            enabled=False,
-        )
-        other_sheet = project.add_sheet("Other source")
-        other_sheet_alert = add_alert(
-            project,
-            "Other sheet watch",
-            scope="sheet",
-            sheet_id=other_sheet,
-            query={"kind": "fts", "q": "budget", "limit": 20},
-        )
+    project_alert = add_alert(
+        project,
+        "Project budget watch",
+        scope="project",
+        query={"kind": "fts", "q": "budget", "limit": 20},
+    )
+    sheet_alert = add_alert(
+        project,
+        "Sheet budget watch",
+        scope="sheet",
+        sheet_id=sheet_id,
+        query={"kind": "fts", "q": "budget", "limit": 20},
+    )
+    disabled_alert = add_alert(
+        project,
+        "Disabled budget watch",
+        scope="project",
+        query={"kind": "fts", "q": "budget", "limit": 20},
+        enabled=False,
+    )
+    other_sheet = project.add_sheet("Other source")
+    other_sheet_alert = add_alert(
+        project,
+        "Other sheet watch",
+        scope="sheet",
+        sheet_id=other_sheet,
+        query={"kind": "fts", "q": "budget", "limit": 20},
+    )
 
-        second = _run_source_poll(
-            project,
-            source_id,
-            key="second",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    },
-                    {
-                        "guid": "b",
-                        "title": "Budget amendment",
-                        "link": "https://x/b",
-                        "description": "A late budget item arrived",
-                    },
-                ]
-            ),
-        )
-        materialized = feed_poll_materialization_from_receipt(
-            project,
-            project_id=PROJECT_ID,
-            receipt_id=second.receipt_id,
-        )
-        assert materialized is not None
-        assert materialized["source_id"] == source_id
-        assert materialized["sheet_id"] == sheet_id
-        assert materialized["op_id"] is not None
-        assert materialized["materialized_rows"] == 1
-        assert len(materialized["row_ids"]) == 1
+    second = _run_source_poll(
+        project,
+        source_id,
+        key="second",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                },
+                {
+                    "guid": "b",
+                    "title": "Budget amendment",
+                    "link": "https://x/b",
+                    "description": "A late budget item arrived",
+                },
+            ]
+        ),
+    )
+    materialized = feed_poll_materialization_from_receipt(
+        project,
+        project_id=PROJECT_ID,
+        receipt_id=second.receipt_id,
+    )
+    assert materialized is not None
+    assert materialized["source_id"] == source_id
+    assert materialized["sheet_id"] == sheet_id
+    assert materialized["op_id"] is not None
+    assert materialized["materialized_rows"] == 1
+    assert len(materialized["row_ids"]) == 1
 
-        triggered = trigger_source_materialized_alerts(project, materialized)
+    triggered = trigger_source_materialized_alerts(project, materialized)
 
-        assert [item["watch_id"] for item in triggered] == [project_alert, sheet_alert]
-        assert {item["trigger_kind"] for item in triggered} == {
-            "source_poll_materialized"
-        }
-        assert all(
-            item["source_run_id"] == materialized["source_run_id"] for item in triggered
-        )
-        assert all(item["run"]["matched_rows"] == 2 for item in triggered)
-        assert all(item["run"]["new_rows"] == 0 for item in triggered)
+    assert [item["watch_id"] for item in triggered] == [project_alert, sheet_alert]
+    assert {item["trigger_kind"] for item in triggered} == {"source_poll_materialized"}
+    assert all(
+        item["source_run_id"] == materialized["source_run_id"] for item in triggered
+    )
+    assert all(item["run"]["matched_rows"] == 2 for item in triggered)
+    assert all(item["run"]["new_rows"] == 0 for item in triggered)
 
-        for alert_id in (project_alert, sheet_alert):
-            latest = project.alert_latest_run(alert_id)
-            assert latest is not None
-            events = project.alert_check_events(int(latest["id"]), limit=10)
-            assert events == []
+    for alert_id in (project_alert, sheet_alert):
+        latest = project.alert_latest_run(alert_id)
+        assert latest is not None
+        events = project.alert_check_events(int(latest["id"]), limit=10)
+        assert events == []
 
-        assert project.alert_latest_run(disabled_alert) is None
-        assert project.alert_latest_run(other_sheet_alert) is None
-    finally:
-        project.close()
+    assert project.alert_latest_run(disabled_alert) is None
+    assert project.alert_latest_run(other_sheet_alert) is None
 
 
 def test_source_poll_selects_sheet_filter_alert_from_owned_query(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, source_id = _create_project(tmp_path)
-    try:
-        first = _run_source_poll(
-            project,
-            source_id,
-            key="follow-first",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    }
-                ]
-            ),
-        )
-        initial = feed_poll_materialization_from_receipt(
-            project, project_id=PROJECT_ID, receipt_id=first.receipt_id
-        )
-        assert initial is not None
-        sheet_id = initial["sheet_id"]
-        filter_id = add_alert(
-            project,
-            "All source rows",
-            scope="sheet",
-            sheet_id=sheet_id,
-            query={"kind": "filter", "sheet_id": sheet_id, "filter": {}},
-        )
-        later_id = add_alert(
-            project,
-            "Later direct watch",
-            scope="sheet",
-            sheet_id=sheet_id,
-            query={"kind": "fts", "q": "budget", "limit": 20},
-        )
+    project, source_id = _create_project(make_project)
+    first = _run_source_poll(
+        project,
+        source_id,
+        key="follow-first",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                }
+            ]
+        ),
+    )
+    initial = feed_poll_materialization_from_receipt(
+        project, project_id=PROJECT_ID, receipt_id=first.receipt_id
+    )
+    assert initial is not None
+    sheet_id = initial["sheet_id"]
+    filter_id = add_alert(
+        project,
+        "All source rows",
+        scope="sheet",
+        sheet_id=sheet_id,
+        query={"kind": "filter", "sheet_id": sheet_id, "filter": {}},
+    )
+    later_id = add_alert(
+        project,
+        "Later direct watch",
+        scope="sheet",
+        sheet_id=sheet_id,
+        query={"kind": "fts", "q": "budget", "limit": 20},
+    )
 
-        second = _run_source_poll(
-            project,
-            source_id,
-            key="follow-second",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    },
-                    {
-                        "guid": "b",
-                        "title": "Budget amendment",
-                        "link": "https://x/b",
-                        "description": "A late budget item arrived",
-                    },
-                ]
-            ),
-        )
-        materialized = feed_poll_materialization_from_receipt(
-            project, project_id=PROJECT_ID, receipt_id=second.receipt_id
-        )
-        assert materialized is not None
+    second = _run_source_poll(
+        project,
+        source_id,
+        key="follow-second",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                },
+                {
+                    "guid": "b",
+                    "title": "Budget amendment",
+                    "link": "https://x/b",
+                    "description": "A late budget item arrived",
+                },
+            ]
+        ),
+    )
+    materialized = feed_poll_materialization_from_receipt(
+        project, project_id=PROJECT_ID, receipt_id=second.receipt_id
+    )
+    assert materialized is not None
 
-        triggered = trigger_source_materialized_alerts(project, materialized)
+    triggered = trigger_source_materialized_alerts(project, materialized)
 
-        assert [item["watch_id"] for item in triggered] == [filter_id, later_id]
-        assert triggered[0]["run"]["status"] == "ok"
-        assert triggered[0]["run"]["matched_rows"] == 2
-        assert triggered[1]["run"]["matched_rows"] == 2
-    finally:
-        project.close()
+    assert [item["watch_id"] for item in triggered] == [filter_id, later_id]
+    assert triggered[0]["run"]["status"] == "ok"
+    assert triggered[0]["run"]["matched_rows"] == 2
+    assert triggered[1]["run"]["matched_rows"] == 2
 
 
 def _finish_source_poll_job(client: TestClient, body: dict[str, Any]):
@@ -403,82 +394,79 @@ def test_v1_source_poll_action_triggers_alert_check(
 
 
 def test_noop_and_failed_source_polls_do_not_trigger_alert_checks(
-    tmp_path: Path,
+    make_project,
 ) -> None:
-    project, source_id = _create_project(tmp_path)
-    try:
-        first = _run_source_poll(
-            project,
-            source_id,
-            key="first",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    }
-                ]
-            ),
-        )
-        first_materialized = feed_poll_materialization_from_receipt(
+    project, source_id = _create_project(make_project)
+    first = _run_source_poll(
+        project,
+        source_id,
+        key="first",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                }
+            ]
+        ),
+    )
+    first_materialized = feed_poll_materialization_from_receipt(
+        project,
+        project_id=PROJECT_ID,
+        receipt_id=first.receipt_id,
+    )
+    assert first_materialized is not None
+    alert_id = add_alert(
+        project,
+        "Budget watch",
+        scope="project",
+        query={"kind": "fts", "q": "budget", "limit": 20},
+    )
+
+    noop = _run_source_poll(
+        project,
+        source_id,
+        key="noop",
+        feed=_feed(
+            [
+                {
+                    "guid": "a",
+                    "title": "Budget hearing",
+                    "link": "https://x/a",
+                    "description": "Council budget oversight",
+                }
+            ]
+        ),
+    )
+    assert (
+        feed_poll_materialization_from_receipt(
             project,
             project_id=PROJECT_ID,
-            receipt_id=first.receipt_id,
+            receipt_id=noop.receipt_id,
         )
-        assert first_materialized is not None
-        alert_id = add_alert(
-            project,
-            "Budget watch",
-            scope="project",
-            query={"kind": "fts", "q": "budget", "limit": 20},
-        )
+        is None
+    )
 
-        noop = _run_source_poll(
+    failed = run_action_spec(
+        project,
+        _feed_poll_action(source_id, "failed"),
+        project_id=PROJECT_ID,
+        rss_fetcher=lambda _url: (_ for _ in ()).throw(RuntimeError("feed down")),
+    )
+    assert failed.status == "failed"
+    assert failed.receipt_id
+    assert (
+        feed_poll_materialization_from_receipt(
             project,
-            source_id,
-            key="noop",
-            feed=_feed(
-                [
-                    {
-                        "guid": "a",
-                        "title": "Budget hearing",
-                        "link": "https://x/a",
-                        "description": "Council budget oversight",
-                    }
-                ]
-            ),
-        )
-        assert (
-            feed_poll_materialization_from_receipt(
-                project,
-                project_id=PROJECT_ID,
-                receipt_id=noop.receipt_id,
-            )
-            is None
-        )
-
-        failed = run_action_spec(
-            project,
-            _feed_poll_action(source_id, "failed"),
             project_id=PROJECT_ID,
-            rss_fetcher=lambda _url: (_ for _ in ()).throw(RuntimeError("feed down")),
+            receipt_id=failed.receipt_id,
         )
-        assert failed.status == "failed"
-        assert failed.receipt_id
-        assert (
-            feed_poll_materialization_from_receipt(
-                project,
-                project_id=PROJECT_ID,
-                receipt_id=failed.receipt_id,
-            )
-            is None
-        )
+        is None
+    )
 
-        assert project.alert_latest_run(alert_id) is None
-    finally:
-        project.close()
+    assert project.alert_latest_run(alert_id) is None
 
 
 def test_v1_source_poll_job_enqueues_embedding_refresh(

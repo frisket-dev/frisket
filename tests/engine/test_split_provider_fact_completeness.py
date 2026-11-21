@@ -4,7 +4,6 @@ from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 import asyncio
 import json
 import re
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -21,10 +20,9 @@ _SECRETISH = re.compile(
 )
 
 
-def _project(tmp_path: Path, name: str):
-    from frisket.engine.store import Project
+def _project(make_project, name: str):
 
-    project = Project.create(tmp_path / f"{name}.frisket", name=name)
+    project = make_project(name)
     sheet_id = project.add_sheet("Stories")
     columns = {"story": project.add_column(sheet_id, "story", type="text")}
     project.add_rows(
@@ -82,7 +80,7 @@ def _assert_fact_shape(fact: dict[str, Any], *, expected_source: str) -> None:
 
 
 def test_structured_map_persists_cache_and_live_attempt_facts_separately(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The real map persistence path must not relabel a cache/live total.
 
@@ -150,48 +148,43 @@ def test_structured_map_persists_cache_and_live_attempt_facts_separately(
     monkeypatch.setattr(
         "frisket.engine.runner.row_execution.StructuredCompleter", _StructuredCompleter
     )
-    project, sheet_id = _project(tmp_path, "structured-attempts")
-    try:
-        result = run_action_with_exact_confirmation(
-            project,
-            _map_action(sheet_id),
-            project_id="provider-fact-contract",
-            router=ModelRouter(
-                model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": live_secret}
-            ),
-        )
-        assert result.status == "completed", result.errors
-        rows = [dict(row) for row in RunResultStore(project).model_calls(result.run_id)]
-        assert rows, "structured map calls must persist provider facts"
+    project, sheet_id = _project(make_project, "structured-attempts")
+    result = run_action_with_exact_confirmation(
+        project,
+        _map_action(sheet_id),
+        project_id="provider-fact-contract",
+        router=ModelRouter(
+            model_call_policy=LOCAL_PURCHASE_POLICY, keys={"openai": live_secret}
+        ),
+    )
+    assert result.status == "completed", result.errors
+    rows = [dict(row) for row in RunResultStore(project).model_calls(result.run_id)]
+    assert rows, "structured map calls must persist provider facts"
 
-        cache_rows = [row for row in rows if row.get("credential_source") == "cache"]
-        live_rows = [
-            row for row in rows if row.get("credential_source") == "platform_key"
-        ]
-        assert cache_rows and live_rows, (
-            "a mixed cache/live structured response must expose persisted facts at "
-            "attempt or source-partition granularity, never one total labelled by "
-            "the final live source"
-        )
-        for fact in cache_rows:
-            _assert_fact_shape(fact, expected_source="cache")
-            assert float(fact.get("provider_cost_usd") or 0.0) == 0.0
-        for fact in live_rows:
-            _assert_fact_shape(fact, expected_source="platform_key")
-            assert float(fact.get("provider_cost_usd") or 0.0) == pytest.approx(0.0125)
-        run = RunResultStore(project).get_run(result.run_id)
-        persisted_provider_cost = sum(
-            float(row.get("provider_cost_usd") or 0.0) for row in rows
-        )
-        assert run is not None
-        assert float(run["cost_actual"]) == pytest.approx(persisted_provider_cost)
-        _assert_no_secret_material(rows, forbidden={cache_secret, live_secret})
-    finally:
-        project.close()
+    cache_rows = [row for row in rows if row.get("credential_source") == "cache"]
+    live_rows = [row for row in rows if row.get("credential_source") == "platform_key"]
+    assert cache_rows and live_rows, (
+        "a mixed cache/live structured response must expose persisted facts at "
+        "attempt or source-partition granularity, never one total labelled by "
+        "the final live source"
+    )
+    for fact in cache_rows:
+        _assert_fact_shape(fact, expected_source="cache")
+        assert float(fact.get("provider_cost_usd") or 0.0) == 0.0
+    for fact in live_rows:
+        _assert_fact_shape(fact, expected_source="platform_key")
+        assert float(fact.get("provider_cost_usd") or 0.0) == pytest.approx(0.0125)
+    run = RunResultStore(project).get_run(result.run_id)
+    persisted_provider_cost = sum(
+        float(row.get("provider_cost_usd") or 0.0) for row in rows
+    )
+    assert run is not None
+    assert float(run["cost_actual"]) == pytest.approx(persisted_provider_cost)
+    _assert_no_secret_material(rows, forbidden={cache_secret, live_secret})
 
 
 def test_exhausted_structured_repair_still_persists_paid_wire_facts(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """Invalid output cannot erase successful, billable provider calls.
 
@@ -235,7 +228,7 @@ def test_exhausted_structured_repair_still_persists_paid_wire_facts(
     )
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
-    project, sheet_id = _project(tmp_path, "structured-exhaustion")
+    project, sheet_id = _project(make_project, "structured-exhaustion")
     with write_transaction(project.db):
         project.set_provider_key(
             provider="openai",
@@ -243,42 +236,37 @@ def test_exhausted_structured_repair_still_persists_paid_wire_facts(
             hint=key_hint(secret),
             spend_cap_micro=1_000_000,
         )
-    try:
-        result = run_action_with_exact_confirmation(
-            project,
-            _map_action(sheet_id),
-            project_id="structured-exhaustion-contract",
-            router=router,
-        )
-        assert result.status == "failed"
-        assert len(adapter.seen) == 4, "one initial call plus three schema repairs"
+    result = run_action_with_exact_confirmation(
+        project,
+        _map_action(sheet_id),
+        project_id="structured-exhaustion-contract",
+        router=router,
+    )
+    assert result.status == "failed"
+    assert len(adapter.seen) == 4, "one initial call plus three schema repairs"
 
-        store = RunResultStore(project)
-        rows = [dict(row) for row in store.model_calls(result.run_id)]
-        assert len(rows) == 4, "paid invalid responses remain accounting facts"
-        assert {row["credential_source"] for row in rows} == {"project_key"}
-        assert sum(float(row["provider_cost_usd"]) for row in rows) == pytest.approx(
-            0.024
-        )
+    store = RunResultStore(project)
+    rows = [dict(row) for row in store.model_calls(result.run_id)]
+    assert len(rows) == 4, "paid invalid responses remain accounting facts"
+    assert {row["credential_source"] for row in rows} == {"project_key"}
+    assert sum(float(row["provider_cost_usd"]) for row in rows) == pytest.approx(0.024)
 
-        spend = project.provider_spend_state("openai")
-        assert spend is not None
-        assert spend.spent_micro == 24_000
+    spend = project.provider_spend_state("openai")
+    assert spend is not None
+    assert spend.spent_micro == 24_000
 
-        run = store.get_run(result.run_id)
-        assert run is not None
-        assert float(run["cost_actual"]) == pytest.approx(0.024)
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert sum(
-            float(item.get("cost_actual") or 0.0) for item in receipt.provider_use
-        ) == pytest.approx(0.024)
-    finally:
-        project.close()
+    run = store.get_run(result.run_id)
+    assert run is not None
+    assert float(run["cost_actual"]) == pytest.approx(0.024)
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert sum(
+        float(item.get("cost_actual") or 0.0) for item in receipt.provider_use
+    ) == pytest.approx(0.024)
 
 
 def test_output_limited_structured_response_persists_one_neutral_wire_fact(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """A valid-but-limited payload fails once without losing paid-call evidence."""
     from frisket.ai.llm import LLMResponse, ModelRouter
@@ -317,7 +305,7 @@ def test_output_limited_structured_response_persists_one_neutral_wire_fact(
     )
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
-    project, sheet_id = _project(tmp_path, "structured-output-limit")
+    project, sheet_id = _project(make_project, "structured-output-limit")
     with write_transaction(project.db):
         project.set_provider_key(
             provider="openai",
@@ -325,39 +313,36 @@ def test_output_limited_structured_response_persists_one_neutral_wire_fact(
             hint=key_hint(secret),
             spend_cap_micro=1_000_000,
         )
-    try:
-        result = run_action_with_exact_confirmation(
-            project,
-            _map_action(sheet_id),
-            project_id="structured-output-limit-contract",
-            router=router,
-        )
-        assert result.status == "failed"
-        assert len(adapter.seen) == 1, "output limits must not enter schema repair"
+    result = run_action_with_exact_confirmation(
+        project,
+        _map_action(sheet_id),
+        project_id="structured-output-limit-contract",
+        router=router,
+    )
+    assert result.status == "failed"
+    assert len(adapter.seen) == 1, "output limits must not enter schema repair"
 
-        store = RunResultStore(project)
-        [row] = [dict(item) for item in store.model_calls(result.run_id)]
-        assert json.loads(row["units"]) == {
-            "tokens_in": 10,
-            "tokens_out": 4,
-            "output_limited": True,
-        }
-        assert float(row["provider_cost_usd"]) == pytest.approx(0.006)
+    store = RunResultStore(project)
+    [row] = [dict(item) for item in store.model_calls(result.run_id)]
+    assert json.loads(row["units"]) == {
+        "tokens_in": 10,
+        "tokens_out": 4,
+        "output_limited": True,
+    }
+    assert float(row["provider_cost_usd"]) == pytest.approx(0.006)
 
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        durable = json.dumps(
-            {"model_call": row, "receipt": receipt.model_dump(mode="json")},
-            sort_keys=True,
-        )
-        assert provider_reason not in durable
-        assert secret not in durable
-    finally:
-        project.close()
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    durable = json.dumps(
+        {"model_call": row, "receipt": receipt.model_dump(mode="json")},
+        sort_keys=True,
+    )
+    assert provider_reason not in durable
+    assert secret not in durable
 
 
 def test_paid_invalid_wire_survives_transport_failure_during_repair(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """A later transport failure cannot erase an earlier paid response.
 
@@ -403,7 +388,7 @@ def test_paid_invalid_wire_survives_transport_failure_during_repair(
     )
     router._adapters["openai"] = adapter  # noqa: SLF001 - hermetic wire double
 
-    project, sheet_id = _project(tmp_path, "repair-transport-failure")
+    project, sheet_id = _project(make_project, "repair-transport-failure")
     with write_transaction(project.db):
         project.set_provider_key(
             provider="openai",
@@ -411,36 +396,33 @@ def test_paid_invalid_wire_survives_transport_failure_during_repair(
             hint=key_hint(secret),
             spend_cap_micro=1_000_000,
         )
-    try:
-        result = run_action_with_exact_confirmation(
-            project,
-            _map_action(sheet_id),
-            project_id="repair-transport-failure-contract",
-            router=router,
-        )
-        assert result.status == "failed"
-        assert len(adapter.seen) == 2, "one paid response plus one failed repair"
+    result = run_action_with_exact_confirmation(
+        project,
+        _map_action(sheet_id),
+        project_id="repair-transport-failure-contract",
+        router=router,
+    )
+    assert result.status == "failed"
+    assert len(adapter.seen) == 2, "one paid response plus one failed repair"
 
-        store = RunResultStore(project)
-        rows = [dict(row) for row in store.model_calls(result.run_id)]
-        assert len(rows) == 1, "the completed provider response remains a fact"
-        assert rows[0]["credential_source"] == "project_key"
-        assert float(rows[0]["provider_cost_usd"]) == pytest.approx(0.006)
+    store = RunResultStore(project)
+    rows = [dict(row) for row in store.model_calls(result.run_id)]
+    assert len(rows) == 1, "the completed provider response remains a fact"
+    assert rows[0]["credential_source"] == "project_key"
+    assert float(rows[0]["provider_cost_usd"]) == pytest.approx(0.006)
 
-        spend = project.provider_spend_state("openai")
-        assert spend is not None
-        assert spend.spent_micro == 6_000
+    spend = project.provider_spend_state("openai")
+    assert spend is not None
+    assert spend.spent_micro == 6_000
 
-        run = store.get_run(result.run_id)
-        assert run is not None
-        assert float(run["cost_actual"]) == pytest.approx(0.006)
-        receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
-        assert receipt is not None
-        assert sum(
-            float(item.get("cost_actual") or 0.0) for item in receipt.provider_use
-        ) == pytest.approx(0.006)
-    finally:
-        project.close()
+    run = store.get_run(result.run_id)
+    assert run is not None
+    assert float(run["cost_actual"]) == pytest.approx(0.006)
+    receipt = ReceiptStore(project).parsed_by_id(str(result.receipt_id))
+    assert receipt is not None
+    assert sum(
+        float(item.get("cost_actual") or 0.0) for item in receipt.provider_use
+    ) == pytest.approx(0.006)
 
 
 class _EmbeddingAdapter:
@@ -505,7 +487,7 @@ def _nested_provider_facts(value: Any) -> list[dict[str, Any]]:
 
 
 def test_remote_embedding_batch_and_refresh_receipt_keep_versioned_fact(
-    tmp_path: Path,
+    make_project,
 ) -> None:
     """Remote embedding provenance survives the production refresh receipt path."""
     from frisket.ai.embeddings import EmbeddingGateway
@@ -531,74 +513,67 @@ def test_remote_embedding_batch_and_refresh_receipt_keep_versioned_fact(
     assert batch["actual_model_id"] == "text-embedding-3-small"
     assert batch["usage"]["input_tokens"] == 17
 
-    project, sheet_id = _project(tmp_path, "embedding-facts")
-    try:
-        create = run_action_spec(
-            project, _embedding_create_action(sheet_id), project_id="embedding-contract"
-        )
-        assert create.status == "completed", create.errors
-        index_id = create.outputs[0].ref["index_id"]
-        refresh = run_action_spec(
-            project,
-            _embedding_refresh_action(index_id),
-            project_id="embedding-contract",
-            deps=ExecutorDeps(
-                router=router, embedding_gateway=EmbeddingGateway(router=router)
-            ),
-        )
-        assert refresh.status == "completed", refresh.errors
-        assert refresh.run_id is not None, (
-            "a remote embedding refresh must own a run so its provider fact can "
-            "enter the same durable model_calls ledger consumed by settlement"
-        )
-        receipt = ReceiptStore(project).parsed_by_id(refresh.receipt_id)
-        assert receipt is not None, "embedding refresh must persist a receipt"
-        assert receipt.run_id == refresh.run_id
-        facts = _nested_provider_facts(receipt.model_dump(mode="json"))
-        assert facts, (
-            "remote embedding refresh must persist an inspectable provider fact"
-        )
-        fact = next(
-            (item for item in facts if item.get("credential_source") == "org_byok"),
-            None,
-        )
-        assert fact is not None, (
-            "refresh fact lost the remote embedding credential source"
-        )
-        assert fact.get("provider", fact.get("provider_id")) == "openai"
-        assert fact.get("model") or fact.get("model_ids") or fact.get("actual_model_id")
-        version = fact.get("fact_version", fact.get("accounting_version"))
-        assert isinstance(version, str) and _VERSION.fullmatch(version)
-        assert fact.get("units") or fact.get("provider_cost_usd") is not None
-        _assert_no_secret_material(fact, forbidden={secret})
+    project, sheet_id = _project(make_project, "embedding-facts")
+    create = run_action_spec(
+        project, _embedding_create_action(sheet_id), project_id="embedding-contract"
+    )
+    assert create.status == "completed", create.errors
+    index_id = create.outputs[0].ref["index_id"]
+    refresh = run_action_spec(
+        project,
+        _embedding_refresh_action(index_id),
+        project_id="embedding-contract",
+        deps=ExecutorDeps(
+            router=router, embedding_gateway=EmbeddingGateway(router=router)
+        ),
+    )
+    assert refresh.status == "completed", refresh.errors
+    assert refresh.run_id is not None, (
+        "a remote embedding refresh must own a run so its provider fact can "
+        "enter the same durable model_calls ledger consumed by settlement"
+    )
+    receipt = ReceiptStore(project).parsed_by_id(refresh.receipt_id)
+    assert receipt is not None, "embedding refresh must persist a receipt"
+    assert receipt.run_id == refresh.run_id
+    facts = _nested_provider_facts(receipt.model_dump(mode="json"))
+    assert facts, "remote embedding refresh must persist an inspectable provider fact"
+    fact = next(
+        (item for item in facts if item.get("credential_source") == "org_byok"),
+        None,
+    )
+    assert fact is not None, "refresh fact lost the remote embedding credential source"
+    assert fact.get("provider", fact.get("provider_id")) == "openai"
+    assert fact.get("model") or fact.get("model_ids") or fact.get("actual_model_id")
+    version = fact.get("fact_version", fact.get("accounting_version"))
+    assert isinstance(version, str) and _VERSION.fullmatch(version)
+    assert fact.get("units") or fact.get("provider_cost_usd") is not None
+    _assert_no_secret_material(fact, forbidden={secret})
 
-        persisted = [
-            dict(row) for row in RunResultStore(project).model_calls(refresh.run_id)
-        ]
-        stored = next(
-            (item for item in persisted if item.get("credential_source") == "org_byok"),
-            None,
-        )
-        assert stored is not None, (
-            "the embedding receipt is not sufficient: its provider fact must be "
-            "persisted in RunResultStore.model_calls for the refresh run"
-        )
-        _assert_fact_shape(stored, expected_source="org_byok")
-        # This is model usage, but not completion usage.  C2's private
-        # fact-pricer must explicitly support the truthful model-call token;
-        # do not disguise embedding traffic as ``llm.complete``.
-        assert stored["capability"] == "llm.embed"
-        _assert_no_secret_material(stored, forbidden={secret})
+    persisted = [
+        dict(row) for row in RunResultStore(project).model_calls(refresh.run_id)
+    ]
+    stored = next(
+        (item for item in persisted if item.get("credential_source") == "org_byok"),
+        None,
+    )
+    assert stored is not None, (
+        "the embedding receipt is not sufficient: its provider fact must be "
+        "persisted in RunResultStore.model_calls for the refresh run"
+    )
+    _assert_fact_shape(stored, expected_source="org_byok")
+    # This is model usage, but not completion usage.  C2's private
+    # fact-pricer must explicitly support the truthful model-call token;
+    # do not disguise embedding traffic as ``llm.complete``.
+    assert stored["capability"] == "llm.embed"
+    _assert_no_secret_material(stored, forbidden={secret})
 
-        assert batch.get("credential_source") == "org_byok", (
-            "embed_batch must preserve the selected non-secret credential source"
-        )
-    finally:
-        project.close()
+    assert batch.get("credential_source") == "org_byok", (
+        "embed_batch must preserve the selected non-secret credential source"
+    )
 
 
 def test_local_embedding_refresh_persists_known_free_cost(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A local producer fact remains known-free through every durable consumer."""
     from frisket.ai.embeddings import EmbeddingGateway
@@ -618,52 +593,49 @@ def test_local_embedding_refresh_persists_known_free_cost(
         )
 
     monkeypatch.setattr("frisket.ai.embeddings.backends.local_embedder", local_embedder)
-    project, sheet_id = _project(tmp_path, "local-embedding-facts")
-    try:
-        create = run_action_spec(
-            project,
-            _embedding_create_action(sheet_id, provider="fastembed", model=model),
-            project_id="local-embedding-contract",
-        )
-        assert create.status == "completed", create.errors
-        index_id = create.outputs[0].ref["index_id"]
-        refresh = run_action_spec(
-            project,
-            _embedding_refresh_action(index_id),
-            project_id="local-embedding-contract",
-            deps=ExecutorDeps(embedding_gateway=EmbeddingGateway()),
-        )
-        assert refresh.status == "completed", refresh.errors
-        assert refresh.run_id is not None
+    project, sheet_id = _project(make_project, "local-embedding-facts")
+    create = run_action_spec(
+        project,
+        _embedding_create_action(sheet_id, provider="fastembed", model=model),
+        project_id="local-embedding-contract",
+    )
+    assert create.status == "completed", create.errors
+    index_id = create.outputs[0].ref["index_id"]
+    refresh = run_action_spec(
+        project,
+        _embedding_refresh_action(index_id),
+        project_id="local-embedding-contract",
+        deps=ExecutorDeps(embedding_gateway=EmbeddingGateway()),
+    )
+    assert refresh.status == "completed", refresh.errors
+    assert refresh.run_id is not None
 
-        receipt = ReceiptStore(project).parsed_by_id(refresh.receipt_id)
-        assert receipt is not None
-        facts = _nested_provider_facts(receipt.model_dump(mode="json"))
-        fact = next(item for item in facts if item.get("provider") == "fastembed")
-        assert fact["provider_kind"] == "local_process"
-        assert fact["credential_source"] == "local"
-        assert fact["provider_reported_cost_usd"] is None
-        assert fact["provider_cost_usd"] == 0.0
-        assert fact["cost_source"] == "free_local"
-        assert receipt.provider_use == [
-            {
-                "provider": "fastembed",
-                "service": "embedding.index_refresh",
-                "external_api": False,
-                "cost_actual": 0.0,
-            }
-        ]
+    receipt = ReceiptStore(project).parsed_by_id(refresh.receipt_id)
+    assert receipt is not None
+    facts = _nested_provider_facts(receipt.model_dump(mode="json"))
+    fact = next(item for item in facts if item.get("provider") == "fastembed")
+    assert fact["provider_kind"] == "local_process"
+    assert fact["credential_source"] == "local"
+    assert fact["provider_reported_cost_usd"] is None
+    assert fact["provider_cost_usd"] == 0.0
+    assert fact["cost_source"] == "free_local"
+    assert receipt.provider_use == [
+        {
+            "provider": "fastembed",
+            "service": "embedding.index_refresh",
+            "external_api": False,
+            "cost_actual": 0.0,
+        }
+    ]
 
-        store = RunResultStore(project)
-        [stored] = [dict(row) for row in store.model_calls(refresh.run_id)]
-        assert stored["provider"] == "fastembed"
-        assert stored["engine"] == f"fastembed/{model}"
-        assert stored["provider_reported_cost_usd"] is None
-        assert stored["provider_cost_usd"] == 0.0
-        assert stored["cost_source"] == "free_local"
-        run = store.get_run(refresh.run_id)
-        assert run is not None
-        assert float(run["cost_actual"]) == 0.0
-        assert _unpriced_models_with_usage(project) == set()
-    finally:
-        project.close()
+    store = RunResultStore(project)
+    [stored] = [dict(row) for row in store.model_calls(refresh.run_id)]
+    assert stored["provider"] == "fastembed"
+    assert stored["engine"] == f"fastembed/{model}"
+    assert stored["provider_reported_cost_usd"] is None
+    assert stored["provider_cost_usd"] == 0.0
+    assert stored["cost_source"] == "free_local"
+    run = store.get_run(refresh.run_id)
+    assert run is not None
+    assert float(run["cost_actual"]) == 0.0
+    assert _unpriced_models_with_usage(project) == set()

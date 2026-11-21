@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
+from frisket.engine.store import Project
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from tests.engine.test_row_media_reader import jpeg_bytes
 
 # Reset by _patch_face_sandbox at the start of every harness test for this
@@ -104,14 +104,13 @@ def _seed(project: Project, tmp_path: Path) -> dict[str, Any]:
 
 
 @pytest.fixture(params=["frames", "faces"])
-def media_case(request, monkeypatch, tmp_path):
+def media_case(request, monkeypatch, tmp_path, project):
     from tests.ops.test_media_video_frames_executor import (
         _patch_ffmpeg_sandbox,
         _seed as seed_video,
         _video_frames_action,
     )
 
-    project = Project.create(tmp_path / "typed.frisket")
     if request.param == "frames":
         _patch_ffmpeg_sandbox(monkeypatch)
         seeded = seed_video(project, tmp_path)
@@ -122,10 +121,7 @@ def media_case(request, monkeypatch, tmp_path):
         seeded = _seed(project, tmp_path)
         make = _extract_faces_action
         image_key = "face"
-    try:
-        yield project, seeded, make, request.param, image_key
-    finally:
-        project.close()
+    yield project, seeded, make, request.param, image_key
 
 
 def test_typed_media_results_named_routes_durable_occurrences_and_replay(

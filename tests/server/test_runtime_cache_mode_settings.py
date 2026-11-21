@@ -2,6 +2,7 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
+from contextlib import closing
 
 import pytest
 from fastapi.testclient import TestClient
@@ -42,11 +43,8 @@ def test_local_preferences_change_persists_and_updates_new_routers(
     assert json.loads(runtime_settings_path(root).read_text()) == {
         "cache_mode": "replay_strict"
     }
-    project = Project.create(root / "sample.frisket", name="sample")
-    try:
+    with closing(Project.create(root / "sample.frisket", name="sample")) as project:
         assert app.state.workspace.router_for(project).cache_mode == "replay_strict"
-    finally:
-        project.close()
 
     # The explicit UI choice is the persisted authority after restart, rather
     # than the environment silently undoing what Preferences reported saved.

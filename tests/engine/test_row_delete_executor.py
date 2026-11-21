@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import json
 from pathlib import Path
@@ -273,8 +274,7 @@ def test_row_delete_handles_more_rows_than_sqlite_variable_chunk(
     bulk_path = write_json(tmp_path, "bulk.json", bulk)
     assert _run(project_path, bulk_path).returncode == 0
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         sheet_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='Many'").fetchone()[
                 "id"
@@ -288,8 +288,6 @@ def test_row_delete_handles_more_rows_than_sqlite_variable_chunk(
             ).fetchall()
         ]
         assert len(row_ids) == 1000
-    finally:
-        project.close()
 
     delete_path = write_json(
         tmp_path,
@@ -304,11 +302,8 @@ def test_row_delete_handles_more_rows_than_sqlite_variable_chunk(
     assert parsed.status == "completed"
     assert parsed.outputs[0].ref["deleted"] == 1000
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         assert project.row_count(sheet_id) == 0
-    finally:
-        project.close()
 
 
 def test_row_delete_rejects_rows_on_another_sheet(tmp_path: Path) -> None:
@@ -339,8 +334,7 @@ def test_row_delete_rejects_rows_on_another_sheet(tmp_path: Path) -> None:
     other_path = write_json(tmp_path, "other.json", other)
     assert _run(project_path, other_path).returncode == 0
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         people_id = int(
             project.db.execute("SELECT id FROM sheets WHERE name='People'").fetchone()[
                 "id"
@@ -352,8 +346,6 @@ def test_row_delete_rejects_rows_on_another_sheet(tmp_path: Path) -> None:
                 "WHERE s.name='Other'"
             ).fetchone()["id"]
         )
-    finally:
-        project.close()
 
     # a row id from the Other sheet is not deletable through the People target
     spec_path = write_json(
@@ -368,8 +360,7 @@ def test_row_delete_rejects_rows_on_another_sheet(tmp_path: Path) -> None:
     parsed = ActionResult.model_validate(json.loads(result.stdout))
     assert parsed.errors[0].code == "invalid_row_ref"
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         # the cross-sheet row was untouched
         assert (
             project.db.execute(
@@ -377,5 +368,3 @@ def test_row_delete_rejects_rows_on_another_sheet(tmp_path: Path) -> None:
             ).fetchone()["hidden"]
             == 0
         )
-    finally:
-        project.close()

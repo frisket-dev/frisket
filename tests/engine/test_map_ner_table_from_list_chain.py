@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import json
-from pathlib import Path
 from typing import Any
 
 from frisket.contracts.action import Receipt
@@ -64,8 +63,7 @@ def _router() -> ModelRouter:
     return router
 
 
-def _seed_project(project_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(project_path, name="NER Chain")
+def _seed_project(project: Project) -> tuple[int, list[int]]:
     sheet_id = project.add_sheet("Texts")
     columns = {
         "body": project.add_column(sheet_id, "body", type="text"),
@@ -78,7 +76,7 @@ def _seed_project(project_path: Path) -> tuple[Project, int, list[int]]:
         ],
         columns,
     )
-    return project, sheet_id, row_ids
+    return sheet_id, row_ids
 
 
 def _map_ner_action(sheet_id: int) -> dict[str, Any]:
@@ -157,85 +155,74 @@ def _counts(project: Project) -> dict[str, int]:
 
 
 def test_map_ner_named_result_feeds_derive_table_from_list(
-    tmp_path: Path,
+    project: Project,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("FRISKET_MODELS_URL", "http://models")
     monkeypatch.setenv("FRISKET_MODELS_TOKEN", "secret")
 
-    project, sheet_id, source_row_ids = _seed_project(
-        tmp_path / "map-ner-chain.frisket"
+    sheet_id, source_row_ids = _seed_project(project)
+    mapped = executor_actions.run_action_spec(
+        project,
+        _map_ner_action(sheet_id),
+        project_id=PROJECT_ID,
+        router=_router(),
     )
-    try:
-        mapped = executor_actions.run_action_spec(
-            project,
-            _map_ner_action(sheet_id),
-            project_id=PROJECT_ID,
-            router=_router(),
-        )
-        assert mapped.status == "completed", mapped.errors
-        assert mapped.run_id is not None
-        assert mapped.receipt_id is not None
-        assert [(output.kind, output.name) for output in mapped.outputs] == [
-            ("column", "entities"),
-            ("named_result", "entities"),
-        ]
-        named_output = next(
-            output for output in mapped.outputs if output.kind == "named_result"
-        )
-        assert named_output.ref["source_action_kind"] == "map.ner"
-        assert named_output.ref["row_ids"] == source_row_ids
-        assert named_output.ref["item_schema"] == _entity_item_schema()
-        column_id = int(named_output.column_id or named_output.ref["column_id"])
+    assert mapped.status == "completed", mapped.errors
+    assert mapped.run_id is not None
+    assert mapped.receipt_id is not None
+    assert [(output.kind, output.name) for output in mapped.outputs] == [
+        ("column", "entities"),
+        ("named_result", "entities"),
+    ]
+    named_output = next(
+        output for output in mapped.outputs if output.kind == "named_result"
+    )
+    assert named_output.ref["source_action_kind"] == "map.ner"
+    assert named_output.ref["row_ids"] == source_row_ids
+    assert named_output.ref["item_schema"] == _entity_item_schema()
+    column_id = int(named_output.column_id or named_output.ref["column_id"])
 
-        derived = executor_actions.run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id, column_id=column_id, run_id=mapped.run_id
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert derived.status == "completed", derived.errors
-        child_sheet_id = next(
-            output.sheet_id for output in derived.outputs if output.kind == "sheet"
-        )
-        assert child_sheet_id is not None
-        columns = {
-            row["name"]: row
-            for row in project.db.execute(
-                "SELECT * FROM columns WHERE sheet_id=? ORDER BY position",
-                (child_sheet_id,),
-            ).fetchall()
-        }
-        assert list(columns) == ["text", "type", "start", "end", "score"]
-        rows = project.db.execute(
-            "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+    derived = executor_actions.run_action_spec(
+        project,
+        _derive_action(sheet_id=sheet_id, column_id=column_id, run_id=mapped.run_id),
+        project_id=PROJECT_ID,
+    )
+    assert derived.status == "completed", derived.errors
+    child_sheet_id = next(
+        output.sheet_id for output in derived.outputs if output.kind == "sheet"
+    )
+    assert child_sheet_id is not None
+    columns = {
+        row["name"]: row
+        for row in project.db.execute(
+            "SELECT * FROM columns WHERE sheet_id=? ORDER BY position",
             (child_sheet_id,),
         ).fetchall()
-        assert [int(row["parent_row_id"]) for row in rows] == source_row_ids
-        texts = project.get_values(child_sheet_id, int(columns["text"]["id"]))
-        labels = project.get_values(child_sheet_id, int(columns["type"]["id"]))
-        assert list(texts.values()) == ["Ada Lovelace", "Analytical Engine"]
-        assert list(labels.values()) == ["person", "organization"]
+    }
+    assert list(columns) == ["text", "type", "start", "end", "score"]
+    rows = project.db.execute(
+        "SELECT * FROM rows WHERE sheet_id=? ORDER BY position",
+        (child_sheet_id,),
+    ).fetchall()
+    assert [int(row["parent_row_id"]) for row in rows] == source_row_ids
+    texts = project.get_values(child_sheet_id, int(columns["text"]["id"]))
+    labels = project.get_values(child_sheet_id, int(columns["type"]["id"]))
+    assert list(texts.values()) == ["Ada Lovelace", "Analytical Engine"]
+    assert list(labels.values()) == ["person", "organization"]
 
-        receipt = _receipt(project, derived.receipt_id or "")
-        source_ref = next(
-            ref.ref for ref in receipt.inputs if ref.ref["kind"] == "list_table_read"
-        )
-        assert (
-            _receipt(project, source_ref["source_receipt_id"]).action_kind == "map.ner"
-        )
-        assert source_ref["source_receipt_id"] == mapped.receipt_id
-        before_replay = _counts(project)
-        replay = executor_actions.run_action_spec(
-            project,
-            _derive_action(
-                sheet_id=sheet_id, column_id=column_id, run_id=mapped.run_id
-            ),
-            project_id=PROJECT_ID,
-        )
-        assert replay.status == "completed"
-        assert replay.receipt_id == derived.receipt_id
-        assert _counts(project) == before_replay
-    finally:
-        project.close()
+    receipt = _receipt(project, derived.receipt_id or "")
+    source_ref = next(
+        ref.ref for ref in receipt.inputs if ref.ref["kind"] == "list_table_read"
+    )
+    assert _receipt(project, source_ref["source_receipt_id"]).action_kind == "map.ner"
+    assert source_ref["source_receipt_id"] == mapped.receipt_id
+    before_replay = _counts(project)
+    replay = executor_actions.run_action_spec(
+        project,
+        _derive_action(sheet_id=sheet_id, column_id=column_id, run_id=mapped.run_id),
+        project_id=PROJECT_ID,
+    )
+    assert replay.status == "completed"
+    assert replay.receipt_id == derived.receipt_id
+    assert _counts(project) == before_replay

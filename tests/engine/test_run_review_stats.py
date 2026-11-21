@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 import queue
 import sqlite3
@@ -94,8 +95,7 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "ocr-review-roles.frisket"
-    project = Project.create(path)
-    try:
+    with closing(Project.create(path)) as project:
         sheet_id = project.add_sheet("Scans")
         # "source" exercises the old name-based support heuristic: the authored
         # OCR text role still has to be the one review chore.
@@ -128,8 +128,6 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
         assert project.get_meta(REVIEW_OUTPUT_ROLES_META_KEY) == (
             REVIEW_OUTPUT_ROLES_VERSION
         )
-    finally:
-        project.close()
 
     # Recreate the exact preceding revision: its DDL was identical, but it had
     # no role marker and froze review fields using column-name conventions.
@@ -153,8 +151,7 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
             (run_id,),
         )
 
-    migrated = Project(path)
-    try:
+    with closing(Project(path)) as migrated:
         assert migrated.get_meta(SCHEMA_DIGEST_META_KEY) == SCHEMA_DIGEST
         assert migrated.get_meta(REVIEW_OUTPUT_ROLES_META_KEY) == (
             REVIEW_OUTPUT_ROLES_VERSION
@@ -176,8 +173,6 @@ def test_ocr_review_uses_authored_roles_and_migrates_frozen_runs(
             "Geometry",
             "Search copy",
         }
-    finally:
-        migrated.close()
 
 
 def _field(project: Project, run_id: int, column_id: int) -> sqlite3.Row:
@@ -593,8 +588,7 @@ def test_review_stats_migration_backfills_history_and_rolls_back_as_one_unit(
     unchanged.commit()
     unchanged.close()
 
-    migrated = Project(path)
-    try:
+    with closing(Project(path)) as migrated:
         totals = migrated.db.execute(
             "SELECT review_stats_ready,review_bundle_count,"
             "review_resolved_bundle_count FROM runs WHERE id=?",
@@ -607,8 +601,6 @@ def test_review_stats_migration_backfills_history_and_rolls_back_as_one_unit(
             field["reviewed_count"],
             field["resolved_count"],
         ) == (2, 1, 1)
-    finally:
-        migrated.close()
 
 
 def test_historical_review_stats_migration_keeps_old_worker_completion_dirty(

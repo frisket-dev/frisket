@@ -1,5 +1,7 @@
 """Evidence publication failure settles paid work without authorizing repurchase."""
 
+from contextlib import closing
+
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
@@ -15,7 +17,6 @@ from test_grounded_map_extract_executor import (
     _stub_router,
 )
 
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.ai.llm import ModelRouter
 from frisket.execution.attempt import StaleAttemptWriter
@@ -24,8 +25,9 @@ from frisket.security.secrets import encrypt_secret, key_hint
 from frisket.engine.store.transactions import write_transaction
 
 
-def _invocation(tmp_path):
-    path, sheet_id, _ = _seed_document_project(tmp_path, "evidence-settlement")
+def _invocation(make_project):
+    project = make_project("evidence-settlement")
+    sheet_id, _ = _seed_document_project(project)
     _, adapter = _stub_router(_grounded_reply())
     router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
@@ -36,7 +38,6 @@ def _invocation(tmp_path):
     )
     router._adapters["anthropic"] = adapter
     request = _map_extract_action(sheet_id, key="evidence-settlement")
-    project = Project(path)
     with write_transaction(project.db):
         project.set_provider_key(
             provider="anthropic",
@@ -49,9 +50,9 @@ def _invocation(tmp_path):
 
 @pytest.mark.parametrize("failure", [RuntimeError, ValueError])
 def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
-    tmp_path, monkeypatch, failure
+    make_project, monkeypatch, failure
 ):
-    project, router, adapter, request = _invocation(tmp_path)
+    project, router, adapter, request = _invocation(make_project)
     record = ReceiptStore._record_writer_supporting_record
     grounding_link_counts = []
 
@@ -64,7 +65,7 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
-    try:
+    with closing(project):
         result = run_action_with_confirmation(
             project, request, project_id=PROJECT_ID, router=router
         )
@@ -123,8 +124,6 @@ def test_evidence_failure_keeps_failed_receipt_and_paid_facts(
         assert replay.model_dump() == result.model_dump()
         assert len(adapter.requests) == 1
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
 
 
 class ProcessDeath(BaseException):
@@ -132,7 +131,7 @@ class ProcessDeath(BaseException):
 
 
 def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
-    tmp_path, monkeypatch
+    make_project, monkeypatch
 ):
     from frisket.engine.executor.actions import _default_map_runner_factory
     from frisket.engine.executor.action_inventory import ExecutorDeps
@@ -143,7 +142,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         return runner
 
     deps = ExecutorDeps(map_runner_factory=concurrent_runner)
-    project, router, adapter, request = _invocation(tmp_path)
+    project, router, adapter, request = _invocation(make_project)
     record = ReceiptStore._record_writer_supporting_record
     sheet_id = project.db.execute("SELECT id FROM sheets").fetchone()[0]
     project.add_rows(
@@ -182,7 +181,7 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", fail_evidence)
-    try:
+    with closing(project):
         with pytest.raises(ResultEvidenceWriteFailed):
             run_action_with_confirmation(
                 project, request, project_id=PROJECT_ID, router=router, deps=deps
@@ -213,15 +212,13 @@ def test_evidence_failure_cannot_close_an_ambiguous_sibling_effect(
         assert [error.code for error in replay.errors] == ["idempotency_in_progress"]
         assert len(calls) == 2
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("failure", [ProcessDeath, StaleAttemptWriter])
 def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
-    tmp_path, monkeypatch, failure
+    make_project, monkeypatch, failure
 ):
-    project, router, adapter, request = _invocation(tmp_path)
+    project, router, adapter, request = _invocation(make_project)
     record = ReceiptStore._record_writer_supporting_record
 
     def interrupt(self, ref, **kwargs):
@@ -230,7 +227,7 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
         return record(self, ref, **kwargs)
 
     monkeypatch.setattr(ReceiptStore, "_record_writer_supporting_record", interrupt)
-    try:
+    with closing(project):
         if failure is ProcessDeath:
             with pytest.raises(ProcessDeath):
                 run_action_with_confirmation(
@@ -257,5 +254,3 @@ def test_interruption_or_stale_evidence_writer_retains_recovery_authority(
         assert (
             project.db.execute("SELECT COUNT(*) FROM evidence_links").fetchone()[0] == 0
         )
-    finally:
-        project.close()

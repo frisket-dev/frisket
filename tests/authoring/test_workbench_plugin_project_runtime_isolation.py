@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import closing
+
 import json
 import multiprocessing
 import threading
@@ -339,7 +341,7 @@ def _seed_filter_project(project: Project) -> tuple[int, dict[str, int]]:
 
 
 def test_registry_only_runtime_bindings_do_not_dispatch_without_project_install(
-    tmp_path: Path,
+    project: Project,
 ) -> None:
     _reset_default_registry_for_tests()
     calls: list[dict[str, Any]] = []
@@ -403,8 +405,6 @@ def test_registry_only_runtime_bindings_do_not_dispatch_without_project_install(
             handler=trusted_handler,
             plugin=RUNTIME_PLUGIN_ID,
         )
-
-        project = Project.create(tmp_path / "registry-only.frisket")
 
         action_result = run_action_spec(
             project,
@@ -476,6 +476,7 @@ def test_registry_only_runtime_bindings_do_not_dispatch_without_project_install(
 
 def test_runtime_binding_dispatch_requires_manifest_runtime_declaration(
     tmp_path: Path,
+    project: Project,
 ) -> None:
     _reset_default_registry_for_tests()
     calls: list[dict[str, Any]] = []
@@ -488,7 +489,6 @@ def test_runtime_binding_dispatch_requires_manifest_runtime_declaration(
 
     register_trusted_backend_handler(injected_handler_key, injected_handler)
     try:
-        project = Project.create(tmp_path / "manifest-declaration.frisket")
         activate_runtime_plugin_for_project(
             project,
             tmp_path,
@@ -529,6 +529,7 @@ def test_runtime_binding_dispatch_requires_manifest_runtime_declaration(
 
 def test_runtime_binding_dispatch_uses_one_workspace_package_for_all_projects(
     tmp_path: Path,
+    make_project,
 ) -> None:
     # Rewrite of the old same-manifest-different-package cross-project
     # contention test. Package identity is now WORKSPACE-owned: exactly one
@@ -539,8 +540,8 @@ def test_runtime_binding_dispatch_uses_one_workspace_package_for_all_projects(
     # dispatch while the shared workspace package keeps serving the other.
     _reset_default_registry_for_tests()
     try:
-        project_a = Project.create(tmp_path / "project-a.frisket")
-        project_b = Project.create(tmp_path / "project-b.frisket")
+        project_a = make_project("project-a")
+        project_b = make_project("project-b")
         manifest = _write_package_scoped_action_package(
             tmp_path / "packages", marker="package-a"
         )
@@ -598,6 +599,7 @@ def test_runtime_binding_dispatch_uses_one_workspace_package_for_all_projects(
 
 def test_workspace_package_update_requires_each_project_to_accept_new_capabilities(
     tmp_path: Path,
+    make_project,
 ) -> None:
     from frisket.authoring.workbench.plugin_runtime import (
         ensure_workspace_plugin_packages,
@@ -608,8 +610,8 @@ def test_workspace_package_update_requires_each_project_to_accept_new_capabiliti
 
     _reset_default_registry_for_tests()
     try:
-        project_a = Project.create(tmp_path / "project-a.frisket")
-        project_b = Project.create(tmp_path / "project-b.frisket")
+        project_a = make_project("project-a")
+        project_b = make_project("project-b")
         v1 = _write_package_scoped_action_package(
             tmp_path / "packages", marker="package-v1"
         )
@@ -703,11 +705,11 @@ def test_workspace_package_update_requires_each_project_to_accept_new_capabiliti
 
 def test_workspace_package_update_replaces_removed_contributions(
     tmp_path: Path,
+    project: Project,
 ) -> None:
     removed_type = "frisket_runtime_package_scope_record"
     _reset_default_registry_for_tests()
     try:
-        project = Project.create(tmp_path / "project.frisket")
         v1 = _write_package_scoped_action_package(
             tmp_path / "packages",
             marker="contributions-v1",
@@ -730,14 +732,14 @@ def test_workspace_package_update_replaces_removed_contributions(
 
 
 def test_workspace_uninstall_failure_keeps_catalog_and_retry_finishes_cleanup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, make_project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from frisket.authoring.workbench import plugin_runtime
 
     _reset_default_registry_for_tests()
     try:
-        project_a = Project.create(tmp_path / "project-a.frisket")
-        project_b = Project.create(tmp_path / "project-b.frisket")
+        project_a = make_project("project-a")
+        project_b = make_project("project-b")
         manifest = _write_package_scoped_action_package(
             tmp_path / "packages", marker="uninstall-recovery"
         )
@@ -1136,8 +1138,7 @@ def test_workbench_plugin_runtime_dispatch_is_project_scoped_after_disable(
         b_index = client.get("/api/projects/project-b/workbench/plugins")
         assert b_index.status_code == 200, b_index.text
         assert PLUGIN_ID not in {item["pluginId"] for item in b_index.json()["plugins"]}
-        project_b = Project(workspace / "project-b.frisket")
-        try:
+        with closing(Project(workspace / "project-b.frisket")) as project_b:
             b_row = project_b.db.execute(
                 "SELECT install_state, permissions_accepted, "
                 "executable_handlers_allowed FROM workbench_plugin_installs "
@@ -1148,8 +1149,6 @@ def test_workbench_plugin_runtime_dispatch_is_project_scoped_after_disable(
             assert b_row["install_state"] == "uninstalled"
             assert b_row["permissions_accepted"] == "[]"
             assert b_row["executable_handlers_allowed"] == 0
-        finally:
-            project_b.close()
     finally:
         _reset_default_registry_for_tests()
 

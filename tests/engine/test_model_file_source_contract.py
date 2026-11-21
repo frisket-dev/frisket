@@ -435,7 +435,6 @@ def test_file_excluding_refs_keep_late_plugin_types_and_file_group_keys(make_pro
         assert prepared.operation.group_by == "group_key"
         assert prepared.operation.input_columns == ["content"]
     finally:
-        project.close()
         unregister_column_type(custom_type)
 
 

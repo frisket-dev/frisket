@@ -4,6 +4,7 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
+from contextlib import closing
 import pickle
 from pathlib import Path
 
@@ -576,8 +577,7 @@ def test_formula_expired_worker_lease_closes_attached_run(
             )
         project.close()
         assert reconcile_exhausted_action_run_jobs(queue, workspace_root=root) == 1
-        reopened = Project(root / "p.frisket")
-        try:
+        with closing(Project(root / "p.frisket")) as reopened:
             receipt = ReceiptStore(reopened).find_by_id(envelope.receipt_id).parsed()
             assert receipt.status == "failed" and receipt.run_id is not None
             assert (
@@ -598,8 +598,6 @@ def test_formula_expired_worker_lease_closes_attached_run(
                 ).fetchone()[0]
                 == 0
             )
-        finally:
-            reopened.close()
     finally:
         queue.close()
 

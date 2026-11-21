@@ -3,6 +3,7 @@
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
+from contextlib import closing
 
 import httpx
 
@@ -50,9 +51,8 @@ def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
         return read(snapshot, sheet_id, column_id, row_ids=row_ids, **kwargs)
 
     monkeypatch.setattr(ProjectReadSnapshot, "get_values_with_refs", record_read)
-    project = make_project("templates")
-    path = project.path
-    try:
+    with closing(make_project("templates")) as project:
+        path = project.path
         sheet = _seed(project, [{"name": f"row {i}", "suffix": "!"} for i in range(8)])
         result = run_action_spec(
             project,
@@ -89,10 +89,7 @@ def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
         )
         assert result.receipt_id
         assert project.db.execute("SELECT count(*) FROM model_calls").fetchone()[0] == 0
-    finally:
-        project.close()
-    reopened = Project(path)
-    try:
+    with closing(Project(path)) as reopened:
         assert len(reopened.get_values(sheet, column)) == 8
         reopened.undo()
         assert all(c["id"] != column for c in reopened.columns(sheet))
@@ -102,8 +99,6 @@ def test_template_uses_shared_local_batches_with_receipt_reopen_and_undo(
             ).fetchone()[0]
             == 8
         )
-    finally:
-        reopened.close()
 
 
 def test_typed_runner_template_infers_columns_without_input_columns(
@@ -146,14 +141,11 @@ def test_typed_runner_template_infers_columns_without_input_columns(
         "params": {"source": {"text": "{{address}}, {{city}}, {{country}}"}},
         "idempotency_key": "template-inferred-columns",
     }
-    try:
-        result = run_action_spec(
-            p, request, project_id="templates", router=router, deps=deps
-        )
-        assert result.status == "completed", result.errors
-        assert seen["q"] == "Tour Eiffel, Paris, France"
-    finally:
-        p.close()
+    result = run_action_spec(
+        p, request, project_id="templates", router=router, deps=deps
+    )
+    assert result.status == "completed", result.errors
+    assert seen["q"] == "Tour Eiffel, Paris, France"
 
 
 def test_template_renderer_does_not_rerender_inserted_values():

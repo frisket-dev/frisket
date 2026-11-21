@@ -25,14 +25,13 @@ from frisket.preview.replace_rules import (
     evaluate_replace_rules,
     resolve_replace_rules_preview,
 )
-from frisket.engine.store import Project
 
 
 _SEED_COUNTER = count()
 
 
-def _seed(tmp_path, values, name="org"):
-    project = Project.create(tmp_path / f"t{next(_SEED_COUNTER)}.frisket", name="t")
+def _seed(make_project, values, name="org"):
+    project = make_project(f"t{next(_SEED_COUNTER)}")
     sheet_id = project.add_sheet("data")
     cols = {name: project.add_column(sheet_id, name)}
     project.add_rows(sheet_id, [{name: value} for value in values], cols)
@@ -148,8 +147,8 @@ RULES = [
 ]
 
 
-def test_preview_counts_full_column_and_returns_commit_anchor(tmp_path):
-    project, sheet_id = _seed(tmp_path, ROWS)
+def test_preview_counts_full_column_and_returns_commit_anchor(make_project):
+    project, sheet_id = _seed(make_project, ROWS)
     payload = resolve_replace_rules_preview(
         project, sheet_id=sheet_id, input_column="org", rules=RULES
     )
@@ -172,11 +171,10 @@ def test_preview_counts_full_column_and_returns_commit_anchor(tmp_path):
         [int(row_id) for row_id in project.visible_row_ids(sheet_id)],
     )
     assert payload["value_hash"] == expected_hash
-    project.close()
 
 
-def test_preview_first_match_wins_counts_overlapping_rules_once(tmp_path):
-    project, sheet_id = _seed(tmp_path, ["ACME Corp", "acme inc", "other"])
+def test_preview_first_match_wins_counts_overlapping_rules_once(make_project):
+    project, sheet_id = _seed(make_project, ["ACME Corp", "acme inc", "other"])
     payload = resolve_replace_rules_preview(
         project,
         sheet_id=sheet_id,
@@ -192,11 +190,10 @@ def test_preview_first_match_wins_counts_overlapping_rules_once(tmp_path):
         {"index": 1, "matched_rows": 1, "matched_values": 1},
     ]
     assert payload["unmatched_rows"] == 1
-    project.close()
 
 
-def test_preview_is_read_only(tmp_path):
-    project, sheet_id = _seed(tmp_path, ROWS)
+def test_preview_is_read_only(make_project):
+    project, sheet_id = _seed(make_project, ROWS)
     ops_before = len(project.history())
     receipts_before = int(
         project.db.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
@@ -210,11 +207,10 @@ def test_preview_is_read_only(tmp_path):
         == receipts_before
     )
     assert [c["name"] for c in project.columns(sheet_id)] == ["org"]
-    project.close()
 
 
-def test_preview_test_value_trace_matched_and_unmatched(tmp_path):
-    project, sheet_id = _seed(tmp_path, ROWS)
+def test_preview_test_value_trace_matched_and_unmatched(make_project):
+    project, sheet_id = _seed(make_project, ROWS)
     matched = resolve_replace_rules_preview(
         project,
         sheet_id=sheet_id,
@@ -252,15 +248,14 @@ def test_preview_test_value_trace_matched_and_unmatched(tmp_path):
         test_value="nothing here",
     )
     assert null_policy["test_result"] == {"matched_rule_index": None, "output": None}
-    project.close()
 
 
-def test_preview_excludes_blank_and_whitespace_cells_like_nulls(tmp_path):
+def test_preview_excludes_blank_and_whitespace_cells_like_nulls(make_project):
     """Blank/whitespace-only cells are MISSING: excluded from every rule
     count AND from the no-match unmatched, exactly like null cells — the
     commit passes them through as null, so the preview must not offer them
     to any rule or policy."""
-    project, sheet_id = _seed(tmp_path, ["Acme Inc", "", "   ", None, "Banana"])
+    project, sheet_id = _seed(make_project, ["Acme Inc", "", "   ", None, "Banana"])
     payload = resolve_replace_rules_preview(
         project, sheet_id=sheet_id, input_column="org", rules=RULES
     )
@@ -271,26 +266,24 @@ def test_preview_excludes_blank_and_whitespace_cells_like_nulls(tmp_path):
         "matched_values": 1,
     }
     assert payload["unmatched_rows"] == 1  # only "Banana"
-    project.close()
 
 
-def test_preview_allows_empty_rules_for_the_opening_drawer(tmp_path):
-    project, sheet_id = _seed(tmp_path, ROWS)
+def test_preview_allows_empty_rules_for_the_opening_drawer(make_project):
+    project, sheet_id = _seed(make_project, ROWS)
     payload = resolve_replace_rules_preview(
         project, sheet_id=sheet_id, input_column="org", rules=[]
     )
     assert payload["rule_counts"] == []
     assert payload["unmatched_rows"] == 5  # non-null rows only
     assert payload["value_hash"].startswith("sha256:")
-    project.close()
 
 
 # ---------------------------------------------------------------------------
 # validation errors
 
 
-def _error(tmp_path, **overrides):
-    project, sheet_id = _seed(tmp_path, ROWS)
+def _error(make_project, **overrides):
+    project, sheet_id = _seed(make_project, ROWS)
     kwargs = {
         "sheet_id": sheet_id,
         "input_column": "org",
@@ -301,61 +294,64 @@ def _error(tmp_path, **overrides):
     kwargs.update(overrides)
     with pytest.raises(ReplaceRulesPreviewError) as excinfo:
         resolve_replace_rules_preview(project, **kwargs)
-    project.close()
     return excinfo.value
 
 
-def test_preview_invalid_regex(tmp_path):
+def test_preview_invalid_regex(make_project):
     exc = _error(
-        tmp_path, rules=[{"match": "regex", "pattern": "(unclosed", "target": "x"}]
+        make_project, rules=[{"match": "regex", "pattern": "(unclosed", "target": "x"}]
     )
     assert exc.code == "invalid_regex"
     assert exc.field == "rules[0].pattern"
 
 
-def test_preview_invalid_rule_shapes_are_invalid_params(tmp_path):
-    assert _error(tmp_path, rules="nope").code == "invalid_params"
-    assert _error(tmp_path, rules=["nope"]).code == "invalid_params"
+def test_preview_invalid_rule_shapes_are_invalid_params(make_project):
+    assert _error(make_project, rules="nope").code == "invalid_params"
+    assert _error(make_project, rules=["nope"]).code == "invalid_params"
     assert (
-        _error(tmp_path, rules=[{"match": "vibes", "pattern": "x", "target": "y"}]).code
+        _error(
+            make_project, rules=[{"match": "vibes", "pattern": "x", "target": "y"}]
+        ).code
         == "invalid_params"
     )
     # blank target is invalid (None is the explicit null target)
     assert (
         _error(
-            tmp_path, rules=[{"match": "exact", "pattern": "x", "target": "   "}]
+            make_project, rules=[{"match": "exact", "pattern": "x", "target": "   "}]
         ).code
         == "invalid_params"
     )
 
 
-def test_preview_missing_sheet_and_column_are_invalid_input_ref(tmp_path):
-    missing_sheet = _error(tmp_path, sheet_id=999)
+def test_preview_missing_sheet_and_column_are_invalid_input_ref(make_project):
+    missing_sheet = _error(make_project, sheet_id=999)
     assert missing_sheet.code == "invalid_input_ref"
     assert missing_sheet.field == "sheet_id"
-    missing_column = _error(tmp_path, input_column="missing")
+    missing_column = _error(make_project, input_column="missing")
     assert missing_column.code == "invalid_input_ref"
     assert missing_column.field == "input_column"
-    bad_type = _error(tmp_path, sheet_id="1")
+    bad_type = _error(make_project, sheet_id="1")
     assert bad_type.code == "invalid_input_ref"
 
 
-def test_preview_bad_unmatched_and_test_value_are_invalid_params(tmp_path):
-    assert _error(tmp_path, unmatched="maybe").code == "invalid_params"
-    assert _error(tmp_path, test_value=42).code == "invalid_params"
+def test_preview_bad_unmatched_and_test_value_are_invalid_params(make_project):
+    assert _error(make_project, unmatched="maybe").code == "invalid_params"
+    assert _error(make_project, test_value=42).code == "invalid_params"
 
 
-def test_rule_preview_borrows_existing_snapshot_without_recursive_reentry(tmp_path):
-    project, sheet = _seed(tmp_path, ["Acme", "Other"])
-    try:
-        with project.read_snapshot() as snapshot:
-            result = resolve_replace_rules_preview(
-                snapshot,
-                sheet_id=sheet,
-                input_column="org",
-                rules=[{"match": "exact", "pattern": "Acme", "target": "ACME"}],
-            )
-            assert result["unmatched_rows"] == 1
-            assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
-    finally:
-        project.close()
+def test_rule_preview_borrows_existing_snapshot_without_recursive_reentry(
+    make_project,
+):
+    project = make_project("replace-rules-snapshot")
+    sheet = project.add_sheet("data")
+    cols = {"org": project.add_column(sheet, "org")}
+    project.add_rows(sheet, [{"org": value} for value in ["Acme", "Other"]], cols)
+    with project.read_snapshot() as snapshot:
+        result = resolve_replace_rules_preview(
+            snapshot,
+            sheet_id=sheet,
+            input_column="org",
+            rules=[{"match": "exact", "pattern": "Acme", "target": "ACME"}],
+        )
+        assert result["unmatched_rows"] == 1
+        assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2

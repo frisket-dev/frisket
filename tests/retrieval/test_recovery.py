@@ -101,7 +101,6 @@ def test_open_defers_repair_while_initial_sidecar_creation_is_locked(
         if writer is not None:
             writer.rollback()
             writer.close()
-        project.close()
 
 
 def test_project_open_does_not_wait_for_current_sidecar_writer(tmp_path) -> None:

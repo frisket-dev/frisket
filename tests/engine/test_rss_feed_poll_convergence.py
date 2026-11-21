@@ -158,7 +158,6 @@ def test_source_poll_rss_uses_keyed_observations_and_generic_enclosure_refs(
             == 1
         )
     finally:
-        project.close()
         register_rss_feed_checker(replace=True)
 
 
@@ -252,7 +251,6 @@ def test_repeated_polls_do_not_grow_rows_when_a_batch_repeats_a_dedupe_key(
             0
         ] == (0 if conflicting else 1)
     finally:
-        project.close()
         register_rss_feed_checker(replace=True)
 
 
@@ -302,7 +300,6 @@ def test_same_batch_duplicate_dedupe_key_is_collapsed_not_appended(
             == "Same guid, first copy"
         )
     finally:
-        project.close()
         register_rss_feed_checker(replace=True)
 
 

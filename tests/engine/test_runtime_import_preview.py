@@ -23,14 +23,12 @@ from frisket.authoring.workbench.plugin_runtime import (
 from frisket.engine.executor import ExecutorDeps, run_action_spec
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.table_preview import preview_table
-from frisket.engine.store import Project
 from tests.workbench_runtime_test_helpers import write_runtime_plugin_manifest
 
 
 @pytest.fixture
-def importer(tmp_path):
+def importer(tmp_path, make_project):
     _reset_default_registry_for_tests()
-    instances = []
 
     def install(*, project=None, count=25, secret=False):
         plugin, kind, key = (
@@ -62,8 +60,7 @@ def importer(tmp_path):
             manifest["requires"]["secrets"] = ["IMPORTER_TOKEN"]
         path.write_text(json.dumps(manifest))
         if project is None:
-            project = Project.create(tmp_path / "project")
-            instances.append(project)
+            project = make_project()
         status, payload = execute_workbench_plugin_local_install_plan(
             project,
             project_id="preview",
@@ -101,8 +98,6 @@ def importer(tmp_path):
         )
 
     yield install
-    for project in instances:
-        project.close()
     unregister_trusted_backend_handler("preview.importer:read")
     _reset_default_registry_for_tests()
 

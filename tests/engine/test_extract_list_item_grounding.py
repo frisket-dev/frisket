@@ -7,7 +7,6 @@ import frisket.sdk.ops.transcribe_engines as transcribe_engines
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
 
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -141,8 +140,7 @@ def _moments_field() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
-def _seed_pdf_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(tmp_path / "extract-list-ocr.frisket", name="List OCR")
+def _seed_pdf_project(project: Project) -> dict[str, Any]:
     sheet_id = project.add_sheet("Docs")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -271,109 +269,101 @@ def _ocr_list_reply() -> dict[str, Any]:
 
 
 def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_pdf_project(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_ocr(seeded, monkeypatch)
-        row_id = seeded["row_ids"][0]
-        router, adapter = _stub_router(_ocr_list_reply())
-        result = run_action_with_exact_confirmation(
-            project,
-            _ocr_list_extract_action(seeded["sheet_id"]),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 1
+    seeded = _seed_pdf_project(project)
+    _run_ocr(seeded, monkeypatch)
+    row_id = seeded["row_ids"][0]
+    router, adapter = _stub_router(_ocr_list_reply())
+    result = run_action_with_exact_confirmation(
+        project,
+        _ocr_list_extract_action(seeded["sheet_id"]),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 1
 
-        moments_column_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
-                (seeded["sheet_id"],),
-            ).fetchone()["id"]
-        )
-        evidence = list_cell_citations(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=row_id,
-            column_id=moments_column_id,
-            project_id=PROJECT_ID,
-        )
-        # RED CHECK: 3-item list -> 3 evidence links, each item-scoped.
-        assert len(evidence["links"]) == 3
+    moments_column_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
+            (seeded["sheet_id"],),
+        ).fetchone()["id"]
+    )
+    evidence = list_cell_citations(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=row_id,
+        column_id=moments_column_id,
+        project_id=PROJECT_ID,
+    )
+    # RED CHECK: 3-item list -> 3 evidence links, each item-scoped.
+    assert len(evidence["links"]) == 3
 
-        quotes_by_link = []
-        for link_summary in evidence["links"]:
-            viewer = resolve_citation_viewer(
-                project, link_summary["stable_id"], project_id=PROJECT_ID
-            )
-            assert viewer["artifacts"][0]["text_context"]
-            pdf_artifact = next(
-                artifact
-                for artifact in viewer["artifacts"]
-                if artifact["media_type"] == "application/pdf"
-            )
-            spans = pdf_artifact["spans"]
-            assert spans, "each item's link must carry its own span(s)"
-            assert all(span["span_kind"] == "region" for span in spans)
-            quotes_by_link.append({span["quote"] for span in spans})
+    quotes_by_link = []
+    for link_summary in evidence["links"]:
+        viewer = resolve_citation_viewer(
+            project, link_summary["stable_id"], project_id=PROJECT_ID
+        )
+        assert viewer["artifacts"][0]["text_context"]
+        pdf_artifact = next(
+            artifact
+            for artifact in viewer["artifacts"]
+            if artifact["media_type"] == "application/pdf"
+        )
+        spans = pdf_artifact["spans"]
+        assert spans, "each item's link must carry its own span(s)"
+        assert all(span["span_kind"] == "region" for span in spans)
+        quotes_by_link.append({span["quote"] for span in spans})
 
-        assert {"alpha event occurred"} in quotes_by_link
-        assert {"beta event happened"} in quotes_by_link
-        assert {"gamma event took place"} in quotes_by_link
-    finally:
-        project.close()
+    assert {"alpha event occurred"} in quotes_by_link
+    assert {"beta event happened"} in quotes_by_link
+    assert {"gamma event took place"} in quotes_by_link
 
 
 def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_pdf_project(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_ocr(seeded, monkeypatch)
-        row_id = seeded["row_ids"][0]
-        reply = _ocr_list_reply()
-        # An unsupported extra claim must not create a positionless link or
-        # invalidate the usable exact quote for this list item.
-        reply["moments"]["evidence"][0].append({})
-        router, _adapter = _stub_router(reply)
-        result = run_action_with_exact_confirmation(
-            project,
-            _ocr_list_extract_action(seeded["sheet_id"], auxiliary_document=False),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
+    seeded = _seed_pdf_project(project)
+    _run_ocr(seeded, monkeypatch)
+    row_id = seeded["row_ids"][0]
+    reply = _ocr_list_reply()
+    # An unsupported extra claim must not create a positionless link or
+    # invalidate the usable exact quote for this list item.
+    reply["moments"]["evidence"][0].append({})
+    router, _adapter = _stub_router(reply)
+    result = run_action_with_exact_confirmation(
+        project,
+        _ocr_list_extract_action(seeded["sheet_id"], auxiliary_document=False),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
 
-        moments_column_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
-                (seeded["sheet_id"],),
-            ).fetchone()["id"]
-        )
-        links = list_cell_citations(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=row_id,
-            column_id=moments_column_id,
-            project_id=PROJECT_ID,
-        )["links"]
-        assert len(links) == 3
-        viewers = [
-            resolve_citation_viewer(project, link["stable_id"], project_id=PROJECT_ID)
-            for link in links
-        ]
-        assert all(viewer["artifacts"][0]["text_context"] for viewer in viewers)
-        assert all(
-            span["span_kind"] == "text"
-            for viewer in viewers
-            for span in viewer["artifacts"][0]["spans"]
-        )
-    finally:
-        project.close()
+    moments_column_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
+            (seeded["sheet_id"],),
+        ).fetchone()["id"]
+    )
+    links = list_cell_citations(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=row_id,
+        column_id=moments_column_id,
+        project_id=PROJECT_ID,
+    )["links"]
+    assert len(links) == 3
+    viewers = [
+        resolve_citation_viewer(project, link["stable_id"], project_id=PROJECT_ID)
+        for link in links
+    ]
+    assert all(viewer["artifacts"][0]["text_context"] for viewer in viewers)
+    assert all(
+        span["span_kind"] == "text"
+        for viewer in viewers
+        for span in viewer["artifacts"][0]["spans"]
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -381,10 +371,7 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
 # --------------------------------------------------------------------------- #
 
 
-def _seed_transcript_project(tmp_path: Path) -> dict[str, Any]:
-    project = Project.create(
-        tmp_path / "extract-list-transcript.frisket", name="List Transcript"
-    )
+def _seed_transcript_project(project: Project) -> dict[str, Any]:
     sheet_id = project.add_sheet("Episodes")
     cols = {
         "title": project.add_column(sheet_id, "title", type="text"),
@@ -475,114 +462,106 @@ def _transcript_list_reply() -> dict[str, Any]:
 
 
 def test_transcript_sourced_three_item_list_writes_three_segment_scoped_links(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seeded = _seed_transcript_project(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_transcribe(seeded, monkeypatch)
-        row_id = seeded["row_ids"][0]
-        router, adapter = _stub_router(_transcript_list_reply())
-        result = run_action_with_exact_confirmation(
-            project,
-            _transcript_list_extract_action(seeded["sheet_id"]),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        assert len(adapter.requests) == 1
+    seeded = _seed_transcript_project(project)
+    _run_transcribe(seeded, monkeypatch)
+    row_id = seeded["row_ids"][0]
+    router, adapter = _stub_router(_transcript_list_reply())
+    result = run_action_with_exact_confirmation(
+        project,
+        _transcript_list_extract_action(seeded["sheet_id"]),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    assert len(adapter.requests) == 1
 
-        moments_column_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
-                (seeded["sheet_id"],),
-            ).fetchone()["id"]
-        )
-        evidence = list_cell_citations(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=row_id,
-            column_id=moments_column_id,
-            project_id=PROJECT_ID,
-        )
-        # RED CHECK: 3-item list -> 3 evidence links, each item-scoped.
-        assert len(evidence["links"]) == 3
+    moments_column_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
+            (seeded["sheet_id"],),
+        ).fetchone()["id"]
+    )
+    evidence = list_cell_citations(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=row_id,
+        column_id=moments_column_id,
+        project_id=PROJECT_ID,
+    )
+    # RED CHECK: 3-item list -> 3 evidence links, each item-scoped.
+    assert len(evidence["links"]) == 3
 
-        ranges_by_link = []
-        for link_summary in evidence["links"]:
-            viewer = resolve_citation_viewer(
-                project, link_summary["stable_id"], project_id=PROJECT_ID
+    ranges_by_link = []
+    for link_summary in evidence["links"]:
+        viewer = resolve_citation_viewer(
+            project, link_summary["stable_id"], project_id=PROJECT_ID
+        )
+        artifact = viewer["artifacts"][0]
+        spans = artifact["spans"]
+        assert len(spans) == 1
+        span = spans[0]
+        assert span["span_kind"] == "temporal"
+        # extract-scalar-temporal-anchors-v1's viewer contract, shared by
+        # this list path: the span's artifact must be the seekable-player
+        # shape (audio/video mime + blob), not the row-json artifact.
+        _assert_player_renderable(artifact)
+        ranges_by_link.append(
+            (
+                span["selector"]["start_ms"],
+                span["selector"]["end_ms"],
+                span["quote"],
             )
-            artifact = viewer["artifacts"][0]
-            spans = artifact["spans"]
-            assert len(spans) == 1
-            span = spans[0]
-            assert span["span_kind"] == "temporal"
-            # extract-scalar-temporal-anchors-v1's viewer contract, shared by
-            # this list path: the span's artifact must be the seekable-player
-            # shape (audio/video mime + blob), not the row-json artifact.
-            _assert_player_renderable(artifact)
-            ranges_by_link.append(
-                (
-                    span["selector"]["start_ms"],
-                    span["selector"]["end_ms"],
-                    span["quote"],
-                )
-            )
+        )
 
-        # Segment 2: 4.0s-6.0s "some say the vote was rigged"
-        assert (4000, 6000, "some say the vote was rigged") in ranges_by_link
-        # Segment 3: 6.0s-8.0s "others question the integrity of the count"
-        assert (
-            6000,
-            8000,
-            "others question the integrity of the count",
-        ) in ranges_by_link
-        # Segment 4: 8.0s-10.0s "officials deny any wrongdoing"
-        assert (8000, 10000, "officials deny any wrongdoing") in ranges_by_link
-    finally:
-        project.close()
+    # Segment 2: 4.0s-6.0s "some say the vote was rigged"
+    assert (4000, 6000, "some say the vote was rigged") in ranges_by_link
+    # Segment 3: 6.0s-8.0s "others question the integrity of the count"
+    assert (
+        6000,
+        8000,
+        "others question the integrity of the count",
+    ) in ranges_by_link
+    # Segment 4: 8.0s-10.0s "officials deny any wrongdoing"
+    assert (8000, 10000, "officials deny any wrongdoing") in ranges_by_link
 
 
 def test_transcript_item_with_invalid_segment_index_is_unsupported_not_guessed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    project: Project, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Degradation Law: an out-of-range segment index resolves to nothing (the
     anchor_id lookup drops it) -- the item gets no link, never a guessed span."""
 
-    seeded = _seed_transcript_project(tmp_path)
-    project: Project = seeded["project"]
-    try:
-        _run_transcribe(seeded, monkeypatch)
-        row_id = seeded["row_ids"][0]
-        reply = {
-            "moments": {
-                "value": ["a nonexistent claim"],
-                "evidence": [[{"segment_indices": [999]}]],
-                "warnings": [],
-            }
+    seeded = _seed_transcript_project(project)
+    _run_transcribe(seeded, monkeypatch)
+    row_id = seeded["row_ids"][0]
+    reply = {
+        "moments": {
+            "value": ["a nonexistent claim"],
+            "evidence": [[{"segment_indices": [999]}]],
+            "warnings": [],
         }
-        router, _adapter = _stub_router(reply)
-        result = run_action_with_exact_confirmation(
-            project,
-            _transcript_list_extract_action(seeded["sheet_id"]),
-            project_id=PROJECT_ID,
-            router=router,
-        )
-        assert result.status == "completed", result.errors
-        moments_column_id = int(
-            project.db.execute(
-                "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
-                (seeded["sheet_id"],),
-            ).fetchone()["id"]
-        )
-        evidence = list_cell_citations(
-            project,
-            sheet_id=seeded["sheet_id"],
-            row_id=row_id,
-            column_id=moments_column_id,
-            project_id=PROJECT_ID,
-        )
-        assert evidence["links"] == []
-    finally:
-        project.close()
+    }
+    router, _adapter = _stub_router(reply)
+    result = run_action_with_exact_confirmation(
+        project,
+        _transcript_list_extract_action(seeded["sheet_id"]),
+        project_id=PROJECT_ID,
+        router=router,
+    )
+    assert result.status == "completed", result.errors
+    moments_column_id = int(
+        project.db.execute(
+            "SELECT id FROM columns WHERE sheet_id=? AND name='moments'",
+            (seeded["sheet_id"],),
+        ).fetchone()["id"]
+    )
+    evidence = list_cell_citations(
+        project,
+        sheet_id=seeded["sheet_id"],
+        row_id=row_id,
+        column_id=moments_column_id,
+        project_id=PROJECT_ID,
+    )
+    assert evidence["links"] == []

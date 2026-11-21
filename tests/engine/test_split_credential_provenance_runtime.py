@@ -64,10 +64,9 @@ class _StubAdapter:
         )
 
 
-def _project(tmp_path: Path, name: str):
-    from frisket.engine.store import Project
+def _project(make_project, name: str):
 
-    project = Project.create(tmp_path / f"{name}.frisket", name=name)
+    project = make_project(name)
     sheet_id = project.add_sheet("Stories")
     columns = {"story": project.add_column(sheet_id, "story", type="text")}
     project.add_rows(
@@ -171,7 +170,7 @@ def _assert_selected_key(router: Any, expected: str) -> None:
 
 
 def test_sync_workspace_keeps_project_organization_and_local_provenance_distinct(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_project, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Workspace must preserve the source after synchronous key composition."""
     from frisket.ai.llm import ModelRouter
@@ -186,7 +185,7 @@ def test_sync_workspace_keeps_project_organization_and_local_provenance_distinct
     # The injected hosted router declares its ownership explicitly; router
     # injection alone cannot distinguish organization BYOK from platform or local keys.
     # A project key must still win it.
-    project, sheet_id = _project(tmp_path, "sync-project")
+    project, sheet_id = _project(make_project, "sync-project")
     hosted_router = ModelRouter(
         model_call_policy=LOCAL_PURCHASE_POLICY,
         keys={"openai": organization},
@@ -196,53 +195,44 @@ def test_sync_workspace_keeps_project_organization_and_local_provenance_distinct
     hosted_router._adapters["openai"] = hosted_adapter  # noqa: SLF001
     hosted = Workspace(tmp_path / "hosted", router=hosted_router)
     monkeypatch.setattr(project, "provider_model_keys", lambda: {"openai": project_key})
-    try:
-        router = hosted.router_for(project)
-        _assert_selected_key(router, project_key)
-        rows = _persisted_remote_fact(project, sheet_id, router, key="sync-project")
-        _assert_durable_fact_contract(
-            rows,
-            expected_source="project_key",
-            forbidden_values={platform, organization, project_key, local},
-        )
-    finally:
-        project.close()
+    router = hosted.router_for(project)
+    _assert_selected_key(router, project_key)
+    rows = _persisted_remote_fact(project, sheet_id, router, key="sync-project")
+    _assert_durable_fact_contract(
+        rows,
+        expected_source="project_key",
+        forbidden_values={platform, organization, project_key, local},
+    )
 
     # With no project key, the same hosted composition uses the organization BYOK key.
-    project, sheet_id = _project(tmp_path, "sync-org")
+    project, sheet_id = _project(make_project, "sync-org")
     monkeypatch.setattr(project, "provider_model_keys", lambda: {})
-    try:
-        router = hosted.router_for(project)
-        assert router is hosted_router
-        assert router._adapters["openai"] is hosted_adapter  # noqa: SLF001
-        _assert_selected_key(router, organization)
-        rows = _persisted_remote_fact(project, sheet_id, router, key="sync-org")
-        _assert_durable_fact_contract(
-            rows,
-            expected_source="org_byok",
-            forbidden_values={platform, organization, project_key, local},
-        )
-    finally:
-        project.close()
+    router = hosted.router_for(project)
+    assert router is hosted_router
+    assert router._adapters["openai"] is hosted_adapter  # noqa: SLF001
+    _assert_selected_key(router, organization)
+    rows = _persisted_remote_fact(project, sheet_id, router, key="sync-org")
+    _assert_durable_fact_contract(
+        rows,
+        expected_source="org_byok",
+        forbidden_values={platform, organization, project_key, local},
+    )
 
     # A key belonging to the local/self-host workspace is operator-owned, not
     # an unlabelled configured key and not a managed-platform credential.
     local_root = tmp_path / "local"
     save_local_provider_key(local_root, "openai", local)
     local_workspace = Workspace(local_root)
-    project, sheet_id = _project(tmp_path, "sync-local")
+    project, sheet_id = _project(make_project, "sync-local")
     monkeypatch.setattr(project, "provider_model_keys", lambda: {})
-    try:
-        router = local_workspace.router_for(project)
-        _assert_selected_key(router, local)
-        rows = _persisted_remote_fact(project, sheet_id, router, key="sync-local")
-        _assert_durable_fact_contract(
-            rows,
-            expected_source="local",
-            forbidden_values={platform, organization, project_key, local},
-        )
-    finally:
-        project.close()
+    router = local_workspace.router_for(project)
+    _assert_selected_key(router, local)
+    rows = _persisted_remote_fact(project, sheet_id, router, key="sync-local")
+    _assert_durable_fact_contract(
+        rows,
+        expected_source="local",
+        forbidden_values={platform, organization, project_key, local},
+    )
 
 
 @pytest.mark.parametrize(
@@ -265,7 +255,7 @@ def test_sync_workspace_keeps_project_organization_and_local_provenance_distinct
     ids=["project-over-org-over-platform", "org-over-platform", "platform-fallback"],
 )
 def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
-    tmp_path: Path,
+    make_project,
     monkeypatch: pytest.MonkeyPatch,
     project_keys: dict[str, str],
     org_keys: dict[str, str],
@@ -279,41 +269,38 @@ def test_queued_router_keeps_runtime_precedence_in_persisted_facts(
     platform = "test-platform-credential"
     organization = "test-org-byok-credential"
     project_key = "test-project-credential"
-    project, sheet_id = _project(tmp_path, f"queued-{expected_source}")
+    project, sheet_id = _project(make_project, f"queued-{expected_source}")
     monkeypatch.setattr(project, "provider_model_keys", lambda: project_keys)
     policy = _RecordingPurchasePolicy()
-    try:
-        base_router = ModelRouter(
-            model_call_policy=policy,
-            keys={"openai": platform},
-            key_sources={"openai": "platform_key"},
-        )
-        base_adapter = _StubAdapter()
-        if not project_keys and not org_keys:
-            base_router._adapters["openai"] = base_adapter  # noqa: SLF001
-        router = _router_for(
-            project,
-            base_router,
-            keys=org_keys,
-        )
-        if not project_keys and not org_keys:
-            assert router is base_router
-            assert router._adapters["openai"] is base_adapter  # noqa: SLF001
-        _assert_selected_key(router, expected_key)
-        rows = _persisted_remote_fact(
-            project,
-            sheet_id,
-            router,
-            key=f"queued-{expected_source}",
-        )
-        assert policy.admitted == [expected_source]
-        assert policy.recorded == [expected_source]
-        if not project_keys and not org_keys:
-            assert router._adapters["openai"] is base_adapter  # noqa: SLF001
-        _assert_durable_fact_contract(
-            rows,
-            expected_source=expected_source,
-            forbidden_values={platform, organization, project_key},
-        )
-    finally:
-        project.close()
+    base_router = ModelRouter(
+        model_call_policy=policy,
+        keys={"openai": platform},
+        key_sources={"openai": "platform_key"},
+    )
+    base_adapter = _StubAdapter()
+    if not project_keys and not org_keys:
+        base_router._adapters["openai"] = base_adapter  # noqa: SLF001
+    router = _router_for(
+        project,
+        base_router,
+        keys=org_keys,
+    )
+    if not project_keys and not org_keys:
+        assert router is base_router
+        assert router._adapters["openai"] is base_adapter  # noqa: SLF001
+    _assert_selected_key(router, expected_key)
+    rows = _persisted_remote_fact(
+        project,
+        sheet_id,
+        router,
+        key=f"queued-{expected_source}",
+    )
+    assert policy.admitted == [expected_source]
+    assert policy.recorded == [expected_source]
+    if not project_keys and not org_keys:
+        assert router._adapters["openai"] is base_adapter  # noqa: SLF001
+    _assert_durable_fact_contract(
+        rows,
+        expected_source=expected_source,
+        forbidden_values={platform, organization, project_key},
+    )

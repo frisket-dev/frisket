@@ -35,13 +35,12 @@ from frisket.engine.executor import ExecutorDeps, ImportWorkloadLimits, run_acti
 from frisket.engine.executor.actions import resolve_map_preview
 from frisket.engine.executor import runtime_import_read
 from frisket.engine.executor.table_action import run_typed_create_sheet_action
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from workbench_runtime_test_helpers import activate_runtime_plugin_for_project
 
 
 @pytest.fixture
-def runtime(tmp_path):
+def runtime(tmp_path, project):
     _reset_default_registry_for_tests()
     plugin_id, kind, handler_key = (
         "runtime.test",
@@ -80,38 +79,37 @@ def runtime(tmp_path):
         handler=handler,
         plugin=plugin_id,
     )
-    with closing(Project.create(tmp_path / "project")) as project:
-        activate_runtime_plugin_for_project(
-            project,
-            tmp_path,
-            plugin_id=plugin_id,
-            runtime_bindings={"importers": {kind: handler_key}},
-            project_id="p",
-        )
-        request = {
-            "action_id": "import.runtime",
-            "scope": {"kind": "project"},
-            "sheet_name": "Imported",
-            "idempotency_key": "runtime-import",
-            "params": {
-                "importer_kind": kind,
-                "source": {
-                    "kind": "runtime",
-                    "label": "input.ndjson",
-                    "fingerprint": "declared",
-                },
-                "handler_params": {"option": "value"},
+    activate_runtime_plugin_for_project(
+        project,
+        tmp_path,
+        plugin_id=plugin_id,
+        runtime_bindings={"importers": {kind: handler_key}},
+        project_id="p",
+    )
+    request = {
+        "action_id": "import.runtime",
+        "scope": {"kind": "project"},
+        "sheet_name": "Imported",
+        "idempotency_key": "runtime-import",
+        "params": {
+            "importer_kind": kind,
+            "source": {
+                "kind": "runtime",
+                "label": "input.ndjson",
+                "fingerprint": "declared",
             },
-        }
-        yield SimpleNamespace(
-            project=project,
-            request=request,
-            calls=calls,
-            plan=plan,
-            plugin_id=plugin_id,
-            kind=kind,
-            handler_key=handler_key,
-        )
+            "handler_params": {"option": "value"},
+        },
+    }
+    yield SimpleNamespace(
+        project=project,
+        request=request,
+        calls=calls,
+        plan=plan,
+        plugin_id=plugin_id,
+        kind=kind,
+        handler_key=handler_key,
+    )
     unregister_trusted_backend_handler(handler_key)
     _reset_default_registry_for_tests()
 
@@ -187,15 +185,17 @@ def test_runtime_quota_warnings_actual_facts_and_source_independent_replay(
     assert len(runtime.calls) == 2
 
 
-def test_runtime_project_admission_and_preview_refuse_before_handler(runtime, tmp_path):
+def test_runtime_project_admission_and_preview_refuse_before_handler(
+    runtime, make_project
+):
     assert (
         resolve_map_preview(runtime.project, runtime.request).code
         == "unsupported_action_kind"
     )
-    with closing(Project.create(tmp_path / "other")) as other:
-        refused = run_action_spec(other, runtime.request, project_id="other")
-        assert refused.errors[0].code == "unsupported_runtime_importer"
-        assert other.sheets(include_hidden=True) == []
+    other = make_project("other")
+    refused = run_action_spec(other, runtime.request, project_id="other")
+    assert refused.errors[0].code == "unsupported_runtime_importer"
+    assert other.sheets(include_hidden=True) == []
     disable_workbench_plugin(
         runtime.project, project_id="p", plugin_id=runtime.plugin_id
     )

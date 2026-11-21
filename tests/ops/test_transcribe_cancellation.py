@@ -37,7 +37,6 @@ from frisket.engine._workers.parakeet_session import (
 from tests.execution_composition_helpers import open_attempt_authority
 from frisket.engine.runner import MapRunner
 from frisket.engine.sandbox.shim import SandboxResult
-from frisket.engine.store import Project
 from runner_test_helpers import run_with_output_claim
 
 _OK_RESULT = {"text": "hello", "segments": []}
@@ -94,14 +93,13 @@ def _install_parakeet_session(monkeypatch, transcribe) -> None:
     monkeypatch.setattr(transcribe_mod, "ParakeetProcessSession", FakeParakeetSession)
 
 
-def _transcribe_project(tmp_path):
-    p = Project.create(tmp_path / "t.frisket", name="t")
-    sheet = p.add_sheet("data")
-    cols = {"audio": p.add_column(sheet, "audio", type="audio")}
+def _transcribe_project(project, tmp_path):
+    sheet = project.add_sheet("data")
+    cols = {"audio": project.add_column(sheet, "audio", type="audio")}
     # A raw local path is trusted on a dev deploy (FRISKET_ALLOW_CODE_RECIPES
     # defaults on); the fake worker never opens it.
-    p.add_rows(sheet, [{"audio": str(tmp_path / "clip.wav")}], cols)
-    return p, sheet
+    project.add_rows(sheet, [{"audio": str(tmp_path / "clip.wav")}], cols)
+    return project, sheet
 
 
 def _plan(project, sheet, engine="faster_whisper", *, row_ids=None):
@@ -125,11 +123,13 @@ def _run_row(p, run_id):
 
 
 @pytest.mark.parametrize("engine", _LOCAL_ENGINES)
-def test_worker_completes_when_cancel_reports_false(tmp_path, monkeypatch, engine):
+def test_worker_completes_when_cancel_reports_false(
+    project, tmp_path, monkeypatch, engine
+):
     """Control: a fake that OBSERVES should_cancel and only ever sees False must
     NOT produce a cancellation — the row completes and persists normally. This
     is the guard against a fake that fabricates a cancelled outcome."""
-    p, sheet = _transcribe_project(tmp_path)
+    p, sheet = _transcribe_project(project, tmp_path)
     observed: dict = {"callable": None, "reports": []}
 
     async def fake(argv, *, policy, stdin_data, should_cancel=None, extra_env=None):
@@ -189,13 +189,13 @@ async def _parakeet_false_result(observed: dict, should_cancel) -> dict:
 
 @pytest.mark.parametrize("engine", _LOCAL_ENGINES)
 def test_external_cancel_retains_returned_diagnosis_without_publishing_row(
-    tmp_path, monkeypatch, engine
+    project, tmp_path, monkeypatch, engine
 ):
     """A cancel arrives from OUTSIDE while the worker runs; the fake observes the
     should_cancel False->True transition and returns cancelled. The MapRunner
     fence retains the returned diagnosis while Stop closes publication.
     No current result or completed row is invented; the run stays cancelled."""
-    p, sheet = _transcribe_project(tmp_path)
+    p, sheet = _transcribe_project(project, tmp_path)
     state = {"running": False, "cancel": False, "callable": False, "transition": False}
 
     async def fake(argv, *, policy, stdin_data, should_cancel=None, extra_env=None):
@@ -278,9 +278,9 @@ async def _parakeet_cancel_result(state: dict, should_cancel) -> dict:
 
 @pytest.mark.parametrize("engine", _LOCAL_ENGINES)
 def test_worker_timeout_stays_a_row_failure_not_cancellation(
-    tmp_path, monkeypatch, engine
+    project, tmp_path, monkeypatch, engine
 ):
-    p, sheet = _transcribe_project(tmp_path)
+    p, sheet = _transcribe_project(project, tmp_path)
 
     async def fake(argv, *, policy, stdin_data, should_cancel=None, extra_env=None):
         # A wall timeout is NOT a cancel: the run's cancel state stays clear.
@@ -373,11 +373,11 @@ def test_execute_raises_before_materialization_when_already_cancelled(
     assert launched["count"] == 0, "no sandbox worker may launch when cancelled"
 
 
-def test_preview_external_cancel_persists_no_row_values(tmp_path, monkeypatch):
+def test_preview_external_cancel_persists_no_row_values(project, tmp_path, monkeypatch):
     """Preview-path fence mirror of the durable case: an external cancel during
     the preview row (a threading.Event) drops the row — the in-memory result
     carries no value for it and progress never counts it."""
-    p, sheet = _transcribe_project(tmp_path)
+    p, sheet = _transcribe_project(project, tmp_path)
     state = {"running": False, "transition": False}
     cancel_event = threading.Event()
 

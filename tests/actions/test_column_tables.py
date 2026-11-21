@@ -14,7 +14,6 @@ from frisket.sdk import (
     ColumnTablesLocalDirDestination,
 )
 from frisket.engine.executor import resolve_map_preview, run_action_spec
-from frisket.engine.store import Project
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.contracts.action import Receipt, ReceiptIO
 from tests.engine.test_export_column_tables_executor import (
@@ -266,53 +265,51 @@ def reconstructed_package(
     return reconstructed
 
 
-def test_renamed_derived_arguments_and_reconstructed_result_keep_host_facts(tmp_path):
+def test_renamed_derived_arguments_and_reconstructed_result_keep_host_facts(
+    tmp_path, project
+):
     from frisket.engine.executor.action_families.exports_column_tables import (
         _run_typed_export_column_tables,
     )
 
-    project = Project.create(tmp_path / "project")
-    try:
-        sheet_id, column_id = _seed_scalar_list_sheet(project)
-        destination = tmp_path / "nested"
-        destination.mkdir()
-        definition = action(
-            name="package",
-            title="Package",
-            description="Export a column through derived arguments.",
-            category=ActionCategory.CONVERT,
-            run=reconstructed_package,
-        )
-        registered = ActionRegistry(
-            (ActionNamespace("custom", actions=(definition,)),)
-        ).get("custom.package")
-        bound = BoundTypedActionRequest.bind(
-            registered,
-            ActionRequest(
-                action_id="custom.package",
-                scope={"kind": "project"},
-                params={"owner": sheet_id, "field": column_id, "folder": str(tmp_path)},
-                idempotency_key="derived-package",
-            ),
-        )
-        result = _run_typed_export_column_tables(project, "p", bound)
-        assert result.status == "completed", result.errors
-        ref = result.outputs[0].ref
-        assert ref["sheet_id"] == sheet_id
-        assert ref["column_id"] == column_id
-        assert Path(ref["path"]).parent == destination
-        assert _zip_csv(Path(ref["path"]), "derived.csv") == [
-            {"value": "red"},
-            {"value": "green"},
-            {"value": "blue"},
-        ]
-        receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
-        manifest = next(
-            evidence.ref
-            for evidence in receipt.evidence
-            if evidence.ref["kind"] == "column_tables_export_manifest"
-        )
-        assert manifest["artifact_count"] == 1
-        assert manifest["name_template"] == "derived.csv"
-    finally:
-        project.close()
+    sheet_id, column_id = _seed_scalar_list_sheet(project)
+    destination = tmp_path / "nested"
+    destination.mkdir()
+    definition = action(
+        name="package",
+        title="Package",
+        description="Export a column through derived arguments.",
+        category=ActionCategory.CONVERT,
+        run=reconstructed_package,
+    )
+    registered = ActionRegistry(
+        (ActionNamespace("custom", actions=(definition,)),)
+    ).get("custom.package")
+    bound = BoundTypedActionRequest.bind(
+        registered,
+        ActionRequest(
+            action_id="custom.package",
+            scope={"kind": "project"},
+            params={"owner": sheet_id, "field": column_id, "folder": str(tmp_path)},
+            idempotency_key="derived-package",
+        ),
+    )
+    result = _run_typed_export_column_tables(project, "p", bound)
+    assert result.status == "completed", result.errors
+    ref = result.outputs[0].ref
+    assert ref["sheet_id"] == sheet_id
+    assert ref["column_id"] == column_id
+    assert Path(ref["path"]).parent == destination
+    assert _zip_csv(Path(ref["path"]), "derived.csv") == [
+        {"value": "red"},
+        {"value": "green"},
+        {"value": "blue"},
+    ]
+    receipt = ReceiptStore(project).parsed_by_id(result.receipt_id)
+    manifest = next(
+        evidence.ref
+        for evidence in receipt.evidence
+        if evidence.ref["kind"] == "column_tables_export_manifest"
+    )
+    assert manifest["artifact_count"] == 1
+    assert manifest["name_template"] == "derived.csv"
