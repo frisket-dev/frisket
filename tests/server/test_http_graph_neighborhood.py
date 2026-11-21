@@ -67,7 +67,7 @@ def _seed_followthemoney(
     the frisket.ftm plugin WritePlan mechanism (the core import.followthemoney action
     kind was removed in ftm-bundled-plugin-v1; the WritePlan path builds identical
     sheets)."""
-    from frisket.features.followthemoney.import_planner import (
+    from frisket.followthemoney.import_planner import (
         plan_followthemoney_import,
     )
     from ftm_migration_harness import import_via_write_plan

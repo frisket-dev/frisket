@@ -19,9 +19,9 @@ catches broadly, not just ``ImportError``), so ANY failure mode collapses to
 the same clean ``ImportError`` and this package's own import can never crash.
 
 A *direct* import of a submodule
-(``frisket.features.followthemoney.adapter``, ``.import_planner``,
+(``frisket.followthemoney.adapter``, ``.import_planner``,
 ``.mapping``, ``.schema_catalog``) or of a name this package would normally
-re-export (``from frisket.features.followthemoney import validate_entity``) must ALSO
+re-export (``from frisket.followthemoney import validate_entity``) must ALSO
 raise a clear, actionable error -- not a bare ``ModuleNotFoundError`` or
 Python's generic "cannot import name". The submodules guard their own
 top-level SDK import via ``_sdk_import.require_followthemoney_sdk()``; this
@@ -30,7 +30,7 @@ top-level SDK import via ``_sdk_import.require_followthemoney_sdk()``; this
 
 from __future__ import annotations
 
-from frisket.features.followthemoney._sdk_import import ENTITIES_EXTRA_REMEDIATION
+from frisket.followthemoney._sdk_import import ENTITIES_EXTRA_REMEDIATION
 
 # Names this package re-exports ONLY when the entities extra is installed
 # AND actually loads. Accessing one of these while unavailable raises a
@@ -66,33 +66,33 @@ _REAL_EXPORTS = frozenset(
 _import_error: ImportError | None = None
 
 try:
-    from frisket.features.followthemoney.adapter import (
+    from frisket.followthemoney.adapter import (
         FOLLOWTHEMONEY_ENTITY_SCHEMA_VERSION,
         FollowTheMoneyAdapterError,
         parse_entities_jsonl,
         serialize_entities_jsonl,
         validate_entity,
     )
-    from frisket.features.followthemoney.exporters import (
+    from frisket.followthemoney.exporters import (
         FOLLOWTHEMONEY_EXPORT_PACKAGE_SCHEMA_VERSION,
         FOLLOWTHEMONEY_SOURCE_REFS_SCHEMA_VERSION,
         FOLLOWTHEMONEY_VALIDATION_REPORT_SCHEMA_VERSION,
         build_followthemoney_export_package,
         followthemoney_rowset_key,
     )
-    from frisket.features.followthemoney.mapping import (
+    from frisket.followthemoney.mapping import (
         FOLLOWTHEMONEY_MAPPING_SCHEMA_VERSION,
         deterministic_row_ref_id,
         map_rowset_to_entities,
         normalize_property_values,
     )
-    from frisket.features.followthemoney.matching import (
+    from frisket.followthemoney.matching import (
         FOLLOWTHEMONEY_MATCH_REVIEW_PLAN_SCHEMA_VERSION,
         FOLLOWTHEMONEY_MATCHING_SCHEMA_VERSION,
         match_followthemoney_entities,
         plan_followthemoney_match_review_sheet,
     )
-    from frisket.features.followthemoney.schema_catalog import (
+    from frisket.followthemoney.schema_catalog import (
         SUPPORTED_SCHEMA_PRESETS,
         get_property_metadata,
         get_schema_metadata,
@@ -169,8 +169,8 @@ else:
         if name in _REAL_EXPORTS:
             _, err = entities_available()
             raise ImportError(
-                f"frisket.features.followthemoney.{name} requires the entities extra: {err}"
+                f"frisket.followthemoney.{name} requires the entities extra: {err}"
             )
         raise AttributeError(
-            f"module 'frisket.features.followthemoney' has no attribute {name!r}"
+            f"module 'frisket.followthemoney' has no attribute {name!r}"
         )

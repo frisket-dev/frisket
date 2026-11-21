@@ -10,8 +10,8 @@ pytest.importorskip(
     reason="requires the entities extra: pip install 'frisket-data[entities]'",
 )
 
-import frisket.features.followthemoney.import_planner as import_planner
-from frisket.features.followthemoney.import_planner import (
+import frisket.followthemoney.import_planner as import_planner
+from frisket.followthemoney.import_planner import (
     FOLLOWTHEMONEY_IMPORT_PLAN_SCHEMA_VERSION,
     TECHNICAL_IMPORT_COLUMNS,
     plan_followthemoney_import,

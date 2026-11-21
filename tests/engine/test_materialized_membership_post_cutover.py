@@ -15,7 +15,7 @@ from frisket.engine.store.materialization import (
     write_aggregate_sheet,
     write_edge_table,
 )
-from frisket.features.investigations.rowsets import resolve_investigative_rowset
+from frisket.exports.investigative_rowsets import resolve_investigative_rowset
 from frisket.engine.store import Project
 
 

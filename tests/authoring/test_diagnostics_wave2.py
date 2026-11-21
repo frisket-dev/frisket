@@ -588,7 +588,7 @@ def test_entities_report_unavailable_includes_the_pyicu_preflight(monkeypatch):
     def _boom():
         raise ImportError("FollowTheMoney entity support is not installed.")
 
-    import frisket.features.followthemoney as ftm
+    import frisket.followthemoney as ftm
 
     monkeypatch.setattr(ftm, "entities_available", _boom, raising=False)
     r = diagnostics.entities_report()
@@ -599,7 +599,7 @@ def test_entities_report_unavailable_includes_the_pyicu_preflight(monkeypatch):
 
 
 def test_entities_report_installed_has_no_hint_noise(monkeypatch):
-    import frisket.features.followthemoney as ftm
+    import frisket.followthemoney as ftm
 
     monkeypatch.setattr(ftm, "entities_available", lambda: (True, None), raising=False)
     monkeypatch.setattr(
