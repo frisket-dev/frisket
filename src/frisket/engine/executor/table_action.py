@@ -1829,17 +1829,12 @@ def _parented_table_replay_error(
         )
 
     membership = _receipt_ref(receipt, "materialized_row_sources")
-    cur = project.db.cursor()
-    try:
-        live_sources = load_materialized_row_sources_for_op(cur, op_id=sheet_op_id)
-    finally:
-        cur.close()
     if (
         membership is None
         or membership.get("op_id") != sheet_op_id
         or not materialized_row_sources_ref_matches(
             membership,
-            live_sources,
+            load_materialized_row_sources_for_op(project.db, op_id=sheet_op_id),
         )
     ):
         return receipt_stale_replay_error(

@@ -98,7 +98,7 @@ def _reduce_group_summary_replay_error(
         ):
             return stale(replay + "aggregate row parentage changed", row_ids=row_ids)
     live_membership = load_materialized_row_sources_for_op(
-        project.db.cursor(),
+        project.db,
         op_id=op_id,
         roles=("aggregate_source",),
     )
@@ -123,7 +123,7 @@ def _reduce_group_summary_replay_error(
         expected_membership[summary_row_id] = set(source_row_ids)
     active_membership: dict[int, set[int]] = {}
     for membership in active_materialized_row_sources(
-        project.db.cursor(),
+        project.db,
         materialized_row_ids=row_ids,
         roles=("aggregate_source",),
     ):
