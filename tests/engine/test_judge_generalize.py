@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import json
 import copy
@@ -50,8 +51,7 @@ def _stub_router(*replies: dict[str, Any]) -> tuple[ModelRouter, _SequenceAdapte
 
 
 def _seed_project(project_path: Path) -> int:
-    project = Project.create(project_path, name="Judge Generalize")
-    try:
+    with closing(Project.create(project_path, name="Judge Generalize")) as project:
         sheet_id = project.add_sheet("Sheet")
         columns = {
             "story": project.add_column(sheet_id, "story", type="text"),
@@ -72,8 +72,6 @@ def _seed_project(project_path: Path) -> int:
             columns,
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 # The upstream instruction text the original-prompt trace must surface.
@@ -235,8 +233,7 @@ def test_judge_rejects_non_generated_answer_before_model_work(tmp_path: Path) ->
         {"verdict": True, "judge_note": "Supported by the story."},
         {"verdict": False, "judge_note": "Not supported."},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = _run(
             project,
             _judge_action(
@@ -257,8 +254,6 @@ def test_judge_rejects_non_generated_answer_before_model_work(tmp_path: Path) ->
         )
         assert result.errors[0].details == {"column": "source_url"}
         assert adapter.requests == []
-    finally:
-        project.close()
 
 
 def test_judge_canonicalizes_omitted_judged_column_into_sources(
@@ -272,8 +267,7 @@ def test_judge_canonicalizes_omitted_judged_column_into_sources(
         {"verdict": True, "judge_note": "Supported by the story."},
         {"verdict": True, "judge_note": "Supported by the story."},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         classify = _run(project, _classify_action(sheet_id), router, "classify")
         assert classify.status == "completed", classify.errors
         action = _judge_action(
@@ -284,8 +278,6 @@ def test_judge_canonicalizes_omitted_judged_column_into_sources(
         judge = _run(project, action, router, "judge_canonical_source_union")
         assert judge.status == "completed", judge.errors
         assert "risk_score" in _request_text(adapter.requests[-1])
-    finally:
-        project.close()
 
 
 def test_judge_allows_same_model_family(tmp_path: Path) -> None:
@@ -298,8 +290,7 @@ def test_judge_allows_same_model_family(tmp_path: Path) -> None:
         {"verdict": True, "judge_note": "Plausible."},
         {"verdict": True, "judge_note": "Plausible."},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         classify = _run(project, _classify_action(sheet_id), router, "classify")
         assert classify.status == "completed", classify.errors
         judge = _run(
@@ -315,8 +306,6 @@ def test_judge_allows_same_model_family(tmp_path: Path) -> None:
         )
         assert judge.status == "completed", judge.errors
         assert all(e.code != "invalid_judge_model_family" for e in (judge.errors or []))
-    finally:
-        project.close()
 
 
 def test_include_original_prompt_injects_for_generated_column(tmp_path: Path) -> None:
@@ -329,8 +318,7 @@ def test_include_original_prompt_injects_for_generated_column(tmp_path: Path) ->
         {"verdict": True, "judge_note": "x"},
         {"verdict": True, "judge_note": "y"},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         classify = _run(project, _classify_action(sheet_id), router, "classify")
         assert classify.status == "completed", classify.errors
         judge = _run(
@@ -350,8 +338,6 @@ def test_include_original_prompt_injects_for_generated_column(tmp_path: Path) ->
         judge_text = _request_text(adapter.requests[-1])
         assert "<original_prompt>" in judge_text
         assert _CLASSIFY_CONTEXT in judge_text
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize("subject", ["risk_score", "input"])
@@ -366,8 +352,7 @@ def test_judge_template_source_keeps_subject_value_in_prompt(
         {"verdict": True, "judge_note": "x"},
         {"verdict": True, "judge_note": "y"},
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         classify = _run(project, _classify_action(sheet_id), router, "classify")
         assert classify.status == "completed", classify.errors
         project.db.execute(
@@ -390,5 +375,3 @@ def test_judge_template_source_keeps_subject_value_in_prompt(
         rendered = _request_text(adapter.requests[-1])
         assert "Source: Road repairs finished under budget." in rendered
         assert f"{subject}: 3" in rendered
-    finally:
-        project.close()

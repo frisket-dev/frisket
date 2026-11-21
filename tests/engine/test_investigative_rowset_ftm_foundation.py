@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 from typing import Any
 
 import pytest
@@ -281,12 +282,11 @@ def test_materialized_sheet_rowset_exposes_parent_sheet_and_row_lineage(
 def test_unsupported_rowset_kinds_fail_with_typed_errors(
     tmp_path: Path, kind: str
 ) -> None:
-    project = Project.create(tmp_path / f"{kind}.frisket", name="Unsupported")
-    try:
+    with closing(
+        Project.create(tmp_path / f"{kind}.frisket", name="Unsupported")
+    ) as project:
         with pytest.raises(InvestigativeRowsetError) as excinfo:
             resolve_investigative_rowset(project, {"kind": kind, "sheet_id": 1})
-    finally:
-        project.close()
 
     assert excinfo.value.code == "unsupported_rowset_kind"
     assert excinfo.value.field == "rowset.kind"

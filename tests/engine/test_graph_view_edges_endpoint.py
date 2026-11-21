@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import itertools
 from pathlib import Path
@@ -53,8 +54,9 @@ def _sheet_id_by_name(project: Project, name: str) -> int:
 
 def _seed_join_project(ws: Path) -> dict[str, Any]:
     """A derive.join output: symmetric join_left/join_right membership."""
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph View")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph View")
+    ) as project:
         left_id = project.add_sheet("States")
         left_cols = {
             "state_fips": project.add_column(left_id, "state_fips", type="integer"),
@@ -111,14 +113,13 @@ def _seed_join_project(ws: Path) -> dict[str, Any]:
             "join_sheet_id": join_sheet_id,
             "csv_id": csv_id,
         }
-    finally:
-        project.close()
 
 
 def _seed_link_project(ws: Path) -> dict[str, Any]:
     """A directed derive.link_table output: edge_source -> edge_target."""
-    project = Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph View")
-    try:
+    with closing(
+        Project.create(ws / f"{PROJECT_ID}.frisket", name="Graph View")
+    ) as project:
         people_id = project.add_sheet("People")
         people_cols = {
             "name": project.add_column(people_id, "name", type="text"),
@@ -166,8 +167,6 @@ def _seed_link_project(ws: Path) -> dict[str, Any]:
             "row_ids": row_ids,
             "link_sheet_id": link_sheet_id,
         }
-    finally:
-        project.close()
 
 
 def _get_graph(client: TestClient, sheet_id: int, **params: Any) -> dict[str, Any]:

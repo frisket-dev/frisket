@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -597,8 +598,7 @@ def test_youtube_playlist_scheduled_feed_dispatches_generic_source_poll(
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    project = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as project:
         youtube_source_id = FeedStore(project).add_feed(
             name="YouTube",
             kind=YOUTUBE_PLAYLIST_KIND,
@@ -612,8 +612,6 @@ def test_youtube_playlist_scheduled_feed_dispatches_generic_source_poll(
             url="https://example.com/api",
             schedule="@hourly",
         )
-    finally:
-        project.close()
 
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
@@ -644,8 +642,7 @@ def test_youtube_playlist_scheduled_feed_dispatches_generic_source_poll(
         assert job.result["embedding_refresh_jobs"] == 0
         assert provider.calls[0]["max_pages"] == 1
 
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             runs = [
                 dict(row)
                 for row in FeedStore(reopened).feed_checks_page(youtube_source_id)
@@ -655,8 +652,6 @@ def test_youtube_playlist_scheduled_feed_dispatches_generic_source_poll(
             receipt = _receipt(reopened, job.result["receipt_id"])
             assert receipt["action_kind"] == "source.poll"
             assert receipt["provider_use"][0]["provider"] == "youtube"
-        finally:
-            reopened.close()
     finally:
         queue.close()
 
@@ -666,16 +661,13 @@ def test_scheduled_source_poll_idempotency_is_stable_across_attempts(
 ) -> None:
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    project = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as project:
         source_id = FeedStore(project).add_feed(
             name="Feed",
             kind="rss",
             url="https://example.com/feed.xml",
             schedule="@hourly",
         )
-    finally:
-        project.close()
 
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
@@ -714,8 +706,7 @@ def test_scheduled_source_poll_idempotency_is_stable_across_attempts(
         assert job.status == "failed"
         assert job.attempts == 2
         assert calls == 1
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             receipts = [
                 dict(row)
                 for row in reopened.db.execute(
@@ -730,7 +721,5 @@ def test_scheduled_source_poll_idempotency_is_stable_across_attempts(
             ]
             assert len(runs) == 1
             assert runs[0]["status"] == "error"
-        finally:
-            reopened.close()
     finally:
         queue.close()

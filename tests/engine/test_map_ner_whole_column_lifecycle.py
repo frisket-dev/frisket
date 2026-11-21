@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -52,8 +53,7 @@ def _router() -> ModelRouter:
 
 
 def _seed(project_path: Path) -> int:
-    project = Project.create(project_path, name="NER lifecycle")
-    try:
+    with closing(Project.create(project_path, name="NER lifecycle")) as project:
         sheet_id = project.add_sheet("Transcripts")
         body = project.add_column(sheet_id, "body", type="text")
         project.add_rows(
@@ -65,8 +65,6 @@ def _seed(project_path: Path) -> int:
             {"body": body},
         )
         return sheet_id
-    finally:
-        project.close()
 
 
 def _ner_action(sheet_id: int, **param_overrides: Any) -> dict[str, Any]:
@@ -123,8 +121,7 @@ def test_map_ner_exact_scope_runs_only_selected_rows_into_a_fresh_column(
 
     project_path = tmp_path / "ner-row-ids.frisket"
     sheet_id = _seed(project_path)
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         row_ids = project.visible_row_ids(sheet_id)
         result = executor_actions.run_action_spec(
             project,
@@ -141,8 +138,6 @@ def test_map_ner_exact_scope_runs_only_selected_rows_into_a_fresh_column(
             "SELECT params FROM runs WHERE id=?", (entities["current_run_id"],)
         ).fetchone()
         assert run is not None and f'"row_ids": [{row_ids[0]}]' in run["params"]
-    finally:
-        project.close()
 
 
 # ---------- door 2: run.backfill creates a fresh entity generation ----------
@@ -159,8 +154,7 @@ def test_run_backfill_creates_a_fresh_map_ner_generation(
 
     project_path = tmp_path / "ner-backfill.frisket"
     sheet_id = _seed(project_path)
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         ner = executor_actions.run_action_spec(
             project,
             _ner_action(sheet_id),
@@ -201,8 +195,6 @@ def test_run_backfill_creates_a_fresh_map_ner_generation(
         )
         assert retry.status == "completed", retry.errors
         assert retry.run_id not in {ner.run_id, result.run_id}
-    finally:
-        project.close()
 
 
 def test_backfill_guard_allows_canonical_map_ner(

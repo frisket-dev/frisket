@@ -185,8 +185,8 @@ class _ExecuteGuard:
         return getattr(self._conn, name)
 
 
-def _project(tmp_path: Path, *, rows: int = 64) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "large-run.frisket", name="large run")
+def _project(make_project, *, rows: int = 64) -> tuple[Project, int, list[int]]:
+    project = make_project("large run")
     sheet_id = project.add_sheet("Events")
     text_col = project.add_column(sheet_id, "text", type="text")
     row_ids = project.add_rows(
@@ -205,11 +205,9 @@ def _batch_spec(sheet_id: int) -> dict[str, Any]:
     return {"action_kind": _BatchProbeProgram.PROGRAM_NAME, "sheet_id": sheet_id}
 
 
-def test_row_local_runs_keep_scheduled_work_bounded(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_row_local_runs_keep_scheduled_work_bounded(make_project, monkeypatch) -> None:
     _install_probe_program()
-    project, sheet_id, row_ids = _project(tmp_path, rows=72)
+    project, sheet_id, row_ids = _project(make_project, rows=72)
     gather_sizes: list[int] = []
     original_gather = asyncio.gather
 
@@ -248,15 +246,14 @@ def test_row_local_runs_keep_scheduled_work_bounded(
         ).fetchone()["count"]
         assert result_count == len(row_ids)
     finally:
-        project.close()
         _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_queued_resume_pages_stored_scope_without_full_scope_load(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     _install_probe_program()
-    project, sheet_id, row_ids = _project(tmp_path, rows=40)
+    project, sheet_id, row_ids = _project(make_project, rows=40)
     try:
         runner = MapRunner(
             project,
@@ -326,15 +323,14 @@ def test_queued_resume_pages_stored_scope_without_full_scope_load(
             == 0
         )
     finally:
-        project.close()
         _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_partial_row_local_resume_pages_pending_without_done_row_materialization(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     _install_probe_program()
-    project, sheet_id, row_ids = _project(tmp_path, rows=24)
+    project, sheet_id, row_ids = _project(make_project, rows=24)
     prior_conn: Any | None = None
     guarded_conn = False
     try:
@@ -416,15 +412,14 @@ def test_partial_row_local_resume_pages_pending_without_done_row_materialization
     finally:
         if guarded_conn:
             project._local.conn = prior_conn  # noqa: SLF001
-        project.close()
         _restore_program(_WindowProbeProgram.PROGRAM_NAME)
 
 
 def test_batch_resume_uses_pending_scope_without_full_scope_reload(
-    tmp_path: Path, monkeypatch
+    make_project, monkeypatch
 ) -> None:
     _install_batch_probe_program()
-    project, sheet_id, row_ids = _project(tmp_path, rows=16)
+    project, sheet_id, row_ids = _project(make_project, rows=16)
     try:
         prepared = MapRunner(
             project,
@@ -497,5 +492,4 @@ def test_batch_resume_uses_pending_scope_without_full_scope_reload(
             == 0
         )
     finally:
-        project.close()
         _restore_program(_BatchProbeProgram.PROGRAM_NAME)

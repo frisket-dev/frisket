@@ -7,6 +7,7 @@ JSON-RPC framing, which belongs to the runtime-client boundary.
 
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import asyncio
 import json
@@ -374,7 +375,7 @@ def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
     factory = _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter(fail_second_row=True)
     project, sheet_id, row_ids = _seed(tmp_path)
-    try:
+    with closing(project):
         result = _execute(project, _spec(sheet_id), adapter)
         assert result.run_id is not None, result
         progress = project.db.execute(
@@ -422,8 +423,6 @@ def test_rows_are_serial_and_isolated_while_sessions_are_run_shared(
             ).fetchone()[0]
             == 0
         )
-    finally:
-        project.close()
 
 
 def test_agent_tool_loop_is_bounded(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -431,7 +430,7 @@ def test_agent_tool_loop_is_bounded(tmp_path, monkeypatch: pytest.MonkeyPatch) -
     _install_program(monkeypatch, sessions)
     adapter = _EndlessToolsAdapter()
     project, sheet_id, row_ids = _seed(tmp_path)
-    try:
+    with closing(project):
         spec = _spec(sheet_id)
         spec["scope"]["row_ids"] = row_ids[:1]
         result = _execute(project, spec, adapter)
@@ -442,8 +441,6 @@ def test_agent_tool_loop_is_bounded(tmp_path, monkeypatch: pytest.MonkeyPatch) -
         assert progress["failed_rows"] == 1
         assert 1 <= len(adapter.requests) <= 10
         assert 1 <= len(sessions.calls) < len(adapter.requests)
-    finally:
-        project.close()
 
 
 def test_ambiguous_tool_dispatch_is_not_automatically_retried(
@@ -454,7 +451,7 @@ def test_ambiguous_tool_dispatch_is_not_automatically_retried(
     _install_program(monkeypatch, sessions)
     adapter = _TwoPhaseAdapter()
     project, sheet_id, row_ids = _seed(tmp_path)
-    try:
+    with closing(project):
         spec = _spec(sheet_id)
         spec["scope"]["row_ids"] = row_ids[:1]
         result = _execute(project, spec, adapter)
@@ -472,8 +469,6 @@ def test_ambiguous_tool_dispatch_is_not_automatically_retried(
         ).fetchone()
         assert checkpoint is not None
         assert checkpoint["state"] == "reserved"
-    finally:
-        project.close()
 
 
 def test_catalog_exposes_mcp_extract_only_in_solo(tmp_path) -> None:

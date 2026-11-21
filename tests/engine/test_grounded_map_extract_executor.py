@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import partial
+from contextlib import closing
 
 from model_doubles import canned_reply_router
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
@@ -66,8 +67,7 @@ def _table_count(project: Project, table: str) -> int:
 
 def _seed_document_project(tmp_path: Path, name: str) -> tuple[Path, int, int]:
     project_path = tmp_path / f"{name}.frisket"
-    project = Project.create(project_path, name=name)
-    try:
+    with closing(Project.create(project_path, name=name)) as project:
         sheet_id = project.add_sheet("Documents")
         filename_column_id = project.add_column(sheet_id, "filename", "text")
         document_column_id = project.add_column(sheet_id, "document", "file")
@@ -118,8 +118,6 @@ def _seed_document_project(tmp_path: Path, name: str) -> tuple[Path, int, int]:
             },
         )[0]
         return project_path, sheet_id, row_id
-    finally:
-        project.close()
 
 
 def _seed_http_document_project(client: TestClient) -> tuple[str, int]:
@@ -381,8 +379,7 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
     assert validation.ok is True, validation.error
 
     router, adapter = _stub_router(_grounded_reply())
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -491,12 +488,9 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
             )
         }
         first_receipt_id = result.receipt_id
-    finally:
-        project.close()
 
     replay_router, replay_adapter = _stub_router(_grounded_reply())
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         replay = run_action_with_confirmation(
             project,
             action,
@@ -537,8 +531,6 @@ def test_grounded_map_extract_writes_canonical_evidence_and_replays(
         )
         assert stale_evidence["links"][0]["status"] == "stale"
         assert stale_evidence["stale_count"] == 1
-    finally:
-        project.close()
 
 
 def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
@@ -553,8 +545,7 @@ def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
         key="map_extract@sha256:grounded-bbox-spaces",
     )
     router, _adapter = _stub_router(_grounded_bbox_spaces_reply())
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -608,8 +599,6 @@ def test_grounded_extract_normalizes_provider_bbox_coordinate_spaces(
         assert vendor_page["regions"] == []
         assert "model_bbox_unverified" in vendor_viewer["warnings"]
         assert _table_count(project, "source_spans") == 2
-    finally:
-        project.close()
 
 
 def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
@@ -625,8 +614,7 @@ def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
         citation_required=True,
     )
     router, adapter = _stub_router(_grounded_reply())
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -702,8 +690,6 @@ def test_grounded_map_extract_citation_required_withholds_unsupported_fields(
                 "citation_required": True,
             }
         ]
-    finally:
-        project.close()
 
 
 def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fails(
@@ -739,8 +725,7 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
         ReceiptStore, "_record_writer_supporting_record", fail_after_grounding
     )
 
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -793,5 +778,3 @@ def test_grounded_map_extract_rolls_back_evidence_when_receipt_finalization_fail
         assert replay.model_dump() == result.model_dump()
         assert len(_adapter.requests) == 1
         assert tuple(project.db.iterdump()) == before
-    finally:
-        project.close()

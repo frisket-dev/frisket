@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import partial
+from contextlib import closing
 
 from model_doubles import canned_reply_router
 
@@ -176,7 +177,7 @@ def test_grounded_extract_ignores_unselected_later_row_artifact(
 
     seeded = _seed_transcript_project(tmp_path)
     project = seeded["project"]
-    try:
+    with closing(project):
         monkeypatch.setitem(TRANSCRIPT_SEGMENTS[0], "speaker", "S1")
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
@@ -215,8 +216,6 @@ def test_grounded_extract_ignores_unselected_later_row_artifact(
         assert unrelated not in prompt
         assert "some say the vote was rigged" in prompt
         assert "[S1]" in prompt
-    finally:
-        project.close()
 
 
 @pytest.mark.parametrize(
@@ -236,7 +235,7 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
 
     seeded = _seed_transcript_project(tmp_path)
     project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         run = project.db.execute(
             "SELECT id,op_id FROM runs WHERE action_kind='media.transcribe'"
@@ -329,8 +328,6 @@ def test_reapplied_transcript_keeps_numbered_extract_anchors(
             with project.transaction_scope():
                 step_operation(project, "revert", change_id=edits[0])
             assert row_input_state(project, result.run_id, row_id) == "fresh"
-    finally:
-        project.close()
 
 
 def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(
@@ -342,7 +339,7 @@ def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(
 
     seeded = _seed_transcript_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         reply = {
@@ -376,8 +373,6 @@ def test_scalar_on_transcript_row_with_segment_index_gets_temporal_span(
         # CitationViewer.tsx contract for rendering the seekable player, NOT the
         # row-json artifact `_source_artifact` falls back to.
         _assert_player_renderable(artifact)
-    finally:
-        project.close()
 
 
 def test_scalar_on_transcript_row_with_quote_falls_back_to_temporal_align(
@@ -389,7 +384,7 @@ def test_scalar_on_transcript_row_with_quote_falls_back_to_temporal_align(
 
     seeded = _seed_transcript_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         reply = {
@@ -421,8 +416,6 @@ def test_scalar_on_transcript_row_with_quote_falls_back_to_temporal_align(
         assert span["selector"]["start_ms"] == 6000
         assert span["selector"]["end_ms"] == 8000
         _assert_player_renderable(artifact)
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -469,7 +462,7 @@ def test_scalar_on_non_transcript_text_row_keeps_text_anchor(
 
     seeded = _seed_text_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         row_id = seeded["row_ids"][0]
         reply = {
             "verdict": {
@@ -494,8 +487,6 @@ def test_scalar_on_non_transcript_text_row_keeps_text_anchor(
         assert span.get("start_ms") is None
         assert span["selector"].get("start_ms") is None
         assert span["quote"] == "the budget passed"
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -514,7 +505,7 @@ def test_scalar_multi_segment_citation_marks_all_spans_required_and_groups_runs(
 ) -> None:
     seeded = _seed_transcript_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         # Segments 0-1 (0-4000ms) and 4-5 (8000-12000ms) -- skipping 2-3 opens
@@ -571,5 +562,3 @@ def test_scalar_multi_segment_citation_marks_all_spans_required_and_groups_runs(
             f"/evidence/links/{viewer['link']['stable_id']}/runs/1/clip"
             in runs[1]["clip_url"]
         )
-    finally:
-        project.close()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import asyncio
 import sqlite3
@@ -107,7 +108,7 @@ def test_run_rows_uses_immutable_run_scope_after_sheet_history_changes(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, text_col, output_col, original_row_ids = _seed_project(tmp_path)
-    try:
+    with closing(project):
         run_id = _seed_completed_full_sheet_run(
             project,
             sheet_id=sheet_id,
@@ -130,15 +131,13 @@ def test_run_rows_uses_immutable_run_scope_after_sheet_history_changes(
         assert payload["run"]["total_rows"] == 3
         assert payload["total"] == 3
         assert [row["row_id"] for row in payload["rows"]] == original_row_ids
-    finally:
-        project.close()
 
 
 def test_result_writes_do_not_overcount_duplicate_row_upserts(
     tmp_path: Path,
 ) -> None:
     project, sheet_id, _text_col, output_col, row_ids = _seed_project(tmp_path)
-    try:
+    with closing(project):
         op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="classify"
         )
@@ -198,13 +197,11 @@ def test_result_writes_do_not_overcount_duplicate_row_upserts(
         assert run["completed_rows"] == 1
         assert run["failed_rows"] == 0
         assert run["cost_actual"] == 0.01
-    finally:
-        project.close()
 
 
 def test_result_writes_update_failed_state_by_batch_delta(tmp_path: Path) -> None:
     project, sheet_id, _text_col, output_col, row_ids = _seed_project(tmp_path)
-    try:
+    with closing(project):
         op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="classify"
         )
@@ -252,8 +249,6 @@ def test_result_writes_update_failed_state_by_batch_delta(tmp_path: Path) -> Non
         ).fetchone()
         assert recovered["completed_rows"] == 1
         assert recovered["failed_rows"] == 1
-    finally:
-        project.close()
 
 
 def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
@@ -284,7 +279,7 @@ def test_run_scope_records_large_scope_in_chunks(make_project) -> None:
 
 def test_run_scope_write_failure_rolls_back_run_and_marker(tmp_path: Path) -> None:
     project, sheet_id, _text_col, _output_col, _row_ids = _seed_project(tmp_path)
-    try:
+    with closing(project):
         op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="bad scope"
         )
@@ -306,13 +301,11 @@ def test_run_scope_write_failure_rolls_back_run_and_marker(tmp_path: Path) -> No
         )
         assert project.db.execute("SELECT COUNT(*) FROM run_scopes").fetchone()[0] == 0
         assert project.db.execute("SELECT COUNT(*) FROM run_rows").fetchone()[0] == 0
-    finally:
-        project.close()
 
 
 def test_empty_run_scope_stays_empty_after_rows_are_added(tmp_path: Path) -> None:
     project, sheet_id, text_col, _output_col, _row_ids = _seed_project(tmp_path)
-    try:
+    with closing(project):
         op_id = project.append_change(
             "map", {"action_kind": "map.classify"}, label="empty run"
         )
@@ -331,8 +324,6 @@ def test_empty_run_scope_stays_empty_after_rows_are_added(tmp_path: Path) -> Non
         assert payload["run"]["total_rows"] == 0
         assert payload["total"] == 0
         assert payload["rows"] == []
-    finally:
-        project.close()
 
 
 def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> None:
@@ -344,7 +335,7 @@ def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> 
         "input_columns": ["text"],
         "row_ids": [],
     }
-    try:
+    with closing(project):
         # regex_extract is generation-managed, so this direct-root contract
         # test runs through the canonical output-claim helper (a claimless
         # managed run is refused by design).
@@ -396,5 +387,3 @@ def test_resuming_empty_run_scope_does_not_pick_up_late_rows(tmp_path: Path) -> 
             ).fetchone()[0]
             == 0
         )
-    finally:
-        project.close()

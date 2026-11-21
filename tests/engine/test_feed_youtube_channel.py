@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 import sys
 import types
 from collections.abc import Iterator
@@ -607,11 +608,12 @@ def test_youtube_channel_accepts_channel_url_id_and_handle_configs(
             YouTubeCollectionFeedChecker(YOUTUBE_CHANNEL, provider=provider),
             replace=True,
         )
-        project = Project.create(
-            tmp_path / f"youtube-channel-case-{index}.frisket",
-            name=f"Case {index}",
-        )
-        try:
+        with closing(
+            Project.create(
+                tmp_path / f"youtube-channel-case-{index}.frisket",
+                name=f"Case {index}",
+            )
+        ) as project:
             result = run_action_spec(
                 project,
                 _feed_poll_action(
@@ -630,8 +632,6 @@ def test_youtube_channel_accepts_channel_url_id_and_handle_configs(
             assert rows[0]["video_id"] == f"case{index:02d}vid"
             assert rows[0]["channel_id"] == CHANNEL_ID
             assert rows[0]["channel_title"] == "Investigative Channel"
-        finally:
-            project.close()
 
 
 def test_youtube_channel_validation_caps_and_provider_failure_redaction(
@@ -755,8 +755,7 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    project = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as project:
         youtube_source_id = FeedStore(project).add_feed(
             name="YouTube Channel",
             kind=YOUTUBE_CHANNEL_KIND,
@@ -770,8 +769,6 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
             url="https://example.com/api",
             schedule="@hourly",
         )
-    finally:
-        project.close()
 
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
@@ -801,8 +798,7 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
         assert job.result["new_rows"] == 1
         assert provider.calls[0]["max_pages"] == 1
 
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             runs = [
                 dict(row)
                 for row in FeedStore(reopened).feed_checks_page(youtube_source_id)
@@ -812,7 +808,5 @@ def test_youtube_channel_scheduled_feed_dispatches_generic_source_poll(
             receipt = _receipt(reopened, job.result["receipt_id"])
             assert receipt["action_kind"] == "source.poll"
             assert receipt["provider_use"][0]["source_kind"] == YOUTUBE_CHANNEL_KIND
-        finally:
-            reopened.close()
     finally:
         queue.close()

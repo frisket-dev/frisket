@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from frisket.engine.store.media_blobs import owned_media_metadata_document
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -129,7 +130,7 @@ def test_non_overlapping_model_bbox_downgrades_to_page_range_with_warning(
 ) -> None:
     seeded = _seed(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         with write_transaction(project.db):
             artifact = _extract_artifact(seeded)
@@ -151,14 +152,12 @@ def test_non_overlapping_model_bbox_downgrades_to_page_range_with_warning(
         assert span["span_kind"] == "page_range"
         assert "model_bbox_unverified" in span["metadata"]["warnings"]
         assert not span["bbox"]
-    finally:
-        project.close()
 
 
 def test_no_word_stream_fails_closed_to_page_range(tmp_path: Path) -> None:
     seeded = _seed(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         with write_transaction(project.db):
             artifact = _extract_artifact(
                 seeded
@@ -178,8 +177,6 @@ def test_no_word_stream_fails_closed_to_page_range(tmp_path: Path) -> None:
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "page_range"
         assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
-    finally:
-        project.close()
 
 
 def test_corroborated_model_bbox_renders_region(
@@ -187,7 +184,7 @@ def test_corroborated_model_bbox_renders_region(
 ) -> None:
     seeded = _seed(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         with write_transaction(project.db):
             artifact = _extract_artifact(seeded)
@@ -208,8 +205,6 @@ def test_corroborated_model_bbox_renders_region(
         assert all(s["span_kind"] == "region" for s in spans)
         assert spans[0]["metadata"]["alignment"] == "model_bbox_verified"
         assert spans[0]["bbox"]
-    finally:
-        project.close()
 
 
 def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
@@ -217,7 +212,7 @@ def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
 ) -> None:
     seeded = _seed(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         project.db.execute(
             "UPDATE source_artifacts SET metadata=json_set(metadata, '$.engine', ?)",
@@ -242,5 +237,3 @@ def test_model_returned_ocr_boxes_do_not_verify_another_model_box(
         assert len(spans) == 1
         assert spans[0]["span_kind"] == "page_range"
         assert "model_bbox_unverified" in spans[0]["metadata"]["warnings"]
-    finally:
-        project.close()

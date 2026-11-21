@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -165,7 +166,6 @@ def test_source_poll_materializes_boolean_columns_as_valid_booleans(
             project.get_values(sheet_id, int(available["id"]), row_ids=row_ids).values()
         ) == [True, False]
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -343,7 +343,6 @@ def test_reused_poll_capability_records_actual_arguments_and_not_custom_return(
         )
         assert feed_checker.calls == 1
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -442,7 +441,6 @@ def test_post_poll_handler_failure_preserves_accounting_and_replay(
         )
         assert artifacts["artifacts"] == feed_checker.artifacts
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -491,7 +489,6 @@ def test_new_source_config_refusal_and_failed_poll_lifecycle(make_project):
         assert feed_checker.calls == 1
         assert _table_count(project, "source_runs") == 1
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -529,7 +526,6 @@ def test_poll_publication_rolls_back_with_receipt_failure(make_project, monkeypa
             assert _table_count(project, table) == 0
         assert dict(FeedStore(project).get_feed(source_id)) == before
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -560,7 +556,6 @@ def test_poll_preview_and_legacy_request_refuse_before_source_creation(make_proj
         assert _table_count(project, "sources") == 0
         assert _table_count(project, "receipts") == 0
     finally:
-        project.close()
         unregister_feed_checker("fake")
 
 
@@ -631,8 +626,9 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
                 _feed_poll_action(source={**_source(), "sheet_id": True})
             )
 
-        project = Project.create(tmp_path / "source-poll.frisket", name="Source poll")
-        try:
+        with closing(
+            Project.create(tmp_path / "source-poll.frisket", name="Source poll")
+        ) as project:
             first = run_action_spec(
                 project,
                 _feed_poll_action(source=_source()),
@@ -815,8 +811,6 @@ def test_source_poll_catalog_validation_registry_dedupe_replay_and_failures(
             assert failed_run["receipt_id"] == failed.receipt_id
             assert failed_run["error"] == "provider down"
             assert _receipt(project, failed.receipt_id)["status"] == "failed"
-        finally:
-            project.close()
     finally:
         unregister_feed_checker("fake")
 
@@ -853,16 +847,13 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    scheduled = Project.create(workspace / "news.frisket", name="news")
-    try:
+    with closing(Project.create(workspace / "news.frisket", name="news")) as scheduled:
         source_id = FeedStore(scheduled).add_feed(
             name="Feed",
             kind="rss",
             url="https://example.com/feed.xml",
             schedule="@hourly",
         )
-    finally:
-        scheduled.close()
     queue = SqliteJobQueue(workspace / ".queue.db")
     try:
         job_id = queue.enqueue(
@@ -885,8 +876,7 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
         job = queue.get(job_id)
         assert job.status == "done"
         assert job.result["action_kind"] == "source.poll"
-        reopened = Project(workspace / "news.frisket")
-        try:
+        with closing(Project(workspace / "news.frisket")) as reopened:
             receipts = reopened.db.execute(
                 "SELECT action_kind FROM receipts ORDER BY created_at, id"
             ).fetchall()
@@ -895,8 +885,6 @@ def test_source_poll_rejects_unsupported_kind_and_scheduler_dispatches_public_ac
                 dict(row) for row in FeedStore(reopened).feed_checks_page(source_id)
             ]
             assert runs[0]["receipt_id"] == job.result["receipt_id"]
-        finally:
-            reopened.close()
     finally:
         queue.close()
 
@@ -910,8 +898,9 @@ def test_source_poll_running_reservation_replays_without_provider_call(
     feed_checker = FakeFeedChecker()
     register_feed_checker(feed_checker)
     try:
-        project = Project.create(tmp_path / "running-reservation.frisket", name="Run")
-        try:
+        with closing(
+            Project.create(tmp_path / "running-reservation.frisket", name="Run")
+        ) as project:
             source_id = FeedStore(project).add_feed(
                 name="Fake",
                 kind="fake",
@@ -961,8 +950,6 @@ def test_source_poll_running_reservation_replays_without_provider_call(
             assert feed_checker.calls == 0
             assert _table_count(project, "source_runs") == 0
             assert _table_count(project, "keyed_observations") == 0
-        finally:
-            project.close()
     finally:
         unregister_feed_checker("fake")
 
@@ -976,8 +963,9 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
     feed_checker = FakeFeedChecker()
     register_feed_checker(feed_checker)
     try:
-        project = Project.create(tmp_path / "stale-running.frisket", name="Run")
-        try:
+        with closing(
+            Project.create(tmp_path / "stale-running.frisket", name="Run")
+        ) as project:
             source_id = FeedStore(project).add_feed(
                 name="Fake",
                 kind="fake",
@@ -1038,7 +1026,5 @@ def test_source_poll_stale_running_reservation_returns_recovery_without_poll(
                 ).fetchone()
                 is not None
             )
-        finally:
-            project.close()
     finally:
         unregister_feed_checker("fake")

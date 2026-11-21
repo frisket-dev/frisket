@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -276,7 +277,7 @@ def test_enclosure_download_dedupe_uses_indexed_refs_beyond_recent_queue_window(
     project = _project(workspace)
     sheet_id, row_id = _row_with_remote_enclosure(project)
     queue = SqliteJobQueue(workspace / ".queue.db")
-    try:
+    with closing(project), closing(queue):
         old_job_id = queue.enqueue(
             ENCLOSURE_DOWNLOAD_KIND,
             {
@@ -318,9 +319,6 @@ def test_enclosure_download_dedupe_uses_indexed_refs_beyond_recent_queue_window(
             project.get_values(sheet_id, status_column_id, row_ids=[row_id])[row_id]
             == "remote"
         )
-    finally:
-        queue.close()
-        project.close()
 
 
 def test_enclosure_download_dedupe_is_scoped_by_workspace_root(
@@ -331,7 +329,7 @@ def test_enclosure_download_dedupe_is_scoped_by_workspace_root(
     project = _project(workspace)
     sheet_id, row_id = _row_with_remote_enclosure(project)
     queue = SqliteJobQueue(tmp_path / ".queue.db")
-    try:
+    with closing(project), closing(queue):
         queue.enqueue(
             ENCLOSURE_DOWNLOAD_KIND,
             {
@@ -368,9 +366,6 @@ def test_enclosure_download_dedupe_is_scoped_by_workspace_root(
         assert job.sheet_id == sheet_id
         assert job.row_id == row_id
         assert job.workspace_root == str(workspace)
-    finally:
-        queue.close()
-        project.close()
 
 
 def test_enclosure_admission_records_exact_pending_search_preparation(
@@ -380,7 +375,7 @@ def test_enclosure_admission_records_exact_pending_search_preparation(
     project = _project(workspace)
     sheet_id, row_id = _row_with_remote_enclosure(project)
     queue = SqliteJobQueue(workspace / ".queue.db")
-    try:
+    with closing(project), closing(queue):
         [job_id] = enqueue_enclosure_downloads(
             queue,
             project=project,
@@ -399,9 +394,6 @@ def test_enclosure_admission_records_exact_pending_search_preparation(
         assert pending.sheet_id == sheet_id
         assert pending.row_ids == (row_id,)
         assert pending.plan is None
-    finally:
-        queue.close()
-        project.close()
 
 
 def test_enclosure_download_dedupe_respects_applied_queued_status_edit(
@@ -411,7 +403,7 @@ def test_enclosure_download_dedupe_respects_applied_queued_status_edit(
     project = _project(workspace)
     sheet_id, row_id = _row_with_remote_enclosure(project)
     queue = SqliteJobQueue(workspace / ".queue.db")
-    try:
+    with closing(project), closing(queue):
         mark_enclosure_queued(project, sheet_id=sheet_id, row_id=row_id)
 
         jobs = enqueue_enclosure_downloads(
@@ -426,6 +418,3 @@ def test_enclosure_download_dedupe_respects_applied_queued_status_edit(
 
         assert jobs == []
         assert queue.list_jobs(status="queued", limit=10) == []
-    finally:
-        queue.close()
-        project.close()

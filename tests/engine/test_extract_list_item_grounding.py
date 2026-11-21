@@ -1,5 +1,6 @@
 from __future__ import annotations
 from functools import partial
+from contextlib import closing
 
 from model_doubles import canned_reply_router
 
@@ -275,7 +276,7 @@ def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         router, adapter = _stub_router(_ocr_list_reply())
@@ -323,8 +324,6 @@ def test_ocr_sourced_three_item_list_writes_three_item_scoped_links(
         assert {"alpha event occurred"} in quotes_by_link
         assert {"beta event happened"} in quotes_by_link
         assert {"gamma event took place"} in quotes_by_link
-    finally:
-        project.close()
 
 
 def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
@@ -332,7 +331,7 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
 ) -> None:
     seeded = _seed_pdf_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_ocr(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         reply = _ocr_list_reply()
@@ -372,8 +371,6 @@ def test_selected_ocr_text_without_auxiliary_publishes_exact_text_context(
             for viewer in viewers
             for span in viewer["artifacts"][0]["spans"]
         )
-    finally:
-        project.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -479,7 +476,7 @@ def test_transcript_sourced_three_item_list_writes_three_segment_scoped_links(
 ) -> None:
     seeded = _seed_transcript_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         router, adapter = _stub_router(_transcript_list_reply())
@@ -540,8 +537,6 @@ def test_transcript_sourced_three_item_list_writes_three_segment_scoped_links(
         ) in ranges_by_link
         # Segment 4: 8.0s-10.0s "officials deny any wrongdoing"
         assert (8000, 10000, "officials deny any wrongdoing") in ranges_by_link
-    finally:
-        project.close()
 
 
 def test_transcript_item_with_invalid_segment_index_is_unsupported_not_guessed(
@@ -552,7 +547,7 @@ def test_transcript_item_with_invalid_segment_index_is_unsupported_not_guessed(
 
     seeded = _seed_transcript_project(tmp_path)
     project: Project = seeded["project"]
-    try:
+    with closing(project):
         _run_transcribe(seeded, monkeypatch)
         row_id = seeded["row_ids"][0]
         reply = {
@@ -584,5 +579,3 @@ def test_transcript_item_with_invalid_segment_index_is_unsupported_not_guessed(
             project_id=PROJECT_ID,
         )
         assert evidence["links"] == []
-    finally:
-        project.close()

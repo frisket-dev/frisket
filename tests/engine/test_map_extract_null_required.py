@@ -12,6 +12,7 @@ never silently empty and never a row hard-failure.
 from __future__ import annotations
 
 from model_doubles import CannedReplyAdapter, canned_reply_router
+from contextlib import closing
 
 from pathlib import Path
 from typing import Any
@@ -41,8 +42,7 @@ def _stub_router(reply: dict[str, Any]) -> tuple[ModelRouter, CannedReplyAdapter
 
 def _seed(tmp_path: Path) -> tuple[Path, int]:
     project_path = tmp_path / "null-required.frisket"
-    project = Project.create(project_path, name="null-required")
-    try:
+    with closing(Project.create(project_path, name="null-required")) as project:
         sheet_id = project.add_sheet("Docs")
         snippet_id = project.add_column(sheet_id, "snippet", "text")
         project.add_rows(
@@ -51,8 +51,6 @@ def _seed(tmp_path: Path) -> tuple[Path, int]:
             {"snippet": snippet_id},
         )
         return project_path, sheet_id
-    finally:
-        project.close()
 
 
 def _action(
@@ -155,8 +153,7 @@ def test_null_string_becomes_genuinely_empty_cell(tmp_path: Path) -> None:
     router, _adapter = _stub_router(
         {"head_of_state_name": "null", "head_of_state_title": "None"}
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -174,8 +171,6 @@ def test_null_string_becomes_genuinely_empty_cell(tmp_path: Path) -> None:
         # Not required -> a plain empty cell, never withheld.
         assert name["outcome"] == "empty"
         assert title["outcome"] == "empty"
-    finally:
-        project.close()
 
 
 # --- executor: required-missing withhold ------------------------------------------
@@ -193,8 +188,7 @@ def test_required_missing_field_is_withheld(tmp_path: Path) -> None:
     router, _adapter = _stub_router(
         {"head_of_state_name": "null", "summary": "A short document."}
     )
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -221,8 +215,6 @@ def test_required_missing_field_is_withheld(tmp_path: Path) -> None:
         # A declared wire code surfaces on the action result.
         codes = {err.code for err in result.errors}
         assert "required_field_missing" in codes
-    finally:
-        project.close()
 
 
 def test_required_field_found_is_not_withheld(tmp_path: Path) -> None:
@@ -233,8 +225,7 @@ def test_required_field_found_is_not_withheld(tmp_path: Path) -> None:
         fields=[{"name": "head_of_state_name", "type": "text", "required": True}],
     )
     router, _adapter = _stub_router({"head_of_state_name": "Ada Lovelace"})
-    project = Project(project_path)
-    try:
+    with closing(Project(project_path)) as project:
         result = run_action_with_confirmation(
             project,
             action,
@@ -247,5 +238,3 @@ def test_required_field_found_is_not_withheld(tmp_path: Path) -> None:
         assert cell["value_kind"] == "text"
         assert cell["outcome"] != "withheld_unverified"
         assert "required_field_missing" not in {err.code for err in result.errors}
-    finally:
-        project.close()

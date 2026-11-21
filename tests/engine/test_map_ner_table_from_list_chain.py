@@ -1,5 +1,6 @@
 from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
+from contextlib import closing
 
 import json
 from pathlib import Path
@@ -166,7 +167,7 @@ def test_map_ner_named_result_feeds_derive_table_from_list(
     project, sheet_id, source_row_ids = _seed_project(
         tmp_path / "map-ner-chain.frisket"
     )
-    try:
+    with closing(project):
         mapped = executor_actions.run_action_spec(
             project,
             _map_ner_action(sheet_id),
@@ -237,5 +238,3 @@ def test_map_ner_named_result_feeds_derive_table_from_list(
         assert replay.status == "completed"
         assert replay.receipt_id == derived.receipt_id
         assert _counts(project) == before_replay
-    finally:
-        project.close()

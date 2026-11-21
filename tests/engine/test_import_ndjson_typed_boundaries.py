@@ -186,7 +186,7 @@ def test_ndjson_temporal_values_require_project_context(
 ) -> None:
     seeded = _seed_project(tmp_path, "ndjson-temporal")
     project = seeded["project"]
-    try:
+    with closing(project):
         anchor = seeded["lease"].anchor.wire_value()
         if missing_anchor:
             anchor["artifact_stable_id"] = (
@@ -214,5 +214,3 @@ def test_ndjson_temporal_values_require_project_context(
                     "item": {**value["item"], "label": None, "metadata": {}},
                 }
             ]
-    finally:
-        project.close()

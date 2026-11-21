@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import closing
 from typing import Any
 
 from frisket.engine.store.materialization import (
@@ -84,7 +85,7 @@ def _edge_project(tmp_path: Path) -> tuple[Project, Any]:
 
 def test_active_membership_reader_filters_hidden_rows_and_diagnostics(tmp_path: Path):
     project, write = _edge_project(tmp_path)
-    try:
+    with closing(project):
         active = active_materialized_row_sources(
             project.db, materialized_row_ids=write.row_ids
         )
@@ -134,8 +135,6 @@ def test_active_membership_reader_filters_hidden_rows_and_diagnostics(tmp_path: 
         assert "invalid_role" in issue_kinds
         assert "missing_active_membership" in issue_kinds
         assert "edge_parent_row_id_mismatch" in issue_kinds
-    finally:
-        project.close()
 
 
 def test_active_membership_reader_chunks_large_materialized_row_sets(make_project):
@@ -182,13 +181,12 @@ def test_active_membership_reader_chunks_large_materialized_row_sets(make_projec
 def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Path):
     project, write = _edge_project(tmp_path)
     zip_path = tmp_path / "edge.frisket.zip"
-    try:
+    with closing(project):
         project.export(zip_path, include_media=False)
-    finally:
-        project.close()
 
-    restored = Project.import_bundle(zip_path, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(zip_path, tmp_path / "restored.frisket")
+    ) as restored:
         assert restored.db.execute(
             "SELECT COUNT(*) FROM materialized_row_sources"
         ).fetchone()[0] == len(write.membership_rows)
@@ -197,8 +195,6 @@ def test_archive_round_trip_preserves_membership_table_and_indexes(tmp_path: Pat
             "idx_materialized_row_sources_materialized",
             "idx_materialized_row_sources_op",
         }.issubset(_index_names(restored))
-    finally:
-        restored.close()
 
 
 def test_rowset_records_expose_active_aggregate_membership_without_fake_parent(
