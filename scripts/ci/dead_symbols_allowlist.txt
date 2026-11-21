@@ -132,7 +132,7 @@ src/frisket/execution/pricing_policy.py::_reset_pricing_policy_for_tests  test-o
 src/frisket/execution/resolve_for_action.py::_document_quantity_pages  test-only
 src/frisket/features/corrections/contribution.py::CorrectionContributor  test-only
 src/frisket/features/corrections/contribution.py::CorrectionTrainingExporter  test-only
-src/frisket/features/temporal/transcript_boundaries.py::TranscriptBoundaryResult.raw_locks  unreferenced
+src/frisket/temporal/transcript_boundaries.py::TranscriptBoundaryResult.raw_locks  unreferenced
 src/frisket/features/alerts/service.py::evaluate_alert  test-only
 src/frisket/features/alerts/service.py::resolve_alert_check  test-only
 src/frisket/ingest.py::ingest_rss  test-only

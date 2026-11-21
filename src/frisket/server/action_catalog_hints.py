@@ -2010,7 +2010,7 @@ def project_action_catalog_launcher_hints(
         target = launcher_hints.setdefault(action_kind, {})
         target.update(_sanitize_action_hint(extra))
     if action_kinds is None or "map.find_topic_sections" in action_kinds:
-        from frisket.features.topic_segmentation.engines import engine_catalog
+        from frisket.topic_segmentation.engines import engine_catalog
 
         launcher_hints.setdefault("map.find_topic_sections", {})["engines"] = list(
             engine_catalog()

@@ -130,7 +130,7 @@ class TopicSectionsReader(Protocol):
 
 def topic_sidecar_names(keys: Iterable[str]) -> dict[str, str]:
     """Host-owned column names, independent of the reporter's output names."""
-    from frisket.features.topic_segmentation.contracts import (
+    from frisket.topic_segmentation.contracts import (
         TOPIC_ANALYSIS_SIDECAR_COLUMN,
     )
 

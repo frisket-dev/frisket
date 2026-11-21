@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from frisket.features.topic_segmentation import (
+from frisket.topic_segmentation import (
     ENGINES,
     ENGINE_BY_ID,
     BetweenUnits,

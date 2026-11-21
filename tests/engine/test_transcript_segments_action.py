@@ -26,7 +26,7 @@ from frisket.engine.store.evidence import (
     record_source_span,
 )
 from frisket.engine.store.runs import RunResultStore
-from frisket.features.topic_segmentation.contracts import (
+from frisket.topic_segmentation.contracts import (
     TOPIC_ANALYSIS_SIDECAR_COLUMN,
     TOPIC_ANALYSIS_SIDECAR_SCHEMA_VERSION,
 )

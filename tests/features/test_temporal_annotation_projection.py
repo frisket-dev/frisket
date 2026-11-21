@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.features.temporal_annotation_projection import (
+from frisket.temporal.annotation_projection import (
     project_temporal_annotation,
     temporal_annotation_intersects,
 )

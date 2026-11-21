@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.features.topic_segmentation import (
+from frisket.topic_segmentation import (
     BetweenUnits,
     DialogueUnit,
     SegmentationCancelled,
