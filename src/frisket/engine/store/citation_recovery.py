@@ -36,6 +36,22 @@ def _notice(*, matched_spans: int, total_spans: int, repeated: bool) -> str:
     return "Found the saved passages in the current source."
 
 
+def _cell_coordinate(cell: dict[str, Any]) -> tuple[int, int, int] | None:
+    sheet_id = cell.get("sheet_id")
+    row_id = cell.get("row_id")
+    column_id = cell.get("column_id")
+    if (
+        isinstance(sheet_id, int)
+        and not isinstance(sheet_id, bool)
+        and isinstance(row_id, int)
+        and not isinstance(row_id, bool)
+        and isinstance(column_id, int)
+        and not isinstance(column_id, bool)
+    ):
+        return sheet_id, row_id, column_id
+    return None
+
+
 def locate_current_cited_text(
     db: sqlite3.Connection,
     viewer: dict[str, Any],
@@ -64,21 +80,30 @@ def locate_current_cited_text(
         native = isinstance(capture.get("captured_text_hash"), str) and not capture.get(
             "captured_text_frozen", False
         )
-        coordinate = {key: cell.get(key) for key in ("sheet_id", "row_id", "column_id")}
+        coords = _cell_coordinate(cell) if native else None
         try:
             meta = (
-                current_text_metadata(db, **coordinate)
-                if native and all(type(value) is int for value in coordinate.values())
+                current_text_metadata(
+                    db, sheet_id=coords[0], row_id=coords[1], column_id=coords[2]
+                )
+                if coords is not None
                 else None
             )
         except (CurrentValueUnavailable, CurrentValueNotTextual):
             meta = None
-        if meta is None or meta.value_kind != "text":
+        if coords is None or meta is None or meta.value_kind != "text":
             artifact["recovery_status"] = "unsupported"
             artifact["recovery_notice"] = (
                 "This citation cannot be located in the current source."
             )
             continue
+
+        sheet_id, row_id, column_id = coords
+        coordinate = {
+            "sheet_id": sheet_id,
+            "row_id": row_id,
+            "column_id": column_id,
+        }
 
         if meta.total_bytes > MANUAL_EDIT_BYTE_LIMIT:
             selected = text_artifact_id is None or artifact["id"] == text_artifact_id
@@ -95,7 +120,13 @@ def locate_current_cited_text(
             )
             continue
         current_text = read_current_text(
-            db, **coordinate, metadata=meta, start=0, limit=meta.total_characters
+            db,
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=column_id,
+            metadata=meta,
+            start=0,
+            limit=meta.total_characters,
         )
 
         spans = artifact.get("spans")

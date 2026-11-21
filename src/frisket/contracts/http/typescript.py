@@ -8,7 +8,7 @@ import math
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeGuard
 
 
 _ANNOTATION_SCHEMA_KEYS = frozenset(
@@ -152,7 +152,7 @@ def _identifier(value: str) -> str:
     return cleaned
 
 
-def _is_sequence(value: object) -> bool:
+def _is_sequence(value: object) -> TypeGuard[Sequence[object]]:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes))
 
 
@@ -327,13 +327,15 @@ def _assert_supported_schema(schema: object, *, root: object, context: str) -> N
     schema_type = schema.get("type")
     if schema_type is not None:
         if isinstance(schema_type, str):
-            types = (schema_type,)
+            types: tuple[str, ...] = (schema_type,)
         elif _is_sequence(schema_type):
-            types = tuple(schema_type)
-            if not types:
+            raw_types = tuple(schema_type)
+            if not raw_types:
                 raise ValueError(f"{context}.type must not be empty")
-            if not all(isinstance(item, str) for item in types):
+            str_types = tuple(item for item in raw_types if isinstance(item, str))
+            if len(str_types) != len(raw_types):
                 raise ValueError(f"{context}.type entries must be strings")
+            types = str_types
             if len(set(types)) != len(types):
                 raise ValueError(f"{context}.type entries must be unique")
         else:
@@ -342,10 +344,13 @@ def _assert_supported_schema(schema: object, *, root: object, context: str) -> N
         if invalid:
             raise ValueError(f"{context}.type has unsupported values {invalid}")
 
-    required = schema.get("required", ())
-    if not _is_sequence(required) or not all(
-        isinstance(item, str) for item in required
-    ):
+    raw_required = schema.get("required", ())
+    if _is_sequence(raw_required):
+        str_required = tuple(item for item in raw_required if isinstance(item, str))
+        if len(str_required) != len(raw_required):
+            raise ValueError(f"{context}.required must be an array of strings")
+        required: tuple[str, ...] = str_required
+    else:
         if "required" in schema:
             raise ValueError(f"{context}.required must be an array of strings")
         required = ()

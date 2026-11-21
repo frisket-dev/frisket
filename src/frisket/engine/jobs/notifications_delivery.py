@@ -8,7 +8,7 @@ import logging
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from frisket.engine.jobs.queue import JobQueue, claimed_project_location
 from frisket.engine.jobs.ports import JobHandlerContext
@@ -602,7 +602,17 @@ class _ProjectNotificationEffectGuard:
             )
 
 
-def _effect_checkpoint_fields(effect: NotificationDeliveryEffect) -> dict[str, str]:
+class _EffectCheckpointFields(TypedDict):
+    family: str
+    group_key: str
+    unit_key: str
+    action_kind: str
+    identity: str
+
+
+def _effect_checkpoint_fields(
+    effect: NotificationDeliveryEffect,
+) -> _EffectCheckpointFields:
     identity = json.dumps(
         {
             "effect_id": effect.effect_id,
@@ -871,11 +881,12 @@ def reconcile_notification_delivery_requests(
         if not (project_path / "project.db").exists():
             continue
         try:
-            project = (
-                Project(project_path)
-                if project_opener is None
-                else project_opener(storage_key, project_path)
-            )
+            if project_opener is None:
+                project = Project(project_path)
+            else:
+                if storage_key is None:
+                    continue
+                project = project_opener(storage_key, project_path)
         except Exception:
             LOG.warning("notification_recovery_open_failed", exc_info=True)
             continue

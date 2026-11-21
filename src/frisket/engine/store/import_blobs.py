@@ -109,7 +109,9 @@ def _blob_records(plan: ImportBlobPlan) -> dict[int, ImportBlob]:
         raise ValueError("duplicate staged import identity")
     for blob in plan.blobs:
         if blob.role in ("page", "document_page"):
-            document = records.get(blob.document_id)
+            document = (
+                records.get(blob.document_id) if blob.document_id is not None else None
+            )
             if (
                 document is None
                 or document.role != "document"
@@ -292,35 +294,36 @@ def publish_import_blobs(
     for document_id, artifact in artifacts.items():
         pages = sorted(
             (
-                blob
+                (blob, blob.page, blob.prepared_text)
                 for blob in plan.blobs
                 if blob.role == "document_page"
                 and blob.document_id == document_id
+                and blob.page is not None
                 and blob.prepared_text is not None
             ),
-            key=lambda blob: int(blob.page or 0),
+            key=lambda item: item[1],
         )
         if not pages:
             continue
-        first = pages[0]
+        first_blob, first_page, _first_text = pages[0]
         first_ref = prepared_store.stage_reference(
             source_artifact_id=int(artifact["id"]),
             producing_op_id=op_id,
             pages=[
                 PreparedPageDraft(
-                    page_number=int(blob.page),
-                    text=str(blob.prepared_text),
+                    page_number=page_number,
+                    text=prepared_text,
                 )
-                for blob in pages
+                for _blob, page_number, prepared_text in pages
             ],
-            page_number=int(first.page),
+            page_number=first_page,
         )
-        prepared_refs[first.occurrence_id] = first_ref
+        prepared_refs[first_blob.occurrence_id] = first_ref
         set_id = prepared_store.resolve(first_ref.ref_id).set_id
-        for blob in pages[1:]:
+        for blob, page_number, _prepared_text in pages[1:]:
             prepared_refs[blob.occurrence_id] = prepared_store.stage_selector(
                 set_id=set_id,
-                page_number=int(blob.page),
+                page_number=page_number,
             )
     for blob in plan.blobs:
         if not blob.prepared_pages and blob.prepared_source_ref_id is None:
@@ -540,6 +543,8 @@ def publish_import_blobs(
             )
             ref["artifact_id"] = artifact["id"]
         if blob.role in ("page", "document_page"):
+            if blob.document_id is None:
+                raise ValueError("invalid staged PDF page association")
             artifact = artifacts[blob.document_id]
             span = record_source_span(
                 project,
@@ -605,9 +610,8 @@ def _publish_packet_ocr_citations(
     spans = []
     for pin in prepared.pins:
         positions = pin.positions if isinstance(pin.positions, dict) else {}
-        blocks = (
-            positions.get("blocks") if isinstance(positions.get("blocks"), list) else []
-        )
+        raw_blocks = positions.get("blocks")
+        blocks: list[Any] = raw_blocks if isinstance(raw_blocks, list) else []
         engine = str(positions.get("engine") or blob.prepared_engine or "")
         width = positions.get("width")
         height = positions.get("height")

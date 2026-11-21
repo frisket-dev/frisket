@@ -16,12 +16,12 @@ import math
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from itertools import islice
 from pathlib import Path
-from typing import Any, Awaitable, Iterable, NoReturn, Protocol
+from typing import Any, Awaitable, Iterable, NoReturn, Protocol, runtime_checkable
 
 from frisket.ai.models.usage_counts import sum_known_counts
 from frisket.ai.llm.types import (
@@ -79,13 +79,20 @@ class _ModelCompletionCall(Protocol):
     ) -> Awaitable[LLMResponse]: ...
 
 
+@runtime_checkable
+class _ExecutionBindableRouter(Protocol):
+    def for_execution(self, execution: Any) -> ModelRouterTransport: ...
+
+
 def trace_path(bundle_path: str | Path, run_id: int) -> Path:
     return Path(bundle_path) / "traces" / f"run-{run_id}.jsonl.gz"
 
 
-def _pdf_metadata(value: Any, metadata: dict | None = None) -> dict:
+def _pdf_metadata(
+    value: Any, metadata: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """Hash attachment bytes before generic redaction can stringify a binary part."""
-    metadata = metadata or {}
+    meta = metadata or {}
     raw = bytes(value) if isinstance(value, (bytes, bytearray, memoryview)) else None
     if isinstance(value, str):
         encoded = (
@@ -97,7 +104,7 @@ def _pdf_metadata(value: Any, metadata: dict | None = None) -> dict:
             raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError):
             raw = None
-    result = {
+    result: dict[str, Any] = {
         "type": "document",
         "media_type": "application/pdf",
         "attachment": "omitted",
@@ -105,8 +112,8 @@ def _pdf_metadata(value: Any, metadata: dict | None = None) -> dict:
     if raw is not None:
         result.update(sha256=hashlib.sha256(raw).hexdigest(), byte_count=len(raw))
     for key in ("filename", "page_count", "text_char_count"):
-        if key in metadata and isinstance(metadata[key], (str, int)):
-            result[key] = metadata[key]
+        if key in meta and isinstance(meta[key], (str, int)):
+            result[key] = meta[key]
     return result
 
 
@@ -560,6 +567,10 @@ class TracingRouter:
     def for_execution(self, execution):
         # Rebinding validates the inner owner while preserving this row's trace
         # and selected-secret accumulators across the borrowed router view.
+        if not isinstance(self._inner, _ExecutionBindableRouter):
+            raise AttributeError(
+                f"{type(self._inner).__name__!r} object has no attribute 'for_execution'"
+            )
         bound = TracingRouter(self._inner.for_execution(execution), self._row)
         bound._observed_models = self._observed_models
         bound._extra_secret_values = self._extra_secret_values
@@ -733,10 +744,11 @@ class TracingRouter:
                 wire.tokens_out if wire.usage_available else None for wire in wires
             )
             live = [wire for wire in wires if not wire.cached]
+            live_costs = [wire.cost for wire in live]
             entry["cost"] = (
                 None
-                if any(wire.cost is None for wire in live)
-                else sum(wire.cost for wire in live)
+                if any(cost is None for cost in live_costs)
+                else sum(cost for cost in live_costs if cost is not None)
             )
             entry["cached"] = all(wire.cached for wire in wires)
             if capture_body:
@@ -924,7 +936,7 @@ class TraceWriter:
         return _json(safe_record) + "\n"
 
 
-def _iter_trace_records(path: Path) -> Iterable[dict[str, Any]]:
+def _iter_trace_records(path: Path) -> Iterator[dict[str, Any]]:
     with gzip.open(path, "rt", encoding="utf-8") as stream:
         for line in stream:
             line = line.strip()
