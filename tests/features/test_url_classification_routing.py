@@ -51,7 +51,6 @@ def test_ops_media_input_url_accepts_arbitrary_http_url(
         asyncio.run(run())
     finally:
         stager.close()
-        project.close()
     assert seen == [value]
 
 

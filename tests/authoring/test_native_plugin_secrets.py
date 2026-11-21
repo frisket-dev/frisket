@@ -252,34 +252,32 @@ def _store_secret(project: Project, plugin_id: str, value: str) -> None:
     project.db.commit()
 
 
-def test_secret_lookup_is_scoped_and_refuses_undeclared_names(tmp_path, monkeypatch):
+def test_secret_lookup_is_scoped_and_refuses_undeclared_names(
+    make_project, monkeypatch
+):
     monkeypatch.setenv("UNDECLARED_API_KEY", "ambient-value")
-    projects = [Project.create(tmp_path / name) for name in ("one", "two")]
-    try:
-        _store_secret(projects[0], "plugin.one", "one-a")
-        _store_secret(projects[0], "plugin.two", "one-b")
-        _store_secret(projects[1], "plugin.one", "two-a")
-        assert (
-            HostPluginSecrets.from_binding(projects[0], _binding("plugin.one")).require(
-                SECRET_NAME
-            )
-            == "one-a"
+    projects = [make_project(name) for name in ("one", "two")]
+    _store_secret(projects[0], "plugin.one", "one-a")
+    _store_secret(projects[0], "plugin.two", "one-b")
+    _store_secret(projects[1], "plugin.one", "two-a")
+    assert (
+        HostPluginSecrets.from_binding(projects[0], _binding("plugin.one")).require(
+            SECRET_NAME
         )
-        assert (
-            HostPluginSecrets.from_binding(projects[0], _binding("plugin.two")).require(
-                SECRET_NAME
-            )
-            == "one-b"
+        == "one-a"
+    )
+    assert (
+        HostPluginSecrets.from_binding(projects[0], _binding("plugin.two")).require(
+            SECRET_NAME
         )
-        secrets = HostPluginSecrets.from_binding(projects[1], _binding("plugin.one"))
-        assert secrets.require(SECRET_NAME) == "two-a"
-        with pytest.raises(ValueError, match="not declared"):
-            secrets.require("UNDECLARED_API_KEY")
-        assert "two-a" not in repr(secrets)
-        assert os.environ["UNDECLARED_API_KEY"] == "ambient-value"
-    finally:
-        for project in projects:
-            project.close()
+        == "one-b"
+    )
+    secrets = HostPluginSecrets.from_binding(projects[1], _binding("plugin.one"))
+    assert secrets.require(SECRET_NAME) == "two-a"
+    with pytest.raises(ValueError, match="not declared"):
+        secrets.require("UNDECLARED_API_KEY")
+    assert "two-a" not in repr(secrets)
+    assert os.environ["UNDECLARED_API_KEY"] == "ambient-value"
 
 
 @pytest.mark.parametrize("requested", ["demo_api_key", " DeMo_ApI_KeY "])

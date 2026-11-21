@@ -14,6 +14,7 @@ The event schema rejects raw content and arbitrary values.
 """
 
 from __future__ import annotations
+from contextlib import closing
 
 import importlib
 import io
@@ -95,11 +96,10 @@ def test_sensitive_is_canonical_create_metadata_and_bundle_round_trips(
         )
     archive = tmp_path / "protected.frisket.zip"
     archive.write_bytes(exported.content)
-    restored = Project.import_bundle(archive, tmp_path / "restored.frisket")
-    try:
+    with closing(
+        Project.import_bundle(archive, tmp_path / "restored.frisket")
+    ) as restored:
         assert restored.project_metadata()["sensitive"] is True
-    finally:
-        restored.close()
 
 
 def test_only_catalog_declared_sensitivity_route_can_mutate_the_flag(
@@ -292,8 +292,7 @@ def test_sensitive_blocks_telemetry_and_contribution_before_payload_build(
     made = client.post("/api/projects", json={"name": "Protected", "sensitive": True})
     assert made.status_code == 200
     pid = made.json()["id"]
-    project = app.state.workspace.get(pid)
-    try:
+    with closing(app.state.workspace.get(pid)) as project:
         sender = _CorrectionSender()
         contributor = Contributor(
             enabled=True, sender=sender, project_lookup=lambda _pid: project
@@ -316,8 +315,6 @@ def test_sensitive_blocks_telemetry_and_contribution_before_payload_build(
         assert contribution_builds == 0
         assert destination.attempts == []
         assert sender.attempts == []
-    finally:
-        project.close()
 
 
 def test_raw_content_is_unexpressible_at_the_project_route(
@@ -380,11 +377,8 @@ def test_turning_sensitive_off_does_not_opt_in_and_offline_export_is_truthful(
     # A deliberate user-owned bundle export is neither telemetry nor a
     # Frisket contribution and remains byte/content truthful.
     archive = project.export(tmp_path / "toggle.frisket.zip")
-    restored = Project.import_bundle(archive, tmp_path / "copy.frisket")
-    try:
+    with closing(Project.import_bundle(archive, tmp_path / "copy.frisket")) as restored:
         assert restored.get_meta("truthful_fixture") == (
             "before and after remain user-owned"
         )
         assert restored.project_metadata()["sensitive"] is False
-    finally:
-        restored.close()

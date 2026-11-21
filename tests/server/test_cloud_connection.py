@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import closing
 
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -1165,14 +1166,11 @@ def test_corrupt_connection_does_not_break_project_routing(
     )
     project_id = app.state.workspace.create("Corrupt Cloud profile")["id"]
     if saved_binding:
-        project = app.state.workspace.get(project_id)
-        try:
+        with closing(app.state.workspace.get(project_id)) as project:
             write_project_settings(
                 project,
                 ProjectSettings(cloud_user_id=7, cloud_account_id=41),
             )
-        finally:
-            project.close()
 
     with TestClient(app) as client:
         response = client.get(f"/api/projects/{project_id}/cloud-routing")

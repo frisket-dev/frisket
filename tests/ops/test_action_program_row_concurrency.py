@@ -2,7 +2,6 @@ from __future__ import annotations
 from frisket.execution.purchases import LOCAL_PURCHASE_POLICY
 
 import asyncio
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -68,8 +67,8 @@ def concurrency_probe() -> _ConcurrencyProbeProgram:
     return _ConcurrencyProbeProgram()
 
 
-def _project(tmp_path: Path) -> tuple[Project, int, list[int]]:
-    project = Project.create(tmp_path / "row-concurrency.frisket", name="probe")
+def _project(make_project) -> tuple[Project, int, list[int]]:
+    project = make_project("row-concurrency")
     sheet_id = project.add_sheet("Rows")
     text_col = project.add_column(sheet_id, "text", type="text")
     row_ids = project.add_rows(
@@ -120,7 +119,7 @@ def test_transcribe_caps_only_resolved_local_parakeet(
 
 
 def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
-    tmp_path: Path,
+    make_project,
     concurrency_probe: _ConcurrencyProbeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,7 +128,7 @@ def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
         "action_program_for_spec",
         lambda _spec: concurrency_probe,
     )
-    project, sheet_id, _row_ids = _project(tmp_path)
+    project, sheet_id, _row_ids = _project(make_project)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -138,33 +137,30 @@ def test_durable_run_applies_recipe_cap_and_preserves_uncapped_concurrency(
         concurrency=4,
         authority=UnroutedOnlyAuthority(project),
     )
-    try:
-        capped = asyncio.run(
-            run_with_output_claim(
-                runner,
-                _spec(sheet_id, row_concurrency_cap=1, output_name="capped"),
-                confirmed=True,
-            )
+    capped = asyncio.run(
+        run_with_output_claim(
+            runner,
+            _spec(sheet_id, row_concurrency_cap=1, output_name="capped"),
+            confirmed=True,
         )
-        assert capped.failed == 0
-        assert concurrency_probe.peak == 1
+    )
+    assert capped.failed == 0
+    assert concurrency_probe.peak == 1
 
-        concurrency_probe.reset()
-        uncapped = asyncio.run(
-            run_with_output_claim(
-                runner,
-                _spec(sheet_id, output_name="uncapped"),
-                confirmed=True,
-            )
+    concurrency_probe.reset()
+    uncapped = asyncio.run(
+        run_with_output_claim(
+            runner,
+            _spec(sheet_id, output_name="uncapped"),
+            confirmed=True,
         )
-        assert uncapped.failed == 0
-        assert concurrency_probe.peak == 4
-    finally:
-        project.close()
+    )
+    assert uncapped.failed == 0
+    assert concurrency_probe.peak == 4
 
 
 def test_preview_applies_recipe_cap_and_preserves_uncapped_concurrency(
-    tmp_path: Path,
+    make_project,
     concurrency_probe: _ConcurrencyProbeProgram,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,7 +169,7 @@ def test_preview_applies_recipe_cap_and_preserves_uncapped_concurrency(
         "action_program_for_spec",
         lambda _spec: concurrency_probe,
     )
-    project, sheet_id, row_ids = _project(tmp_path)
+    project, sheet_id, row_ids = _project(make_project)
     runner = MapRunner(
         project,
         ModelRouter(
@@ -182,16 +178,13 @@ def test_preview_applies_recipe_cap_and_preserves_uncapped_concurrency(
         concurrency=4,
         authority=UnroutedOnlyAuthority(project),
     )
-    try:
-        capped = asyncio.run(
-            runner.preview(_spec(sheet_id, row_ids=row_ids, row_concurrency_cap=1))
-        )
-        assert set(capped.values) == set(row_ids)
-        assert concurrency_probe.peak == 1
+    capped = asyncio.run(
+        runner.preview(_spec(sheet_id, row_ids=row_ids, row_concurrency_cap=1))
+    )
+    assert set(capped.values) == set(row_ids)
+    assert concurrency_probe.peak == 1
 
-        concurrency_probe.reset()
-        uncapped = asyncio.run(runner.preview(_spec(sheet_id, row_ids=row_ids)))
-        assert set(uncapped.values) == set(row_ids)
-        assert concurrency_probe.peak == 4
-    finally:
-        project.close()
+    concurrency_probe.reset()
+    uncapped = asyncio.run(runner.preview(_spec(sheet_id, row_ids=row_ids)))
+    assert set(uncapped.values) == set(row_ids)
+    assert concurrency_probe.peak == 4

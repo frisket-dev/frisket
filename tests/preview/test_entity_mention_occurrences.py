@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import pytest
 
-from frisket.engine.store import Project
 from frisket.engine.store.evidence import (
     _text_hash,
     record_citation,
@@ -99,8 +98,8 @@ def _write_layer(
     )
 
 
-def _seed(tmp_path, *, body_text: str = BODY, content_hash=None):
-    project = Project.create(tmp_path / "occ.frisket", name="occ")
+def _seed(make_project, *, body_text: str = BODY, content_hash=None):
+    project = make_project("occ")
     sheet = project.add_sheet("Docs")
     body_col = project.add_column(sheet, "body", type="text")
     ents_col = project.add_column(sheet, "entities", type="json")
@@ -168,174 +167,149 @@ def _occurrences(project, sheet, ents_col, row_id, **kwargs):
     )
 
 
-def test_every_spelling_in_the_group_is_an_occurrence_in_reading_order(tmp_path):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        page = _occurrences(project, sheet, ents, row_id)
-        assert page["totals"] == {"occurrences": 3}
-        # The fingerprint group holds two spellings; both are occurrences, and
-        # they come back in the order a reader meets them, not by spelling.
-        assert [o["quote"] for o in page["occurrences"]] == [
-            "Ada Lovelace",
-            "A. Lovelace",
-            "Ada Lovelace",
-        ]
-        assert [o["start"] for o in page["occurrences"]] == sorted(
-            o["start"] for o in page["occurrences"]
-        )
-        # The text column is recovered from the link's OUTPUT cell: the panel
-        # only ever knows the entity column.
-        assert page["text_column"]["name"] == "body"
-    finally:
-        project.close()
+def test_every_spelling_in_the_group_is_an_occurrence_in_reading_order(make_project):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    page = _occurrences(project, sheet, ents, row_id)
+    assert page["totals"] == {"occurrences": 3}
+    # The fingerprint group holds two spellings; both are occurrences, and
+    # they come back in the order a reader meets them, not by spelling.
+    assert [o["quote"] for o in page["occurrences"]] == [
+        "Ada Lovelace",
+        "A. Lovelace",
+        "Ada Lovelace",
+    ]
+    assert [o["start"] for o in page["occurrences"]] == sorted(
+        o["start"] for o in page["occurrences"]
+    )
+    # The text column is recovered from the link's OUTPUT cell: the panel
+    # only ever knows the entity column.
+    assert page["text_column"]["name"] == "body"
 
 
-def test_the_occurrence_count_matches_route_as_number_for_the_same_row(tmp_path):
+def test_the_occurrence_count_matches_route_as_number_for_the_same_row(make_project):
     """The two levels of one panel must not disagree about one document."""
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        documents = resolve_entity_mention_documents(
-            project,
-            sheet_id=sheet,
-            column_id=ents,
-            type="person",
-            fingerprint="ada lovelace",
-        )
-        listed = next(d for d in documents["documents"] if d["row_id"] == row_id)
-        page = _occurrences(project, sheet, ents, row_id)
-        assert page["totals"]["occurrences"] == listed["occurrence_count"] == 3
-    finally:
-        project.close()
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    documents = resolve_entity_mention_documents(
+        project,
+        sheet_id=sheet,
+        column_id=ents,
+        type="person",
+        fingerprint="ada lovelace",
+    )
+    listed = next(d for d in documents["documents"] if d["row_id"] == row_id)
+    page = _occurrences(project, sheet, ents, row_id)
+    assert page["totals"]["occurrences"] == listed["occurrence_count"] == 3
 
 
-def test_a_snippet_is_a_window_of_the_current_text_around_the_mark(tmp_path):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        page = _occurrences(project, sheet, ents, row_id, snippet_radius=10)
-        first = page["occurrences"][0]
-        snippet = first["snippet"]
-        # The marked slice of the snippet IS the quote — the offsets are not
-        # decoration, the client slices with them.
-        assert _utf16_slice(snippet) == "Ada Lovelace"
-        assert (
-            snippet["text"]
-            == BODY[
-                BODY.index("Ada Lovelace") - 10 : BODY.index("Ada Lovelace") + 12 + 10
-            ]
-        )
-        assert snippet["truncated_start"] is True
-        assert snippet["truncated_end"] is True
-        # A radius that swallows the cell says so, rather than claiming an
-        # ellipsis it has not earned.
-        whole = _occurrences(project, sheet, ents, row_id, snippet_radius=10_000)
-        assert whole["occurrences"][0]["snippet"]["text"] == BODY
-        assert whole["occurrences"][0]["snippet"]["truncated_start"] is False
-        assert whole["occurrences"][0]["snippet"]["truncated_end"] is False
-    finally:
-        project.close()
+def test_a_snippet_is_a_window_of_the_current_text_around_the_mark(make_project):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    page = _occurrences(project, sheet, ents, row_id, snippet_radius=10)
+    first = page["occurrences"][0]
+    snippet = first["snippet"]
+    # The marked slice of the snippet IS the quote — the offsets are not
+    # decoration, the client slices with them.
+    assert _utf16_slice(snippet) == "Ada Lovelace"
+    assert (
+        snippet["text"]
+        == BODY[BODY.index("Ada Lovelace") - 10 : BODY.index("Ada Lovelace") + 12 + 10]
+    )
+    assert snippet["truncated_start"] is True
+    assert snippet["truncated_end"] is True
+    # A radius that swallows the cell says so, rather than claiming an
+    # ellipsis it has not earned.
+    whole = _occurrences(project, sheet, ents, row_id, snippet_radius=10_000)
+    assert whole["occurrences"][0]["snippet"]["text"] == BODY
+    assert whole["occurrences"][0]["snippet"]["truncated_start"] is False
+    assert whole["occurrences"][0]["snippet"]["truncated_end"] is False
 
 
-def test_snippet_offsets_are_utf16_so_an_astral_char_shifts_the_mark(tmp_path):
+def test_snippet_offsets_are_utf16_so_an_astral_char_shifts_the_mark(make_project):
     body = "🛰 satellite notes: Ada Lovelace signed off."
-    project, sheet, _body, ents, row_id = _seed(tmp_path, body_text=body)
-    try:
-        page = _occurrences(project, sheet, ents, row_id, snippet_radius=10_000)
-        snippet = page["occurrences"][0]["snippet"]
-        assert snippet["text"] == body
-        # The satellite is ONE code point and TWO UTF-16 code units. A
-        # code-point offset here would be off by one and the client would slice
-        # "Ada Lovelac".
-        assert snippet["mark_start"] == body.index("Ada Lovelace") + 1
-        # Sliced the way the CLIENT slices — a JS string indexes UTF-16 code
-        # units. A plain Python slice here would index code points and quietly
-        # pass a test of the wrong unit.
-        assert _utf16_slice(snippet) == "Ada Lovelace"
-    finally:
-        project.close()
+    project, sheet, _body, ents, row_id = _seed(make_project, body_text=body)
+    page = _occurrences(project, sheet, ents, row_id, snippet_radius=10_000)
+    snippet = page["occurrences"][0]["snippet"]
+    assert snippet["text"] == body
+    # The satellite is ONE code point and TWO UTF-16 code units. A
+    # code-point offset here would be off by one and the client would slice
+    # "Ada Lovelac".
+    assert snippet["mark_start"] == body.index("Ada Lovelace") + 1
+    # Sliced the way the CLIENT slices — a JS string indexes UTF-16 code
+    # units. A plain Python slice here would index code points and quietly
+    # pass a test of the wrong unit.
+    assert _utf16_slice(snippet) == "Ada Lovelace"
 
 
-def test_stale_text_yields_the_reason_and_no_snippets(tmp_path):
+def test_stale_text_yields_the_reason_and_no_snippets(make_project):
     # The surface was captured against text the cell no longer holds — what an
     # edit after extraction leaves behind.
     project, sheet, _body, ents, row_id = _seed(
-        tmp_path, content_hash=_text_hash("the text this layer was measured against")
+        make_project,
+        content_hash=_text_hash("the text this layer was measured against"),
     )
-    try:
-        page = _occurrences(project, sheet, ents, row_id)
-        assert page["occurrences"] == []
-        assert page["totals"] == {"occurrences": 0}
-        # Named, not silent: the panel says the text moved, it does not say the
-        # mention is absent.
-        assert page["unpositioned"] == {"reason": "content_hash_mismatch", "total": 4}
-    finally:
-        project.close()
+    page = _occurrences(project, sheet, ents, row_id)
+    assert page["occurrences"] == []
+    assert page["totals"] == {"occurrences": 0}
+    # Named, not silent: the panel says the text moved, it does not say the
+    # mention is absent.
+    assert page["unpositioned"] == {"reason": "content_hash_mismatch", "total": 4}
 
 
-def test_paging_walks_the_occurrences_without_repeating_or_dropping(tmp_path):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        first = _occurrences(project, sheet, ents, row_id, limit=2)
-        assert first["next_offset"] == 2
-        second = _occurrences(
-            project, sheet, ents, row_id, limit=2, offset=first["next_offset"]
-        )
-        assert second["next_offset"] is None
-        ids = [o["occurrence_id"] for o in first["occurrences"] + second["occurrences"]]
-        assert len(ids) == len(set(ids)) == 3
-        assert second["totals"] == first["totals"]
-    finally:
-        project.close()
+def test_paging_walks_the_occurrences_without_repeating_or_dropping(make_project):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    first = _occurrences(project, sheet, ents, row_id, limit=2)
+    assert first["next_offset"] == 2
+    second = _occurrences(
+        project, sheet, ents, row_id, limit=2, offset=first["next_offset"]
+    )
+    assert second["next_offset"] is None
+    ids = [o["occurrence_id"] for o in first["occurrences"] + second["occurrences"]]
+    assert len(ids) == len(set(ids)) == 3
+    assert second["totals"] == first["totals"]
 
 
-def test_a_row_with_no_annotation_layer_is_empty_not_an_error(tmp_path):
+def test_a_row_with_no_annotation_layer_is_empty_not_an_error(make_project):
     """Route A lists rows from the entity arrays; some of them legitimately
     have no coordinate layer (an older run, a superseded link). That is an
     empty Level 2, not a failure of the request."""
-    project, sheet, body_col, ents, _row_id = _seed(tmp_path)
-    try:
-        project.add_rows(
-            sheet,
-            [
-                {
-                    "body": "Ada Lovelace again.",
-                    "entities": [
-                        {
-                            "text": "Ada Lovelace",
-                            "type": "person",
-                            "fingerprint": "ada lovelace",
-                        }
-                    ],
-                }
-            ],
-            {"body": body_col, "entities": ents},
-        )
-        project.db.commit()
-        bare = project.db.execute(
-            "SELECT id FROM rows WHERE sheet_id=? ORDER BY id DESC LIMIT 1", (sheet,)
-        ).fetchone()["id"]
-        page = _occurrences(project, sheet, ents, bare)
-        assert page["occurrences"] == []
-        assert page["text_column"] is None
-        assert page["unpositioned"] is None
-    finally:
-        project.close()
+    project, sheet, body_col, ents, _row_id = _seed(make_project)
+    project.add_rows(
+        sheet,
+        [
+            {
+                "body": "Ada Lovelace again.",
+                "entities": [
+                    {
+                        "text": "Ada Lovelace",
+                        "type": "person",
+                        "fingerprint": "ada lovelace",
+                    }
+                ],
+            }
+        ],
+        {"body": body_col, "entities": ents},
+    )
+    project.db.commit()
+    bare = project.db.execute(
+        "SELECT id FROM rows WHERE sheet_id=? ORDER BY id DESC LIMIT 1", (sheet,)
+    ).fetchone()["id"]
+    page = _occurrences(project, sheet, ents, bare)
+    assert page["occurrences"] == []
+    assert page["text_column"] is None
+    assert page["unpositioned"] is None
 
 
-def test_an_unfingerprinted_type_matches_its_exact_spelling(tmp_path):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        page = resolve_entity_mention_occurrences(
-            project,
-            sheet_id=sheet,
-            row_id=row_id,
-            column_id=ents,
-            type="ordinal",
-            text="item 4",
-        )
-        assert [o["quote"] for o in page["occurrences"]] == ["item 4"]
-        assert page["selector"] == {"kind": "text", "text": "item 4"}
-    finally:
-        project.close()
+def test_an_unfingerprinted_type_matches_its_exact_spelling(make_project):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    page = resolve_entity_mention_occurrences(
+        project,
+        sheet_id=sheet,
+        row_id=row_id,
+        column_id=ents,
+        type="ordinal",
+        text="item 4",
+    )
+    assert [o["quote"] for o in page["occurrences"]] == ["item 4"]
+    assert page["selector"] == {"kind": "text", "text": "item 4"}
 
 
 @pytest.mark.parametrize(
@@ -343,29 +317,23 @@ def test_an_unfingerprinted_type_matches_its_exact_spelling(tmp_path):
     [{}, {"fingerprint": "a", "text": "b"}],
     ids=["neither", "both"],
 )
-def test_the_identity_must_be_exactly_one_of_the_two_modes(tmp_path, identity):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        with pytest.raises(EntityMentionDetailError) as caught:
-            resolve_entity_mention_occurrences(
-                project,
-                sheet_id=sheet,
-                row_id=row_id,
-                column_id=ents,
-                type="person",
-                **identity,
-            )
-        assert caught.value.code == "invalid_params"
-    finally:
-        project.close()
+def test_the_identity_must_be_exactly_one_of_the_two_modes(make_project, identity):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    with pytest.raises(EntityMentionDetailError) as caught:
+        resolve_entity_mention_occurrences(
+            project,
+            sheet_id=sheet,
+            row_id=row_id,
+            column_id=ents,
+            type="person",
+            **identity,
+        )
+    assert caught.value.code == "invalid_params"
 
 
-def test_a_hidden_sheet_leaks_nothing(tmp_path):
-    project, sheet, _body, ents, row_id = _seed(tmp_path)
-    try:
-        project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
-        project.db.commit()
-        with pytest.raises(EntityMentionDetailError):
-            _occurrences(project, sheet, ents, row_id)
-    finally:
-        project.close()
+def test_a_hidden_sheet_leaks_nothing(make_project):
+    project, sheet, _body, ents, row_id = _seed(make_project)
+    project.db.execute("UPDATE sheets SET hidden=1 WHERE id=?", (sheet,))
+    project.db.commit()
+    with pytest.raises(EntityMentionDetailError):
+        _occurrences(project, sheet, ents, row_id)

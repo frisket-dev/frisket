@@ -928,6 +928,7 @@ class TestConcurrentOpen:
     ):
         import shutil
         from concurrent.futures import ThreadPoolExecutor
+        from contextlib import closing
 
         from frisket.engine.store.execution_routes import (
             COST_CONSENT_ENV,
@@ -962,8 +963,7 @@ class TestConcurrentOpen:
                 for future in [pool.submit(open_and_close, work) for _ in range(8)]:
                     future.result()
 
-            project = Project(work)
-            try:
+            with closing(Project(work)) as project:
                 standing = project.db.execute(
                     "SELECT COUNT(*) AS n FROM consents WHERE standing_policy=?",
                     (STANDING_COST_POLICY,),
@@ -973,8 +973,6 @@ class TestConcurrentOpen:
                     "concurrent opens across one knob change; expected the "
                     "original plus exactly one successor"
                 )
-            finally:
-                project.close()
 
         assert not errors, (
             f"concurrent open raised {len(errors)} error(s); first: {errors[0]!r}"

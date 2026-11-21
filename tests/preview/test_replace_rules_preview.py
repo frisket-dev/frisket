@@ -345,17 +345,19 @@ def test_preview_bad_unmatched_and_test_value_are_invalid_params(tmp_path):
     assert _error(tmp_path, test_value=42).code == "invalid_params"
 
 
-def test_rule_preview_borrows_existing_snapshot_without_recursive_reentry(tmp_path):
-    project, sheet = _seed(tmp_path, ["Acme", "Other"])
-    try:
-        with project.read_snapshot() as snapshot:
-            result = resolve_replace_rules_preview(
-                snapshot,
-                sheet_id=sheet,
-                input_column="org",
-                rules=[{"match": "exact", "pattern": "Acme", "target": "ACME"}],
-            )
-            assert result["unmatched_rows"] == 1
-            assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
-    finally:
-        project.close()
+def test_rule_preview_borrows_existing_snapshot_without_recursive_reentry(
+    make_project,
+):
+    project = make_project("replace-rules-snapshot")
+    sheet = project.add_sheet("data")
+    cols = {"org": project.add_column(sheet, "org")}
+    project.add_rows(sheet, [{"org": value} for value in ["Acme", "Other"]], cols)
+    with project.read_snapshot() as snapshot:
+        result = resolve_replace_rules_preview(
+            snapshot,
+            sheet_id=sheet,
+            input_column="org",
+            rules=[{"match": "exact", "pattern": "Acme", "target": "ACME"}],
+        )
+        assert result["unmatched_rows"] == 1
+        assert snapshot.db.execute("SELECT COUNT(*) FROM rows").fetchone()[0] == 2
