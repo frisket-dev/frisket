@@ -48,7 +48,9 @@ test('scoped target resolution rejects missing and duplicate visible targets', a
   await page.setContent('<section id="scope"><input data-testid="example"><input data-testid="example"></section><input data-testid="example">');
   const root = page.locator('#scope');
   await expect(resolveCaptureTarget(root, { kind: 'field', id: 'example' })).rejects.toThrow('2 visible');
-  await root.locator('input').last().evaluate((el) => { el.hidden = true; });
+  await root.locator('input').last().evaluate((el) => {
+    if (el instanceof HTMLElement) el.hidden = true;
+  });
   expect(await (await resolveCaptureTarget(root, { kind: 'field', id: 'example' })).count()).toBe(1);
   await expect(resolveCaptureTarget(root, { kind: 'field', id: 'missing' })).rejects.toThrow('0 visible');
 });
