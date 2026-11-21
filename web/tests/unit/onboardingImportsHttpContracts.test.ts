@@ -7,9 +7,49 @@ vi.mock('pluralize', () => ({
   }),
 }));
 
-import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles } from '../../src/api/open';
+import { cancelImportSession, chunkImportFiles, createImportSession, importCsv, importFiles, importXlsx, listImportSessions, prepareImportFiles, prepareImportUrls, resolveImportSession, resumeImportSession, sealImportSession, seedSampleProject, snapshotImportFiles, uploadFilesToImportSession, uploadImportSessionFiles, type ImportSessionStatus } from '../../src/api/open';
 import { createOnboardingImportsApi } from '../../src/api/onboardingImports';
 import type { RequestOptions } from '../../src/api/httpContract';
+
+function importSessionStatus(overrides: Partial<ImportSessionStatus> = {}): ImportSessionStatus {
+  return {
+    import_ref: 'import-session',
+    intake_kind: 'files',
+    state: 'admitting',
+    admitted_files: 0,
+    admitted_bytes: 0,
+    through: 0,
+    committed_rows: 0,
+    committed_bytes: 0,
+    sheet_id: null,
+    sheet_name: 'Files',
+    cancel_requested: false,
+    sealed: false,
+    error: null,
+    search_preparation_status: 'none',
+    search_preparation_batch_id: null,
+    selected_total: null,
+    estimated_rows: null,
+    processed_rows: 0,
+    skipped_duplicates: 0,
+    problem_count: 0,
+    source_label: null,
+    can_rerun_workbook: false,
+    source_error_groups: [],
+    preparation_completed: 0,
+    preparation_total: 0,
+    ocr_completed: 0,
+    ocr_total: 0,
+    unreadable_total: 0,
+    preparation_stopped: false,
+    semantic_preparation_error: null,
+    preparation_children: [],
+    reading_row_ids: [],
+    waiting_row_ids: [],
+    failed_pages: 0,
+    ...overrides,
+  };
+}
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -106,11 +146,7 @@ describe('onboarding/import generated HTTP contracts', () => {
       throw new DOMException('cancelled', 'AbortError');
     }));
     const files = Array.from({ length: 600 }, (_, index) => new File(['x'], `${index}.txt`));
-    const session = {
-      import_ref: 'import-cancel', state: 'admitting' as const, admitted_files: 0,
-      admitted_bytes: 0, through: 0, committed_rows: 0, committed_bytes: 0,
-      sheet_id: null, sheet_name: 'Files', cancel_requested: false, sealed: false, error: null,
-    };
+    const session = importSessionStatus({ import_ref: 'import-cancel' });
 
     await expect(uploadFilesToImportSession(
       'project-1', session, files, { signal: controller.signal },
@@ -124,13 +160,10 @@ describe('onboarding/import generated HTTP contracts', () => {
 
   it('reports each acknowledged upload chunk and the sealed session', async () => {
     const files = Array.from({ length: 300 }, (_, index) => new File(['x'], `${index}.txt`));
-    const initial = {
-      import_ref: 'import-progress', state: 'admitting' as const, admitted_files: 0,
-      admitted_bytes: 0, through: 0, committed_rows: 0, committed_bytes: 0,
-      sheet_id: null, sheet_name: 'Files', cancel_requested: false, sealed: false,
-      error: null, search_preparation_status: 'pending' as const,
-      search_preparation_batch_id: null,
-    };
+    const initial = importSessionStatus({
+      import_ref: 'import-progress',
+      search_preparation_status: 'pending',
+    });
     let upload = 0;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);

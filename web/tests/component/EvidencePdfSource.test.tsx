@@ -23,7 +23,7 @@ vi.mock('../../src/media/PdfViewer', () => ({
 
 import { ArtifactSource } from '../../src/components/citations/ArtifactSource';
 import type { CitationArtifact } from '../../src/api/types';
-import { artifactRef, blobRef, evidenceArtifact } from '../support/evidenceFixtures';
+import { artifactRef, blobRef, evidenceArtifact, evidenceSpan } from '../support/evidenceFixtures';
 
 afterEach(() => {
   cleanup();
@@ -41,7 +41,10 @@ function installIntersectionObserver() {
     readonly root = null;
     readonly rootMargin = '240px 0px';
     readonly thresholds = [0];
-    constructor(private readonly callback: IntersectionObserverCallback) {}
+    private readonly callback: IntersectionObserverCallback;
+    constructor(callback: IntersectionObserverCallback) {
+      this.callback = callback;
+    }
     observe = (target: Element) => observations.push({
       target,
       callback: this.callback,
@@ -139,11 +142,11 @@ describe('evidence PDF renderer', () => {
         media_type: 'application/pdf',
         blob: blobRef('/api/projects/p/blobs/pdf', { filename: 'filing.pdf' }),
       }),
-      spans: [{
+      spans: [evidenceSpan({
         id: 22,
         stable_id: 'span-page-2',
         selector: { page_start: 2, page_end: 2 },
-      }] as CitationArtifact['spans'],
+      })],
       pages: [{
         page: 2,
         image: { blob_hash: 'raster', url: '/page-2.png', width: 10, height: 10 },
