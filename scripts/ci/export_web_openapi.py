@@ -271,7 +271,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
         ): "tenant.action_run_trace_row.get",
         ("tenant", "cancel_run", "POST"): "tenant.cancel_run.post",
         ("tenant", "cluster_preview", "POST"): "tenant.cluster_preview.post",
-        ("tenant", "cell_evidence", "GET"): "tenant.cell_evidence.get",
+        ("tenant", "cell_citations", "GET"): "tenant.cell_citations.get",
         (
             "tenant",
             "extraction_document_get",
@@ -311,7 +311,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "reviewed_run_revision",
             "GET",
         ): "tenant.reviewed_run_revision.get",
-        ("tenant", "column_evidence", "GET"): "tenant.column_evidence.get",
+        ("tenant", "column_citations", "GET"): "tenant.column_citations.get",
         (
             "tenant",
             "row_source_documents",
@@ -687,7 +687,7 @@ CANONICAL_OPERATION_IDS: Mapping[RouteIdentity, str] = MappingProxyType(
             "ocr_compare_scratch_estimate",
             "POST",
         ): "tenant.ocr_compare_scratch_estimate.post",
-        ("tenant", "evidence_viewer", "GET"): "tenant.evidence_viewer.get",
+        ("tenant", "citation_viewer", "GET"): "tenant.citation_viewer.get",
         ("tenant", "get_project", "GET"): "tenant.get_project.get",
         ("tenant", "get_project_network", "GET"): "tenant.get_project_network.get",
         ("tenant", "get_project_provider_keys", "GET"): (

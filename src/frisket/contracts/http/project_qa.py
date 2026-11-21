@@ -184,12 +184,12 @@ class AskCellTarget(WireModel):
     text_range: ProjectSearchTextRange | None = None
 
 
-class AskEvidenceTarget(WireModel):
-    kind: Literal["evidence"]
+class AskCellCitationTarget(WireModel):
+    kind: Literal["cell_citation"]
     sheet_id: int
     row_id: int
     column_id: int
-    evidence_link_id: str
+    citation_id: str
     artifact_id: str
     span_id: str
     span_ids: list[str] = Field(default_factory=list)
@@ -212,7 +212,7 @@ class AskWebTarget(WireModel):
 
 
 AskCitationTarget = Annotated[
-    AskCellTarget | AskQueryTarget | AskEvidenceTarget | AskWebTarget,
+    AskCellTarget | AskQueryTarget | AskCellCitationTarget | AskWebTarget,
     Field(discriminator="kind"),
 ]
 

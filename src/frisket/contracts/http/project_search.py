@@ -209,9 +209,9 @@ class ProjectSearchCoverage(WireModel):
     rerank_unavailable_reason: str | None = None
 
 
-class ProjectSearchEvidenceNavigation(WireModel):
-    kind: Literal["evidence"]
-    evidence_link_id: str
+class ProjectSearchCitationNavigation(WireModel):
+    kind: Literal["citation"]
+    citation_id: str
     span_id: str
     span_ids: list[str] = Field(default_factory=list)
 
@@ -234,7 +234,7 @@ class ProjectSearchCellNavigation(WireModel):
 
 
 ProjectSearchNavigation = Annotated[
-    ProjectSearchEvidenceNavigation
+    ProjectSearchCitationNavigation
     | ProjectSearchDocumentNavigation
     | ProjectSearchCellNavigation,
     Field(discriminator="kind"),
