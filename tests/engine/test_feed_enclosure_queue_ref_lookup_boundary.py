@@ -391,7 +391,7 @@ def test_enclosure_admission_records_exact_pending_search_preparation(
 
         [pending] = SearchPreparationStore(
             queue, workspace_root=str(workspace)
-        ).list_active_page(storage_org_id=None)
+        ).list_active_page(storage_organization_id=None)
         assert pending.materialization_job_id == job_id
         assert pending.sheet_id == sheet_id
         assert pending.row_ids == (row_id,)

@@ -975,7 +975,7 @@ class ProjectLifecycleService:
         # while executable code may still own it.
         if self._workspace.queue.has_active_project_handler(
             project_id,
-            storage_org_id=self._workspace.queue_storage_organization_id,
+            storage_organization_id=self._workspace.queue_storage_organization_id,
         ):
             return True
         # Queue rows cover unclaimed work plus ordinary live claims. The
@@ -983,7 +983,7 @@ class ProjectLifecycleService:
         return any(
             self._workspace.queue.list_project_jobs(
                 project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 status=status,
                 limit=1,
             )
@@ -1001,7 +1001,7 @@ class ProjectLifecycleService:
         while True:
             queued = self._workspace.queue.list_project_jobs(
                 project_id,
-                storage_org_id=self._workspace.queue_storage_organization_id,
+                storage_organization_id=self._workspace.queue_storage_organization_id,
                 status="queued",
                 limit=100,
             )
@@ -1047,7 +1047,7 @@ class ProjectLifecycleService:
             for status in ("queued", "running"):
                 while jobs := self._workspace.queue.list_project_jobs(
                     project_id,
-                    storage_org_id=self._workspace.queue_storage_organization_id,
+                    storage_organization_id=self._workspace.queue_storage_organization_id,
                     kind=kind,
                     status=status,
                     limit=100,

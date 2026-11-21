@@ -689,7 +689,9 @@ def register_operational_routes(
             # `queue.cancel`. A job id that does not belong to THIS org/kind
             # is refused atomically by the WHERE clause itself.
             cancel_succeeded = workspace.queue.cancel_scoped(
-                row.job_id, org_id=str(organization_id), kind=MODEL_PULL_KIND
+                row.job_id,
+                organization_id=str(organization_id),
+                kind=MODEL_PULL_KIND,
             )
             if cancel_succeeded:
                 model_pull_store.request_cancel(queue_engine, pull_id)

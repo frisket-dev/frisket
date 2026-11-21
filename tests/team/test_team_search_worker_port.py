@@ -15,6 +15,6 @@ def test_team_search_port_requests_only_search_provider_keys(monkeypatch) -> Non
     )
 
     assert port.search_provider_keys(
-        org_id=11, control_database_url="postgres://control"
+        organization_id=11, control_database_url="postgres://control"
     ) == {"exa": "tenant-key"}
     assert seen == [(11, control_plane.SEARCH_KEY_PROVIDERS, "decrypted:ciphertext")]

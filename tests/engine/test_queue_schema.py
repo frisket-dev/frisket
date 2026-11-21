@@ -301,7 +301,7 @@ def test_v11_queue_with_unfinished_user_work_refuses_upgrade_untouched(
         ),
         pytest.param(
             "INSERT INTO job_handler_authorities"
-            " (authority_id, job_id, worker_id, storage_org_id, project_id, claimed_at)"
+            " (authority_id, job_id, worker_id, storage_organization_id, project_id, claimed_at)"
             f" SELECT 'a', id, 'w', 1, 'alpha', '{_ISO}' FROM jobs WHERE kind = 'project.run'",
             id="handler-still-running-a-cancelled-user-job",
         ),

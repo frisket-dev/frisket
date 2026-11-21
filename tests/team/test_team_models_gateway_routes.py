@@ -280,7 +280,7 @@ def test_actual_queued_handler_resolves_team_store_and_preserves_external_factor
     client = TestClient(
         create_app(
             tmp_path / "workspace",
-            queue_payload_extra={"org_id": 9},
+            queue_payload_extra={"organization_id": 9},
             control_database_url=str(engine.url),
             worker_ports=WorkerPorts(models_gateway_port=port),
             run_status_grace_seconds=3600,
@@ -382,7 +382,9 @@ def test_standalone_worker_supplies_team_gateway_port_only_for_explicit_team_con
         resolved = (
             captured[0]["worker_ports"]
             .models_gateway()
-            .models_gateway_connection(org_id=9, control_database_url=str(engine.url))
+            .models_gateway_connection(
+                organization_id=9, control_database_url=str(engine.url)
+            )
         )
         assert resolved is not None
         assert resolved.origin == ORIGIN

@@ -41,7 +41,9 @@ def queue_feed_poll(
         for status in ("queued", "running")
         for job in ctx.queue.list_project_jobs(
             project_id,
-            storage_org_id=ctx.queue_payload_extra.get("storage_org_id"),
+            storage_organization_id=ctx.queue_payload_extra.get(
+                "storage_organization_id"
+            ),
             status=status,
             kind="source.poll",
             source_id=feed_id,

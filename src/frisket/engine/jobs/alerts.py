@@ -83,7 +83,7 @@ def enqueue_due_alert_evaluations(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     now: datetime | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> list[dict[str, int | str]]:
@@ -110,7 +110,7 @@ def enqueue_due_alert_evaluations(
                 queue.find_job_by_refs(
                     ALERT_EVALUATE_KIND,
                     project_id=project_id,
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     dedupe_key_prefix=prefix,
                 )
                 is not None
@@ -120,7 +120,7 @@ def enqueue_due_alert_evaluations(
                 ALERT_EVALUATE_KIND,
                 statuses=TERMINAL,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key_prefix=prefix,
             )
             prior_run = project.alert_latest_run(alert_id)
@@ -157,8 +157,8 @@ def enqueue_due_alert_evaluations(
                     "trigger_ref": trigger,
                     "dedupe_key": key,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                 },
@@ -170,7 +170,7 @@ def enqueue_due_alert_evaluations(
 
     scan_projects(
         project_bundle_paths(root, require_slug=project_opener is not None),
-        bundle_opener(Project, project_opener, storage_org_id),
+        bundle_opener(Project, project_opener, storage_organization_id),
         visit,
         failure_event="alert_project_schedule_failed",
     )
@@ -183,7 +183,7 @@ def enqueue_index_alert_evaluations(
     project: Project,
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     index_id: str,
     trigger_ref: dict[str, Any] | None = None,
 ) -> list[int]:
@@ -199,7 +199,7 @@ def enqueue_index_alert_evaluations(
             queue.find_job_by_refs(
                 ALERT_EVALUATE_KIND,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             is not None
@@ -211,8 +211,8 @@ def enqueue_index_alert_evaluations(
                 {
                     "project_id": project_id,
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                     "watch_id": alert_id,
@@ -233,7 +233,7 @@ def enqueue_keyword_alert_evaluations(
     alerts: list[Any],
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
     trigger_ref: dict[str, Any],
 ) -> list[int]:
     """Enqueue affected FTS alerts without evaluating on the caller thread."""
@@ -245,7 +245,7 @@ def enqueue_keyword_alert_evaluations(
             queue.find_job_by_refs(
                 ALERT_EVALUATE_KIND,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             is not None
@@ -261,8 +261,8 @@ def enqueue_keyword_alert_evaluations(
                     "dedupe_key": dedupe_key,
                     "workspace_root": str(workspace_root),
                     **(
-                        {"storage_org_id": storage_org_id}
-                        if storage_org_id is not None
+                        {"storage_organization_id": storage_organization_id}
+                        if storage_organization_id is not None
                         else {}
                     ),
                 },
@@ -291,7 +291,7 @@ def register_alert_evaluate_handler(
             project_root = Path(payload.get("workspace_root") or root)
             project = Project(project_root / f"{project_id}.frisket")
             delivery_storage_organization_id = payload.get(
-                "storage_org_id", workspace_root_storage_organization_id
+                "storage_organization_id", workspace_root_storage_organization_id
             )
         else:
             project_id, project_root, project_path = claimed_project_location(
@@ -314,9 +314,11 @@ def register_alert_evaluate_handler(
                 "workspace_root": str(project_root),
             }
             if delivery_storage_organization_id is not None:
-                continuation["storage_org_id"] = delivery_storage_organization_id
+                continuation["storage_organization_id"] = (
+                    delivery_storage_organization_id
+                )
             if isinstance(context.trusted_job_organization_id, int):
-                continuation["org_id"] = context.trusted_job_organization_id
+                continuation["organization_id"] = context.trusted_job_organization_id
             marker = index_work_marker(project, include_preparation=False) or "repair"
             trigger_key = _alert_eval_dedupe_key(alert_id, continuation["trigger_ref"])
             queue.enqueue(
@@ -382,7 +384,7 @@ def register_alert_evaluate_handler(
                 queue,
                 workspace_root=project_root,
                 project_id=project_id,
-                storage_org_id=delivery_storage_organization_id,
+                storage_organization_id=delivery_storage_organization_id,
                 result=evaluation["notification"],
                 project_opener=project_opener,
             )

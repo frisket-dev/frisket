@@ -53,16 +53,16 @@ class TeamOrganizationDocumentCredentialPort:
         self._decryptor = decryptor
 
     def action_credential_resolver(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> OrganizationDocumentCredentials:
         keys = (
             organization_provider_keys(
                 control_plane_engine(control_database_url),
-                organization_id=org_id,
+                organization_id=organization_id,
                 providers=tuple(_DOCUMENT_ENV.values()),
                 decryptor=self._decryptor,
             )
             if control_database_url
             else {}
         )
-        return OrganizationDocumentCredentials(org_id, keys)
+        return OrganizationDocumentCredentials(organization_id, keys)

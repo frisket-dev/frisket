@@ -1118,7 +1118,7 @@ class ImportSessionService:
                 IMPORT_TABLE_STREAM_KIND,
                 statuses=("queued", "running", "failed", "done", "cancelled"),
                 project_id=project_id,
-                storage_org_id=getattr(
+                storage_organization_id=getattr(
                     self._workspace, "queue_storage_organization_id", None
                 ),
                 dedupe_key=table_import_dedupe_key(project_id, ref, frozen.plan_hash),
@@ -1127,7 +1127,7 @@ class ImportSessionService:
             IMPORT_FILES_PAGE_KIND,
             statuses=("queued", "running", "failed", "done", "cancelled"),
             project_id=project_id,
-            storage_org_id=getattr(
+            storage_organization_id=getattr(
                 self._workspace, "queue_storage_organization_id", None
             ),
             dedupe_key=import_page_dedupe_key(project_id, ref, through, sealed),

@@ -59,7 +59,7 @@ def test_maintenance_skips_staging_and_incomplete_bundles(
         getattr(module, function_name)(
             queue=queue,
             workspace_root=root,
-            storage_org_id=23 if scoped else None,
+            storage_organization_id=23 if scoped else None,
             project_opener=scoped_open if scoped else None,
         )
     finally:
@@ -107,7 +107,7 @@ def test_explicit_invalid_scoped_identity_is_not_silently_skipped(tmp_path, proj
         _recovery_targets(
             tmp_path,
             project_id=project_id,
-            storage_org_id=None,
+            storage_organization_id=None,
             project_opener=lambda key, path: None,
         )
 
@@ -132,7 +132,7 @@ def test_discovery_does_not_swallow_valid_project_processing_failure(
             getattr(module, function_name)(
                 queue=queue,
                 workspace_root=tmp_path / "workspace",
-                storage_org_id=23,
+                storage_organization_id=23,
                 project_opener=failing_opener,
             )
     finally:

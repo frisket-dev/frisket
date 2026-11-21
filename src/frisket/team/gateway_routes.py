@@ -137,14 +137,14 @@ class TeamOrganizationModelsGatewayPort:
         self._decrypt = decrypt
 
     def models_gateway_connection(
-        self, *, org_id: int, control_database_url: str | None
+        self, *, organization_id: int, control_database_url: str | None
     ) -> ModelsGatewayConnection | None:
         if not control_database_url:
             return resolve_models_gateway_env()
         engine = control_plane_engine(control_database_url)
         return resolve_team_models_gateway(
             engine,
-            organization_id=org_id,
+            organization_id=organization_id,
             decrypt=self._decrypt,
         )
 

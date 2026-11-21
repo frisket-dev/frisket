@@ -71,9 +71,11 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
         workspace_module, "register_production_handlers", capture_registration
     )
 
-    storage_org_id = 23
-    root = tmp_path / str(storage_org_id)
-    key = ProjectStorageKey(storage_organization_id=storage_org_id, project_slug="same")
+    storage_organization_id = 23
+    root = tmp_path / str(storage_organization_id)
+    key = ProjectStorageKey(
+        storage_organization_id=storage_organization_id, project_slug="same"
+    )
     bundle = root / "same.frisket"
     created = Project.create(bundle, name="Same")
     created.close()
@@ -81,7 +83,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
 
     def store_factory(project_slug: str) -> S3ProjectBlobStore:
         store_key = ProjectStorageKey(
-            storage_organization_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             project_slug=project_slug,
         )
         store_keys.append(store_key)
@@ -107,7 +109,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
             root,
             queue=queue,
             registry=registry,
-            queue_payload_extra={"storage_org_id": storage_org_id},
+            queue_payload_extra={"storage_organization_id": storage_organization_id},
             project_blob_store_factory=store_factory,
         )
         assert len(registered_openers) == 1
@@ -151,7 +153,7 @@ def test_workspace_registration_derives_opener_from_declared_storage_identity(
                 {
                     CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
                     "project_id": "payload-attacker",
-                    "storage_org_id": 99,
+                    "storage_organization_id": 99,
                     "workspace_root": str(tmp_path / "payload-root"),
                     "source_id": -1,
                 },
@@ -220,8 +222,8 @@ def test_all_project_handlers_call_one_opener_instead_of_direct_project(
         common = {
             CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
             "project_id": "payload-attacker",
-            "storage_org_id": 999,
-            "org_id": 555,
+            "storage_organization_id": 999,
+            "organization_id": 555,
             "workspace_root": str(tmp_path / "payload-root"),
             "job_id": 1,
             "run_id": 999,
@@ -425,8 +427,8 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
             project_storage_key=action_key,
             payload={
                 "project_id": "payload-attacker",
-                "storage_org_id": 999,
-                "org_id": 555,
+                "storage_organization_id": 999,
+                "organization_id": 555,
                 "workspace_root": str(tmp_path / "payload-root"),
                 "action_job": envelope.to_json(),
             },
@@ -503,7 +505,7 @@ def test_recovery_schedulers_nested_digest_and_cli_reuse_returned_opener(
         result = digests.compose_notification_digest_job(
             workspace_root=root,
             project_id=key.project_slug,
-            storage_org_id=key.storage_organization_id,
+            storage_organization_id=key.storage_organization_id,
             route_id=5,
             window=window_type(
                 cadence="daily",

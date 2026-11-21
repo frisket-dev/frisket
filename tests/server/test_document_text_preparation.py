@@ -692,7 +692,7 @@ def test_overlapping_batch_replans_after_another_batch_adopts_its_row(
     row = PlannedSearchPreparationBatchRow(
         id="batch",
         workspace_root=str(project.path),
-        storage_org_id=None,
+        storage_organization_id=None,
         project_id="project",
         trigger_receipt_id=None,
         import_ref=None,

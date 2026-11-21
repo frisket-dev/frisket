@@ -113,7 +113,7 @@ def _pending_refresh_job_id(
     project_id: str,
     index_id: str,
     *,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> int | None:
     """The id of a queued/running embedding.index_refresh job for this index, if
     any (the dedupe_key embeds index+trigger, so filter by the payload index_id)."""
@@ -124,7 +124,7 @@ def _pending_refresh_job_id(
     try:
         jobs = queue.list_project_jobs(
             project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             kind=EMBEDDING_REFRESH_KIND,
             limit=1000,
         )
@@ -144,7 +144,7 @@ def _index_payload(
     *,
     queue: Any = None,
     project_id: str | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> dict[str, Any]:
     space = store.get_space(index["space_id"])
     provider_kind = space["provider_kind"] if space else None
@@ -187,7 +187,7 @@ def _index_payload(
             queue,
             project_id or "",
             index["id"],
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
         ),
     }
     return {
@@ -250,7 +250,7 @@ def embedding_index_list_payload(
     *,
     queue: Any = None,
     project_id: str | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
 ) -> dict[str, Any]:
     """Existing embedding indexes (optionally scoped to one sheet) for the UI:
     provider/model + a first-class freshness state block + refresh-needed state.
@@ -263,7 +263,7 @@ def embedding_index_list_payload(
             idx,
             queue=queue,
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
         )
         for idx in store.list_indexes(sheet_id)
     ]

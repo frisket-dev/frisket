@@ -280,7 +280,7 @@ def test_team_model_pull_audit_wrapper_forwards_claimed_job_context(
             queue=queue,
             env={"FRISKET_ENABLE_MODEL_PULL": "1"},
         )
-        job_id = queue.enqueue(MODEL_PULL_KIND, {"org_id": 7001})
+        job_id = queue.enqueue(MODEL_PULL_KIND, {"organization_id": 7001})
 
         assert Worker(queue, registry, worker_id="cli-audit-context").run_once()
         assert queue.get(job_id).status == "done"

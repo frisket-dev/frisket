@@ -71,7 +71,7 @@ def enqueue_notification_delivery(
     *,
     workspace_root: str | Path,
     project_id: str,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     request_id: int,
     max_attempts: int = 3,
     project_opener: ProjectOpener | None = None,
@@ -84,7 +84,7 @@ def enqueue_notification_delivery(
         else project_opener(
             ProjectStorageKey(
                 storage_organization_id=require_opener_storage_organization_id(
-                    storage_org_id
+                    storage_organization_id
                 ),
                 project_slug=project_id,
             ),
@@ -101,7 +101,7 @@ def enqueue_notification_delivery(
             NOTIFICATION_DELIVER_KIND,
             statuses=("queued", "running"),
             project_id=project_id,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             dedupe_key=dedupe_key,
         )
         if existing is not None:
@@ -113,8 +113,8 @@ def enqueue_notification_delivery(
                 "workspace_root": str(workspace),
                 "project_id": project_id,
                 **(
-                    {"storage_org_id": storage_org_id}
-                    if storage_org_id is not None
+                    {"storage_organization_id": storage_organization_id}
+                    if storage_organization_id is not None
                     else {}
                 ),
                 "request_id": int(request_id),
@@ -134,7 +134,7 @@ def enqueue_notification_emit_result(
     workspace_root: str | Path,
     project_id: str,
     result: NotificationEmitResult | None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> list[int]:
     """Turn an emitted notification's durable outbox rows into queue jobs.
@@ -154,7 +154,7 @@ def enqueue_notification_emit_result(
                 queue,
                 workspace_root=workspace_root,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 request_id=int(request["id"]),
                 project_opener=project_opener,
             )
@@ -169,7 +169,7 @@ def register_notification_handlers(
     delivery_runtime: NotificationDeliveryRuntime | None = None,
     delivery_runtime_factory: NotificationDeliveryRuntimeFactory | None = None,
     queue: JobQueue | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> HandlerRegistration:
     if delivery_runtime is not None and delivery_runtime_factory is not None:
@@ -196,7 +196,7 @@ def register_notification_handlers(
             )
             handler_project_id = str(payload["project_id"])
             handler_storage_organization_id = payload.get(
-                "storage_org_id", storage_org_id
+                "storage_organization_id", storage_organization_id
             )
             project_key = None
         else:
@@ -213,7 +213,7 @@ def register_notification_handlers(
                     payload,
                     workspace_root=workspace,
                     require_storage_identity=True,
-                    workspace_root_storage_organization_id=storage_org_id,
+                    workspace_root_storage_organization_id=storage_organization_id,
                 )
             )
             handler_workspace_root = handler_project_root
@@ -246,7 +246,7 @@ def register_notification_handlers(
             # already knows whether this is the last attempt; re-reading the
             # job row here raced recovery/requeue.
             final_attempt=bool(payload.get("job_final_attempt")),
-            storage_org_id=handler_storage_organization_id,
+            storage_organization_id=handler_storage_organization_id,
             project_key=project_key,
             project_opener=project_opener,
         )
@@ -269,7 +269,7 @@ def register_notification_handlers(
         reconcile_notification_delivery_requests(
             job_queue,
             workspace_root=workspace,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             project_opener=project_opener,
         )
 
@@ -285,14 +285,14 @@ def deliver_notification_request(
     job_id: int | None,
     delivery_runtime: NotificationDeliveryRuntime,
     final_attempt: bool = False,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     project_key: ProjectStorageKey | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> dict[str, Any]:
-    if project_key is None and storage_org_id is not None:
+    if project_key is None and storage_organization_id is not None:
         project_key = ProjectStorageKey(
             storage_organization_id=require_opener_storage_organization_id(
-                storage_org_id
+                storage_organization_id
             ),
             project_slug=project_id,
         )
@@ -303,7 +303,7 @@ def deliver_notification_request(
         else project_opener(
             ProjectStorageKey(
                 storage_organization_id=require_opener_storage_organization_id(
-                    storage_org_id
+                    storage_organization_id
                 ),
                 project_slug=project_id,
             ),
@@ -624,7 +624,7 @@ def _effect_checkpoint_fields(
             "effect_id": effect.effect_id,
             "project_key": (
                 {
-                    "storage_org_id": effect.project_key.storage_organization_id,
+                    "storage_organization_id": effect.project_key.storage_organization_id,
                     "project_slug": effect.project_key.project_slug,
                 }
                 if effect.project_key is not None
@@ -696,7 +696,7 @@ def _notification_delivery_effect(
 ) -> NotificationDeliveryEffect:
     identity = json.dumps(
         {
-            "storage_org_id": (
+            "storage_organization_id": (
                 project_key.storage_organization_id if project_key is not None else None
             ),
             "project_slug": (
@@ -820,7 +820,7 @@ def _recovery_targets(
     workspace: Path,
     *,
     project_id: str | None,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
     project_opener: ProjectOpener | None,
 ) -> list[tuple[ProjectStorageKey | None, Path]]:
     """Bundles this recovery pass may open, each with its storage identity.
@@ -828,7 +828,7 @@ def _recovery_targets(
     Without an opener this keeps the historical flat scan of ``workspace``
     and carries no identity. With an opener every open must be keyed, so the
     identity has to come from somewhere trustworthy: either the caller's
-    DECLARED ``storage_org_id`` (a per-organization root), or — for the global hosted
+    DECLARED ``storage_organization_id`` (a per-organization root), or — for the global hosted
     recovery root, which is ``<data_dir>/projects`` and not pre-selected per
     organization — the per-organization subdirectory layout that root is defined to have.
     Directories that are not a positive integer organization id are not part of that
@@ -839,15 +839,17 @@ def _recovery_targets(
         return [(None, path) for path in flat]
     if project_id is not None:
         validate_project_slug(project_id)
-    if storage_org_id is not None:
-        org_id = require_opener_storage_organization_id(storage_org_id)
+    if storage_organization_id is not None:
+        organization_id = require_opener_storage_organization_id(
+            storage_organization_id
+        )
         paths = project_bundle_paths(
             workspace, project_id=project_id, require_slug=True
         )
         return [
             (
                 ProjectStorageKey(
-                    storage_organization_id=org_id, project_slug=path.stem
+                    storage_organization_id=organization_id, project_slug=path.stem
                 ),
                 path,
             )
@@ -858,7 +860,9 @@ def _recovery_targets(
         if not organization_dir.is_dir():
             continue
         try:
-            org_id = require_opener_storage_organization_id(int(organization_dir.name))
+            organization_id = require_opener_storage_organization_id(
+                int(organization_dir.name)
+            )
         except ValueError:
             continue
         for path in project_bundle_paths(
@@ -867,7 +871,7 @@ def _recovery_targets(
             targets.append(
                 (
                     ProjectStorageKey(
-                        storage_organization_id=org_id, project_slug=path.stem
+                        storage_organization_id=organization_id, project_slug=path.stem
                     ),
                     path,
                 )
@@ -880,14 +884,14 @@ def reconcile_notification_delivery_requests(
     *,
     workspace_root: str | Path,
     project_id: str | None = None,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     project_opener: ProjectOpener | None = None,
 ) -> int:
     workspace = Path(workspace_root)
     targets = _recovery_targets(
         workspace,
         project_id=project_id,
-        storage_org_id=storage_org_id,
+        storage_organization_id=storage_organization_id,
         project_opener=project_opener,
     )
     reconciled = 0
@@ -933,7 +937,7 @@ def reconcile_notification_delivery_requests(
                     queue,
                     workspace_root=project_path.parent,
                     project_id=project_path.stem,
-                    storage_org_id=storage_key.storage_organization_id
+                    storage_organization_id=storage_key.storage_organization_id
                     if storage_key is not None
                     else None,
                     request_id=int(request["id"]),

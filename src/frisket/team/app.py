@@ -1041,7 +1041,7 @@ def create_team_app(
             router,
             context,
             action_credential_resolver=document_credentials.action_credential_resolver(
-                org_id=organization_id,
+                organization_id=organization_id,
                 control_database_url=config.database_url,
             ),
             models_gateway_resolver=gateway_service.resolve_connection,
@@ -1052,7 +1052,7 @@ def create_team_app(
         config.data_dir,
         queue=open_queue(database_url=config.run_queue_database_url, cloud=False),
         control_database_url=config.database_url,
-        queue_payload_extra={"org_id": organization_id},
+        queue_payload_extra={"organization_id": organization_id},
         executor_deps_factory=_team_executor_deps_factory,
         execution_composition_factory=team_execution_composition,
         provider_keys_resolver=lambda: organization_provider_keys(

@@ -144,7 +144,7 @@ def _enqueue_refresh_action_run(
     project: Project,
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None,
+    storage_organization_id: int | None,
     index_id: str,
     sheet_id: int,
     mode: str,
@@ -176,7 +176,11 @@ def _enqueue_refresh_action_run(
         "dedupe_key": dedupe_key,
         "mode": mode,
         "workspace_root": str(workspace_root),
-        **({"storage_org_id": storage_org_id} if storage_org_id is not None else {}),
+        **(
+            {"storage_organization_id": storage_organization_id}
+            if storage_organization_id is not None
+            else {}
+        ),
     }
     if row_ids:
         payload_extra["row_ids"] = sorted({int(r) for r in row_ids})
@@ -205,7 +209,7 @@ def enqueue_source_append_refreshes(
     project: Project,
     project_id: str,
     workspace_root: str | Path,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     sheet_id: int,
     row_ids: list[int],
     trigger_ref: dict[str, Any] | None = None,
@@ -229,7 +233,7 @@ def enqueue_source_append_refreshes(
             queue.find_job_by_refs(
                 EMBEDDING_REFRESH_ENQUEUE_KIND,
                 project_id=project_id,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 dedupe_key=dedupe_key,
             )
             is not None
@@ -240,7 +244,7 @@ def enqueue_source_append_refreshes(
             project=project,
             project_id=project_id,
             workspace_root=workspace_root,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             index_id=index_id,
             sheet_id=int(sheet_id),
             row_ids=appended,
@@ -319,7 +323,7 @@ def enqueue_due_scheduled_refreshes(
     *,
     workspace_root: str | Path,
     queue: JobQueue,
-    storage_org_id: int | None = None,
+    storage_organization_id: int | None = None,
     now: datetime | None = None,
     max_attempts: int = 3,
     project_opener: ProjectOpener | None = None,
@@ -344,7 +348,7 @@ def enqueue_due_scheduled_refreshes(
                     EMBEDDING_REFRESH_ENQUEUE_KIND,
                     statuses=_ALL_JOB_STATUSES,
                     project_id=project_id,
-                    storage_org_id=storage_org_id,
+                    storage_organization_id=storage_organization_id,
                     dedupe_key=dedupe_key,
                 )
                 is not None
@@ -362,7 +366,7 @@ def enqueue_due_scheduled_refreshes(
                 project=project,
                 project_id=project_id,
                 workspace_root=root,
-                storage_org_id=storage_org_id,
+                storage_organization_id=storage_organization_id,
                 index_id=index_id,
                 sheet_id=int(idx["sheet_id"]),
                 trigger_ref=trigger_ref,
@@ -383,7 +387,7 @@ def enqueue_due_scheduled_refreshes(
 
     scan_projects(
         project_bundle_paths(root, require_slug=project_opener is not None),
-        bundle_opener(Project, project_opener, storage_org_id),
+        bundle_opener(Project, project_opener, storage_organization_id),
         visit,
         failure_event="embedding_project_schedule_failed",
     )
@@ -419,7 +423,7 @@ def register_embedding_refresh_handler(
         *,
         project_id: str,
         project_root: Path,
-        storage_org_id: int | None,
+        storage_organization_id: int | None,
         index_id: str,
         trigger_ref: dict[str, Any] | None,
     ) -> int:
@@ -432,7 +436,7 @@ def register_embedding_refresh_handler(
             project=project,
             project_id=project_id,
             workspace_root=project_root,
-            storage_org_id=storage_org_id,
+            storage_organization_id=storage_organization_id,
             index_id=index_id,
             trigger_ref=trigger_ref,
         )
@@ -463,7 +467,7 @@ def register_embedding_refresh_handler(
                     # The worker routed this job to its claimed physical project,
                     # so read the storage organization from that claimed location as a
                     # typed identity rather than parsing a raw directory name.
-                    storage_org_id=_claimed_storage_organization_id(project),
+                    storage_organization_id=_claimed_storage_organization_id(project),
                     index_id=index_id,
                     trigger_ref=output_ref.get("trigger_ref"),
                 )

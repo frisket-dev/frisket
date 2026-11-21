@@ -352,9 +352,9 @@ def test_worker_action_port_uses_only_trusted_organization_identity():
     seen = []
 
     class Port:
-        def action_credential_resolver(self, *, org_id, control_database_url):
-            seen.append(org_id)
-            return OrganizationDocumentCredentials(org_id, {})
+        def action_credential_resolver(self, *, organization_id, control_database_url):
+            seen.append(organization_id)
+            return OrganizationDocumentCredentials(organization_id, {})
 
     ports = WorkerPorts(action_credential_port=Port())
     resolver = resolve_run_action_credentials(

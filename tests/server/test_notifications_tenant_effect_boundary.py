@@ -96,7 +96,7 @@ def _payload(key: ProjectStorageKey, request_id: int) -> dict[str, Any]:
     return {
         CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY: key,
         "project_id": key.project_slug,
-        "storage_org_id": key.storage_organization_id,
+        "storage_organization_id": key.storage_organization_id,
         "request_id": request_id,
     }
 

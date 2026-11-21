@@ -128,9 +128,9 @@ def _enqueue_search_index_after_completion(
         }
         claimed = payload.get(CLAIMED_PROJECT_STORAGE_KEY_PAYLOAD_KEY)
         if isinstance(claimed, ProjectStorageKey):
-            continuation["storage_org_id"] = claimed.storage_organization_id
+            continuation["storage_organization_id"] = claimed.storage_organization_id
         if isinstance(context.trusted_job_organization_id, int):
-            continuation["org_id"] = context.trusted_job_organization_id
+            continuation["organization_id"] = context.trusted_job_organization_id
 
         from .search_index import enqueue_search_index
 
@@ -316,12 +316,12 @@ def _organization_local_server_env_bundle(
 def resolve_run_local_endpoints(
     root: str | Path,
     *,
-    org_id: int | str | None,
+    organization_id: int | str | None,
     env: dict[str, str] | None = None,
 ) -> tuple[LocalModelEndpointConfig, ...]:
     """Plural execution authority; organization runs receive only operator endpoints."""
 
-    if org_id is not None:
+    if organization_id is not None:
         config = _organization_local_server_env_bundle(env)
         return (config,) if config is not None else ()
     configs, _notes = resolve_local_endpoints(root, env)
@@ -337,11 +337,11 @@ def resolve_run_action_credentials(
     port = ports.action_credential_port
     if port is None:
         return None
-    org_id = handler_context.trusted_job_organization_id
-    if not isinstance(org_id, int):
+    organization_id = handler_context.trusted_job_organization_id
+    if not isinstance(organization_id, int):
         raise ValueError("Organization action credentials require trusted job identity")
     return port.action_credential_resolver(
-        org_id=org_id, control_database_url=control_database_url
+        organization_id=organization_id, control_database_url=control_database_url
     )
 
 
@@ -363,7 +363,7 @@ def resolve_run_models_gateway(
     trusted_organization_id = handler_context.trusted_job_organization_id
     if isinstance(trusted_organization_id, int):
         return ports.models_gateway().models_gateway_connection(
-            org_id=int(trusted_organization_id),
+            organization_id=int(trusted_organization_id),
             control_database_url=control_database_url,
         )
     return resolve_models_gateway(root, env)
@@ -372,29 +372,29 @@ def resolve_run_models_gateway(
 def resolve_run_keys(
     workspace_root: str | Path,
     *,
-    org_id: int | str | None,
+    organization_id: int | str | None,
     credentials: Any,
     control_database_url: str | None,
 ) -> tuple[dict[str, str] | None, str]:
     """The provider keys a queued run's router starts from, plus their
     non-secret provenance label (worker-local-provider-keys-v1).
 
-    Hosted (org_id + control DB): organization BYOK rows through the credentials port,
+    Hosted (organization_id + control DB): organization BYOK rows through the credentials port,
     resolved at claim time — plaintext never rides the queue payload.
     Local tier: the UI-entered workspace provider-key file, with env still
     winning per ``resolve_effective_keys`` — the same layer the
     server process already gives the copilot/previews, without which a run
     fails per-row with the missing-key remediation while the copilot works.
     """
-    if org_id is not None and control_database_url and credentials is not None:
+    if organization_id is not None and control_database_url and credentials is not None:
         keys = dict(
             credentials.provider_keys(
-                org_id=int(org_id),
+                organization_id=int(organization_id),
                 control_database_url=control_database_url,
             )
         )
         return keys, "org_byok"
-    if org_id is not None:
+    if organization_id is not None:
         # No control-plane read happened, so no returned key can honestly be
         # labeled organization BYOK. The only possible value is operator deployment
         # infrastructure from the environment. Calling it ``org_byok`` made a
@@ -422,7 +422,7 @@ def resolve_run_search_credentials(
             return {}
         return dict(
             port.search_provider_keys(
-                org_id=trusted_organization_id,
+                organization_id=trusted_organization_id,
                 control_database_url=control_database_url,
             )
         )
@@ -785,7 +785,7 @@ def register_project_run_handler(
             if project_opener is None
             else open_claimed_project(payload, project_path, project_opener)
         )
-        org_id = payload.get("org_id")
+        organization_id = payload.get("organization_id")
         raw_cache_mode = payload["v1_cache_mode"]
         if raw_cache_mode not in CACHE_MODES:
             raise ValueError(f"queued run has invalid cache mode {raw_cache_mode!r}")
@@ -793,7 +793,7 @@ def register_project_run_handler(
         db_url = control_database_url or os.environ.get("FRISKET_DATABASE_URL")
         keys, keys_source = resolve_run_keys(
             root,
-            org_id=org_id,
+            organization_id=organization_id,
             credentials=credentials,
             control_database_url=db_url,
         )
@@ -842,7 +842,9 @@ def register_project_run_handler(
                     project_root=project_root,
                 )
                 return result
-            run_local_endpoints = resolve_run_local_endpoints(root, org_id=org_id)
+            run_local_endpoints = resolve_run_local_endpoints(
+                root, organization_id=organization_id
+            )
             raw_edition_snapshot = None if row is None else row["edition_run_context"]
             pre_run_error = _queued_pre_run_error(
                 project,
@@ -950,7 +952,7 @@ def register_project_run_handler(
                 base_router,
                 keys=keys,
                 keys_source=keys_source,
-                use_env_keys=org_id is None,
+                use_env_keys=organization_id is None,
                 local_endpoints=run_local_endpoints,
                 cache_mode=queued_cache_mode,
                 response_cache=cache_override,
