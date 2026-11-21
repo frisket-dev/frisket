@@ -19,7 +19,7 @@ from frisket.engine.store import Project
 from frisket.engine.store.result_generations import ResultGenerationStore
 from frisket.engine.store.review_stats import ensure_run_review_stats
 from frisket.engine.store.runs import EXPECTED_ROW_ERROR, RunResultStore
-from frisket.execution.attempt import set_attempt_state
+from frisket.execution.attempt import set_attempt_state_in_transaction
 
 
 class RunFinalization(TypedDict):
@@ -229,11 +229,10 @@ def _finalize_run_in_transaction(
     if terminal_attempt_id is not None:
         if terminal_attempt_state is None:
             raise ValueError("terminal attempt state is required with an attempt id")
-        set_attempt_state(
+        set_attempt_state_in_transaction(
             project,
             terminal_attempt_id,
             terminal_attempt_state,
-            commit=False,
         )
 
     # Capture final output descriptors once, after publication and visibility.

@@ -8,6 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -17,7 +18,9 @@ from frisket.engine.store.artifact_timeline import (
     TimelineError,
     ensure_artifact_timeline,
     ensure_media_timeline,
+    ensure_media_timeline_in_transaction,
     ensure_transcript_timeline,
+    MediaTimelineSpec,
     map_range_to_root,
     media_timeline_fingerprint,
     ordered_segments_hash,
@@ -67,8 +70,10 @@ def _assert_code(exc: pytest.ExceptionInfo[TimelineError], code: str) -> None:
     assert exc.value.code == code
 
 
-@pytest.mark.parametrize("helper", ["transcript", "rate1"])
-@pytest.mark.parametrize("caller_owned", [False, True])
+@pytest.mark.parametrize(
+    ("helper", "caller_owned"),
+    [("transcript", False), ("rate1", True), ("media", False), ("media_in_txn", True)],
+)
 @pytest.mark.parametrize(
     "interruption", [asyncio.CancelledError, KeyboardInterrupt, SystemExit]
 )
@@ -82,16 +87,18 @@ def test_timeline_interruption_preserves_transaction_ownership(
                 project, artifact_kind="text", media_type="text/plain"
             )
         perform = ensure_transcript_timeline
-        kwargs = {
+        args: tuple[Any, ...] = ()
+        kwargs: dict[str, Any] = {
             "artifact_id": artifact["id"],
             "duration_ms": 1000,
             "segments": [{"start_ms": 0, "end_ms": 1000, "text": "one"}],
         }
         prefix = "UPDATE source_artifacts"
-    else:
+    elif helper == "rate1":
         source = _artifact(project, "source", 10_000)
         derived = _artifact(project, "derived", 1000)
         perform = write_rate1_timeline_segment
+        args = ()
         kwargs = {
             "derived_artifact_id": derived["id"],
             "source_artifact_id": source["id"],
@@ -100,6 +107,19 @@ def test_timeline_interruption_preserves_transaction_ownership(
             "precision": "exact",
         }
         prefix = "INSERT INTO artifact_timeline_segments"
+    else:
+        digest = project.add_blob(
+            b"interrupt media", filename="clip.mp4", mime="video/mp4"
+        )
+        if helper == "media":
+            perform = ensure_media_timeline
+            args = ()
+            kwargs = {"blob_hash": digest, "duration_ms": 1000}
+        else:
+            perform = ensure_media_timeline_in_transaction
+            args = (MediaTimelineSpec(blob_hash=digest, duration_ms=1000),)
+            kwargs = {}
+        prefix = "INSERT INTO source_artifacts"
 
     assert not project.db.in_transaction
     before = tuple(project.db.iterdump())
@@ -122,7 +142,7 @@ def test_timeline_interruption_preserves_transaction_ownership(
             return result
 
     with pytest.raises(interruption) as caught:
-        perform(SimpleNamespace(db=InterruptAfterWrite()), **kwargs)
+        perform(SimpleNamespace(db=InterruptAfterWrite()), *args, **kwargs)
     assert caught.value is failure
     assert writes == [True]
     assert project.db.in_transaction is caller_owned
@@ -431,12 +451,14 @@ def test_concurrent_first_media_ensure_is_atomic_and_survives_reopen(
         # The first ensure participates in its caller's transaction.  A second
         # connection cannot observe or create around that uncommitted revision.
         first.db.execute("BEGIN IMMEDIATE")
-        first_anchor = ensure_media_timeline(
+        first_anchor = ensure_media_timeline_in_transaction(
             first,
-            blob_hash=blob_hash,
-            duration_ms=12_500,
-            media_type="video/mp4",
-            filename="source.mp4",
+            MediaTimelineSpec(
+                blob_hash=blob_hash,
+                duration_ms=12_500,
+                media_type="video/mp4",
+                filename="source.mp4",
+            ),
         )
         assert first.db.in_transaction
         observer = sqlite3.connect(bundle / "project.db")
@@ -595,15 +617,16 @@ def test_rate1_writer_is_exact_complete_and_single_assignment(
     project = make_project("timeline-write")
     source = _artifact(project, "source", 120_000)
     derived = _artifact(project, "clip", 30_000)
-    segment = write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=derived["id"],
-        source_artifact_id=source["id"],
-        source_start_ms=40_000,
-        source_end_ms=70_000,
-        precision="frame_accurate",
-        params={"alignment_error_ms": 0, "profile": "accurate-v1"},
-    )
+    with write_transaction(project.db):
+        segment = write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=derived["id"],
+            source_artifact_id=source["id"],
+            source_start_ms=40_000,
+            source_end_ms=70_000,
+            precision="frame_accurate",
+            params={"alignment_error_ms": 0, "profile": "accurate-v1"},
+        )
     assert (
         segment.ordinal,
         segment.derived_start_ms,
@@ -620,14 +643,15 @@ def test_rate1_writer_is_exact_complete_and_single_assignment(
     assert resolve_artifact_timeline(project, derived["id"]).kind == "derived"
 
     with pytest.raises(TimelineError) as exc:
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=derived["id"],
-            source_artifact_id=source["id"],
-            source_start_ms=40_000,
-            source_end_ms=70_000,
-            precision="frame_accurate",
-        )
+        with write_transaction(project.db):
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=derived["id"],
+                source_artifact_id=source["id"],
+                source_start_ms=40_000,
+                source_end_ms=70_000,
+                precision="frame_accurate",
+            )
     _assert_code(exc, "ambiguous_time_mapping")
 
 
@@ -638,37 +662,40 @@ def test_rate1_writer_rejects_fuzzy_length_out_of_bounds_and_self_links(
     source = _artifact(project, "source", 20_000)
     mismatch = _artifact(project, "mismatch", 10_001)
     with pytest.raises(TimelineError) as exc:
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=mismatch["id"],
-            source_artifact_id=source["id"],
-            source_start_ms=0,
-            source_end_ms=10_000,
-            precision="exact",
-        )
+        with write_transaction(project.db):
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=mismatch["id"],
+                source_artifact_id=source["id"],
+                source_start_ms=0,
+                source_end_ms=10_000,
+                precision="exact",
+            )
     _assert_code(exc, "ambiguous_time_mapping")
 
     outside = _artifact(project, "outside", 10_000)
     with pytest.raises(TimelineError) as exc:
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=outside["id"],
-            source_artifact_id=source["id"],
-            source_start_ms=15_000,
-            source_end_ms=25_000,
-            precision="exact",
-        )
+        with write_transaction(project.db):
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=outside["id"],
+                source_artifact_id=source["id"],
+                source_start_ms=15_000,
+                source_end_ms=25_000,
+                precision="exact",
+            )
     _assert_code(exc, "range_out_of_bounds")
 
     with pytest.raises(TimelineError) as exc:
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=source["id"],
-            source_artifact_id=source["id"],
-            source_start_ms=0,
-            source_end_ms=20_000,
-            precision="exact",
-        )
+        with write_transaction(project.db):
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=source["id"],
+                source_artifact_id=source["id"],
+                source_start_ms=0,
+                source_end_ms=20_000,
+                precision="exact",
+            )
     _assert_code(exc, "ambiguous_time_mapping")
     assert (
         project.db.execute(
@@ -683,22 +710,23 @@ def test_clip_of_clip_path_composes_exact_integer_offsets(make_project) -> None:
     root = _artifact(project, "root", 120_000)
     clip = _artifact(project, "clip", 60_000)
     excerpt = _artifact(project, "excerpt", 10_000)
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=clip["id"],
-        source_artifact_id=root["id"],
-        source_start_ms=30_000,
-        source_end_ms=90_000,
-        precision="frame_accurate",
-    )
-    write_rate1_timeline_segment(
-        project,
-        derived_artifact_id=excerpt["id"],
-        source_artifact_id=clip["id"],
-        source_start_ms=5_000,
-        source_end_ms=15_000,
-        precision="frame_accurate",
-    )
+    with write_transaction(project.db):
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=clip["id"],
+            source_artifact_id=root["id"],
+            source_start_ms=30_000,
+            source_end_ms=90_000,
+            precision="frame_accurate",
+        )
+        write_rate1_timeline_segment(
+            project,
+            derived_artifact_id=excerpt["id"],
+            source_artifact_id=clip["id"],
+            source_start_ms=5_000,
+            source_end_ms=15_000,
+            precision="frame_accurate",
+        )
 
     path = timeline_path_to_root(project, excerpt["id"])
     assert [item.source_artifact_id for item in path] == [clip["id"], root["id"]]
@@ -737,14 +765,15 @@ def _equivalent_root_clips(
         ]
     clips = [_artifact(project, f"clip-{index}", 4_000) for index in range(2)]
     for root, clip in zip(roots, clips, strict=True):
-        write_rate1_timeline_segment(
-            project,
-            derived_artifact_id=clip["id"],
-            source_artifact_id=root["id"],
-            source_start_ms=1_000,
-            source_end_ms=5_000,
-            precision="exact",
-        )
+        with write_transaction(project.db):
+            write_rate1_timeline_segment(
+                project,
+                derived_artifact_id=clip["id"],
+                source_artifact_id=root["id"],
+                source_start_ms=1_000,
+                source_end_ms=5_000,
+                precision="exact",
+            )
     return roots[0], roots[1], clips[0], clips[1]
 
 

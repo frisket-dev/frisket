@@ -14,6 +14,7 @@ from frisket.engine.executor.project_run_terminalization import (
     NeverDispatchedRunTerminalAuthority,
     UnclaimedRunTerminalAuthority,
     terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.engine.executor.queued_actions import (
     queued_v1_terminal_receipt_transition,
@@ -988,14 +989,13 @@ def test_never_dispatched_authority_requires_owned_immediate_transaction(
     project.db.execute("BEGIN")
     try:
         with pytest.raises(ValueError, match="owned BEGIN IMMEDIATE"):
-            terminalize_project_run(
+            terminalize_project_run_in_transaction(
                 project,
                 run_id=run.run_id,
                 receipt_id=run.receipt_id,
                 status="failed",
                 authority=NeverDispatchedRunTerminalAuthority(),
                 errors=[_never_dispatched_consent_error()],
-                commit=False,
             )
     finally:
         project.db.rollback()
@@ -1685,7 +1685,7 @@ def test_current_writer_terminalization_rolls_back_when_attempt_close_refuses(
 
     monkeypatch.setattr(
         terminalizer_module,
-        "set_attempt_state",
+        "set_attempt_state_in_transaction",
         lambda *_args, **_kwargs: None,
     )
 

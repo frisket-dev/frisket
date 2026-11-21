@@ -422,21 +422,22 @@ def test_imported_pdf_page_image_is_not_planned_beside_its_pdf_page(
             page_end=1,
             preview={"blob_hash": image_hash, "mime": "image/png"},
         )
-    record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref={
-            "kind": "source_cell",
-            "sheet_id": sheet,
-            "row_id": row,
-            "column_id": page_image,
-        },
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet,
-        row_id=row,
-        column_id=page_image,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref={
+                "kind": "source_cell",
+                "sheet_id": sheet,
+                "row_id": row,
+                "column_id": page_image,
+            },
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet,
+            row_id=row,
+            column_id=page_image,
+            link_role="primary_support",
+        )
 
     async def blank_page(_path, **_kwargs):
         return PdfTextSample("", 1, 1, False)

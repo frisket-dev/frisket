@@ -177,16 +177,16 @@ def test_capture_page_overwrite_undo_redo_restores_prior_evidence(
             span_kind="whole",
             snippet="first capture evidence",
         )
-    attached = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=refs[row_id],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=output_column_id,
-        op_id=first.op_ids[0],
-    )
+        attached = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=refs[row_id],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=output_column_id,
+            op_id=first.op_ids[0],
+        )
     first_evidence = list_cell_citations(
         project,
         sheet_id=sheet_id,

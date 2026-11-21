@@ -903,7 +903,7 @@ def verify_bundle(
         return "unknown"
     state = "unknown" if equal is None else ("fresh" if equal else "stale")
     # No provider work: a source edit races only this small cache publication.
-    with write_transaction(project.db, commit=not project.db.in_transaction):
+    with write_transaction(project.db, what="consumed source verification"):
         if capture_revisions(project, capture) != revisions:
             state = "unknown"
         project.db.execute(

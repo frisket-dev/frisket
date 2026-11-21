@@ -653,7 +653,7 @@ def test_result_publication_rolls_back_callback_result_and_head_together(
                 claim_token=claimed_run.authority.claim_token,
                 claimless_direct_effect=claimed_run.authority.claimless_direct_effect,
                 authorized_attempt_id=claimed_run.authority.writer_attempt_id,
-                evidence_writer=fail_after_evidence_write,
+                citation_writer=fail_after_evidence_write,
             )
 
         assert (
@@ -707,7 +707,7 @@ def test_result_publication_keeps_writer_fence_before_callback(
                 writer_attempt_id=claimed_run.authority.writer_attempt_id,
                 claim_token="output-claim:wrong",
                 authorized_attempt_id=claimed_run.authority.writer_attempt_id,
-                evidence_writer=write_evidence,
+                citation_writer=write_evidence,
             )
 
         assert callback_called is False
@@ -778,7 +778,7 @@ def test_checkpoint_result_publication_defers_heads_until_seal(
             checkpoint=(checkpoint_id, row_ids[0], checkpoint_identity),
             checkpoint_action_kind="map.regex_extract",
             defer_generation_seal=True,
-            evidence_writer=lambda: project.db.execute(
+            citation_writer=lambda: project.db.execute(
                 "UPDATE ops SET label='evidence saved' WHERE id=?",
                 (claimed_run.op_id,),
             ),

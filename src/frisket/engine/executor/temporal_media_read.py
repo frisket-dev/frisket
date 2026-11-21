@@ -27,7 +27,7 @@ from frisket.contracts.action import ActionError
 from frisket.engine.executor.embedding_read import TableReadRefused
 from frisket.engine.executor.temporal_materialization import (
     CoreTemporalMediaMaterializer,
-    revalidate_action_sources,
+    revalidate_action_sources_in_transaction,
     revalidate_temporal_media_source,
     temporal_inherited_output_keys,
 )
@@ -338,7 +338,9 @@ class AdmittedTemporalMediaReader:
         if self.preview_stager is not None:
             raise ValueError("preview temporal values cannot be published")
         for plan in self.plans:
-            revalidate_action_sources(self.project, plan.source_snapshots)
+            revalidate_action_sources_in_transaction(
+                self.project, plan.source_snapshots
+            )
             for source in plan.sources:
                 revalidate_temporal_media_source(self.project, source)
         issued_cells = {

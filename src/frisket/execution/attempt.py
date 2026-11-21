@@ -483,15 +483,14 @@ def admit_attempt(
         )
 
 
-def set_attempt_state(
+def set_attempt_state_in_transaction(
     project: Any,
     attempt_id: str,
     state: str,
-    *,
-    commit: bool = True,
 ) -> None:
-    """A terminal transition (``effected``/``halted``). Never moves a row that
-    already left ``dispatching`` — terminal states are final.
+    """A terminal transition (``effected``/``halted``) inside the caller's open
+    transaction. Never moves a row that already left ``dispatching`` — terminal
+    states are final.
 
     A terminal transition also CLEARS ``runs.current_attempt_id`` when it names
     this attempt. Without that the pointer keeps naming a finished attempt
@@ -506,17 +505,29 @@ def set_attempt_state(
     """
     if state not in ATTEMPT_STATES:  # pragma: no cover - typed call sites
         raise ValueError(f"unknown attempt state {state!r}")
-    with write_transaction(project.db, commit=commit, what="attempt state update"):
+    require_transaction(project.db, "attempt state update")
+    project.db.execute(
+        "UPDATE execution_attempts SET state=? WHERE id=? AND state IN "
+        "('created','admitted','dispatching')",
+        (state, attempt_id),
+    )
+    if state in TERMINAL_ATTEMPT_STATES:
         project.db.execute(
-            "UPDATE execution_attempts SET state=? WHERE id=? AND state IN "
-            "('created','admitted','dispatching')",
-            (state, attempt_id),
+            "UPDATE runs SET current_attempt_id=NULL WHERE current_attempt_id=?",
+            (attempt_id,),
         )
-        if state in TERMINAL_ATTEMPT_STATES:
-            project.db.execute(
-                "UPDATE runs SET current_attempt_id=NULL WHERE current_attempt_id=?",
-                (attempt_id,),
-            )
+
+
+def set_attempt_state(
+    project: Any,
+    attempt_id: str,
+    state: str,
+) -> None:
+    """A terminal transition (``effected``/``halted``) in its own write transaction."""
+    if state not in ATTEMPT_STATES:
+        raise ValueError(f"unknown attempt state {state!r}")
+    with write_transaction(project.db, what="attempt state update"):
+        set_attempt_state_in_transaction(project, attempt_id, state)
 
 
 def load_attempt(project: Any, attempt_id: str) -> Any:

@@ -64,7 +64,7 @@ from .similarity import (
     resolve_embedding_similarity,
 )
 from .source_payload import build_source_payloads, source_hash, source_hash_for_row
-from .store import REMOTE_PROVIDER_KINDS, EmbeddingStore
+from .store import REMOTE_PROVIDER_KINDS, EmbeddingStore, IndexCountUpdate
 
 __all__ = [
     "ALL_MODALITIES",
@@ -78,6 +78,7 @@ __all__ = [
     "EmbeddingGateway",
     "EmbeddingProviderError",
     "EmbeddingStore",
+    "IndexCountUpdate",
     "SimilarityError",
     "SimilarityHit",
     "SimilarityResult",

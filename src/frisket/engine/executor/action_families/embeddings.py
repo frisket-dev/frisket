@@ -66,6 +66,7 @@ from frisket.ai.embeddings import (
     EmbeddingGateway,
     EmbeddingProviderError,
     EmbeddingStore,
+    IndexCountUpdate,
     make_space_descriptor,
     resolve_embedding_capability,
 )
@@ -134,12 +135,13 @@ from frisket.execution.consent_coverage import (
 from frisket.execution.pricing_policy import default_pricing_policy
 from frisket.engine.executor.project_run_terminalization import (
     CurrentWriterTerminalAuthority,
-    terminalize_project_run,
+    terminalize_project_run_in_transaction,
 )
 from frisket.execution.attempt import (
     AttemptClaimRefused,
     StaleAttemptWriter,
     set_attempt_state,
+    set_attempt_state_in_transaction,
 )
 from frisket.execution.attempt_authority import mint_direct_effect_attempt
 from frisket.engine.store import Project
@@ -148,6 +150,7 @@ from frisket.engine.store.output_claims import OutputColumnClaimStore
 from frisket.engine.store.receipts import ReceiptStore
 from frisket.engine.store.runs import RunResultStore
 from frisket.engine.store.transactions import (
+    require_transaction,
     roll_back_failed_work,
     write_transaction,
 )
@@ -1544,18 +1547,13 @@ def _mark_embedding_probe_egress_reserved(
     receipt = receipt.model_copy(
         update={"run_id": run_id, "op_ids": [op_id], "evidence": supporting_records}
     )
-    try:
-        project.db.execute("BEGIN IMMEDIATE")
+    with write_transaction(project.db, what="embedding probe egress reservation"):
         landed = ReceiptStore(project).update_body_status_in_transaction(
             receipt,
             require_status="running",
         )
         if not landed:
             raise RuntimeError("embedding probe reservation was lost before egress")
-        project.db.commit()
-    except BaseException:
-        project.db.rollback()
-        raise
 
 
 def _run_paid_embedding_dimension_probe(
@@ -1659,7 +1657,7 @@ def _run_paid_embedding_dimension_probe(
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
             ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
@@ -1683,8 +1681,7 @@ def _run_paid_embedding_dimension_probe(
         )
     except asyncio.CancelledError:
         project.db.rollback()
-        project.db.execute("BEGIN IMMEDIATE")
-        try:
+        with write_transaction(project.db, what="cancel embedding probe"):
             run_store.request_cancel_in_transaction(run_id)
             run_store.finish_run_in_transaction(
                 run_id,
@@ -1693,11 +1690,7 @@ def _run_paid_embedding_dimension_probe(
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
-            project.db.commit()
-        except BaseException:
-            project.db.rollback()
-            raise
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
         raise
     except EmbeddingBackendUnavailable as exc:
         with write_transaction(project.db):
@@ -1708,7 +1701,7 @@ def _run_paid_embedding_dimension_probe(
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
-            set_attempt_state(project, attempt_id, "halted", commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "halted")
             ReceiptStore(project).delete_running_in_transaction(receipt_id)
         return _error(
             action,
@@ -1784,7 +1777,6 @@ def _run_paid_embedding_dimension_probe(
                 fact=provider_fact,
                 sheet_id=sheet_id,
                 row_ids=probe_row_ids,
-                commit=False,
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
                 authorized_attempt_id=attempt_id,
@@ -1796,7 +1788,7 @@ def _run_paid_embedding_dimension_probe(
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
-            set_attempt_state(project, attempt_id, "effected", commit=False)
+            set_attempt_state_in_transaction(project, attempt_id, "effected")
         return _error(
             action,
             project_id,
@@ -1856,60 +1848,7 @@ def _run_paid_embedding_dimension_probe(
         ],
     )
     try:
-        project.db.execute("BEGIN IMMEDIATE")
-        _persist_embedding_provider_fact(
-            project,
-            run_store=run_store,
-            run_id=run_id,
-            fact=provider_fact,
-            sheet_id=sheet_id,
-            row_ids=probe_row_ids,
-            commit=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-            authorized_attempt_id=attempt_id,
-        )
-        landed = ReceiptStore(project).update_body_status_in_transaction(
-            checkpoint_receipt, require_status="running"
-        )
-        if not landed:
-            raise RuntimeError("embedding probe reservation was lost")
-        # This run records the provider effect, not the later index metadata
-        # write. Settle the returned probe with its paid fact so a metadata
-        # retry never needs to rewrite a terminal run.
-        cancelled_after_return = run_store.cancellation_requested(run_id)
-        if not cancelled_after_return:
-            settled = project.db.execute(
-                "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                "WHERE id=? AND total_rows=1 AND status='running'",
-                (run_id,),
-            )
-            if settled.rowcount != 1:
-                raise RuntimeError(
-                    "embedding probe run changed before returned-effect settlement"
-                )
-        run_store.finish_run_in_transaction(
-            run_id,
-            "cancelled" if cancelled_after_return else "completed",
-            rebuild_review_stats=False,
-            writer_attempt_id=attempt_id,
-            claimless_direct_effect=True,
-        )
-        set_attempt_state(
-            project,
-            attempt_id,
-            "halted" if cancelled_after_return else "effected",
-            commit=False,
-        )
-        project.db.commit()
-    except BaseException as exc:
-        project.db.rollback()
-        if isinstance(exc, StaleAttemptWriter):
-            raise
-        # The provider has returned. Even if the checkpoint write itself breaks,
-        # preserve its call fact and cost; the bare reservation then refuses a
-        # second egress rather than guessing that the first call was free.
-        try:
+        with write_transaction(project.db, what="embedding probe checkpoint"):
             _persist_embedding_provider_fact(
                 project,
                 run_store=run_store,
@@ -1921,7 +1860,56 @@ def _run_paid_embedding_dimension_probe(
                 claimless_direct_effect=True,
                 authorized_attempt_id=attempt_id,
             )
-            project.db.execute("BEGIN IMMEDIATE")
+            landed = ReceiptStore(project).update_body_status_in_transaction(
+                checkpoint_receipt, require_status="running"
+            )
+            if not landed:
+                raise RuntimeError("embedding probe reservation was lost")
+            # This run records the provider effect, not the later index metadata
+            # write. Settle the returned probe with its paid fact so a metadata
+            # retry never needs to rewrite a terminal run.
+            cancelled_after_return = run_store.cancellation_requested(run_id)
+            if not cancelled_after_return:
+                settled = project.db.execute(
+                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                    "WHERE id=? AND total_rows=1 AND status='running'",
+                    (run_id,),
+                )
+                if settled.rowcount != 1:
+                    raise RuntimeError(
+                        "embedding probe run changed before returned-effect settlement"
+                    )
+            run_store.finish_run_in_transaction(
+                run_id,
+                "cancelled" if cancelled_after_return else "completed",
+                rebuild_review_stats=False,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+            )
+            set_attempt_state_in_transaction(
+                project,
+                attempt_id,
+                "halted" if cancelled_after_return else "effected",
+            )
+    except BaseException as exc:
+        if isinstance(exc, StaleAttemptWriter):
+            raise
+        # The provider has returned. Even if the checkpoint write itself breaks,
+        # preserve its call fact and cost; the bare reservation then refuses a
+        # second egress rather than guessing that the first call was free.
+        with write_transaction(project.db, what="embedding probe returned fact"):
+            _persist_embedding_provider_fact(
+                project,
+                run_store=run_store,
+                run_id=run_id,
+                fact=provider_fact,
+                sheet_id=sheet_id,
+                row_ids=probe_row_ids,
+                writer_attempt_id=attempt_id,
+                claimless_direct_effect=True,
+                authorized_attempt_id=attempt_id,
+            )
+        with write_transaction(project.db, what="embedding probe failure close"):
             run_store.finish_run_in_transaction(
                 run_id,
                 "cancelled" if run_store.cancellation_requested(run_id) else "failed",
@@ -1929,13 +1917,7 @@ def _run_paid_embedding_dimension_probe(
                 writer_attempt_id=attempt_id,
                 claimless_direct_effect=True,
             )
-            set_attempt_state(project, attempt_id, "effected", commit=False)
-            project.db.commit()
-        except BaseException:
-            # The durable egress reservation still fences retries if accounting
-            # itself fails. Never leave its partial transaction for a later commit.
-            project.db.rollback()
-            raise
+            set_attempt_state_in_transaction(project, attempt_id, "effected")
         if not isinstance(exc, Exception):
             raise
         return _error(
@@ -2236,159 +2218,159 @@ def _create_index(
     receipt_id = reserved_receipt_id or _new_id("receipt")
     store = EmbeddingStore(project)
     try:
-        project.db.execute("BEGIN IMMEDIATE")
-        existing = (
-            ReceiptStore(project).find_by_id(reserved_receipt_id)
-            if reserved_receipt_id is not None
-            else _receipt_for_idempotency(project, action.idempotency_key)
-        )
-        if reserved_receipt_id is not None:
-            if existing is None or existing["id"] != reserved_receipt_id:
+        with write_transaction(project.db, what="embedding index create"):
+            existing = (
+                ReceiptStore(project).find_by_id(reserved_receipt_id)
+                if reserved_receipt_id is not None
+                else _receipt_for_idempotency(project, action.idempotency_key)
+            )
+            if reserved_receipt_id is not None:
+                if existing is None or existing["id"] != reserved_receipt_id:
+                    project.db.rollback()
+                    return _error(
+                        action,
+                        project_id,
+                        "idempotency_checkpoint_invalid",
+                        "paid embedding probe reservation was lost",
+                        field="idempotency_key",
+                        details={"receipt_id": reserved_receipt_id},
+                    )
+                if existing["status"] != "running":
+                    project.db.rollback()
+                    existing_state = _embedding_create_existing_state(
+                        project,
+                        action,
+                        existing,
+                        params_hash=params_hash,
+                        project_id=project_id,
+                    )
+                    if isinstance(existing_state, ActionResult):
+                        return existing_state
+                    return _error(
+                        action,
+                        project_id,
+                        "idempotency_in_progress",
+                        "embedding index creation is already being reconciled",
+                        field="idempotency_key",
+                    )
+            elif existing is not None:
                 project.db.rollback()
-                return _error(
-                    action,
-                    project_id,
-                    "idempotency_checkpoint_invalid",
-                    "paid embedding probe reservation was lost",
-                    field="idempotency_key",
-                    details={"receipt_id": reserved_receipt_id},
-                )
-            if existing["status"] != "running":
-                project.db.rollback()
-                existing_state = _embedding_create_existing_state(
+                replay = _replay(
                     project,
                     action,
-                    existing,
                     params_hash=params_hash,
                     project_id=project_id,
                 )
-                if isinstance(existing_state, ActionResult):
-                    return existing_state
-                return _error(
-                    action,
-                    project_id,
-                    "idempotency_in_progress",
-                    "embedding index creation is already being reconciled",
-                    field="idempotency_key",
-                )
-        elif existing is not None:
-            project.db.rollback()
-            replay = _replay(
-                project,
-                action,
-                params_hash=params_hash,
-                project_id=project_id,
+                if replay is not None:
+                    return replay
+                raise RuntimeError("embedding create receipt disappeared during replay")
+            # space + index + receipt commit (or roll back) together.
+            space_id = store.create_space_in_transaction(descriptor)
+            index_id = store.create_index(
+                name=params.name or f"{modality}:{','.join(params.source_columns)}",
+                space_id=space_id,
+                sheet_id=params.sheet_id,
+                source_query=params.source_query,
+                source_columns=params.source_columns,
+                source_policy=params.source_policy or {"kind": "text_cell"},
+                maintenance_policy=params.maintenance_policy or {"mode": "manual"},
+                provider_policy=params.provider_policy or {"allow_remote": False},
             )
-            if replay is not None:
-                return replay
-            raise RuntimeError("embedding create receipt disappeared during replay")
-        # commit=False: space + index + receipt commit (or roll back) together.
-        space_id = store.create_space(descriptor, commit=False)
-        index_id = store.create_index(
-            name=params.name or f"{modality}:{','.join(params.source_columns)}",
-            space_id=space_id,
-            sheet_id=params.sheet_id,
-            source_query=params.source_query,
-            source_columns=params.source_columns,
-            source_policy=params.source_policy or {"kind": "text_cell"},
-            maintenance_policy=params.maintenance_policy or {"mode": "manual"},
-            provider_policy=params.provider_policy or {"allow_remote": False},
-        )
-        output_ref = {
-            "kind": "embedding_index",
-            "operation_args_sha256": _source_policy_hash(dict(action.params)),
-            "index_id": index_id,
-            "space_id": space_id,
-            "modality": modality,
-            "provider_id": cap["provider_id"],
-            "provider_kind": cap["provider_kind"],
-            "space_model_id": space_model_id,
-            # the user's requested id + the actual id the provider used (the probe
-            # echo for discovery, else the registry id) + the (discovered) dimension.
-            "requested_model": params.model,
-            "actual_model_id": actual_model_id,
-            "dimension": int(dimensions[0]),
-            "sheet_id": params.sheet_id,
-            "source_query": params.source_query,
-            "source_policy_hash": _source_policy_hash(
-                params.source_policy or {"kind": "text_cell"}
-            ),
-            # probe facts: was a dimension-discovery probe run, and how many inputs.
-            "probe_used": probe_used,
-            "probe_input_count": probe_input_count,
-        }
-        receipt = Receipt(
-            receipt_id=receipt_id,
-            project_id=project_id,
-            action_id=action_id,
-            action_kind=action.kind,
-            idempotency_key=action.idempotency_key,
-            params_hash=params_hash,
-            status="completed",
-            run_id=probe_run_id,
-            op_ids=[probe_op_id] if probe_op_id is not None else [],
-            inputs=[
-                ReceiptIO(
-                    name="source",
-                    ref={
-                        "kind": "embedding_source",
-                        "sheet_id": params.sheet_id,
-                        "source_columns": params.source_columns,
-                        "modality": modality,
-                    },
-                )
-            ],
-            outputs=[ReceiptIO(name="embedding_index", ref=output_ref)],
-            provider_use=[
-                {
-                    "provider": cap["provider_id"],
-                    "service": "embedding.index_create",
-                    "external_api": bool(
-                        probe_used and cap["provider_kind"] in REMOTE_PROVIDER_KINDS
-                    ),
-                    "cost_actual": _provider_fact_cost_actual(probe_fact),
-                }
-            ],
-            evidence=[
-                ReceiptEvidence(ref=output_ref, retention="pinned"),
-                *(
-                    [ReceiptEvidence(ref=probe_fact, retention="pinned")]
-                    if probe_fact is not None
-                    else []
+            output_ref = {
+                "kind": "embedding_index",
+                "operation_args_sha256": _source_policy_hash(dict(action.params)),
+                "index_id": index_id,
+                "space_id": space_id,
+                "modality": modality,
+                "provider_id": cap["provider_id"],
+                "provider_kind": cap["provider_kind"],
+                "space_model_id": space_model_id,
+                # the user's requested id + the actual id the provider used (the probe
+                # echo for discovery, else the registry id) + the (discovered) dimension.
+                "requested_model": params.model,
+                "actual_model_id": actual_model_id,
+                "dimension": int(dimensions[0]),
+                "sheet_id": params.sheet_id,
+                "source_query": params.source_query,
+                "source_policy_hash": _source_policy_hash(
+                    params.source_policy or {"kind": "text_cell"}
                 ),
-            ],
-        )
-        if reserved_receipt_id is not None:
-            landed = ReceiptStore(project).update_body_status_in_transaction(
-                receipt, require_status="running"
-            )
-            if not landed:
-                raise RuntimeError("embedding probe reservation was lost")
-        else:
-            _insert_receipt(project, receipt)
-        if probe_run_id is not None and probe_run_store is not None:
-            # An exact metadata retry may reference the already terminal probe
-            # run that recorded the paid provider fact. Its run history is
-            # immutable; only a still-running probe is completed here.
-            probe = probe_run_store.get_run(probe_run_id)
-            if probe is None:
-                raise RuntimeError("embedding probe run disappeared before completion")
-            if probe["status"] == "running":
-                settled = project.db.execute(
-                    "UPDATE runs SET completed_rows=1, failed_rows=0 "
-                    "WHERE id=? AND total_rows=1",
-                    (probe_run_id,),
-                )
-                if settled.rowcount != 1:
-                    raise RuntimeError(
-                        "embedding probe run disappeared or changed scope before completion"
+                # probe facts: was a dimension-discovery probe run, and how many inputs.
+                "probe_used": probe_used,
+                "probe_input_count": probe_input_count,
+            }
+            receipt = Receipt(
+                receipt_id=receipt_id,
+                project_id=project_id,
+                action_id=action_id,
+                action_kind=action.kind,
+                idempotency_key=action.idempotency_key,
+                params_hash=params_hash,
+                status="completed",
+                run_id=probe_run_id,
+                op_ids=[probe_op_id] if probe_op_id is not None else [],
+                inputs=[
+                    ReceiptIO(
+                        name="source",
+                        ref={
+                            "kind": "embedding_source",
+                            "sheet_id": params.sheet_id,
+                            "source_columns": params.source_columns,
+                            "modality": modality,
+                        },
                     )
-                probe_run_store.finish_run_in_transaction(
-                    probe_run_id, "completed", rebuild_review_stats=False
+                ],
+                outputs=[ReceiptIO(name="embedding_index", ref=output_ref)],
+                provider_use=[
+                    {
+                        "provider": cap["provider_id"],
+                        "service": "embedding.index_create",
+                        "external_api": bool(
+                            probe_used and cap["provider_kind"] in REMOTE_PROVIDER_KINDS
+                        ),
+                        "cost_actual": _provider_fact_cost_actual(probe_fact),
+                    }
+                ],
+                evidence=[
+                    ReceiptEvidence(ref=output_ref, retention="pinned"),
+                    *(
+                        [ReceiptEvidence(ref=probe_fact, retention="pinned")]
+                        if probe_fact is not None
+                        else []
+                    ),
+                ],
+            )
+            if reserved_receipt_id is not None:
+                landed = ReceiptStore(project).update_body_status_in_transaction(
+                    receipt, require_status="running"
                 )
-        project.db.commit()
+                if not landed:
+                    raise RuntimeError("embedding probe reservation was lost")
+            else:
+                _insert_receipt(project, receipt)
+            if probe_run_id is not None and probe_run_store is not None:
+                # An exact metadata retry may reference the already terminal probe
+                # run that recorded the paid provider fact. Its run history is
+                # immutable; only a still-running probe is completed here.
+                probe = probe_run_store.get_run(probe_run_id)
+                if probe is None:
+                    raise RuntimeError(
+                        "embedding probe run disappeared before completion"
+                    )
+                if probe["status"] == "running":
+                    settled = project.db.execute(
+                        "UPDATE runs SET completed_rows=1, failed_rows=0 "
+                        "WHERE id=? AND total_rows=1",
+                        (probe_run_id,),
+                    )
+                    if settled.rowcount != 1:
+                        raise RuntimeError(
+                            "embedding probe run disappeared or changed scope before completion"
+                        )
+                    probe_run_store.finish_run_in_transaction(
+                        probe_run_id, "completed", rebuild_review_stats=False
+                    )
     except BaseException as exc:
-        project.db.rollback()
         if probe_run_id is not None and probe_run_store is not None:
             if probe_run_store.cancellation_requested(probe_run_id):
                 probe = probe_run_store.get_run(probe_run_id)
@@ -2996,7 +2978,6 @@ def _do_refresh(
                                     fact=_fact,
                                     index=index,
                                     row_ids=row_ids,
-                                    commit=False,
                                     writer_attempt_id=attempt_id,
                                     claimless_direct_effect=True,
                                     authorized_attempt_id=checkpoint[
@@ -3024,16 +3005,19 @@ def _do_refresh(
                                 claimless_direct_effect=True,
                             )
                         else:
-                            _persist_embedding_provider_fact(
-                                project,
-                                run_store=run_store,
-                                run_id=run_id,
-                                fact=provider_fact,
-                                index=index,
-                                row_ids=row_ids,
-                                writer_attempt_id=attempt_id,
-                                claimless_direct_effect=True,
-                            )
+                            with write_transaction(
+                                project.db, what="embedding refresh provider fact"
+                            ):
+                                _persist_embedding_provider_fact(
+                                    project,
+                                    run_store=run_store,
+                                    run_id=run_id,
+                                    fact=provider_fact,
+                                    index=index,
+                                    row_ids=row_ids,
+                                    writer_attempt_id=attempt_id,
+                                    claimless_direct_effect=True,
+                                )
                 except _ImageSourceError as exc:
                     return _error(
                         action,
@@ -3112,8 +3096,7 @@ def _do_refresh(
             ]
             # Hold the authoritative project writer fence while publishing the
             # returned cache rows. A stale action cannot win after a successor.
-            project.db.execute("BEGIN IMMEDIATE")
-            try:
+            with write_transaction(project.db, what="embedding representation publish"):
                 assert run_id is not None
                 assert attempt_id is not None
                 OutputColumnClaimStore.require_current_writer(
@@ -3124,10 +3107,6 @@ def _do_refresh(
                     claimless_direct_effect=True,
                 )
                 retrieval.put_representations(encoded_items)
-                project.db.commit()
-            except BaseException:
-                project.db.rollback()
-                raise
 
         # Publish every changed/currently missing row only after all vectors are
         # present, then swap the complete named membership atomically. Failed
@@ -3209,120 +3188,117 @@ def _do_refresh(
         # receipt insert, so last_refresh_receipt_id never points at a receipt
         # that failed to land. Status is left to the claim release (still held).
         try:
-            project.db.execute("BEGIN IMMEDIATE")
-            if run_id is not None:
-                if attempt_id is None:
-                    raise StaleAttemptWriter(
-                        "embedding refresh terminal write supplied no writer attempt"
-                    )
-                OutputColumnClaimStore.require_current_writer(
-                    project.db,
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claim_token=None,
-                    output_column_ids=frozenset(),
-                    claimless_direct_effect=True,
-                )
-                # Run units are provider inputs. ``refreshed`` also includes
-                # cached representations that needed publishing, so it may be
-                # larger than this run's admitted scope.
-                settled = project.db.execute(
-                    "UPDATE runs SET completed_rows=?, failed_rows=0 "
-                    "WHERE id=? AND total_rows=?",
-                    (len(to_embed), run_id, len(to_embed)),
-                )
-                if settled.rowcount != 1:
-                    raise RuntimeError(
-                        "embedding refresh run disappeared or changed scope "
-                        "before completion"
-                    )
-            else:
-                # A no-op refresh has no accounting run or attempt. Preserve
-                # its receipt-only transaction: there is no project-run tuple
-                # for the shared terminal kernel to fence or close.
-                if reserved_receipt_id is not None:
-                    landed = ReceiptStore(project).update_if_status_in(
-                        receipt,
-                        {"queued", "running"},
-                    )
-                    if not landed:
-                        raise RuntimeError(
-                            f"reserved refresh receipt {reserved_receipt_id!r} "
-                            "not writable"
+            with write_transaction(project.db, what="embedding refresh finalize"):
+                if run_id is not None:
+                    if attempt_id is None:
+                        raise StaleAttemptWriter(
+                            "embedding refresh terminal write supplied no writer attempt"
                         )
-                else:
-                    _insert_receipt(project, receipt)
-            store.update_index_counts(
-                params.index_id,
-                total=total_items,
-                ready=ready_items,
-                stale=0,
-                error=0,
-                last_refresh_receipt_id=receipt_id,
-                commit=False,
-            )
-            if checkpoint_store is not None and effect_unit is not None:
-                # Retire the batch checkpoint in the SAME transaction as the
-                # terminal receipt: the refresh can never finalize while
-                # replay authority survives, and a rollback keeps both.
-                checkpoint_store.consume_and_retire_in_transaction(
-                    effect_unit["checkpoint_id"],
-                    family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
-                    group_key=str(params.index_id),
-                    unit_key=effect_unit["unit_key"],
-                    action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
-                    identity=effect_unit["identity"],
-                    run_id=run_id,
-                    writer_attempt_id=attempt_id,
-                    claimless_direct_effect=True,
-                )
-            if run_id is not None:
-                assert attempt_id is not None
-                terminalization = terminalize_project_run(
-                    project,
-                    run_id=run_id,
-                    receipt_id=receipt_id,
-                    status="completed",
-                    authority=CurrentWriterTerminalAuthority(
+                    OutputColumnClaimStore.require_current_writer(
+                        project.db,
+                        run_id=run_id,
                         writer_attempt_id=attempt_id,
                         claim_token=None,
+                        output_column_ids=frozenset(),
                         claimless_direct_effect=True,
-                    ),
-                    terminal_receipt=receipt,
-                    receipt_source_statuses=(
-                        {"queued", "running"}
-                        if reserved_receipt_id is not None
-                        else None
-                    ),
-                    commit=False,
-                )
-                expected_receipt_disposition = (
-                    "updated" if reserved_receipt_id is not None else "inserted"
-                )
-                if (
-                    terminalization.disposition != "terminalized"
-                    or terminalization.receipt_disposition
-                    != expected_receipt_disposition
-                    or terminalization.run_status != "completed"
-                    or terminalization.receipt_status != "completed"
-                ):
-                    raise StaleAttemptWriter(
-                        terminalization.reason
-                        or (
-                            "embedding refresh terminal tuple refused: "
-                            f"{terminalization.disposition}/"
-                            f"{terminalization.receipt_disposition}"
-                        )
                     )
-            project.db.commit()
+                    # Run units are provider inputs. ``refreshed`` also includes
+                    # cached representations that needed publishing, so it may be
+                    # larger than this run's admitted scope.
+                    settled = project.db.execute(
+                        "UPDATE runs SET completed_rows=?, failed_rows=0 "
+                        "WHERE id=? AND total_rows=?",
+                        (len(to_embed), run_id, len(to_embed)),
+                    )
+                    if settled.rowcount != 1:
+                        raise RuntimeError(
+                            "embedding refresh run disappeared or changed scope "
+                            "before completion"
+                        )
+                else:
+                    # A no-op refresh has no accounting run or attempt. Preserve
+                    # its receipt-only transaction: there is no project-run tuple
+                    # for the shared terminal kernel to fence or close.
+                    if reserved_receipt_id is not None:
+                        landed = ReceiptStore(project).update_if_status_in(
+                            receipt,
+                            {"queued", "running"},
+                        )
+                        if not landed:
+                            raise RuntimeError(
+                                f"reserved refresh receipt {reserved_receipt_id!r} "
+                                "not writable"
+                            )
+                    else:
+                        _insert_receipt(project, receipt)
+                store.update_index_counts_in_transaction(
+                    params.index_id,
+                    IndexCountUpdate(
+                        total=total_items,
+                        ready=ready_items,
+                        stale=0,
+                        error=0,
+                        last_refresh_receipt_id=receipt_id,
+                    ),
+                )
+                if checkpoint_store is not None and effect_unit is not None:
+                    # Retire the batch checkpoint in the SAME transaction as the
+                    # terminal receipt: the refresh can never finalize while
+                    # replay authority survives, and a rollback keeps both.
+                    checkpoint_store.consume_and_retire_in_transaction(
+                        effect_unit["checkpoint_id"],
+                        family=_EMBEDDING_REFRESH_EFFECT_FAMILY,
+                        group_key=str(params.index_id),
+                        unit_key=effect_unit["unit_key"],
+                        action_kind=_EMBEDDING_REFRESH_EFFECT_KIND,
+                        identity=effect_unit["identity"],
+                        run_id=run_id,
+                        writer_attempt_id=attempt_id,
+                        claimless_direct_effect=True,
+                    )
+                if run_id is not None:
+                    assert attempt_id is not None
+                    terminalization = terminalize_project_run_in_transaction(
+                        project,
+                        run_id=run_id,
+                        receipt_id=receipt_id,
+                        status="completed",
+                        authority=CurrentWriterTerminalAuthority(
+                            writer_attempt_id=attempt_id,
+                            claim_token=None,
+                            claimless_direct_effect=True,
+                        ),
+                        terminal_receipt=receipt,
+                        receipt_source_statuses=(
+                            {"queued", "running"}
+                            if reserved_receipt_id is not None
+                            else None
+                        ),
+                    )
+                    expected_receipt_disposition = (
+                        "updated" if reserved_receipt_id is not None else "inserted"
+                    )
+                    if (
+                        terminalization.disposition != "terminalized"
+                        or terminalization.receipt_disposition
+                        != expected_receipt_disposition
+                        or terminalization.run_status != "completed"
+                        or terminalization.receipt_status != "completed"
+                    ):
+                        raise StaleAttemptWriter(
+                            terminalization.reason
+                            or (
+                                "embedding refresh terminal tuple refused: "
+                                f"{terminalization.disposition}/"
+                                f"{terminalization.receipt_disposition}"
+                            )
+                        )
             run_finalized = True
             if attempt_id is not None:
                 attempt_closed = True
         except StaleAttemptWriter:
-            project.db.rollback()
             raise
         except BaseException as exc:
-            project.db.rollback()
             if not isinstance(exc, Exception):
                 raise
             return _error(
@@ -3362,8 +3338,7 @@ def _do_refresh(
                 if run is not None and run["status"] == "running":
                     # Close the run and its current attempt atomically. Cancellation
                     # must not be relabeled failure or leave an open transaction.
-                    project.db.execute("BEGIN IMMEDIATE")
-                    try:
+                    with write_transaction(project.db, what="embedding refresh close"):
                         run_store.finish_run_in_transaction(
                             run_id,
                             "cancelled"
@@ -3378,14 +3353,10 @@ def _do_refresh(
                             rebuild_review_stats=False,
                         )
                         if attempt_id is not None and not attempt_closed:
-                            set_attempt_state(
-                                project, attempt_id, "halted", commit=False
+                            set_attempt_state_in_transaction(
+                                project, attempt_id, "halted"
                             )
                             attempt_closed = True
-                        project.db.commit()
-                    except BaseException:
-                        project.db.rollback()
-                        raise
             if not stale_writer and attempt_id is not None and not attempt_closed:
                 set_attempt_state(project, attempt_id, "halted")
         finally:
@@ -3427,7 +3398,6 @@ def repair_unfinalized_refresh(project: Any, index_id: str) -> dict[str, int] | 
         stale=stale,
         error=error,
         touch_refreshed_at=False,
-        commit=True,
     )
     return {"total": total, "ready": ready, "stale": stale, "error": error}
 
@@ -3610,16 +3580,16 @@ def _persist_embedding_provider_fact(
     row_ids: list[int],
     index: Any | None = None,
     sheet_id: int | None = None,
-    commit: bool = True,
     writer_attempt_id: str | None = None,
     claimless_direct_effect: bool = False,
     authorized_attempt_id: str | None = None,
 ) -> None:
-    """Persist the returned provider fact before vector/receipt finalization.
+    """Persist the returned provider fact inside the caller's open transaction.
 
     ``authorized_attempt_id`` is the immutable owner of the fact (the attempt
     that authorized egress, pinned at execution start); ``None``
     keeps the legacy single-attempt fallback for the probe paths."""
+    require_transaction(project.db, "embedding provider fact")
     if sheet_id is None:
         if index is None:
             raise TypeError("index or sheet_id is required for embedding accounting")
@@ -3656,8 +3626,6 @@ def _persist_embedding_provider_fact(
         claimless_direct_effect=claimless_direct_effect,
         authorized_attempt_id=authorized_attempt_id,
     )
-    if commit:
-        project.db.commit()
 
 
 def _refresh_items_evidence(

@@ -385,7 +385,7 @@ def test_owning_writes_refuse_inside_caller_transaction_and_keep_it(project):
         ).publish_result_batch(
             run_id,
             [{"row_id": row_id, "column_id": col_id, "value": "x"}],
-            evidence_writer=lambda: None,
+            citation_writer=lambda: None,
         ),
         "runs.write_receipt_row_outcomes": lambda: RunResultStore(
             project

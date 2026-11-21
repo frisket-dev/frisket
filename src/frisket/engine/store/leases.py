@@ -132,8 +132,8 @@ def release_lease(
         + [f"{column}=?" for column in extra]
         + list(set_sql)
     )
-    db.execute(
-        f"UPDATE {table} SET {assignments} WHERE {id_column}=? AND {token_column}=?",
-        (*extra.values(), id_value, token),
-    )
-    db.commit()
+    with write_transaction(db, what=f"release lease on {table}"):
+        db.execute(
+            f"UPDATE {table} SET {assignments} WHERE {id_column}=? AND {token_column}=?",
+            (*extra.values(), id_value, token),
+        )

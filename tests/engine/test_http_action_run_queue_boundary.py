@@ -33,6 +33,7 @@ from frisket.engine.jobs import RUN_PROJECT_KIND
 from frisket.ai.llm import LLMRequest, LLMResponse, ModelRouter
 from frisket.engine.store.media_blobs import media_cell
 from frisket.engine.store.output_families import OutputFamilyStore
+from frisket.engine.store.transactions import write_transaction
 from frisket.engine.store.execution_routes import instance_principal
 from frisket.execution.consent_coverage import ConsentCoverage
 from frisket.actions.registry import ACTION_REGISTRY
@@ -3814,10 +3815,11 @@ def _materialize_reserved_output_family(
 ) -> None:
     """Mirror prepare_run's output-family step before testing enqueue replay."""
 
-    OutputFamilyStore(project).create_or_reuse(
-        sheet_id=sheet_id,
-        fields=reserved["output_fields"],
-    )
+    with write_transaction(project.db):
+        OutputFamilyStore(project).create_or_reuse(
+            sheet_id=sheet_id,
+            fields=reserved["output_fields"],
+        )
 
 
 def test_v1_media_queued_adapter_replay_before_enqueue_is_retryable_then_pollable(

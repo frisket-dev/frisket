@@ -691,17 +691,18 @@ def test_subset_publication_keeps_exact_heads_and_undo_restores_evidence_blob(
             span_kind="text",
             quote="first generation evidence",
         )
-    evidence_link = record_citation(
-        project,
-        subject_kind="cell_value",
-        subject_ref=prior_error_ref,
-        spans=[{"span_id": int(span["id"])}],
-        sheet_id=sheet_id,
-        row_id=error_row,
-        column_id=columns["generated_text"],
-        run_id=first.run_id,
-        op_id=first_op_id,
-    )
+    with write_transaction(project.db):
+        evidence_link = record_citation(
+            project,
+            subject_kind="cell_value",
+            subject_ref=prior_error_ref,
+            spans=[{"span_id": int(span["id"])}],
+            sheet_id=sheet_id,
+            row_id=error_row,
+            column_id=columns["generated_text"],
+            run_id=first.run_id,
+            op_id=first_op_id,
+        )
 
     # Same-descriptor replacements publish each completed row family.
     # The publication boundary includes evidence, not just result storage.

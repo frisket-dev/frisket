@@ -5,7 +5,10 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from frisket.engine.store.artifact_timeline import ensure_media_timeline
+from frisket.engine.store.artifact_timeline import (
+    MediaTimelineSpec,
+    ensure_media_timeline_in_transaction,
+)
 from frisket.engine.store.evidence import (
     TIMESTAMPED_TRANSCRIPT_EVIDENCE_SCHEMA_VERSION,
     record_citation,
@@ -171,7 +174,9 @@ def write_transcription_citations(
                 project, artifact_kind="av", **artifact_kwargs
             )
         else:
-            timeline = ensure_media_timeline(project, **artifact_kwargs)
+            timeline = ensure_media_timeline_in_transaction(
+                project, MediaTimelineSpec(**artifact_kwargs)
+            )
             artifact = {
                 "id": timeline.artifact_id,
                 "stable_id": timeline.artifact_stable_id,

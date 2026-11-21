@@ -56,10 +56,11 @@ def test_output_claims_bind_only_current_identity(project):
 def test_output_family_ignores_inactive_history_even_with_different_type(project):
     sheet = project.add_sheet("Data")
     old = _undone_column(project, sheet, "result")
-    columns, created = OutputFamilyStore(project).create_or_reuse(
-        sheet_id=sheet,
-        fields=[{"name": "result", "column_type": "json"}],
-    )
+    with write_transaction(project.db):
+        columns, created = OutputFamilyStore(project).create_or_reuse(
+            sheet_id=sheet,
+            fields=[{"name": "result", "column_type": "json"}],
+        )
     assert columns["result"] != old
     assert created == [columns["result"]]
     assert project.get_column(old)["type"] == "text"

@@ -136,20 +136,21 @@ def _row_evidence(
             quote="supported quote",
             snippet="supported quote",
         )
-    link = record_citation(
-        project,
-        subject_kind="row",
-        subject_ref={
-            "kind": "materialized_row",
-            "sheet_id": sheet_id,
-            "row_id": row_id if subject_row_id is None else subject_row_id,
-        },
-        spans=[{"span_id": span["id"], "span_role": "support", "required": True}],
-        sheet_id=sheet_id,
-        row_id=row_id,
-        column_id=None,
-        link_role="primary_support",
-    )
+    with write_transaction(project.db):
+        link = record_citation(
+            project,
+            subject_kind="row",
+            subject_ref={
+                "kind": "materialized_row",
+                "sheet_id": sheet_id,
+                "row_id": row_id if subject_row_id is None else subject_row_id,
+            },
+            spans=[{"span_id": span["id"], "span_role": "support", "required": True}],
+            sheet_id=sheet_id,
+            row_id=row_id,
+            column_id=None,
+            link_role="primary_support",
+        )
     return str(link["stable_id"])
 
 
@@ -564,20 +565,21 @@ def test_row_evidence_summaries_are_capped_and_report_truncation(
             quote="supported quote",
         )
     for _index in range(65):
-        record_citation(
-            project,
-            subject_kind="row",
-            subject_ref={
-                "kind": "materialized_row",
-                "sheet_id": child[0],
-                "row_id": child[1],
-            },
-            spans=[{"span_id": span["id"], "span_role": "support"}],
-            sheet_id=child[0],
-            row_id=child[1],
-            column_id=None,
-            link_role="primary_support",
-        )
+        with write_transaction(project.db):
+            record_citation(
+                project,
+                subject_kind="row",
+                subject_ref={
+                    "kind": "materialized_row",
+                    "sheet_id": child[0],
+                    "row_id": child[1],
+                },
+                spans=[{"span_id": span["id"], "span_role": "support"}],
+                sheet_id=child[0],
+                row_id=child[1],
+                column_id=None,
+                link_role="primary_support",
+            )
 
     statements: list[str] = []
     project.db.set_trace_callback(statements.append)

@@ -92,12 +92,11 @@ def test_key_save_commits_route_pin_and_key_together(tmp_path, monkeypatch) -> N
     context = object()
 
     class Routes:
-        def pin_ready_routes(
-            self, pinned_project_id, *, commit=True, request_context=None
+        def pin_ready_routes_in_transaction(
+            self, pinned_project_id, *, request_context=None
         ):
             assert pinned_project_id == project_id
             assert request_context is context
-            assert commit is False
             assert project.db.in_transaction
             settings = read_project_settings(project).model_copy(
                 update={"model_execution_routes": {"openai/gpt-5-mini": "own"}}
@@ -130,12 +129,11 @@ def test_key_save_failure_rolls_back_route_pin_and_key(tmp_path, monkeypatch) ->
     context = object()
 
     class Routes:
-        def pin_ready_routes(
-            self, pinned_project_id, *, commit=True, request_context=None
+        def pin_ready_routes_in_transaction(
+            self, pinned_project_id, *, request_context=None
         ):
             assert pinned_project_id == project_id
             assert request_context is context
-            assert commit is False
             assert project.db.in_transaction
             settings = read_project_settings(project).model_copy(
                 update={"model_execution_routes": {"openai/gpt-5-mini": "own"}}

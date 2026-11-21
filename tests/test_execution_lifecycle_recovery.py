@@ -118,16 +118,17 @@ def test_reapply_preserves_citation_span_and_saved_result_ref_and_undoes_new_col
             page_start=1,
             quote="original cited passage",
         )
-    record_citation(
-        project,
-        subject_kind="cell",
-        subject_ref=refs[rows[0]],
-        spans=[{"span_id": span["id"]}],
-        sheet_id=sheet,
-        row_id=rows[0],
-        column_id=output["id"],
-        run_id=original.run_id,
-    )
+    with write_transaction(project.db):
+        record_citation(
+            project,
+            subject_kind="cell",
+            subject_ref=refs[rows[0]],
+            spans=[{"span_id": span["id"]}],
+            sheet_id=sheet,
+            row_id=rows[0],
+            column_id=output["id"],
+            run_id=original.run_id,
+        )
     project.undo()
     assert all(
         not item["applied"] for item in review_queue(project, run_id=original.run_id)

@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from dataclasses import fields, is_dataclass
+import uuid
+from dataclasses import dataclass, fields, is_dataclass
 from collections.abc import Callable
 from typing import Any
 
@@ -35,6 +36,7 @@ from frisket.engine.executor.action_reservations import (
     _finalize_reserved_action_receipt_in_transaction,
     _reserve_running_action_receipt,
 )
+from frisket.engine.store.transactions import require_transaction
 from frisket.engine.executor.action_support import ActionCtx
 from frisket.engine.executor.invocation_context import HostInvocationContext
 from frisket.engine.executor.map_rows_action import typed_request_hash
@@ -143,8 +145,22 @@ def _artifact_target(ref: dict[str, Any]) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class CallableRecordUpdate:
+    """Observed receipt fields to record inside a caller-owned transaction."""
+
+    inputs: tuple[Any, ...] = ()
+    outputs: tuple[Any, ...] = ()
+    citations: tuple[Any, ...] = ()
+    provider_use: tuple[Any, ...] = ()
+    exports: tuple[Any, ...] = ()
+    action_ids: tuple[int, ...] = ()
+
+
 class CallableInvocation:
     """Only host primitives see this receipt state; authored code never does."""
+
+    RecordUpdate = CallableRecordUpdate
 
     def __init__(self, project, action, receipt, deps):
         self.project = project
@@ -153,30 +169,7 @@ class CallableInvocation:
         self.deps = deps
         self.context = HostInvocationContext(deps.cancelled)
 
-    def _persist(self, receipt, *, before_commit=None, commit=True):
-        try:
-            if commit:
-                failure = _finalize_reserved_action_receipt(
-                    self.project,
-                    self.action,
-                    params_hash=receipt.params_hash,
-                    project_id=receipt.project_id,
-                    receipt=receipt,
-                    result_from_existing_fn=_existing_result,
-                    before_commit=before_commit,
-                )
-            else:
-                failure = _finalize_reserved_action_receipt_in_transaction(
-                    self.project,
-                    self.action,
-                    receipt=receipt,
-                    result_from_existing_fn=_existing_result,
-                    before_commit=before_commit,
-                )
-        except BaseException:
-            # Cancellation bypasses the shared helper's ordinary error channel.
-            self.project.db.rollback()
-            raise
+    def _raise_if_failure(self, failure) -> None:
         if failure is not None:
             error = (
                 failure.errors[0]
@@ -188,8 +181,75 @@ class CallableInvocation:
                 )
             )
             raise CallablePrimitiveError(error)
-        if commit:
-            self.receipt = receipt
+
+    def _persist_owning(self, receipt, *, before_commit=None):
+        was_open = self.project.db.in_transaction
+        try:
+            failure = _finalize_reserved_action_receipt(
+                self.project,
+                self.action,
+                params_hash=receipt.params_hash,
+                project_id=receipt.project_id,
+                receipt=receipt,
+                result_from_existing_fn=_existing_result,
+                before_commit=before_commit,
+            )
+        except BaseException:
+            # Cancellation bypasses the shared helper's ordinary error channel.
+            if not was_open and self.project.db.in_transaction:
+                self.project.db.rollback()
+            raise
+        self._raise_if_failure(failure)
+        self.receipt = receipt
+
+    def _persist_in_transaction(self, receipt, *, before_commit=None):
+        require_transaction(self.project.db, "callable invocation record")
+        savepoint = f"callable_record_{uuid.uuid4().hex}"
+        self.project.db.execute(f"SAVEPOINT {savepoint}")
+        try:
+            failure = _finalize_reserved_action_receipt_in_transaction(
+                self.project,
+                self.action,
+                receipt=receipt,
+                result_from_existing_fn=_existing_result,
+                before_commit=before_commit,
+            )
+            self._raise_if_failure(failure)
+        except BaseException:
+            self.project.db.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.project.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+            raise
+        self.project.db.execute(f"RELEASE SAVEPOINT {savepoint}")
+
+    def _build_observed_receipt(self, update: CallableRecordUpdate) -> Receipt:
+        current_outputs = list(self.receipt.outputs)
+        current_exports = list(self.receipt.exports)
+        for output in update.outputs:
+            target = _artifact_target(output.ref)
+            if target is not None:
+                current_outputs = [
+                    item
+                    for item in current_outputs
+                    if _artifact_target(item.ref) != target
+                ]
+            current_outputs.append(output)
+        for artifact in update.exports:
+            target = _artifact_target(artifact)
+            if target is not None:
+                current_exports = [
+                    item for item in current_exports if _artifact_target(item) != target
+                ]
+            current_exports.append(artifact)
+        return self.receipt.model_copy(
+            update={
+                "inputs": [*self.receipt.inputs, *update.inputs],
+                "outputs": current_outputs,
+                "evidence": [*self.receipt.evidence, *update.citations],
+                "provider_use": [*self.receipt.provider_use, *update.provider_use],
+                "exports": current_exports,
+                "op_ids": list(dict.fromkeys((*self.receipt.op_ids, *update.action_ids))),
+            },
+        ).model_copy(deep=True)
 
     def record(
         self,
@@ -201,37 +261,28 @@ class CallableInvocation:
         exports=(),
         op_ids=(),
         before_commit=None,
-        commit=True,
     ):
-        current_outputs = list(self.receipt.outputs)
-        current_exports = list(self.receipt.exports)
-        for output in outputs:
-            target = _artifact_target(output.ref)
-            if target is not None:
-                current_outputs = [
-                    item
-                    for item in current_outputs
-                    if _artifact_target(item.ref) != target
-                ]
-            current_outputs.append(output)
-        for artifact in exports:
-            target = _artifact_target(artifact)
-            if target is not None:
-                current_exports = [
-                    item for item in current_exports if _artifact_target(item) != target
-                ]
-            current_exports.append(artifact)
-        observed = self.receipt.model_copy(
-            update={
-                "inputs": [*self.receipt.inputs, *inputs],
-                "outputs": current_outputs,
-                "evidence": [*self.receipt.evidence, *evidence],
-                "provider_use": [*self.receipt.provider_use, *provider_use],
-                "exports": current_exports,
-                "op_ids": list(dict.fromkeys((*self.receipt.op_ids, *op_ids))),
-            },
-        ).model_copy(deep=True)
-        self._persist(observed, before_commit=before_commit, commit=commit)
+        observed = self._build_observed_receipt(
+            CallableRecordUpdate(
+                inputs=tuple(inputs),
+                outputs=tuple(outputs),
+                citations=tuple(evidence),
+                provider_use=tuple(provider_use),
+                exports=tuple(exports),
+                action_ids=tuple(op_ids),
+            )
+        )
+        self._persist_owning(observed, before_commit=before_commit)
+        return observed
+
+    def record_in_transaction(
+        self,
+        update: CallableRecordUpdate,
+        *,
+        before_commit=None,
+    ):
+        observed = self._build_observed_receipt(update)
+        self._persist_in_transaction(observed, before_commit=before_commit)
         return observed
 
     def finish(self, *, status, value=None, error=None):
@@ -243,7 +294,7 @@ class CallableInvocation:
                 "errors": [error] if error is not None else [],
             },
         )
-        self._persist(terminal)
+        self._persist_owning(terminal)
         return _result_from_receipt(self.receipt)
 
 
