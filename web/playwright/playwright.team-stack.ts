@@ -116,7 +116,7 @@ export function teamStack() {
     // neighborhood/frisket.ftm runtime surface it had before, not a
     // silently narrower one.
     `uv run --extra entities --project ${shellQuote(ROOT)} uvicorn frisket.team.asgi:app ` +
-    `--host 127.0.0.1 --port ${backendPort}`;
+    `--host 127.0.0.1 --port ${backendPort} --loop asyncio`;
 
   const frontendCommand =
     `FRISKET_EDITION=team FRISKET_BACKEND_URL=${shellQuote(backendURL)} ` +
